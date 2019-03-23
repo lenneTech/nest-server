@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
-import { AppModule } from './../src/app.module';
+import { ApplicationModule } from './../src/app.module';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 
 describe('AppController (e2e)', () => {
@@ -8,17 +8,28 @@ describe('AppController (e2e)', () => {
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [ApplicationModule],
     }).compile();
 
     app = moduleFixture.createNestApplication(new FastifyAdapter());
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('getUsers', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .post('/grapqhl')
+      .type('form')
+      .send({query: `query
+        {
+          getUsers {
+            id
+            firstName
+            lastName
+          }
+        }
+      `})
+      .set('Accept', 'application/json')
       .expect(200)
-      .expect('Hello World!');
+      .expect('Content-Type', /json/);
   });
 });
