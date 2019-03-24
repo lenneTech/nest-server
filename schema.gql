@@ -15,36 +15,24 @@ scalar JSON
 
 type Mutation {
   """Create a new user"""
-  create(input: UserInput!): User!
-}
+  createUser(input: UserCreateInput!): User!
 
-"""Persistence model which will be saved in DB"""
-type PersistenceModel {
-  """ID of the persistence object"""
-  id: ID!
+  """Update existing user"""
+  updateUser(id: String!, input: UserInput!): User!
 
-  """Created date"""
-  createdAt: DateTime!
-
-  """User who created the object"""
-  createdBy: User
-
-  """Updated date"""
-  updatedAt: DateTime!
-
-  """User who last updated the object"""
-  updatedBy: User
+  """Delete existing user"""
+  deleteUser(id: String!): User!
 }
 
 type Query {
-  """Get all users"""
+  """Get user with specified ID"""
+  getUser(id: String!): User!
+
+  """Get users (via filter)"""
   getUsers(
     """[Find options of TypeORM](https://typeorm.io/#/find-options)"""
     filter: JSON
   ): [User!]!
-
-  """Get user with specified ID"""
-  findOneById(id: String!): User!
 }
 
 type Subscription {
@@ -78,6 +66,21 @@ type User {
   lastName: String
 }
 
+"""User input to create a new user"""
+input UserCreateInput {
+  """Email of the user"""
+  email: String!
+
+  """First name of the user"""
+  firstName: String
+
+  """Last name of the user"""
+  lastName: String
+
+  """Username / alias of the user"""
+  username: String
+}
+
 """User input"""
 input UserInput {
   """Email of the user"""
@@ -89,6 +92,6 @@ input UserInput {
   """Last name of the user"""
   lastName: String
 
-  """Username of the user"""
+  """Username / alias of the user"""
   username: String
 }

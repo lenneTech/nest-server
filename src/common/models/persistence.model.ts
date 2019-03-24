@@ -4,8 +4,11 @@ import { User } from '../../modules/user/user.model';
 /**
  * Metadata for persistent objects
  */
-@ObjectType({description: 'Persistence model which will be saved in DB'})
-export class PersistenceModel {
+@ObjectType({
+  description: 'Persistence model which will be saved in DB',
+  isAbstract: true,
+})
+export abstract class PersistenceModel {
 
   // ===========================================================================
   // Properties

@@ -1,9 +1,9 @@
 import { Int, ArgsType, Field } from 'type-graphql/dist';
 import { IsOptional, Max } from 'class-validator';
-import { Sort } from '../inputs/sort.input';
+import { SortInput } from '../inputs/sort.input';
 
 @ArgsType()
-export class Pagination {
+export class PaginationArgs {
 
   /**
    * Limit for pagination
@@ -33,10 +33,10 @@ export class Pagination {
    * Sorting for pagination
    */
   @Field(
-    type => [Sort], {
+    type => [SortInput], {
       description: 'Sorting the returned elements',
       nullable: true,
     })
   @IsOptional()
-  sort?: Sort[];
+  sort?: SortInput[];
 }

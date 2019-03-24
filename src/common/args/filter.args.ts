@@ -4,7 +4,7 @@ import { JSON } from '../scalars/json.scalar';
 import { FindManyOptions } from 'typeorm';
 
 @ArgsType()
-export class Filter {
+export class FilterArgs {
 
   /**
    * Limit for pagination

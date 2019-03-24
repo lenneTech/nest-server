@@ -17,7 +17,7 @@ export class UserInput {
   @IsOptional()
   lastName?: string;
 
-  @Field({description: 'Username of the user', nullable: true })
+  @Field({description: 'Username / alias of the user', nullable: true })
   @IsOptional()
   username?: string;
 }
