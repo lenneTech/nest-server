@@ -1,8 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { User } from './user.model';
-import { UserInput } from './inputs/user.input';
-import { UserCreateInput } from './inputs/user-create.input';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { PubSub } from 'graphql-subscriptions';
+import { FindManyOptions, MongoRepository } from 'typeorm';
+import { FilterArgs } from '../../common/args/filter.args';
+import { Filter } from '../../common/helper/filter.class';
+import { UserCreateInput } from './inputs/user-create.input';
+import { UserInput } from './inputs/user.input';
+import { User } from './user.model';
 
 const pubSub = new PubSub();
 
@@ -13,65 +22,47 @@ const pubSub = new PubSub();
 export class UserService {
 
   /**
-   * Mock for user DB
+   * User repository
    */
-  private readonly users: User[] = [
-    {
-      id: '1',
-      firstName: 'Test',
-      lastName: 'User',
-      email: 'test@test.de',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    {
-      id: '2',
-      firstName: 'Next',
-      lastName: 'User',
-      email: 'test@test.de',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ];
+  @InjectRepository(User)
+  protected readonly db: MongoRepository<User>;
 
   /**
    * Create user
    */
-  create(input: UserCreateInput): User {
+  async create(input: UserCreateInput): Promise<User> {
 
-    // Create user data
-    const createdUser: any = Object.assign(input, {
+    // Create new user
+    const createdUser = this.db.create(input);
 
-      // Random id
-      id: Math.random().toString(36).substring(7),
+    try {
 
-      // Create and update dates
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+      // Save created user
+      const savedUser = await this.db.save(createdUser);
+      if (!savedUser) {
+        throw new InternalServerErrorException();
+      }
 
-    // Save user
-    this.users.push(createdUser);
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new UnprocessableEntityException(`User with email address "${input.email}" already exists`);
+      } else {
+        throw new UnprocessableEntityException();
+      }
+    }
 
     // Inform subscriber
     pubSub.publish('userCreated', { userCreated: createdUser });
 
-    // Return user
+    // Return created user
     return createdUser;
   }
 
   /**
-   * Get all users
+   * Get uer via ID
    */
-  find(): User[] {
-    return this.users;
-  }
-
-  /**
-   * Get user via ID
-   */
-  get(id: string): User {
-    const user =  this.users.find(user => user.id === id);
+  async get(id: string): Promise<User> {
+    const user = await this.db.findOne(id);
     if (!user) {
       throw new NotFoundException();
     }
@@ -79,42 +70,52 @@ export class UserService {
   }
 
   /**
+   * Get users via filter
+   */
+  find(filterArgs?: FilterArgs): Promise<User[]> {
+
+    // Return found users
+    return this.db.find(Filter.generateFilterOptions(filterArgs));
+  }
+
+  /**
    * Get user via ID
    */
-  update(id: string, input: UserInput): User {
+  async update(id: string, input: UserInput): Promise<User> {
+
+    // Check if user exists
+    const user = await this.db.findOne(id);
+    if (!user) {
+      throw new NotFoundException(`User not found with ID: ${id}`);
+    }
 
     // Search user
-    const user = this.users.find(item => item.id === id);
-
-    // Check user
-    if (!user) {
-      throw new NotFoundException();
-    }
-
-    // Update user
-    Object.assign(user, input);
-    user.updatedAt = new Date();
+    await this.db.update(id, input);
 
     // Return user
-    return user;
+    return Object.assign(user, input);
   }
 
   /**
    * Delete user via ID
    */
-  delete(id: string): User {
+  async delete(id: string): Promise<User> {
 
     // Search user
-    const pos = this.users.findIndex(item => item.id === id);
+    const user = await this.db.findOne(id);
 
     // Check user
-    if (pos === -1) {
+    if (!user) {
       throw new NotFoundException();
     }
 
     // Delete user
-    const user = this.users[pos];
-    this.users.splice(pos, 1);
+    const deleted = await this.db.delete(id);
+
+    // Check deleted
+    if (!deleted) {
+      throw new InternalServerErrorException();
+    }
 
     // Return deleted user
     return user;

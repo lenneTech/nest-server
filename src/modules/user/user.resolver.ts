@@ -1,10 +1,10 @@
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
-import { User } from './user.model';
-import { UserService } from './user.service';
-import { UserInput } from './inputs/user.input';
 import { FilterArgs } from '../../common/args/filter.args';
 import { UserCreateInput } from './inputs/user-create.input';
+import { UserInput } from './inputs/user.input';
+import { User } from './user.model';
+import { UserService } from './user.service';
 
 const pubSub = new PubSub();
 
@@ -34,9 +34,9 @@ export class UserResolver {
   /**
    * Get users (via filter)
    */
-  @Query(returns => [User], { description: 'Get users (via filter)' })
-  async getUsers(@Args() filter?: FilterArgs) {
-    return await this.usersService.find();
+  @Query(returns => [User], { description: 'Find users (via filter)' })
+  async findUsers(@Args() args?: FilterArgs) {
+    return await this.usersService.find(args);
   }
 
   // ===========================================================================

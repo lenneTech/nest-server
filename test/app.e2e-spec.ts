@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
-import { ApplicationModule } from './../src/app.module';
+import { ServerModule } from '../src/server.module';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 
 describe('AppController (e2e)', () => {
@@ -8,7 +8,7 @@ describe('AppController (e2e)', () => {
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [ApplicationModule],
+      imports: [ServerModule],
     }).compile();
 
     app = moduleFixture.createNestApplication(new FastifyAdapter());

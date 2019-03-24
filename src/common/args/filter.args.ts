@@ -1,18 +1,18 @@
-import { ArgsType, Field } from 'type-graphql/dist';
 import { IsOptional } from 'class-validator';
-import { JSON } from '../scalars/json.scalar';
-import { FindManyOptions } from 'typeorm';
+import { ArgsType, Field } from 'type-graphql/dist';
+import { FilterInput } from '../inputs/filter.input';
+import { PaginationArgs } from './pagination.args';
 
 @ArgsType()
-export class FilterArgs {
+export class FilterArgs extends PaginationArgs {
 
   /**
-   * Limit for pagination
+   * Filtering
    */
-  @Field(type => JSON, {
-    description: '[Find options of TypeORM](https://typeorm.io/#/find-options)',
+  @Field(type => FilterInput, {
+    description: 'Input for filtering',
     nullable: true,
   })
   @IsOptional()
-  filter?: FindManyOptions;
+  filter?: FilterInput;
 }

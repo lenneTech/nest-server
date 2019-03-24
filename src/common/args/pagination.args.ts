@@ -1,5 +1,5 @@
-import { Int, ArgsType, Field } from 'type-graphql/dist';
 import { IsOptional, Max } from 'class-validator';
+import { ArgsType, Field, Int } from 'type-graphql/dist';
 import { SortInput } from '../inputs/sort.input';
 
 @ArgsType()

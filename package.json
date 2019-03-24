@@ -38,7 +38,7 @@
     "rimraf": "2.6.3",
     "rxjs": "6.4.0",
     "type-graphql": "0.17.0",
-    "typeorm": "^0.2.15"
+    "typeorm": "0.2.15"
   },
   "devDependencies": {
     "@types/jest": "24.0.11",
