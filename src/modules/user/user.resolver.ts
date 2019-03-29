@@ -1,6 +1,7 @@
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
@@ -14,8 +15,7 @@ export class UserResolver {
   /**
    * Import services
    */
-  constructor(private readonly usersService: UserService) {
-  }
+  constructor(private readonly usersService: UserService) {}
 
   // ===========================================================================
   // Queries
@@ -25,9 +25,7 @@ export class UserResolver {
    * Get user via ID
    */
   @Query(returns => User, { description: 'Get user with specified ID' })
-  async getUser(
-    @Args('id') id: string,
-  ): Promise<User> {
+  async getUser(@Args('id') id: string): Promise<User> {
     return await this.usersService.get(id);
   }
 
@@ -65,10 +63,9 @@ export class UserResolver {
   /**
    * Delete existing user
    */
+  @Roles('admin')
   @Mutation(returns => User, { description: 'Delete existing user' })
-  async deleteUser(
-    @Args('id') id: string,
-  ): Promise<User> {
+  async deleteUser(@Args('id') id: string): Promise<User> {
     return await this.usersService.delete(id);
   }
 

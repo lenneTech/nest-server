@@ -138,28 +138,31 @@ type Subscription {
 """User"""
 type User {
   """ID of the persistence object"""
-  id: ID!
+  id: ID
 
   """Created date"""
-  createdAt: DateTime!
+  createdAt: DateTime
 
   """User who created the object"""
   createdBy: User
 
   """Updated date"""
-  updatedAt: DateTime!
+  updatedAt: DateTime
 
   """User who last updated the object"""
   updatedBy: User
 
   """Email of the user"""
-  email: String!
+  email: String
 
   """First name of the user"""
   firstName: String
 
   """Last name of the user"""
   lastName: String
+
+  """Roles of the user"""
+  roles: [String!]
 
   """Username of the user"""
   username: String

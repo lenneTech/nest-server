@@ -22,14 +22,14 @@ export abstract class PersistenceClass {
   /**
    * ID of the persistence object
    */
-  @Field(type => ID, { description: 'ID of the persistence object' })
+  @Field(type => ID, { description: 'ID of the persistence object', nullable: true })
   @ObjectIdColumn()
   id: string;
 
   /**
    * Created date
    */
-  @Field({ description: 'Created date' })
+  @Field({ description: 'Created date', nullable: true })
   @Column()
   createdAt: Date;
 
@@ -46,7 +46,7 @@ export abstract class PersistenceClass {
   /**
    * Updated date
    */
-  @Field({ description: 'Updated date' })
+  @Field({ description: 'Updated date', nullable: true })
   @Column()
   updatedAt: Date;
 
