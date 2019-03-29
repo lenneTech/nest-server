@@ -1,11 +1,15 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import * as request from 'supertest';
-import { ServerModule } from '../src/server.module';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
+import { Test, TestingModule } from '@nestjs/testing';
+import { ServerModule } from '../src/server.module';
+import { TestHelper } from './test.helper';
 
 describe('AppController (e2e)', () => {
   let app;
+  let testHelper: TestHelper;
 
+  /**
+   * Before each test
+   */
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [ServerModule],
@@ -13,23 +17,23 @@ describe('AppController (e2e)', () => {
 
     app = moduleFixture.createNestApplication(new FastifyAdapter());
     await app.init();
+    testHelper = new TestHelper(app);
   });
 
-  it('getUsers', () => {
-    return request(app.getHttpServer())
-      .post('/grapqhl')
-      .type('form')
-      .send({query: `query
-        {
-          getUsers {
-            id
-            firstName
-            lastName
-          }
-        }
-      `})
-      .set('Accept', 'application/json')
-      .expect(200)
-      .expect('Content-Type', /json/);
+  /**
+   * After all tests are finished
+   */
+  afterAll(() => {
+    app.close();
+  });
+
+  /**
+   * Find users
+   */
+  it('findUsers', async () => {
+    const res: any = await testHelper.graphQl({
+      name: 'findUsers', fields: ['id', 'email']
+    });
+    expect(res.length).toBeGreaterThanOrEqual(1);
   });
 });
