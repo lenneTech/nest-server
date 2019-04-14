@@ -1,6 +1,8 @@
 import { Field, ID, ObjectType } from 'type-graphql';
 import { BeforeInsert, BeforeUpdate, Column, JoinColumn, ObjectIdColumn, OneToOne } from 'typeorm';
 import { User } from '../../modules/user/user.model';
+import { Restricted } from '../decorators/restricted.decorator';
+import { RoleEnum } from '../enums/roles.enum';
 
 /**
  * Metadata for persistent objects
@@ -42,6 +44,14 @@ export abstract class PersistenceClass {
   @OneToOne(type => User)
   @JoinColumn()
   createdBy?: User;
+
+  /**
+   * IDs of the Owners
+   */
+  @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Field(type => [String], { description: 'Users who own the object', nullable: true })
+  @Column()
+  ownerIds: string[] = [];
 
   /**
    * Updated date

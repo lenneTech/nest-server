@@ -40,9 +40,15 @@ export class User extends PersistenceClass {
   lastName?: string;
 
   /**
+   * Password of the user
+   */
+  @Column()
+  password?: string;
+
+  /**
    * Roles of the user
    */
-  @Field(type => [String], { description: 'Roles of the user', nullable: true})
+  @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Column()
   roles: string[] = [];

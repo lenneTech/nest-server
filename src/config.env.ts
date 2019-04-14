@@ -16,6 +16,7 @@ const config = {
       authSource: 'admin',
       synchronize: true,
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
+      useNewUrlParser: true,
     },
   },
 
@@ -32,6 +33,7 @@ const config = {
       authSource: 'admin',
       synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
+      useNewUrlParser: true,
     },
   },
 };

@@ -146,6 +146,9 @@ type User {
   """User who created the object"""
   createdBy: User
 
+  """Users who own the object"""
+  ownerIds: [String!]
+
   """Updated date"""
   updatedAt: DateTime
 
@@ -179,6 +182,9 @@ input UserCreateInput {
   """Last name of the user"""
   lastName: String
 
+  """Roles of the user"""
+  roles: [String!] = []
+
   """Username / alias of the user"""
   username: String
 }
@@ -193,6 +199,9 @@ input UserInput {
 
   """Last name of the user"""
   lastName: String
+
+  """Roles of the user"""
+  roles: [String!] = []
 
   """Username / alias of the user"""
   username: String

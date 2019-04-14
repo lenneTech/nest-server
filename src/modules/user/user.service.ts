@@ -38,7 +38,14 @@ export class UserService {
     try {
 
       // Save created user
-      const savedUser = await this.db.save(createdUser);
+      let savedUser = await this.db.save(createdUser);
+      if (!savedUser) {
+        throw new InternalServerErrorException();
+      }
+
+      // Set user as owner of itself
+      savedUser.ownerIds.push(savedUser.id.toString());
+      savedUser = await this.db.save(savedUser);
       if (!savedUser) {
         throw new InternalServerErrorException();
       }

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { User } from '../../modules/user/user.model';
+import { RoleEnum } from '../enums/roles.enum';
 
 /**
  * Guard for user roles
@@ -20,13 +21,16 @@ export class RolesGuard implements CanActivate {
     const roles = this.reflector.getAll<string[]>('roles', [
       context.getHandler(), context.getClass(),
     ]);
-    if (!roles) {
+
+    if (!roles || !roles.some((value) => !!value)) {
       return true;
     }
 
-    // Get user
+    // Init data
     let user: User;
-    const ctx = GqlExecutionContext.create(context).getContext();
+    const ctx: any = GqlExecutionContext.create(context).getContext();
+    let args: any = GqlExecutionContext.create(context).getArgs();
+
     if (ctx) {
 
       // User from GraphQL context
@@ -34,6 +38,7 @@ export class RolesGuard implements CanActivate {
     } else {
       const request = context.switchToHttp().getRequest();
       if (request) {
+        args = request.body;
 
         // User from REST context
         user = request.user;
@@ -42,6 +47,13 @@ export class RolesGuard implements CanActivate {
 
     // Check user and user roles
     if (!user || !user.hasRole(roles)) {
+
+      // Check special role for owner
+      if (user && roles.includes(RoleEnum.OWNER) && user.id === args.id) {
+        return true;
+      }
+
+      // Requester is not authorized
       throw new UnauthorizedException();
     }
 
