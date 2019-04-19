@@ -1,14 +1,14 @@
 import { IsEmail, IsOptional } from 'class-validator';
 import { Field, ObjectType } from 'type-graphql/dist';
 import { Column, Entity, Index } from 'typeorm';
-import { PersistenceClass } from '../../common/models/persistence.class';
+import { PersistenceModel } from '../../common/models/persistence.model';
 
 /**
  * User model
  */
 @Entity()
 @ObjectType({ description: 'User' })
-export class User extends PersistenceClass {
+export class User extends PersistenceModel {
 
   // ===================================================================================================================
   // Properties

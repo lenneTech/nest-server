@@ -13,7 +13,7 @@ import { RoleEnum } from '../enums/roles.enum';
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-export abstract class PersistenceClass {
+export abstract class PersistenceModel {
 
   // ===========================================================================
   // Properties

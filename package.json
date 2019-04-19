@@ -21,52 +21,52 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
-    "@nestjs/common": "6.1.0",
-    "@nestjs/core": "6.1.0",
+    "@nestjs/common": "6.1.1",
+    "@nestjs/core": "6.1.1",
     "@nestjs/graphql": "6.0.5",
-    "@nestjs/platform-express": "6.1.0",
-    "@nestjs/platform-fastify": "6.1.0",
+    "@nestjs/platform-express": "6.1.1",
+    "@nestjs/platform-fastify": "6.1.1",
+    "@nestjs/testing": "6.1.1",
     "@nestjs/typeorm": "6.0.0",
+    "@types/jest": "24.0.11",
+    "@types/lodash": "4.14.123",
+    "@types/node": "11.13.5",
+    "@types/supertest": "2.0.7",
     "apollo-server-express": "2.4.8",
     "apollo-server-fastify": "2.4.8",
     "class-transformer": "0.2.0",
     "class-validator": "0.9.1",
     "graphql": "14.2.1",
     "graphql-subscriptions": "1.1.0",
+    "jest": "24.7.1",
+    "lodash": "4.17.11",
     "mongodb": "3.2.3",
+    "nodemon": "1.18.11",
+    "prettier": "1.17.0",
     "reflect-metadata": "0.1.13",
     "rimraf": "2.6.3",
     "rxjs": "6.4.0",
-    "type-graphql": "0.17.1",
-    "typeorm": "0.2.16"
-  },
-  "devDependencies": {
-    "@types/jest": "24.0.11",
-    "@types/node": "11.13.4",
-    "@types/supertest": "2.0.7",
-    "@nestjs/testing": "6.1.0",
-    "jest": "24.7.1",
-    "nodemon": "1.18.11",
-    "prettier": "1.17.0",
     "supertest": "4.0.2",
     "ts-jest": "24.0.2",
-    "ts-node": "8.0.3",
+    "ts-node": "8.1.0",
     "tsconfig-paths": "3.8.0",
-    "tslint": "5.15.0",
-    "typescript": "3.4.3"
+    "tslint": "5.16.0",
+    "type-graphql": "0.17.1",
+    "typeorm": "0.2.16",
+    "typescript": "3.4.4"
   },
   "jest": {
+    "coverageDirectory": "../coverage",
     "moduleFileExtensions": [
       "js",
       "json",
       "ts"
     ],
     "rootDir": "src",
+    "testEnvironment": "node",
     "testRegex": ".spec.ts$",
     "transform": {
       ".+\\.(t|j)s$": "ts-jest"
-    },
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    }
   }
 }

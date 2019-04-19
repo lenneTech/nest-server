@@ -5,7 +5,7 @@ import { User } from '../../modules/user/user.model';
 import { RoleEnum } from '../enums/roles.enum';
 
 /**
- * Guard for user roles
+ * RolesGuard checks the execution authorizations of resolvers in relation to the current user
  */
 @Injectable()
 export class RolesGuard implements CanActivate {

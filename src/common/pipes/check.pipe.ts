@@ -1,17 +1,37 @@
-import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
-import { validate } from 'class-validator';
+import { ArgumentMetadata, BadRequestException, Inject, Injectable, PipeTransform, Scope } from '@nestjs/common';
+import { CONTEXT } from '@nestjs/graphql';
 import { plainToClass } from 'class-transformer';
+import { validate } from 'class-validator';
+import { checkRestricted } from '../decorators/restricted.decorator';
+import { Context } from '../helpers/context.helper';
 
-@Injectable()
+/**
+ * The CheckPipe checks the permissibility of individual properties of inputs for the resolvers
+ * in relation to the current user
+ */
+@Injectable({ scope: Scope.REQUEST })
 export class CheckPipe implements PipeTransform<any> {
+
+  /**
+   * Constructor to inject context
+   */
+  constructor(@Inject(CONTEXT) private readonly context) {}
 
   /**
    * Check input
    */
   async transform(value: any, { metatype }: ArgumentMetadata) {
+
+    // Return value if it is only a basic type
     if (!metatype || this.isBasicType(metatype)) {
       return value;
     }
+
+    // Remove restricted values if roles are missing
+    const { currentUser } = Context.getData(this.context);
+    value = checkRestricted(value, currentUser);
+
+    // Check values
     const object = plainToClass(metatype, value);
     const errors = await validate(object);
     if (errors.length > 0) {

@@ -1,6 +1,8 @@
 import { IsEmail, IsOptional } from 'class-validator';
 import { Field, InputType } from 'type-graphql/dist';
 import { Column } from 'typeorm';
+import { Restricted } from '../../../common/decorators/restricted.decorator';
+import { RoleEnum } from '../../../common/enums/roles.enum';
 
 @InputType({ description: 'User input' })
 export class UserInput {
@@ -30,6 +32,7 @@ export class UserInput {
   /**
    * Roles of the user
    */
+  @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field(type => [String], { description: 'Roles of the user', nullable: true})
   @IsOptional()
   @Column()

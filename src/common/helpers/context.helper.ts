@@ -12,6 +12,11 @@ export class Context {
    */
   public static getData(context: ExecutionContext): {currentUser: User, args: any} {
 
+    // Check context
+    if (!context) {
+      return {currentUser: null, args: null};
+    }
+
     // Init data
     let user: User;
     const ctx: any = GqlExecutionContext.create(context).getContext();

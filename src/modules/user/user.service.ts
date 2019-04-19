@@ -1,14 +1,9 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PubSub } from 'graphql-subscriptions';
-import { FindManyOptions, MongoRepository } from 'typeorm';
+import { MongoRepository } from 'typeorm';
 import { FilterArgs } from '../../common/args/filter.args';
-import { Filter } from '../../common/helper/filter.class';
+import { Filter } from '../../common/helpers/filter.helper';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';

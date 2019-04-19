@@ -7,13 +7,13 @@ const config = {
   // Development environment
   // ===========================================================================
   development: {
+    env: 'development',
     port: 3000,
     typeOrm: {
       type: 'mongodb',
       host: 'localhost',
       port: 27017,
       database: 'uni-tools',
-      authSource: 'admin',
       synchronize: true,
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
@@ -24,13 +24,13 @@ const config = {
   // Production environment
   // ===========================================================================
   production: {
+    env: 'productive',
     port: 3000,
     typeOrm: {
       type: 'mongodb',
       host: 'localhost',
       port: '27017',
       database: 'uni-tools',
-      authSource: 'admin',
       synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
