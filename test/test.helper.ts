@@ -1,21 +1,25 @@
+import { jsonToGraphQLQuery } from 'json-to-graphql-query';
+
 /**
  * GraphQL request type
  */
 export enum GraphQLType {
   QUERY = 'query',
   MUTATION = 'mutation',
-  SUBSCRIPTION = 'subscription'
+  SUBSCRIPTION = 'subscription',
 }
 
 /**
  * GraphQL fields
  */
-export type Fields = string | string[] | FieldArray;
+export interface FieldObject {
+  [key: string]: boolean | string[] | FieldObject;
+}
 
 /**
  * GraphQL fields
  */
-export interface FieldArray extends Array<Fields> {}
+export type Fields = string | string[] | FieldObject;
 
 /**
  * GraphQL request config
@@ -26,13 +30,13 @@ export interface GraphQLConfig {
    * GraphQL arguments
    * https://graphql.org/learn/queries/#arguments
    */
-  arguments?: {[key: string]: any};
+  arguments?: { [key: string]: any };
 
   /**
    * GraphQL fields
    * https://graphql.org/learn/queries/#fields
    */
-  fields?: string[];
+  fields?: Fields;
 
   /**
    * Name of the request type
@@ -45,7 +49,6 @@ export interface GraphQLConfig {
    */
   type?: GraphQLType;
 
-
 }
 
 /**
@@ -57,19 +60,19 @@ export class TestHelper {
   /**
    * Constructor
    */
-  constructor (app: any) {
+  constructor(app: any) {
     this.app = app;
   }
 
   /**
-   * GraphQl
-   * @param graphql String or GraphQLConfig, if string then it is a name or a query
-   * @param statusCode Status code of response
+   * GraphQL request
+   * @param graphql
+   * @param statusCode
    */
-  async graphQl (graphql: string | GraphQLConfig  = {}, statusCode: number = 200): Promise<any> {
+  async graphQl(graphql: string | GraphQLConfig = {}, statusCode: number = 200): Promise<any> {
 
+    // Init
     let query: string = '';
-    let args: string;
 
     // Convert string to GraphQLConfig
     if ((typeof graphql === 'string' || graphql instanceof String) && /^[a-zA-Z]+$/.test(graphql as string)) {
@@ -80,39 +83,65 @@ export class TestHelper {
 
       // Use input as name
       if (typeof graphql === 'string' || graphql instanceof String) {
-        graphql = {name: graphql} as any;
+        graphql = { name: graphql } as any;
       }
 
       // Prepare config
-      graphql = Object.assign({arguments: null, fields: ['id'], name: null, type: GraphQLType.QUERY}, graphql) as GraphQLConfig;
+      graphql = Object.assign({ arguments: null, fields: ['id'], name: null, type: GraphQLType.QUERY }, graphql) as GraphQLConfig;
+
+      // Init request
+      const queryObj = {};
+
+      // Set request type
+      queryObj[graphql.type] = {};
+
+      // Set request name and fields
+      queryObj[graphql.type][graphql.name] = this.prepareFields(graphql.fields) || {};
+
+      // Set arguments
+      if (graphql.arguments) {
+        queryObj[graphql.type][graphql.name].__args = graphql.arguments;
+      }
 
       // Create request payload query
-      args = graphql.arguments ? `(${JSON.stringify(graphql.arguments).slice(1,-1)})`: '';
-      query = `${graphql.type} { ${graphql.name + args + this.arrayToFields(graphql.fields)} }`;
+      query = jsonToGraphQLQuery(queryObj, { pretty: true });
     }
 
     // Response
-    const response =  await this.app.inject({
+    const response = await this.app.inject({
       method: 'POST',
       url: '/graphql',
-      payload: {query}
+      payload: { query },
     });
+
+    // Check response
     expect(response.statusCode).toBe(statusCode);
     expect(response.headers['content-type']).toBe('application/json');
 
     // return data
-    return args !== undefined ? JSON.parse(response.body).data[(graphql as GraphQLConfig).name] : JSON.parse(response.body);
+    return JSON.parse(response.body).data ?
+      JSON.parse(response.body).data[(graphql as GraphQLConfig).name] : JSON.parse(response.body);
   }
 
   /**
-   * Convert array to string
+   * Prepare GraphQL fields for request
    * @param fields
    */
-  arrayToFields(fields: Fields): string {
-    if (Array.isArray(fields)) {
-      fields = (fields as any).map((field) => this.arrayToFields(field));
-      fields = `{ ${fields.toString()} }`;
+  prepareFields(fields: any) {
+    const result = {};
+    if (typeof fields === 'string') {
+      result[fields] = true;
+    } else if (Array.isArray(fields)) {
+      for (const key of fields) {
+        result[key] = true;
+      }
+    } else if (typeof fields === 'object') {
+      for (const [key, val] of Object.entries(fields)) {
+        result[key] = this.prepareFields(val);
+      }
+    } else {
+      return fields;
     }
-    return fields;
+    return result;
   }
 }

@@ -39,6 +39,7 @@
     "graphql": "14.2.1",
     "graphql-subscriptions": "1.1.0",
     "jest": "24.7.1",
+    "json-to-graphql-query": "1.9.0",
     "lodash": "4.17.11",
     "mongodb": "3.2.3",
     "nodemon": "1.18.11",

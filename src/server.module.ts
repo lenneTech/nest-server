@@ -30,7 +30,7 @@ export class ServerModule {
   static forRoot(options: Partial<ServerOptions>): DynamicModule {
 
     // Process config
-    options = Config.merge(<ServerOptions>{
+    options = Config.merge({
       env: 'develop',
       graphQl: {
         autoSchemaFile: 'schema.gql',
@@ -48,7 +48,7 @@ export class ServerModule {
         useNewUrlParser: true,
       },
       typeOrmModelIntegration: true,
-    }, options);
+    } as ServerOptions, options);
 
     // Add models for TypeORM
     if (options.typeOrmModelIntegration) {
@@ -68,7 +68,7 @@ export class ServerModule {
       // that are permitted for the current user
       {
         provide: APP_INTERCEPTOR,
-        useClass: CheckResponseInterceptor
+        useClass: CheckResponseInterceptor,
       },
 
       // [Global] The CheckPipe checks the permissibility of individual properties of inputs for the resolvers
@@ -92,8 +92,8 @@ export class ServerModule {
         GraphQLModule.forRoot(options.graphQl),
         TypeOrmModule.forRoot(options.typeOrm),
       ],
-      providers: providers,
-      exports: [ConfigService]
+      providers,
+      exports: [ConfigService],
     };
   }
 }
