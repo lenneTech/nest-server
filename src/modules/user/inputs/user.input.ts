@@ -44,4 +44,11 @@ export class UserInput {
   @Field({ description: 'Username / alias of the user', nullable: true })
   @IsOptional()
   username?: string;
+
+  /**
+   * Password of the user
+   */
+  @Field({ description: 'Password of the user', nullable: true })
+  @IsOptional()
+  password?: string;
 }

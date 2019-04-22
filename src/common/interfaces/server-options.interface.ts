@@ -1,5 +1,6 @@
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { JwtModuleOptions } from '@nestjs/jwt';
 
 /**
  * Options for the server
@@ -25,11 +26,28 @@ export interface ServerOptions {
     autoSchemaFile: string,
 
     /**
+     * Function for context manipulation
+     * e.g. ({ req }) => ({ req })
+     */
+    context: (context: {[key: string]: any, req: any}) => {[key: string]: any, req: any} ,
+
+    /**
      * Determines whether or not to install subscription handlers
      * e.g. true
      */
     installSubscriptionHandlers: boolean,
   } & GqlModuleOptions;
+
+  /**
+   * Configuration of JavaScript Web Token (JWT) module
+   */
+  jwt: {
+
+    /**
+     * Secret to encrypt the JWT
+     */
+    secretOrPrivateKey: string,
+  } & JwtModuleOptions;
 
   /**
    * Port number of the server
@@ -47,7 +65,7 @@ export interface ServerOptions {
      * Type of database
      * e.g. 'mongodb'
      */
-    type: any,
+    type: string,
 
     /**
      * Host of the database

@@ -3,6 +3,15 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
+"""Auth"""
+type Auth {
+  """JavaScript Web Token (JWT)"""
+  token: String!
+
+  """User who signed in"""
+  user: User!
+}
+
 """Combination of multiple filters via logical operator"""
 input CombinedFilterInput {
   """
@@ -90,6 +99,9 @@ type Query {
     """Input for filtering"""
     filter: FilterInput
   ): [User!]!
+
+  """Get JWT token"""
+  signIn(password: String!, email: String!): Auth!
 }
 
 """Input for a configuration of a filter"""
@@ -187,6 +199,9 @@ input UserCreateInput {
 
   """Username / alias of the user"""
   username: String
+
+  """Password of the user"""
+  password: String
 }
 
 """User input"""
@@ -205,4 +220,7 @@ input UserInput {
 
   """Username / alias of the user"""
   username: String
+
+  """Password of the user"""
+  password: String
 }

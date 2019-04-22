@@ -8,6 +8,7 @@ import { CheckResponseInterceptor } from './common/interceptors/check-response.i
 import { ServerOptions } from './common/interfaces/server-options.interface';
 import { CheckPipe } from './common/pipes/check.pipe';
 import { ConfigService } from './common/services/config.service';
+import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 
 // =============================================================================
@@ -34,6 +35,7 @@ export class ServerModule {
       env: 'develop',
       graphQl: {
         autoSchemaFile: 'schema.gql',
+        context: ({ req }) => ({ req }),
         installSubscriptionHandlers: true,
       },
       port: 3000,
@@ -91,9 +93,10 @@ export class ServerModule {
       imports: [
         GraphQLModule.forRoot(options.graphQl),
         TypeOrmModule.forRoot(options.typeOrm),
+        AuthModule.forRoot(options),
       ],
       providers,
-      exports: [ConfigService],
+      exports: [AuthModule, ConfigService, GraphQLModule, TypeOrmModule],
     };
   }
 }

@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoRepository } from 'typeorm';
 import { FilterArgs } from '../../common/args/filter.args';
@@ -26,6 +27,11 @@ export class UserService {
    * Create user
    */
   async create(input: UserCreateInput): Promise<User> {
+
+    // Prepare input
+    if (input.password) {
+     input.password = await bcrypt.hash(input.password, 10);
+    }
 
     // Create new user
     const createdUser = this.db.create(input);
@@ -61,10 +67,21 @@ export class UserService {
   }
 
   /**
-   * Get uer via ID
+   * Get user via ID
    */
   async get(id: string): Promise<User> {
     const user = await this.db.findOne(id);
+    if (!user) {
+      throw new NotFoundException();
+    }
+    return user;
+  }
+
+  /**
+   * Get user via email
+   */
+  async getViaEmail(email: string): Promise<User> {
+    const user = await this.db.findOne({email});
     if (!user) {
       throw new NotFoundException();
     }
@@ -89,6 +106,11 @@ export class UserService {
     const user = await this.db.findOne(id);
     if (!user) {
       throw new NotFoundException(`User not found with ID: ${id}`);
+    }
+
+    // Prepare input
+    if (input.password) {
+      input.password = await bcrypt.hash(input.password, 10);
     }
 
     // Search user

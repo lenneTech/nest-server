@@ -1,4 +1,5 @@
 import * as _ from 'lodash';
+import { ServerOptions } from '../interfaces/server-options.interface';
 
 /**
  * Config service
@@ -8,12 +9,12 @@ export class ConfigService {
   /**
    * Configuration on startup
    */
-  private readonly _config: { [key: string]: any };
+  private readonly _config: { [key: string]: any } & Partial<ServerOptions>;
 
   /**
    * Create config service
    */
-  constructor(config: { [key: string]: any }) {
+  constructor(config: { [key: string]: any } & Partial<ServerOptions>) {
     this._config = config;
   }
 
