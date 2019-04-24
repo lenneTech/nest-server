@@ -1,8 +1,7 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { RolesGuard } from './common/guards/roles.guard';
 import { Config } from './common/helpers/config.helper';
 import { CheckResponseInterceptor } from './common/interceptors/check-response.interceptor';
 import { ServerOptions } from './common/interfaces/server-options.interface';
@@ -60,10 +59,10 @@ export class ServerModule {
     // Set providers
     const providers = [
 
-      // [Global] The RolesGuard checks the execution authorizations of resolvers in relation to the current user
+      // The ConfigService provides access to the current configuration of the module
       {
-        provide: APP_GUARD,
-        useClass: RolesGuard,
+        provide: ConfigService,
+        useValue: new ConfigService(options),
       },
 
       // [Global] The CheckResponseInterceptor restricts the response to the properties
@@ -79,21 +78,15 @@ export class ServerModule {
         provide: APP_PIPE,
         useClass: CheckPipe,
       },
-
-      // The ConfigService provides access to the current configuration of the module
-      {
-        provide: ConfigService,
-        useValue: new ConfigService(options),
-      },
     ];
 
     // Return dynamic module
     return {
       module: ServerModule,
       imports: [
+        AuthModule.forRoot(options),
         GraphQLModule.forRoot(options.graphQl),
         TypeOrmModule.forRoot(options.typeOrm),
-        AuthModule.forRoot(options),
       ],
       providers,
       exports: [AuthModule, ConfigService, GraphQLModule, TypeOrmModule],

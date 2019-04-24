@@ -5,6 +5,7 @@
     "no-unused-expression": true
   },
   "rules": {
+    "ban-types": false,
     "quotemark": [true, "single"],
     "member-access": [false],
     "ordered-imports": [false],
@@ -14,7 +15,7 @@
     "arrow-parens": false,
     "no-console": false,
     "object-literal-sort-keys": false,
-    "variable-name": [true, "allow-leading-underscore"]
+    "variable-name": [true, "allow-leading-underscore", "allow-pascal-case"]
   },
   "rulesDirectory": []
 }

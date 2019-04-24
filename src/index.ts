@@ -28,11 +28,6 @@ export { RoleEnum } from './common/enums/roles.enum';
 export { SortOrderEnum } from './common/enums/sort-order.emum';
 
 // =====================================================================================================================
-// Guards
-// =====================================================================================================================
-export { RolesGuard } from './common/guards/roles.guard';
-
-// =====================================================================================================================
 // Helpers
 // =====================================================================================================================
 export { Config } from './common/helpers/config.helper';
@@ -82,13 +77,14 @@ export { ConfigService } from './common/services/config.service';
 // =====================================================================================================================
 // Auth module
 // =====================================================================================================================
-export { GraphQLAuthGuard } from './modules/auth/guards/graphql-auth.guard';
-export { JwtPayload } from './modules/auth/interfaces/jwt-payload.interface';
 export { Auth } from './modules/auth/auth.model';
 export { AuthModule } from './modules/auth/auth.module';
 export { AuthResolver } from './modules/auth/auth.resolver';
 export { AuthService } from './modules/auth/auth.service';
 export { JwtStrategy } from './modules/auth/jwt.strategy';
+export { AuthGuard, IAuthGuard } from './modules/auth/guards/auth.guard';
+export { RolesGuard } from './modules/auth/guards/roles.guard';
+export { JwtPayload } from './modules/auth/interfaces/jwt-payload.interface';
 
 // =====================================================================================================================
 // User module
