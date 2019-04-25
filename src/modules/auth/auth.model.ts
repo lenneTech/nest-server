@@ -2,7 +2,7 @@ import { Field, ObjectType } from 'type-graphql/dist';
 import { User } from '../user/user.model';
 
 /**
- * Auth model
+ * Auth model for the response after the sign in
  */
 @ObjectType({ description: 'Auth' })
 export class Auth {

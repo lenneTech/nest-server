@@ -1,12 +1,15 @@
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ServerModule } from '../src/server.module';
 import envConfig from '../src/config.env';
-import { TestHelper } from './test.helper';
+import { ServerModule } from '../src/server.module';
+import { GraphQLType, TestHelper } from './test.helper';
 
 describe('AppController (e2e)', () => {
   let app;
   let testHelper: TestHelper;
+  let email: string;
+  let password: string;
+  let token: string;
 
   // ===================================================================================================================
   // Preparations
@@ -35,6 +38,26 @@ describe('AppController (e2e)', () => {
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================
+
+  /**
+   * Create new user
+   */
+  it('createUser', async () => {
+    this.password = Math.random().toString(36).substring(7);
+    this.email = this.password + '@testuser.com';
+
+    const res: any = await testHelper.graphQl({
+      name: 'createUser',
+      type: GraphQLType.MUTATION,
+      arguments: {
+        email: this.email,
+        password: this.password,
+      },
+      fields: ['id', 'email'],
+    });
+    expect(res.user.email).toEqual(this.email);
+    this.token = res.token;
+  });
 
   /**
    * Find users

@@ -1,10 +1,17 @@
-# uniTools Server
+# chickjs Server
 
-This is the server for uniTools.
+The **chickjs** server is a modern, fast, powerful node.js web framework based on nestjs.
 
 ## Description
 
-The uniTools server is based on the [Nest](https://github.com/nestjs/nest) framework.
+The **chickjs** server is based on the [Nest](https://github.com/nestjs/nest) framework and can either be used and 
+extended as a standalone server (git clone) or integrated as a module into a nestjs server (npm package).
+
+## Standalone server
+
+```bash
+$ git clone ...
+```
 
 ## Installation
 

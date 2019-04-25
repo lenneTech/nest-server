@@ -1,8 +1,8 @@
+import { ServerOptions } from './common/interfaces/server-options.interface';
+
 /**
  * Configuration for the different environments
  */
-import { ServerOptions } from './common/interfaces/server-options.interface';
-
 const config: {[env: string]: Partial<ServerOptions>} = {
 
   // ===========================================================================
@@ -18,7 +18,7 @@ const config: {[env: string]: Partial<ServerOptions>} = {
       type: 'mongodb',
       host: 'localhost',
       port: 27017,
-      database: 'uni-tools',
+      database: 'dev',
       synchronize: true,
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
@@ -38,7 +38,7 @@ const config: {[env: string]: Partial<ServerOptions>} = {
       type: 'mongodb',
       host: 'localhost',
       port: 27017,
-      database: 'uni-tools',
+      database: 'prod',
       synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,

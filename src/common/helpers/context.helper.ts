@@ -24,6 +24,7 @@ export class Context {
 
     // Get data
     if (ctx) {
+
       // User from GraphQL context
       user = ctx.user;
     } else {
@@ -37,6 +38,6 @@ export class Context {
     }
 
     // Return data
-    return {currentUser: user, args}
+    return {currentUser: user, args};
   }
 }

@@ -4,6 +4,9 @@ import { map } from 'rxjs/operators';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { Context } from '../helpers/context.helper';
 
+/**
+ * Interceptor to check the response data for current user
+ */
 @Injectable()
 export class CheckResponseInterceptor implements NestInterceptor {
 

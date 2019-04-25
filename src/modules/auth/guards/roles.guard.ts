@@ -6,6 +6,9 @@ import { AuthGuard } from './auth.guard';
 
 /**
  * Role guard
+ *
+ * The RoleGuard is activated by the Role decorator. It checks whether the current user has at least one of the
+ * specified roles. If this is not the case, an UnauthorizedException is thrown.
  */
 @Injectable()
 export class RolesGuard extends AuthGuard('jwt') {

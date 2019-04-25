@@ -9,6 +9,7 @@ import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
 
+// Subscription
 const pubSub = new PubSub();
 
 /**

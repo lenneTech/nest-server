@@ -1,4 +1,4 @@
-import "reflect-metadata";
+import 'reflect-metadata';
 import { User } from '../../modules/user/user.model';
 import { RoleEnum } from '../enums/roles.enum';
 
@@ -41,7 +41,6 @@ export const checkRestricted = (data: any, user: User, processedObjects: any[] =
     return data;
   }
   processedObjects.push(data);
-
 
   // Array
   if (Array.isArray(data)) {

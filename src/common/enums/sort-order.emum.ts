@@ -4,7 +4,11 @@ import { registerEnumType } from 'type-graphql';
  * SortInput order of items
  */
 export enum SortOrderEnum {
+
+  // Ascending sorting
   ASC = 'ASC',
+
+  // Descending sorting
   DESC = 'DESC',
 }
 

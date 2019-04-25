@@ -2,6 +2,9 @@ import { Args, Query, Resolver } from '@nestjs/graphql';
 import { Auth } from './auth.model';
 import { AuthService } from './auth.service';
 
+/**
+ * Authentication resolver for the sign in
+ */
 @Resolver(of => Auth)
 export class AuthResolver {
 

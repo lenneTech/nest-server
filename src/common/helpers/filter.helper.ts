@@ -44,17 +44,15 @@ export class Filter {
       const { not, options } = filter.singleFilter;
       let { field, value } = filter.singleFilter;
 
-      // Prepare field
+      // Prepare fields
       if (field === 'id') {
         field = '_id';
       }
 
-      // Prepare value
+      // Prepare values
       if (field === '_id') {
         if (Array.isArray(value)) {
-          value = value.map((item: string) => {
-            new ObjectID(item);
-          });
+          value = value.map((item: string) => new ObjectID(item));
         } else if (value) {
           value = new ObjectID(value);
         }

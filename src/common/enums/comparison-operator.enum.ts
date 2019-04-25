@@ -4,15 +4,33 @@ import { registerEnumType } from 'type-graphql';
  * Logical operators
  */
 export enum ComparisonOperatorEnum {
+
+  // Equals
   EQ = 'EQ',
+
+  // Greater than
   GT = 'GT',
+
+  // Greater or equal than
   GTE = 'GTE',
+
+  // Is contained in
   IN = 'IN',
+
+  // Lower than
   LT = 'LT',
+
+  // Lower or equal than
   LTE = 'LTE',
+
+  // Not equal
   NE = 'NE',
+
+  // Is not contained in
   NIN = 'NIN',
-  REGEX = 'REGEX'
+
+  // Corresponds to the regular expression
+  REGEX = 'REGEX',
 }
 
 // Register LogicalOperatorEnum enum in TypeGraphQL

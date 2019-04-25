@@ -4,6 +4,9 @@ import { Column } from 'typeorm';
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/roles.enum';
 
+/**
+ * User input to update a user
+ */
 @InputType({ description: 'User input' })
 export class UserInput {
 

@@ -69,7 +69,7 @@ export class TestHelper {
    * @param graphql
    * @param statusCode
    */
-  async graphQl(graphql: string | GraphQLConfig = {}, statusCode: number = 200): Promise<any> {
+  async graphQl(graphql: string | GraphQLConfig = {}, token: string = null, statusCode: number = 200): Promise<any> {
 
     // Init
     let query: string = '';

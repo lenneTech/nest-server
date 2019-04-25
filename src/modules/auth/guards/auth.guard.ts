@@ -41,6 +41,9 @@ const createPassportContext = (request, response) => (
 /**
  * Extension of AuthGuard to get context in handleRequest method
  * See: https://github.com/nestjs/passport/blob/master/lib/auth.guard.ts
+ *
+ * Can be removed when pull request is merged:
+ * https://github.com/nestjs/passport/pull/66
  */
 function createAuthGuard(type?: string): Type<CanActivate> {
   class MixinAuthGuard<TUser = any> {

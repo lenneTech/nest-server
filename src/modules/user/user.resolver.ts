@@ -8,8 +8,12 @@ import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
 import { UserService } from './user.service';
 
+// Subscription
 const pubSub = new PubSub();
 
+/**
+ * Resolver to process with user data
+ */
 @Resolver(of => User)
 export class UserResolver {
 
