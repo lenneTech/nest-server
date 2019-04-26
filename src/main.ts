@@ -5,7 +5,7 @@ import { ServerModule } from './server.module';
 
 async function bootstrap() {
   const server = await NestFactory.create<NestFastifyApplication>(
-    ServerModule.forRoot(envConfig),
+    ServerModule,
     new FastifyAdapter(),
   );
   server.enableCors();

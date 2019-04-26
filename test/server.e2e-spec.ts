@@ -1,6 +1,5 @@
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
-import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server.module';
 import { TestGraphQLType, TestHelper } from './test.helper';
 
@@ -21,7 +20,7 @@ describe('AppController (e2e)', () => {
    */
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [ServerModule.forRoot(envConfig)],
+      imports: [ServerModule],
     }).compile();
 
     app = moduleFixture.createNestApplication(new FastifyAdapter());
@@ -73,7 +72,7 @@ describe('AppController (e2e)', () => {
         email: this.email,
         password: this.password,
       },
-      fields: ['token', {user: ['id', 'email']}],
+      fields: ['token', { user: ['id', 'email'] }],
     });
     expect(res.user.id).toEqual(this.id);
     expect(res.user.email).toEqual(this.email);
