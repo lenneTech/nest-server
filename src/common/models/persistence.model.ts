@@ -18,7 +18,7 @@ export abstract class PersistenceModel {
   // ===========================================================================
   // Properties
   //
-  // Fields: https://typegraphql.ml/docs/types-and-fields.html
+  // TestFields: https://typegraphql.ml/docs/types-and-fields.html
   // ===========================================================================
 
   /**

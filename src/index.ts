@@ -4,7 +4,7 @@
 // =====================================================================================================================
 // Core
 // =====================================================================================================================
-export {ServerModule} from './server.module';
+export { ServerModule } from './server.module';
 
 // =====================================================================================================================
 // Args
@@ -89,9 +89,14 @@ export { JwtPayload } from './modules/auth/interfaces/jwt-payload.interface';
 // =====================================================================================================================
 // User module
 // =====================================================================================================================
-export {User} from './modules/user/user.model';
-export {UserModule} from './modules/user/user.module';
-export {UserResolver} from './modules/user/user.resolver';
-export {UserService} from './modules/user/user.service';
-export {UserInput} from './modules/user/inputs/user.input';
-export {UserCreateInput} from './modules/user/inputs/user-create.input';
+export { User } from './modules/user/user.model';
+export { UserModule } from './modules/user/user.module';
+export { UserResolver } from './modules/user/user.resolver';
+export { UserService } from './modules/user/user.service';
+export { UserInput } from './modules/user/inputs/user.input';
+export { UserCreateInput } from './modules/user/inputs/user-create.input';
+
+// =====================================================================================================================
+// Test helper
+// =====================================================================================================================
+export { TestHelper, TestGraphQLType, TestFieldObject, TestGraphQLConfig} from '../test/test.helper';
