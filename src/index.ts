@@ -9,92 +9,91 @@ export { CoreModule } from './core.module';
 // =====================================================================================================================
 // Args
 // =====================================================================================================================
-export { FilterArgs } from './common/args/filter.args';
-export { PaginationArgs } from './common/args/pagination.args';
+export { FilterArgs } from './core/common/args/filter.args';
+export { PaginationArgs } from './core/common/args/pagination.args';
 
 // =====================================================================================================================
 // Decorators
 // =====================================================================================================================
-export { CurrentUser } from './common/decorators/current-user.decorator';
-export { Restricted, getRestricted, checkRestricted } from './common/decorators/restricted.decorator';
-export { Roles } from './common/decorators/roles.decorator';
+export { CurrentUser } from './core/common/decorators/current-user.decorator';
+export { Restricted, getRestricted, checkRestricted } from './core/common/decorators/restricted.decorator';
+export { Roles } from './core/common/decorators/roles.decorator';
 
 // =====================================================================================================================
 // Enums
 // =====================================================================================================================
-export { ComparisonOperatorEnum } from './common/enums/comparison-operator.enum';
-export { LogicalOperatorEnum } from './common/enums/logical-operator.enum';
-export { RoleEnum } from './common/enums/roles.enum';
-export { SortOrderEnum } from './common/enums/sort-order.emum';
+export { ComparisonOperatorEnum } from './core/common/enums/comparison-operator.enum';
+export { LogicalOperatorEnum } from './core/common/enums/logical-operator.enum';
+export { RoleEnum } from './core/common/enums/roles.enum';
+export { SortOrderEnum } from './core/common/enums/sort-order.emum';
 
 // =====================================================================================================================
 // Helpers
 // =====================================================================================================================
-export { Config } from './common/helpers/config.helper';
-export { Context } from './common/helpers/context.helper';
-export { Filter } from './common/helpers/filter.helper';
+export { Config } from './core/common/helpers/config.helper';
+export { Context } from './core/common/helpers/context.helper';
+export { Filter } from './core/common/helpers/filter.helper';
 
 // =====================================================================================================================
 // Inputs
 // =====================================================================================================================
-export { CombinedFilterInput } from './common/inputs/combined-filter.input';
-export { FilterInput } from './common/inputs/filter.input';
-export { SingleFilterInput } from './common/inputs/single-filter.input';
-export { SortInput } from './common/inputs/sort.input';
+export { CombinedFilterInput } from './core/common/inputs/combined-filter.input';
+export { FilterInput } from './core/common/inputs/filter.input';
+export { SingleFilterInput } from './core/common/inputs/single-filter.input';
+export { SortInput } from './core/common/inputs/sort.input';
 
 // =====================================================================================================================
 // Interceptors
 // =====================================================================================================================
-export { CheckResponseInterceptor } from './common/interceptors/check-response.interceptor';
+export { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 
 // =====================================================================================================================
 // Interfaces
 // =====================================================================================================================
-export { ServerOptions } from './common/interfaces/server-options.interface';
+export { IServerOptions } from './core/common/interfaces/server-options.interface';
 
 // =====================================================================================================================
 // Models
 // =====================================================================================================================
-export { PersistenceModel } from './common/models/persistence.model';
+export { PersistenceModel } from './core/common/models/persistence.model';
 
 // =====================================================================================================================
 // Pipes
 // =====================================================================================================================
-export { CheckPipe } from './common/pipes/check.pipe';
+export { CheckPipe } from './core/common/pipes/check.pipe';
 
 // =====================================================================================================================
 // Scalars
 // =====================================================================================================================
-export { Any } from './common/scalars/any.scalar';
-export { DateScalar } from './common/scalars/date.scalar';
-export { JSON } from './common/scalars/json.scalar';
+export { Any } from './core/common/scalars/any.scalar';
+export { DateScalar } from './core/common/scalars/date.scalar';
+export { JSON } from './core/common/scalars/json.scalar';
 
 // =====================================================================================================================
 // Services
 // =====================================================================================================================
-export { ConfigService } from './common/services/config.service';
+export { ConfigService } from './core/common/services/config.service';
 
 // =====================================================================================================================
 // Auth module
 // =====================================================================================================================
-export { Auth } from './modules/auth/auth.model';
-export { AuthModule } from './modules/auth/auth.module';
-export { AuthResolver } from './modules/auth/auth.resolver';
-export { AuthService } from './modules/auth/auth.service';
-export { JwtStrategy } from './modules/auth/jwt.strategy';
-export { AuthGuard, IAuthGuard } from './modules/auth/guards/auth.guard';
-export { RolesGuard } from './modules/auth/guards/roles.guard';
-export { JwtPayload } from './modules/auth/interfaces/jwt-payload.interface';
+export { Auth } from './core/modules/auth/auth.model';
+export { AuthModule } from './core/modules/auth/auth.module';
+export { AuthResolver } from './core/modules/auth/auth.resolver';
+export { AuthService } from './core/modules/auth/auth.service';
+export { JwtStrategy } from './core/modules/auth/jwt.strategy';
+export { AuthGuard, IAuthGuard } from './core/modules/auth/guards/auth.guard';
+export { RolesGuard } from './core/modules/auth/guards/roles.guard';
+export { IJwtPayload } from './core/modules/auth/interfaces/jwt-payload.interface';
 
 // =====================================================================================================================
 // User module
 // =====================================================================================================================
-export { User } from './modules/user/user.model';
-export { UserModule } from './modules/user/user.module';
-export { UserResolver } from './modules/user/user.resolver';
-export { UserService } from './modules/user/user.service';
-export { UserInput } from './modules/user/inputs/user.input';
-export { UserCreateInput } from './modules/user/inputs/user-create.input';
+export { User } from './core/modules/user/user.model';
+export { UserResolver } from './core/modules/user/user.resolver';
+export { UserService } from './core/modules/user/user.service';
+export { UserInput } from './core/modules/user/inputs/user.input';
+export { UserCreateInput } from './core/modules/user/inputs/user-create.input';
 
 // =====================================================================================================================
 // Test helper

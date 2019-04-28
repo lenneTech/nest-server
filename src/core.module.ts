@@ -1,14 +1,21 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Module, Type } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Config } from './common/helpers/config.helper';
-import { CheckResponseInterceptor } from './common/interceptors/check-response.interceptor';
-import { ServerOptions } from './common/interfaces/server-options.interface';
-import { CheckPipe } from './common/pipes/check.pipe';
-import { ConfigService } from './common/services/config.service';
-import { AuthModule } from './modules/auth/auth.module';
-import { UserModule } from './modules/user/user.module';
+import { Config } from './core/common/helpers/config.helper';
+import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
+import { IServerOptions } from './core/common/interfaces/server-options.interface';
+import { CheckPipe } from './core/common/pipes/check.pipe';
+import { ConfigService } from './core/common/services/config.service';
+import { AuthModule } from './core/modules/auth/auth.module';
+import { IAuthModel } from './core/modules/auth/interfaces/auth-model.interface';
+import { IAuthResolver } from './core/modules/auth/interfaces/auth-resolver.interface';
+import { IAuthService } from './core/modules/auth/interfaces/auth-service.interface';
+import { IAuthUserService } from './core/modules/auth/interfaces/auth-user-service.interface';
+import { IUserResolver } from './core/modules/user/interfaces/user-resolver.interface';
+import { IUserService } from './core/modules/user/interfaces/user-service.interface';
+import { IUser } from './core/modules/user/interfaces/user.interface';
+import { UserModule } from './core/modules/user/user.module';
 
 // =============================================================================
 // Server module
@@ -16,18 +23,27 @@ import { UserModule } from './modules/user/user.module';
 /**
  * Core module (dynamic)
  */
-@Module({
-  imports: [
-    UserModule,
-  ],
-})
+@Module({})
 export class CoreModule {
 
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
-  static forRoot(options: Partial<ServerOptions>): DynamicModule {
+  static forRoot(
+    authModelClass: Type<IAuthModel>,
+    configService: ConfigService,
+    userClass: Type<IUser>,
+    userServiceClass: Type<IAuthUserService>,
+    options: {
+      authResolverClass?: Type<IAuthResolver>,
+      authServiceClass?: Type<IAuthService>,
+      userResolverClass?: Type<IUserResolver>,
+      userServiceClass?: Type<IUserService>,
+    } & Partial<IServerOptions>,
+  ): DynamicModule {
+
+    console.log('UserClass', userClass);
 
     // Process config
     options = Config.merge({
@@ -48,13 +64,9 @@ export class CoreModule {
         entities: [],
         useNewUrlParser: true,
       },
-      typeOrmModelIntegration: true,
-    } as ServerOptions, options);
+    } as IServerOptions, options);
 
-    // Add models for TypeORM
-    if (options.typeOrmModelIntegration) {
-      options.typeOrm.entities.push(__dirname + '/**/*.{entity,model}.{ts,js}');
-    }
+    console.log('Entitie', options.typeOrm.entities);
 
     // Set providers
     const providers = [
@@ -84,12 +96,19 @@ export class CoreModule {
     return {
       module: CoreModule,
       imports: [
-        AuthModule.forRoot(options),
         GraphQLModule.forRoot(options.graphQl),
         TypeOrmModule.forRoot(options.typeOrm),
+        AuthModule.forRoot(authModelClass, configService, userServiceClass, {
+          authResolverClass: options.authResolverClass,
+          authServiceClass: options.authServiceClass,
+        }),
+        UserModule.forRoot(userClass, {
+          userResolverClass: options.userResolverClass,
+          userServiceClass: options.userServiceClass,
+        }),
       ],
       providers,
-      exports: [AuthModule, ConfigService, GraphQLModule, TypeOrmModule],
+      exports: [AuthModule, ConfigService, GraphQLModule, TypeOrmModule, UserModule],
     };
   }
 }
