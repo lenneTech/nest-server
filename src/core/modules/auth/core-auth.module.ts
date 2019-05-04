@@ -10,7 +10,7 @@ import { CoreAuthUserService } from './services/core-auth-user.service';
 import { JwtStrategy } from './jwt.strategy';
 
 /**
- * CoreAuthModule to handle user authentication
+ * CoreAuthModule to handle user authentication and enables Roles
  */
 @Module({})
 export class CoreAuthModule {

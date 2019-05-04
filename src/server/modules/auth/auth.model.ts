@@ -5,7 +5,7 @@ import { User } from '../user/user.model';
 /**
  * CoreAuth model for the response after the sign in
  */
-@ObjectType({ description: 'CoreAuth' })
+@ObjectType({ description: 'Auth' })
 export class Auth extends CoreAuth {
 
   // ===================================================================================================================
