@@ -19,5 +19,7 @@ import { AuthModule } from './server/modules/auth/auth.module';
     // which will also include UserModule
     AuthModule.forRoot(envConfig),
   ],
+
+  exports: [CoreModule, AuthModule],
 })
 export class ServerModule {}

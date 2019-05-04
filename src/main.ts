@@ -10,7 +10,6 @@ async function bootstrap() {
 
   // Create a new server based on fastify
   const server = await NestFactory.create<NestFastifyApplication>(
-
     // Include server module, with all necessary modules for the project
     ServerModule,
 

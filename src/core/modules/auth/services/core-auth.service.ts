@@ -1,8 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
+import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthUserService } from './core-auth-user.service';
 
 /**

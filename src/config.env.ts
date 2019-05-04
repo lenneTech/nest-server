@@ -3,7 +3,7 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 /**
  * Configuration for the different environments
  */
-const config: {[env: string]: Partial<IServerOptions>} = {
+const config: { [env: string]: Partial<IServerOptions> } = {
 
   // ===========================================================================
   // Development environment

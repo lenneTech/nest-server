@@ -5,9 +5,9 @@ import { PassportModule } from '@nestjs/passport';
 import { IServerOptions } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuard } from './guards/roles.guard';
-import { CoreAuthService } from './services/core-auth.service';
-import { CoreAuthUserService } from './services/core-auth-user.service';
 import { JwtStrategy } from './jwt.strategy';
+import { CoreAuthUserService } from './services/core-auth-user.service';
+import { CoreAuthService } from './services/core-auth.service';
 
 /**
  * CoreAuthModule to handle user authentication and enables Roles
@@ -19,7 +19,11 @@ export class CoreAuthModule {
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
-  static forRoot(UserModule: Type<any>, UserService: Type<CoreAuthUserService>, options: Partial<IServerOptions>): DynamicModule {
+  static forRoot(
+    UserModule: Type<any>,
+    UserService: Type<CoreAuthUserService>,
+    options: Partial<IServerOptions>,
+  ): DynamicModule {
     return {
       module: CoreAuthModule,
       imports: [
@@ -44,7 +48,7 @@ export class CoreAuthModule {
           useClass: UserService,
         },
       ],
-      exports: [PassportModule, CoreAuthService],
+      exports: [ConfigService, CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule],
     };
   }
 }

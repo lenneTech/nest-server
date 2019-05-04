@@ -1,6 +1,6 @@
 import { GqlModuleOptions } from '@nestjs/graphql';
-import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { JwtModuleOptions } from '@nestjs/jwt';
+import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 /**
  * Options for the server
@@ -29,7 +29,7 @@ export interface IServerOptions {
      * Function for context manipulation
      * e.g. ({ req }) => ({ req })
      */
-    context: (context: {[key: string]: any, req: any}) => {[key: string]: any, req: any} ,
+    context: (context: { [key: string]: any, req: any }) => { [key: string]: any, req: any },
 
     /**
      * Determines whether or not to install subscription handlers

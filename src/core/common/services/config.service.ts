@@ -19,16 +19,16 @@ export class ConfigService {
   }
 
   /**
-   * Get data from config
-   */
-  get(key: string) {
-    return _.cloneDeep(_.get(this._config, key, undefined));
-  }
-
-  /**
    * Get config
    */
   get config() {
     return _.cloneDeep(this._config);
+  }
+
+  /**
+   * Get data from config
+   */
+  get(key: string) {
+    return _.cloneDeep(_.get(this._config, key, undefined));
   }
 }

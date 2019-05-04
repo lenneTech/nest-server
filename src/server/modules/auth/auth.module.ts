@@ -22,6 +22,7 @@ export class AuthModule {
         CoreAuthModule.forRoot(UserModule, UserService, options),
       ],
       providers: [AuthResolver],
+      exports: [AuthResolver, CoreAuthModule],
     };
   }
 }

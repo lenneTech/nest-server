@@ -1,6 +1,6 @@
-import { IsEmail, IsOptional } from 'class-validator';
 import { Field, ObjectType } from 'type-graphql';
-import { Column, Entity, Index, JoinColumn, OneToOne } from 'typeorm';
+import { Column, Entity, JoinColumn, OneToOne } from 'typeorm';
+import { CoreUser } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
 /**
@@ -8,7 +8,7 @@ import { PersistenceModel } from '../../common/models/persistence.model';
  */
 @Entity()
 @ObjectType({ description: 'User' })
-export class User extends PersistenceModel {
+export class User extends CoreUser implements PersistenceModel {
 
   // ===================================================================================================================
   // Properties
@@ -22,46 +22,21 @@ export class User extends PersistenceModel {
   @Field(type => User, { description: 'User who created the object', nullable: true })
   @OneToOne(type => User)
   @JoinColumn()
-  createdBy?: User;
+  createdBy: User;
 
   /**
-   * E-Mail address of the user
+   * Labels of the object
    */
-  @Field({ description: 'Email of the user', nullable: true })
-  @IsEmail()
-  @Index({ unique: true })
+  @Field(type => [String], { description: 'Labels of the object', nullable: true })
   @Column()
-  email: string;
+  labels: string[] = [];
 
   /**
-   * First name of the user
+   * Tags for the object
    */
-  @Field({ description: 'First name of the user', nullable: true })
-  @IsOptional()
+  @Field(type => [String], { description: 'Tags for the object', nullable: true })
   @Column()
-  firstName?: string;
-
-  /**
-   * Last name of the user
-   */
-  @Field({ description: 'Last name of the user', nullable: true })
-  @IsOptional()
-  @Column()
-  lastName?: string;
-
-  /**
-   * Password of the user
-   */
-  @Column()
-  password: string;
-
-  /**
-   * Roles of the user
-   */
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
-  @IsOptional()
-  @Column()
-  roles: string[] = [];
+  tags: string[] = [];
 
   /**
    * User who last updated the object
@@ -71,44 +46,5 @@ export class User extends PersistenceModel {
   @Field(type => User, { description: 'User who last updated the object', nullable: true })
   @OneToOne(type => User)
   @JoinColumn()
-  updatedBy?: User;
-
-  /**
-   * Username of the user
-   */
-  @Field({ description: 'Username of the user', nullable: true })
-  @IsOptional()
-  @Column()
-  username?: string;
-
-  // ===================================================================================================================
-  // Methods
-  // ===================================================================================================================
-
-  /**
-   * Checks whether the user has at least one of the required roles
-   */
-  public hasRole(roles: string | string[]) {
-    if (typeof roles === 'string') {
-      roles = [roles];
-    }
-    if (!this.roles || this.roles.length < 1) {
-      return false;
-    }
-    return !roles || roles.length < 1 ? true : this.roles.some((role) => roles.includes(role));
-  }
-
-  /**
-   * Checks whether the user has all required roles
-   */
-  public hasAllRoles(roles: string | string[]) {
-    if (typeof roles === 'string') {
-      roles = [roles];
-    }
-    if (!this.roles || this.roles.length < 1) {
-      return false;
-    }
-    return !roles ? true : roles.every((role) => this.roles.includes(role));
-  }
-
+  updatedBy: User;
 }

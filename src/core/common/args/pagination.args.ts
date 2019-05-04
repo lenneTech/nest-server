@@ -8,11 +8,12 @@ export class PaginationArgs {
   /**
    * Limit for pagination
    */
-  @Field(type => Int, {
-    description: 'Limit specifies the maximum number of elements found that are to be returned',
-    nullable: true,
-    defaultValue: 25,
-  })
+  @Field(
+    type => Int, {
+      description: 'Limit specifies the maximum number of elements found that are to be returned',
+      nullable: true,
+      defaultValue: 25,
+    })
   @IsOptional()
   @Max(100)
   take?: number = 25;

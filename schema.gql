@@ -3,7 +3,7 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
-"""CoreAuth"""
+"""Auth"""
 type Auth {
   """JavaScript Web Token (JWT)"""
   token: String!
@@ -161,18 +161,6 @@ type User {
   """Updated date"""
   updatedAt: DateTime
 
-  """User who created the object"""
-  createdBy: User
-
-  """Labels of the object"""
-  labels: [String!]
-
-  """Tags for the object"""
-  tags: [String!]
-
-  """User who last updated the object"""
-  updatedBy: User
-
   """Email of the user"""
   email: String
 
@@ -187,6 +175,18 @@ type User {
 
   """Username of the user"""
   username: String
+
+  """User who created the object"""
+  createdBy: User
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """User who last updated the object"""
+  updatedBy: User
 }
 
 """User input to create a new user"""
