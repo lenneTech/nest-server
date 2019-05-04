@@ -9,11 +9,15 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 import { CheckInputPipe } from './core/common/pipes/check-input-pipe.service';
 import { ConfigService } from './core/common/services/config.service';
 
-// =============================================================================
-// Server module
-// =============================================================================
 /**
  * Core module (dynamic)
+ *
+ * Which includes the following standard modules and services:
+ * - TypeORM
+ * - GraphQL
+ * - ConfigService
+ * - CheckInput
+ * - CheckResponse
  */
 @Module({})
 export class CoreModule {
