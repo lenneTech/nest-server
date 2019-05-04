@@ -80,6 +80,9 @@ type Mutation {
 }
 
 type Query {
+  """Get JWT token"""
+  signIn(password: String!, email: String!): Auth!
+
   """Get user with specified ID"""
   getUser(id: String!): User!
 
@@ -99,9 +102,6 @@ type Query {
     """Input for filtering"""
     filter: FilterInput
   ): [User!]!
-
-  """Get JWT token"""
-  signIn(password: String!, email: String!): Auth!
 }
 
 """Input for a configuration of a filter"""
@@ -155,17 +155,11 @@ type User {
   """Created date"""
   createdAt: DateTime
 
-  """User who created the object"""
-  createdBy: User
-
   """Users who own the object"""
   ownerIds: [String!]
 
   """Updated date"""
   updatedAt: DateTime
-
-  """User who last updated the object"""
-  updatedBy: User
 
   """Email of the user"""
   email: String
@@ -181,6 +175,18 @@ type User {
 
   """Username of the user"""
   username: String
+
+  """User who created the object"""
+  createdBy: User
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """User who last updated the object"""
+  updatedBy: User
 }
 
 """User input to create a new user"""
