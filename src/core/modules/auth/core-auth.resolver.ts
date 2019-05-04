@@ -1,19 +1,18 @@
 import { Args, Query } from '@nestjs/graphql';
 import { Resolver } from 'type-graphql/dist/decorators/Resolver';
-import { Auth } from '../../../server/modules/auth/auth.model';
 import { CoreAuth } from './core-auth.model';
 import { CoreAuthService } from './services/core-auth.service';
 
 /**
  * Authentication resolver for the sign in
  */
-@Resolver(of => Auth, {isAbstract: true})
+@Resolver(of => CoreAuth, { isAbstract: true })
 export class CoreAuthResolver {
 
   /**
    * Import services
    */
-  constructor(private readonly authService: CoreAuthService) {}
+  constructor(protected readonly authService: CoreAuthService) {}
 
   // ===========================================================================
   // Queries

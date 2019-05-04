@@ -40,12 +40,6 @@ enum ComparisonOperatorEnum {
   REGEX
 }
 
-"""Auth"""
-type CoreAuth {
-  """JavaScript Web Token (JWT)"""
-  token: String!
-}
-
 """
 The javascript `Date` as string. Type represents date and time as the ISO Date string.
 """
@@ -87,7 +81,7 @@ type Mutation {
 
 type Query {
   """Get JWT token"""
-  signIn(password: String!, email: String!): CoreAuth!
+  signIn(password: String!, email: String!): Auth!
 
   """Get user with specified ID"""
   getUser(id: String!): User!

@@ -21,8 +21,6 @@ export class AuthModule {
     return {
       module: AuthModule,
       imports: [
-        UserModule,
-        TypeOrmModule.forFeature([User]),
         CoreAuthModule.forRoot(UserModule, UserService, options),
       ],
       providers: [AuthResolver],
