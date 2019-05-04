@@ -1,9 +1,9 @@
-import { ServerOptions } from './common/interfaces/server-options.interface';
+import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
 /**
  * Configuration for the different environments
  */
-const config: {[env: string]: Partial<ServerOptions>} = {
+const config: {[env: string]: Partial<IServerOptions>} = {
 
   // ===========================================================================
   // Development environment

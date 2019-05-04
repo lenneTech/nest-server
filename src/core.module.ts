@@ -2,13 +2,12 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Config } from './common/helpers/config.helper';
-import { CheckResponseInterceptor } from './common/interceptors/check-response.interceptor';
-import { ServerOptions } from './common/interfaces/server-options.interface';
-import { CheckPipe } from './common/pipes/check.pipe';
-import { ConfigService } from './common/services/config.service';
-import { AuthModule } from './modules/auth/auth.module';
-import { UserModule } from './modules/user/user.module';
+import envConfig from './config.env';
+import { Config } from './core/common/helpers/config.helper';
+import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
+import { IServerOptions } from './core/common/interfaces/server-options.interface';
+import { CheckInputPipe } from './core/common/pipes/check-input-pipe.service';
+import { ConfigService } from './core/common/services/config.service';
 
 // =============================================================================
 // Server module
@@ -16,18 +15,14 @@ import { UserModule } from './modules/user/user.module';
 /**
  * Core module (dynamic)
  */
-@Module({
-  imports: [
-    UserModule,
-  ],
-})
+@Module({})
 export class CoreModule {
 
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
-  static forRoot(options: Partial<ServerOptions>): DynamicModule {
+  static forRoot(options: Partial<IServerOptions>): DynamicModule {
 
     // Process config
     options = Config.merge({
@@ -49,7 +44,7 @@ export class CoreModule {
         useNewUrlParser: true,
       },
       typeOrmModelIntegration: true,
-    } as ServerOptions, options);
+    } as IServerOptions, options);
 
     // Add models for TypeORM
     if (options.typeOrmModelIntegration) {
@@ -72,11 +67,11 @@ export class CoreModule {
         useClass: CheckResponseInterceptor,
       },
 
-      // [Global] The CheckPipe checks the permissibility of individual properties of inputs for the resolvers
+      // [Global] The CheckInputPipe checks the permissibility of individual properties of inputs for the resolvers
       // in relation to the current user
       {
         provide: APP_PIPE,
-        useClass: CheckPipe,
+        useClass: CheckInputPipe,
       },
     ];
 
@@ -84,12 +79,11 @@ export class CoreModule {
     return {
       module: CoreModule,
       imports: [
-        AuthModule.forRoot(options),
+        TypeOrmModule.forRoot(envConfig.typeOrm),
         GraphQLModule.forRoot(options.graphQl),
-        TypeOrmModule.forRoot(options.typeOrm),
       ],
       providers,
-      exports: [AuthModule, ConfigService, GraphQLModule, TypeOrmModule],
+      exports: [ConfigService, GraphQLModule, TypeOrmModule],
     };
   }
 }
