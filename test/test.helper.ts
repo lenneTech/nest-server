@@ -1,5 +1,5 @@
-import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import { FastifyInstance, HTTPInjectOptions } from 'fastify';
+import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 
 /**
  * GraphQL request type
@@ -88,7 +88,12 @@ export class TestHelper {
       }
 
       // Prepare config
-      graphql = Object.assign({ arguments: null, fields: ['id'], name: null, type: TestGraphQLType.QUERY }, graphql) as TestGraphQLConfig;
+      graphql = Object.assign({
+        arguments: null,
+        fields: ['id'],
+        name: null,
+        type: TestGraphQLType.QUERY,
+      }, graphql) as TestGraphQLConfig;
 
       // Init request
       const queryObj = {};
@@ -170,7 +175,7 @@ export class TestHelper {
         result[key] = this.prepareFields(val);
       }
 
-    // Process other fields
+      // Process other fields
     } else {
       return fields;
     }
