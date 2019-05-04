@@ -1,7 +1,7 @@
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ServerModule } from '../src/server.module';
-import { TestGraphQLType, TestHelper } from './test.helper';
+import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('AppController (e2e)', () => {
   let app;

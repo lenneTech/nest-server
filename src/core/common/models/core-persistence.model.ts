@@ -1,7 +1,7 @@
 import { Field, ID, ObjectType } from 'type-graphql';
 import { BeforeInsert, BeforeUpdate, Column, ObjectIdColumn } from 'typeorm';
 import { Restricted } from '../decorators/restricted.decorator';
-import { RoleEnum } from '../enums/roles.enum';
+import { RoleEnum } from '../enums/role.enum';
 
 /**
  * Metadata for persistent objects

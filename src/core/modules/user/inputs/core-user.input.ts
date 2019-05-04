@@ -2,7 +2,7 @@ import { IsEmail, IsOptional } from 'class-validator';
 import { Field, InputType } from 'type-graphql';
 import { Column } from 'typeorm';
 import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../../core/common/enums/roles.enum';
+import { RoleEnum } from '../../../common/enums/role.enum';
 
 /**
  * User input to update a user

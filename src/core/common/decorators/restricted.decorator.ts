@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { RoleEnum } from '../enums/roles.enum';
+import { RoleEnum } from '../enums/role.enum';
 
 /**
  * Restricted meta key

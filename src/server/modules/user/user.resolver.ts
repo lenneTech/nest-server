@@ -2,7 +2,7 @@ import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/roles.enum';
+import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
