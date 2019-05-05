@@ -15,7 +15,7 @@ export class FileController {
   /**
    * Upload files
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.ADMIN)
   @Post('upload')
   @UseInterceptors(FilesInterceptor('files', null, {
 

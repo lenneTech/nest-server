@@ -176,6 +176,9 @@ type User {
   """Username of the user"""
   username: String
 
+  """URL to avatar file of the user"""
+  avatar: String
+
   """User who created the object"""
   createdBy: User
 

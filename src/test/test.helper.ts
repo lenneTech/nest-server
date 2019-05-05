@@ -1,5 +1,7 @@
+import { INestApplication } from '@nestjs/common';
 import { FastifyInstance, HTTPInjectOptions } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
+import * as supertest from 'supertest';
 
 /**
  * GraphQL request type
@@ -53,10 +55,19 @@ export interface TestGraphQLConfig {
 }
 
 /**
+ * Options for graphql requests
+ */
+export interface TestGraphQLOptions {
+  log?: boolean;
+  statusCode?: number;
+  token?: string;
+}
+
+/**
  * Test helper
  */
 export class TestHelper {
-  app: FastifyInstance;
+  app: FastifyInstance | INestApplication;
 
   /**
    * Constructor
@@ -70,7 +81,17 @@ export class TestHelper {
    * @param graphql
    * @param statusCode
    */
-  async graphQl(graphql: string | TestGraphQLConfig = {}, token: string = null, statusCode: number = 200): Promise<any> {
+  async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
+
+    // Default options
+    options = Object.assign({
+      token: null,
+      statusCode: 200,
+      log: false,
+    }, options);
+
+    // Init vars
+    const { token, statusCode, log } = options;
 
     // Init
     let query: string = '';
@@ -125,16 +146,52 @@ export class TestHelper {
       requestConfig.headers = { authorization: `Bearer ${token}` };
     }
 
-    // Response
-    const response: any = await this.app.inject(requestConfig);
+    // Init response
+    let response: any;
 
-    // Check response
+    // Response of fastify
+    if (((this.app as FastifyInstance).inject)) {
+
+      // Get response
+      response = await (this.app as FastifyInstance).inject(requestConfig);
+
+      // Log response
+      if (log) {
+        console.log(response);
+      }
+
+      // Check data
+      expect(response.statusCode).toBe(statusCode);
+      expect(response.headers['content-type']).toBe('application/json');
+
+      // return data
+      return JSON.parse(response.payload).data ?
+        JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name] : JSON.parse(response.payload);
+
+    }
+
+    // Express request
+    let request = supertest((this.app as INestApplication).getHttpServer())
+      .post(requestConfig.url);
+    if (token) {
+      request = request.set('Authorization', 'bearer ' + token);
+    }
+
+    // Response
+    response = await request.send(requestConfig.payload);
+
+    // Log response
+    if (log) {
+      console.log(response);
+    }
+
+    // Check data
     expect(response.statusCode).toBe(statusCode);
     expect(response.headers['content-type']).toBe('application/json');
 
     // return data
-    return JSON.parse(response.payload).data ?
-      JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name] : JSON.parse(response.payload);
+    return response.body.data ?
+      response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
   }
 
   /**
@@ -171,7 +228,6 @@ export class TestHelper {
       // Process object
     } else if (typeof fields === 'object') {
       for (const [key, val] of Object.entries(fields)) {
-        console.log('key', key, 'val', val);
         result[key] = this.prepareFields(val);
       }
 

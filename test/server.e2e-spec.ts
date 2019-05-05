@@ -1,4 +1,3 @@
-import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ServerModule } from '../src/server.module';
 import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
@@ -23,7 +22,9 @@ describe('AppController (e2e)', () => {
       imports: [ServerModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication(new FastifyAdapter());
+    app = moduleFixture.createNestApplication(
+      // new FastifyAdapter()
+    );
     await app.init();
     testHelper = new TestHelper(app);
   });
@@ -98,7 +99,7 @@ describe('AppController (e2e)', () => {
   it('findUsers', async () => {
     const res: any = await testHelper.graphQl({
       name: 'findUsers', fields: ['id', 'email'],
-    }, this.token);
+    }, { token: this.token });
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
 });

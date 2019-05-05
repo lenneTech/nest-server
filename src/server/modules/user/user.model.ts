@@ -15,6 +15,13 @@ export class User extends CoreUser implements PersistenceModel {
   // ===================================================================================================================
 
   /**
+   * URL to avatar file of the user
+   */
+  @Field({ description: 'URL to avatar file of the user', nullable: true })
+  @Column()
+  avatar: string;
+
+  /**
    * User who created the object
    *
    * Not set when created by system

@@ -1,3 +1,5 @@
+import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import { diskStorage } from 'multer';
 import { extname } from 'path';
 
 /**
@@ -20,6 +22,65 @@ export class FileHelper {
       // Calling the callback passing the random name generated with the
       // original extension name
       cb(null, `${randomName}${extname(file.originalname)}`);
+    };
+  }
+
+  /**
+   * Get function to filter files for multer with a certain mimetype & extname
+   */
+  public static multerFileFilter(fileTypeRegex: RegExp = /jpeg|jpg|png/) {
+    return (req, file, cb) => {
+
+      const mimetype = fileTypeRegex.test(file.mimetype);
+      const extName = fileTypeRegex.test(extname(file.originalname).toLowerCase());
+
+      if (mimetype && extName) {
+        return cb(null, true);
+      }
+      cb('Error: File upload only supports the following filetypes - ' + fileTypeRegex);
+    };
+  }
+
+  /**
+   * Get multer options for image upload
+   */
+  public static multerOptionsForImageUpload(options: {
+    destination?: string,
+    fileSize?: number,
+    fileTypeRegex?: RegExp,
+  }): MulterOptions {
+
+    // Default options
+    options = Object.assign({
+      fileSize: 1024 * 1024, // 1MB
+      fileTypeRegex: /jpeg|jpg|png/, // Images only
+    }, options);
+
+    return {
+
+      // File filter
+      fileFilter: options.fileTypeRegex ?
+        FileHelper.multerFileFilter(options.fileTypeRegex) : undefined,
+
+      // Limits
+      limits: {
+
+        // Limit of file size
+        fileSize: options.fileSize ? options.fileSize : undefined,
+      },
+
+      // Automatic storage handling
+      // For configuration see https://github.com/expressjs/multer#storage
+      storage: diskStorage({
+
+        // Destination for uploaded file
+        // If destination is not set file will be buffered and can be processed
+        // in the method
+        destination: options.destination ? options.destination : undefined,
+
+        // Generated random file name
+        filename: FileHelper.multerRandomFileName(),
+      }),
     };
   }
 }

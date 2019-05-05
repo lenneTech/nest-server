@@ -10,7 +10,8 @@ export * from './server.module';
 // =====================================================================================================================
 export * from './core/common/args/filter.args';
 export * from './core/common/args/pagination.args';
-export * from './core/common/decorators/current-user.decorator';
+export * from './core/common/decorators/graphql-user.decorator';
+export * from './core/common/decorators/rest-user.decorator';
 export * from './core/common/decorators/restricted.decorator';
 export * from './core/common/decorators/roles.decorator';
 export * from './core/common/enums/comparison-operator.enum';
@@ -85,6 +86,7 @@ export * from './server/modules/file/file.controller';
 
 export * from './server/modules/user/inputs/user.input';
 export * from './server/modules/user/inputs/user-create.input';
+export * from './server/modules/user/avatar.controller';
 export * from './server/modules/user/user.model';
 export * from './server/modules/user/user.module';
 export * from './server/modules/user/user.resolver';

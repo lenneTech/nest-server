@@ -1,8 +1,8 @@
 import { createParamDecorator } from '@nestjs/common';
 
 /**
- * User decorator
+ * User decorator for GraphQL request
  */
-export const CurrentUser = createParamDecorator(
+export const GraphQLUser = createParamDecorator(
   (data, [root, args, ctx, info]) => ctx.user,
 );
