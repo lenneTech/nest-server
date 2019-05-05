@@ -12,19 +12,19 @@ export * from './core/common/args/filter.args';
 export * from './core/common/args/pagination.args';
 export * from './core/common/decorators/current-user.decorator';
 export * from './core/common/decorators/restricted.decorator';
-export * from './core/common/decorators/restricted.decorator';
+export * from './core/common/decorators/roles.decorator';
 export * from './core/common/enums/comparison-operator.enum';
 export * from './core/common/enums/logical-operator.enum';
 export * from './core/common/enums/role.enum';
 export * from './core/common/enums/sort-order.emum';
 export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/context.helper';
+export * from './core/common/helpers/file.helper';
 export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/input.helper';
 export * from './core/common/inputs/combined-filter.input';
 export * from './core/common/inputs/filter.input';
 export * from './core/common/inputs/single-filter.input';
-export * from './core/common/inputs/sort.input';
 export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interfaces/server-options.interface';
@@ -72,6 +72,12 @@ export * from './server/common/models/persistence.model';
 export * from './server/modules/auth/auth.model';
 export * from './server/modules/auth/auth.module';
 export * from './server/modules/auth/auth.resolver';
+
+// =====================================================================================================================
+// Server - Modules - File
+// =====================================================================================================================
+
+export * from './server/modules/file/file.controller';
 
 // =====================================================================================================================
 // Server - Modules - User

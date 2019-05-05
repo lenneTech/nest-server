@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import envConfig from './config.env';
 import { ServerModule } from './server.module';
 
@@ -9,12 +9,16 @@ import { ServerModule } from './server.module';
 async function bootstrap() {
 
   // Create a new server based on fastify
-  const server = await NestFactory.create<NestFastifyApplication>(
+  const server = await NestFactory.create<NestExpressApplication>(
+
     // Include server module, with all necessary modules for the project
     ServerModule,
+  );
 
-    // Use fastify instead of express
-    new FastifyAdapter(),
+  // Asset directory
+  server.useStaticAssets(
+    envConfig.staticAssets.path,
+    envConfig.staticAssets.options,
   );
 
   // Enable cors to allow requests from other domains

@@ -81,7 +81,7 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Prepare request
      */
     getRequest<T = any>(context: ExecutionContext): T {
-      return context.switchToHttp().getRequest();
+      return context && context.switchToHttp() ? context.switchToHttp().getRequest() : null;
     }
 
     /**

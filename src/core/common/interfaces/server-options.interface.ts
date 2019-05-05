@@ -1,5 +1,6 @@
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
+import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 /**
@@ -54,6 +55,23 @@ export interface IServerOptions {
    * e.g. 8080
    */
   port: number;
+
+  /**
+   * Configuration for useStaticAssets
+   */
+  staticAssets: {
+    /**
+     * Root directory for static assets
+     * e.g. join(__dirname, '..', 'public')
+     */
+    path: string
+
+    /**
+     * Additional options for useStaticAssets
+     * e.g. {prefix: '/public/'}
+     */
+    options?: ServeStaticOptions,
+  };
 
   /**
    * Configuration of TypeORM

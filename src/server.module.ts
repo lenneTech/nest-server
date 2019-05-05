@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import envConfig from './config.env';
 import { CoreModule } from './core.module';
 import { AuthModule } from './server/modules/auth/auth.module';
+import { FileController } from './server/modules/file/file.controller';
 
 /**
  * Server module (dynamic)
@@ -10,6 +11,8 @@ import { AuthModule } from './server/modules/auth/auth.module';
  * for the project API
  */
 @Module({
+
+  // Include modules
   imports: [
 
     // Include CoreModule for standard processes
@@ -20,6 +23,10 @@ import { AuthModule } from './server/modules/auth/auth.module';
     AuthModule.forRoot(envConfig),
   ],
 
+  // Include REST controllers
+  controllers: [FileController],
+
+  // Export modules for reuse in other modules
   exports: [CoreModule, AuthModule],
 })
 export class ServerModule {}
