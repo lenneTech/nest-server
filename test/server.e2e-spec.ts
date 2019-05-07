@@ -6,12 +6,11 @@ describe('AppController (e2e)', () => {
   let app;
   let testHelper: TestHelper;
 
-  /* tslint:disable */
-  let id: string;
-  let email: string;
-  let password: string;
-  let token: string;
-  /* tslint:enable */
+  // Global vars
+  let gId: string;
+  let gEmail: string;
+  let gPassword: string;
+  let gToken: string;
 
   // ===================================================================================================================
   // Preparations
@@ -47,22 +46,22 @@ describe('AppController (e2e)', () => {
    * Create new user
    */
   it('createUser', async () => {
-    this.password = Math.random().toString(36).substring(7);
-    this.email = this.password + '@testuser.com';
+    gPassword = Math.random().toString(36).substring(7);
+    gEmail = gPassword + '@testuser.com';
 
     const res: any = await testHelper.graphQl({
       name: 'createUser',
       type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
-          email: this.email,
-          password: this.password,
+          email: gEmail,
+          password: gPassword,
         },
       },
       fields: ['id', 'email'],
     });
-    expect(res.email).toEqual(this.email);
-    this.id = res.id;
+    expect(res.email).toEqual(gEmail);
+    gId = res.id;
   });
 
   /**
@@ -73,14 +72,14 @@ describe('AppController (e2e)', () => {
     const res: any = await testHelper.graphQl({
       name: 'signIn',
       arguments: {
-        email: this.email,
-        password: this.password,
+        email: gEmail,
+        password: gPassword,
       },
       fields: ['token', { user: ['id', 'email'] }],
     });
-    expect(res.user.id).toEqual(this.id);
-    expect(res.user.email).toEqual(this.email);
-    this.token = res.token;
+    expect(res.user.id).toEqual(gId);
+    expect(res.user.email).toEqual(gEmail);
+    gToken = res.token;
   });
 
   /**
@@ -102,7 +101,7 @@ describe('AppController (e2e)', () => {
   it('findUsers', async () => {
     const res: any = await testHelper.graphQl({
       name: 'findUsers', fields: ['id', 'email'],
-    }, { token: this.token });
+    }, { token: gToken });
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
 });
