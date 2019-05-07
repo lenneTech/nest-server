@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ServerModule } from '../src/server.module';
 import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
-describe('AppController (e2e)', () => {
+describe('ServerModule (e2e)', () => {
   let app;
   let testHelper: TestHelper;
 
