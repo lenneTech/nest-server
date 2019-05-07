@@ -5,10 +5,13 @@ import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 describe('AppController (e2e)', () => {
   let app;
   let testHelper: TestHelper;
+
+  /* tslint:disable */
   let id: string;
   let email: string;
   let password: string;
   let token: string;
+  /* tslint:enable */
 
   // ===================================================================================================================
   // Preparations
