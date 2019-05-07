@@ -12,21 +12,23 @@ export class InputHelper {
   /**
    * Check input
    */
-  public async check(value, metatype, context): Promise<any> {
+  public static async check(value: any, user: { id: any, hasRole: (roles: string[]) => boolean }, metatype?): Promise<any> {
+
     // Return value if it is only a basic type
     if (!metatype || this.isBasicType(metatype)) {
       return value;
     }
 
     // Remove restricted values if roles are missing
-    const { currentUser }: any = Context.getData(context);
-    value = checkRestricted(value, currentUser);
+    value = checkRestricted(value, user);
 
     // Check values
-    const object = plainToClass(metatype, value);
-    const errors = await validate(object);
-    if (errors.length > 0) {
-      throw new BadRequestException('Validation failed');
+    if (metatype) {
+      const object = plainToClass(metatype, value);
+      const errors = await validate(object);
+      if (errors.length > 0) {
+        throw new BadRequestException('Validation failed');
+      }
     }
     return value;
   }
@@ -34,8 +36,8 @@ export class InputHelper {
   /**
    * Checks if it is a basic type
    */
-  public isBasicType(metatype: any): boolean {
-    const types = [String, Boolean, Number, Array, Object];
+  public static isBasicType(metatype: any): boolean {
+    const types = [String, Boolean, Number, Array, Object, Buffer, ArrayBuffer];
     return types.includes(metatype);
   }
 }

@@ -1,8 +1,10 @@
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
+import { GraphQLUser } from '../../../core/common/decorators/graphql-user.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { InputHelper } from '../../../core/common/helpers/input.helper';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
@@ -63,7 +65,15 @@ export class UserResolver {
   async updateUser(
     @Args('input') input: UserInput,
     @Args('id') id: string,
+    @GraphQLUser() user: User,
   ): Promise<User> {
+
+    // Check input
+    // Hint: necessary as long as global CheckInputPipe can't access context for current user
+    // (see https://github.com/nestjs/nest/issues/2032)
+    input = await InputHelper.check(input, user, User);
+
+    // Update user
     return await this.usersService.update(id, input);
   }
 
@@ -83,6 +93,7 @@ export class UserResolver {
   /**
    * Subscritption for create user
    */
+  @Roles(RoleEnum.ADMIN)
   @Subscription(returns => User)
   userCreated() {
     return pubSub.asyncIterator('userCreated');
