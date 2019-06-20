@@ -1,8 +1,32 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import envConfig from './config.env';
+import { ServerModule } from './server.module';
 
+/**
+ * Preparations for server start
+ */
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  await app.listen(3000);
+
+  // Create a new server based on fastify
+  const server = await NestFactory.create<NestExpressApplication>(
+
+    // Include server module, with all necessary modules for the project
+    ServerModule,
+  );
+
+  // Asset directory
+  server.useStaticAssets(
+    envConfig.staticAssets.path,
+    envConfig.staticAssets.options,
+  );
+
+  // Enable cors to allow requests from other domains
+  server.enableCors();
+
+  // Start server on configured port
+  await server.listen(envConfig.port);
 }
+
+// Start server
 bootstrap();
