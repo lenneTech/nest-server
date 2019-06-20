@@ -1,6 +1,7 @@
 # lenne.Tech Nest Server
 
-The lenne.Tech **Nest Server** is a modern, fast, powerful node.js web framework based on nestjs.
+Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB
+(or other databases).
 
 ## Description
 

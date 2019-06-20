@@ -1,7 +1,15 @@
 {
   "name": "@lenne.tech/nest-server",
   "version": "0.0.1",
-  "description": "Modern, fast, powerful node.js web framework based on nestjs",
+  "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
+  "keywords": [
+    "node",
+    "nest",
+    "server",
+    "mongodb",
+    "graphql",
+    "typescript"
+  ],
   "author": "Kai Haase",
   "license": "MIT",
   "scripts": {
@@ -19,6 +27,9 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --detectOpenHandles --config ./test/jest-e2e.json",
     "test:watch": "jest --watch"
+  },
+  "engines": {
+    "node": ">= 12.4.0"
   },
   "dependencies": {
     "@nestjs/common": "6.3.1",
@@ -75,5 +86,9 @@
     "transform": {
       ".+\\.(t|j)s$": "ts-jest"
     }
+  },
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/lenneTech/nest-server"
   }
 }
