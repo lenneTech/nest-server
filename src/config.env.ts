@@ -23,7 +23,7 @@ const config: { [env: string]: Partial<IServerOptions> } = {
       type: 'mongodb',
       host: 'localhost',
       port: 27017,
-      database: 'dev',
+      database: 'nest-server-dev',
       synchronize: true,
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
@@ -47,7 +47,7 @@ const config: { [env: string]: Partial<IServerOptions> } = {
       type: 'mongodb',
       host: 'localhost',
       port: 27017,
-      database: 'prod',
+      database: 'nest-server-prod',
       synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
