@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -77,7 +77,7 @@
     "ts-jest": "24.0.2",
     "ts-node": "8.3.0",
     "tsconfig-paths": "3.8.0",
-    "tslint": "5.17.0",
+    "tslint": "5.18.0",
     "type-graphql": "0.17.4",
     "typeorm": "0.2.16",
     "typescript": "3.5.2"
