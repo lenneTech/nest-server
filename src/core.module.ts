@@ -2,7 +2,6 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import envConfig from './config.env';
 import { Config } from './core/common/helpers/config.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
@@ -83,7 +82,7 @@ export class CoreModule {
     return {
       module: CoreModule,
       imports: [
-        TypeOrmModule.forRoot(envConfig.typeOrm),
+        TypeOrmModule.forRoot(options.typeOrm),
         GraphQLModule.forRoot(options.graphQl),
       ],
       providers,
