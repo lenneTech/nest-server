@@ -3,7 +3,6 @@
 // =====================================================================================================================
 
 export * from './core.module';
-export * from './server.module';
 
 // =====================================================================================================================
 // Core - Common
@@ -59,38 +58,6 @@ export * from './core/modules/user/inputs/core-user.input';
 export * from './core/modules/user/inputs/core-user-create.input';
 export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
-
-// =====================================================================================================================
-// Server - Common
-// =====================================================================================================================
-
-export * from './server/common/models/persistence.model';
-
-// =====================================================================================================================
-// Server - Modules - Auth
-// =====================================================================================================================
-
-export * from './server/modules/auth/auth.model';
-export * from './server/modules/auth/auth.module';
-export * from './server/modules/auth/auth.resolver';
-
-// =====================================================================================================================
-// Server - Modules - File
-// =====================================================================================================================
-
-export * from './server/modules/file/file.controller';
-
-// =====================================================================================================================
-// Server - Modules - User
-// =====================================================================================================================
-
-export * from './server/modules/user/inputs/user.input';
-export * from './server/modules/user/inputs/user-create.input';
-export * from './server/modules/user/avatar.controller';
-export * from './server/modules/user/user.model';
-export * from './server/modules/user/user.module';
-export * from './server/modules/user/user.resolver';
-export * from './server/modules/user/user.service';
 
 // =====================================================================================================================
 // Tests

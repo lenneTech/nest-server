@@ -51,7 +51,7 @@ export class CoreModule {
 
     // Add models for TypeORM
     if (options.typeOrmModelIntegration) {
-      options.typeOrm.entities.push(__dirname + '/**/*.{entity,model}.{ts,js}');
+      options.typeOrm.entities.push(__dirname + '/core/**/*.{entity,model}.{ts,js}');
     }
 
     // Set providers
