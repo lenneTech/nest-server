@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -11,11 +11,13 @@
     "typescript"
   ],
   "author": "Kai Haase",
+  "homepage": "http://lenne.tech",
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json -c tslint.json",
+    "prepublish": "npm run prestart:prod",
     "prestart:prod": "rimraf dist && npm run build",
     "reinit": "rm -f package-lock.json && rm -rf node_modules && npm cache clean --force && npm i",
     "start": "ts-node -r tsconfig-paths/register src/main.ts",
@@ -27,6 +29,13 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --detectOpenHandles --config ./test/jest-e2e.json",
     "test:watch": "jest --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lenneTech/nest-server"
+  },
+  "bugs": {
+    "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
     "node": ">= 12.4.0"
@@ -46,7 +55,7 @@
     "@types/node": "12.0.8",
     "@types/passport": "1.0.0",
     "@types/supertest": "2.0.7",
-    "apollo-server-express": "2.6.3",
+    "apollo-server-express": "2.6.4",
     "bcrypt": "3.0.6",
     "class-transformer": "0.2.3",
     "class-validator": "0.9.1",
@@ -87,8 +96,8 @@
       ".+\\.(t|j)s$": "ts-jest"
     }
   },
-  "repository": {
-    "type" : "git",
-    "url" : "https://github.com/lenneTech/nest-server"
-  }
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ]
 }
