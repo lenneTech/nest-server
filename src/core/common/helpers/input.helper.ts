@@ -2,7 +2,6 @@ import { BadRequestException } from '@nestjs/common';
 import { plainToClass } from 'class-transformer';
 import { validate } from 'class-validator';
 import { checkRestricted } from '../decorators/restricted.decorator';
-import { Context } from './context.helper';
 
 /**
  * Helper class for inputs
