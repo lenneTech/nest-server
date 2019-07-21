@@ -57,6 +57,46 @@ export interface IServerOptions {
   port: number;
 
   /**
+   * SMTP and template configuration for sending emails
+   */
+  email: {
+
+    /**
+     * SMTP configuration for sending emails
+     * smtps://[userOrApiKey]:[passwordOrSecretKey]@[domainOrIP]
+     */
+    smtp: {
+
+      /**
+       * Domain or IP of the SMTP server
+       */
+      domainOrIP: string,
+
+      /**
+       * Password of the SMTP user or secret key of the provider
+       */
+      passwordOrSecretKey: string,
+
+      /**
+       * Email address of the SMTP user or API key of the provider
+       * e.g. support@lenne.tech
+       */
+      userOrApiKey: string,
+    },
+
+    /**
+     * Handlebar templates for emails
+     */
+    template: {
+      /**
+       * Directory for templates
+       *  e.g. join(__dirname, '..', 'templates')
+       */
+      path: string,
+    },
+  };
+
+  /**
    * Configuration for useStaticAssets
    */
   staticAssets: {

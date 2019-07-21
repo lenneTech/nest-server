@@ -1,6 +1,7 @@
 import { Field, ObjectType } from 'type-graphql';
-import { Column, Entity, JoinColumn, OneToOne } from 'typeorm';
-import { CoreUser } from '../../../core/modules/user/core-user.model';
+import { Column, Entity } from 'typeorm';
+import { CoreUserModel } from '../../../core/modules/user/core-user.model';
+import { Editor } from '../../common/models/editor.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
 /**
@@ -8,7 +9,7 @@ import { PersistenceModel } from '../../common/models/persistence.model';
  */
 @Entity()
 @ObjectType({ description: 'User' })
-export class User extends CoreUser implements PersistenceModel {
+export class User extends CoreUserModel implements PersistenceModel {
 
   // ===================================================================================================================
   // Properties
@@ -22,36 +23,20 @@ export class User extends CoreUser implements PersistenceModel {
   avatar: string;
 
   /**
-   * User who created the object
+   * Editor who created the object
    *
    * Not set when created by system
    */
-  @Field(type => User, { description: 'User who created the object', nullable: true })
-  @OneToOne(type => User)
-  @JoinColumn()
-  createdBy: User;
+  @Field(type => Editor, { description: 'ID of the user who created the object', nullable: true })
+  @Column('varchar')
+  createdBy: string | Editor;
 
   /**
-   * Labels of the object
-   */
-  @Field(type => [String], { description: 'Labels of the object', nullable: true })
-  @Column()
-  labels: string[] = [];
-
-  /**
-   * Tags for the object
-   */
-  @Field(type => [String], { description: 'Tags for the object', nullable: true })
-  @Column()
-  tags: string[] = [];
-
-  /**
-   * User who last updated the object
+   * Editor who last updated the object
    *
    * Not set when updated by system
    */
-  @Field(type => User, { description: 'User who last updated the object', nullable: true })
-  @OneToOne(type => User)
-  @JoinColumn()
-  updatedBy: User;
+  @Field(type => Editor, { description: 'ID of the user who last updated the object', nullable: true })
+  @Column('varchar')
+  updatedBy: string | Editor;
 }

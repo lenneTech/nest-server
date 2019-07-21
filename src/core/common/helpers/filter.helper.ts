@@ -13,14 +13,16 @@ export class Filter {
 
   /**
    * Convert GraphQL filter input to Mongoose
-   * @param filter
    */
-  public static convertFilterInput(filter?: FilterInput) {
+  public static convertFilterInput(filter?: FilterInput, config?: {dbType: string}) {
 
     // Check filter
     if (!filter) {
       return undefined;
     }
+
+    // Configuration
+    config = Object.assign({dbType: 'mongodb'}, config);
 
     // Init result
     const result: any = {};
@@ -45,7 +47,7 @@ export class Filter {
       let { field, value } = filter.singleFilter;
 
       // Prepare fields
-      if (field === 'id') {
+      if (field === 'id' && config.dbType === 'mongodb') {
         field = '_id';
       }
 
@@ -102,12 +104,15 @@ export class Filter {
   /**
    * Generate FindManyOptions form FilterArgs
    */
-  public static generateFilterOptions(filterArgs: FilterArgs): FindManyOptions {
+  public static generateFilterOptions(filterArgs: FilterArgs, config?: {dbType: string}): FindManyOptions {
 
     // Check filterArgs
     if (!filterArgs) {
       return {};
     }
+
+    // Configuration
+    config = Object.assign({dbType: 'mongodb'}, config);
 
     // Get values
     const { filter, take, skip, sort } = filterArgs;
@@ -122,7 +127,7 @@ export class Filter {
 
     // Prepare where
     if (filter) {
-      options.where = Filter.convertFilterInput(filterArgs.filter);
+      options.where = Filter.convertFilterInput(filterArgs.filter, config);
     }
 
     // Prepare order

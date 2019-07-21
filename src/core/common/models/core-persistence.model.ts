@@ -35,12 +35,26 @@ export abstract class CorePersistenceModel {
   createdAt: Date;
 
   /**
+   * Labels of the object
+   */
+  @Field(type => [String], { description: 'Labels of the object', nullable: true })
+  @Column('simple-array')
+  labels: string[] = [];
+
+  /**
    * IDs of the Owners
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field(type => [String], { description: 'Users who own the object', nullable: true })
-  @Column()
+  @Column('simple-array')
   ownerIds: string[] = [];
+
+  /**
+   * Tags for the object
+   */
+  @Field(type => [String], { description: 'Tags for the object', nullable: true })
+  @Column('simple-array')
+  tags: string[] = [];
 
   /**
    * Updated date

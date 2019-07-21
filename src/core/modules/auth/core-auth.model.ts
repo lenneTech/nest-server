@@ -4,7 +4,7 @@ import { Field, ObjectType } from 'type-graphql';
  * CoreAuth model for the response after the sign in
  */
 @ObjectType({ description: 'CoreAuth', isAbstract: true })
-export class CoreAuth {
+export class CoreAuthModel {
 
   // ===================================================================================================================
   // Properties
