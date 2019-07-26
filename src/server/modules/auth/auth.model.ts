@@ -1,12 +1,12 @@
 import { Field, ObjectType } from 'type-graphql';
-import { CoreAuth } from '../../../core/modules/auth/core-auth.model';
+import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model';
 import { User } from '../user/user.model';
 
 /**
- * CoreAuth model for the response after the sign in
+ * CoreAuthModel model for the response after the sign in
  */
 @ObjectType({ description: 'Auth' })
-export class Auth extends CoreAuth {
+export class Auth extends CoreAuthModel {
 
   // ===================================================================================================================
   // Properties

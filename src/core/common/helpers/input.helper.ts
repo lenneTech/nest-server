@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { plainToClass } from 'class-transformer';
 import { validate } from 'class-validator';
+import * as _ from 'lodash';
 import { checkRestricted } from '../decorators/restricted.decorator';
 
 /**
@@ -38,5 +39,17 @@ export class InputHelper {
   public static isBasicType(metatype: any): boolean {
     const types = [String, Boolean, Number, Array, Object, Buffer, ArrayBuffer];
     return types.includes(metatype);
+  }
+
+  /**
+   * Map values into specific type
+   */
+  public static map<T>(values: Partial<T>, ctor: new () => T, cloneDeep = true): T {
+    const instance = new ctor();
+
+    return Object.keys(instance).reduce((acc, key) => {
+      acc[key] = cloneDeep ? _.cloneDeep(values[key]) : values[key];
+      return acc;
+    }, {}) as T;
   }
 }

@@ -7,7 +7,7 @@ import { CorePersistenceModel } from '../../common/models/core-persistence.model
  * User model
  */
 @ObjectType({ description: 'User', isAbstract: true })
-export abstract class CoreUser extends CorePersistenceModel {
+export abstract class CoreUserModel extends CorePersistenceModel {
 
   // ===================================================================================================================
   // Properties
@@ -49,7 +49,7 @@ export abstract class CoreUser extends CorePersistenceModel {
    */
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  @Column()
+  @Column('simple-array')
   roles: string[] = [];
 
   /**
