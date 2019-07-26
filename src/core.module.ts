@@ -1,11 +1,11 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Module, Scope } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Config } from './core/common/helpers/config.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
-import { CheckInputPipe } from './core/common/pipes/check-input-pipe.service';
+import { CheckInputPipe } from './core/common/pipes/check-input.pipe';
 import { ConfigService } from './core/common/services/config.service';
 
 /**
@@ -74,6 +74,7 @@ export class CoreModule {
       // in relation to the current user
       {
         provide: APP_PIPE,
+        scope: Scope.REQUEST,
         useClass: CheckInputPipe,
       },
     ];

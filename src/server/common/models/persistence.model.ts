@@ -1,9 +1,7 @@
 import { Field, ObjectType } from 'type-graphql';
 import { Column } from 'typeorm';
-import { JoinColumn } from 'typeorm/decorator/relations/JoinColumn';
-import { OneToOne } from 'typeorm/decorator/relations/OneToOne';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
-import { User } from '../../modules/user/user.model';
+import { Editor } from './editor.model';
 
 /**
  * Metadata for persistent objects
@@ -14,39 +12,23 @@ import { User } from '../../modules/user/user.model';
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-export class PersistenceModel extends CorePersistenceModel {
+export abstract class PersistenceModel extends CorePersistenceModel {
 
   /**
-   * User who created the object
+   * Editor who created the object
    *
    * Not set when created by system
    */
-  @Field(type => User, { description: 'User who created the object', nullable: true })
-  @OneToOne(type => User)
-  @JoinColumn()
-  createdBy?: User;
+  @Field(type => Editor, { description: 'Editor who created the object', nullable: true })
+  @Column('varchar')
+  createdBy?: string | Editor;
 
   /**
-   * Labels of the object
-   */
-  @Field(type => [String], { description: 'Labels of the object', nullable: true })
-  @Column()
-  labels: string[] = [];
-
-  /**
-   * Tags for the object
-   */
-  @Field(type => [String], { description: 'Tags for the object', nullable: true })
-  @Column()
-  tags: string[] = [];
-
-  /**
-   * User who last updated the object
+   * Editor who last updated the object
    *
    * Not set when updated by system
    */
-  @Field(type => User, { description: 'User who last updated the object', nullable: true })
-  @OneToOne(type => User)
-  @JoinColumn()
-  updatedBy?: User;
+  @Field(type => Editor, { description: 'Editor who last updated the object', nullable: true })
+  @Column('varchar')
+  updatedBy?: string | Editor;
 }

@@ -45,6 +45,27 @@ The javascript `Date` as string. Type represents date and time as the ISO Date s
 """
 scalar DateTime
 
+"""Editor"""
+type Editor {
+  """ID of the editor"""
+  id: ID!
+
+  """Email of the editor"""
+  email: String
+
+  """First name of the editor"""
+  firstName: String
+
+  """Last name of the editor"""
+  lastName: String
+
+  """Username of the editor"""
+  username: String
+
+  """URL to avatar file of the editor"""
+  avatar: String
+}
+
 """
 Input for filtering. The `singleFilter` will be ignored if the `combinedFilter` is set.
 """
@@ -155,8 +176,14 @@ type User {
   """Created date"""
   createdAt: DateTime
 
+  """Labels of the object"""
+  labels: [String!]
+
   """Users who own the object"""
   ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
 
   """Updated date"""
   updatedAt: DateTime
@@ -179,17 +206,11 @@ type User {
   """URL to avatar file of the user"""
   avatar: String
 
-  """User who created the object"""
-  createdBy: User
+  """ID of the user who created the object"""
+  createdBy: Editor
 
-  """Labels of the object"""
-  labels: [String!]
-
-  """Tags for the object"""
-  tags: [String!]
-
-  """User who last updated the object"""
-  updatedBy: User
+  """ID of the user who last updated the object"""
+  updatedBy: Editor
 }
 
 """User input to create a new user"""

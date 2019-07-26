@@ -21,6 +21,7 @@ export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/context.helper';
 export * from './core/common/helpers/file.helper';
 export * from './core/common/helpers/filter.helper';
+export * from './core/common/helpers/graphql.helper';
 export * from './core/common/helpers/input.helper';
 export * from './core/common/inputs/combined-filter.input';
 export * from './core/common/inputs/filter.input';
@@ -28,8 +29,9 @@ export * from './core/common/inputs/single-filter.input';
 export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interfaces/server-options.interface';
+export * from './core/common/models/core-editor.model';
 export * from './core/common/models/core-persistence.model';
-export * from './core/common/pipes/check-input-pipe.service';
+export * from './core/common/pipes/check-input.pipe';
 export * from './core/common/scalars/any.scalar';
 export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/json.scalar';
@@ -57,6 +59,7 @@ export * from './core/modules/auth/jwt.strategy';
 export * from './core/modules/user/inputs/core-user.input';
 export * from './core/modules/user/inputs/core-user-create.input';
 export * from './core/modules/user/core-user.model';
+export * from './core/modules/user/core-basic-user.service';
 export * from './core/modules/user/core-user.service';
 
 // =====================================================================================================================
