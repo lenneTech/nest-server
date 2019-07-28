@@ -26,7 +26,7 @@ export class TemplateService {
    * @param filePath Directory names (separated via '/' if template is in subdirectory) + name of the template file without extension
    * @param templateData Data to render into template
    */
-  public async renderTemplate(filePath: string, templateData: any): Promise<string> {
+  public async renderTemplate(filePath: string, templateData: {[key: string]: any}): Promise<string> {
     const template = await this.getTemplate(filePath);
     return template(templateData);
   }
