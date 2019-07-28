@@ -14,7 +14,7 @@ export class Filter {
   /**
    * Convert GraphQL filter input to Mongoose
    */
-  public static convertFilterInput(filter?: FilterInput, config?: {dbType: string}) {
+  public static convertFilterInput(filter?: FilterInput, config?: {dbType?: string}) {
 
     // Check filter
     if (!filter) {
@@ -104,7 +104,7 @@ export class Filter {
   /**
    * Generate FindManyOptions form FilterArgs
    */
-  public static generateFilterOptions(filterArgs: FilterArgs, config?: {dbType: string}): FindManyOptions {
+  public static generateFilterOptions(filterArgs: FilterArgs, config?: {dbType?: string}): FindManyOptions {
 
     // Check filterArgs
     if (!filterArgs) {

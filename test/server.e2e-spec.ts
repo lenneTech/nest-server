@@ -56,6 +56,7 @@ describe('ServerModule (e2e)', () => {
         input: {
           email: gEmail,
           password: gPassword,
+          firstName: 'Everardo',
         },
       },
       fields: ['id', 'email'],

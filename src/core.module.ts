@@ -7,6 +7,8 @@ import { CheckResponseInterceptor } from './core/common/interceptors/check-respo
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { CheckInputPipe } from './core/common/pipes/check-input.pipe';
 import { ConfigService } from './core/common/services/config.service';
+import { EmailService } from './core/common/services/email.service';
+import { TemplateService } from './core/common/services/template.service';
 
 /**
  * Core module (dynamic)
@@ -77,6 +79,9 @@ export class CoreModule {
         scope: Scope.REQUEST,
         useClass: CheckInputPipe,
       },
+
+      // Core Services
+      EmailService, TemplateService,
     ];
 
     // Return dynamic module
@@ -87,7 +92,7 @@ export class CoreModule {
         GraphQLModule.forRoot(options.graphQl),
       ],
       providers,
-      exports: [ConfigService, GraphQLModule, TypeOrmModule],
+      exports: [ConfigService, EmailService, GraphQLModule, TemplateService, TypeOrmModule],
     };
   }
 }
