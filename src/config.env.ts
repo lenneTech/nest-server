@@ -68,13 +68,16 @@ const config: { [env: string]: Partial<IServerOptions> } = {
       },
     },
     env: 'productive',
-    port: 3000,
     jwt: {
       secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
+    port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
       options: { prefix: '/public/' },
+    },
+    templates: {
+      path: join(__dirname, 'templates'),
     },
     typeOrm: {
       type: 'mongodb',

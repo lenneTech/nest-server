@@ -5,8 +5,9 @@
     "ts"
   ],
   "rootDir": ".",
+  "collectCoverageFrom": ["src/**/*.{ts,js}"],
   "testEnvironment": "node",
-  "testRegex": ".e2e-spec.ts$",
+  "testRegex": "tests/.*.e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   }
