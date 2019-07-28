@@ -3,6 +3,7 @@ import * as nodemailer from 'nodemailer';
 import { Attachment } from 'nodemailer/lib/mailer';
 import { InputHelper } from '../../common/helpers/input.helper';
 import { ConfigService } from './config.service';
+import { TemplateService } from './template.service';
 
 /**
  * Email service
@@ -13,7 +14,7 @@ export class EmailService {
   /**
    * Inject services
    */
-  constructor(protected configService: ConfigService) {}
+  constructor(protected configService: ConfigService, protected templateService: TemplateService) {}
 
   /**
    * Send a mail
@@ -24,24 +25,40 @@ export class EmailService {
     config: {
       attachments?: Attachment[],
       html?: string,
+      htmlTemplate?: string,
       senderEmail?: string,
       senderName?: string,
       text?: string,
+      textTemplate?: string,
+      templateData?: {[key: string]: any}
     },
   ): Promise<any> {
 
     // Process config
-    const { text, html, attachments, senderName, senderEmail } = {
+    const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {
       senderEmail: this.configService.get('email.defaultSender.email'),
       senderName: this.configService.get('email.defaultSender.name'),
       ...config,
     };
+
+    let html = config.html;
+    let text = config.text;
 
     // Check parameter
     InputHelper.isTrue(recipients);
     InputHelper.isNonEmptyString(subject);
     InputHelper.isNonEmptyString(senderName);
     InputHelper.isNonEmptyString(senderEmail);
+
+    // Process text template
+    if (htmlTemplate) {
+      html = await this.templateService.renderTemplate(htmlTemplate, templateData);
+    }
+
+    // Process text template
+    if (textTemplate) {
+      text = await this.templateService.renderTemplate(textTemplate, templateData);
+    }
 
     // Check if at lest one of text or html is set
     if (!InputHelper.isNonEmptyString(html, InputHelper.returnFalse)) {
