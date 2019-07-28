@@ -28,9 +28,9 @@ export class EmailService {
       htmlTemplate?: string,
       senderEmail?: string,
       senderName?: string,
+      templateData?: {[key: string]: any},
       text?: string,
       textTemplate?: string,
-      templateData?: {[key: string]: any}
     },
   ): Promise<any> {
 
