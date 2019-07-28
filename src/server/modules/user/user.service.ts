@@ -61,11 +61,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Create new user and send welcome email
    */
   async create(input: UserCreateInput, currentUser?: User, ...args: any[]): Promise<User> {
-    const user = await super.create(input, currentUser);
-    const text = `Welcome ${user.firstName}, this is plain text from server.`;
-    const html = await this.templateService.renderTemplate('welcome', user);
-    await this.emailService.sendMail(user.email, 'Welcome', {text, html});
-    return user;
+      const user = await super.create(input, currentUser);
+      const text = `Welcome ${user.firstName}, this is plain text from server.`;
+      await this.emailService.sendMail(user.email, 'Welcome', {htmlTemplate: 'welcome', templateData: user, text});
+      return user;
   }
 
   /**
