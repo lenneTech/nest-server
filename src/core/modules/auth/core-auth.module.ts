@@ -32,8 +32,6 @@ export class CoreAuthModule {
         JwtModule.register(options.jwt),
       ],
       providers: [
-        CoreAuthService, JwtStrategy,
-
         // [Global] The GraphQLAuthGard integrates the user into context
         {
           provide: APP_GUARD,
@@ -47,6 +45,9 @@ export class CoreAuthModule {
           provide: CoreAuthUserService,
           useClass: UserService,
         },
+
+        // Standard services
+        CoreAuthService, JwtStrategy,
       ],
       exports: [ConfigService, CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule],
     };
