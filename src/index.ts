@@ -36,6 +36,8 @@ export * from './core/common/scalars/any.scalar';
 export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/json.scalar';
 export * from './core/common/services/config.service';
+export * from './core/common/services/email.service';
+export * from './core/common/services/template.service';
 
 // =====================================================================================================================
 // Core - Modules - Auth

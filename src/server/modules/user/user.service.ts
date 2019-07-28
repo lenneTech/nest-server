@@ -5,11 +5,14 @@ import * as fs from 'fs';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoRepository } from 'typeorm';
-import { Filter, FilterArgs } from '../../..';
 import envConfig from '../../../config.env';
+import { FilterArgs } from '../../../core/common/args/filter.args';
+import { Filter } from '../../../core/common/helpers/filter.helper';
 import { GraphQLHelper } from '../../../core/common/helpers/graphql.helper';
 import { InputHelper } from '../../../core/common/helpers/input.helper';
 import { ConfigService } from '../../../core/common/services/config.service';
+import { EmailService } from '../../../core/common/services/email.service';
+import { TemplateService } from '../../../core/common/services/template.service';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
 import { Editor } from '../../common/models/editor.model';
 import { UserCreateInput } from './inputs/user-create.input';
@@ -42,7 +45,11 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Constructor for injecting services
    */
-  constructor(protected readonly configService: ConfigService) {
+  constructor(
+    protected readonly configService: ConfigService,
+    protected readonly emailService: EmailService,
+    protected readonly templateService: TemplateService,
+  ) {
     super();
   }
 
@@ -51,12 +58,23 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   // ===================================================================================================================
 
   /**
+   * Create new user and send welcome email
+   */
+  async create(input: UserCreateInput, currentUser?: User, ...args: any[]): Promise<User> {
+    const user = await super.create(input, currentUser);
+    const text = `Welcome ${user.firstName}, this is plain text from server.`;
+    const html = await this.templateService.renderTemplate('welcome', user);
+    await this.emailService.sendMail(user.email, 'Welcome', {text, html});
+    return user;
+  }
+
+  /**
    * Get users via filter
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<User[]> {
 
     // Return found users
-    return this.db.find(Filter.generateFilterOptions(filterArgs, {dbType: this.configService.get('typeOrm.type')}));
+    return this.db.find(Filter.generateFilterOptions(filterArgs, { dbType: this.configService.get('typeOrm.type') }));
   }
 
   /**

@@ -10,14 +10,32 @@ const config: { [env: string]: Partial<IServerOptions> } = {
   // Development environment
   // ===========================================================================
   development: {
+    email: {
+      smtp: {
+        auth: {
+          user: 'everardo.hansen7@ethereal.email',
+          pass: 'hP6dNm7eQn7QRTmWH2',
+        },
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+      },
+      defaultSender: {
+        email: 'everardo.hansen7@ethereal.email',
+        name: 'Everardo Hansen',
+      },
+    },
     env: 'development',
     jwt: {
-      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY',
+      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
     port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
       options: { prefix: '/public/' },
+    },
+    templates: {
+      path: join(__dirname, 'templates'),
     },
     typeOrm: {
       type: 'mongodb',
@@ -34,10 +52,25 @@ const config: { [env: string]: Partial<IServerOptions> } = {
   // Production environment
   // ===========================================================================
   production: {
+    email: {
+      smtp: {
+        auth: {
+          user: 'everardo.hansen7@ethereal.email',
+          pass: 'hP6dNm7eQn7QRTmWH2',
+        },
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+      },
+      defaultSender: {
+        email: 'everardo.hansen7@ethereal.email',
+        name: 'Everardo Hansen',
+      },
+    },
     env: 'productive',
     port: 3000,
     jwt: {
-      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY',
+      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
     staticAssets: {
       path: join(__dirname, '..', 'public'),

@@ -2,6 +2,7 @@ import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 /**
  * Options for the server
@@ -62,37 +63,24 @@ export interface IServerOptions {
   email: {
 
     /**
-     * SMTP configuration for sending emails
-     * smtps://[userOrApiKey]:[passwordOrSecretKey]@[domainOrIP]
+     * SMTP configuration for nodemailer
      */
-    smtp: {
-
-      /**
-       * Domain or IP of the SMTP server
-       */
-      domainOrIP: string,
-
-      /**
-       * Password of the SMTP user or secret key of the provider
-       */
-      passwordOrSecretKey: string,
-
-      /**
-       * Email address of the SMTP user or API key of the provider
-       * e.g. support@lenne.tech
-       */
-      userOrApiKey: string,
-    },
+    smtp: SMTPTransport | SMTPTransport.Options | string,
 
     /**
-     * Handlebar templates for emails
+     * Data for default sender
      */
-    template: {
+    defaultSender?: {
+
       /**
-       * Directory for templates
-       *  e.g. join(__dirname, '..', 'templates')
+       * Default email for sending emails
        */
-      path: string,
+      email?: string,
+
+      /**
+       * Default name for sending emails
+       */
+      name?: string,
     },
   };
 
@@ -111,6 +99,17 @@ export interface IServerOptions {
      * e.g. {prefix: '/public/'}
      */
     options?: ServeStaticOptions,
+  };
+
+  /**
+   * Templates
+   */
+  templates: {
+    /**
+     * Directory for templates
+     *  e.g. join(__dirname, '..', 'templates')
+     */
+    path: string,
   };
 
   /**

@@ -1,14 +1,12 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
-import { CoreUserCreateInput, CoreUserInput, CoreUserModel, Filter, FilterArgs } from '../../..';
+import { FilterArgs } from '../../common/args/filter.args';
+import { Filter } from '../../common/helpers/filter.helper';
 import { CoreBasicUserService } from './core-basic-user.service';
+import { CoreUserModel } from './core-user.model';
+import { CoreUserCreateInput } from './inputs/core-user-create.input';
+import { CoreUserInput } from './inputs/core-user.input';
 
 // Subscription
 const pubSub = new PubSub();
@@ -16,7 +14,6 @@ const pubSub = new PubSub();
 /**
  * User service
  */
-@Injectable()
 export abstract class CoreUserService<TUser = CoreUserModel, TUserInput = CoreUserInput, TUserCreateInput = CoreUserCreateInput>
   extends CoreBasicUserService<TUser, TUserInput, TUserCreateInput> {
 
