@@ -2,7 +2,6 @@ import { Field, ID, ObjectType } from 'type-graphql';
 
 @ObjectType({ description: 'Editor', isAbstract: true })
 export abstract class CoreEditorModel {
-
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================

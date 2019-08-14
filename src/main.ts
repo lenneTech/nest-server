@@ -7,10 +7,8 @@ import { ServerModule } from './server.module';
  * Preparations for server start
  */
 async function bootstrap() {
-
   // Create a new server based on fastify
   const server = await NestFactory.create<NestExpressApplication>(
-
     // Include server module, with all necessary modules for the project
     ServerModule,
   );

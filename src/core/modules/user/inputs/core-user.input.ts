@@ -9,7 +9,6 @@ import { RoleEnum } from '../../../common/enums/role.enum';
  */
 @InputType({ description: 'User input', isAbstract: true })
 export abstract class CoreUserInput {
-
   /**
    * Email of the user
    */

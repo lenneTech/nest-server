@@ -4,7 +4,6 @@ import { registerEnumType } from 'type-graphql';
  * Logical operators
  */
 export enum ComparisonOperatorEnum {
-
   // Equals
   EQ = 'EQ',
 
@@ -36,5 +35,6 @@ export enum ComparisonOperatorEnum {
 // Register LogicalOperatorEnum enum in TypeGraphQL
 registerEnumType(ComparisonOperatorEnum, {
   name: 'ComparisonOperatorEnum',
-  description: '[Comparison Operators](https://docs.mongodb.com/manual/reference/operator/query-comparison/) for filters',
+  description:
+    '[Comparison Operators](https://docs.mongodb.com/manual/reference/operator/query-comparison/) for filters',
 });

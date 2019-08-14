@@ -6,7 +6,6 @@ import { CoreEditorModel } from '../../../core/common/models/core-editor.model';
  */
 @ObjectType({ description: 'Editor' })
 export class Editor extends CoreEditorModel {
-
   /**
    * URL to avatar file of the user
    */

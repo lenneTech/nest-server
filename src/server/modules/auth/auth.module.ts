@@ -10,7 +10,6 @@ import { AuthResolver } from './auth.resolver';
  */
 @Module({})
 export class AuthModule {
-
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
@@ -18,9 +17,7 @@ export class AuthModule {
   static forRoot(options: Partial<IServerOptions>): DynamicModule {
     return {
       module: AuthModule,
-      imports: [
-        CoreAuthModule.forRoot(UserModule, UserService, options),
-      ],
+      imports: [CoreAuthModule.forRoot(UserModule, UserService, options)],
       providers: [AuthResolver],
       exports: [AuthResolver, CoreAuthModule],
     };

@@ -5,7 +5,6 @@ import { IServerOptions } from '../interfaces/server-options.interface';
  * Config service
  */
 export class ConfigService {
-
   /**
    * Configuration on startup
    */

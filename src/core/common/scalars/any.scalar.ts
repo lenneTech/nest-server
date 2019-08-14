@@ -6,7 +6,6 @@ import { Kind, ValueNode } from 'graphql';
  */
 @Scalar('Any', type => Any)
 export class Any implements CustomScalar<string, any> {
-
   /**
    * Description of the scalar
    */

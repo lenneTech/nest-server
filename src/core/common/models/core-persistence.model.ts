@@ -13,7 +13,6 @@ import { RoleEnum } from '../enums/role.enum';
   isAbstract: true,
 })
 export abstract class CorePersistenceModel {
-
   // ===========================================================================
   // Properties
   //
@@ -23,7 +22,10 @@ export abstract class CorePersistenceModel {
   /**
    * ID of the persistence object
    */
-  @Field(type => ID, { description: 'ID of the persistence object', nullable: true })
+  @Field(type => ID, {
+    description: 'ID of the persistence object',
+    nullable: true,
+  })
   @ObjectIdColumn()
   id: string;
 
@@ -37,7 +39,10 @@ export abstract class CorePersistenceModel {
   /**
    * Labels of the object
    */
-  @Field(type => [String], { description: 'Labels of the object', nullable: true })
+  @Field(type => [String], {
+    description: 'Labels of the object',
+    nullable: true,
+  })
   @Column('simple-array')
   labels: string[] = [];
 
@@ -45,14 +50,20 @@ export abstract class CorePersistenceModel {
    * IDs of the Owners
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field(type => [String], { description: 'Users who own the object', nullable: true })
+  @Field(type => [String], {
+    description: 'Users who own the object',
+    nullable: true,
+  })
   @Column('simple-array')
   ownerIds: string[] = [];
 
   /**
    * Tags for the object
    */
-  @Field(type => [String], { description: 'Tags for the object', nullable: true })
+  @Field(type => [String], {
+    description: 'Tags for the object',
+    nullable: true,
+  })
   @Column('simple-array')
   tags: string[] = [];
 

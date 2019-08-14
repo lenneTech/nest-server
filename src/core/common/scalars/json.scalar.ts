@@ -6,11 +6,11 @@ import { Kind, ValueNode } from 'graphql';
  */
 @Scalar('JSON', type => JSON)
 export class JSON implements CustomScalar<string, any> {
-
   /**
    * Description of the scalar
    */
-  description = 'JSON scalar type. Information on the exact schema of the JSON object is contained in the description of the field.';
+  description =
+    'JSON scalar type. Information on the exact schema of the JSON object is contained in the description of the field.';
 
   /**
    * Parse value from the client input variables

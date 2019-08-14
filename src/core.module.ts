@@ -22,43 +22,45 @@ import { TemplateService } from './core/common/services/template.service';
  */
 @Module({})
 export class CoreModule {
-
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
   static forRoot(options: Partial<IServerOptions>): DynamicModule {
-
     // Process config
-    options = Config.merge({
-      env: 'develop',
-      graphQl: {
-        autoSchemaFile: 'schema.gql',
-        context: ({ req }) => ({ req }),
-        installSubscriptionHandlers: true,
-      },
-      port: 3000,
-      typeOrm: {
-        type: 'mongodb',
-        host: 'localhost',
-        port: 27017,
-        database: 'develop',
-        authSource: 'admin',
-        synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
-        entities: [],
-        useNewUrlParser: true,
-      },
-      typeOrmModelIntegration: true,
-    } as IServerOptions, options);
+    options = Config.merge(
+      {
+        env: 'develop',
+        graphQl: {
+          autoSchemaFile: 'schema.gql',
+          context: ({ req }) => ({ req }),
+          installSubscriptionHandlers: true,
+        },
+        port: 3000,
+        typeOrm: {
+          type: 'mongodb',
+          host: 'localhost',
+          port: 27017,
+          database: 'develop',
+          authSource: 'admin',
+          synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
+          entities: [],
+          useNewUrlParser: true,
+        },
+        typeOrmModelIntegration: true,
+      } as IServerOptions,
+      options,
+    );
 
     // Add models for TypeORM
     if (options.typeOrmModelIntegration) {
-      options.typeOrm.entities.push(__dirname + '/core/**/*.{entity,model}.{ts,js}');
+      options.typeOrm.entities.push(
+        __dirname + '/core/**/*.{entity,model}.{ts,js}',
+      );
     }
 
     // Set providers
     const providers = [
-
       // The ConfigService provides access to the current configuration of the module
       {
         provide: ConfigService,
@@ -81,7 +83,8 @@ export class CoreModule {
       },
 
       // Core Services
-      EmailService, TemplateService,
+      EmailService,
+      TemplateService,
     ];
 
     // Return dynamic module
@@ -92,7 +95,13 @@ export class CoreModule {
         GraphQLModule.forRoot(options.graphQl),
       ],
       providers,
-      exports: [ConfigService, EmailService, GraphQLModule, TemplateService, TypeOrmModule],
+      exports: [
+        ConfigService,
+        EmailService,
+        GraphQLModule,
+        TemplateService,
+        TypeOrmModule,
+      ],
     };
   }
 }

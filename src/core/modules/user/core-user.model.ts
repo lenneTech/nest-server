@@ -8,7 +8,6 @@ import { CorePersistenceModel } from '../../common/models/core-persistence.model
  */
 @ObjectType({ description: 'User', isAbstract: true })
 export abstract class CoreUserModel extends CorePersistenceModel {
-
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
@@ -74,7 +73,9 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles || roles.length < 1 ? true : this.roles.some((role) => roles.includes(role));
+    return !roles || roles.length < 1
+      ? true
+      : this.roles.some(role => roles.includes(role));
   }
 
   /**
@@ -87,7 +88,6 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles ? true : roles.every((role) => this.roles.includes(role));
+    return !roles ? true : roles.every(role => this.roles.includes(role));
   }
-
 }

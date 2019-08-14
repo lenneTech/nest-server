@@ -5,12 +5,12 @@ import { GqlExecutionContext } from '@nestjs/graphql';
  * Helper for context processing
  */
 export class Context {
-
   /**
    * Get data from Context
    */
-  public static getData(context: ExecutionContext): { currentUser: { [key: string]: any }, args: any } {
-
+  public static getData(
+    context: ExecutionContext,
+  ): { currentUser: { [key: string]: any }; args: any } {
     // Check context
     if (!context) {
       return { currentUser: null, args: null };
@@ -23,7 +23,6 @@ export class Context {
 
     // Get data
     if (ctx) {
-
       // User from GraphQL context
       user = ctx.user;
     } else {

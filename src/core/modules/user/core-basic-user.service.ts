@@ -1,4 +1,8 @@
-import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  InternalServerErrorException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
@@ -13,8 +17,11 @@ const pubSub = new PubSub();
 /**
  * User service
  */
-export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = CoreUserInput, TUserCreateInput = CoreUserCreateInput> {
-
+export abstract class CoreBasicUserService<
+  TUser = CoreUserModel,
+  TUserInput = CoreUserInput,
+  TUserCreateInput = CoreUserCreateInput
+> {
   /**
    * User repository
    */
@@ -24,7 +31,6 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
    * Create user
    */
   async create(input: TUserCreateInput, ...args: any[]): Promise<TUser> {
-
     // Prepare input
     if ((input as any).password) {
       (input as any).password = await bcrypt.hash((input as any).password, 10);
@@ -34,7 +40,6 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
     const createdUser = this.db.create(input);
 
     try {
-
       // Save created user
       let savedUser = await this.db.save(createdUser);
       if (!savedUser) {
@@ -47,10 +52,11 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
       if (!savedUser) {
         throw new InternalServerErrorException();
       }
-
     } catch (error) {
       if (error.code === 11000) {
-        throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
+        throw new UnprocessableEntityException(
+          `User with email address "${(input as any).email}" already exists`,
+        );
       } else {
         throw new UnprocessableEntityException();
       }
@@ -89,7 +95,6 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
    * Get users via filter
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
-
     // Return found users
     return this.db.find(Filter.generateFilterOptions(filterArgs));
   }
@@ -98,7 +103,6 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
    * Get user via ID
    */
   async update(id: string, input: TUserInput, ...args: any[]): Promise<TUser> {
-
     // Check if user exists
     const user = await this.db.findOne(id);
     if (!user) {
@@ -121,7 +125,6 @@ export abstract class CoreBasicUserService<TUser = CoreUserModel, TUserInput = C
    * Delete user via ID
    */
   async delete(id: string, ...args: any[]): Promise<TUser> {
-
     // Search user
     const user = await this.db.findOne(id);
 
