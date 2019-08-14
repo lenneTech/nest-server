@@ -7,7 +7,6 @@ import { JSON } from '../scalars/json.scalar';
  */
 @InputType({ description: 'Input for a configuration of a filter' })
 export class SingleFilterInput {
-
   /**
    * Name of the property to be used for the filter'
    */
@@ -18,7 +17,8 @@ export class SingleFilterInput {
    * [Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)
    */
   @Field({
-    description: '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
+    description:
+      '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
     nullable: true,
   })
   not?: boolean;
@@ -26,10 +26,10 @@ export class SingleFilterInput {
   /**
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
-  @Field(
-    type => ComparisonOperatorEnum,
-    { description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)' },
-  )
+  @Field(type => ComparisonOperatorEnum, {
+    description:
+      '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
+  })
   operator: ComparisonOperatorEnum;
 
   /**
@@ -37,7 +37,8 @@ export class SingleFilterInput {
    * [REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator
    */
   @Field({
-    description: '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
+    description:
+      '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
       '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
     nullable: true,
   })

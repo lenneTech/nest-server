@@ -10,19 +10,20 @@ import { SortInput } from '../inputs/sort.input';
  * Helper for filter handling
  */
 export class Filter {
-
   /**
    * Convert GraphQL filter input to Mongoose
    */
-  public static convertFilterInput(filter?: FilterInput, config?: {dbType?: string}) {
-
+  public static convertFilterInput(
+    filter?: FilterInput,
+    config?: { dbType?: string },
+  ) {
     // Check filter
     if (!filter) {
       return undefined;
     }
 
     // Configuration
-    config = Object.assign({dbType: 'mongodb'}, config);
+    config = Object.assign({ dbType: 'mongodb' }, config);
 
     // Init result
     const result: any = {};
@@ -31,17 +32,28 @@ export class Filter {
     if (filter.combinedFilter) {
       switch (filter.combinedFilter.logicalOperator) {
         case LogicalOperatorEnum.AND:
-          return { $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)) };
+          return {
+            $and: filter.combinedFilter.filters.map((item: FilterInput) =>
+              Filter.convertFilterInput(item),
+            ),
+          };
         case LogicalOperatorEnum.NOR:
-          return { $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)) };
+          return {
+            $nor: filter.combinedFilter.filters.map((item: FilterInput) =>
+              Filter.convertFilterInput(item),
+            ),
+          };
         case LogicalOperatorEnum.OR:
-          return { $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)) };
+          return {
+            $or: filter.combinedFilter.filters.map((item: FilterInput) =>
+              Filter.convertFilterInput(item),
+            ),
+          };
       }
     }
 
     // Process single filter
     if (filter.singleFilter) {
-
       // Init variables
       const { not, options } = filter.singleFilter;
       let { field, value } = filter.singleFilter;
@@ -87,12 +99,14 @@ export class Filter {
           result[field] = not ? { $in: value } : { $nin: value };
           break;
         case ComparisonOperatorEnum.REGEX:
-          result[field] = not ? {
-            $not: {
-              $regex: new RegExp(value),
-              $options: options || '',
-            },
-          } : { $regex: new RegExp(value), $options: options || '' };
+          result[field] = not
+            ? {
+                $not: {
+                  $regex: new RegExp(value),
+                  $options: options || '',
+                },
+              }
+            : { $regex: new RegExp(value), $options: options || '' };
           break;
       }
     }
@@ -104,15 +118,17 @@ export class Filter {
   /**
    * Generate FindManyOptions form FilterArgs
    */
-  public static generateFilterOptions(filterArgs: FilterArgs, config?: {dbType?: string}): FindManyOptions {
-
+  public static generateFilterOptions(
+    filterArgs: FilterArgs,
+    config?: { dbType?: string },
+  ): FindManyOptions {
     // Check filterArgs
     if (!filterArgs) {
       return {};
     }
 
     // Configuration
-    config = Object.assign({dbType: 'mongodb'}, config);
+    config = Object.assign({ dbType: 'mongodb' }, config);
 
     // Get values
     const { filter, take, skip, sort } = filterArgs;
@@ -140,5 +156,4 @@ export class Filter {
 
     return options;
   }
-
 }

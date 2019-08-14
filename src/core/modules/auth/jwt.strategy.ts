@@ -10,7 +10,6 @@ import { CoreAuthService } from './services/core-auth.service';
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-
   /**
    * Init JWT strategy
    */

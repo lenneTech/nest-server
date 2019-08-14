@@ -7,12 +7,14 @@ import { Auth } from './auth.model';
  */
 @Resolver(of => Auth)
 export class AuthResolver extends CoreAuthResolver {
-
   /**
    * Get user via ID
    */
   @Query(returns => Auth, { description: 'Get JWT token' })
-  async signIn(@Args('email') email: string, @Args('password') password: string): Promise<Auth> {
-    return await this.authService.signIn(email, password) as Auth;
+  async signIn(
+    @Args('email') email: string,
+    @Args('password') password: string,
+  ): Promise<Auth> {
+    return (await this.authService.signIn(email, password)) as Auth;
   }
 }

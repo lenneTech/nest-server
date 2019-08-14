@@ -8,7 +8,6 @@ import { CoreAuthService } from './services/core-auth.service';
  */
 @Resolver(of => CoreAuthModel, { isAbstract: true })
 export class CoreAuthResolver {
-
   /**
    * Import services
    */
@@ -22,7 +21,10 @@ export class CoreAuthResolver {
    * Get user via ID
    */
   @Query(returns => CoreAuthModel, { description: 'Get JWT token' })
-  async signIn(@Args('email') email: string, @Args('password') password: string): Promise<CoreAuthModel> {
+  async signIn(
+    @Args('email') email: string,
+    @Args('password') password: string,
+  ): Promise<CoreAuthModel> {
     return await this.authService.signIn(email, password);
   }
 }

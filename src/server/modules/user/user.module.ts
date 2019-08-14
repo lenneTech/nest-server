@@ -23,9 +23,20 @@ import { UserService } from './user.service';
     },
 
     // Standard services
-    EmailService, TemplateService, JSON, UserResolver, UserService,
+    EmailService,
+    TemplateService,
+    JSON,
+    UserResolver,
+    UserService,
   ],
-  exports: [ConfigService, EmailService, TemplateService, JSON, TypeOrmModule, UserResolver, UserService],
+  exports: [
+    ConfigService,
+    EmailService,
+    TemplateService,
+    JSON,
+    TypeOrmModule,
+    UserResolver,
+    UserService,
+  ],
 })
-export class UserModule {
-}
+export class UserModule {}

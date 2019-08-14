@@ -10,11 +10,13 @@ import { TemplateService } from './template.service';
  */
 @Injectable()
 export class EmailService {
-
   /**
    * Inject services
    */
-  constructor(protected configService: ConfigService, protected templateService: TemplateService) {}
+  constructor(
+    protected configService: ConfigService,
+    protected templateService: TemplateService,
+  ) {}
 
   /**
    * Send a mail
@@ -23,19 +25,25 @@ export class EmailService {
     recipients: string | string[],
     subject: string,
     config: {
-      attachments?: Attachment[],
-      html?: string,
-      htmlTemplate?: string,
-      senderEmail?: string,
-      senderName?: string,
-      templateData?: {[key: string]: any},
-      text?: string,
-      textTemplate?: string,
+      attachments?: Attachment[];
+      html?: string;
+      htmlTemplate?: string;
+      senderEmail?: string;
+      senderName?: string;
+      templateData?: { [key: string]: any };
+      text?: string;
+      textTemplate?: string;
     },
   ): Promise<any> {
-
     // Process config
-    const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {
+    const {
+      attachments,
+      htmlTemplate,
+      senderName,
+      senderEmail,
+      templateData,
+      textTemplate,
+    } = {
       senderEmail: this.configService.get('email.defaultSender.email'),
       senderName: this.configService.get('email.defaultSender.name'),
       ...config,
@@ -52,12 +60,18 @@ export class EmailService {
 
     // Process text template
     if (htmlTemplate) {
-      html = await this.templateService.renderTemplate(htmlTemplate, templateData);
+      html = await this.templateService.renderTemplate(
+        htmlTemplate,
+        templateData,
+      );
     }
 
     // Process text template
     if (textTemplate) {
-      text = await this.templateService.renderTemplate(textTemplate, templateData);
+      text = await this.templateService.renderTemplate(
+        textTemplate,
+        templateData,
+      );
     }
 
     // Check if at lest one of text or html is set
@@ -69,7 +83,9 @@ export class EmailService {
     }
 
     // Init transporter
-    const transporter = nodemailer.createTransport(this.configService.get('email.smtp'));
+    const transporter = nodemailer.createTransport(
+      this.configService.get('email.smtp'),
+    );
 
     // Send mail
     return transporter.sendMail({
