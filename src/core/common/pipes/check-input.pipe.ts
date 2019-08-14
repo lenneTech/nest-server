@@ -1,4 +1,11 @@
-import { ArgumentMetadata, BadRequestException, Inject, Injectable, PipeTransform, Scope } from '@nestjs/common';
+import {
+  ArgumentMetadata,
+  BadRequestException,
+  Inject,
+  Injectable,
+  PipeTransform,
+  Scope,
+} from '@nestjs/common';
 import { CONTEXT } from '@nestjs/graphql';
 import { plainToClass } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
@@ -11,7 +18,6 @@ import { Context } from '../helpers/context.helper';
  */
 @Injectable({ scope: Scope.REQUEST })
 export class CheckInputPipe implements PipeTransform<any> {
-
   /**
    * Constructor to inject context
    */
@@ -21,7 +27,6 @@ export class CheckInputPipe implements PipeTransform<any> {
    * Check input
    */
   async transform(value: any, { metatype }: ArgumentMetadata) {
-
     // Return value if it is only a basic type
     if (!metatype || this.isBasicType(metatype)) {
       return value;

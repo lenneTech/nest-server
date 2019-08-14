@@ -4,7 +4,6 @@ import { registerEnumType } from 'type-graphql';
  * Logical operators
  */
 export enum LogicalOperatorEnum {
-
   // The logical AND operator
   AND = 'AND',
 

@@ -18,9 +18,12 @@ export class CoreAuthService {
   /**
    * User sign in via email
    */
-  async signIn(email: string, password: string): Promise<{ token: string, user: ICoreAuthUser }> {
+  async signIn(
+    email: string,
+    password: string,
+  ): Promise<{ token: string; user: ICoreAuthUser }> {
     const user = await this.userService.getViaEmail(email);
-    if (!await bcrypt.compare(password, user.password)) {
+    if (!(await bcrypt.compare(password, user.password))) {
       throw new UnauthorizedException();
     }
     const payload: JwtPayload = { email: user.email };

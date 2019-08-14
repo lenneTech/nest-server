@@ -14,7 +14,6 @@ import { CoreAuthService } from './services/core-auth.service';
  */
 @Module({})
 export class CoreAuthModule {
-
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
@@ -47,9 +46,17 @@ export class CoreAuthModule {
         },
 
         // Standard services
-        CoreAuthService, JwtStrategy,
+        CoreAuthService,
+        JwtStrategy,
       ],
-      exports: [ConfigService, CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule],
+      exports: [
+        ConfigService,
+        CoreAuthService,
+        JwtModule,
+        JwtStrategy,
+        PassportModule,
+        UserModule,
+      ],
     };
   }
 }

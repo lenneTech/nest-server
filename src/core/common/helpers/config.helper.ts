@@ -4,7 +4,6 @@ import * as _ from 'lodash';
  * Helper class for configurations
  */
 export class Config {
-
   /**
    * Special merge function (e.g. for configurations)
    *

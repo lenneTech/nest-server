@@ -28,7 +28,6 @@ export type TestFields = string | string[] | TestFieldObject;
  * GraphQL request config
  */
 export interface TestGraphQLConfig {
-
   /**
    * GraphQL arguments
    * https://graphql.org/learn/queries/#arguments
@@ -51,7 +50,6 @@ export interface TestGraphQLConfig {
    * https://graphql.org/learn/queries
    */
   type?: TestGraphQLType;
-
 }
 
 /**
@@ -81,14 +79,19 @@ export class TestHelper {
    * @param graphql
    * @param statusCode
    */
-  async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
-
+  async graphQl(
+    graphql: string | TestGraphQLConfig,
+    options: TestGraphQLOptions = {},
+  ): Promise<any> {
     // Default options
-    options = Object.assign({
-      token: null,
-      statusCode: 200,
-      log: false,
-    }, options);
+    options = Object.assign(
+      {
+        token: null,
+        statusCode: 200,
+        log: false,
+      },
+      options,
+    );
 
     // Init vars
     const { token, statusCode, log } = options;
@@ -97,24 +100,28 @@ export class TestHelper {
     let query: string = '';
 
     // Convert string to TestGraphQLConfig
-    if ((typeof graphql === 'string' || graphql instanceof String) && /^[a-zA-Z]+$/.test(graphql as string)) {
-
+    if (
+      (typeof graphql === 'string' || graphql instanceof String) &&
+      /^[a-zA-Z]+$/.test(graphql as string)
+    ) {
       // Use input as query
       query = graphql as string;
     } else {
-
       // Use input as name
       if (typeof graphql === 'string' || graphql instanceof String) {
         graphql = { name: graphql } as any;
       }
 
       // Prepare config
-      graphql = Object.assign({
-        arguments: null,
-        fields: ['id'],
-        name: null,
-        type: TestGraphQLType.QUERY,
-      }, graphql) as TestGraphQLConfig;
+      graphql = Object.assign(
+        {
+          arguments: null,
+          fields: ['id'],
+          name: null,
+          type: TestGraphQLType.QUERY,
+        },
+        graphql,
+      ) as TestGraphQLConfig;
 
       // Init request
       const queryObj = {};
@@ -123,7 +130,8 @@ export class TestHelper {
       queryObj[graphql.type] = {};
 
       // Set request name and fields
-      queryObj[graphql.type][graphql.name] = this.prepareFields(graphql.fields) || {};
+      queryObj[graphql.type][graphql.name] =
+        this.prepareFields(graphql.fields) || {};
 
       // Set arguments
       if (graphql.arguments) {
@@ -150,8 +158,7 @@ export class TestHelper {
     let response: any;
 
     // Response of fastify
-    if (((this.app as FastifyInstance).inject)) {
-
+    if ((this.app as FastifyInstance).inject) {
       // Get response
       response = await (this.app as FastifyInstance).inject(requestConfig);
 
@@ -165,14 +172,15 @@ export class TestHelper {
       expect(response.headers['content-type']).toBe('application/json');
 
       // return data
-      return JSON.parse(response.payload).data ?
-        JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name] : JSON.parse(response.payload);
-
+      return JSON.parse(response.payload).data
+        ? JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name]
+        : JSON.parse(response.payload);
     }
 
     // Express request
-    let request = supertest((this.app as INestApplication).getHttpServer())
-      .post(requestConfig.url);
+    let request = supertest(
+      (this.app as INestApplication).getHttpServer(),
+    ).post(requestConfig.url);
     if (token) {
       request = request.set('Authorization', 'bearer ' + token);
     }
@@ -187,11 +195,12 @@ export class TestHelper {
 
     // Check data
     expect(response.statusCode).toBe(statusCode);
-    expect(response.headers['content-type']).toBe('application/json');
+    expect(response.headers['content-type']).toMatch('application/json');
 
     // return data
-    return response.body.data ?
-      response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
+    return response.body.data
+      ? response.body.data[(graphql as TestGraphQLConfig).name]
+      : response.body;
   }
 
   /**
@@ -208,7 +217,6 @@ export class TestHelper {
       // Process array
     } else if (Array.isArray(fields)) {
       for (const item of fields) {
-
         // Process string array
         if (typeof item === 'string') {
           result[item] = true;

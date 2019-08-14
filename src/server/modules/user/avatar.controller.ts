@@ -14,7 +14,6 @@ import { UserService } from './user.service';
  */
 @Controller('avatar')
 export class AvatarController {
-
   /**
    * Import services
    */
@@ -25,11 +24,18 @@ export class AvatarController {
    */
   @Roles(RoleEnum.USER)
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file',
-    FileHelper.multerOptionsForImageUpload({
-      destination: envConfig.staticAssets.path + '/avatars',
-    })))
-  uploadFile(@UploadedFile() file: Express.Multer.File, @RESTUser() user: User): Promise<string> {
+  @UseInterceptors(
+    FileInterceptor(
+      'file',
+      FileHelper.multerOptionsForImageUpload({
+        destination: envConfig.staticAssets.path + '/avatars',
+      }),
+    ),
+  )
+  uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @RESTUser() user: User,
+  ): Promise<string> {
     return this.usersService.setAvatar(file, user);
   }
 }

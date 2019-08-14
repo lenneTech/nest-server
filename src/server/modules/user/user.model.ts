@@ -10,7 +10,6 @@ import { PersistenceModel } from '../../common/models/persistence.model';
 @Entity()
 @ObjectType({ description: 'User' })
 export class User extends CoreUserModel implements PersistenceModel {
-
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
@@ -27,7 +26,10 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when created by system
    */
-  @Field(type => Editor, { description: 'ID of the user who created the object', nullable: true })
+  @Field(type => Editor, {
+    description: 'ID of the user who created the object',
+    nullable: true,
+  })
   @Column('varchar')
   createdBy: string | Editor;
 
@@ -36,7 +38,10 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when updated by system
    */
-  @Field(type => Editor, { description: 'ID of the user who last updated the object', nullable: true })
+  @Field(type => Editor, {
+    description: 'ID of the user who last updated the object',
+    nullable: true,
+  })
   @Column('varchar')
   updatedBy: string | Editor;
 }

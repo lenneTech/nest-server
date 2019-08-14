@@ -6,7 +6,7 @@
   },
   "rules": {
     "ban-types": false,
-    "quotemark": [true, "single"],
+    "quotemark": [true, "single", "avoid-escape"],
     "member-access": [false],
     "ordered-imports": [false],
     "max-line-length": [true, 150],

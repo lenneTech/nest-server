@@ -1,4 +1,11 @@
-import { CanActivate, ExecutionContext, Logger, mixin, Optional, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Logger,
+  mixin,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
@@ -7,8 +14,9 @@ import * as passport from 'passport';
 /**
  * Missing strategy error
  */
-const NO_STRATEGY_ERROR = 'In order to use "defaultStrategy", please, ensure to import PassportModule in each ' +
-  'place where AuthGuard() is being used. Otherwise, passport won\'t work correctly.';
+const NO_STRATEGY_ERROR =
+  'In order to use "defaultStrategy", please, ensure to import PassportModule in each ' +
+  "place where AuthGuard() is being used. Otherwise, passport won't work correctly.";
 
 /**
  * Interface for auth guard
@@ -47,7 +55,6 @@ const createPassportContext = (request, response) => (
  */
 function createAuthGuard(type?: string): Type<CanActivate> {
   class MixinAuthGuard<TUser = any> {
-
     /**
      * Integrate options
      */
@@ -71,7 +78,8 @@ function createAuthGuard(type?: string): Type<CanActivate> {
       const user = await passportFn(
         type || this.options.defaultStrategy,
         options,
-        (err, currentUser, info) => this.handleRequest(err, currentUser, info, context),
+        (err, currentUser, info) =>
+          this.handleRequest(err, currentUser, info, context),
       );
       request[options.property || defaultOptions.property] = user;
       return true;
@@ -81,7 +89,9 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Prepare request
      */
     getRequest<T = any>(context: ExecutionContext): T {
-      return context && context.switchToHttp() ? context.switchToHttp().getRequest() : null;
+      return context && context.switchToHttp()
+        ? context.switchToHttp().getRequest()
+        : null;
     }
 
     /**

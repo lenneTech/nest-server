@@ -11,10 +11,8 @@ import { FileController } from './server/modules/file/file.controller';
  * for the project API
  */
 @Module({
-
   // Include modules
   imports: [
-
     // Include CoreModule for standard processes
     CoreModule.forRoot(envConfig),
 

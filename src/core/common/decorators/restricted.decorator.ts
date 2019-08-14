@@ -30,10 +30,9 @@ export const getRestricted = (object: any, propertyKey: string) => {
  */
 export const checkRestricted = (
   data: any,
-  user: { id: any, hasRole: (roles: string[]) => boolean },
+  user: { id: any; hasRole: (roles: string[]) => boolean },
   processedObjects: any[] = [],
 ) => {
-
   // Primitives
   if (!data || typeof data !== 'object') {
     return data;
@@ -47,46 +46,51 @@ export const checkRestricted = (
 
   // Array
   if (Array.isArray(data)) {
-
     // Check array items
-    return data.map((item) => checkRestricted(item, user, processedObjects));
+    return data.map(item => checkRestricted(item, user, processedObjects));
   }
 
   // Object
   for (const propertyKey of Object.keys(data)) {
-
     // Get roles
     const roles = getRestricted(data, propertyKey);
 
     // If roles are specified
-    if (roles && roles.some((value) => !!value)) {
-
+    if (roles && roles.some(value => !!value)) {
       // Check user and user roles
       if (!user || !user.hasRole(roles)) {
-
         // Check special role for owner
         if (user && roles.includes(RoleEnum.OWNER)) {
-
           const userId = user.id.toString();
 
-          if (!data.ownerIds || !(data.ownerIds === userId || (Array.isArray(data.ownerIds) && data.ownerIds.some(
-            (item) => item.id ? item.id.toString() === userId : item.toString() === userId,
-          )))) {
-
+          if (
+            !data.ownerIds ||
+            !(
+              data.ownerIds === userId ||
+              (Array.isArray(data.ownerIds) &&
+                data.ownerIds.some(item =>
+                  item.id
+                    ? item.id.toString() === userId
+                    : item.toString() === userId,
+                ))
+            )
+          ) {
             // User is not the owner
             delete data[propertyKey];
           }
         } else {
-
           // The user does not have the required rights
           delete data[propertyKey];
         }
       }
-
     }
 
     // Check property data
-    data[propertyKey] = checkRestricted(data[propertyKey], user, processedObjects);
+    data[propertyKey] = checkRestricted(
+      data[propertyKey],
+      user,
+      processedObjects,
+    );
   }
 
   // Return processed data

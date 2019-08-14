@@ -8,12 +8,14 @@ import { checkRestricted } from '../decorators/restricted.decorator';
  * Helper class for inputs
  */
 export class InputHelper {
-
   /**
    * Check input
    */
-  public static async check(value: any, user: { id: any, hasRole: (roles: string[]) => boolean }, metatype?): Promise<any> {
-
+  public static async check(
+    value: any,
+    user: { id: any; hasRole: (roles: string[]) => boolean },
+    metatype?,
+  ): Promise<any> {
     // Return value if it is only a basic type
     if (!metatype || this.isBasicType(metatype)) {
       return value;
@@ -43,36 +45,61 @@ export class InputHelper {
   /**
    * Check if parameter is an array
    */
-  public static isArray(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Array ? true : falseFunction(InputHelper.isArray);
+  public static isArray(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return parameter !== null &&
+      typeof parameter !== 'undefined' &&
+      parameter.constructor === Array
+      ? true
+      : falseFunction(InputHelper.isArray);
   }
 
   /**
    * Checks if it is a basic type
    */
-  public static isBasicType(metatype: any, falseFunction: Function = InputHelper.returnFalse): boolean {
+  public static isBasicType(
+    metatype: any,
+    falseFunction: Function = InputHelper.returnFalse,
+  ): boolean {
     const types = [String, Boolean, Number, Array, Object, Buffer, ArrayBuffer];
-    return types.includes(metatype) ? true : falseFunction(InputHelper.isBasicType);
+    return types.includes(metatype)
+      ? true
+      : falseFunction(InputHelper.isBasicType);
   }
 
   /**
    * Check if parameter is between min and max
    */
-  public static isBetween(parameter: number, min: number, max: number, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'number' && parameter > min && parameter < max ? true : falseFunction(InputHelper.isBetween);
+  public static isBetween(
+    parameter: number,
+    min: number,
+    max: number,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'number' && parameter > min && parameter < max
+      ? true
+      : falseFunction(InputHelper.isBetween);
   }
 
   /**
    * Check if parameter is a Date
    */
-  public static isDate(parameter: Date, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isDate(
+    parameter: Date,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
     return parameter instanceof Date ? true : falseFunction(InputHelper.isDate);
   }
 
   /**
    * Check if parameter is a valid email address
    */
-  public static isEmail(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isEmail(
+    parameter: string,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
     const regex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/;
     return regex.test(parameter) ? true : falseFunction(InputHelper.isEmail);
   }
@@ -80,88 +107,156 @@ export class InputHelper {
   /**
    * Check whether the parameter can be converted to false
    */
-  public static isFalse(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isFalse(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
     return !parameter ? true : falseFunction(InputHelper.isFalse);
   }
 
   /**
    * Check if parameter is a valid file
    */
-  public static isFile(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return parameter !== null && typeof parameter !== 'undefined' && parameter.name && parameter.path &&
-    parameter.type && parameter.size > 0 ? true : falseFunction(InputHelper.isFile);
+  public static isFile(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return parameter !== null &&
+      typeof parameter !== 'undefined' &&
+      parameter.name &&
+      parameter.path &&
+      parameter.type &&
+      parameter.size > 0
+      ? true
+      : falseFunction(InputHelper.isFile);
   }
 
   /**
    * Check if parameter is a function
    */
-  public static isFunction(parameter: Function, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'function' ? true : falseFunction(InputHelper.isFunction);
+  public static isFunction(
+    parameter: Function,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'function'
+      ? true
+      : falseFunction(InputHelper.isFunction);
   }
 
   /**
    * Check if parameter is greater than the compare number
    */
-  public static isGreater(parameter: number, compare: number, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'number' && parameter > compare ? true : falseFunction(InputHelper.isGreater);
+  public static isGreater(
+    parameter: number,
+    compare: number,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'number' && parameter > compare
+      ? true
+      : falseFunction(InputHelper.isGreater);
   }
 
   /**
    * Check if parameter is lower than the compare number
    */
-  public static isLower(parameter: number, compare: number, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'number' && parameter < compare ? true : falseFunction(InputHelper.isLower);
+  public static isLower(
+    parameter: number,
+    compare: number,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'number' && parameter < compare
+      ? true
+      : falseFunction(InputHelper.isLower);
   }
 
   /**
    * Check if parameter is a non empty array
    */
-  public static isNonEmptyArray(parameter: any, errorFunction: Function = InputHelper.errorFunction): boolean {
-    return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Array && parameter.length > 0 ?
-      true : errorFunction(InputHelper.isNonEmptyArray);
+  public static isNonEmptyArray(
+    parameter: any,
+    errorFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return parameter !== null &&
+      typeof parameter !== 'undefined' &&
+      parameter.constructor === Array &&
+      parameter.length > 0
+      ? true
+      : errorFunction(InputHelper.isNonEmptyArray);
   }
 
   /**
    * Check if parameter is a non empty object
    */
-  public static isNonEmptyObject(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Object &&
-    Object.keys(parameter).length !== 0 ? true : falseFunction(InputHelper.isNonEmptyObject);
+  public static isNonEmptyObject(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return parameter !== null &&
+      typeof parameter !== 'undefined' &&
+      parameter.constructor === Object &&
+      Object.keys(parameter).length !== 0
+      ? true
+      : falseFunction(InputHelper.isNonEmptyObject);
   }
 
   /**
    * Check if parameter is a non empty string
    */
-  public static isNonEmptyString(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'string' && parameter.length > 0 ? true : falseFunction(InputHelper.isNonEmptyString);
+  public static isNonEmptyString(
+    parameter: string,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'string' && parameter.length > 0
+      ? true
+      : falseFunction(InputHelper.isNonEmptyString);
   }
 
   /**
    * Check if parameter is a number
    */
-  public static isNumber(parameter: number, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'number' ? true : falseFunction(InputHelper.isNumber);
+  public static isNumber(
+    parameter: number,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'number'
+      ? true
+      : falseFunction(InputHelper.isNumber);
   }
 
   /**
    * Check if parameter is an object
    */
-  public static isObject(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Object ? true : falseFunction(InputHelper.isObject);
+  public static isObject(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return parameter !== null &&
+      typeof parameter !== 'undefined' &&
+      parameter.constructor === Object
+      ? true
+      : falseFunction(InputHelper.isObject);
   }
 
   /**
    * Check whether the parameter can be converted to true
    */
-  public static isTrue(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isTrue(
+    parameter: any,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
     return !!parameter ? true : falseFunction(InputHelper.isTrue);
   }
 
   /**
    * Check if parameter is a string
    */
-  public static isString(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
-    return typeof parameter === 'string' ? true : falseFunction(InputHelper.isString);
+  public static isString(
+    parameter: string,
+    falseFunction: Function = InputHelper.errorFunction,
+  ): boolean {
+    return typeof parameter === 'string'
+      ? true
+      : falseFunction(InputHelper.isString);
   }
 
   /**
@@ -174,7 +269,11 @@ export class InputHelper {
   /**
    * Map values into specific type
    */
-  public static map<T>(values: Partial<T>, ctor: new () => T, cloneDeep = true): T {
+  public static map<T>(
+    values: Partial<T>,
+    ctor: new () => T,
+    cloneDeep = true,
+  ): T {
     const instance = new ctor();
 
     return Object.keys(instance).reduce((acc, key) => {

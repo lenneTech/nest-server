@@ -2,7 +2,6 @@
  * Enums for role decorator
  */
 export enum RoleEnum {
-
   // User must be an administrator
   ADMIN = 'admin',
 

@@ -6,7 +6,6 @@ import { SortOrderEnum } from '../enums/sort-order.emum';
  */
 @InputType({ description: 'Sorting the returned elements' })
 export class SortInput {
-
   /**
    * Field that is to be used for sorting
    */
