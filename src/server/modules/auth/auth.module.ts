@@ -1,5 +1,5 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { IServerOptions } from '../../../core/common/interfaces/server-options.interface';
+import { JwtModuleOptions } from '@nestjs/jwt';
 import { CoreAuthModule } from '../../../core/modules/auth/core-auth.module';
 import { UserModule } from '../user/user.module';
 import { UserService } from '../user/user.service';
@@ -14,7 +14,7 @@ export class AuthModule {
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
-  static forRoot(options: Partial<IServerOptions>): DynamicModule {
+  static forRoot(options: JwtModuleOptions): DynamicModule {
     return {
       module: AuthModule,
       imports: [CoreAuthModule.forRoot(UserModule, UserService, options)],
