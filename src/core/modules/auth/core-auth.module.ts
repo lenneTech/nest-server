@@ -1,9 +1,7 @@
 import { DynamicModule, Module, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { IServerOptions } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
 import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './jwt.strategy';
 import { CoreAuthUserService } from './services/core-auth-user.service';
@@ -21,24 +19,20 @@ export class CoreAuthModule {
   static forRoot(
     UserModule: Type<any>,
     UserService: Type<CoreAuthUserService>,
-    options: Partial<IServerOptions>,
+    options: JwtModuleOptions,
   ): DynamicModule {
     return {
       module: CoreAuthModule,
       imports: [
         UserModule,
         PassportModule.register({ defaultStrategy: 'jwt' }),
-        JwtModule.register(options.jwt),
+        JwtModule.register(options),
       ],
       providers: [
         // [Global] The GraphQLAuthGard integrates the user into context
         {
           provide: APP_GUARD,
           useClass: RolesGuard,
-        },
-        {
-          provide: ConfigService,
-          useValue: new ConfigService(options),
         },
         {
           provide: CoreAuthUserService,
@@ -50,7 +44,6 @@ export class CoreAuthModule {
         JwtStrategy,
       ],
       exports: [
-        ConfigService,
         CoreAuthService,
         JwtModule,
         JwtStrategy,

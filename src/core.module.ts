@@ -1,4 +1,4 @@
-import { DynamicModule, Module, Scope } from '@nestjs/common';
+import { DynamicModule, Global, Module, Scope } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -19,7 +19,13 @@ import { TemplateService } from './core/common/services/template.service';
  * - ConfigService
  * - CheckInput
  * - CheckResponse
+ *
+ * and sets the following services as globals:
+ * - ConfigService
+ * - EmailService
+ * - TemplateService
  */
+@Global()
 @Module({})
 export class CoreModule {
   /**
@@ -95,13 +101,7 @@ export class CoreModule {
         GraphQLModule.forRoot(options.graphQl),
       ],
       providers,
-      exports: [
-        ConfigService,
-        EmailService,
-        GraphQLModule,
-        TemplateService,
-        TypeOrmModule,
-      ],
+      exports: [ConfigService, EmailService, TemplateService],
     };
   }
 }
