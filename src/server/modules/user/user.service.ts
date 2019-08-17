@@ -4,7 +4,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
@@ -12,8 +11,7 @@ import { MongoRepository } from 'typeorm';
 import envConfig from '../../../config.env';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Filter } from '../../../core/common/helpers/filter.helper';
-import { GraphQLHelper } from '../../../core/common/helpers/graphql.helper';
-import { InputHelper } from '../../../core/common/helpers/input.helper';
+import { ServiceHelper } from '../../../core/common/helpers/service.helper';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
@@ -137,61 +135,13 @@ export class UserService extends CoreUserService<
     currentUser: User,
     options: { create?: boolean } = {},
   ) {
-    // Has password
-    if (input.password) {
-      input.password = await bcrypt.hash((input as any).password, 10);
-    }
-
-    // Set creator
-    if (options.create && currentUser) {
-      input.createdBy = currentUser.id;
-    }
-
-    // Set updater
-    if (currentUser) {
-      input.updatdBy = currentUser.id;
-    }
-
-    // Return prepared input
-    return input;
+    return ServiceHelper.prepareInput(input, currentUser, options);
   }
 
   /**
    * Prepare output before return
    */
   protected async prepareOutput(user: User, info?: GraphQLResolveInfo) {
-    // Populate createdBy and updatedBy if necessary (and field is required)
-    if (
-      (user.createdBy && typeof user.createdBy === 'string') ||
-      (user.updatedBy && typeof user.updatedBy === 'string')
-    ) {
-      const graphQLFields = GraphQLHelper.getFields(info);
-
-      // Prepare created by (string => Editor)
-      if (
-        user.createdBy &&
-        typeof user.createdBy === 'string' &&
-        GraphQLHelper.isInFields('createdBy', graphQLFields)
-      ) {
-        user.createdBy = InputHelper.map(
-          await this.get(user.createdBy, info),
-          Editor,
-        );
-      }
-
-      // Prepare updated by (string => Editor)
-      if (user.updatedBy && typeof user.updatedBy === 'string') {
-        user.updatedBy = InputHelper.map(
-          await this.get(user.updatedBy, info),
-          Editor,
-        );
-      }
-    }
-
-    // Remove password if exists
-    delete user.password;
-
-    // Return prepared user
-    return user;
+    return ServiceHelper.prepareOutput(user, Editor, this);
   }
 }
