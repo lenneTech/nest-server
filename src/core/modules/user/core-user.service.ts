@@ -124,7 +124,7 @@ export abstract class CoreUserService<
   }
 
   /**
-   * Get user via ID
+   * Update user via ID
    */
   async update(
     id: string,
