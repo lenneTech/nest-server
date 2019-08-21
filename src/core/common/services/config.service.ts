@@ -8,7 +8,7 @@ export class ConfigService {
   /**
    * Configuration on startup
    */
-  private readonly _config: { [key: string]: any } & Partial<IServerOptions>;
+  protected readonly _config: { [key: string]: any } & Partial<IServerOptions>;
 
   /**
    * Create config service

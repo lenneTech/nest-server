@@ -14,8 +14,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Init JWT strategy
    */
   constructor(
-    private readonly authService: CoreAuthService,
-    private readonly configService: ConfigService,
+    protected readonly authService: CoreAuthService,
+    protected readonly configService: ConfigService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
