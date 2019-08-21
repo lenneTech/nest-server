@@ -19,7 +19,7 @@ export class RolesGuard extends AuthGuard('jwt') {
   /**
    * Integrate reflector
    */
-  constructor(private readonly reflector: Reflector) {
+  constructor(protected readonly reflector: Reflector) {
     super();
   }
 
