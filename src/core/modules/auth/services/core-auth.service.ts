@@ -11,8 +11,8 @@ import { CoreAuthUserService } from './core-auth-user.service';
 @Injectable()
 export class CoreAuthService {
   constructor(
-    private readonly userService: CoreAuthUserService,
-    private readonly jwtService: JwtService,
+    protected readonly userService: CoreAuthUserService,
+    protected readonly jwtService: JwtService,
   ) {}
 
   /**

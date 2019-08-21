@@ -29,7 +29,7 @@ export class UserResolver {
   /**
    * Import services
    */
-  constructor(private readonly usersService: UserService) {}
+  constructor(protected readonly usersService: UserService) {}
 
   // ===========================================================================
   // Queries

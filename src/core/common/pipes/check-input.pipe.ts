@@ -21,7 +21,7 @@ export class CheckInputPipe implements PipeTransform<any> {
   /**
    * Constructor to inject context
    */
-  constructor(@Inject(CONTEXT) private readonly context) {}
+  constructor(@Inject(CONTEXT) protected readonly context) {}
 
   /**
    * Check input
@@ -53,7 +53,7 @@ export class CheckInputPipe implements PipeTransform<any> {
   /**
    * Checks if it is a basic type
    */
-  private isBasicType(metatype: any): boolean {
+  protected isBasicType(metatype: any): boolean {
     const types = [String, Boolean, Number, Array, Object, Buffer, ArrayBuffer];
     return types.includes(metatype);
   }
