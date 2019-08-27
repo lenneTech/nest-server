@@ -24,9 +24,10 @@ describe('ServerModule (e2e)', () => {
       imports: [ServerModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication(
+    app = moduleFixture
+      .createNestApplication
       // new FastifyAdapter()
-    );
+      ();
     await app.init();
     testHelper = new TestHelper(app);
   });
@@ -46,7 +47,9 @@ describe('ServerModule (e2e)', () => {
    * Create new user
    */
   it('createUser', async () => {
-    gPassword = Math.random().toString(36).substring(7);
+    gPassword = Math.random()
+      .toString(36)
+      .substring(7);
     gEmail = gPassword + '@testuser.com';
 
     const res: any = await testHelper.graphQl({
@@ -69,7 +72,6 @@ describe('ServerModule (e2e)', () => {
    * Sign in user
    */
   it('signIn', async () => {
-
     const res: any = await testHelper.graphQl({
       name: 'signIn',
       arguments: {
@@ -88,7 +90,8 @@ describe('ServerModule (e2e)', () => {
    */
   it('findUsers without token', async () => {
     const res: any = await testHelper.graphQl({
-      name: 'findUsers', fields: ['id', 'email'],
+      name: 'findUsers',
+      fields: ['id', 'email'],
     });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].message.statusCode).toEqual(401);
@@ -100,9 +103,31 @@ describe('ServerModule (e2e)', () => {
    * Find users
    */
   it('findUsers', async () => {
-    const res: any = await testHelper.graphQl({
-      name: 'findUsers', fields: ['id', 'email'],
-    }, { token: gToken });
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'findUsers',
+        fields: ['id', 'email'],
+      },
+      { token: gToken },
+    );
     expect(res.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * Delete user
+   */
+  it('deleteUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+        arguments: {
+          id: gId,
+        },
+        fields: ['id'],
+      },
+      { token: gToken },
+    );
+    expect(res.id).toEqual(gId);
   });
 });

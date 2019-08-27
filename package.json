@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -15,7 +15,7 @@
   "license": "MIT",
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json",
-    "format": "prettier --write \"src/**/*.ts\"",
+    "format": "prettier --write 'src/**/*.ts'",
     "lint": "tslint -p tsconfig.json -c tslint.json",
     "prestart:prod": "rimraf dist && npm run build",
     "reinit": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test:e2e",
@@ -99,6 +99,9 @@
     "typeorm": "0.2.18",
     "typescript": "3.5.3"
   },
+  "devDependencies": {
+    "find-file-up": "2.0.1"
+  },
   "jest": {
     "collectCoverage": true,
     "coverageDirectory": "../coverage",
@@ -116,7 +119,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "pretty-quick --staged",
+      "pre-commit": "ts-node extras/sync-version.ts && pretty-quick --staged",
       "pre-push": "npm run lint && npm run test:e2e"
     }
   },
