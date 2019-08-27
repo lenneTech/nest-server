@@ -52,7 +52,7 @@ export class RolesGuard extends AuthGuard('jwt') {
       if (
         user &&
         (roles.includes(RoleEnum.USER) ||
-          (roles.includes(RoleEnum.OWNER) && user.id === args.id))
+          (roles.includes(RoleEnum.OWNER) && user.id.toString() === args.id))
       ) {
         return user;
       }
