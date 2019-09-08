@@ -152,10 +152,17 @@ export interface IServerOptions {
     entities: string[];
 
     /**
-     * Determines whether or not to use the new url parser
+     * Determines whether or not to use the new url parser. Default: false
      * e.g. true
      */
     useNewUrlParser: boolean;
+
+    /**
+     * Determines whether or not to use the new Server Discovery and Monitoring engine. Default: false
+     * https://github.com/mongodb/node-mongodb-native/releases/tag/v3.2.1
+     * e.g. true
+     */
+    useUnifiedTopology: boolean;
   } & TypeOrmModuleOptions;
 
   /**
