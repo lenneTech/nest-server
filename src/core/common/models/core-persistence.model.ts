@@ -2,6 +2,7 @@ import { Field, ID, ObjectType } from 'type-graphql';
 import { BeforeInsert, BeforeUpdate, Column, ObjectIdColumn } from 'typeorm';
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
+import { CoreModel } from './core-model.model';
 
 /**
  * Metadata for persistent objects
@@ -12,7 +13,7 @@ import { RoleEnum } from '../enums/role.enum';
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-export abstract class CorePersistenceModel {
+export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
   // Properties
   //
