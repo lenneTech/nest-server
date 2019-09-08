@@ -114,6 +114,48 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * Update user
+   */
+  it('updateUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: gId,
+          input: {
+            firstName: 'Jonny',
+          },
+        },
+        name: 'updateUser',
+        fields: ['id', 'email', 'firstName'],
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+    expect(res.id).toEqual(gId);
+    expect(res.email).toEqual(gEmail);
+    expect(res.firstName).toEqual('Jonny');
+  });
+
+  /**
+   * Get user
+   */
+  it('getUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: gId,
+        },
+        name: 'getUser',
+        fields: ['id', 'email', 'firstName'],
+      },
+      { token: gToken },
+    );
+    expect(res.id).toEqual(gId);
+    expect(res.email).toEqual(gEmail);
+    expect(res.firstName).toEqual('Jonny');
+  });
+
+  /**
    * Delete user
    */
   it('deleteUser', async () => {

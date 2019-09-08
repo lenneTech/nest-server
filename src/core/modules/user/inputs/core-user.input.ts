@@ -38,7 +38,7 @@ export abstract class CoreUserInput {
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Column()
-  roles: string[] = [];
+  roles?: string[];
 
   /**
    * Username / alias of the user
