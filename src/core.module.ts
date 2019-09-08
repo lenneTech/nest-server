@@ -52,6 +52,7 @@ export class CoreModule {
           synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
           entities: [],
           useNewUrlParser: true,
+          useUnifiedTopology: true,
         },
         typeOrmModelIntegration: true,
       } as IServerOptions,

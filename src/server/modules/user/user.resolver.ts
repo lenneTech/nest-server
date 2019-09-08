@@ -85,7 +85,7 @@ export class UserResolver {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
-    input = await InputHelper.check(input, user, User);
+    input = await InputHelper.check(input, user, UserInput);
 
     // Update user
     return await this.usersService.update(id, input, user, info);
