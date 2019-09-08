@@ -276,9 +276,9 @@ export class InputHelper {
   ): T {
     const instance = new ctor();
 
-    return Object.keys(instance).reduce((acc, key) => {
-      acc[key] = cloneDeep ? _.cloneDeep(values[key]) : values[key];
-      return acc;
-    }, {}) as T;
+    return Object.keys(instance).reduce((obj, key) => {
+      obj[key] = cloneDeep ? _.cloneDeep(values[key]) : values[key];
+      return obj;
+    }, instance);
   }
 }

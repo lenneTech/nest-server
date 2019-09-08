@@ -31,6 +31,7 @@ export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interfaces/server-options.interface';
 export * from './core/common/models/core-editor.model';
+export * from './core/common/models/core-model.model';
 export * from './core/common/models/core-persistence.model';
 export * from './core/common/pipes/check-input.pipe';
 export * from './core/common/scalars/any.scalar';
