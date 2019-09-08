@@ -225,7 +225,7 @@ input UserCreateInput {
   lastName: String
 
   """Roles of the user"""
-  roles: [String!] = []
+  roles: [String!]
 
   """Username / alias of the user"""
   username: String
@@ -246,7 +246,7 @@ input UserInput {
   lastName: String
 
   """Roles of the user"""
-  roles: [String!] = []
+  roles: [String!]
 
   """Username / alias of the user"""
   username: String
