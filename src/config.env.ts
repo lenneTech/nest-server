@@ -44,6 +44,7 @@ const config: { [env: string]: Partial<IServerOptions> } = {
       synchronize: true,
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
+      useUnifiedTopology: true,
     },
   },
 
@@ -86,6 +87,7 @@ const config: { [env: string]: Partial<IServerOptions> } = {
       synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
       entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
       useNewUrlParser: true,
+      useUnifiedTopology: true,
     },
   },
 };
