@@ -18,13 +18,13 @@ import { FileController } from './server/modules/file/file.controller';
 
     // Include AuthModule for authorization handling,
     // which will also include UserModule
-    AuthModule.forRoot(envConfig.jwt),
+    AuthModule.forRoot(envConfig.jwt)
   ],
 
   // Include REST controllers
   controllers: [FileController],
 
   // Export modules for reuse in other modules
-  exports: [CoreModule, AuthModule],
+  exports: [CoreModule, AuthModule]
 })
 export class ServerModule {}

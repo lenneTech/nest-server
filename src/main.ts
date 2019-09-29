@@ -10,14 +10,11 @@ async function bootstrap() {
   // Create a new server based on fastify
   const server = await NestFactory.create<NestExpressApplication>(
     // Include server module, with all necessary modules for the project
-    ServerModule,
+    ServerModule
   );
 
   // Asset directory
-  server.useStaticAssets(
-    envConfig.staticAssets.path,
-    envConfig.staticAssets.options,
-  );
+  server.useStaticAssets(envConfig.staticAssets.path, envConfig.staticAssets.options);
 
   // Enable cors to allow requests from other domains
   server.enableCors();

@@ -15,6 +15,6 @@ export class SortInput {
   /**
    * SortInput order of the field
    */
-  @Field(type => SortOrderEnum, { description: 'SortInput order of the field' })
+  @Field((type) => SortOrderEnum, { description: 'SortInput order of the field' })
   order: SortOrderEnum;
 }

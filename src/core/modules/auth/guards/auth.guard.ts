@@ -1,11 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Logger,
-  mixin,
-  Optional,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger, mixin, Optional, UnauthorizedException } from '@nestjs/common';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
@@ -30,11 +23,7 @@ export type IAuthGuard = CanActivate & {
  * @param request
  * @param response
  */
-const createPassportContext = (request, response) => (
-  type,
-  options,
-  callback: Function,
-) =>
+const createPassportContext = (request, response) => (type, options, callback: Function) =>
   new Promise((resolve, reject) =>
     passport.authenticate(type, options, (err, user, info) => {
       try {
@@ -43,7 +32,7 @@ const createPassportContext = (request, response) => (
       } catch (err) {
         reject(err);
       }
-    })(request, response, err => (err ? reject(err) : resolve)),
+    })(request, response, (err) => (err ? reject(err) : resolve))
   );
 
 /**
@@ -70,16 +59,10 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      */
     async canActivate(context: ExecutionContext): Promise<boolean> {
       const options = { ...defaultOptions, ...this.options };
-      const [request, response] = [
-        this.getRequest(context),
-        context.switchToHttp().getResponse(),
-      ];
+      const [request, response] = [this.getRequest(context), context.switchToHttp().getResponse()];
       const passportFn = createPassportContext(request, response);
-      const user = await passportFn(
-        type || this.options.defaultStrategy,
-        options,
-        (err, currentUser, info) =>
-          this.handleRequest(err, currentUser, info, context),
+      const user = await passportFn(type || this.options.defaultStrategy, options, (err, currentUser, info) =>
+        this.handleRequest(err, currentUser, info, context)
       );
       request[options.property || defaultOptions.property] = user;
       return true;
@@ -89,21 +72,15 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Prepare request
      */
     getRequest<T = any>(context: ExecutionContext): T {
-      return context && context.switchToHttp()
-        ? context.switchToHttp().getRequest()
-        : null;
+      return context && context.switchToHttp() ? context.switchToHttp().getRequest() : null;
     }
 
     /**
      * Login for session handling
      */
-    async logIn<TRequest extends { logIn: Function } = any>(
-      request: TRequest,
-    ): Promise<void> {
+    async logIn<TRequest extends { logIn: Function } = any>(request: TRequest): Promise<void> {
       const user = request[this.options.property || defaultOptions.property];
-      await new Promise((resolve, reject) =>
-        request.logIn(user, err => (err ? reject(err) : resolve())),
-      );
+      await new Promise((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
     }
 
     /**
@@ -124,6 +101,4 @@ function createAuthGuard(type?: string): Type<CanActivate> {
 /**
  * Export AuthGuard
  */
-export const AuthGuard: (type?: string) => Type<IAuthGuard> = memoize(
-  createAuthGuard,
-);
+export const AuthGuard: (type?: string) => Type<IAuthGuard> = memoize(createAuthGuard);

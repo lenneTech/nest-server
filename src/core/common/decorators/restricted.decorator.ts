@@ -31,7 +31,7 @@ export const getRestricted = (object: any, propertyKey: string) => {
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  processedObjects: any[] = [],
+  processedObjects: any[] = []
 ) => {
   // Primitives
   if (!data || typeof data !== 'object') {
@@ -47,7 +47,7 @@ export const checkRestricted = (
   // Array
   if (Array.isArray(data)) {
     // Check array items
-    return data.map(item => checkRestricted(item, user, processedObjects));
+    return data.map((item) => checkRestricted(item, user, processedObjects));
   }
 
   // Object
@@ -56,7 +56,7 @@ export const checkRestricted = (
     const roles = getRestricted(data, propertyKey);
 
     // If roles are specified
-    if (roles && roles.some(value => !!value)) {
+    if (roles && roles.some((value) => !!value)) {
       // Check user and user roles
       if (!user || !user.hasRole(roles)) {
         // Check special role for owner
@@ -68,11 +68,7 @@ export const checkRestricted = (
             !(
               data.ownerIds === userId ||
               (Array.isArray(data.ownerIds) &&
-                data.ownerIds.some(item =>
-                  item.id
-                    ? item.id.toString() === userId
-                    : item.toString() === userId,
-                ))
+                data.ownerIds.some((item) => (item.id ? item.id.toString() === userId : item.toString() === userId)))
             )
           ) {
             // User is not the owner
@@ -86,11 +82,7 @@ export const checkRestricted = (
     }
 
     // Check property data
-    data[propertyKey] = checkRestricted(
-      data[propertyKey],
-      user,
-      processedObjects,
-    );
+    data[propertyKey] = checkRestricted(data[propertyKey], user, processedObjects);
   }
 
   // Return processed data

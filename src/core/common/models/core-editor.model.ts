@@ -10,7 +10,7 @@ export abstract class CoreEditorModel extends CoreModel {
   /**
    * ID of the persistence object
    */
-  @Field(type => ID, { description: 'ID of the editor' })
+  @Field((type) => ID, { description: 'ID of the editor' })
   id: string;
 
   /**

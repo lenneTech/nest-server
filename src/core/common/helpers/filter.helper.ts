@@ -13,10 +13,7 @@ export class Filter {
   /**
    * Convert GraphQL filter input to Mongoose
    */
-  public static convertFilterInput(
-    filter?: FilterInput,
-    config?: { dbType?: string },
-  ) {
+  public static convertFilterInput(filter?: FilterInput, config?: { dbType?: string }) {
     // Check filter
     if (!filter) {
       return undefined;
@@ -33,21 +30,15 @@ export class Filter {
       switch (filter.combinedFilter.logicalOperator) {
         case LogicalOperatorEnum.AND:
           return {
-            $and: filter.combinedFilter.filters.map((item: FilterInput) =>
-              Filter.convertFilterInput(item),
-            ),
+            $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
           };
         case LogicalOperatorEnum.NOR:
           return {
-            $nor: filter.combinedFilter.filters.map((item: FilterInput) =>
-              Filter.convertFilterInput(item),
-            ),
+            $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
           };
         case LogicalOperatorEnum.OR:
           return {
-            $or: filter.combinedFilter.filters.map((item: FilterInput) =>
-              Filter.convertFilterInput(item),
-            ),
+            $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
           };
       }
     }
@@ -103,8 +94,8 @@ export class Filter {
             ? {
                 $not: {
                   $regex: new RegExp(value),
-                  $options: options || '',
-                },
+                  $options: options || ''
+                }
               }
             : { $regex: new RegExp(value), $options: options || '' };
           break;
@@ -118,10 +109,7 @@ export class Filter {
   /**
    * Generate FindManyOptions form FilterArgs
    */
-  public static generateFilterOptions(
-    filterArgs: FilterArgs,
-    config?: { dbType?: string },
-  ): FindManyOptions {
+  public static generateFilterOptions(filterArgs: FilterArgs, config?: { dbType?: string }): FindManyOptions {
     // Check filterArgs
     if (!filterArgs) {
       return {};

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'fs';
 import { GraphQLResolveInfo } from 'graphql';
@@ -27,11 +23,7 @@ const pubSub = new PubSub();
  * User service
  */
 @Injectable()
-export class UserService extends CoreUserService<
-  User,
-  UserInput,
-  UserCreateInput
-> {
+export class UserService extends CoreUserService<User, UserInput, UserCreateInput> {
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
@@ -49,10 +41,7 @@ export class UserService extends CoreUserService<
   /**
    * Constructor for injecting services
    */
-  constructor(
-    protected readonly configService: ConfigService,
-    protected readonly emailService: EmailService,
-  ) {
+  constructor(protected readonly configService: ConfigService, protected readonly emailService: EmailService) {
     super();
   }
 
@@ -63,17 +52,13 @@ export class UserService extends CoreUserService<
   /**
    * Create new user and send welcome email
    */
-  async create(
-    input: UserCreateInput,
-    currentUser?: User,
-    ...args: any[]
-  ): Promise<User> {
+  async create(input: UserCreateInput, currentUser?: User, ...args: any[]): Promise<User> {
     const user = await super.create(input, currentUser);
     const text = `Welcome ${user.firstName}, this is plain text from server.`;
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
       templateData: user,
-      text,
+      text
     });
     return user;
   }
@@ -85,8 +70,8 @@ export class UserService extends CoreUserService<
     // Return found users
     return this.db.find(
       Filter.generateFilterOptions(filterArgs, {
-        dbType: this.configService.get('typeOrm.type'),
-      }),
+        dbType: this.configService.get('typeOrm.type')
+      })
     );
   }
 
@@ -106,14 +91,11 @@ export class UserService extends CoreUserService<
 
     // Remove old avatar image
     if (user.avatar) {
-      fs.unlink(
-        envConfig.staticAssets.path + '/avatars/' + user.avatar,
-        err => {
-          if (err) {
-            console.log(err);
-          }
-        },
-      );
+      fs.unlink(envConfig.staticAssets.path + '/avatars/' + user.avatar, (err) => {
+        if (err) {
+          console.log(err);
+        }
+      });
     }
 
     // Update user
@@ -130,11 +112,7 @@ export class UserService extends CoreUserService<
   /**
    * Prepare input before save
    */
-  protected async prepareInput(
-    input: { [key: string]: any },
-    currentUser: User,
-    options: { create?: boolean } = {},
-  ) {
+  protected async prepareInput(input: { [key: string]: any }, currentUser: User, options: { create?: boolean } = {}) {
     return ServiceHelper.prepareInput(input, currentUser, options);
   }
 

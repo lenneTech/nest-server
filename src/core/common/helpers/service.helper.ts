@@ -13,7 +13,7 @@ export class ServiceHelper {
   static async prepareInput(
     input: { [key: string]: any },
     currentUser: { id: string },
-    options: { create?: boolean } = {},
+    options: { create?: boolean } = {}
   ) {
     // Has password
     if (input.password) {
@@ -37,12 +37,7 @@ export class ServiceHelper {
   /**
    * Prepare output before return
    */
-  static async prepareOutput(
-    output: any,
-    editorModel: new () => any,
-    userService: any,
-    info?: GraphQLResolveInfo,
-  ) {
+  static async prepareOutput(output: any, editorModel: new () => any, userService: any, info?: GraphQLResolveInfo) {
     // Populate createdBy and updatedBy if necessary (and field is required)
     if (
       (output.createdBy && typeof output.createdBy === 'string') ||
@@ -56,18 +51,12 @@ export class ServiceHelper {
         typeof output.createdBy === 'string' &&
         GraphQLHelper.isInFields('createdBy', graphQLFields)
       ) {
-        output.createdBy = InputHelper.map(
-          await userService.get(output.createdBy, info),
-          editorModel,
-        );
+        output.createdBy = InputHelper.map(await userService.get(output.createdBy, info), editorModel);
       }
 
       // Prepare updated by (string => Editor)
       if (output.updatedBy && typeof output.updatedBy === 'string') {
-        output.updatedBy = InputHelper.map(
-          await userService.get(output.updatedBy, info),
-          editorModel,
-        );
+        output.updatedBy = InputHelper.map(await userService.get(output.updatedBy, info), editorModel);
       }
     }
 
