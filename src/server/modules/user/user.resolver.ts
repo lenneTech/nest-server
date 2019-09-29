@@ -1,11 +1,4 @@
-import {
-  Args,
-  Info,
-  Mutation,
-  Query,
-  Resolver,
-  Subscription,
-} from '@nestjs/graphql';
+import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
@@ -24,7 +17,7 @@ const pubSub = new PubSub();
 /**
  * Resolver to process with user data
  */
-@Resolver(of => User)
+@Resolver((of) => User)
 export class UserResolver {
   /**
    * Import services
@@ -38,11 +31,8 @@ export class UserResolver {
   /**
    * Get user via ID
    */
-  @Query(returns => User, { description: 'Get user with specified ID' })
-  async getUser(
-    @Args('id') id: string,
-    @Info() info: GraphQLResolveInfo,
-  ): Promise<User> {
+  @Query((returns) => User, { description: 'Get user with specified ID' })
+  async getUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<User> {
     return await this.usersService.get(id, info);
   }
 
@@ -50,7 +40,7 @@ export class UserResolver {
    * Get users (via filter)
    */
   @Roles(RoleEnum.USER)
-  @Query(returns => [User], { description: 'Find users (via filter)' })
+  @Query((returns) => [User], { description: 'Find users (via filter)' })
   async findUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
     return await this.usersService.find(args, info);
   }
@@ -62,11 +52,11 @@ export class UserResolver {
   /**
    * Create new user
    */
-  @Mutation(returns => User, { description: 'Create a new user' })
+  @Mutation((returns) => User, { description: 'Create a new user' })
   async createUser(
     @Args('input') input: UserCreateInput,
     @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo,
+    @Info() info: GraphQLResolveInfo
   ): Promise<User> {
     return await this.usersService.create(input, user, info);
   }
@@ -75,12 +65,12 @@ export class UserResolver {
    * Update existing user
    */
   @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Mutation(returns => User, { description: 'Update existing user' })
+  @Mutation((returns) => User, { description: 'Update existing user' })
   async updateUser(
     @Args('input') input: UserInput,
     @Args('id') id: string,
     @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo,
+    @Info() info: GraphQLResolveInfo
   ): Promise<User> {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
@@ -95,11 +85,8 @@ export class UserResolver {
    * Delete existing user
    */
   @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Mutation(returns => User, { description: 'Delete existing user' })
-  async deleteUser(
-    @Args('id') id: string,
-    @Info() info: GraphQLResolveInfo,
-  ): Promise<User> {
+  @Mutation((returns) => User, { description: 'Delete existing user' })
+  async deleteUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<User> {
     return await this.usersService.delete(id, info);
   }
 
@@ -111,7 +98,7 @@ export class UserResolver {
    * Subscritption for create user
    */
   @Roles(RoleEnum.ADMIN)
-  @Subscription(returns => User)
+  @Subscription((returns) => User)
   userCreated() {
     return pubSub.asyncIterator('userCreated');
   }

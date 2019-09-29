@@ -10,7 +10,7 @@ import { Editor } from './editor.model';
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
-  isAbstract: true,
+  isAbstract: true
 })
 export abstract class PersistenceModel extends CorePersistenceModel {
   /**
@@ -18,9 +18,9 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    *
    * Not set when created by system
    */
-  @Field(type => Editor, {
+  @Field((type) => Editor, {
     description: 'Editor who created the object',
-    nullable: true,
+    nullable: true
   })
   @Column('varchar')
   createdBy?: string | Editor;
@@ -30,9 +30,9 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    *
    * Not set when updated by system
    */
-  @Field(type => Editor, {
+  @Field((type) => Editor, {
     description: 'Editor who last updated the object',
-    nullable: true,
+    nullable: true
   })
   @Column('varchar')
   updatedBy?: string | Editor;

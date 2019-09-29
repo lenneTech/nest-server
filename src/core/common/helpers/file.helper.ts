@@ -30,17 +30,12 @@ export class FileHelper {
   public static multerFileFilter(fileTypeRegex: RegExp = /jpeg|jpg|png/) {
     return (req, file, cb) => {
       const mimetype = fileTypeRegex.test(file.mimetype);
-      const extName = fileTypeRegex.test(
-        extname(file.originalname).toLowerCase(),
-      );
+      const extName = fileTypeRegex.test(extname(file.originalname).toLowerCase());
 
       if (mimetype && extName) {
         return cb(null, true);
       }
-      cb(
-        'Error: File upload only supports the following filetypes - ' +
-          fileTypeRegex,
-      );
+      cb('Error: File upload only supports the following filetypes - ' + fileTypeRegex);
     };
   }
 
@@ -56,21 +51,19 @@ export class FileHelper {
     options = Object.assign(
       {
         fileSize: 1024 * 1024, // 1MB
-        fileTypeRegex: /jpeg|jpg|png/, // Images only
+        fileTypeRegex: /jpeg|jpg|png/ // Images only
       },
-      options,
+      options
     );
 
     return {
       // File filter
-      fileFilter: options.fileTypeRegex
-        ? FileHelper.multerFileFilter(options.fileTypeRegex)
-        : undefined,
+      fileFilter: options.fileTypeRegex ? FileHelper.multerFileFilter(options.fileTypeRegex) : undefined,
 
       // Limits
       limits: {
         // Limit of file size
-        fileSize: options.fileSize ? options.fileSize : undefined,
+        fileSize: options.fileSize ? options.fileSize : undefined
       },
 
       // Automatic storage handling
@@ -82,8 +75,8 @@ export class FileHelper {
         destination: options.destination ? options.destination : undefined,
 
         // Generated random file name
-        filename: FileHelper.multerRandomFileName(),
-      }),
+        filename: FileHelper.multerRandomFileName()
+      })
     };
   }
 }

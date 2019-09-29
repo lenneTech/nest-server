@@ -35,7 +35,7 @@ export abstract class CoreUserInput {
    * Roles of the user
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Column()
   roles?: string[];

@@ -1,8 +1,4 @@
-import {
-  ExecutionContext,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { RoleEnum } from '../../../common/enums/role.enum';
@@ -28,10 +24,7 @@ export class RolesGuard extends AuthGuard('jwt') {
    */
   handleRequest(err, user, info, context) {
     // Get roles
-    const reflectorRoles = this.reflector.getAll<string[][]>('roles', [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles: string[] = reflectorRoles[0]
       ? reflectorRoles[1]
         ? [...reflectorRoles[0], ...reflectorRoles[1]]
@@ -39,7 +32,7 @@ export class RolesGuard extends AuthGuard('jwt') {
       : reflectorRoles[1];
 
     // Check roles
-    if (!roles || !roles.some(value => !!value)) {
+    if (!roles || !roles.some((value) => !!value)) {
       return user;
     }
 
@@ -51,8 +44,7 @@ export class RolesGuard extends AuthGuard('jwt') {
       // Check special role for user or owner
       if (
         user &&
-        (roles.includes(RoleEnum.USER) ||
-          (roles.includes(RoleEnum.OWNER) && user.id.toString() === args.id))
+        (roles.includes(RoleEnum.USER) || (roles.includes(RoleEnum.OWNER) && user.id.toString() === args.id))
       ) {
         return user;
       }
@@ -70,8 +62,6 @@ export class RolesGuard extends AuthGuard('jwt') {
    */
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
-    return ctx.getContext()
-      ? ctx.getContext().req
-      : context.switchToHttp().getRequest();
+    return ctx.getContext() ? ctx.getContext().req : context.switchToHttp().getRequest();
   }
 }

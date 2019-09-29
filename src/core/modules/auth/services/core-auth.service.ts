@@ -10,18 +10,12 @@ import { CoreAuthUserService } from './core-auth-user.service';
  */
 @Injectable()
 export class CoreAuthService {
-  constructor(
-    protected readonly userService: CoreAuthUserService,
-    protected readonly jwtService: JwtService,
-  ) {}
+  constructor(protected readonly userService: CoreAuthUserService, protected readonly jwtService: JwtService) {}
 
   /**
    * User sign in via email
    */
-  async signIn(
-    email: string,
-    password: string,
-  ): Promise<{ token: string; user: ICoreAuthUser }> {
+  async signIn(email: string, password: string): Promise<{ token: string; user: ICoreAuthUser }> {
     const user = await this.userService.getViaEmail(email);
     if (!(await bcrypt.compare(password, user.password))) {
       throw new UnauthorizedException();
@@ -29,7 +23,7 @@ export class CoreAuthService {
     const payload: JwtPayload = { email: user.email };
     return {
       token: this.jwtService.sign(payload),
-      user,
+      user
     };
   }
 

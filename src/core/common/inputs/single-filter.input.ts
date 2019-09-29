@@ -17,18 +17,16 @@ export class SingleFilterInput {
    * [Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)
    */
   @Field({
-    description:
-      '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
-    nullable: true,
+    description: '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
+    nullable: true
   })
   not?: boolean;
 
   /**
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
-  @Field(type => ComparisonOperatorEnum, {
-    description:
-      '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
+  @Field((type) => ComparisonOperatorEnum, {
+    description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)'
   })
   operator: ComparisonOperatorEnum;
 
@@ -40,10 +38,10 @@ export class SingleFilterInput {
     description:
       '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
       '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
-    nullable: true,
+    nullable: true
   })
   options?: string;
 
-  @Field(type => JSON, { description: 'Value of the property' })
+  @Field((type) => JSON, { description: 'Value of the property' })
   value: any;
 }

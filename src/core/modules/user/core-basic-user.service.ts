@@ -1,8 +1,4 @@
-import {
-  InternalServerErrorException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
@@ -54,9 +50,7 @@ export abstract class CoreBasicUserService<
       }
     } catch (error) {
       if (error.code === 11000) {
-        throw new UnprocessableEntityException(
-          `User with email address "${(input as any).email}" already exists`,
-        );
+        throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
       } else {
         throw new UnprocessableEntityException();
       }

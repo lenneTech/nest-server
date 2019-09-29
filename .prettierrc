@@ -1,7 +1,8 @@
 {
-  "singleQuote": true,
-  "trailingComma": "all",
+  "arrowParens": "always",
   "plugins": [
     "./extras/prettier-imports"
-  ]
+  ],
+  "printWidth": 120,
+  "singleQuote": true
 }
