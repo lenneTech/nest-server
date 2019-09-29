@@ -28,14 +28,11 @@ export class AvatarController {
     FileInterceptor(
       'file',
       FileHelper.multerOptionsForImageUpload({
-        destination: envConfig.staticAssets.path + '/avatars',
-      }),
-    ),
+        destination: envConfig.staticAssets.path + '/avatars'
+      })
+    )
   )
-  uploadFile(
-    @UploadedFile() file: Express.Multer.File,
-    @RESTUser() user: User,
-  ): Promise<string> {
+  uploadFile(@UploadedFile() file: Express.Multer.File, @RESTUser() user: User): Promise<string> {
     return this.usersService.setAvatar(file, user);
   }
 }

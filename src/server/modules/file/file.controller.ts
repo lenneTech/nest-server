@@ -1,10 +1,4 @@
-import {
-  Body,
-  Controller,
-  Post,
-  UploadedFiles,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Body, Controller, Post, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import envConfig from '../../../config.env';
@@ -33,9 +27,9 @@ export class FileController {
         destination: envConfig.staticAssets.path,
 
         // Generated random file name
-        filename: FileHelper.multerRandomFileName(),
-      }),
-    }),
+        filename: FileHelper.multerRandomFileName()
+      })
+    })
   )
   uploadFile(@UploadedFiles() files, @Body() fields: any) {
     console.log(files, fields);

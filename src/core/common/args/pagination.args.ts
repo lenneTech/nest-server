@@ -7,11 +7,10 @@ export class PaginationArgs {
   /**
    * Limit for pagination
    */
-  @Field(type => Int, {
-    description:
-      'Limit specifies the maximum number of elements found that are to be returned',
+  @Field((type) => Int, {
+    description: 'Limit specifies the maximum number of elements found that are to be returned',
     nullable: true,
-    defaultValue: 25,
+    defaultValue: 25
   })
   @IsOptional()
   @Max(100)
@@ -20,11 +19,10 @@ export class PaginationArgs {
   /**
    * Skip for pagination
    */
-  @Field(type => Int, {
-    description:
-      'Skip specifies how many found elements should be skipped on return',
+  @Field((type) => Int, {
+    description: 'Skip specifies how many found elements should be skipped on return',
     nullable: true,
-    defaultValue: 0,
+    defaultValue: 0
   })
   @IsOptional()
   skip?: number = 0;
@@ -32,9 +30,9 @@ export class PaginationArgs {
   /**
    * Sorting for pagination
    */
-  @Field(type => [SortInput], {
+  @Field((type) => [SortInput], {
     description: 'Sorting the returned elements',
-    nullable: true,
+    nullable: true
   })
   @IsOptional()
   sort?: SortInput[];

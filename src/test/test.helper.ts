@@ -9,7 +9,7 @@ import * as supertest from 'supertest';
 export enum TestGraphQLType {
   QUERY = 'query',
   MUTATION = 'mutation',
-  SUBSCRIPTION = 'subscription',
+  SUBSCRIPTION = 'subscription'
 }
 
 /**
@@ -79,18 +79,15 @@ export class TestHelper {
    * @param graphql
    * @param statusCode
    */
-  async graphQl(
-    graphql: string | TestGraphQLConfig,
-    options: TestGraphQLOptions = {},
-  ): Promise<any> {
+  async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
     // Default options
     options = Object.assign(
       {
         token: null,
         statusCode: 200,
-        log: false,
+        log: false
       },
-      options,
+      options
     );
 
     // Init vars
@@ -100,10 +97,7 @@ export class TestHelper {
     let query: string = '';
 
     // Convert string to TestGraphQLConfig
-    if (
-      (typeof graphql === 'string' || graphql instanceof String) &&
-      /^[a-zA-Z]+$/.test(graphql as string)
-    ) {
+    if ((typeof graphql === 'string' || graphql instanceof String) && /^[a-zA-Z]+$/.test(graphql as string)) {
       // Use input as query
       query = graphql as string;
     } else {
@@ -118,9 +112,9 @@ export class TestHelper {
           arguments: null,
           fields: ['id'],
           name: null,
-          type: TestGraphQLType.QUERY,
+          type: TestGraphQLType.QUERY
         },
-        graphql,
+        graphql
       ) as TestGraphQLConfig;
 
       // Init request
@@ -130,8 +124,7 @@ export class TestHelper {
       queryObj[graphql.type] = {};
 
       // Set request name and fields
-      queryObj[graphql.type][graphql.name] =
-        this.prepareFields(graphql.fields) || {};
+      queryObj[graphql.type][graphql.name] = this.prepareFields(graphql.fields) || {};
 
       // Set arguments
       if (graphql.arguments) {
@@ -146,7 +139,7 @@ export class TestHelper {
     const requestConfig: HTTPInjectOptions = {
       method: 'POST',
       url: '/graphql',
-      payload: { query },
+      payload: { query }
     };
 
     // Token
@@ -178,9 +171,7 @@ export class TestHelper {
     }
 
     // Express request
-    let request = supertest(
-      (this.app as INestApplication).getHttpServer(),
-    ).post(requestConfig.url);
+    let request = supertest((this.app as INestApplication).getHttpServer()).post(requestConfig.url);
     if (token) {
       request = request.set('Authorization', 'bearer ' + token);
     }
@@ -198,9 +189,7 @@ export class TestHelper {
     expect(response.headers['content-type']).toMatch('application/json');
 
     // return data
-    return response.body.data
-      ? response.body.data[(graphql as TestGraphQLConfig).name]
-      : response.body;
+    return response.body.data ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
   }
 
   /**

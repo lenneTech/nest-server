@@ -13,6 +13,6 @@ import { UserService } from './user.service';
   imports: [TypeOrmModule.forFeature([User])],
   controllers: [AvatarController],
   providers: [JSON, UserResolver, UserService],
-  exports: [TypeOrmModule, UserResolver, UserService],
+  exports: [TypeOrmModule, UserResolver, UserService]
 })
 export class UserModule {}

@@ -4,7 +4,7 @@ import { Kind } from 'graphql';
 /**
  * Date scalar to convert string into date
  */
-@Scalar('Date', type => Date)
+@Scalar('Date', (type) => Date)
 export class DateScalar implements CustomScalar<number, Date> {
   description = 'Date custom scalar type';
 

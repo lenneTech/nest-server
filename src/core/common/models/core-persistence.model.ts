@@ -11,7 +11,7 @@ import { CoreModel } from './core-model.model';
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
-  isAbstract: true,
+  isAbstract: true
 })
 export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
@@ -23,9 +23,9 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * ID of the persistence object
    */
-  @Field(type => ID, {
+  @Field((type) => ID, {
     description: 'ID of the persistence object',
-    nullable: true,
+    nullable: true
   })
   @ObjectIdColumn()
   id: string;
@@ -40,9 +40,9 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Labels of the object
    */
-  @Field(type => [String], {
+  @Field((type) => [String], {
     description: 'Labels of the object',
-    nullable: true,
+    nullable: true
   })
   @Column('simple-array')
   labels: string[] = [];
@@ -51,9 +51,9 @@ export abstract class CorePersistenceModel extends CoreModel {
    * IDs of the Owners
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field(type => [String], {
+  @Field((type) => [String], {
     description: 'Users who own the object',
-    nullable: true,
+    nullable: true
   })
   @Column('simple-array')
   ownerIds: string[] = [];
@@ -61,9 +61,9 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Tags for the object
    */
-  @Field(type => [String], {
+  @Field((type) => [String], {
     description: 'Tags for the object',
-    nullable: true,
+    nullable: true
   })
   @Column('simple-array')
   tags: string[] = [];

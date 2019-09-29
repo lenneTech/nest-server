@@ -8,9 +8,9 @@ export class FilterArgs extends PaginationArgs {
   /**
    * Filtering
    */
-  @Field(type => FilterInput, {
+  @Field((type) => FilterInput, {
     description: 'Input for filtering',
-    nullable: true,
+    nullable: true
   })
   @IsOptional()
   filter?: FilterInput;

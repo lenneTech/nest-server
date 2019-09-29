@@ -1,8 +1,4 @@
-import {
-  InternalServerErrorException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
@@ -30,11 +26,7 @@ export abstract class CoreUserService<
   /**
    * Create user
    */
-  async create(
-    input: TUserCreateInput,
-    currentUser?: TUser,
-    ...args: any[]
-  ): Promise<TUser> {
+  async create(input: TUserCreateInput, currentUser?: TUser, ...args: any[]): Promise<TUser> {
     // Prepare input
     await this.prepareInput(input, currentUser, { create: true });
 
@@ -56,9 +48,7 @@ export abstract class CoreUserService<
       }
     } catch (error) {
       if (error.code === 11000) {
-        throw new UnprocessableEntityException(
-          `User with email address "${(input as any).email}" already exists`,
-        );
+        throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
       } else {
         throw new UnprocessableEntityException();
       }
@@ -115,23 +105,16 @@ export abstract class CoreUserService<
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
     return await Promise.all(
-      (await this.db.find(Filter.generateFilterOptions(filterArgs))).map(
-        user => {
-          return this.prepareOutput(user, args[0]);
-        },
-      ),
+      (await this.db.find(Filter.generateFilterOptions(filterArgs))).map((user) => {
+        return this.prepareOutput(user, args[0]);
+      })
     );
   }
 
   /**
    * Update user via ID
    */
-  async update(
-    id: string,
-    input: TUserInput,
-    currentUser: TUser,
-    ...args: any[]
-  ): Promise<TUser> {
+  async update(id: string, input: TUserInput, currentUser: TUser, ...args: any[]): Promise<TUser> {
     // Check if user exists
     const user = await this.db.findOne(id);
     if (!user) {
@@ -145,10 +128,7 @@ export abstract class CoreUserService<
     await this.db.update(id, input);
 
     // Return user
-    return await this.prepareOutput(
-      Object.assign(user, input) as TUser,
-      args[0],
-    );
+    return await this.prepareOutput(Object.assign(user, input) as TUser, args[0]);
   }
 
   // ===================================================================================================================
