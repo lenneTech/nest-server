@@ -1,4 +1,4 @@
-import { Field, ID, ObjectType } from 'type-graphql';
+import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { CoreModel } from './core-model.model';
 
 @ObjectType({ description: 'Editor', isAbstract: true })

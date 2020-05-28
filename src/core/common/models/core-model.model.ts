@@ -14,7 +14,7 @@ export abstract class CoreModel {
   /**
    * Map method
    */
-  public map<T extends CoreModel>(this: T, data: object, cloneDeep: boolean = true): T {
+  public map<T extends CoreModel>(this: T, data: Record<string, any>, cloneDeep = true): T {
     // Check data
     if (!data || Object.keys(data).length === 0) {
       return this;

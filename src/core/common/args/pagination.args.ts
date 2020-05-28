@@ -1,5 +1,5 @@
 import { IsOptional, Max } from 'class-validator';
-import { ArgsType, Field, Int } from 'type-graphql';
+import { ArgsType, Field, Int } from '@nestjs/graphql';
 import { SortInput } from '../inputs/sort.input';
 
 @ArgsType()
@@ -10,7 +10,7 @@ export class PaginationArgs {
   @Field((type) => Int, {
     description: 'Limit specifies the maximum number of elements found that are to be returned',
     nullable: true,
-    defaultValue: 25
+    defaultValue: 25,
   })
   @IsOptional()
   @Max(100)
@@ -22,7 +22,7 @@ export class PaginationArgs {
   @Field((type) => Int, {
     description: 'Skip specifies how many found elements should be skipped on return',
     nullable: true,
-    defaultValue: 0
+    defaultValue: 0,
   })
   @IsOptional()
   skip?: number = 0;
@@ -32,7 +32,7 @@ export class PaginationArgs {
    */
   @Field((type) => [SortInput], {
     description: 'Sorting the returned elements',
-    nullable: true
+    nullable: true,
   })
   @IsOptional()
   sort?: SortInput[];

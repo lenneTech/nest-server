@@ -1,4 +1,4 @@
-import { Field, ID, ObjectType } from 'type-graphql';
+import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { BeforeInsert, BeforeUpdate, Column, ObjectIdColumn } from 'typeorm';
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
@@ -11,7 +11,7 @@ import { CoreModel } from './core-model.model';
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
-  isAbstract: true
+  isAbstract: true,
 })
 export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
@@ -25,7 +25,7 @@ export abstract class CorePersistenceModel extends CoreModel {
    */
   @Field((type) => ID, {
     description: 'ID of the persistence object',
-    nullable: true
+    nullable: true,
   })
   @ObjectIdColumn()
   id: string;
@@ -42,7 +42,7 @@ export abstract class CorePersistenceModel extends CoreModel {
    */
   @Field((type) => [String], {
     description: 'Labels of the object',
-    nullable: true
+    nullable: true,
   })
   @Column('simple-array')
   labels: string[] = [];
@@ -53,7 +53,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field((type) => [String], {
     description: 'Users who own the object',
-    nullable: true
+    nullable: true,
   })
   @Column('simple-array')
   ownerIds: string[] = [];
@@ -63,7 +63,7 @@ export abstract class CorePersistenceModel extends CoreModel {
    */
   @Field((type) => [String], {
     description: 'Tags for the object',
-    nullable: true
+    nullable: true,
   })
   @Column('simple-array')
   tags: string[] = [];

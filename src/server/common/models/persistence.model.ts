@@ -1,4 +1,4 @@
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType } from '@nestjs/graphql';
 import { Column } from 'typeorm';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
 import { Editor } from './editor.model';
@@ -10,7 +10,7 @@ import { Editor } from './editor.model';
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
-  isAbstract: true
+  isAbstract: true,
 })
 export abstract class PersistenceModel extends CorePersistenceModel {
   /**
@@ -20,7 +20,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    */
   @Field((type) => Editor, {
     description: 'Editor who created the object',
-    nullable: true
+    nullable: true,
   })
   @Column('varchar')
   createdBy?: string | Editor;
@@ -32,7 +32,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    */
   @Field((type) => Editor, {
     description: 'Editor who last updated the object',
-    nullable: true
+    nullable: true,
   })
   @Column('varchar')
   updatedBy?: string | Editor;

@@ -1,4 +1,4 @@
-import { registerEnumType } from 'type-graphql';
+import { registerEnumType } from '@nestjs/graphql';
 
 /**
  * Logical operators
@@ -29,12 +29,12 @@ export enum ComparisonOperatorEnum {
   NIN = 'NIN',
 
   // Corresponds to the regular expression
-  REGEX = 'REGEX'
+  REGEX = 'REGEX',
 }
 
 // Register LogicalOperatorEnum enum in TypeGraphQL
 registerEnumType(ComparisonOperatorEnum, {
   name: 'ComparisonOperatorEnum',
   description:
-    '[Comparison Operators](https://docs.mongodb.com/manual/reference/operator/query-comparison/) for filters'
+    '[Comparison Operators](https://docs.mongodb.com/manual/reference/operator/query-comparison/) for filters',
 });

@@ -20,16 +20,16 @@ describe('ServerModule (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [ServerModule],
-    }).compile();
-
-    app = moduleFixture
-      .createNestApplication
-      // new FastifyAdapter()
-      ();
-    await app.init();
-    testHelper = new TestHelper(app);
+    try {
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [ServerModule],
+      }).compile();
+      app = moduleFixture.createNestApplication();
+      await app.init();
+      testHelper = new TestHelper(app);
+    } catch (e) {
+      console.log('beforeAllError', e);
+    }
   });
 
   /**
@@ -47,9 +47,7 @@ describe('ServerModule (e2e)', () => {
    * Create new user
    */
   it('createUser', async () => {
-    gPassword = Math.random()
-      .toString(36)
-      .substring(7);
+    gPassword = Math.random().toString(36).substring(7);
     gEmail = gPassword + '@testuser.com';
 
     const res: any = await testHelper.graphQl({
@@ -94,8 +92,8 @@ describe('ServerModule (e2e)', () => {
       fields: ['id', 'email'],
     });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].message.statusCode).toEqual(401);
-    expect(res.errors[0].message.error).toEqual('Unauthorized');
+    expect(res.errors[0].extensions.exception.response.statusCode).toEqual(401);
+    expect(res.errors[0].message).toEqual('Unauthorized');
     expect(res.data).toBe(null);
   });
 
@@ -108,7 +106,7 @@ describe('ServerModule (e2e)', () => {
         name: 'findUsers',
         fields: ['id', 'email'],
       },
-      { token: gToken },
+      { token: gToken }
     );
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
@@ -129,7 +127,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken },
+      { token: gToken }
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -148,7 +146,7 @@ describe('ServerModule (e2e)', () => {
         name: 'getUser',
         fields: ['id', 'email', 'firstName'],
       },
-      { token: gToken },
+      { token: gToken }
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -168,7 +166,7 @@ describe('ServerModule (e2e)', () => {
         },
         fields: ['id'],
       },
-      { token: gToken },
+      { token: gToken }
     );
     expect(res.id).toEqual(gId);
   });

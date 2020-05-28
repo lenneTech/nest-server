@@ -1,5 +1,5 @@
 import { IsOptional } from 'class-validator';
-import { ArgsType, Field } from 'type-graphql';
+import { ArgsType, Field } from '@nestjs/graphql';
 import { FilterInput } from '../inputs/filter.input';
 import { PaginationArgs } from './pagination.args';
 
@@ -10,7 +10,7 @@ export class FilterArgs extends PaginationArgs {
    */
   @Field((type) => FilterInput, {
     description: 'Input for filtering',
-    nullable: true
+    nullable: true,
   })
   @IsOptional()
   filter?: FilterInput;
