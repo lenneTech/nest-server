@@ -1,4 +1,4 @@
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType } from '@nestjs/graphql';
 
 /**
  * CoreAuth model for the response after the sign in

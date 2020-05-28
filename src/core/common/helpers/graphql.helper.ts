@@ -10,7 +10,7 @@ import {
   SelectionNode,
   StringValueNode,
   ValueNode,
-  VariableNode
+  VariableNode,
 } from 'graphql';
 import * as _ from 'lodash';
 
@@ -83,7 +83,7 @@ export class GraphQLHelper {
    * Get arguments of AST
    */
   public static getArguments(ast: FieldNode) {
-    return ast.arguments!.map((argument) => {
+    return ast.arguments?.map((argument) => {
       const valueNode = argument.value;
       const argumentValue = !GraphQLHelper.isListValueNode(valueNode)
         ? (valueNode as any).value
@@ -92,8 +92,8 @@ export class GraphQLHelper {
       return {
         [argument.name.value]: {
           kind: argument.value.kind,
-          value: argumentValue
-        }
+          value: argumentValue,
+        },
       };
     });
   }
@@ -102,7 +102,10 @@ export class GraphQLHelper {
    * Get directive value from DirectiveNode for GraphQLResolveInfo
    */
   public static getDirectiveValue(directive: DirectiveNode, info: GraphQLResolveInfo) {
-    const arg = directive.arguments![0]; // only arg on an include or skip directive is "if"
+    const arg = directive.arguments?.[0]; // only arg on an include or skip directive is "if"
+    if (!arg) {
+      return;
+    }
     if (arg.value.kind !== 'Variable') {
       const valueNode = arg.value;
       return GraphQLHelper.isValueNodeWithValueField(valueNode) ? !!valueNode.value : false;
@@ -118,19 +121,19 @@ export class GraphQLHelper {
   public static getDirectiveResults(ast: SelectionNode, info: GraphQLResolveInfo) {
     const directiveResult = {
       shouldInclude: true,
-      shouldSkip: false
+      shouldSkip: false,
     };
-    return ast.directives!.reduce((result, directive) => {
+    return ast.directives?.reduce((result, directive) => {
       switch (directive.name.value) {
         case 'include':
           return {
             ...result,
-            shouldInclude: GraphQLHelper.getDirectiveValue(directive, info)
+            shouldInclude: GraphQLHelper.getDirectiveValue(directive, info),
           };
         case 'skip':
           return {
             ...result,
-            shouldSkip: GraphQLHelper.getDirectiveValue(directive, info)
+            shouldSkip: GraphQLHelper.getDirectiveValue(directive, info),
           };
         default:
           return result;
@@ -151,7 +154,7 @@ export class GraphQLHelper {
     config = Object.assign(
       {
         processArguments: false,
-        excludedFields: []
+        excludedFields: [],
       },
       config
     );
@@ -182,7 +185,7 @@ export class GraphQLHelper {
           // check if the current field has arguments
           if (a.arguments && a.arguments.length) {
             Object.assign(flattened[name], {
-              __arguments: GraphQLHelper.getArguments(a)
+              __arguments: GraphQLHelper.getArguments(a),
             });
           }
         }
@@ -197,7 +200,11 @@ export class GraphQLHelper {
   /**
    * Get requested fields from GraphQLResolveInfo
    */
-  public static getFields(info: GraphQLResolveInfo, obj: {} = {}, config: Partial<GraphQLFieldsConfig> = {}) {
+  public static getFields(
+    info: GraphQLResolveInfo,
+    obj: Record<string, any> = {},
+    config: Partial<GraphQLFieldsConfig> = {}
+  ) {
     // Check info
     if (!info || (!info.fieldNodes && !(info as any).fieldASTs)) {
       return {};

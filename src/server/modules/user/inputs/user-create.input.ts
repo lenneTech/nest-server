@@ -1,4 +1,4 @@
-import { InputType } from 'type-graphql';
+import { InputType } from '@nestjs/graphql';
 import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-user-create.input';
 
 /**

@@ -1,5 +1,5 @@
 import { IsEmail, IsOptional } from 'class-validator';
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType } from '@nestjs/graphql';
 import { Column, Index } from 'typeorm';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 

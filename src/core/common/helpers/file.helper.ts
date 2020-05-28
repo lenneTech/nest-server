@@ -27,7 +27,7 @@ export class FileHelper {
   /**
    * Get function to filter files for multer with a certain mimetype & extname
    */
-  public static multerFileFilter(fileTypeRegex: RegExp = /jpeg|jpg|png/) {
+  public static multerFileFilter(fileTypeRegex = /jpeg|jpg|png/) {
     return (req, file, cb) => {
       const mimetype = fileTypeRegex.test(file.mimetype);
       const extName = fileTypeRegex.test(extname(file.originalname).toLowerCase());
@@ -51,7 +51,7 @@ export class FileHelper {
     options = Object.assign(
       {
         fileSize: 1024 * 1024, // 1MB
-        fileTypeRegex: /jpeg|jpg|png/ // Images only
+        fileTypeRegex: /jpeg|jpg|png/, // Images only
       },
       options
     );
@@ -63,7 +63,7 @@ export class FileHelper {
       // Limits
       limits: {
         // Limit of file size
-        fileSize: options.fileSize ? options.fileSize : undefined
+        fileSize: options.fileSize ? options.fileSize : undefined,
       },
 
       // Automatic storage handling
@@ -75,8 +75,8 @@ export class FileHelper {
         destination: options.destination ? options.destination : undefined,
 
         // Generated random file name
-        filename: FileHelper.multerRandomFileName()
-      })
+        filename: FileHelper.multerRandomFileName(),
+      }),
     };
   }
 }

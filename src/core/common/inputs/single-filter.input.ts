@@ -1,4 +1,4 @@
-import { Field, InputType } from 'type-graphql';
+import { Field, InputType } from '@nestjs/graphql';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { JSON } from '../scalars/json.scalar';
 
@@ -18,7 +18,7 @@ export class SingleFilterInput {
    */
   @Field({
     description: '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
-    nullable: true
+    nullable: true,
   })
   not?: boolean;
 
@@ -26,7 +26,7 @@ export class SingleFilterInput {
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
   @Field((type) => ComparisonOperatorEnum, {
-    description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)'
+    description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
   })
   operator: ComparisonOperatorEnum;
 
@@ -38,7 +38,7 @@ export class SingleFilterInput {
     description:
       '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
       '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
-    nullable: true
+    nullable: true,
   })
   options?: string;
 

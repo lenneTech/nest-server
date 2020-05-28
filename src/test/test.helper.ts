@@ -9,7 +9,7 @@ import * as supertest from 'supertest';
 export enum TestGraphQLType {
   QUERY = 'query',
   MUTATION = 'mutation',
-  SUBSCRIPTION = 'subscription'
+  SUBSCRIPTION = 'subscription',
 }
 
 /**
@@ -85,7 +85,7 @@ export class TestHelper {
       {
         token: null,
         statusCode: 200,
-        log: false
+        log: false,
       },
       options
     );
@@ -94,7 +94,7 @@ export class TestHelper {
     const { token, statusCode, log } = options;
 
     // Init
-    let query: string = '';
+    let query = '';
 
     // Convert string to TestGraphQLConfig
     if ((typeof graphql === 'string' || graphql instanceof String) && /^[a-zA-Z]+$/.test(graphql as string)) {
@@ -112,7 +112,7 @@ export class TestHelper {
           arguments: null,
           fields: ['id'],
           name: null,
-          type: TestGraphQLType.QUERY
+          type: TestGraphQLType.QUERY,
         },
         graphql
       ) as TestGraphQLConfig;
@@ -139,7 +139,7 @@ export class TestHelper {
     const requestConfig: HTTPInjectOptions = {
       method: 'POST',
       url: '/graphql',
-      payload: { query }
+      payload: { query },
     };
 
     // Token
@@ -171,7 +171,7 @@ export class TestHelper {
     }
 
     // Express request
-    let request = supertest((this.app as INestApplication).getHttpServer()).post(requestConfig.url);
+    let request = supertest((this.app as INestApplication).getHttpServer()).post(requestConfig.url as string);
     if (token) {
       request = request.set('Authorization', 'bearer ' + token);
     }

@@ -14,12 +14,12 @@ export class Config {
    *
    * except that arrays are not merged but overwrite arrays of previous sources.
    *
-   * @param {any} object destination object
+   * @param {any} obj destination object
    * @param {any[]} sources source objects
    * @returns {any}
    */
-  public static merge(object: object, ...sources: any[]): any {
-    return _.mergeWith(object, ...sources, (objValue: any, srcValue: any) => {
+  public static merge(obj: Record<string, any>, ...sources: any[]): any {
+    return _.mergeWith(obj, ...sources, (objValue: any, srcValue: any) => {
       if (Array.isArray(srcValue)) {
         return srcValue;
       }

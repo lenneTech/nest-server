@@ -36,7 +36,7 @@ export class InputHelper {
   }
 
   // Standard error function
-  public static errorFunction(caller: Function) {
+  public static errorFunction(caller: (...params) => any) {
     const err = new Error('Required parameter is missing or invalid');
     Error.captureStackTrace(err, caller);
     throw err;
@@ -45,7 +45,7 @@ export class InputHelper {
   /**
    * Check if parameter is an array
    */
-  public static isArray(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isArray(parameter: any, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Array
       ? true
       : falseFunction(InputHelper.isArray);
@@ -54,7 +54,7 @@ export class InputHelper {
   /**
    * Checks if it is a basic type
    */
-  public static isBasicType(metatype: any, falseFunction: Function = InputHelper.returnFalse): boolean {
+  public static isBasicType(metatype: any, falseFunction: (...params) => any = InputHelper.returnFalse): boolean {
     const types = [String, Boolean, Number, Array, Object, Buffer, ArrayBuffer];
     return types.includes(metatype) ? true : falseFunction(InputHelper.isBasicType);
   }
@@ -66,7 +66,7 @@ export class InputHelper {
     parameter: number,
     min: number,
     max: number,
-    falseFunction: Function = InputHelper.errorFunction
+    falseFunction: (...params) => any = InputHelper.errorFunction
   ): boolean {
     return typeof parameter === 'number' && parameter > min && parameter < max
       ? true
@@ -76,14 +76,14 @@ export class InputHelper {
   /**
    * Check if parameter is a Date
    */
-  public static isDate(parameter: Date, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isDate(parameter: Date, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return parameter instanceof Date ? true : falseFunction(InputHelper.isDate);
   }
 
   /**
    * Check if parameter is a valid email address
    */
-  public static isEmail(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isEmail(parameter: string, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     const regex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/;
     return regex.test(parameter) ? true : falseFunction(InputHelper.isEmail);
   }
@@ -91,14 +91,14 @@ export class InputHelper {
   /**
    * Check whether the parameter can be converted to false
    */
-  public static isFalse(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isFalse(parameter: any, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return !parameter ? true : falseFunction(InputHelper.isFalse);
   }
 
   /**
    * Check if parameter is a valid file
    */
-  public static isFile(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isFile(parameter: any, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return parameter !== null &&
       typeof parameter !== 'undefined' &&
       parameter.name &&
@@ -112,7 +112,10 @@ export class InputHelper {
   /**
    * Check if parameter is a function
    */
-  public static isFunction(parameter: Function, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isFunction(
+    parameter: (...params) => any,
+    falseFunction: (...params) => any = InputHelper.errorFunction
+  ): boolean {
     return typeof parameter === 'function' ? true : falseFunction(InputHelper.isFunction);
   }
 
@@ -122,7 +125,7 @@ export class InputHelper {
   public static isGreater(
     parameter: number,
     compare: number,
-    falseFunction: Function = InputHelper.errorFunction
+    falseFunction: (...params) => any = InputHelper.errorFunction
   ): boolean {
     return typeof parameter === 'number' && parameter > compare ? true : falseFunction(InputHelper.isGreater);
   }
@@ -133,7 +136,7 @@ export class InputHelper {
   public static isLower(
     parameter: number,
     compare: number,
-    falseFunction: Function = InputHelper.errorFunction
+    falseFunction: (...params) => any = InputHelper.errorFunction
   ): boolean {
     return typeof parameter === 'number' && parameter < compare ? true : falseFunction(InputHelper.isLower);
   }
@@ -141,7 +144,10 @@ export class InputHelper {
   /**
    * Check if parameter is a non empty array
    */
-  public static isNonEmptyArray(parameter: any, errorFunction: Function = InputHelper.errorFunction): boolean {
+  public static isNonEmptyArray(
+    parameter: any,
+    errorFunction: (...params) => any = InputHelper.errorFunction
+  ): boolean {
     return parameter !== null &&
       typeof parameter !== 'undefined' &&
       parameter.constructor === Array &&
@@ -153,7 +159,10 @@ export class InputHelper {
   /**
    * Check if parameter is a non empty object
    */
-  public static isNonEmptyObject(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isNonEmptyObject(
+    parameter: any,
+    falseFunction: (...params) => any = InputHelper.errorFunction
+  ): boolean {
     return parameter !== null &&
       typeof parameter !== 'undefined' &&
       parameter.constructor === Object &&
@@ -165,21 +174,24 @@ export class InputHelper {
   /**
    * Check if parameter is a non empty string
    */
-  public static isNonEmptyString(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isNonEmptyString(
+    parameter: string,
+    falseFunction: (...params) => any = InputHelper.errorFunction
+  ): boolean {
     return typeof parameter === 'string' && parameter.length > 0 ? true : falseFunction(InputHelper.isNonEmptyString);
   }
 
   /**
    * Check if parameter is a number
    */
-  public static isNumber(parameter: number, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isNumber(parameter: number, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return typeof parameter === 'number' ? true : falseFunction(InputHelper.isNumber);
   }
 
   /**
    * Check if parameter is an object
    */
-  public static isObject(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isObject(parameter: any, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return parameter !== null && typeof parameter !== 'undefined' && parameter.constructor === Object
       ? true
       : falseFunction(InputHelper.isObject);
@@ -188,14 +200,14 @@ export class InputHelper {
   /**
    * Check whether the parameter can be converted to true
    */
-  public static isTrue(parameter: any, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isTrue(parameter: any, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return !!parameter ? true : falseFunction(InputHelper.isTrue);
   }
 
   /**
    * Check if parameter is a string
    */
-  public static isString(parameter: string, falseFunction: Function = InputHelper.errorFunction): boolean {
+  public static isString(parameter: string, falseFunction: (...params) => any = InputHelper.errorFunction): boolean {
     return typeof parameter === 'string' ? true : falseFunction(InputHelper.isString);
   }
 

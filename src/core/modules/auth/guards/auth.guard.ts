@@ -23,7 +23,7 @@ export type IAuthGuard = CanActivate & {
  * @param request
  * @param response
  */
-const createPassportContext = (request, response) => (type, options, callback: Function) =>
+const createPassportContext = (request, response) => (type, options, callback: (...params) => any) =>
   new Promise((resolve, reject) =>
     passport.authenticate(type, options, (err, user, info) => {
       try {
@@ -78,7 +78,7 @@ function createAuthGuard(type?: string): Type<CanActivate> {
     /**
      * Login for session handling
      */
-    async logIn<TRequest extends { logIn: Function } = any>(request: TRequest): Promise<void> {
+    async logIn<TRequest extends { logIn: (...params) => any } = any>(request: TRequest): Promise<void> {
       const user = request[this.options.property || defaultOptions.property];
       await new Promise((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
     }
