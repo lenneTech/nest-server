@@ -21,7 +21,7 @@ export const Restricted = (...roles: string[]): PropertyDecorator => {
 /**
  * Get restricted
  */
-export const getRestricted = (object: any, propertyKey: string) => {
+export const getRestricted = (object: unknown, propertyKey: string) => {
   return Reflect.getMetadata(restrictedMetaKey, object, propertyKey);
 };
 

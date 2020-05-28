@@ -28,7 +28,7 @@ export class Any implements CustomScalar<string, any> {
   /**
    * Parse value from the client query
    */
-  parseLiteral(ast: ValueNode, variables?: object) {
+  parseLiteral(ast: ValueNode, variables?: Record<string, any>) {
     switch (ast.kind) {
       case Kind.STRING:
       case Kind.BOOLEAN:

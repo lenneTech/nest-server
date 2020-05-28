@@ -1,4 +1,4 @@
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType } from '@nestjs/graphql';
 import { Column, Entity } from 'typeorm';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { Editor } from '../../common/models/editor.model';
@@ -28,7 +28,7 @@ export class User extends CoreUserModel implements PersistenceModel {
    */
   @Field((type) => Editor, {
     description: 'ID of the user who created the object',
-    nullable: true
+    nullable: true,
   })
   @Column('varchar')
   createdBy: string | Editor;
@@ -40,7 +40,7 @@ export class User extends CoreUserModel implements PersistenceModel {
    */
   @Field((type) => Editor, {
     description: 'ID of the user who last updated the object',
-    nullable: true
+    nullable: true,
   })
   @Column('varchar')
   updatedBy: string | Editor;

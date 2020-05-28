@@ -1,4 +1,4 @@
-import { registerEnumType } from 'type-graphql';
+import { registerEnumType } from '@nestjs/graphql';
 
 /**
  * SortInput order of items
@@ -8,11 +8,11 @@ export enum SortOrderEnum {
   ASC = 'ASC',
 
   // Descending sorting
-  DESC = 'DESC'
+  DESC = 'DESC',
 }
 
 // Register SortOrderEnum enum in TypeGraphQL
 registerEnumType(SortOrderEnum, {
   name: 'SortOrderEnum',
-  description: 'SortInput order of items'
+  description: 'SortInput order of items',
 });

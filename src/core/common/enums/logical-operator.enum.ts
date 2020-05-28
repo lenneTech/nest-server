@@ -1,4 +1,4 @@
-import { registerEnumType } from 'type-graphql';
+import { registerEnumType } from '@nestjs/graphql';
 
 /**
  * Logical operators
@@ -11,11 +11,11 @@ export enum LogicalOperatorEnum {
   NOR = 'NOR',
 
   // The logical OR operator
-  OR = 'OR'
+  OR = 'OR',
 }
 
 // Register LogicalOperatorEnum enum in TypeGraphQL
 registerEnumType(LogicalOperatorEnum, {
   name: 'LogicalOperatorEnum',
-  description: 'Logical operators to combine filters'
+  description: 'Logical operators to combine filters',
 });

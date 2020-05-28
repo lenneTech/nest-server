@@ -1,5 +1,4 @@
-import { Args, Query } from '@nestjs/graphql';
-import { Resolver } from 'type-graphql/dist/decorators/Resolver';
+import { Args, Query, Resolver } from '@nestjs/graphql';
 import { CoreAuthModel } from './core-auth.model';
 import { CoreAuthService } from './services/core-auth.service';
 

@@ -1,4 +1,4 @@
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType } from '@nestjs/graphql';
 import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model';
 import { User } from '../user/user.model';
 
