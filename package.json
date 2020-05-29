@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -43,12 +43,12 @@
     "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
-    "node": ">= 12.4.0"
+    "node": ">= 12.17.0"
   },
   "dependencies": {
     "@nestjs/common": "7.1.1",
     "@nestjs/core": "7.1.1",
-    "@nestjs/graphql": "7.3.11",
+    "@nestjs/graphql": "7.4.0",
     "@nestjs/jwt": "7.0.0",
     "@nestjs/passport": "7.0.0",
     "@nestjs/platform-express": "7.1.1",
