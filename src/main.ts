@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import envConfig from './config.env';
-import { ServerModule } from './server.module';
+import { ServerModule } from './server/server.module';
 
 /**
  * Preparations for server start
@@ -15,6 +15,10 @@ async function bootstrap() {
 
   // Asset directory
   server.useStaticAssets(envConfig.staticAssets.path, envConfig.staticAssets.options);
+
+  // Templates directory
+  server.setBaseViewsDir(envConfig.templates.path);
+  server.setViewEngine(envConfig.templates.engine);
 
   // Enable cors to allow requests from other domains
   server.enableCors();
