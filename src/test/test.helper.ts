@@ -62,6 +62,17 @@ export interface TestGraphQLOptions {
 }
 
 /**
+ * Options for rest requests
+ */
+export interface TestRestOptions {
+  log?: boolean;
+  statusCode?: number;
+  token?: string;
+  payload?: any;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+}
+
+/**
  * Test helper
  */
 export class TestHelper {
@@ -147,6 +158,82 @@ export class TestHelper {
       requestConfig.headers = { authorization: `Bearer ${token}` };
     }
 
+    // Get response
+    const response = await this.getResponse(token, requestConfig, statusCode, log);
+
+    // Response of fastify
+    if ((this.app as FastifyInstance).inject) {
+      // Check data
+      expect(response.headers['content-type']).toBe('application/json');
+
+      // return data
+      return JSON.parse(response.payload).data
+        ? JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name]
+        : JSON.parse(response.payload);
+    }
+
+    // Check data
+    expect(response.headers['content-type']).toMatch('application/json');
+
+    // return data
+    return response.body.data ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
+  }
+
+  /**
+   * Send REST request
+   */
+  async rest(url: string, options: TestRestOptions = {}): Promise<any> {
+    // Default options
+    options = Object.assign(
+      {
+        token: null,
+        statusCode: 200,
+        log: false,
+        payload: null,
+        method: 'GET',
+      },
+      options
+    );
+
+    // Init vars
+    const { token, statusCode, log } = options;
+
+    // Request configuration
+    const requestConfig: HTTPInjectOptions = {
+      method: options.method,
+      url,
+    };
+    if (options.payload) {
+      requestConfig.payload = options.payload;
+    }
+
+    // Process response
+    const response = await this.getResponse(token, requestConfig, statusCode, log);
+    let result = response.text;
+    try {
+      result = JSON.parse(response.text);
+    } catch (e) {
+      // nothing to do
+    }
+
+    // Return result
+    return result;
+  }
+
+  /**
+   * Get response
+   */
+  protected async getResponse(
+    token: string,
+    requestConfig: HTTPInjectOptions,
+    statusCode: number,
+    log: boolean
+  ): Promise<any> {
+    // Token
+    if (token) {
+      requestConfig.headers = { authorization: `Bearer ${token}` };
+    }
+
     // Init response
     let response: any;
 
@@ -162,16 +249,14 @@ export class TestHelper {
 
       // Check data
       expect(response.statusCode).toBe(statusCode);
-      expect(response.headers['content-type']).toBe('application/json');
 
-      // return data
-      return JSON.parse(response.payload).data
-        ? JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name]
-        : JSON.parse(response.payload);
+      // Return response
+      return response;
     }
 
     // Express request
-    let request = supertest((this.app as INestApplication).getHttpServer()).post(requestConfig.url as string);
+    const method: string = requestConfig.method.toLowerCase();
+    let request = supertest((this.app as INestApplication).getHttpServer())[method](requestConfig.url as string);
     if (token) {
       request = request.set('Authorization', 'bearer ' + token);
     }
@@ -186,10 +271,9 @@ export class TestHelper {
 
     // Check data
     expect(response.statusCode).toBe(statusCode);
-    expect(response.headers['content-type']).toMatch('application/json');
 
-    // return data
-    return response.body.data ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
+    // Return response
+    return response;
   }
 
   /**

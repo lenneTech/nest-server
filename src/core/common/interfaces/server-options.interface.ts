@@ -126,6 +126,12 @@ export interface IServerOptions {
      *  e.g. join(__dirname, '..', 'templates')
      */
     path?: string;
+
+    /**
+     * View engine
+     * e.g. 'ejs'
+     */
+    engine?: string;
   };
 
   /**
