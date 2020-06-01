@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ServerModule } from '../src/server.module';
+import envConfig from '../src/config.env';
+import { ServerModule } from '../src/server/server.module';
 import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('ServerModule (e2e)', () => {
@@ -25,6 +26,8 @@ describe('ServerModule (e2e)', () => {
         imports: [ServerModule],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.setBaseViewsDir(envConfig.templates.path);
+      app.setViewEngine(envConfig.templates.engine);
       await app.init();
       testHelper = new TestHelper(app);
     } catch (e) {
@@ -42,6 +45,22 @@ describe('ServerModule (e2e)', () => {
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================
+
+  /**
+   * Get index
+   */
+  it('get index', async () => {
+    const res: any = await testHelper.rest('');
+    expect(res.includes('Welcome to API')).toBe(true);
+    expect(res.includes(envConfig.env + ' environment')).toBe(true);
+  });
+
+  /**
+   * Get config without token should fail
+   */
+  it('get config without token', async () => {
+    const res: any = await testHelper.rest('/config', { statusCode: 401 });
+  });
 
   /**
    * Create new user
@@ -112,6 +131,13 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * Get config without admin rights should fail
+   */
+  it('get config without admin rights should fail', async () => {
+    const res: any = await testHelper.rest('/config', { token: gToken, statusCode: 401 });
+  });
+
+  /**
    * Update user
    */
   it('updateUser', async () => {
@@ -121,10 +147,11 @@ describe('ServerModule (e2e)', () => {
           id: gId,
           input: {
             firstName: 'Jonny',
+            roles: ['admin'],
           },
         },
         name: 'updateUser',
-        fields: ['id', 'email', 'firstName'],
+        fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
       { token: gToken }
@@ -132,6 +159,16 @@ describe('ServerModule (e2e)', () => {
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
+    expect(res.roles[0]).toEqual('admin');
+    expect(res.roles.length).toEqual(1);
+  });
+
+  /**
+   * Get config with token
+   */
+  it('get config with admin rights', async () => {
+    const res: any = await testHelper.rest('/config', { token: gToken });
+    expect(res.env).toEqual(envConfig.env);
   });
 
   /**
