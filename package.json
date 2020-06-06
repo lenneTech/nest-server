@@ -64,7 +64,7 @@
     "@types/supertest": "2.0.9",
     "@typescript-eslint/eslint-plugin": "^3.0.2",
     "@typescript-eslint/parser": "^3.0.2",
-    "apollo-server-express": "2.14.1",
+    "apollo-server-express": "2.14.2",
     "bcrypt": "4.0.1",
     "class-transformer": "0.2.3",
     "class-validator": "0.12.2",
