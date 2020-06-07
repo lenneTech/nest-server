@@ -23,7 +23,7 @@ export class CoreAuthService {
     const payload: JwtPayload = { email: user.email };
     return {
       token: this.jwtService.sign(payload),
-      user
+      user,
     };
   }
 

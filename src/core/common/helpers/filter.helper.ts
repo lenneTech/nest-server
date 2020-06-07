@@ -30,15 +30,15 @@ export class Filter {
       switch (filter.combinedFilter.logicalOperator) {
         case LogicalOperatorEnum.AND:
           return {
-            $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
+            $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
           };
         case LogicalOperatorEnum.NOR:
           return {
-            $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
+            $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
           };
         case LogicalOperatorEnum.OR:
           return {
-            $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item))
+            $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
           };
       }
     }
@@ -94,8 +94,8 @@ export class Filter {
             ? {
                 $not: {
                   $regex: new RegExp(value),
-                  $options: options || ''
-                }
+                  $options: options || '',
+                },
               }
             : { $regex: new RegExp(value), $options: options || '' };
           break;
