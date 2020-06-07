@@ -40,7 +40,7 @@ export class CoreModule {
         graphQl: {
           autoSchemaFile: 'schema.gql',
           context: ({ req }) => ({ req }),
-          installSubscriptionHandlers: true
+          installSubscriptionHandlers: true,
         },
         port: 3000,
         typeOrm: {
@@ -52,9 +52,9 @@ export class CoreModule {
           synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
           entities: [],
           useNewUrlParser: true,
-          useUnifiedTopology: true
+          useUnifiedTopology: true,
         },
-        typeOrmModelIntegration: true
+        typeOrmModelIntegration: true,
       } as IServerOptions,
       options
     );
@@ -69,14 +69,14 @@ export class CoreModule {
       // The ConfigService provides access to the current configuration of the module
       {
         provide: ConfigService,
-        useValue: new ConfigService(options)
+        useValue: new ConfigService(options),
       },
 
       // [Global] The CheckResponseInterceptor restricts the response to the properties
       // that are permitted for the current user
       {
         provide: APP_INTERCEPTOR,
-        useClass: CheckResponseInterceptor
+        useClass: CheckResponseInterceptor,
       },
 
       // [Global] The CheckInputPipe checks the permissibility of individual properties of inputs for the resolvers
@@ -84,12 +84,12 @@ export class CoreModule {
       {
         provide: APP_PIPE,
         scope: Scope.REQUEST,
-        useClass: CheckInputPipe
+        useClass: CheckInputPipe,
       },
 
       // Core Services
       EmailService,
-      TemplateService
+      TemplateService,
     ];
 
     // Return dynamic module
@@ -97,7 +97,7 @@ export class CoreModule {
       module: CoreModule,
       imports: [TypeOrmModule.forRoot(options.typeOrm), GraphQLModule.forRoot(options.graphQl)],
       providers,
-      exports: [ConfigService, EmailService, TemplateService]
+      exports: [ConfigService, EmailService, TemplateService],
     };
   }
 }

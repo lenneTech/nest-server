@@ -28,18 +28,18 @@ export class CoreAuthModule {
         // [Global] The GraphQLAuthGard integrates the user into context
         {
           provide: APP_GUARD,
-          useClass: RolesGuard
+          useClass: RolesGuard,
         },
         {
           provide: CoreAuthUserService,
-          useClass: UserService
+          useClass: UserService,
         },
 
         // Standard services
         CoreAuthService,
-        JwtStrategy
+        JwtStrategy,
       ],
-      exports: [CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule]
+      exports: [CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule],
     };
   }
 }

@@ -9,5 +9,5 @@ export enum RoleEnum {
   OWNER = 'owner',
 
   // User must be signed in
-  USER = 'user'
+  USER = 'user',
 }

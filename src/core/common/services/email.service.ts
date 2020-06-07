@@ -36,7 +36,7 @@ export class EmailService {
     const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {
       senderEmail: this.configService.get('email.defaultSender.email'),
       senderName: this.configService.get('email.defaultSender.name'),
-      ...config
+      ...config,
     };
 
     let html = config.html;
@@ -76,7 +76,7 @@ export class EmailService {
       subject,
       text,
       html,
-      attachments
+      attachments,
     });
   }
 }
