@@ -19,7 +19,7 @@ export class AuthModule {
       module: AuthModule,
       imports: [CoreAuthModule.forRoot(UserModule, UserService, options)],
       providers: [AuthResolver],
-      exports: [AuthResolver, CoreAuthModule]
+      exports: [AuthResolver, CoreAuthModule],
     };
   }
 }

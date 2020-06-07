@@ -28,7 +28,7 @@ export class AvatarController {
     FileInterceptor(
       'file',
       FileHelper.multerOptionsForImageUpload({
-        destination: envConfig.staticAssets.path + '/avatars'
+        destination: envConfig.staticAssets.path + '/avatars',
       })
     )
   )

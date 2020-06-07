@@ -58,7 +58,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
       templateData: user,
-      text
+      text,
     });
     return user;
   }
@@ -70,7 +70,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     // Return found users
     return this.db.find(
       Filter.generateFilterOptions(filterArgs, {
-        dbType: this.configService.get('typeOrm.type')
+        dbType: this.configService.get('typeOrm.type'),
       })
     );
   }

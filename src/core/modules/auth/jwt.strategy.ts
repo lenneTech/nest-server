@@ -16,7 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: configService.get('jwt.secretOrPrivateKey')
+      secretOrKey: configService.get('jwt.secretOrPrivateKey'),
     });
   }
 
