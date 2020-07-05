@@ -22,7 +22,7 @@ export class Context {
     // Get data
     if (ctx) {
       // User from GraphQL context
-      user = ctx.user;
+      user = ctx?.user || ctx?.req?.user;
     } else {
       const request = context.switchToHttp().getRequest();
       if (request) {
