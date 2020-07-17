@@ -84,7 +84,7 @@
     "husky": "4.2.5",
     "jest": "26.1.0",
     "json-to-graphql-query": "2.0.0",
-    "lodash": "4.17.15",
+    "lodash": "4.17.19",
     "mongodb": "3.5.9",
     "nodemailer": "6.4.10",
     "nodemon": "2.0.4",
