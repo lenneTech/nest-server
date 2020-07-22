@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
-import { FastifyInstance, HTTPInjectOptions } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
+import * as LightMyRequest from 'light-my-request';
 import * as supertest from 'supertest';
 
 /**
@@ -147,7 +148,7 @@ export class TestHelper {
     }
 
     // Request configuration
-    const requestConfig: HTTPInjectOptions = {
+    const requestConfig: LightMyRequest.InjectOptions = {
       method: 'POST',
       url: '/graphql',
       payload: { query },
@@ -199,7 +200,7 @@ export class TestHelper {
     const { token, statusCode, log } = options;
 
     // Request configuration
-    const requestConfig: HTTPInjectOptions = {
+    const requestConfig: LightMyRequest.InjectOptions = {
       method: options.method,
       url,
     };
@@ -221,11 +222,56 @@ export class TestHelper {
   }
 
   /**
+   * Prepare GraphQL fields for request
+   * @param fields
+   */
+  prepareFields(fields: any) {
+    const result = {};
+
+    // Process string
+    if (typeof fields === 'string') {
+      result[fields] = true;
+
+      // Process array
+    } else if (Array.isArray(fields)) {
+      for (const item of fields) {
+        // Process string array
+        if (typeof item === 'string') {
+          result[item] = true;
+
+          // Process nested array
+        } else if (Array.isArray(item)) {
+          Object.assign(result, this.prepareFields(item));
+
+          // Process object array
+        } else if (typeof item === 'object') {
+          for (const [key, val] of Object.entries(item)) {
+            result[key] = this.prepareFields(val);
+          }
+        }
+      }
+
+      // Process object
+    } else if (typeof fields === 'object') {
+      for (const [key, val] of Object.entries(fields)) {
+        result[key] = this.prepareFields(val);
+      }
+
+      // Process other fields
+    } else {
+      return fields;
+    }
+
+    // Return result
+    return result;
+  }
+
+  /**
    * Get response
    */
   protected async getResponse(
     token: string,
-    requestConfig: HTTPInjectOptions,
+    requestConfig: LightMyRequest.InjectOptions,
     statusCode: number,
     log: boolean
   ): Promise<any> {
@@ -274,50 +320,5 @@ export class TestHelper {
 
     // Return response
     return response;
-  }
-
-  /**
-   * Prepare GraphQL fields for request
-   * @param fields
-   */
-  prepareFields(fields: any) {
-    const result = {};
-
-    // Process string
-    if (typeof fields === 'string') {
-      result[fields] = true;
-
-      // Process array
-    } else if (Array.isArray(fields)) {
-      for (const item of fields) {
-        // Process string array
-        if (typeof item === 'string') {
-          result[item] = true;
-
-          // Process nested array
-        } else if (Array.isArray(item)) {
-          Object.assign(result, this.prepareFields(item));
-
-          // Process object array
-        } else if (typeof item === 'object') {
-          for (const [key, val] of Object.entries(item)) {
-            result[key] = this.prepareFields(val);
-          }
-        }
-      }
-
-      // Process object
-    } else if (typeof fields === 'object') {
-      for (const [key, val] of Object.entries(fields)) {
-        result[key] = this.prepareFields(val);
-      }
-
-      // Process other fields
-    } else {
-      return fields;
-    }
-
-    // Return result
-    return result;
   }
 }
