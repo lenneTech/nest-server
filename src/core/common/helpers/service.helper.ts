@@ -27,7 +27,7 @@ export class ServiceHelper {
 
     // Set updater
     if (currentUser) {
-      input.updatdBy = currentUser.id;
+      input.updatedBy = currentUser.id;
     }
 
     // Return prepared input
