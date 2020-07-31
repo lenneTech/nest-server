@@ -11,29 +11,29 @@ export abstract class CoreEditorModel extends CoreModel {
    * ID of the persistence object
    */
   @Field((type) => ID, { description: 'ID of the editor' })
-  id: string;
+  id: string = undefined;
 
   /**
    * E-Mail address of the user
    */
   @Field({ description: 'Email of the editor', nullable: true })
-  email: string;
+  email: string = undefined;
 
   /**
    * First name of the user
    */
   @Field({ description: 'First name of the editor', nullable: true })
-  firstName: string;
+  firstName: string = undefined;
 
   /**
    * Last name of the user
    */
   @Field({ description: 'Last name of the editor', nullable: true })
-  lastName: string;
+  lastName: string = undefined;
 
   /**
    * Username of the user
    */
   @Field({ description: 'Username of the editor', nullable: true })
-  username: string;
+  username: string = undefined;
 }

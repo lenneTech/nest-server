@@ -10,5 +10,5 @@ export class Editor extends CoreEditorModel {
    * URL to avatar file of the user
    */
   @Field({ description: 'URL to avatar file of the editor', nullable: true })
-  avatar: string;
+  avatar: string = undefined;
 }

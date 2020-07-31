@@ -19,7 +19,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @IsEmail()
   @Index({ unique: true })
   @Column()
-  email: string;
+  email: string = undefined;
 
   /**
    * First name of the user
@@ -27,7 +27,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
   @Column()
-  firstName: string;
+  firstName: string = undefined;
 
   /**
    * Last name of the user
@@ -35,13 +35,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
   @Column()
-  lastName: string;
+  lastName: string = undefined;
 
   /**
    * Password of the user
    */
   @Column()
-  password: string;
+  password: string = undefined;
 
   /**
    * Roles of the user
@@ -57,7 +57,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Field({ description: 'Username of the user', nullable: true })
   @IsOptional()
   @Column()
-  username: string;
+  username: string = undefined;
 
   // ===================================================================================================================
   // Methods
