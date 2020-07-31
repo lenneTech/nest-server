@@ -28,14 +28,14 @@ export abstract class CorePersistenceModel extends CoreModel {
     nullable: true,
   })
   @ObjectIdColumn()
-  id: string;
+  id: string = undefined;
 
   /**
    * Created date
    */
   @Field({ description: 'Created date', nullable: true })
   @Column()
-  createdAt: Date;
+  createdAt: Date = undefined;
 
   /**
    * Labels of the object
@@ -73,7 +73,7 @@ export abstract class CorePersistenceModel extends CoreModel {
    */
   @Field({ description: 'Updated date', nullable: true })
   @Column()
-  updatedAt: Date;
+  updatedAt: Date = undefined;
 
   // ===========================================================================
   // TypeORM Entity Listeners
