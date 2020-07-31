@@ -23,7 +23,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Column('varchar')
-  createdBy?: string | Editor;
+  createdBy?: string | Editor = undefined;
 
   /**
    * Editor who last updated the object
@@ -35,5 +35,5 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Column('varchar')
-  updatedBy?: string | Editor;
+  updatedBy?: string | Editor = undefined;
 }

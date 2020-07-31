@@ -13,5 +13,5 @@ export class CoreAuthModel {
    * JavaScript Web Token (JWT)
    */
   @Field({ description: 'JavaScript Web Token (JWT)' })
-  token: string;
+  token: string = undefined;
 }
