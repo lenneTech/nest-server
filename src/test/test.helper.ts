@@ -57,8 +57,25 @@ export interface TestGraphQLConfig {
  * Options for graphql requests
  */
 export interface TestGraphQLOptions {
+  /**
+   * Convert uppercase strings in arguments of query to enums
+   * true: convert all, Array with key names (strings): convert special keys only
+   */
+  convertEnums?: boolean | string[];
+
+  /**
+   * Print console logs
+   */
   log?: boolean;
+
+  /**
+   * Status Code = 400
+   */
   statusCode?: number;
+
+  /**
+   * Token of user who is logged in
+   */
   token?: string;
 }
 
@@ -95,6 +112,7 @@ export class TestHelper {
     // Default options
     options = Object.assign(
       {
+        convertEnums: true,
         token: null,
         statusCode: 200,
         log: false,
@@ -145,6 +163,19 @@ export class TestHelper {
 
       // Create request payload query
       query = jsonToGraphQLQuery(queryObj, { pretty: true });
+    }
+
+    // Convert uppercase strings in arguments of query to enums
+    if (options.convertEnums) {
+      if (Array.isArray(options.convertEnums)) {
+        for (const key of Object.values(options.convertEnums)) {
+          const regExpStr = '(' + key + ': )\\"([A-Z]+)\\"';
+          const regExp = new RegExp(regExpStr, 'g');
+          query = query.replace(regExp, '$1$2');
+        }
+      } else {
+        query = query.replace(/([a-zA-Z-_0-9]+:\s)\"([A-Z]+)\"/g, '$1$2');
+      }
     }
 
     // Request configuration
