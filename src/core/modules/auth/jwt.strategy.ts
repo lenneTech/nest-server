@@ -16,7 +16,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: configService.get('jwt.secretOrPrivateKey'),
+      privateKey: configService.get('jwt.privateKey'),
+      publicKey: configService.get('jwt.publicKey'),
+      secret: configService.get('jwt.secret') || configService.get('jwt.secretOrPrivateKey'),
+      secretOrKey: configService.get('jwt.secretOrPrivateKey') || configService.get('jwt.secret'),
+      secretOrKeyProvider: configService.get('jwt.secretOrKeyProvider'),
     });
   }
 
