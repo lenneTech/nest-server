@@ -31,7 +31,7 @@ const config: { [env: string]: IServerOptions } = {
       playground: true,
     },
     jwt: {
-      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY_DEV',
+      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
     port: 3000,
     staticAssets: {
@@ -80,7 +80,7 @@ const config: { [env: string]: IServerOptions } = {
       playground: false,
     },
     jwt: {
-      secretOrPrivateKey: 'SECRET_OR_PRIVATE_KEY_PROD',
+      secret: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
     port: 3000,
     staticAssets: {

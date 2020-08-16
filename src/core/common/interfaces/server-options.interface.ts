@@ -64,7 +64,32 @@ export interface IServerOptions {
    */
   jwt?: {
     /**
+     * Private key
+     */
+    privateKey?: string;
+
+    /**
+     * Public key
+     */
+    publicKey?: string;
+
+    /**
      * Secret to encrypt the JWT
+     */
+    secret?: string;
+
+    /**
+     * JWT Provider
+     * See https://github.com/mikenicholson/passport-jwt/blob/master/README.md#configure-strategy
+     */
+    secretOrKeyProvider?: (
+      request: Record<string, any>,
+      rawJwtToken: string,
+      done: (err: any, secret: string) => any
+    ) => any;
+
+    /**
+     * Alias of secret (for backwards compatibility)
      */
     secretOrPrivateKey?: string;
   } & JwtModuleOptions;
