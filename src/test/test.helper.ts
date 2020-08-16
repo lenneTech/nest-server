@@ -169,12 +169,12 @@ export class TestHelper {
     if (options.convertEnums) {
       if (Array.isArray(options.convertEnums)) {
         for (const key of Object.values(options.convertEnums)) {
-          const regExpStr = '(' + key + ': )\\"([A-Z]+)\\"';
+          const regExpStr = '(' + key + ': )\\"([_A-Z][_0-9A-Z]*)\\"';
           const regExp = new RegExp(regExpStr, 'g');
           query = query.replace(regExp, '$1$2');
         }
       } else {
-        query = query.replace(/([a-zA-Z-_0-9]+:\s)\"([A-Z]+)\"/g, '$1$2');
+        query = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
       }
     }
 
