@@ -32,6 +32,7 @@ export class JSON implements CustomScalar<string, any> {
   parseLiteral(ast: ValueNode, variables?: Record<string, any>) {
     switch (ast.kind) {
       case Kind.STRING:
+      case Kind.ENUM:
       case Kind.BOOLEAN:
         return ast.value;
       case Kind.INT:
