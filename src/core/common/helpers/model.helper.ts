@@ -1,9 +1,8 @@
+import * as _ from 'lodash';
+
 /**
  * Helper class for models
  */
-import { CoreModel } from '../models/core-model.model';
-import * as _ from 'lodash';
-
 export class ModelHelper {
   /**
    * Simple map function
@@ -42,7 +41,7 @@ export class ModelHelper {
   /**
    * Create Object or Objects of specified type with specified data
    */
-  public static maps<T extends CoreModel>(
+  public static maps<T = Record<string, any>>(
     data: Partial<T> | Partial<T>[] | Record<string, any> | Record<string, any>[],
     targetClass: new (...args: any[]) => T,
     cloneDeep = true

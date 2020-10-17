@@ -31,21 +31,11 @@ export abstract class CoreUserService<
     await this.prepareInput(input, currentUser, { create: true });
 
     // Create new user
-    const createdUser = this.db.create(input);
+    const createdUser = this.model.map(input);
 
     try {
       // Save created user
-      let savedUser = await this.db.save(createdUser);
-      if (!savedUser) {
-        throw new InternalServerErrorException();
-      }
-
-      // Set user as owner of itself
-      savedUser.ownerIds.push(savedUser.id.toString());
-      savedUser = await this.db.save(savedUser);
-      if (!savedUser) {
-        throw new InternalServerErrorException();
-      }
+      await this.db.persistAndFlush(createdUser);
     } catch (error) {
       if (error.code === 11000) {
         throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
@@ -77,7 +67,7 @@ export abstract class CoreUserService<
     }
 
     // Delete user
-    const deleted = await this.db.delete(id);
+    const deleted = await this.db.remove(user);
 
     // Check deleted
     if (!deleted) {
@@ -105,7 +95,7 @@ export abstract class CoreUserService<
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
     return await Promise.all(
-      (await this.db.find(Filter.generateFilterOptions(filterArgs))).map((user) => {
+      (await this.db.find(...Filter.convertFilterArgsToQuery(filterArgs))).map((user) => {
         return this.prepareOutput(user, args[0]);
       })
     );
@@ -125,10 +115,11 @@ export abstract class CoreUserService<
     await this.prepareInput(input, currentUser);
 
     // Search user
-    await this.db.update(id, input);
+    user.map(input);
+    await this.db.persistAndFlush(user);
 
     // Return user
-    return await this.prepareOutput(Object.assign(user, input) as TUser, args[0]);
+    return await this.prepareOutput(user as TUser, args[0]);
   }
 
   // ===================================================================================================================

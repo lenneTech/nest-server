@@ -1,7 +1,7 @@
+import { MikroOrmModuleSyncOptions } from '@mikro-orm/nestjs';
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
-import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { PlaygroundConfig } from 'apollo-server-core/src/playground';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 
@@ -126,6 +126,11 @@ export interface IServerOptions {
   };
 
   /**
+   * Configuration for MikroOrm
+   */
+  mikroOrm?: MikroOrmModuleSyncOptions;
+
+  /**
    * Configuration for useStaticAssets
    */
   staticAssets?: {
@@ -212,11 +217,5 @@ export interface IServerOptions {
      * e.g. true
      */
     useUnifiedTopology?: boolean;
-  } & TypeOrmModuleOptions;
-
-  /**
-   * Determines whether or not to integrate models from the module
-   * additionally into TypeORM
-   */
-  typeOrmModelIntegration?: boolean;
+  } & any;
 }

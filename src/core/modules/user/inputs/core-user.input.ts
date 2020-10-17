@@ -1,7 +1,6 @@
 import { IsEmail, IsOptional } from 'class-validator';
 import { Field, InputType } from '@nestjs/graphql';
-import { Column } from 'typeorm';
-import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
+import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
 
 /**
@@ -37,7 +36,6 @@ export abstract class CoreUserInput {
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  @Column()
   roles?: string[];
 
   /**
