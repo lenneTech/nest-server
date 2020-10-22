@@ -51,7 +51,7 @@ export class Filter {
     if (filter.singleFilter) {
       // Init variables
       const { not, options } = filter.singleFilter;
-      let { field, value } = filter.singleFilter;
+      const { field, value } = filter.singleFilter;
 
       // Convert filter
       switch (filter.singleFilter.operator) {
