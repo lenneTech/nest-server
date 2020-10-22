@@ -2,27 +2,6 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
-"""Editor"""
-type Editor {
-  """ID of the editor"""
-  id: ID!
-
-  """Email of the editor"""
-  email: String
-
-  """First name of the editor"""
-  firstName: String
-
-  """Last name of the editor"""
-  lastName: String
-
-  """Username of the editor"""
-  username: String
-
-  """URL to avatar file of the editor"""
-  avatar: String
-}
-
 """User"""
 type User {
   """ID of the persistence object"""
@@ -62,10 +41,10 @@ type User {
   avatar: String
 
   """ID of the user who created the object"""
-  createdBy: Editor
+  createdBy: User
 
   """ID of the user who last updated the object"""
-  updatedBy: Editor
+  updatedBy: User
 }
 
 """
@@ -91,13 +70,19 @@ type Query {
     """
     Limit specifies the maximum number of elements found that are to be returned
     """
-    take: Int = 25
+    limit: Int = 25
 
-    """Skip specifies how many found elements should be skipped on return"""
+    """Offset specifies how many found elements should be skipped on return"""
+    offset: Int = 0
+
+    """Alias for offset"""
     skip: Int = 0
 
     """Sorting the returned elements"""
     sort: [SortInput!]
+
+    """Alias for limit"""
+    take: Int = 25
 
     """Input for filtering"""
     filter: FilterInput

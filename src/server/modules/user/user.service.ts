@@ -1,17 +1,16 @@
+import { EntityRepository, MikroORM } from '@mikro-orm/core';
 import { Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'fs';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoRepository } from 'typeorm';
 import envConfig from '../../../config.env';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Filter } from '../../../core/common/helpers/filter.helper';
 import { ServiceHelper } from '../../../core/common/helpers/service.helper';
+import { ICorePersistenceModel } from '../../../core/common/interfaces/core-persistence-model.interface';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
-import { Editor } from '../../common/models/editor.model';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
@@ -31,8 +30,12 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * User repository
    */
-  @InjectRepository(User)
-  protected readonly db: MongoRepository<User>;
+  protected readonly db: EntityRepository<User>;
+
+  /**
+   * User model
+   */
+  protected readonly model: ICorePersistenceModel;
 
   // ===================================================================================================================
   // Injections
@@ -41,8 +44,14 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Constructor for injecting services
    */
-  constructor(protected readonly configService: ConfigService, protected readonly emailService: EmailService) {
+  constructor(
+    protected readonly configService: ConfigService,
+    protected readonly emailService: EmailService,
+    protected readonly orm: MikroORM
+  ) {
     super();
+    this.db = orm.em.getRepository(User);
+    this.model = User;
   }
 
   // ===================================================================================================================
@@ -68,11 +77,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<User[]> {
     // Return found users
-    return this.db.find(
-      Filter.generateFilterOptions(filterArgs, {
-        dbType: this.configService.get('typeOrm.type'),
-      })
-    );
+    return this.db.find(...Filter.convertFilterArgsToQuery(filterArgs));
   }
 
   /**
@@ -99,7 +104,8 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     }
 
     // Update user
-    await this.db.update(user.id.toString(), { avatar: file.filename });
+    user.avatar = file.filename;
+    await this.db.flush();
 
     // Return user
     return file.filename;
@@ -120,6 +126,6 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Prepare output before return
    */
   protected async prepareOutput(user: User, info?: GraphQLResolveInfo) {
-    return ServiceHelper.prepareOutput(user, Editor, this);
+    return ServiceHelper.prepareOutput(user, User, this);
   }
 }

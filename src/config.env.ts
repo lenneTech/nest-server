@@ -33,6 +33,13 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
+    mikroOrm: {
+      autoLoadEntities: true,
+      dbName: 'nest-server-dev',
+      host: 'localhost',
+      port: 27017,
+      type: 'mongo',
+    },
     port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
@@ -41,16 +48,6 @@ const config: { [env: string]: IServerOptions } = {
     templates: {
       path: join(__dirname, 'templates'),
       engine: 'ejs',
-    },
-    typeOrm: {
-      type: 'mongodb',
-      host: 'localhost',
-      port: 27017,
-      database: 'nest-server-dev',
-      synchronize: true,
-      entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
     },
   },
 
@@ -82,6 +79,13 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
+    mikroOrm: {
+      autoLoadEntities: true,
+      dbName: 'nest-server-prod',
+      host: 'localhost',
+      port: 27017,
+      type: 'mongo',
+    },
     port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
@@ -90,16 +94,6 @@ const config: { [env: string]: IServerOptions } = {
     templates: {
       path: join(__dirname, 'templates'),
       engine: 'ejs',
-    },
-    typeOrm: {
-      type: 'mongodb',
-      host: 'localhost',
-      port: 27017,
-      database: 'nest-server-prod',
-      synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
-      entities: [__dirname + '/**/*.{entity,model}.{ts,js}'],
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
     },
   },
 };

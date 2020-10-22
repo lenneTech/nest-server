@@ -1,7 +1,6 @@
+import { Entity, ManyToOne, Property } from '@mikro-orm/core';
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Column, Entity } from 'typeorm';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
-import { Editor } from '../../common/models/editor.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
 /**
@@ -18,7 +17,7 @@ export class User extends CoreUserModel implements PersistenceModel {
    * URL to avatar file of the user
    */
   @Field({ description: 'URL to avatar file of the user', nullable: true })
-  @Column()
+  @Property()
   avatar: string = undefined;
 
   /**
@@ -26,22 +25,22 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when created by system
    */
-  @Field((type) => Editor, {
+  @Field((type) => User, {
     description: 'ID of the user who created the object',
     nullable: true,
   })
-  @Column('varchar')
-  createdBy: string | Editor = undefined;
+  @ManyToOne()
+  createdBy: User = undefined;
 
   /**
    * Editor who last updated the object
    *
    * Not set when updated by system
    */
-  @Field((type) => Editor, {
+  @Field((type) => User, {
     description: 'ID of the user who last updated the object',
     nullable: true,
   })
-  @Column('varchar')
-  updatedBy: string | Editor = undefined;
+  @ManyToOne()
+  updatedBy: User = undefined;
 }
