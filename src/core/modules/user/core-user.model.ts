@@ -1,12 +1,13 @@
-import { IsEmail, IsOptional } from 'class-validator';
+import { Entity, Property, Unique } from '@mikro-orm/core';
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Column, Index } from 'typeorm';
+import { IsEmail, IsOptional } from 'class-validator';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 
 /**
  * User model
  */
 @ObjectType({ description: 'User', isAbstract: true })
+@Entity()
 export abstract class CoreUserModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -17,8 +18,8 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
-  @Index({ unique: true })
-  @Column()
+  @Property()
+  @Unique()
   email: string = undefined;
 
   /**
@@ -26,7 +27,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
-  @Column()
+  @Property()
   firstName: string = undefined;
 
   /**
@@ -34,13 +35,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
-  @Column()
+  @Property()
   lastName: string = undefined;
 
   /**
    * Password of the user
    */
-  @Column()
+  @Property()
   password: string = undefined;
 
   /**
@@ -48,7 +49,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  @Column('simple-array')
+  @Property()
   roles: string[] = [];
 
   /**
@@ -56,7 +57,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Username of the user', nullable: true })
   @IsOptional()
-  @Column()
+  @Property()
   username: string = undefined;
 
   // ===================================================================================================================

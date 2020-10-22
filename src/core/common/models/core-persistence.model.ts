@@ -1,19 +1,21 @@
+import { Entity, OnInit, PrimaryKey, Property, SerializedPrimaryKey } from '@mikro-orm/core';
 import { Field, ID, ObjectType } from '@nestjs/graphql';
-import { BeforeInsert, BeforeUpdate, Column, ObjectIdColumn } from 'typeorm';
+import { ObjectId } from 'mongodb';
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
-import { CoreModel } from './core-model.model';
+import { ModelHelper } from '../helpers/model.helper';
 
 /**
  * Metadata for persistent objects
  *
- * The models are a combination of TypeORM Entities and TypeGraphQL Types
+ * The models are a combination of MikroORM Entities and TypeGraphQL Types
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-export abstract class CorePersistenceModel extends CoreModel {
+@Entity()
+export abstract class CorePersistenceModel {
   // ===========================================================================
   // Properties
   //
@@ -21,21 +23,27 @@ export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
 
   /**
-   * ID of the persistence object
+   * ID of the persistence object as ObjectId
+   */
+  @PrimaryKey()
+  _id!: ObjectId;
+
+  /**
+   * ID of the persistence object as string
    */
   @Field((type) => ID, {
     description: 'ID of the persistence object',
     nullable: true,
   })
-  @ObjectIdColumn()
+  @SerializedPrimaryKey()
   id: string = undefined;
 
   /**
    * Created date
    */
   @Field({ description: 'Created date', nullable: true })
-  @Column()
-  createdAt: Date = undefined;
+  @Property()
+  createdAt: Date = new Date();
 
   /**
    * Labels of the object
@@ -44,7 +52,7 @@ export abstract class CorePersistenceModel extends CoreModel {
     description: 'Labels of the object',
     nullable: true,
   })
-  @Column('simple-array')
+  @Property()
   labels: string[] = [];
 
   /**
@@ -55,7 +63,7 @@ export abstract class CorePersistenceModel extends CoreModel {
     description: 'Users who own the object',
     nullable: true,
   })
-  @Column('simple-array')
+  @Property()
   ownerIds: string[] = [];
 
   /**
@@ -65,35 +73,67 @@ export abstract class CorePersistenceModel extends CoreModel {
     description: 'Tags for the object',
     nullable: true,
   })
-  @Column('simple-array')
+  @Property()
   tags: string[] = [];
 
   /**
    * Updated date
    */
   @Field({ description: 'Updated date', nullable: true })
-  @Column()
-  updatedAt: Date = undefined;
-
-  // ===========================================================================
-  // TypeORM Entity Listeners
-  //
-  // https://typeorm.io/#/listeners-and-subscribers
-  // ===========================================================================
+  @Property({ onUpdate: () => new Date() })
+  updatedAt: Date = new Date();
 
   /**
-   * Manipulation before insert a new entity
+   * Static map method
    */
-  @BeforeInsert()
-  beforeInsert() {
-    this.createdAt = this.updatedAt = new Date();
+  public static map<T extends CorePersistenceModel>(
+    this: new (...args: any[]) => T,
+    data: Partial<T> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      item?: T;
+      mapId?: boolean;
+    } = {}
+  ): T {
+    const item = options.item || new this();
+    delete options.item;
+    return item.map(data, options);
   }
 
   /**
-   * Manipulation before update an existing entity
+   * Map method
    */
-  @BeforeUpdate()
-  beforeUpdate() {
-    this.updatedAt = new Date();
+  public map(
+    data: Partial<this> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      mapId?: boolean;
+    } = {}
+  ): this {
+    // For MakroORM ignore id and _id during the mapping by default
+    const config = {
+      mapId: false,
+      ...options,
+    };
+    return ModelHelper.map(data, this, config);
+  }
+
+  /**
+   * On init handling
+   *
+   * Fired when new instance of entity is created, either manually em.create(),
+   * or automatically when new entities are loaded from database
+   *
+   * @OnInit is not fired when you create the entity manually via its constructor
+   * (new MyEntity())
+   */
+  @OnInit()
+  onInit() {
+    // Map for deep mapping
+    if (typeof this.map === 'function') {
+      this.map(this, { cloneDeep: false, funcAllowed: false, mapId: true });
+    }
   }
 }

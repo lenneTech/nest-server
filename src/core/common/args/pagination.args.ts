@@ -14,13 +14,24 @@ export class PaginationArgs {
   })
   @IsOptional()
   @Max(100)
-  take?: number = 25;
+  limit?: number = 25;
 
   /**
-   * Skip for pagination
+   * Offset for pagination
    */
   @Field((type) => Int, {
-    description: 'Skip specifies how many found elements should be skipped on return',
+    description: 'Offset specifies how many found elements should be skipped on return',
+    nullable: true,
+    defaultValue: 0,
+  })
+  @IsOptional()
+  offset?: number = 0;
+
+  /**
+   * Alias for offset
+   */
+  @Field((type) => Int, {
+    description: 'Alias for offset',
     nullable: true,
     defaultValue: 0,
   })
@@ -36,4 +47,16 @@ export class PaginationArgs {
   })
   @IsOptional()
   sort?: SortInput[];
+
+  /**
+   * Alias for limit
+   */
+  @Field((type) => Int, {
+    description: 'Alias for limit',
+    nullable: true,
+    defaultValue: 25,
+  })
+  @IsOptional()
+  @Max(100)
+  take?: number = 25;
 }

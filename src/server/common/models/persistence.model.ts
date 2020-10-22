@@ -1,12 +1,12 @@
+import { ManyToOne } from '@mikro-orm/core';
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Column } from 'typeorm';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
-import { Editor } from './editor.model';
+import { User } from '../../modules/user/user.model';
 
 /**
  * Metadata for persistent objects
  *
- * The models are a combination of TypeORM Entities and TypeGraphQL Types
+ * The models are a combination of MikroORM Entities and TypeGraphQL Types
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
@@ -14,26 +14,26 @@ import { Editor } from './editor.model';
 })
 export abstract class PersistenceModel extends CorePersistenceModel {
   /**
-   * Editor who created the object
+   * User who created the object
    *
    * Not set when created by system
    */
-  @Field((type) => Editor, {
-    description: 'Editor who created the object',
+  @Field((type) => User, {
+    description: 'User who created the object',
     nullable: true,
   })
-  @Column('varchar')
-  createdBy?: string | Editor = undefined;
+  @ManyToOne()
+  createdBy?: User = undefined;
 
   /**
-   * Editor who last updated the object
+   * User who last updated the object
    *
    * Not set when updated by system
    */
-  @Field((type) => Editor, {
-    description: 'Editor who last updated the object',
+  @Field((type) => User, {
+    description: 'User who last updated the object',
     nullable: true,
   })
-  @Column('varchar')
-  updatedBy?: string | Editor = undefined;
+  @ManyToOne()
+  updatedBy?: User = undefined;
 }

@@ -1,7 +1,7 @@
+import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { DynamicModule, Global, Module, Scope } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { Config } from './core/common/helpers/config.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
@@ -14,7 +14,7 @@ import { TemplateService } from './core/common/services/template.service';
  * Core module (dynamic)
  *
  * Which includes the following standard modules and services:
- * - TypeORM
+ * - MikroORM
  * - GraphQL
  * - ConfigService
  * - CheckInput
@@ -34,7 +34,7 @@ export class CoreModule {
    */
   static forRoot(options: Partial<IServerOptions>): DynamicModule {
     // Process config
-    options = Config.merge(
+    const config: IServerOptions = Config.merge(
       {
         env: 'develop',
         graphQl: {
@@ -43,25 +43,23 @@ export class CoreModule {
           installSubscriptionHandlers: true,
         },
         port: 3000,
-        typeOrm: {
-          type: 'mongodb',
-          host: 'localhost',
-          port: 27017,
-          database: 'develop',
-          authSource: 'admin',
-          synchronize: false, // https://typeorm.io/#/migrations/how-migrations-work
-          entities: [],
-          useNewUrlParser: true,
-          useUnifiedTopology: true,
+        mikroOrm: {
+          host: options.typeOrm && options.typeOrm.host ? options.typeOrm.host : 'localhost',
+          port: options.typeOrm && options.typeOrm.port ? options.typeOrm.port : 27017,
+          dbName: options.typeOrm && options.typeOrm.database ? options.typeOrm.database : 'develop',
+          type: 'mongo',
         },
-        typeOrmModelIntegration: true,
       } as IServerOptions,
       options
     );
 
-    // Add models for TypeORM
-    if (options.typeOrmModelIntegration) {
-      options.typeOrm.entities.push(__dirname + '/core/**/*.{entity,model}.{ts,js}');
+    // Migrate from TypeOrm to MikroOrm
+    if (!options.mikroOrm?.type && options.typeOrm?.type) {
+      if (options.typeOrm.type === 'mongodb') {
+        config.mikroOrm.type = 'mongo';
+      } else if (['mysql', 'mariadb', 'sqlite', 'mongo', 'postgresql'].includes(options.typeOrm.type)) {
+        config.mikroOrm.type = options.typeOrm.type as any;
+      }
     }
 
     // Set providers
@@ -69,7 +67,7 @@ export class CoreModule {
       // The ConfigService provides access to the current configuration of the module
       {
         provide: ConfigService,
-        useValue: new ConfigService(options),
+        useValue: new ConfigService(config),
       },
 
       // [Global] The CheckResponseInterceptor restricts the response to the properties
@@ -95,7 +93,7 @@ export class CoreModule {
     // Return dynamic module
     return {
       module: CoreModule,
-      imports: [TypeOrmModule.forRoot(options.typeOrm), GraphQLModule.forRoot(options.graphQl)],
+      imports: [MikroOrmModule.forRoot(config.mikroOrm), GraphQLModule.forRoot(config.graphQl)],
       providers,
       exports: [ConfigService, EmailService, TemplateService],
     };

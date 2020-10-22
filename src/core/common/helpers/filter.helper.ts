@@ -1,5 +1,4 @@
-import { ObjectID } from 'mongodb';
-import { FindManyOptions } from 'typeorm';
+import { FilterQuery, FindOptions } from '@mikro-orm/core';
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
@@ -11,16 +10,21 @@ import { SortInput } from '../inputs/sort.input';
  */
 export class Filter {
   /**
-   * Convert GraphQL filter input to Mongoose
+   * Convert filter arguments to a query array
+   * @param filterArgs
    */
-  public static convertFilterInput(filter?: FilterInput, config?: { dbType?: string }) {
+  public static convertFilterArgsToQuery<T = any>(filterArgs: FilterArgs): [FilterQuery<T>, FindOptions<T>] {
+    return [Filter.generateFilterQuery(filterArgs.filter), Filter.generateFindOptions(filterArgs)];
+  }
+
+  /**
+   * Generate filter query
+   */
+  public static generateFilterQuery<T = any>(filter?: FilterInput): FilterQuery<T> | any {
     // Check filter
     if (!filter) {
       return undefined;
     }
-
-    // Configuration
-    config = Object.assign({ dbType: 'mongodb' }, config);
 
     // Init result
     const result: any = {};
@@ -30,15 +34,15 @@ export class Filter {
       switch (filter.combinedFilter.logicalOperator) {
         case LogicalOperatorEnum.AND:
           return {
-            $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
+            $and: filter.combinedFilter.filters.map((item: FilterInput) => Filter.generateFilterQuery(item)),
           };
         case LogicalOperatorEnum.NOR:
           return {
-            $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
+            $nor: filter.combinedFilter.filters.map((item: FilterInput) => Filter.generateFilterQuery(item)),
           };
         case LogicalOperatorEnum.OR:
           return {
-            $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.convertFilterInput(item)),
+            $or: filter.combinedFilter.filters.map((item: FilterInput) => Filter.generateFilterQuery(item)),
           };
       }
     }
@@ -46,22 +50,7 @@ export class Filter {
     // Process single filter
     if (filter.singleFilter) {
       // Init variables
-      const { not, options } = filter.singleFilter;
-      let { field, value } = filter.singleFilter;
-
-      // Prepare fields
-      if (field === 'id' && config.dbType === 'mongodb') {
-        field = '_id';
-      }
-
-      // Prepare values
-      if (field === '_id') {
-        if (Array.isArray(value)) {
-          value = value.map((item: string) => new ObjectID(item));
-        } else if (value) {
-          value = new ObjectID(value);
-        }
-      }
+      const { not, options, field, value } = filter.singleFilter;
 
       // Convert filter
       switch (filter.singleFilter.operator) {
@@ -107,38 +96,33 @@ export class Filter {
   }
 
   /**
-   * Generate FindManyOptions form FilterArgs
+   * Generate find options
    */
-  public static generateFilterOptions(filterArgs: FilterArgs, config?: { dbType?: string }): FindManyOptions {
+  public static generateFindOptions<T = any>(filterArgs: FilterArgs): FindOptions<T> {
     // Check filterArgs
     if (!filterArgs) {
       return {};
     }
 
-    // Configuration
-    config = Object.assign({ dbType: 'mongodb' }, config);
-
     // Get values
-    const { filter, take, skip, sort } = filterArgs;
+    const { limit, offset, skip, sort, take } = filterArgs;
 
     // Init options
-    const options: FindManyOptions = Object.assign({}, { take, skip });
+    const options: FindOptions<any> = {
+      limit: limit ? limit : take,
+      offset: offset ? offset : skip,
+    };
 
     // Check take
-    if (!options.take || options.take > 100) {
-      options.take = 25;
-    }
-
-    // Prepare where
-    if (filter) {
-      options.where = Filter.convertFilterInput(filterArgs.filter, config);
+    if (!options.limit || options.limit > 100) {
+      options.limit = 25;
     }
 
     // Prepare order
     if (sort) {
-      options.order = {};
+      options.orderBy = {};
       sort.forEach((item: SortInput) => {
-        options.order[item.field] = item.order;
+        options.orderBy[item.field] = item.order;
       });
     }
 

@@ -25,6 +25,8 @@ and extended as a boilerplate (git clone) or integrated as a module (npm package
 Since the server is based on [Nest](https://nestjs.com/), you can find all information about extending your server
 in the [documentation of Nest](https://docs.nestjs.com/).
 
+Instead of [TypeORM](https://docs.nestjs.com/techniques/database) we use [MikroORM](https://mikro-orm.io/).
+
 To create a new Module with model, inputs, resolver and service you can use the [CLI](https://github.com/lenneTech/cli):
 
 ```

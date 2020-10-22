@@ -1,8 +1,10 @@
-import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { EntityRepository } from '@mikro-orm/core';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Filter } from '../../../core/common/helpers/filter.helper';
+import { ICorePersistenceModel } from '../../common/interfaces/core-persistence-model.interface';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
@@ -21,7 +23,12 @@ export abstract class CoreBasicUserService<
   /**
    * User repository
    */
-  protected readonly db: any;
+  protected readonly db: EntityRepository<any>;
+
+  /**
+   * User model
+   */
+  protected readonly model: ICorePersistenceModel;
 
   /**
    * Create user
@@ -33,21 +40,11 @@ export abstract class CoreBasicUserService<
     }
 
     // Create new user
-    const createdUser = this.db.create(input);
+    const createdUser = this.model.map(input);
 
     try {
       // Save created user
-      let savedUser = await this.db.save(createdUser);
-      if (!savedUser) {
-        throw new InternalServerErrorException();
-      }
-
-      // Set user as owner of itself
-      savedUser.ownerIds.push(savedUser.id.toString());
-      savedUser = await this.db.save(savedUser);
-      if (!savedUser) {
-        throw new InternalServerErrorException();
-      }
+      await this.db.persistAndFlush(createdUser);
     } catch (error) {
       if (error.code === 11000) {
         throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
@@ -67,7 +64,7 @@ export abstract class CoreBasicUserService<
    * Get user via ID
    */
   async get(id: string, ...args: any[]): Promise<TUser> {
-    const user = await this.db.findOne(id);
+    const user = await this.db.findOneOrFail(id);
     if (!user) {
       throw new NotFoundException();
     }
@@ -90,7 +87,7 @@ export abstract class CoreBasicUserService<
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
-    return this.db.find(Filter.generateFilterOptions(filterArgs));
+    return this.db.find(...Filter.convertFilterArgsToQuery(filterArgs));
   }
 
   /**
@@ -108,11 +105,14 @@ export abstract class CoreBasicUserService<
       (input as any).password = await bcrypt.hash((input as any).password, 10);
     }
 
+    // Map
+    user.map(input);
+
     // Search user
-    await this.db.update(id, input);
+    await this.db.flush();
 
     // Return user
-    return Object.assign(user, input);
+    return user;
   }
 
   /**
@@ -128,12 +128,7 @@ export abstract class CoreBasicUserService<
     }
 
     // Delete user
-    const deleted = await this.db.delete(id);
-
-    // Check deleted
-    if (!deleted) {
-      throw new InternalServerErrorException();
-    }
+    await this.db.removeAndFlush(user);
 
     // Return deleted user
     return user;
