@@ -1,9 +1,9 @@
-import { Entity, PrimaryKey, Property, SerializedPrimaryKey } from '@mikro-orm/core';
+import { Entity, OnInit, PrimaryKey, Property, SerializedPrimaryKey } from '@mikro-orm/core';
 import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { ObjectId } from 'mongodb';
-import { ModelHelper } from '../helpers/model.helper';
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
+import { ModelHelper } from '../helpers/model.helper';
 
 /**
  * Metadata for persistent objects
@@ -91,8 +91,9 @@ export abstract class CorePersistenceModel {
     data: Partial<T> | Record<string, any>,
     options: {
       cloneDeep?: boolean;
-      item?: T;
       funcAllowed?: boolean;
+      item?: T;
+      mapId?: boolean;
     } = {}
   ): T {
     const item = options.item || new this();
@@ -108,8 +109,31 @@ export abstract class CorePersistenceModel {
     options: {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
+      mapId?: boolean;
     } = {}
   ): this {
-    return ModelHelper.map(data, this, options);
+    // For MakroORM ignore id and _id during the mapping by default
+    const config = {
+      mapId: false,
+      ...options,
+    };
+    return ModelHelper.map(data, this, config);
+  }
+
+  /**
+   * On init handling
+   *
+   * Fired when new instance of entity is created, either manually em.create(),
+   * or automatically when new entities are loaded from database
+   *
+   * @OnInit is not fired when you create the entity manually via its constructor
+   * (new MyEntity())
+   */
+  @OnInit()
+  onInit() {
+    // Map for deep mapping
+    if (typeof this.map === 'function') {
+      this.map(this, { cloneDeep: false, funcAllowed: false, mapId: true });
+    }
   }
 }

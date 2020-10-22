@@ -1,4 +1,4 @@
-import { ManyToOne, Property } from '@mikro-orm/core';
+import { ManyToOne } from '@mikro-orm/core';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
 import { User } from '../../modules/user/user.model';
@@ -34,6 +34,6 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     description: 'User who last updated the object',
     nullable: true,
   })
-  @Property()
+  @ManyToOne()
   updatedBy?: User = undefined;
 }

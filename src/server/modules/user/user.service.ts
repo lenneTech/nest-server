@@ -105,7 +105,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Update user
     user.avatar = file.filename;
-    await this.db.persistAndFlush(user);
+    await this.db.flush();
 
     // Return user
     return file.filename;

@@ -1,5 +1,4 @@
 import { FilterQuery, FindOptions } from '@mikro-orm/core';
-import { ObjectID } from 'mongodb';
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
@@ -21,14 +20,11 @@ export class Filter {
   /**
    * Generate filter query
    */
-  public static generateFilterQuery<T = any>(filter?: FilterInput, config?: { dbType?: string }): FilterQuery<T> | any {
+  public static generateFilterQuery<T = any>(filter?: FilterInput): FilterQuery<T> | any {
     // Check filter
     if (!filter) {
       return undefined;
     }
-
-    // Configuration
-    config = Object.assign({ dbType: 'mongo' }, config);
 
     // Init result
     const result: any = {};
@@ -56,20 +52,6 @@ export class Filter {
       // Init variables
       const { not, options } = filter.singleFilter;
       let { field, value } = filter.singleFilter;
-
-      // Prepare fields
-      if (field === 'id' && config.dbType === 'mongodb') {
-        field = '_id';
-      }
-
-      // Prepare values
-      if (field === '_id') {
-        if (Array.isArray(value)) {
-          value = value.map((item: string) => new ObjectID(item));
-        } else if (value) {
-          value = new ObjectID(value);
-        }
-      }
 
       // Convert filter
       switch (filter.singleFilter.operator) {
@@ -117,14 +99,11 @@ export class Filter {
   /**
    * Generate find options
    */
-  public static generateFindOptions<T = any>(filterArgs: FilterArgs, config?: { dbType?: string }): FindOptions<T> {
+  public static generateFindOptions<T = any>(filterArgs: FilterArgs): FindOptions<T> {
     // Check filterArgs
     if (!filterArgs) {
       return {};
     }
-
-    // Configuration
-    config = Object.assign({ dbType: 'mongodb' }, config);
 
     // Get values
     const { limit, offset, skip, sort, take } = filterArgs;

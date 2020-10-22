@@ -13,12 +13,14 @@ export class ModelHelper {
     options: {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
+      mapId?: boolean;
     } = {}
   ): T {
     // Set config
     const config = {
       cloneDeep: true,
       funcAllowed: false,
+      mapId: true,
       ...options,
     };
 
@@ -29,7 +31,11 @@ export class ModelHelper {
 
     // Update properties
     for (const key of Object.keys(target)) {
-      if (source[key] !== undefined && (config.funcAllowed || typeof (source[key] !== 'function'))) {
+      if (
+        (!['id', '_id'].includes(key) || config.mapId) &&
+        source[key] !== undefined &&
+        (config.funcAllowed || typeof (source[key] !== 'function'))
+      ) {
         target[key] = source[key] !== 'function' && config.cloneDeep ? _.cloneDeep(source[key]) : source[key];
       }
     }
@@ -58,7 +64,7 @@ export class ModelHelper {
 
     // Map
     return (data as any[]).map((item) => {
-      return (targetClass as any).map(item, { cloneDeep: true });
+      return (targetClass as any).map(item, { cloneDeep });
     });
   }
 }

@@ -1,5 +1,5 @@
 import { EntityRepository } from '@mikro-orm/core';
-import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
@@ -109,7 +109,7 @@ export abstract class CoreBasicUserService<
     user.map(input);
 
     // Search user
-    await this.db.persistAndFlush(user);
+    await this.db.flush();
 
     // Return user
     return user;
@@ -128,12 +128,7 @@ export abstract class CoreBasicUserService<
     }
 
     // Delete user
-    const deleted = await this.db.remove(user);
-
-    // Check deleted
-    if (!deleted) {
-      throw new InternalServerErrorException();
-    }
+    await this.db.removeAndFlush(user);
 
     // Return deleted user
     return user;

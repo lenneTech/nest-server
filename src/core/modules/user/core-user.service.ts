@@ -1,4 +1,4 @@
-import { InternalServerErrorException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
@@ -67,12 +67,7 @@ export abstract class CoreUserService<
     }
 
     // Delete user
-    const deleted = await this.db.remove(user);
-
-    // Check deleted
-    if (!deleted) {
-      throw new InternalServerErrorException();
-    }
+    await this.db.removeAndFlush(user);
 
     // Return deleted user
     return await this.prepareOutput(user, args[0]);
@@ -116,7 +111,7 @@ export abstract class CoreUserService<
 
     // Search user
     user.map(input);
-    await this.db.persistAndFlush(user);
+    await this.db.flush();
 
     // Return user
     return await this.prepareOutput(user as TUser, args[0]);
