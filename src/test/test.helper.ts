@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
 import * as supertest from 'supertest';
+import * as util from 'util';
 
 /**
  * GraphQL request type
@@ -69,6 +70,11 @@ export interface TestGraphQLOptions {
   log?: boolean;
 
   /**
+   * Log error when status of response >= 400
+   */
+  logError?: boolean;
+
+  /**
    * Status Code = 400
    */
   statusCode?: number;
@@ -84,6 +90,7 @@ export interface TestGraphQLOptions {
  */
 export interface TestRestOptions {
   log?: boolean;
+  logError?: boolean;
   statusCode?: number;
   token?: string;
   payload?: any;
@@ -116,12 +123,13 @@ export class TestHelper {
         token: null,
         statusCode: 200,
         log: false,
+        logError: false,
       },
       options
     );
 
     // Init vars
-    const { token, statusCode, log } = options;
+    const { token, statusCode, log, logError } = options;
 
     // Init
     let query = '';
@@ -191,7 +199,7 @@ export class TestHelper {
     }
 
     // Get response
-    const response = await this.getResponse(token, requestConfig, statusCode, log);
+    const response = await this.getResponse(token, requestConfig, statusCode, log, logError);
 
     // Response of fastify
     if ((this.app as FastifyInstance).inject) {
@@ -221,6 +229,7 @@ export class TestHelper {
         token: null,
         statusCode: 200,
         log: false,
+        logError: false,
         payload: null,
         method: 'GET',
       },
@@ -228,7 +237,7 @@ export class TestHelper {
     );
 
     // Init vars
-    const { token, statusCode, log } = options;
+    const { token, statusCode, log, logError } = options;
 
     // Request configuration
     const requestConfig: LightMyRequest.InjectOptions = {
@@ -240,7 +249,7 @@ export class TestHelper {
     }
 
     // Process response
-    const response = await this.getResponse(token, requestConfig, statusCode, log);
+    const response = await this.getResponse(token, requestConfig, statusCode, log, logError);
     let result = response.text;
     try {
       result = JSON.parse(response.text);
@@ -304,7 +313,8 @@ export class TestHelper {
     token: string,
     requestConfig: LightMyRequest.InjectOptions,
     statusCode: number,
-    log: boolean
+    log: boolean,
+    logError: boolean
   ): Promise<any> {
     // Token
     if (token) {
@@ -344,6 +354,16 @@ export class TestHelper {
     // Log response
     if (log) {
       console.log(response);
+    }
+
+    // Log error
+    if (logError && response.statusCode !== statusCode && response.statusCode >= 400) {
+      if (response && response.error && response.error.text) {
+        const errors = JSON.parse(response.error.text).errors;
+        for (const error of errors) {
+          console.log(util.inspect(error, false, null, true));
+        }
+      }
     }
 
     // Check data

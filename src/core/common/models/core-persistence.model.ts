@@ -1,5 +1,15 @@
-import { Entity, OnInit, PrimaryKey, Property, SerializedPrimaryKey } from '@mikro-orm/core';
+import {
+  Entity,
+  EntityManager,
+  EntityMetadata,
+  OnInit,
+  PrimaryKey,
+  Property,
+  SerializedPrimaryKey,
+  wrap,
+} from '@mikro-orm/core';
 import { Field, ID, ObjectType } from '@nestjs/graphql';
+import * as _ from 'lodash';
 import { ObjectId } from 'mongodb';
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
@@ -94,11 +104,50 @@ export abstract class CorePersistenceModel {
       funcAllowed?: boolean;
       item?: T;
       mapId?: boolean;
+      merge?: boolean;
     } = {}
   ): T {
     const item = options.item || new this();
     delete options.item;
     return item.map(data, options);
+  }
+
+  /**
+   * Static map deep method
+   *
+   * Alias for map with cloneDeep = true
+   *
+   * MapDeep prevents side effects, because objects will be cloned
+   * (cloneDeep = true), but it will be slower than a simple map
+   */
+  public static mapDeep<T extends CorePersistenceModel>(
+    this: new (...args: any[]) => T,
+    data: Partial<T> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      item?: T;
+      mapId?: boolean;
+      merge?: boolean;
+    } = {}
+  ): T {
+    const item = options.item || new this();
+    delete options.item;
+    return item.mapDeep(data, options);
+  }
+
+  /**
+   * Get meta data from this MiroORM entity via wrap
+   */
+  getMeta() {
+    return wrap(this, true).__meta;
+  }
+
+  /**
+   * Get object form this MikroORM entity via wrap
+   */
+  getObject() {
+    return wrap(this).toObject();
   }
 
   /**
@@ -108,16 +157,74 @@ export abstract class CorePersistenceModel {
     data: Partial<this> | Record<string, any>,
     options: {
       cloneDeep?: boolean;
+      em?: EntityManager;
       funcAllowed?: boolean;
       mapId?: boolean;
+      merge?: boolean;
     } = {}
   ): this {
     // For MakroORM ignore id and _id during the mapping by default
     const config = {
+      cloneDeep: false,
+      funcAllowed: false,
       mapId: false,
+      merge: false,
       ...options,
     };
-    return ModelHelper.map(data, this, config);
+
+    // Prepare data
+    let preparedData = data;
+    if (preparedData['__meta'] instanceof EntityMetadata) {
+      preparedData = wrap(preparedData).toObject();
+    }
+    preparedData = ModelHelper.prepareMap(preparedData, this, config);
+    if (config.cloneDeep) {
+      preparedData = _.cloneDeep(preparedData);
+    }
+
+    // Assign
+    if (this['assign'] !== 'function') {
+      if (!config.merge) {
+        Object.assign(this, preparedData);
+      } else {
+        // Warning: em is necessary, error will thrown when missing
+        // See https://mikro-orm.io/docs/entity-helper#updating-entity-values-with-entityassign
+        wrap(this).assign(preparedData, { em: config.em, mergeObjects: config.merge });
+      }
+    } else {
+      this['assign'](preparedData, { mergeObjects: config.merge });
+    }
+
+    // Return
+    return this;
+  }
+
+  /**
+   * Map deep method
+   *
+   * Alias for map with cloneDeep = true
+   *
+   * MapDeep prevents side effects, because objects will be cloned
+   * (cloneDeep = true), but it will be slower than a simple map
+   */
+  public mapDeep(
+    data: Partial<this> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      mapId?: boolean;
+      merge?: boolean;
+    } = {}
+  ): this {
+    // For MakroORM ignore id and _id during the mapping by default
+    const config = {
+      cloneDeep: true,
+      funcAllowed: false,
+      mapId: false,
+      merge: false,
+      ...options,
+    };
+    return this.map(data, config);
   }
 
   /**

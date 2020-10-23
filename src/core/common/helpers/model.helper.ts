@@ -5,6 +5,46 @@ import * as _ from 'lodash';
  */
 export class ModelHelper {
   /**
+   * Remove all properties from source which are not in target
+   * @param source
+   * @param target
+   * @param options
+   */
+  public static prepareMap<T = Record<string, any>>(
+    source: Partial<T> | Record<string, any>,
+    target: T,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      mapId?: boolean;
+    } = {}
+  ): Partial<T> | Record<string, any> {
+    // Set config
+    const config = {
+      cloneDeep: true,
+      funcAllowed: false,
+      mapId: true,
+      ...options,
+    };
+
+    // Initializations
+    const result = {};
+
+    // Update properties
+    for (const key of Object.keys(target)) {
+      if (
+        (!['id', '_id'].includes(key) || config.mapId) &&
+        source[key] !== undefined &&
+        (config.funcAllowed || typeof (source[key] !== 'function'))
+      ) {
+        result[key] = source[key] !== 'function' && config.cloneDeep ? _.cloneDeep(source[key]) : source[key];
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Simple map function
    */
   public static map<T = Record<string, any>>(
@@ -29,16 +69,11 @@ export class ModelHelper {
       return config.cloneDeep ? _.cloneDeep(target) : target;
     }
 
-    // Update properties
-    for (const key of Object.keys(target)) {
-      if (
-        (!['id', '_id'].includes(key) || config.mapId) &&
-        source[key] !== undefined &&
-        (config.funcAllowed || typeof (source[key] !== 'function'))
-      ) {
-        target[key] = source[key] !== 'function' && config.cloneDeep ? _.cloneDeep(source[key]) : source[key];
-      }
-    }
+    // Prepare source
+    const preparedSource = ModelHelper.prepareMap(source, target, config);
+
+    // Merge target with prepared source
+    Object.assign(target, preparedSource);
 
     // Return target
     return target;
