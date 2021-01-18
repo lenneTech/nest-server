@@ -128,7 +128,7 @@ input CombinedFilterInput {
   """
   Filters to combine via logical operator. If set `logicalOperator` must be also set.
   """
-  filters: FilterInput
+  filters: [FilterInput!]
 }
 
 """Logical operators to combine filters"""

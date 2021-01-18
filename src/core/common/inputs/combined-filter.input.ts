@@ -18,7 +18,7 @@ export class CombinedFilterInput {
   /**
    * Filters to combine via logical operator. If set `logicalOperator` must be also set.
    */
-  @Field((type) => FilterInput, {
+  @Field((type) => [FilterInput], {
     description: 'Filters to combine via logical operator. If set `logicalOperator` must be also set.',
     nullable: true,
   })

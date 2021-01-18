@@ -12,16 +12,16 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'everardo.hansen7@ethereal.email',
-          pass: 'hP6dNm7eQn7QRTmWH2',
+          user: 'rebeca68@ethereal.email',
+          pass: 'v5WUScAN98AzGbRjpc',
         },
         host: 'smtp.ethereal.email',
         port: 587,
         secure: false,
       },
       defaultSender: {
-        email: 'everardo.hansen7@ethereal.email',
-        name: 'Everardo Hansen',
+        email: 'rebeca68@ethereal.email',
+        name: 'Rebeca Sixtyeight',
       },
     },
     env: 'development',
@@ -58,16 +58,16 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'everardo.hansen7@ethereal.email',
-          pass: 'hP6dNm7eQn7QRTmWH2',
+          user: 'rebeca68@ethereal.email',
+          pass: 'v5WUScAN98AzGbRjpc',
         },
         host: 'smtp.ethereal.email',
         port: 587,
         secure: false,
       },
       defaultSender: {
-        email: 'everardo.hansen7@ethereal.email',
-        name: 'Everardo Hansen',
+        email: 'rebeca68@ethereal.email',
+        name: 'Rebeca Sixtyeight',
       },
     },
     env: 'productive',
