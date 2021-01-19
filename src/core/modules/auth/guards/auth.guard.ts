@@ -82,9 +82,9 @@ function createAuthGuard(type?: string): Type<CanActivate> {
     /**
      * Login for session handling
      */
-    async logIn<TRequest extends { logIn: (...params) => any } = any>(request: TRequest): Promise<void> {
+    async logIn<TRequest extends { logIn: (...params) => any } = any>(request: TRequest) {
       const user = request[this.options.property || defaultOptions.property];
-      await new Promise((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
+      await new Promise<void>((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
     }
 
     /**
