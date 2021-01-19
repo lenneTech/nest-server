@@ -62,6 +62,9 @@ type Auth {
 }
 
 type Query {
+  """Get JWT token"""
+  signIn(password: String!, email: String!): Auth!
+
   """Get user with specified ID"""
   getUser(id: String!): User!
 
@@ -87,9 +90,6 @@ type Query {
     """Input for filtering"""
     filter: FilterInput
   ): [User!]!
-
-  """Get JWT token"""
-  signIn(password: String!, email: String!): Auth!
 }
 
 """Sorting the returned elements"""
