@@ -127,9 +127,20 @@ export abstract class CoreUserService<
   protected async prepareInput(
     input: { [key: string]: any },
     currentUser: TUser,
-    options: { create?: boolean } = {},
+    options: { [key: string]: any; create?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
+    // Configuration
+    const config = {
+      clone: false,
+      ...options,
+    };
+
+    // Clone output
+    if (config.clone) {
+      input = JSON.parse(JSON.stringify(input));
+    }
+
     // Has password
     if (input.password) {
       input.password = await bcrypt.hash((input as any).password, 10);
@@ -142,7 +153,22 @@ export abstract class CoreUserService<
   /**
    * Prepare output before return
    */
-  protected async prepareOutput(user: TUser, ...args: any[]): Promise<TUser> {
+  protected async prepareOutput(
+    user: TUser,
+    options: { [key: string]: any; clone?: boolean } = {},
+    ...args: any[]
+  ): Promise<TUser> {
+    // Configuration
+    const config = {
+      clone: true,
+      ...options,
+    };
+
+    // Clone user
+    if (config.clone) {
+      user = JSON.parse(JSON.stringify(user));
+    }
+
     // Remove password if exists
     delete (user as any).password;
 

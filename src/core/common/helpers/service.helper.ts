@@ -11,15 +11,27 @@ export class ServiceHelper {
   static async prepareInput(
     input: { [key: string]: any },
     currentUser: { id: string },
-    options: { create?: boolean } = {}
+    options: { [key: string]: any; create?: boolean; clone?: boolean } = {},
+    ...args: any[]
   ) {
+    // Configuration
+    const config = {
+      clone: false,
+      ...options,
+    };
+
+    // Clone output
+    if (config.clone) {
+      input = JSON.parse(JSON.stringify(input));
+    }
+
     // Has password
     if (input.password) {
       input.password = await bcrypt.hash((input as any).password, 10);
     }
 
     // Set creator
-    if (options.create && currentUser) {
+    if (config.create && currentUser) {
       input.createdBy = currentUser.id;
     }
 
@@ -35,7 +47,24 @@ export class ServiceHelper {
   /**
    * Prepare output before return
    */
-  static async prepareOutput(output: any, userModel: new () => any, userService: any, info?: GraphQLResolveInfo) {
+  static async prepareOutput(
+    output: any,
+    userModel: new () => any,
+    userService: any,
+    options: { [key: string]: any; clone?: boolean } = {},
+    ...args: any[]
+  ) {
+    // Configuration
+    const config = {
+      clone: true,
+      ...options,
+    };
+
+    // Clone output
+    if (config.clone) {
+      output = JSON.parse(JSON.stringify(output));
+    }
+
     // Remove password if exists
     delete output.password;
 
