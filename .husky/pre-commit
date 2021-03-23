@@ -1,0 +1,4 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+ts-node extras/sync-version.ts && pretty-quick --staged && npm run lint
