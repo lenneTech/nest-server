@@ -3,6 +3,13 @@
 Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB
 (or other databases).
 
+The lenne.tech nest server can be included as an npm package (`npm i @lenne.tech/nest-server`) or used directly as a
+project (`git clone https://github.com/lenneTech/nest-server.git`).
+
+In combination with Angular (see [lenne.Tech Angular example](https://github.com/lenneTech/angular-example)
+incl. [ng-base](https://github.com/lenneTech/ng-base/tree/main/projects/ng-base/README.md)) the Nest Server is an ideal
+basis for your next project.
+
 [![License](https://img.shields.io/github/license/lenneTech/nest-server)](/LICENSE) [![CircleCI](https://circleci.com/gh/lenneTech/nest-server/tree/master.svg?style=shield)](https://circleci.com/gh/lenneTech/nest-server/tree/master)
 [![Dependency Status](https://david-dm.org/lenneTech/nest-server.svg)](https://david-dm.org/lenneTech/nest-server) [![devDependency Status](https://david-dm.org/lenneTech/nest-server/dev-status.svg)](https://david-dm.org/lenneTech/nest-server?type=dev)
 
