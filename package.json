@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -49,7 +49,7 @@
     "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
-    "node": ">= 12.17.0"
+    "node": ">= 14.17.0"
   },
   "dependencies": {
     "@mikro-orm/core": "4.5.7",

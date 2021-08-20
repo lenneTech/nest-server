@@ -68,7 +68,6 @@ export abstract class CorePersistenceModel {
   /**
    * IDs of the Owners
    */
-  @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field((type) => [String], {
     description: 'Users who own the object',
     nullable: true,
