@@ -49,7 +49,7 @@
     "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
-    "node": ">= 12.17.0"
+    "node": ">= 14.17.0"
   },
   "dependencies": {
     "@mikro-orm/core": "4.5.7",
