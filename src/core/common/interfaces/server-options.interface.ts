@@ -2,7 +2,6 @@ import { MikroOrmModuleSyncOptions } from '@mikro-orm/nestjs';
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
-import { ApolloServerPluginLandingPageGraphQLPlaygroundOptions } from 'apollo-server-core';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 /**
