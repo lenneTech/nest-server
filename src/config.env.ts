@@ -28,7 +28,6 @@ const config: { [env: string]: IServerOptions } = {
     graphQl: {
       debug: true,
       introspection: true,
-      playground: true,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
