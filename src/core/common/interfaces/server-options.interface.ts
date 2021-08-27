@@ -2,7 +2,6 @@ import { MikroOrmModuleSyncOptions } from '@mikro-orm/nestjs';
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
-import { PlaygroundConfig } from 'apollo-server-core/src/playground';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 /**
@@ -50,13 +49,6 @@ export interface IServerOptions {
      * e.g. true
      */
     introspection?: boolean;
-
-    /**
-     * Enables and disables playground and allows configuration of GraphQL Playground. The options can be found on GraphQL Playground's
-     * [documentation](https://github.com/prisma-labs/graphql-playground#usage)
-     * e.g. true
-     */
-    playground?: PlaygroundConfig;
   } & GqlModuleOptions;
 
   /**
