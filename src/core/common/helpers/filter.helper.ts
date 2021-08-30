@@ -1,4 +1,4 @@
-import { FilterQuery, FindOptions } from '@mikro-orm/core';
+import { FilterQuery, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
@@ -13,7 +13,7 @@ export class Filter {
    * Convert filter arguments to a query array
    * @param filterArgs
    */
-  public static convertFilterArgsToQuery<T = any>(filterArgs: FilterArgs): [FilterQuery<T>, FindOptions<T>] {
+  public static convertFilterArgsToQuery<T = any>(filterArgs: FilterArgs): [FilterQuery<T>, QueryOptions] {
     return [Filter.generateFilterQuery(filterArgs.filter), Filter.generateFindOptions(filterArgs)];
   }
 
@@ -98,7 +98,7 @@ export class Filter {
   /**
    * Generate find options
    */
-  public static generateFindOptions<T = any>(filterArgs: FilterArgs): FindOptions<T> {
+  public static generateFindOptions<T = any>(filterArgs: FilterArgs): QueryOptions {
     // Check filterArgs
     if (!filterArgs) {
       return {};
@@ -108,10 +108,13 @@ export class Filter {
     const { limit, offset, skip, sort, take } = filterArgs;
 
     // Init options
-    const options: FindOptions<any> = {
+    const options: QueryOptions = {
       limit: limit ? limit : take,
-      offset: offset ? offset : skip,
     };
+
+    if (skip > 0 || offset > 0) {
+      options.skip = offset ? offset : skip;
+    }
 
     // Check take
     if (!options.limit || options.limit > 100) {
@@ -120,9 +123,9 @@ export class Filter {
 
     // Prepare order
     if (sort) {
-      options.orderBy = {};
+      options.sort = {};
       sort.forEach((item: SortInput) => {
-        options.orderBy[item.field] = item.order;
+        options.sort[item.field] = item.order;
       });
     }
 

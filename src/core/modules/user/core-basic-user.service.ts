@@ -1,13 +1,13 @@
-import { EntityRepository } from '@mikro-orm/core';
 import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
-import { FilterArgs } from '../../../core/common/args/filter.args';
-import { Filter } from '../../../core/common/helpers/filter.helper';
-import { ICorePersistenceModel } from '../../common/interfaces/core-persistence-model.interface';
+import { FilterArgs } from '../../common/args/filter.args';
+import { Filter } from '../../common/helpers/filter.helper';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
+import { Model } from 'mongoose';
+import { ICorePersistenceModel } from '../../common/interfaces/core-persistence-model.interface';
 
 // Subscription
 const pubSub = new PubSub();
@@ -20,15 +20,9 @@ export abstract class CoreBasicUserService<
   TUserInput = CoreUserInput,
   TUserCreateInput = CoreUserCreateInput
 > {
-  /**
-   * User repository
-   */
-  protected readonly db: EntityRepository<any>;
-
-  /**
-   * User model
-   */
   protected readonly model: ICorePersistenceModel;
+
+  constructor(protected readonly userModel: Model<any>) {}
 
   /**
    * Create user
@@ -40,11 +34,11 @@ export abstract class CoreBasicUserService<
     }
 
     // Create new user
-    const createdUser = this.model.map(input);
+    const createdUser = new this.userModel(this.model.map(input));
 
     try {
       // Save created user
-      await this.db.persistAndFlush(createdUser);
+      await createdUser.save();
     } catch (error) {
       if (error.code === 11000) {
         throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
@@ -64,7 +58,7 @@ export abstract class CoreBasicUserService<
    * Get user via ID
    */
   async get(id: string, ...args: any[]): Promise<TUser> {
-    const user = await this.db.findOneOrFail(id);
+    const user = await this.userModel.findOne({ id: id }).exec();
     if (!user) {
       throw new NotFoundException();
     }
@@ -75,10 +69,14 @@ export abstract class CoreBasicUserService<
    * Get user via email
    */
   async getViaEmail(email: string, ...args: any[]): Promise<TUser> {
-    const user = await this.db.findOne({ email });
+    let user = await this.userModel.findOne({ email }).exec();
+
+    user = this.model.map(user);
+
     if (!user) {
       throw new NotFoundException();
     }
+
     return user;
   }
 
@@ -87,7 +85,7 @@ export abstract class CoreBasicUserService<
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
-    return this.db.find(...Filter.convertFilterArgsToQuery(filterArgs));
+    return this.userModel.find(...Filter.convertFilterArgsToQuery(filterArgs)).exec();
   }
 
   /**
@@ -95,7 +93,8 @@ export abstract class CoreBasicUserService<
    */
   async update(id: string, input: TUserInput, ...args: any[]): Promise<TUser> {
     // Check if user exists
-    const user = await this.db.findOne(id);
+    let user = await this.userModel.findOne({ id });
+
     if (!user) {
       throw new NotFoundException(`User not found with ID: ${id}`);
     }
@@ -105,11 +104,14 @@ export abstract class CoreBasicUserService<
       (input as any).password = await bcrypt.hash((input as any).password, 10);
     }
 
-    // Map
-    user.map(input);
+    // Update
+    user.set(input);
 
-    // Search user
-    await this.db.flush();
+    // Save
+    await user.save();
+
+    // Map for response
+    user = this.model.map(user);
 
     // Return user
     return user;
@@ -120,7 +122,7 @@ export abstract class CoreBasicUserService<
    */
   async delete(id: string, ...args: any[]): Promise<TUser> {
     // Search user
-    const user = await this.db.findOne(id);
+    const user = await this.userModel.findOne({ id }).exec();
 
     // Check user
     if (!user) {
@@ -128,7 +130,7 @@ export abstract class CoreBasicUserService<
     }
 
     // Delete user
-    await this.db.removeAndFlush(user);
+    await this.userModel.deleteOne({ id: user.id });
 
     // Return deleted user
     return user;

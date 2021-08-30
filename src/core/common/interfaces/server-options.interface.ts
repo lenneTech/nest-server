@@ -1,8 +1,8 @@
-import { MikroOrmModuleSyncOptions } from '@mikro-orm/nestjs';
 import { GqlModuleOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
+import { MongooseModuleOptions } from '@nestjs/mongoose/dist/interfaces/mongoose-options.interface';
 
 /**
  * Options for the server
@@ -118,9 +118,9 @@ export interface IServerOptions {
   };
 
   /**
-   * Configuration for MikroOrm
+   * Configuration for Mongoose
    */
-  mikroOrm?: MikroOrmModuleSyncOptions;
+  mongoose?: { uri: string; options?: MongooseModuleOptions };
 
   /**
    * Configuration for useStaticAssets
@@ -155,59 +155,4 @@ export interface IServerOptions {
      */
     engine?: string;
   };
-
-  /**
-   * Configuration of TypeORM
-   * see https://github.com/typeorm/typeorm/blob/master/docs/connection-options.md
-   */
-  typeOrm?: {
-    /**
-     * Type of database
-     * e.g. 'mongodb'
-     */
-    type?: string;
-
-    /**
-     * Host of the database
-     * e.g. 'localhost'
-     */
-    host?: string;
-
-    /**
-     * Port of the database
-     * e.g. 27017
-     */
-    port?: number;
-
-    /**
-     * Name of the database
-     * e.g. 'my-project'
-     */
-    database?: string;
-
-    /**
-     * Indicates if database schema should be auto created on every application launch
-     * e.g. false
-     */
-    synchronize?: boolean;
-
-    /**
-     * Entities to be loaded and used for this connection
-     * e.g. [Post, Category, 'entity/*.js', 'modules/** /entity/*.js']
-     */
-    entities?: string[];
-
-    /**
-     * Determines whether or not to use the new url parser. Default: false
-     * e.g. true
-     */
-    useNewUrlParser?: boolean;
-
-    /**
-     * Determines whether or not to use the new Server Discovery and Monitoring engine. Default: false
-     * https://github.com/mongodb/node-mongodb-native/releases/tag/v3.2.1
-     * e.g. true
-     */
-    useUnifiedTopology?: boolean;
-  } & any;
 }

@@ -1,13 +1,13 @@
-import { Entity, Property, Unique } from '@mikro-orm/core';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { IsEmail, IsOptional } from 'class-validator';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
+import { Prop, Schema } from '@nestjs/mongoose';
 
 /**
  * User model
  */
 @ObjectType({ description: 'User', isAbstract: true })
-@Entity()
+@Schema()
 export abstract class CoreUserModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -18,8 +18,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
-  @Property()
-  @Unique()
+  @Prop({ unique: true })
   email: string = undefined;
 
   /**
@@ -27,7 +26,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
-  @Property()
+  @Prop()
   firstName: string = undefined;
 
   /**
@@ -35,13 +34,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
-  @Property()
+  @Prop()
   lastName: string = undefined;
 
   /**
    * Password of the user
    */
-  @Property()
+  @Prop()
   password: string = undefined;
 
   /**
@@ -49,7 +48,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  @Property()
+  @Prop()
   roles: string[] = [];
 
   /**
@@ -57,7 +56,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Username of the user', nullable: true })
   @IsOptional()
-  @Property()
+  @Prop()
   username: string = undefined;
 
   // ===================================================================================================================
