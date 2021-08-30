@@ -56,7 +56,6 @@ export abstract class CoreModel {
       mapId?: boolean;
     } = {}
   ): this {
-    // For MakroORM ignore id and _id during the mapping by default
     const config = {
       cloneDeep: false,
       funcAllowed: false,
@@ -82,7 +81,6 @@ export abstract class CoreModel {
       mapId?: boolean;
     } = {}
   ): this {
-    // For MakroORM ignore id and _id during the mapping by default
     const config = {
       cloneDeep: true,
       funcAllowed: false,

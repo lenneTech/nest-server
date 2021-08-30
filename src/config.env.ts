@@ -32,12 +32,8 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
-    mikroOrm: {
-      autoLoadEntities: true,
-      dbName: 'nest-server-dev',
-      host: 'localhost',
-      port: 27017,
-      type: 'mongo',
+    mongoose: {
+      uri: 'mongodb://localhost/nest-server-dev',
     },
     port: 3000,
     staticAssets: {
@@ -77,12 +73,8 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
-    mikroOrm: {
-      autoLoadEntities: true,
-      dbName: 'nest-server-prod',
-      host: 'localhost',
-      port: 27017,
-      type: 'mongo',
+    mongoose: {
+      uri: 'mongodb://localhost/nest-server-prod',
     },
     port: 3000,
     staticAssets: {

@@ -7,6 +7,8 @@ import { CoreBasicUserService } from './core-basic-user.service';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
+import { Model } from 'mongoose';
+import { User } from '../../../server/modules/user/user.model';
 
 // Subscription
 const pubSub = new PubSub();
@@ -19,6 +21,10 @@ export abstract class CoreUserService<
   TUserInput = CoreUserInput,
   TUserCreateInput = CoreUserCreateInput
 > extends CoreBasicUserService<TUser, TUserInput, TUserCreateInput> {
+  protected constructor(protected readonly userModel: Model<any>) {
+    super(userModel);
+  }
+
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================
@@ -31,11 +37,11 @@ export abstract class CoreUserService<
     await this.prepareInput(input, currentUser, { create: true });
 
     // Create new user
-    const createdUser = this.model.map(input);
+    const createdUser = new this.userModel(this.model.map(input));
 
     try {
       // Save created user
-      await this.db.persistAndFlush(createdUser);
+      await createdUser.save();
     } catch (error) {
       if (error.code === 11000) {
         throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
@@ -59,7 +65,7 @@ export abstract class CoreUserService<
    */
   async delete(id: string, ...args: any[]): Promise<TUser> {
     // Search user
-    const user = await this.db.findOne(id);
+    let user = await this.userModel.findOne({ _id: id }).exec();
 
     // Check user
     if (!user) {
@@ -67,7 +73,9 @@ export abstract class CoreUserService<
     }
 
     // Delete user
-    await this.db.removeAndFlush(user);
+    await this.userModel.deleteOne({ id }).exec();
+
+    user = this.model.map(user);
 
     // Return deleted user
     return await this.prepareOutput(user, args[0]);
@@ -77,11 +85,13 @@ export abstract class CoreUserService<
    * Get user via ID
    */
   async get(id: string, ...args: any[]): Promise<TUser> {
-    const user = await this.db.findOne(id);
+    const user = await this.userModel.findOne({ _id: id }).exec();
+
     if (!user) {
       throw new NotFoundException();
     }
-    return this.prepareOutput(user, args[0]);
+
+    return this.prepareOutput(this.model.map(user, { cloneDeep: true, mapId: true }), args[0]);
   }
 
   /**
@@ -90,7 +100,9 @@ export abstract class CoreUserService<
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
     return await Promise.all(
-      (await this.db.find(...Filter.convertFilterArgsToQuery(filterArgs))).map((user) => {
+      (
+        await this.userModel.find(...Filter.convertFilterArgsToQuery(filterArgs))
+      ).map((user) => {
         return this.prepareOutput(user, args[0]);
       })
     );
@@ -101,7 +113,8 @@ export abstract class CoreUserService<
    */
   async update(id: string, input: TUserInput, currentUser: TUser, ...args: any[]): Promise<TUser> {
     // Check if user exists
-    const user = await this.db.findOne(id);
+    let user = await this.userModel.findOne({ _id: id }).exec();
+
     if (!user) {
       throw new NotFoundException(`User not found with ID: ${id}`);
     }
@@ -109,9 +122,14 @@ export abstract class CoreUserService<
     // Prepare input
     await this.prepareInput(input, currentUser);
 
-    // Search user
-    user.map(input);
-    await this.db.flush();
+    // Update
+    user.set(input);
+
+    // Save
+    await user.save();
+
+    // Map for response
+    user = this.model.map(user);
 
     // Return user
     return await this.prepareOutput(user as TUser, args[0]);

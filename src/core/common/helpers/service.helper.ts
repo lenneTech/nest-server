@@ -1,5 +1,4 @@
 import * as bcrypt from 'bcrypt';
-import { GraphQLResolveInfo } from 'graphql';
 
 /**
  * Helper class for services

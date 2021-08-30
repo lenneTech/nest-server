@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { Attachment } from 'nodemailer/lib/mailer';
-import { InputHelper } from '../../common/helpers/input.helper';
+import { InputHelper } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
 

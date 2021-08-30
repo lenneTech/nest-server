@@ -1,4 +1,3 @@
-import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { DynamicModule, Global, Module, Scope } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -9,12 +8,13 @@ import { CheckInputPipe } from './core/common/pipes/check-input.pipe';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { TemplateService } from './core/common/services/template.service';
+import { MongooseModule } from '@nestjs/mongoose';
 
 /**
  * Core module (dynamic)
  *
  * Which includes the following standard modules and services:
- * - MikroORM
+ * - MongooseModule
  * - GraphQL
  * - ConfigService
  * - CheckInput
@@ -43,24 +43,9 @@ export class CoreModule {
           installSubscriptionHandlers: true,
         },
         port: 3000,
-        mikroOrm: {
-          host: options.typeOrm && options.typeOrm.host ? options.typeOrm.host : 'localhost',
-          port: options.typeOrm && options.typeOrm.port ? options.typeOrm.port : 27017,
-          dbName: options.typeOrm && options.typeOrm.database ? options.typeOrm.database : 'develop',
-          type: 'mongo',
-        },
       } as IServerOptions,
       options
     );
-
-    // Migrate from TypeOrm to MikroOrm
-    if (!options.mikroOrm?.type && options.typeOrm?.type) {
-      if (options.typeOrm.type === 'mongodb') {
-        config.mikroOrm.type = 'mongo';
-      } else if (['mysql', 'mariadb', 'sqlite', 'mongo', 'postgresql'].includes(options.typeOrm.type)) {
-        config.mikroOrm.type = options.typeOrm.type as any;
-      }
-    }
 
     // Set providers
     const providers = [
@@ -93,7 +78,10 @@ export class CoreModule {
     // Return dynamic module
     return {
       module: CoreModule,
-      imports: [MikroOrmModule.forRoot(config.mikroOrm), GraphQLModule.forRoot(config.graphQl)],
+      imports: [
+        MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
+        GraphQLModule.forRoot(config.graphQl),
+      ],
       providers,
       exports: [ConfigService, EmailService, TemplateService],
     };
