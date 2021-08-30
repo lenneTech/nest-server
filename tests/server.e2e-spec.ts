@@ -77,6 +77,7 @@ describe('ServerModule (e2e)', () => {
           email: gEmail,
           password: gPassword,
           firstName: 'Everardo',
+          roles: ['member'],
         },
       },
       fields: ['id', 'email'],
@@ -154,7 +155,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken }
+      { token: gToken, logError: true }
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
