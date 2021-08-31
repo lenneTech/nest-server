@@ -23,7 +23,7 @@ export class ModelHelper {
     const config = {
       cloneDeep: true,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       ...options,
     };
 
@@ -38,6 +38,8 @@ export class ModelHelper {
         (config.funcAllowed || typeof (source[key] !== 'function'))
       ) {
         result[key] = source[key] !== 'function' && config.cloneDeep ? _.cloneDeep(source[key]) : source[key];
+      } else if (key === 'id' && !config.mapId) {
+        result['id'] = source[key];
       }
     }
 
@@ -60,7 +62,7 @@ export class ModelHelper {
     const config = {
       cloneDeep: true,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       ...options,
     };
 
