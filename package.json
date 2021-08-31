@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "2.0.0-alpha1",
+  "version": "2.0.0-alpha2",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -51,17 +51,27 @@
   "engines": {
     "node": ">= 14.17.0"
   },
+  "peerDependencies": {
+    "@nestjs/testing": "8.0.6",
+    "@nestjs/core": "8.0.6",
+    "@nestjs/common": "8.0.6",
+    "@nestjs/graphql": "9.0.2",
+    "@nestjs/jwt": "8.0.0",
+    "@nestjs/mongoose": "8.0.1",
+    "@nestjs/passport": "8.0.1",
+    "@nestjs/platform-express": "8.0.6"
+  },
   "dependencies": {
     "@apollo/federation": "0.29.0",
     "@apollo/gateway": "0.38.0",
-    "@nestjs/common": "8.0.6",
+    "@nestjs/testing": "8.0.6",
     "@nestjs/core": "8.0.6",
+    "@nestjs/common": "8.0.6",
     "@nestjs/graphql": "9.0.2",
     "@nestjs/jwt": "8.0.0",
     "@nestjs/mongoose": "8.0.1",
     "@nestjs/passport": "8.0.1",
     "@nestjs/platform-express": "8.0.6",
-    "@nestjs/testing": "8.0.6",
     "@types/ejs": "3.1.0",
     "@types/jest": "27.0.1",
     "@types/lodash": "4.14.172",
@@ -78,8 +88,6 @@
     "class-transformer": "0.4.0",
     "class-validator": "0.13.1",
     "ejs": "3.1.6",
-    "eslint": "7.32.0",
-    "eslint-config-prettier": "8.3.0",
     "fastify": "3.20.2",
     "graphql": "15.5.1",
     "graphql-subscriptions": "1.2.1",
@@ -99,20 +107,22 @@
     "nodemon": "2.0.12",
     "passport": "0.4.1",
     "passport-jwt": "4.0.0",
-    "pm2": "5.1.0",
-    "prettier": "2.3.2",
-    "pretty-quick": "3.1.1",
     "reflect-metadata": "0.1.13",
     "rimraf": "3.0.2",
     "rxjs": "7.3.0",
-    "supertest": "6.1.6",
+    "supertest": "6.1.6"
+  },
+  "devDependencies": {
+    "eslint": "7.32.0",
+    "eslint-config-prettier": "8.3.0",
+    "find-file-up": "2.0.1",
+    "pm2": "5.1.0",
+    "prettier": "2.3.2",
+    "pretty-quick": "3.1.1",
     "ts-jest": "27.0.5",
     "ts-morph": "11.0.3",
     "ts-node": "9.1.1",
     "typescript": "4.3.5"
-  },
-  "devDependencies": {
-    "find-file-up": "2.0.1"
   },
   "jest": {
     "collectCoverage": true,
