@@ -59,7 +59,7 @@ export abstract class CoreModel {
     const config = {
       cloneDeep: false,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       ...options,
     };
     return ModelHelper.map(data, this, config);
@@ -84,7 +84,7 @@ export abstract class CoreModel {
     const config = {
       cloneDeep: true,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       ...options,
     };
     return this.map(data, config);

@@ -138,7 +138,7 @@ export abstract class CorePersistenceModel {
     const config = {
       cloneDeep: false,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       merge: false,
       ...options,
     };
@@ -183,7 +183,7 @@ export abstract class CorePersistenceModel {
     const config = {
       cloneDeep: true,
       funcAllowed: false,
-      mapId: true,
+      mapId: false,
       merge: false,
       ...options,
     };
