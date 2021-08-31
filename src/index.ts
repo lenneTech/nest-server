@@ -41,6 +41,7 @@ export * from './core/common/scalars/json.scalar';
 export * from './core/common/services/config.service';
 export * from './core/common/services/email.service';
 export * from './core/common/services/template.service';
+export * from './core/common/plugins/mongoose-id.plugin';
 
 // =====================================================================================================================
 // Core - Modules - Auth
