@@ -8,7 +8,6 @@ import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
 import { Model } from 'mongoose';
-import { User } from '../../../server/modules/user/user.model';
 
 // Subscription
 const pubSub = new PubSub();
@@ -73,7 +72,7 @@ export abstract class CoreUserService<
     }
 
     // Delete user
-    await this.userModel.deleteOne({ id }).exec();
+    await this.userModel.deleteOne({ _id: id }).exec();
 
     user = this.model.map(user);
 
