@@ -2,6 +2,7 @@ import { Field, ID, ObjectType } from '@nestjs/graphql';
 import * as _ from 'lodash';
 import { ModelHelper } from '../helpers/model.helper';
 import { Prop, Schema } from '@nestjs/mongoose';
+import * as mongoose from 'mongoose';
 
 /**
  * Metadata for persistent objects
@@ -14,6 +15,13 @@ import { Prop, Schema } from '@nestjs/mongoose';
 })
 @Schema()
 export abstract class CorePersistenceModel {
+  // ===========================================================================
+  // Getter
+  // ===========================================================================
+  get _id() {
+    return mongoose.Types.ObjectId(this.id);
+  }
+
   // ===========================================================================
   // Properties
   //
