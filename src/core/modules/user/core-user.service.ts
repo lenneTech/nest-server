@@ -90,7 +90,7 @@ export abstract class CoreUserService<
       throw new NotFoundException();
     }
 
-    return this.prepareOutput(this.model.map(user, { cloneDeep: true, mapId: true }), args[0]);
+    return this.prepareOutput(this.model.map(user), args[0]);
   }
 
   /**

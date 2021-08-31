@@ -43,6 +43,16 @@ export class CoreModule {
           installSubscriptionHandlers: true,
         },
         port: 3000,
+        mongoose: {
+          uri: 'mongodb://localhost/nest-server-default',
+          options: {
+            connectionFactory: (connection) => {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              connection.plugin(require('./core/common/plugins/mongoose-id.plugin'));
+              return connection;
+            },
+          },
+        },
       } as IServerOptions,
       options
     );
