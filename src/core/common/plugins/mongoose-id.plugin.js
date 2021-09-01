@@ -5,7 +5,7 @@ module.exports = function mongooseIdPlugin(schema, options) {
     }
 
     for (const doc of docs) {
-      if (doc._id) {
+      if (doc !== null && doc._id) {
         doc.id = doc._id.toString();
       }
     }
