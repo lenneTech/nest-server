@@ -71,11 +71,11 @@ export abstract class CoreBasicUserService<
   async getViaEmail(email: string, ...args: any[]): Promise<TUser> {
     let user = await this.userModel.findOne({ email }).exec();
 
-    user = this.model.map(user);
-
     if (!user) {
       throw new NotFoundException();
     }
+
+    user = this.model.map(user);
 
     return user;
   }
