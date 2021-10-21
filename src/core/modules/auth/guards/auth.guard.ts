@@ -58,6 +58,11 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Integrate options
      */
     async canActivate(context: ExecutionContext): Promise<boolean> {
+      const args = context.getArgs();
+      if (args.length > 0 && args[args.length - 1]?.operation?.operation === 'subscription') {
+        return true;
+      }
+
       const options = { ...defaultOptions, ...this.options };
       const response = context?.switchToHttp()?.getResponse();
       let request = this.getRequest(context);

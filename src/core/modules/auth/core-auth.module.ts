@@ -6,6 +6,7 @@ import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './jwt.strategy';
 import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
+import { PubSub } from 'graphql-subscriptions';
 
 /**
  * CoreAuthModule to handle user authentication and enables Roles
@@ -33,6 +34,10 @@ export class CoreAuthModule {
         {
           provide: CoreAuthUserService,
           useClass: UserService,
+        },
+        {
+          provide: 'PUB_SUB',
+          useValue: new PubSub(),
         },
 
         // Standard services

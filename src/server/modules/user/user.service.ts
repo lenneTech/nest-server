@@ -1,7 +1,6 @@
-import { Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import * as fs from 'fs';
 import { GraphQLResolveInfo } from 'graphql';
-import { PubSub } from 'graphql-subscriptions';
 import envConfig from '../../../config.env';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Filter } from '../../../core/common/helpers/filter.helper';
@@ -15,9 +14,7 @@ import { User } from './user.model';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ICorePersistenceModel } from '../../../core/common/interfaces/core-persistence-model.interface';
-
-// Subscription
-const pubSub = new PubSub();
+import { PubSub } from 'graphql-subscriptions';
 
 /**
  * User service
@@ -42,7 +39,8 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   constructor(
     protected readonly configService: ConfigService,
     protected readonly emailService: EmailService,
-    @InjectModel('User') protected readonly userModel: Model<User>
+    @InjectModel('User') protected readonly userModel: Model<User>,
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
     super(userModel);
     this.model = User;
@@ -58,6 +56,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   async create(input: UserCreateInput, currentUser?: User, ...args: any[]): Promise<User> {
     const user = await super.create(input, currentUser);
     const text = `Welcome ${user.firstName}, this is plain text from server.`;
+    await this.pubSub.publish('userCreated', User.map(user));
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
       templateData: user,
