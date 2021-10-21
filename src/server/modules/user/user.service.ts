@@ -71,8 +71,9 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Get users via filter
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<User[]> {
+    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
     // Return found users
-    return this.userModel.find(...Filter.convertFilterArgsToQuery(filterArgs)).exec();
+    return this.userModel.find(filterQuery[0], null, filterQuery[1]).exec();
   }
 
   /**
