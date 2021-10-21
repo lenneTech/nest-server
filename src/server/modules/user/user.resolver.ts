@@ -10,9 +10,7 @@ import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
 import { UserService } from './user.service';
-
-// Subscription
-const pubSub = new PubSub();
+import { Inject } from '@nestjs/common';
 
 /**
  * Resolver to process with user data
@@ -22,7 +20,7 @@ export class UserResolver {
   /**
    * Import services
    */
-  constructor(protected readonly usersService: UserService) {}
+  constructor(protected readonly usersService: UserService, @Inject('PUB_SUB') protected readonly pubSub: PubSub) {}
 
   // ===========================================================================
   // Queries
@@ -96,9 +94,10 @@ export class UserResolver {
   /**
    * Subscritption for create user
    */
-  @Roles(RoleEnum.ADMIN)
-  @Subscription((returns) => User)
-  userCreated() {
-    return pubSub.asyncIterator('userCreated');
+  @Subscription((returns) => User, {
+    resolve: (value) => value,
+  })
+  async userCreated() {
+    return this.pubSub.asyncIterator('userCreated');
   }
 }

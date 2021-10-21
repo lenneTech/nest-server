@@ -4,6 +4,7 @@ import { CoreModule } from '../core.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileController } from './modules/file/file.controller';
 import { ServerController } from './server.controller';
+import { PubSub } from 'graphql-subscriptions';
 
 /**
  * Server module (dynamic)

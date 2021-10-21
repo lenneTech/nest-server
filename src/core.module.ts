@@ -41,6 +41,14 @@ export class CoreModule {
           autoSchemaFile: 'schema.gql',
           context: ({ req }) => ({ req }),
           installSubscriptionHandlers: true,
+          subscriptions: {
+            'subscriptions-transport-ws': {
+              onConnect: (connectionParams) => {
+                // TODO: Handle Authorization
+                const authToken = connectionParams.Authorization;
+              },
+            },
+          },
         },
         port: 3000,
         mongoose: {

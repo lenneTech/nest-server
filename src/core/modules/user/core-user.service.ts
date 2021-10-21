@@ -97,10 +97,11 @@ export abstract class CoreUserService<
    * Get users via filter
    */
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
+    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
     // Return found users
     return await Promise.all(
       (
-        await this.userModel.find(...Filter.convertFilterArgsToQuery(filterArgs))
+        await this.userModel.find(filterQuery[0], null, filterQuery[1]).exec()
       ).map((user) => {
         return this.prepareOutput(user, args[0]);
       })
