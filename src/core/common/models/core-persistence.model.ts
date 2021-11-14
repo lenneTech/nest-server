@@ -19,7 +19,7 @@ export abstract class CorePersistenceModel {
   // Getter
   // ===========================================================================
   get _id() {
-    return mongoose.Types.ObjectId(this.id);
+    return new mongoose.Types.ObjectId(this.id);
   }
 
   // ===========================================================================
