@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { PubSub } from 'graphql-subscriptions';
+import { UserService } from '../src/server/modules/user/user.service';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
 import { TestGraphQLType, TestHelper } from '../src';
@@ -8,6 +10,7 @@ describe('ServerModule (e2e)', () => {
   let testHelper: TestHelper;
 
   // Global vars
+  let userService: UserService;
   let gId: string;
   let gEmail: string;
   let gPassword: string;
@@ -24,12 +27,20 @@ describe('ServerModule (e2e)', () => {
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
+        providers: [
+          UserService,
+          {
+            provide: 'PUB_SUB',
+            useValue: new PubSub(),
+          },
+        ],
       }).compile();
       app = moduleFixture.createNestApplication();
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
       testHelper = new TestHelper(app);
+      userService = moduleFixture.get<UserService>(UserService);
     } catch (e) {
       console.log('beforeAllError', e);
     }
@@ -63,6 +74,32 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * Try to create user with roles should fail
+   */
+  it('createUserWithRoles', async () => {
+    gPassword = Math.random().toString(36).substring(7);
+    gEmail = gPassword + '@testuser.com';
+
+    const res: any = await testHelper.graphQl({
+      name: 'createUser',
+      type: TestGraphQLType.MUTATION,
+      arguments: {
+        input: {
+          email: gEmail,
+          password: gPassword,
+          firstName: 'Everardo',
+          roles: ['admin'],
+        },
+      },
+      fields: ['id', 'email', 'roles'],
+    });
+    expect(res.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].message).toEqual('Missing roles of current user');
+    expect(res.data).toBe(null);
+  });
+
+  /**
    * Create new user
    */
   it('createUser', async () => {
@@ -77,12 +114,12 @@ describe('ServerModule (e2e)', () => {
           email: gEmail,
           password: gPassword,
           firstName: 'Everardo',
-          roles: ['member'],
         },
       },
-      fields: ['id', 'email'],
+      fields: ['id', 'email', 'roles'],
     });
     expect(res.email).toEqual(gEmail);
+    expect(res.roles).toEqual([]);
     gId = res.id;
   });
 
@@ -139,9 +176,9 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Update user
+   * Update user with roles
    */
-  it('updateUser', async () => {
+  it('updateUserWithRoles', async () => {
     const res: any = await testHelper.graphQl(
       {
         arguments: {
@@ -157,11 +194,37 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken, logError: true }
     );
+    expect(res.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].message).toEqual('Current user not allowed setting roles: admin');
+    expect(res.data).toBe(null);
+  });
+
+  /**
+   * Update user
+   */
+  it('updateUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: gId,
+          input: {
+            firstName: 'Jonny',
+          },
+        },
+        name: 'updateUser',
+        fields: ['id', 'email', 'firstName', 'roles'],
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken, logError: true }
+    );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
-    expect(res.roles[0]).toEqual('admin');
-    expect(res.roles.length).toEqual(1);
+    expect(res.roles).toEqual([]);
+
+    // Set admin roles
+    userService.setRoles(gId, ['admin']);
   });
 
   /**
@@ -182,13 +245,15 @@ describe('ServerModule (e2e)', () => {
           id: gId,
         },
         name: 'getUser',
-        fields: ['id', 'email', 'firstName'],
+        fields: ['id', 'email', 'firstName', 'roles'],
       },
       { token: gToken }
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
+    expect(res.roles[0]).toEqual('admin');
+    expect(res.roles.length).toEqual(1);
   });
 
   /**
