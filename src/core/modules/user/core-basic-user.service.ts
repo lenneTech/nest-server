@@ -16,9 +16,9 @@ const pubSub = new PubSub();
  * User service
  */
 export abstract class CoreBasicUserService<
-  TUser = CoreUserModel,
-  TUserInput = CoreUserInput,
-  TUserCreateInput = CoreUserCreateInput
+  TUser extends CoreUserModel,
+  TUserInput extends CoreUserInput,
+  TUserCreateInput extends CoreUserCreateInput
 > {
   protected readonly model: ICorePersistenceModel;
 
