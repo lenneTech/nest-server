@@ -1,13 +1,20 @@
-import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { Filter } from '../../common/helpers/filter.helper';
 import { CoreBasicUserService } from './core-basic-user.service';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
 import { Model } from 'mongoose';
+import * as _ from 'lodash';
 
 // Subscription
 const pubSub = new PubSub();
@@ -16,9 +23,9 @@ const pubSub = new PubSub();
  * User service
  */
 export abstract class CoreUserService<
-  TUser = CoreUserModel,
-  TUserInput = CoreUserInput,
-  TUserCreateInput = CoreUserCreateInput
+  TUser extends CoreUserModel,
+  TUserInput extends CoreUserInput,
+  TUserCreateInput extends CoreUserCreateInput
 > extends CoreBasicUserService<TUser, TUserInput, TUserCreateInput> {
   protected constructor(protected readonly userModel: Model<any>) {
     super(userModel);
@@ -109,6 +116,24 @@ export abstract class CoreUserService<
   }
 
   /**
+   * Set roles for specified user
+   */
+  async setRoles(userId: string, roles: string[]): Promise<TUser> {
+    // Check roles
+    if (!Array.isArray(roles)) {
+      throw new BadRequestException('Missing roles');
+    }
+
+    // Check roles values
+    if (roles.some((role) => typeof role !== 'string')) {
+      throw new BadRequestException('roles contains invalid values');
+    }
+
+    // Update and return user
+    return this.userModel.findByIdAndUpdate(userId, { roles }).exec();
+  }
+
+  /**
    * Update user via ID
    */
   async update(id: string, input: TUserInput, currentUser: TUser, ...args: any[]): Promise<TUser> {
@@ -144,22 +169,37 @@ export abstract class CoreUserService<
    */
   protected async prepareInput(
     input: { [key: string]: any },
-    currentUser: TUser,
-    options: { [key: string]: any; create?: boolean; clone?: boolean } = {},
+    currentUser?: TUser,
+    options: { [key: string]: any; checkRoles?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
     // Configuration
     const config = {
+      checkRoles: true,
       clone: false,
       ...options,
     };
 
-    // Clone output
+    // Clone input
     if (config.clone) {
       input = JSON.parse(JSON.stringify(input));
     }
 
-    // Has password
+    // Process roles
+    if (input.roles && config.checkRoles && (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))) {
+      if (!(currentUser as any)?.roles) {
+        throw new UnauthorizedException('Missing roles of current user');
+      } else {
+        const allowedRoles = _.intersection(input.roles, (currentUser as any).roles);
+        if (allowedRoles.length !== input.roles.length) {
+          const missingRoles = _.difference(input.roles, (currentUser as any).roles);
+          throw new UnauthorizedException('Current user not allowed setting roles: ' + missingRoles);
+        }
+        input.roles = allowedRoles;
+      }
+    }
+
+    // Hash password
     if (input.password) {
       input.password = await bcrypt.hash((input as any).password, 10);
     }

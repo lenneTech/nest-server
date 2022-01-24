@@ -1,4 +1,7 @@
+import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import * as _ from 'lodash';
+import { RoleEnum } from '../enums/role.enum';
 
 /**
  * Helper class for services
@@ -9,13 +12,15 @@ export class ServiceHelper {
    */
   static async prepareInput(
     input: { [key: string]: any },
-    currentUser: { id: string },
+    currentUser: { [key: string]: any; id: string },
     options: { [key: string]: any; create?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
     // Configuration
     const config = {
+      checkRoles: true,
       clone: false,
+      create: false,
       ...options,
     };
 
@@ -24,7 +29,21 @@ export class ServiceHelper {
       input = JSON.parse(JSON.stringify(input));
     }
 
-    // Has password
+    // Process roles
+    if (input.roles && config.checkRoles && (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))) {
+      if (!(currentUser as any)?.roles) {
+        throw new UnauthorizedException('Missing roles of current user');
+      } else {
+        const allowedRoles = _.intersection(input.roles, (currentUser as any).roles);
+        if (allowedRoles.length !== input.roles.length) {
+          const missingRoles = _.difference(input.roles, (currentUser as any).roles);
+          throw new UnauthorizedException('Current user not allowed setting roles: ' + missingRoles);
+        }
+        input.roles = allowedRoles;
+      }
+    }
+
+    // Hash password
     if (input.password) {
       input.password = await bcrypt.hash((input as any).password, 10);
     }
