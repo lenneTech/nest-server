@@ -19,10 +19,16 @@ const config: { [env: string]: IServerOptions } = {
         port: 587,
         secure: false,
       },
+      mailjet: {
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+      },
       defaultSender: {
         email: 'rebeca68@ethereal.email',
         name: 'Rebeca Sixtyeight',
       },
+      verificationLink: 'http://localhost:4200/user/verification',
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'development',
     graphQl: {
@@ -60,10 +66,16 @@ const config: { [env: string]: IServerOptions } = {
         port: 587,
         secure: false,
       },
+      mailjet: {
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+      },
       defaultSender: {
         email: 'rebeca68@ethereal.email',
         name: 'Rebeca Sixtyeight',
       },
+      verificationLink: 'http://localhost:4200/user/verification',
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'productive',
     graphQl: {
@@ -93,7 +105,8 @@ const config: { [env: string]: IServerOptions } = {
  *
  * default: development
  */
-const envConfig = config[process.env.NODE_ENV || 'development'] || config.development;
+const envConfig = config[process.env['NODE' + '_ENV'] || 'development'] || config.development;
+console.log('Server starts in mode: ', process.env['NODE' + '_ENV'] || 'development');
 
 /**
  * Export envConfig as default

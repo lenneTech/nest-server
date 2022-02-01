@@ -113,7 +113,7 @@ export class TestHelper {
   /**
    * GraphQL request
    * @param graphql
-   * @param statusCode
+   * @param options
    */
   async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
     // Default options
@@ -148,7 +148,7 @@ export class TestHelper {
       graphql = Object.assign(
         {
           arguments: null,
-          fields: ['id'],
+          fields: [],
           name: null,
           type: TestGraphQLType.QUERY,
         },

@@ -3,6 +3,7 @@ import { JwtModuleOptions } from '@nestjs/jwt';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { MongooseModuleOptions } from '@nestjs/mongoose/dist/interfaces/mongoose-options.interface';
+import { MailjetOptions } from './mailjet-options.interface';
 
 /**
  * Options for the server
@@ -100,6 +101,17 @@ export interface IServerOptions {
      * SMTP configuration for nodemailer
      */
     smtp?: SMTPTransport | SMTPTransport.Options | string;
+
+    mailjet?: MailjetOptions;
+    /**
+     * Verification link for email
+     */
+    verificationLink?: string;
+
+    /**
+     * Password reset link for email
+     */
+    passwordResetLink?: string;
 
     /**
      * Data for default sender

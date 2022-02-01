@@ -86,6 +86,12 @@ export class ServiceHelper {
     // Remove password if exists
     delete output.password;
 
+    // Remove verification token if exists
+    delete output.verificationToken;
+
+    // Remove password reset token if exists
+    delete output.passwordResetToken;
+
     // Return prepared user
     return output;
   }
