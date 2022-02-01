@@ -1,14 +1,11 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
+  "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "collectCoverageFrom": ["src/**/*.{ts,js}"],
   "testEnvironment": "node",
   "testRegex": "tests/.*.e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "preset": "@shelf/jest-mongodb"
 }

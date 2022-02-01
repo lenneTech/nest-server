@@ -59,6 +59,26 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Prop()
   username: string = undefined;
 
+  /**
+   * Password reset token of the user
+   */
+  @IsOptional()
+  @Prop()
+  passwordResetToken: string = undefined;
+
+  /**
+   * Verification token of the user
+   */
+  @IsOptional()
+  @Prop()
+  verificationToken: string = undefined;
+
+  /**
+   * Verification of the user
+   */
+  @Prop({ type: Boolean })
+  verified = false;
+
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================

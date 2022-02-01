@@ -102,6 +102,16 @@ export interface IServerOptions {
     smtp?: SMTPTransport | SMTPTransport.Options | string;
 
     /**
+     * Verification link for email
+     */
+    verificationLink?: string;
+
+    /**
+     * Password reset link for email
+     */
+    passwordResetLink?: string;
+
+    /**
      * Data for default sender
      */
     defaultSender?: {

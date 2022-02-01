@@ -4,10 +4,15 @@ import { UserService } from '../src/server/modules/user/user.service';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
 import { TestGraphQLType, TestHelper } from '../src';
+import { MongoClient, ObjectId } from 'mongodb';
 
 describe('ServerModule (e2e)', () => {
   let app;
   let testHelper: TestHelper;
+
+  // database
+  let connection;
+  let db;
 
   // Global vars
   let userService: UserService;
@@ -40,6 +45,12 @@ describe('ServerModule (e2e)', () => {
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
       testHelper = new TestHelper(app);
+
+      // Get db
+      console.log('MongoDB: Create connection to ' + envConfig.mongoose.uri);
+      connection = await MongoClient.connect(envConfig.mongoose.uri);
+      db = await connection.db();
+
       userService = moduleFixture.get<UserService>(UserService);
     } catch (e) {
       console.log('beforeAllError', e);
@@ -50,6 +61,7 @@ describe('ServerModule (e2e)', () => {
    * After all tests are finished
    */
   afterAll(() => {
+    connection.close();
     app.close();
   });
 
@@ -121,6 +133,63 @@ describe('ServerModule (e2e)', () => {
     expect(res.email).toEqual(gEmail);
     expect(res.roles).toEqual([]);
     gId = res.id;
+  });
+
+  /**
+   * Verify new user
+   */
+  it('verifyUser', async () => {
+    const user = await db.collection('users').findOne({ _id: new ObjectId(gId) });
+    const res: any = await testHelper.graphQl({
+      arguments: {
+        token: user.verificationToken,
+      },
+      name: 'verifyUser',
+    });
+    expect(res).toEqual(true);
+  });
+
+  /**
+   * Request password reset mail
+   */
+  it('requestPasswordResetMail with invalid email', async () => {
+    const res: any = await testHelper.graphQl({
+      arguments: {
+        email: 'invalid' + gEmail,
+      },
+      name: 'requestPasswordResetMail',
+    });
+    expect(res.errors[0].extensions.response.statusCode).toEqual(404);
+    expect(res.errors[0].message).toEqual('Not Found');
+  });
+
+  /**
+   * Request password reset mail
+   */
+  it('requestPasswordResetMail with valid', async () => {
+    const res: any = await testHelper.graphQl({
+      arguments: {
+        email: gEmail,
+      },
+      name: 'requestPasswordResetMail',
+    });
+    expect(res).toEqual(true);
+  });
+
+  /**
+   * Request password reset mail
+   */
+  it('resetPassword', async () => {
+    const user = await db.collection('users').findOne({ _id: new ObjectId(gId) });
+    const res: any = await testHelper.graphQl({
+      arguments: {
+        token: user.passwordResetToken,
+        password: 'new' + gPassword,
+      },
+      name: 'resetPassword',
+    });
+    expect(res).toEqual(true);
+    gPassword = 'new' + gPassword;
   });
 
   /**

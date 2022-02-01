@@ -230,6 +230,12 @@ export abstract class CoreUserService<
     // Remove password if exists
     delete (user as any).password;
 
+    // Remove verification token if exists
+    delete (user as any).verificationToken;
+
+    // Remove password reset token if exists
+    delete (user as any).passwordResetToken;
+
     // Return prepared user
     return user;
   }

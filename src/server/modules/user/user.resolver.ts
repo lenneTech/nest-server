@@ -43,6 +43,30 @@ export class UserResolver {
     return await this.usersService.find(args, info);
   }
 
+  /**
+   * Verify user with email
+   */
+  @Query((returns) => Boolean, { description: 'Verify user with email' })
+  async verifyUser(@Args('token') token: string) {
+    return await this.usersService.verify(token);
+  }
+
+  /**
+   * Request new password for user with email
+   */
+  @Query((returns) => Boolean, { description: 'Request new password for user with email' })
+  async requestPasswordResetMail(@Args('email') email: string) {
+    return await this.usersService.requestPasswordResetMail(email);
+  }
+
+  /**
+   * Set new password for user with token
+   */
+  @Query((returns) => Boolean, { description: 'Set new password for user with token' })
+  async resetPassword(@Args('token') token: string, @Args('password') password: string) {
+    return await this.usersService.resetPassword(token, password);
+  }
+
   // ===========================================================================
   // Mutations
   // ===========================================================================

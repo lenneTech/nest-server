@@ -90,6 +90,15 @@ type Query {
     """Input for filtering"""
     filter: FilterInput
   ): [User!]!
+
+  """Verify user with email"""
+  verifyUser(token: String!): Boolean!
+
+  """Request new password for user with email"""
+  requestPasswordResetMail(email: String!): Boolean!
+
+  """Set new password for user with token"""
+  resetPassword(password: String!, token: String!): Boolean!
 }
 
 """Sorting the returned elements"""
