@@ -65,11 +65,11 @@ export class ServiceHelper {
   /**
    * Prepare output before return
    */
-  static async prepareOutput(
+  static async prepareOutput<T = Record<string, any>>(
     output: any,
     userModel: new () => any,
     userService: any,
-    options: { [key: string]: any; clone?: boolean } = {},
+    options: { [key: string]: any; clone?: boolean; targetModel?: Partial<T> } = {},
     ...args: any[]
   ) {
     // Configuration
@@ -81,6 +81,11 @@ export class ServiceHelper {
     // Clone output
     if (config.clone) {
       output = JSON.parse(JSON.stringify(output));
+    }
+
+    // Map output if target model exist
+    if (options.targetModel) {
+      (options.targetModel as any).map(output);
     }
 
     // Remove password if exists
