@@ -9,6 +9,7 @@ import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { TemplateService } from './core/common/services/template.service';
 import { MongooseModule } from '@nestjs/mongoose';
+import { MailjetService } from './core/common/services/mailjet.service';
 
 /**
  * Core module (dynamic)
@@ -91,6 +92,7 @@ export class CoreModule {
       // Core Services
       EmailService,
       TemplateService,
+      MailjetService,
     ];
 
     // Return dynamic module
@@ -101,7 +103,7 @@ export class CoreModule {
         GraphQLModule.forRoot(config.graphQl),
       ],
       providers,
-      exports: [ConfigService, EmailService, TemplateService],
+      exports: [ConfigService, EmailService, TemplateService, MailjetService],
     };
   }
 }

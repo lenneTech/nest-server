@@ -19,6 +19,10 @@ const config: { [env: string]: IServerOptions } = {
         port: 587,
         secure: false,
       },
+      mailjet: {
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+      },
       defaultSender: {
         email: 'rebeca68@ethereal.email',
         name: 'Rebeca Sixtyeight',
@@ -61,6 +65,10 @@ const config: { [env: string]: IServerOptions } = {
         host: 'smtp.ethereal.email',
         port: 587,
         secure: false,
+      },
+      mailjet: {
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
         email: 'rebeca68@ethereal.email',
