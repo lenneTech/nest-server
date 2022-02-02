@@ -37,6 +37,9 @@ type User {
   """Username of the user"""
   username: String
 
+  """Verification state of the user"""
+  verified: Boolean
+
   """URL to avatar file of the user"""
   avatar: String
 
