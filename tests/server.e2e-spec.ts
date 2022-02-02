@@ -145,6 +145,7 @@ describe('ServerModule (e2e)', () => {
         token: user.verificationToken,
       },
       name: 'verifyUser',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res).toEqual(true);
   });
@@ -187,6 +188,7 @@ describe('ServerModule (e2e)', () => {
         password: 'new' + gPassword,
       },
       name: 'resetPassword',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res).toEqual(true);
     gPassword = 'new' + gPassword;
