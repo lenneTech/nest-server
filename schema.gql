@@ -91,14 +91,8 @@ type Query {
     filter: FilterInput
   ): [User!]!
 
-  """Verify user with email"""
-  verifyUser(token: String!): Boolean!
-
   """Request new password for user with email"""
   requestPasswordResetMail(email: String!): Boolean!
-
-  """Set new password for user with token"""
-  resetPassword(password: String!, token: String!): Boolean!
 }
 
 """Sorting the returned elements"""
@@ -192,6 +186,12 @@ JSON scalar type. Information on the exact schema of the JSON object is containe
 scalar JSON
 
 type Mutation {
+  """Verify user with email"""
+  verifyUser(token: String!): Boolean!
+
+  """Set new password for user with token"""
+  resetPassword(password: String!, token: String!): Boolean!
+
   """Create a new user"""
   createUser(input: UserCreateInput!): User!
 
