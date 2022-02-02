@@ -76,6 +76,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification of the user
    */
+  @Field((type) => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
   verified = false;
 
