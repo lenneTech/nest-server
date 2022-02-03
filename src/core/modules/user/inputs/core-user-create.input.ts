@@ -9,5 +9,5 @@ import { CoreUserInput } from './core-user.input';
 export abstract class CoreUserCreateInput extends CoreUserInput {
   @Field({ description: 'Email of the user', nullable: false })
   @IsEmail()
-  email: string;
+  email: string = undefined;
 }

@@ -73,10 +73,12 @@ export const checkRestricted = (
           ) {
             // User is not the owner
             delete data[propertyKey];
+            continue;
           }
         } else {
           // The user does not have the required rights
           delete data[propertyKey];
+          continue;
         }
       }
     }

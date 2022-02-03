@@ -77,6 +77,9 @@ export class ModelHelper {
     // Merge target with prepared source
     Object.assign(target, preparedSource);
 
+    // Remove all props with undefined
+    Object.keys(target).forEach((key) => target[key] === undefined && delete target[key]);
+
     // Return target
     return target;
   }

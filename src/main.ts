@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import envConfig from './config.env';
 import { ServerModule } from './server/server.module';
+import { MapPipe } from './core/common/pipes/map.pipe';
 
 /**
  * Preparations for server start
@@ -12,6 +13,9 @@ async function bootstrap() {
     // Include server module, with all necessary modules for the project
     ServerModule
   );
+
+  // Add map pipe for mapping inputs to class
+  server.useGlobalPipes(new MapPipe());
 
   // Asset directory
   server.useStaticAssets(envConfig.staticAssets.path, envConfig.staticAssets.options);

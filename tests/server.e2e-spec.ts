@@ -1,10 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { PubSub } from 'graphql-subscriptions';
-import { UserService } from '../src/server/modules/user/user.service';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
 import { TestGraphQLType, TestHelper } from '../src';
 import { MongoClient, ObjectId } from 'mongodb';
+import { MapPipe } from '../src/core/common/pipes/map.pipe';
 
 describe('ServerModule (e2e)', () => {
   let app;
@@ -15,7 +14,6 @@ describe('ServerModule (e2e)', () => {
   let db;
 
   // Global vars
-  let userService: UserService;
   let gId: string;
   let gEmail: string;
   let gPassword: string;
@@ -32,15 +30,12 @@ describe('ServerModule (e2e)', () => {
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
-        providers: [
-          UserService,
-          {
-            provide: 'PUB_SUB',
-            useValue: new PubSub(),
-          },
-        ],
       }).compile();
       app = moduleFixture.createNestApplication();
+
+      // Add map pipe for mapping inputs to class
+      app.useGlobalPipes(new MapPipe());
+
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
@@ -50,8 +45,6 @@ describe('ServerModule (e2e)', () => {
       console.log('MongoDB: Create connection to ' + envConfig.mongoose.uri);
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
-
-      userService = moduleFixture.get<UserService>(UserService);
     } catch (e) {
       console.log('beforeAllError', e);
     }
@@ -83,32 +76,6 @@ describe('ServerModule (e2e)', () => {
    */
   it('get config without token', async () => {
     const res: any = await testHelper.rest('/config', { statusCode: 401 });
-  });
-
-  /**
-   * Try to create user with roles should fail
-   */
-  it('createUserWithRoles', async () => {
-    gPassword = Math.random().toString(36).substring(7);
-    gEmail = gPassword + '@testuser.com';
-
-    const res: any = await testHelper.graphQl({
-      name: 'createUser',
-      type: TestGraphQLType.MUTATION,
-      arguments: {
-        input: {
-          email: gEmail,
-          password: gPassword,
-          firstName: 'Everardo',
-          roles: ['admin'],
-        },
-      },
-      fields: ['id', 'email', 'roles'],
-    });
-    expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Missing roles of current user');
-    expect(res.data).toBe(null);
   });
 
   /**
@@ -247,31 +214,6 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Update user with roles
-   */
-  it('updateUserWithRoles', async () => {
-    const res: any = await testHelper.graphQl(
-      {
-        arguments: {
-          id: gId,
-          input: {
-            firstName: 'Jonny',
-            roles: ['admin'],
-          },
-        },
-        name: 'updateUser',
-        fields: ['id', 'email', 'firstName', 'roles'],
-        type: TestGraphQLType.MUTATION,
-      },
-      { token: gToken, logError: true }
-    );
-    expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Current user not allowed setting roles: admin');
-    expect(res.data).toBe(null);
-  });
-
-  /**
    * Update user
    */
   it('updateUser', async () => {
@@ -292,16 +234,37 @@ describe('ServerModule (e2e)', () => {
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
-    expect(res.roles).toEqual([]);
+    expect(res.roles.length).toEqual(0);
+  });
 
-    // Set admin roles
-    userService.setRoles(gId, ['admin']);
+  /**
+   * Update user
+   */
+  it('user updates own role failed', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: gId,
+          input: {
+            roles: ['member'],
+          },
+        },
+        name: 'updateUser',
+        fields: ['id', 'email', 'firstName', 'roles'],
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken, logError: true }
+    );
+    expect(res.id).toEqual(gId);
+    expect(res.email).toEqual(gEmail);
+    expect(res.roles.length).toEqual(0);
   });
 
   /**
    * Get config with token
    */
   it('get config with admin rights', async () => {
+    await db.collection('users').findOneAndUpdate({ _id: new ObjectId(gId) }, { $set: { roles: ['admin'] } });
     const res: any = await testHelper.rest('/config', { token: gToken });
     expect(res.env).toEqual(envConfig.env);
   });
@@ -323,8 +286,6 @@ describe('ServerModule (e2e)', () => {
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
-    expect(res.roles[0]).toEqual('admin');
-    expect(res.roles.length).toEqual(1);
   });
 
   /**
