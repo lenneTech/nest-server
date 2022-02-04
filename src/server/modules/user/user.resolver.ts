@@ -88,7 +88,7 @@ export class UserResolver {
   @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Mutation((returns) => User, { description: 'Update existing user' })
   async updateUser(
-    @Args('input') input: UserInput,
+    @Args('input', { type: () => UserInput }) input: UserInput,
     @Args('id') id: string,
     @GraphQLUser() user: User,
     @Info() info: GraphQLResolveInfo

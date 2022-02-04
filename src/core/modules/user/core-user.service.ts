@@ -172,7 +172,7 @@ export abstract class CoreUserService<
    *
    * @param email
    */
-  async requestPasswordResetMail(email: string): Promise<boolean> {
+  async sentResetPasswordMail(email: string): Promise<TUser> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
@@ -180,14 +180,10 @@ export abstract class CoreUserService<
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = resetToken;
     await this.userModel.findByIdAndUpdate(user.id, { $set: { passwordResetToken: resetToken } }).exec();
 
-    await this.emailService.sendMail(user.email, 'Password reset', {
-      htmlTemplate: 'password-reset',
-      templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + resetToken },
-    });
-
-    return true;
+    return user;
   }
 
   /**
@@ -250,7 +246,7 @@ export abstract class CoreUserService<
   ) {
     // Configuration
     const config = {
-      checkRoles: true,
+      checkRoles: false,
       clone: false,
       ...options,
     };
