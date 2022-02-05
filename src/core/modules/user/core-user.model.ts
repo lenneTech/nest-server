@@ -1,13 +1,16 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { IsEmail, IsOptional } from 'class-validator';
+import { Document } from 'mongoose';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { Prop, Schema } from '@nestjs/mongoose';
+import { Prop, Schema as MongooseSchema } from '@nestjs/mongoose';
+
+export type CoreUserModelDocument = CoreUserModel & Document;
 
 /**
  * User model
  */
 @ObjectType({ description: 'User', isAbstract: true })
-@Schema()
+@MongooseSchema({ timestamps: true })
 export abstract class CoreUserModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -49,7 +52,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop()
-  roles: string[] = [];
+  roles: string[] = undefined;
 
   /**
    * Username of the user
@@ -78,7 +81,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field((type) => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
-  verified = false;
+  verified: boolean = undefined;
 
   // ===================================================================================================================
   // Methods

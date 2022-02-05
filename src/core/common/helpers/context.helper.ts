@@ -16,15 +16,26 @@ export class Context {
 
     // Init data
     let user: { [key: string]: any };
-    const ctx: any = GqlExecutionContext.create(context).getContext();
-    let args: any = GqlExecutionContext.create(context).getArgs();
+    let ctx: any = null;
+    try {
+      ctx = GqlExecutionContext.create(context)?.getContext();
+    } catch (e) {
+      // console.log(e);
+    }
+
+    let args: any;
+    try {
+      args = GqlExecutionContext.create(context)?.getArgs();
+    } catch (e) {
+      // console.log(e);
+    }
 
     // Get data
     if (ctx) {
       // User from GraphQL context
       user = ctx?.user || ctx?.req?.user;
     } else {
-      const request = context.switchToHttp().getRequest();
+      const request = context?.switchToHttp ? context.switchToHttp()?.getRequest() : null;
       if (request) {
         args = request.body;
 

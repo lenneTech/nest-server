@@ -1,20 +1,14 @@
-import {
-  BadRequestException,
-  NotFoundException,
-  UnauthorizedException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
-import { RoleEnum } from '../../common/enums/role.enum';
 import { Filter } from '../../common/helpers/filter.helper';
+import { ServiceHelper } from '../../common/helpers/service.helper';
 import { CoreBasicUserService } from './core-basic-user.service';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
-import { Model } from 'mongoose';
-import * as _ from 'lodash';
+import { Model, Document } from 'mongoose';
 import * as crypto from 'crypto';
 import envConfig from '../../../config.env';
 import { EmailService } from '../../common/services/email.service';
@@ -30,7 +24,7 @@ export abstract class CoreUserService<
   TUserInput extends CoreUserInput,
   TUserCreateInput extends CoreUserCreateInput
 > extends CoreBasicUserService<TUser, TUserInput, TUserCreateInput> {
-  protected constructor(protected readonly userModel: Model<any>, protected emailService: EmailService) {
+  protected constructor(protected readonly userModel: Model<TUser & Document>, protected emailService: EmailService) {
     super(userModel);
   }
 
@@ -45,11 +39,11 @@ export abstract class CoreUserService<
     // Prepare input
     await this.prepareInput(input, currentUser, { create: true });
 
-    // Generate verification token
-    const newUser = { ...input, ...{ verificationToken: crypto.randomBytes(32).toString('hex') } };
-
     // Create new user
-    const createdUser = new this.userModel(this.model.map(newUser));
+    const createdUser = new this.userModel({
+      ...input,
+      verificationToken: crypto.randomBytes(32).toString('hex'),
+    });
 
     try {
       // Save created user
@@ -63,13 +57,13 @@ export abstract class CoreUserService<
     }
 
     // Prepare output
-    await this.prepareOutput(createdUser, args[0]);
+    const preparedUser = await this.prepareOutput(this.model.map(createdUser), args[0]);
 
     // Inform subscriber
-    pubSub.publish('userCreated', { userCreated: createdUser });
+    pubSub.publish('userCreated', { userCreated: preparedUser });
 
     // Return created user
-    return createdUser;
+    return preparedUser;
   }
 
   /**
@@ -77,7 +71,7 @@ export abstract class CoreUserService<
    */
   async delete(id: string, ...args: any[]): Promise<TUser> {
     // Search user
-    let user = await this.userModel.findOne({ _id: id }).exec();
+    const user = await this.userModel.findById(id).exec();
 
     // Check user
     if (!user) {
@@ -85,19 +79,23 @@ export abstract class CoreUserService<
     }
 
     // Delete user
-    await this.userModel.deleteOne({ _id: id }).exec();
+    await user.delete();
 
-    user = this.model.map(user);
+    // Prepare output
+    const deletedUser = await this.prepareOutput(this.model.map(user), args[0]);
+
+    // Inform subscriber
+    pubSub.publish('userDeleted', { userDeleted: deletedUser });
 
     // Return deleted user
-    return await this.prepareOutput(user, args[0]);
+    return deletedUser;
   }
 
   /**
    * Get user via ID
    */
   async get(id: string, ...args: any[]): Promise<TUser> {
-    const user = await this.userModel.findOne({ _id: id }).exec();
+    const user = await this.userModel.findById(id).exec();
 
     if (!user) {
       throw new NotFoundException();
@@ -116,17 +114,15 @@ export abstract class CoreUserService<
       (
         await this.userModel.find(filterQuery[0], null, filterQuery[1]).exec()
       ).map((user) => {
-        return this.prepareOutput(user, args[0]);
+        return this.prepareOutput(this.model.map(user), args[0]);
       })
     );
   }
 
   /**
    * Verify user with token
-   *
-   * @param token
    */
-  async verify(token: string): Promise<boolean> {
+  async verify(token: string, ...args: any[]): Promise<TUser> {
     const user = await this.userModel.findOne({ verificationToken: token }).exec();
 
     if (!user) {
@@ -141,55 +137,71 @@ export abstract class CoreUserService<
       throw new Error('User already verified');
     }
 
-    await this.userModel.findByIdAndUpdate(user.id, { $set: { verified: true, verificationToken: null } }).exec();
+    // Update user
+    await Object.assign(user, {
+      verified: true,
+      verificationToken: null,
+    }).save();
 
-    return true;
+    // Prepare verified user
+    const verifiedUser = this.prepareOutput(this.model.map(user), args[0]);
+
+    // Inform subscriber
+    pubSub.publish('userVerified', { userVerified: verifiedUser });
+
+    // Return prepared verified user
+    return verifiedUser;
   }
 
   /**
    * Set newpassword for user with token
-   *
-   * @param token
-   * @param newPassword
    */
-  async resetPassword(token: string, newPassword: string): Promise<boolean> {
+  async resetPassword(token: string, newPassword: string, ...args: any[]): Promise<TUser> {
     const user = await this.userModel.findOne({ passwordResetToken: token }).exec();
 
     if (!user) {
       throw new NotFoundException();
     }
 
-    const cryptedPassword = await bcrypt.hash(newPassword, 10);
-    await this.userModel
-      .findByIdAndUpdate(user.id, { $set: { password: cryptedPassword, passwordResetToken: null } })
-      .exec();
+    // Update user
+    await Object.assign(user, {
+      password: await bcrypt.hash(newPassword, 10),
+      passwordResetToken: null,
+    }).save();
 
-    return true;
+    // Return prepared user with changed password
+    return this.prepareOutput(this.model.map(user), args[0]);
   }
 
   /**
    * Request email with password reset link
-   *
-   * @param email
    */
-  async sentResetPasswordMail(email: string): Promise<TUser> {
+  async sentResetPasswordMail(email: string, ...args: any[]): Promise<TUser> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
       throw new NotFoundException();
     }
 
+    // Set reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetToken = resetToken;
-    await this.userModel.findByIdAndUpdate(user.id, { $set: { passwordResetToken: resetToken } }).exec();
+    await user.save();
 
-    return user;
+    // Send mail
+    await this.emailService.sendMail(user.email, 'Password reset', {
+      htmlTemplate: 'password-reset',
+      templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + resetToken },
+    });
+
+    // Return user who want to reset the password
+    return this.prepareOutput(this.model.map(user), args[0]);
   }
 
   /**
    * Set roles for specified user
    */
-  async setRoles(userId: string, roles: string[]): Promise<TUser> {
+  async setRoles(userId: string, roles: string[], ...args: any[]): Promise<TUser> {
     // Check roles
     if (!Array.isArray(roles)) {
       throw new BadRequestException('Missing roles');
@@ -201,7 +213,8 @@ export abstract class CoreUserService<
     }
 
     // Update and return user
-    return this.userModel.findByIdAndUpdate(userId, { roles }).exec();
+    const user = await this.userModel.findByIdAndUpdate(userId, { roles }).exec();
+    return this.prepareOutput(this.model.map(user), args[0]);
   }
 
   /**
@@ -209,7 +222,7 @@ export abstract class CoreUserService<
    */
   async update(id: string, input: TUserInput, currentUser: TUser, ...args: any[]): Promise<TUser> {
     // Check if user exists
-    let user = await this.userModel.findOne({ _id: id }).exec();
+    const user = await this.userModel.findById(id).exec();
 
     if (!user) {
       throw new NotFoundException(`User not found with ID: ${id}`);
@@ -219,16 +232,10 @@ export abstract class CoreUserService<
     await this.prepareInput(input, currentUser);
 
     // Update
-    user.set(input);
-
-    // Save
-    await user.save();
-
-    // Map for response
-    user = this.model.map(user);
+    await Object.assign(user, input).save();
 
     // Return user
-    return await this.prepareOutput(user as TUser, args[0]);
+    return await this.prepareOutput(this.model.map(user), args[0]);
   }
 
   // ===================================================================================================================
@@ -239,44 +246,12 @@ export abstract class CoreUserService<
    * Prepare input before save
    */
   protected async prepareInput(
-    input: { [key: string]: any },
+    input: Record<string, any>,
     currentUser?: TUser,
     options: { [key: string]: any; checkRoles?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
-    // Configuration
-    const config = {
-      checkRoles: false,
-      clone: false,
-      ...options,
-    };
-
-    // Clone input
-    if (config.clone) {
-      input = JSON.parse(JSON.stringify(input));
-    }
-
-    // Process roles
-    if (input.roles && config.checkRoles && (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))) {
-      if (!(currentUser as any)?.roles) {
-        throw new UnauthorizedException('Missing roles of current user');
-      } else {
-        const allowedRoles = _.intersection(input.roles, (currentUser as any).roles);
-        if (allowedRoles.length !== input.roles.length) {
-          const missingRoles = _.difference(input.roles, (currentUser as any).roles);
-          throw new UnauthorizedException('Current user not allowed setting roles: ' + missingRoles);
-        }
-        input.roles = allowedRoles;
-      }
-    }
-
-    // Hash password
-    if (input.password) {
-      input.password = await bcrypt.hash((input as any).password, 10);
-    }
-
-    // Return prepared input
-    return input;
+    return ServiceHelper.prepareInput(input, currentUser, options, args);
   }
 
   /**
@@ -287,27 +262,6 @@ export abstract class CoreUserService<
     options: { [key: string]: any; clone?: boolean } = {},
     ...args: any[]
   ): Promise<TUser> {
-    // Configuration
-    const config = {
-      clone: true,
-      ...options,
-    };
-
-    // Clone user
-    if (config.clone) {
-      user = JSON.parse(JSON.stringify(user));
-    }
-
-    // Remove password if exists
-    delete (user as any).password;
-
-    // Remove verification token if exists
-    delete (user as any).verificationToken;
-
-    // Remove password reset token if exists
-    delete (user as any).passwordResetToken;
-
-    // Return prepared user
-    return user;
+    return ServiceHelper.prepareOutput(user, options);
   }
 }

@@ -6,6 +6,10 @@ import { CoreModel } from '../../../common/models/core-model.model';
 
 /**
  * User input to update a user
+ *
+ * HINT: All properties (in this class and all classes that extend this class) must be initialized with undefined,
+ * otherwise the property will not be recognized via Object.keys (this is necessary for mapping) or will be initialized
+ * with a default value that may overwrite an existing value in the DB.
  */
 @InputType({ description: 'User input', isAbstract: true })
 export abstract class CoreUserInput extends CoreModel {
@@ -37,7 +41,7 @@ export abstract class CoreUserInput extends CoreModel {
   @Restricted(RoleEnum.ADMIN)
   @Field((type) => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  roles?: string[] = [];
+  roles?: string[] = undefined;
 
   /**
    * Username / alias of the user

@@ -11,9 +11,9 @@ export class ServiceHelper {
    * Prepare input before save
    */
   static async prepareInput(
-    input: { [key: string]: any },
+    input: Record<string, any>,
     currentUser: { [key: string]: any; id: string },
-    options: { [key: string]: any; create?: boolean; clone?: boolean } = {},
+    options: { [key: string]: any; create?: boolean; clone?: boolean; removeUndefined?: boolean } = {},
     ...args: any[]
   ) {
     // Configuration
@@ -21,16 +21,26 @@ export class ServiceHelper {
       checkRoles: false,
       clone: false,
       create: false,
+      removeUndefined: true,
       ...options,
     };
 
     // Clone output
     if (config.clone) {
-      input = JSON.parse(JSON.stringify(input));
+      if (input.map && typeof input.map === 'function') {
+        input = Object.getPrototypeOf(input).map(input);
+      } else {
+        input = JSON.parse(JSON.stringify(input));
+      }
+    }
+
+    // Remove undefined properties to avoid unwanted overwrites
+    if (config.removeUndefined) {
+      Object.keys(input).forEach((key) => input[key] === undefined && delete input[key]);
     }
 
     // Process roles
-    if (input.roles && config.checkRoles && (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))) {
+    if (config.checkRoles && input.roles && (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))) {
       if (!(currentUser as any)?.roles) {
         throw new UnauthorizedException('Missing roles of current user');
       } else {
@@ -67,37 +77,45 @@ export class ServiceHelper {
    */
   static async prepareOutput<T = Record<string, any>>(
     output: any,
-    userModel: new () => any,
-    userService: any,
     options: { [key: string]: any; clone?: boolean; targetModel?: Partial<T> } = {},
     ...args: any[]
   ) {
     // Configuration
     const config = {
-      clone: true,
+      clone: false,
       ...options,
     };
 
     // Clone output
     if (config.clone) {
-      output = JSON.parse(JSON.stringify(output));
+      if (output.map && typeof output.map === 'function') {
+        output = Object.getPrototypeOf(output).map(output);
+      } else {
+        output = JSON.parse(JSON.stringify(output));
+      }
     }
 
     // Map output if target model exist
-    if (options.targetModel) {
-      (options.targetModel as any).map(output);
+    if (config.targetModel) {
+      output = (config.targetModel as any).map(output);
     }
 
     // Remove password if exists
-    delete output.password;
+    if (output.password) {
+      output.password = undefined;
+    }
 
     // Remove verification token if exists
-    delete output.verificationToken;
+    if (output.verificationToken) {
+      output.verificationToken = undefined;
+    }
 
     // Remove password reset token if exists
-    delete output.passwordResetToken;
+    if (output.passwordResetToken) {
+      output.passwordResetToken = undefined;
+    }
 
-    // Return prepared user
+    // Return prepared output
     return output;
   }
 }

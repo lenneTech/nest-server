@@ -1,32 +1,35 @@
 import { Field, ID, ObjectType } from '@nestjs/graphql';
-import * as _ from 'lodash';
-import { ModelHelper } from '../helpers/model.helper';
 import { Prop, Schema } from '@nestjs/mongoose';
-import * as mongoose from 'mongoose';
+import { Types } from 'mongoose';
+import { CoreModel } from './core-model.model';
 
 /**
  * Metadata for persistent objects
  *
  * The models are a combination of Mongoose Entities and TypeGraphQL Types
+ *
+ * HINT: All properties (in this class and all classes that extend this class) must be initialized with undefined,
+ * otherwise the property will not be recognized via Object.keys (this is necessary for mapping) or will be initialized
+ * with a default value that may overwrite an existing value in the DB.
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-@Schema()
-export abstract class CorePersistenceModel {
+@Schema({ timestamps: true })
+export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
   // Getter
   // ===========================================================================
+
   get _id() {
-    return new mongoose.Types.ObjectId(this.id);
+    return new Types.ObjectId(this.id);
   }
 
   // ===========================================================================
   // Properties
-  //
-  // TestFields: https://typegraphql.ml/docs/types-and-fields.html
   // ===========================================================================
+
   /**
    * ID of the persistence object as string
    */
@@ -37,11 +40,11 @@ export abstract class CorePersistenceModel {
   id: string = undefined;
 
   /**
-   * Created date
+   * Created date, is set automatically by mongoose
    */
   @Field({ description: 'Created date', nullable: true })
-  @Prop()
-  createdAt: Date = new Date();
+  @Prop({ onCreate: () => new Date() })
+  createdAt: Date = undefined;
 
   /**
    * Labels of the object
@@ -51,7 +54,7 @@ export abstract class CorePersistenceModel {
     nullable: true,
   })
   @Prop([String])
-  labels: string[] = [];
+  labels: string[] = undefined;
 
   /**
    * IDs of the Owners
@@ -61,7 +64,7 @@ export abstract class CorePersistenceModel {
     nullable: true,
   })
   @Prop([String])
-  ownerIds: string[] = [];
+  ownerIds: string[] = undefined;
 
   /**
    * Tags for the object
@@ -71,122 +74,12 @@ export abstract class CorePersistenceModel {
     nullable: true,
   })
   @Prop([String])
-  tags: string[] = [];
+  tags: string[] = undefined;
 
   /**
-   * Updated date
+   * Updated date is set automatically by mongoose
    */
   @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
-  updatedAt: Date = new Date();
-
-  /**
-   * Static map method
-   */
-  public static map<T extends CorePersistenceModel>(
-    this: new (...args: any[]) => T,
-    data: Partial<T> | Record<string, any>,
-    options: {
-      cloneDeep?: boolean;
-      funcAllowed?: boolean;
-      item?: T;
-      mapId?: boolean;
-      merge?: boolean;
-    } = {}
-  ): T {
-    const item = options.item || new this();
-    delete options.item;
-    return item.map(data, options);
-  }
-
-  /**
-   * Static map deep method
-   *
-   * Alias for map with cloneDeep = true
-   *
-   * MapDeep prevents side effects, because objects will be cloned
-   * (cloneDeep = true), but it will be slower than a simple map
-   */
-  public static mapDeep<T extends CorePersistenceModel>(
-    this: new (...args: any[]) => T,
-    data: Partial<T> | Record<string, any>,
-    options: {
-      cloneDeep?: boolean;
-      funcAllowed?: boolean;
-      item?: T;
-      mapId?: boolean;
-      merge?: boolean;
-    } = {}
-  ): T {
-    const item = options.item || new this();
-    delete options.item;
-    return item.mapDeep(data, options);
-  }
-
-  /**
-   * Map method
-   */
-  public map(
-    data: Partial<this> | Record<string, any>,
-    options: {
-      cloneDeep?: boolean;
-      funcAllowed?: boolean;
-      mapId?: boolean;
-      merge?: boolean;
-    } = {}
-  ): this {
-    const config = {
-      cloneDeep: false,
-      funcAllowed: false,
-      mapId: false,
-      merge: false,
-      ...options,
-    };
-
-    // Prepare data
-    let preparedData = data;
-    preparedData = ModelHelper.prepareMap(preparedData, this, config);
-    if (config.cloneDeep) {
-      preparedData = _.cloneDeep(preparedData);
-    }
-
-    // Assign
-    if (this['assign'] !== 'function') {
-      if (!config.merge) {
-        Object.assign(this, preparedData);
-      }
-    } else {
-      this['assign'](preparedData, { mergeObjects: config.merge });
-    }
-
-    // Return
-    return this;
-  }
-
-  /**
-   * Map deep method
-   *
-   * Alias for map with cloneDeep = true
-   *
-   * MapDeep prevents side effects, because objects will be cloned
-   * (cloneDeep = true), but it will be slower than a simple map
-   */
-  public mapDeep(
-    data: Partial<this> | Record<string, any>,
-    options: {
-      cloneDeep?: boolean;
-      funcAllowed?: boolean;
-      mapId?: boolean;
-      merge?: boolean;
-    } = {}
-  ): this {
-    const config = {
-      cloneDeep: true,
-      funcAllowed: false,
-      mapId: false,
-      merge: false,
-      ...options,
-    };
-    return this.map(data, config);
-  }
+  updatedAt: Date = undefined;
 }

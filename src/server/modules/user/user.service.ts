@@ -1,6 +1,5 @@
 import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import * as fs from 'fs';
-import { GraphQLResolveInfo } from 'graphql';
 import envConfig from '../../../config.env';
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { Filter } from '../../../core/common/helpers/filter.helper';
@@ -10,7 +9,7 @@ import { EmailService } from '../../../core/common/services/email.service';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
-import { User } from './user.model';
+import { User, UserDocument } from './user.model';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ICorePersistenceModel } from '../../../core/common/interfaces/core-persistence-model.interface';
@@ -39,7 +38,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   constructor(
     protected readonly configService: ConfigService,
     protected readonly emailService: EmailService,
-    @InjectModel('User') protected readonly userModel: Model<User>,
+    @InjectModel('User') protected readonly userModel: Model<UserDocument>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
     super(userModel, emailService);
@@ -53,10 +52,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Create new user and send welcome email
    */
-  async create(input: UserCreateInput, currentUser?: User, ...args: any[]): Promise<User> {
+  async create(input: UserCreateInput, currentUser?: User): Promise<User> {
     const user = await super.create(input, currentUser);
 
-    await this.prepareOutput(user, args[0]);
+    await this.prepareOutput(user);
 
     await this.pubSub.publish('userCreated', User.map(user));
 
@@ -140,7 +139,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Prepare output before return
    */
-  protected async prepareOutput(user: User, info?: GraphQLResolveInfo) {
-    return ServiceHelper.prepareOutput(user, User, this);
+  protected async prepareOutput(user: User): Promise<User> {
+    return ServiceHelper.prepareOutput(user);
   }
 }
