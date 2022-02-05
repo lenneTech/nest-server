@@ -2,7 +2,7 @@ import { IsEmail, IsOptional } from 'class-validator';
 import { Field, InputType } from '@nestjs/graphql';
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreModel } from '../../../common/models/core-model.model';
+import { CoreInput } from '../../../common/models/core-input.model';
 
 /**
  * User input to update a user
@@ -12,7 +12,7 @@ import { CoreModel } from '../../../common/models/core-model.model';
  * with a default value that may overwrite an existing value in the DB.
  */
 @InputType({ description: 'User input', isAbstract: true })
-export abstract class CoreUserInput extends CoreModel {
+export abstract class CoreUserInput extends CoreInput {
   /**
    * Email of the user
    */

@@ -21,7 +21,7 @@ export class ServiceHelper {
       checkRoles: false,
       clone: false,
       create: false,
-      removeUndefined: true,
+      removeUndefined: false,
       ...options,
     };
 
@@ -77,12 +77,14 @@ export class ServiceHelper {
    */
   static async prepareOutput<T = Record<string, any>>(
     output: any,
-    options: { [key: string]: any; clone?: boolean; targetModel?: Partial<T> } = {},
+    options: { [key: string]: any; clone?: boolean; removeUndefined?: boolean; targetModel?: Partial<T> } = {},
     ...args: any[]
   ) {
     // Configuration
     const config = {
       clone: false,
+      removeUndefined: false,
+      targetModel: undefined,
       ...options,
     };
 
@@ -113,6 +115,11 @@ export class ServiceHelper {
     // Remove password reset token if exists
     if (output.passwordResetToken) {
       output.passwordResetToken = undefined;
+    }
+
+    // Remove undefined properties to avoid unwanted overwrites
+    if (config.removeUndefined) {
+      Object.keys(output).forEach((key) => output[key] === undefined && delete output[key]);
     }
 
     // Return prepared output
