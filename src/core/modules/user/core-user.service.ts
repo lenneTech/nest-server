@@ -251,7 +251,7 @@ export abstract class CoreUserService<
     options: { [key: string]: any; checkRoles?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
-    return ServiceHelper.prepareInput(input, currentUser, options, args);
+    return ServiceHelper.prepareInput(input, currentUser, options);
   }
 
   /**

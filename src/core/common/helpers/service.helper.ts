@@ -13,8 +13,7 @@ export class ServiceHelper {
   static async prepareInput(
     input: Record<string, any>,
     currentUser: { [key: string]: any; id: string },
-    options: { [key: string]: any; create?: boolean; clone?: boolean; removeUndefined?: boolean } = {},
-    ...args: any[]
+    options: { [key: string]: any; create?: boolean; clone?: boolean; removeUndefined?: boolean } = {}
   ) {
     // Configuration
     const config = {
@@ -77,8 +76,7 @@ export class ServiceHelper {
    */
   static async prepareOutput<T = Record<string, any>>(
     output: any,
-    options: { [key: string]: any; clone?: boolean; removeUndefined?: boolean; targetModel?: Partial<T> } = {},
-    ...args: any[]
+    options: { [key: string]: any; clone?: boolean; removeUndefined?: boolean; targetModel?: Partial<T> } = {}
   ) {
     // Configuration
     const config = {
