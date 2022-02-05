@@ -31,17 +31,20 @@ export * from './core/common/inputs/single-filter.input';
 export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interfaces/core-persistence-model.interface';
+export * from './core/common/interfaces/mailjet-options.interface';
 export * from './core/common/interfaces/server-options.interface';
+export * from './core/common/models/core-input.model';
 export * from './core/common/models/core-model.model';
 export * from './core/common/models/core-persistence.model';
 export * from './core/common/pipes/check-input.pipe';
+export * from './core/common/pipes/map-and-validate.pipe';
 export * from './core/common/scalars/any.scalar';
 export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/json.scalar';
 export * from './core/common/services/config.service';
 export * from './core/common/services/email.service';
-export * from './core/common/services/template.service';
 export * from './core/common/services/mailjet.service';
+export * from './core/common/services/template.service';
 
 // =====================================================================================================================
 // Core - Modules - Auth
@@ -64,8 +67,8 @@ export * from './core/modules/auth/jwt.strategy';
 
 export * from './core/modules/user/inputs/core-user.input';
 export * from './core/modules/user/inputs/core-user-create.input';
-export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-basic-user.service';
+export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
 
 // =====================================================================================================================
