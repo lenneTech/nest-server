@@ -25,12 +25,12 @@ export class ServiceHelper {
       ...options,
     };
 
-    // Clone output
+    // Clone input
     if (config.clone) {
-      if (input.map && typeof input.map === 'function') {
-        input = Object.getPrototypeOf(input).map(input);
+      if (input.mapDeep && typeof input.mapDeep === 'function') {
+        input = Object.getPrototypeOf(input).mapDeep(input);
       } else {
-        input = JSON.parse(JSON.stringify(input));
+        input = _.cloneDeep(input);
       }
     }
 
@@ -90,10 +90,10 @@ export class ServiceHelper {
 
     // Clone output
     if (config.clone) {
-      if (output.map && typeof output.map === 'function') {
-        output = Object.getPrototypeOf(output).map(output);
+      if (output.cloneDeep && typeof output.cloneDeep === 'function') {
+        output = Object.getPrototypeOf(output).cloneDeep(output);
       } else {
-        output = JSON.parse(JSON.stringify(output));
+        output = _.cloneDeep(output);
       }
     }
 
