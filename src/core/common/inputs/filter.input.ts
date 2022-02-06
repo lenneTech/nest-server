@@ -1,4 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
+import { ModelHelper } from '../helpers/model.helper';
 import { CombinedFilterInput } from './combined-filter.input';
 import { CoreInput } from './core-input.input';
 import { SingleFilterInput } from './single-filter.input';
@@ -27,4 +28,26 @@ export class FilterInput extends CoreInput {
     nullable: true,
   })
   singleFilter?: SingleFilterInput;
+
+  // ===================================================================================================================
+  // Methods
+  // ===================================================================================================================
+
+  /**
+   * Mapping for Subtypes
+   */
+  map(
+    data: Partial<this> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      mapId?: boolean;
+    } = {}
+  ): this {
+    super.map(data);
+    this.combinedFilter = ModelHelper.map(data.combinedFilter, CombinedFilterInput, options);
+    this.singleFilter = ModelHelper.map(data.singleFilter as SingleFilterInput, SingleFilterInput, options);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
+    return this;
+  }
 }

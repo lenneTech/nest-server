@@ -1,9 +1,11 @@
 import { IsOptional, Max } from 'class-validator';
 import { ArgsType, Field, Int } from '@nestjs/graphql';
+import { ModelHelper } from '../helpers/model.helper';
+import { CoreInput } from '../inputs/core-input.input';
 import { SortInput } from '../inputs/sort.input';
 
 @ArgsType()
-export class PaginationArgs {
+export class PaginationArgs extends CoreInput {
   /**
    * Limit for pagination
    */
@@ -14,7 +16,7 @@ export class PaginationArgs {
   })
   @IsOptional()
   @Max(100)
-  limit?: number = 25;
+  limit?: number = undefined;
 
   /**
    * Offset for pagination
@@ -25,7 +27,7 @@ export class PaginationArgs {
     defaultValue: 0,
   })
   @IsOptional()
-  offset?: number = 0;
+  offset?: number = undefined;
 
   /**
    * Alias for offset
@@ -33,10 +35,10 @@ export class PaginationArgs {
   @Field((type) => Int, {
     description: 'Alias for offset',
     nullable: true,
-    defaultValue: 0,
+    defaultValue: undefined,
   })
   @IsOptional()
-  skip?: number = 0;
+  skip?: number = undefined;
 
   /**
    * Sorting for pagination
@@ -46,7 +48,7 @@ export class PaginationArgs {
     nullable: true,
   })
   @IsOptional()
-  sort?: SortInput[];
+  sort?: SortInput[] = undefined;
 
   /**
    * Alias for limit
@@ -58,5 +60,38 @@ export class PaginationArgs {
   })
   @IsOptional()
   @Max(100)
-  take?: number = 25;
+  take?: number = undefined;
+
+  // ===================================================================================================================
+  // Methods
+  // ===================================================================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init(): this {
+    super.init();
+    this.limit = this.limit === undefined ? 25 : this.limit;
+    this.offset = this.offset === undefined ? 0 : this.offset;
+    this.skip = this.skip === undefined ? 0 : this.skip;
+    this.take = this.take === undefined ? 0 : this.take;
+    return this;
+  }
+
+  /**
+   * Mapping for Subtypes
+   */
+  map(
+    data: Partial<this> | Record<string, any>,
+    options: {
+      cloneDeep?: boolean;
+      funcAllowed?: boolean;
+      mapId?: boolean;
+    } = {}
+  ): this {
+    super.map(data);
+    this.sort = ModelHelper.maps(data.sort, SortInput, options.cloneDeep);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
+    return this;
+  }
 }

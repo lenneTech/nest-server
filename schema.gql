@@ -82,7 +82,7 @@ type Query {
     offset: Int = 0
 
     """Alias for offset"""
-    skip: Int = 0
+    skip: Int
 
     """Sorting the returned elements"""
     sort: [SortInput!]

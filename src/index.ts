@@ -2,6 +2,8 @@
 // Modules
 // =====================================================================================================================
 
+import { PlainInput } from './core/common/types/plain-input.type';
+
 export * from './core.module';
 
 // =====================================================================================================================
@@ -45,6 +47,7 @@ export * from './core/common/services/config.service';
 export * from './core/common/services/email.service';
 export * from './core/common/services/mailjet.service';
 export * from './core/common/services/template.service';
+export * from './core/common/types/plain-input.type';
 
 // =====================================================================================================================
 // Core - Modules - Auth
