@@ -112,4 +112,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     }
     return !roles ? true : roles.every((role) => this.roles.includes(role));
   }
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  public init() {
+    super.init();
+    this.roles = this.roles === undefined ? [] : this.roles;
+    return this;
+  }
 }

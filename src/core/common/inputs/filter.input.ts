@@ -1,5 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { CombinedFilterInput } from './combined-filter.input';
+import { CoreInput } from './core-input.input';
 import { SingleFilterInput } from './single-filter.input';
 
 /**
@@ -8,7 +9,7 @@ import { SingleFilterInput } from './single-filter.input';
 @InputType({
   description: 'Input for filtering. The `singleFilter` will be ignored if the `combinedFilter` is set.',
 })
-export class FilterInput {
+export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */

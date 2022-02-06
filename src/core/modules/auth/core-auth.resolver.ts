@@ -20,7 +20,7 @@ export class CoreAuthResolver {
    * Get user via ID
    */
   @Query((returns) => CoreAuthModel, { description: 'Get JWT token' })
-  async signIn(@Args('email') email: string, @Args('password') password: string): Promise<CoreAuthModel> {
+  async signIn(@Args('email') email: string, @Args('password') password: string): Promise<Partial<CoreAuthModel>> {
     return await this.authService.signIn(email, password);
   }
 }

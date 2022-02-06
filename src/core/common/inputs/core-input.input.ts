@@ -1,8 +1,10 @@
 import { ModelHelper } from '../helpers/model.helper';
-import { CoreModel } from './core-model.model';
+import { CoreModel } from '../models/core-model.model';
 
 /**
  * Core Input
+ *
+ * All properties (in this class and all classes that extend this class) must be initialized with undefined!
  *
  * In contrast to the core model, properties that are undefined are completely removed from the instance during mapping,
  * so that no existing data is overwritten when a data set is updated, for example. However, re-mapping causes the

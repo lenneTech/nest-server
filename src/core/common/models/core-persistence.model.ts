@@ -8,9 +8,12 @@ import { CoreModel } from './core-model.model';
  *
  * The models are a combination of Mongoose Entities and TypeGraphQL Types
  *
- * HINT: All properties (in this class and all classes that extend this class) must be initialized with undefined,
- * otherwise the property will not be recognized via Object.keys (this is necessary for mapping) or will be initialized
- * with a default value that may overwrite an existing value in the DB.
+ * HINT: All properties (in this class and all classes that extend this class) must be initialized with a default
+ * value or undefined otherwise the property will not be recognized via Object.keys (this is necessary for mapping).
+ * If the property is initialized with a default value (e.g. an empty array or boolean), there is a risk that the
+ * current value will be overwritten during mapping without this being intentional, so all values should be initialized
+ * with undefined if possible. If necessary and useful, the init method can then be used deliberately:
+ * const corePersistenceModel = item ? CorePersistenceModel.map(item).init() : CorePersistenceModel.init();
  */
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
@@ -82,4 +85,21 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
   updatedAt: Date = undefined;
+
+  // ===========================================================================
+  // Properties
+  // ===========================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init() {
+    super.init();
+    this.createdAt = this.createdAt === undefined ? new Date() : this.createdAt;
+    this.labels = this.labels === undefined ? [] : this.labels;
+    this.ownerIds = this.ownerIds === undefined ? [] : this.ownerIds;
+    this.tags = this.tags === undefined ? [] : this.tags;
+    this.updatedAt = this.tags === undefined ? this.createdAt : this.updatedAt;
+    return this;
+  }
 }

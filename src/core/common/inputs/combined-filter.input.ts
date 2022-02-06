@@ -1,11 +1,12 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
+import { CoreInput } from './core-input.input';
 import { FilterInput } from './filter.input';
 
 @InputType({
   description: 'Combination of multiple filters via logical operator',
 })
-export class CombinedFilterInput {
+export class CombinedFilterInput extends CoreInput {
   /**
    * Logical Operator to combine filters. If set the `filters` must be also set.
    */

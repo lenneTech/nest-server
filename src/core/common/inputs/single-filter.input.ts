@@ -1,12 +1,13 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { JSON } from '../scalars/json.scalar';
+import { CoreInput } from './core-input.input';
 
 /**
  * Input for a configuration of a filter
  */
 @InputType({ description: 'Input for a configuration of a filter' })
-export class SingleFilterInput {
+export class SingleFilterInput extends CoreInput {
   /**
    * Name of the property to be used for the filter'
    */

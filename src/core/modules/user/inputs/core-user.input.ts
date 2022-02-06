@@ -2,7 +2,7 @@ import { IsEmail, IsOptional } from 'class-validator';
 import { Field, InputType } from '@nestjs/graphql';
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreInput } from '../../../common/models/core-input.model';
+import { CoreInput } from '../../../common/inputs/core-input.input';
 
 /**
  * User input to update a user

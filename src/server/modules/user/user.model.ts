@@ -46,6 +46,19 @@ export class User extends CoreUserModel implements PersistenceModel {
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
   updatedBy: User = undefined;
+
+  // ===================================================================================================================
+  // Methods
+  // ===================================================================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init() {
+    super.init();
+    // Nothing more to initialize yet
+    return this;
+  }
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
