@@ -303,9 +303,8 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken, logError: true }
+      { token: gToken }
     );
-    console.log(res);
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
