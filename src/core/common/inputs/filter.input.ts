@@ -18,7 +18,7 @@ export class FilterInput extends CoreInput {
     description: 'Combination of multiple filters via logical operator',
     nullable: true,
   })
-  combinedFilter?: CombinedFilterInput;
+  combinedFilter?: CombinedFilterInput = undefined;
 
   /**
    * Filter for a single property
@@ -27,7 +27,7 @@ export class FilterInput extends CoreInput {
     description: 'Filter for a single property',
     nullable: true,
   })
-  singleFilter?: SingleFilterInput;
+  singleFilter?: SingleFilterInput = undefined;
 
   // ===================================================================================================================
   // Methods
@@ -44,9 +44,9 @@ export class FilterInput extends CoreInput {
       mapId?: boolean;
     } = {}
   ): this {
-    super.map(data);
-    this.combinedFilter = ModelHelper.map(data.combinedFilter, CombinedFilterInput, options);
-    this.singleFilter = ModelHelper.map(data.singleFilter as SingleFilterInput, SingleFilterInput, options);
+    super.map(data, options);
+    this.combinedFilter = data.combinedFilter ? CombinedFilterInput.map(data.combinedFilter, options) : undefined;
+    this.singleFilter = data.singleFilter ? SingleFilterInput.map(data.singleFilter, options) : undefined;
     Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }

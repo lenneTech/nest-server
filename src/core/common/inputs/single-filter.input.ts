@@ -12,7 +12,7 @@ export class SingleFilterInput extends CoreInput {
    * Name of the property to be used for the filter'
    */
   @Field({ description: 'Name of the property to be used for the filter' })
-  field?: string = undefined;
+  field: string = undefined;
 
   /**
    * [Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)
@@ -29,7 +29,7 @@ export class SingleFilterInput extends CoreInput {
   @Field((type) => ComparisonOperatorEnum, {
     description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
   })
-  operator?: ComparisonOperatorEnum;
+  operator: ComparisonOperatorEnum = undefined;
 
   /**
    * [Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for
@@ -44,5 +44,5 @@ export class SingleFilterInput extends CoreInput {
   options?: string = undefined;
 
   @Field((type) => JSON, { description: 'Value of the property' })
-  value?: any = undefined;
+  value: any = undefined;
 }

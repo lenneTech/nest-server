@@ -9,22 +9,21 @@ import { FilterInput } from './filter.input';
 })
 export class CombinedFilterInput extends CoreInput {
   /**
-   * Logical Operator to combine filters. If set the `filters` must be also set.
+   * Logical Operator to combine filters.
    */
   @Field((type) => LogicalOperatorEnum, {
-    description: 'Logical Operator to combine filters. If set the `filters` must be also set.',
-    nullable: true,
+    description: 'Logical Operator to combine filters',
   })
-  logicalOperator?: LogicalOperatorEnum;
+  logicalOperator: LogicalOperatorEnum = undefined;
 
   /**
-   * Filters to combine via logical operator. If set `logicalOperator` must be also set.
+   * Filters to combine via logical operator.
    */
   @Field((type) => [FilterInput], {
     description: 'Filters to combine via logical operator. If set `logicalOperator` must be also set.',
     nullable: true,
   })
-  filters?: FilterInput[];
+  filters: FilterInput[] = undefined;
 
   // ===================================================================================================================
   // Methods
@@ -41,7 +40,7 @@ export class CombinedFilterInput extends CoreInput {
       mapId?: boolean;
     } = {}
   ): this {
-    super.map(data);
+    super.map(data, options);
     this.filters = ModelHelper.maps(data.filters, FilterInput, options.cloneDeep);
     Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;

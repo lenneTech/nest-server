@@ -89,7 +89,7 @@ export class PaginationArgs extends CoreInput {
       mapId?: boolean;
     } = {}
   ): this {
-    super.map(data);
+    super.map(data, options);
     this.sort = ModelHelper.maps(data.sort, SortInput, options.cloneDeep);
     Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
