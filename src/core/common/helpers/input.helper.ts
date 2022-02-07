@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { plainToClass } from 'class-transformer';
+import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import * as _ from 'lodash';
 import { checkRestricted } from '../decorators/restricted.decorator';
@@ -17,21 +17,27 @@ export class InputHelper {
     metatype?
   ): Promise<any> {
     // Return value if it is only a basic type
-    if (!metatype || this.isBasicType(metatype)) {
+    if (typeof value !== 'object' || !metatype || this.isBasicType(metatype)) {
       return value;
+    }
+
+    // Convert to metatype
+    if (!(value instanceof metatype)) {
+      if ((metatype as any)?.map) {
+        value = (metatype as any)?.map(value);
+      } else {
+        value = plainToInstance(metatype, value);
+      }
+    }
+
+    // Validate
+    const errors = await validate(value);
+    if (errors.length > 0) {
+      throw new BadRequestException('Validation failed');
     }
 
     // Remove restricted values if roles are missing
     value = checkRestricted(value, user);
-
-    // Check values
-    if (metatype) {
-      const object = plainToClass(metatype, value);
-      const errors = await validate(object);
-      if (errors.length > 0) {
-        throw new BadRequestException('Validation failed');
-      }
-    }
     return value;
   }
 

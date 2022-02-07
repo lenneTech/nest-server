@@ -19,8 +19,8 @@ export class CheckResponseInterceptor implements NestInterceptor {
     // Response interception
     return next.handle().pipe(
       map((data) => {
-        // Prepare data for current user
-        return checkRestricted(data, currentUser);
+        // Prepare response data for current user
+        return checkRestricted(data, currentUser, { throwError: false });
       })
     );
   }

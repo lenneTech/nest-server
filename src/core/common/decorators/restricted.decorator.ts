@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { UnauthorizedException } from '@nestjs/common';
 import { RoleEnum } from '../enums/role.enum';
 
 /**
@@ -31,8 +32,15 @@ export const getRestricted = (object: unknown, propertyKey: string) => {
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
+  options: { ignoreUndefined?: boolean; throwError?: boolean } = {},
   processedObjects: any[] = []
 ) => {
+  const config = {
+    ignoreUndefined: true,
+    throwError: true,
+    ...options,
+  };
+
   // Primitives
   if (!data || typeof data !== 'object') {
     return data;
@@ -47,11 +55,16 @@ export const checkRestricted = (
   // Array
   if (Array.isArray(data)) {
     // Check array items
-    return data.map((item) => checkRestricted(item, user, processedObjects));
+    return data.map((item) => checkRestricted(item, user, options, processedObjects));
   }
 
   // Object
   for (const propertyKey of Object.keys(data)) {
+    // Check undefined
+    if (data[propertyKey] === undefined && config.ignoreUndefined) {
+      continue;
+    }
+
     // Get roles
     const roles = getRestricted(data, propertyKey);
 
@@ -71,20 +84,24 @@ export const checkRestricted = (
                 data.ownerIds.some((item) => (item.id ? item.id.toString() === userId : item.toString() === userId)))
             )
           ) {
-            // User is not the owner
-            delete data[propertyKey];
+            // The user does not have the required rights and is not the owner
+            if (config.throwError) {
+              throw new UnauthorizedException('Current user is not allowed to set ' + propertyKey);
+            }
             continue;
           }
         } else {
           // The user does not have the required rights
-          delete data[propertyKey];
+          if (config.throwError) {
+            throw new UnauthorizedException('Current user is not allowed to set ' + propertyKey);
+          }
           continue;
         }
       }
     }
 
     // Check property data
-    data[propertyKey] = checkRestricted(data[propertyKey], user, processedObjects);
+    data[propertyKey] = checkRestricted(data[propertyKey], user, options, processedObjects);
   }
 
   // Return processed data

@@ -13,14 +13,14 @@ export class Filter {
    * Convert filter arguments to a query array
    * @param filterArgs
    */
-  public static convertFilterArgsToQuery<T = any>(filterArgs: FilterArgs): [FilterQuery<T>, QueryOptions] {
+  public static convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
     return [Filter.generateFilterQuery(filterArgs.filter), Filter.generateFindOptions(filterArgs)];
   }
 
   /**
    * Generate filter query
    */
-  public static generateFilterQuery<T = any>(filter?: FilterInput): FilterQuery<T> | any {
+  public static generateFilterQuery<T = any>(filter?: Partial<FilterInput>): FilterQuery<T> | any {
     // Check filter
     if (!filter) {
       return undefined;
@@ -98,7 +98,7 @@ export class Filter {
   /**
    * Generate find options
    */
-  public static generateFindOptions<T = any>(filterArgs: FilterArgs): QueryOptions {
+  public static generateFindOptions<T = any>(filterArgs: Partial<FilterArgs>): QueryOptions {
     // Check filterArgs
     if (!filterArgs) {
       return {};

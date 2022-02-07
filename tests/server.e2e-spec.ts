@@ -3,7 +3,6 @@ import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
 import { TestGraphQLType, TestHelper } from '../src';
 import { MongoClient, ObjectId } from 'mongodb';
-import { MapPipe } from '../src/core/common/pipes/map.pipe';
 
 describe('ServerModule (e2e)', () => {
   let app;
@@ -32,9 +31,6 @@ describe('ServerModule (e2e)', () => {
         imports: [ServerModule],
       }).compile();
       app = moduleFixture.createNestApplication();
-
-      // Add map pipe for mapping inputs to class
-      app.useGlobalPipes(new MapPipe());
 
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
@@ -229,7 +225,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken, logError: true }
+      { token: gToken }
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -238,7 +234,7 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Update user
+   * Update roles as non admin
    */
   it('user updates own role failed', async () => {
     const res: any = await testHelper.graphQl(
@@ -253,11 +249,12 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken, logError: true }
+      { token: gToken }
     );
-    expect(res.id).toEqual(gId);
-    expect(res.email).toEqual(gEmail);
-    expect(res.roles.length).toEqual(0);
+    expect(res.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].message).toEqual('Current user is not allowed to set roles');
+    expect(res.data).toBe(null);
   });
 
   /**
@@ -286,6 +283,33 @@ describe('ServerModule (e2e)', () => {
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
+    expect(res.roles[0]).toEqual('admin');
+    expect(res.roles.length).toEqual(1);
+  });
+
+  /**
+   * Update roles as admin
+   */
+  it('user updates roles as admin', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: gId,
+          input: {
+            roles: ['member'],
+          },
+        },
+        name: 'updateUser',
+        fields: ['id', 'email', 'firstName', 'roles'],
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken }
+    );
+    expect(res.id).toEqual(gId);
+    expect(res.email).toEqual(gEmail);
+    expect(res.firstName).toEqual('Jonny');
+    expect(res.roles[0]).toEqual('member');
+    expect(res.roles.length).toEqual(1);
   });
 
   /**
