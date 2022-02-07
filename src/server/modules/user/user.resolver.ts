@@ -47,8 +47,8 @@ export class UserResolver {
    * Request new password for user with email
    */
   @Query((returns) => Boolean, { description: 'Request new password for user with email' })
-  async requestPasswordResetMail(@Args('email') email: string) {
-    return await this.usersService.requestPasswordResetMail(email);
+  async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
+    return !!(await this.usersService.sendPasswordResetMail(email));
   }
 
   // ===========================================================================
@@ -58,28 +58,29 @@ export class UserResolver {
    * Verify user with email
    */
   @Mutation((returns) => Boolean, { description: 'Verify user with email' })
-  async verifyUser(@Args('token') token: string) {
-    return await this.usersService.verify(token);
+  async verifyUser(@Args('token') token: string): Promise<boolean> {
+    return !!(await this.usersService.verify(token));
   }
 
   /**
    * Set new password for user with token
    */
   @Mutation((returns) => Boolean, { description: 'Set new password for user with token' })
-  async resetPassword(@Args('token') token: string, @Args('password') password: string) {
-    return await this.usersService.resetPassword(token, password);
+  async resetPassword(@Args('token') token: string, @Args('password') password: string): Promise<boolean> {
+    return !!(await this.usersService.resetPassword(token, password));
   }
 
   /**
    * Create new user
    */
   @Mutation((returns) => User, { description: 'Create a new user' })
-  async createUser(
-    @Args('input') input: UserCreateInput,
-    @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo
-  ): Promise<User> {
-    return await this.usersService.create(input, user, info);
+  async createUser(@Args('input') input: UserCreateInput, @GraphQLUser() user: User): Promise<User> {
+    // Check input
+    // Hint: necessary as long as global CheckInputPipe can't access context for current user
+    // (see https://github.com/nestjs/graphql/issues/325)
+    input = await InputHelper.check(input, user, UserCreateInput);
+
+    return await this.usersService.create(input, user);
   }
 
   /**
@@ -87,19 +88,14 @@ export class UserResolver {
    */
   @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Mutation((returns) => User, { description: 'Update existing user' })
-  async updateUser(
-    @Args('input', { type: () => UserInput }) input: UserInput,
-    @Args('id') id: string,
-    @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo
-  ): Promise<User> {
+  async updateUser(@Args('input') input: UserInput, @Args('id') id: string, @GraphQLUser() user: User): Promise<User> {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
     input = await InputHelper.check(input, user, UserInput);
 
     // Update user
-    return await this.usersService.update(id, input, user, info);
+    return await this.usersService.update(id, input, user);
   }
 
   /**

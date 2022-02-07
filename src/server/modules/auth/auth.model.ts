@@ -16,4 +16,17 @@ export class Auth extends CoreAuthModel {
    */
   @Field((type) => User, { description: 'User who signed in' })
   user: User = undefined;
+
+  // ===================================================================================================================
+  // Properties
+  // ===================================================================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init() {
+    super.init();
+    // Nothing more to initialize yet
+    return this;
+  }
 }

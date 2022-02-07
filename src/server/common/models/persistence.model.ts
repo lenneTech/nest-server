@@ -37,4 +37,17 @@ export abstract class PersistenceModel extends CorePersistenceModel {
   })
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
   updatedBy?: User = undefined;
+
+  // ===========================================================================
+  // Properties
+  // ===========================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init() {
+    super.init();
+    // Nothing more to initialize yet
+    return this;
+  }
 }

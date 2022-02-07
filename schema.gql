@@ -82,7 +82,7 @@ type Query {
     offset: Int = 0
 
     """Alias for offset"""
-    skip: Int = 0
+    skip: Int
 
     """Sorting the returned elements"""
     sort: [SortInput!]
@@ -126,15 +126,11 @@ input FilterInput {
 
 """Combination of multiple filters via logical operator"""
 input CombinedFilterInput {
-  """
-  Logical Operator to combine filters. If set the `filters` must be also set.
-  """
-  logicalOperator: LogicalOperatorEnum
+  """Logical Operator to combine filters"""
+  logicalOperator: LogicalOperatorEnum!
 
-  """
-  Filters to combine via logical operator. If set `logicalOperator` must be also set.
-  """
-  filters: [FilterInput!]
+  """Filters to combine via logical operator"""
+  filters: [FilterInput!]!
 }
 
 """Logical operators to combine filters"""
@@ -217,7 +213,7 @@ input UserCreateInput {
   lastName: String
 
   """Roles of the user"""
-  roles: [String!] = []
+  roles: [String!]
 
   """Username / alias of the user"""
   username: String
@@ -238,7 +234,7 @@ input UserInput {
   lastName: String
 
   """Roles of the user"""
-  roles: [String!] = []
+  roles: [String!]
 
   """Username / alias of the user"""
   username: String
