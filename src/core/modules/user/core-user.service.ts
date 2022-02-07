@@ -174,9 +174,9 @@ export abstract class CoreUserService<
   }
 
   /**
-   * Request email with password reset link
+   * Set password rest token for email
    */
-  async sentResetPasswordMail(email: string, ...args: any[]): Promise<TUser> {
+  async setPasswordResetTokenForEmail(email: string, ...args: any[]): Promise<TUser> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
@@ -187,12 +187,6 @@ export abstract class CoreUserService<
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetToken = resetToken;
     await user.save();
-
-    // Send mail
-    await this.emailService.sendMail(user.email, 'Password reset', {
-      htmlTemplate: 'password-reset',
-      templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + resetToken },
-    });
 
     // Return user who want to reset the password
     return this.prepareOutput(this.model.map(user), args[0]);

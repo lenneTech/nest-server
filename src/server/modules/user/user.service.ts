@@ -77,6 +77,22 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   }
 
   /**
+   * Request password reset mail
+   *
+   * @param email
+   */
+  async sendPasswordResetMail(email: string): Promise<User> {
+    const user = await super.setPasswordResetTokenForEmail(email);
+
+    await this.emailService.sendMail(user.email, 'Password reset', {
+      htmlTemplate: 'password-reset',
+      templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + user.passwordResetToken },
+    });
+
+    return user;
+  }
+
+  /**
    * Set avatar image
    */
   async setAvatar(file: Express.Multer.File, user: User): Promise<string> {

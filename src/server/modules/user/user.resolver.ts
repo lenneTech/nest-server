@@ -48,7 +48,7 @@ export class UserResolver {
    */
   @Query((returns) => Boolean, { description: 'Request new password for user with email' })
   async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
-    return !!(await this.usersService.sentResetPasswordMail(email));
+    return !!(await this.usersService.sendPasswordResetMail(email));
   }
 
   // ===========================================================================
