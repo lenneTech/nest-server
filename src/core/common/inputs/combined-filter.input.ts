@@ -9,7 +9,7 @@ import { FilterInput } from './filter.input';
 })
 export class CombinedFilterInput extends CoreInput {
   /**
-   * Logical Operator to combine filters.
+   * Logical Operator to combine filters
    */
   @Field((type) => LogicalOperatorEnum, {
     description: 'Logical Operator to combine filters',
@@ -17,11 +17,10 @@ export class CombinedFilterInput extends CoreInput {
   logicalOperator: LogicalOperatorEnum = undefined;
 
   /**
-   * Filters to combine via logical operator.
+   * Filters to combine via logical operator
    */
   @Field((type) => [FilterInput], {
-    description: 'Filters to combine via logical operator. If set `logicalOperator` must be also set.',
-    nullable: true,
+    description: 'Filters to combine via logical operator',
   })
   filters: FilterInput[] = undefined;
 
