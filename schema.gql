@@ -129,10 +129,8 @@ input CombinedFilterInput {
   """Logical Operator to combine filters"""
   logicalOperator: LogicalOperatorEnum!
 
-  """
-  Filters to combine via logical operator. If set `logicalOperator` must be also set.
-  """
-  filters: [FilterInput!]
+  """Filters to combine via logical operator"""
+  filters: [FilterInput!]!
 }
 
 """Logical operators to combine filters"""
