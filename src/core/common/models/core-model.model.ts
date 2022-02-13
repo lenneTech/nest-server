@@ -28,14 +28,19 @@ export abstract class CoreModel {
     options: {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
-      init?: boolean;
+      init?: any;
       item?: T;
       mapId?: boolean;
     } = {}
   ): T {
+    const config = {
+      init: true,
+      ...options,
+    };
+
     const item = options.item || new this();
     delete options.item;
-    return item.map(data, options);
+    return item.map(data, config);
   }
 
   /**
@@ -52,14 +57,19 @@ export abstract class CoreModel {
     options: {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
-      init?: boolean;
+      init?: any;
       item?: T;
       mapId?: boolean;
     } = {}
   ): T {
+    const config = {
+      init: true,
+      ...options,
+    };
+
     const item = options.item || new this();
     delete options.item;
-    return item.mapDeep(data, options);
+    return item.mapDeep(data, config);
   }
 
   /**
@@ -105,14 +115,14 @@ export abstract class CoreModel {
     options: {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
-      init?: boolean;
+      init?: any;
       mapId?: boolean;
     } = {}
   ): this {
     const config = {
       cloneDeep: true,
       funcAllowed: false,
-      init: false,
+      init: undefined,
       mapId: false,
       ...options,
     };

@@ -1,0 +1,1 @@
+ignores: ["@shelf/jest-mongodb", "coffeescript", "tsconfig-paths"]

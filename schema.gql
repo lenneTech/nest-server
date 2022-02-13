@@ -66,7 +66,7 @@ type Auth {
 
 type Query {
   """Get JWT token"""
-  signIn(password: String!, email: String!): Auth!
+  signIn(email: String!, password: String!): Auth!
 
   """Get user with specified ID"""
   getUser(id: String!): User!
@@ -189,13 +189,13 @@ type Mutation {
   verifyUser(token: String!): Boolean!
 
   """Set new password for user with token"""
-  resetPassword(password: String!, token: String!): Boolean!
+  resetPassword(token: String!, password: String!): Boolean!
 
   """Create a new user"""
   createUser(input: UserCreateInput!): User!
 
   """Update existing user"""
-  updateUser(id: String!, input: UserInput!): User!
+  updateUser(input: UserInput!, id: String!): User!
 
   """Delete existing user"""
   deleteUser(id: String!): User!

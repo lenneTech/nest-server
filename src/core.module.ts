@@ -10,6 +10,7 @@ import { EmailService } from './core/common/services/email.service';
 import { TemplateService } from './core/common/services/template.service';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MailjetService } from './core/common/services/mailjet.service';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 
 /**
  * Core module (dynamic)
@@ -106,7 +107,7 @@ export class CoreModule {
       module: CoreModule,
       imports: [
         MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
-        GraphQLModule.forRoot(config.graphQl),
+        GraphQLModule.forRoot<ApolloDriverConfig>(Object.assign({ driver: ApolloDriver }, config.graphQl)),
       ],
       providers,
       exports: [ConfigService, EmailService, TemplateService, MailjetService],
