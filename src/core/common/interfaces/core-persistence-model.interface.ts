@@ -12,5 +12,6 @@ export interface ICorePersistenceModel<T extends CorePersistenceModel = any> {
       merge?: boolean;
     }
   ): any;
+  init(this: new (...args: any[]) => T, ...args: any[]): any;
   [key: string]: any;
 }

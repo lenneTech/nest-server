@@ -87,7 +87,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   updatedAt: Date = undefined;
 
   // ===========================================================================
-  // Properties
+  // Methods
   // ===========================================================================
 
   /**
