@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import * as mongoose from 'mongoose';
 import { Prop } from '@nestjs/mongoose';
 import { Field, ObjectType } from '@nestjs/graphql';
@@ -24,7 +25,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
-  createdBy?: User = undefined;
+  createdBy?: Types.ObjectId | User = undefined;
 
   /**
    * User who last updated the object
@@ -36,7 +37,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
-  updatedBy?: User = undefined;
+  updatedBy?: Types.ObjectId | User = undefined;
 
   // ===========================================================================
   // Properties
