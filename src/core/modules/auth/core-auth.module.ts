@@ -1,6 +1,4 @@
-import { DynamicModule, Module, Type } from '@nestjs/common';
-import { ForwardReference } from '@nestjs/common/interfaces/modules/forward-reference.interface';
-import { Provider } from '@nestjs/common/interfaces/modules/provider.interface';
+import { DynamicModule, ForwardReference, Module, Provider, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
