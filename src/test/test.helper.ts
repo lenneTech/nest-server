@@ -18,7 +18,7 @@ export enum TestGraphQLType {
  * GraphQL fields
  */
 export interface TestFieldObject {
-  [key: string]: boolean | string[] | TestFieldObject;
+  [key: string]: boolean | (string | TestFieldObject)[] | TestFieldObject;
 }
 
 /**
