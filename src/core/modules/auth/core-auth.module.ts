@@ -21,7 +21,7 @@ export class CoreAuthModule {
     UserModule: Type<any>,
     UserService: Type<CoreAuthUserService>,
     options: JwtModuleOptions & {
-      imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule> | ForwardReference>[];
+      imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
       providers?: Provider[];
     }
   ): DynamicModule {
