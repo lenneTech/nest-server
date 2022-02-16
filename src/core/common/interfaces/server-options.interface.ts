@@ -137,4 +137,25 @@ export interface IServerOptions {
      */
     engine?: string;
   };
+
+  /**
+   * Paypal
+   * https://developer.paypal.com/api/rest/#link-getcredentials
+   */
+  paypal?: {
+    /**
+     * Paypal client id
+     */
+    clientId: string;
+
+    /**
+     * Paypal secret
+     */
+    secret: string;
+
+    /**
+     * Mode for test and live
+     */
+    mode: 'SANDBOX' | 'LIVE';
+  };
 }

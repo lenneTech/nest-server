@@ -73,6 +73,27 @@ export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
 
 // =====================================================================================================================
+// Core - Modules - Paypal
+// =====================================================================================================================
+
+export * from './core/modules/paypal/models/subscription-plan.model';
+export * from './core/modules/paypal/models/billing-cycles.model';
+export * from './core/modules/paypal/models/fixed-price.model';
+export * from './core/modules/paypal/models/frequency.model';
+export * from './core/modules/paypal/models/payment-preferences.model';
+export * from './core/modules/paypal/models/pricing-scheme.model';
+export * from './core/modules/paypal/models/setup-fee.model';
+export * from './core/modules/paypal/models/tax.model';
+
+export * from './core/modules/paypal/models/invoice/invoice.model';
+export * from './core/modules/paypal/models/invoice/invoice-detail.model';
+export * from './core/modules/paypal/models/invoice/invoice-metadata.model';
+export * from './core/modules/paypal/models/invoice/invoice-payment-term.model';
+
+export * from './core/modules/paypal/paypal.module';
+export * from './core/modules/paypal/paypal.service';
+
+// =====================================================================================================================
 // Tests
 // =====================================================================================================================
 

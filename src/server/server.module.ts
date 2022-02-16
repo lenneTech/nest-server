@@ -4,6 +4,7 @@ import { CoreModule } from '../core.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileController } from './modules/file/file.controller';
 import { ServerController } from './server.controller';
+import { PaypalModule } from '../core/modules/paypal/paypal.module';
 
 /**
  * Server module (dynamic)
@@ -20,6 +21,8 @@ import { ServerController } from './server.controller';
     // Include AuthModule for authorization handling,
     // which will also include UserModule
     AuthModule.forRoot(envConfig.jwt),
+
+    PaypalModule,
   ],
 
   // Include REST controllers

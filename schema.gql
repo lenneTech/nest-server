@@ -64,6 +64,282 @@ type Auth {
   user: User!
 }
 
+"""Tax"""
+type Tax {
+  """percentage of Tax"""
+  percentage: String!
+
+  """inclusive of Tax"""
+  inclusive: Boolean!
+}
+
+"""Frequency"""
+type Frequency {
+  """interval_unit of Frequency"""
+  interval_unit: String!
+
+  """interval_count of Frequency"""
+  interval_count: Float!
+}
+
+"""FixedPrice"""
+type FixedPrice {
+  """currency_code of FixedPrice"""
+  currency_code: String!
+
+  """value of FixedPrice"""
+  value: String!
+}
+
+"""PricingScheme"""
+type PricingScheme {
+  """auto_bill_outstanding of PricingScheme"""
+  fixed_price: FixedPrice!
+
+  """setup_fee of PricingScheme"""
+  version: Float!
+
+  """create_time of PricingScheme"""
+  create_time: String!
+
+  """update_time of PricingScheme"""
+  update_time: String!
+}
+
+"""BillingCycles"""
+type BillingCycles {
+  """frequency of BillingCycles"""
+  frequency: Frequency!
+
+  """tenure_type of BillingCycles"""
+  tenure_type: String!
+
+  """sequence of BillingCycles"""
+  sequence: Float!
+
+  """total_cycles of BillingCycles"""
+  total_cycles: Float!
+
+  """pricing_scheme of BillingCycles"""
+  pricing_scheme: PricingScheme!
+}
+
+"""SetupFee"""
+type SetupFee {
+  """value of SetupFee"""
+  value: String!
+
+  """currency_code of SetupFee"""
+  currency_code: String!
+}
+
+"""PaymentPreferences"""
+type PaymentPreferences {
+  """auto_bill_outstanding of PaymentPreferences"""
+  auto_bill_outstanding: Boolean!
+
+  """setup_fee of PaymentPreferences"""
+  setup_fee: SetupFee!
+
+  """setup_fee_failure_action of PaymentPreferences"""
+  setup_fee_failure_action: String!
+
+  """payment_failure_threshold of PaymentPreferences"""
+  payment_failure_threshold: Float!
+}
+
+"""SubscriptionPlan"""
+type SubscriptionPlan {
+  """ID of the persistence object"""
+  id: ID
+
+  """Created date"""
+  createdAt: DateTime
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Users who own the object"""
+  ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """Updated date"""
+  updatedAt: DateTime
+
+  """product_id of SubscriptionPlan"""
+  product_id: String!
+
+  """name of SubscriptionPlan"""
+  name: String!
+
+  """status of SubscriptionPlan"""
+  status: String!
+
+  """description of SubscriptionPlan"""
+  description: String!
+
+  """billing_cycles of SubscriptionPlan"""
+  billing_cycles: [BillingCycles!]!
+
+  """payment_preferences of SubscriptionPlan"""
+  payment_preferences: PaymentPreferences!
+
+  """taxes of SubscriptionPlan"""
+  taxes: Tax
+
+  """quantity_supported of SubscriptionPlan"""
+  quantity_supported: Boolean!
+
+  """create_time of SubscriptionPlan"""
+  create_time: String!
+
+  """update_time of SubscriptionPlan"""
+  update_time: String!
+}
+
+"""InvoicePaymentTerm"""
+type InvoicePaymentTerm {
+  """ID of the persistence object"""
+  id: ID
+
+  """Created date"""
+  createdAt: DateTime
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Users who own the object"""
+  ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """Updated date"""
+  updatedAt: DateTime
+
+  """term_type of InvoicePaymentTerm"""
+  term_type: String!
+
+  """due_date of InvoicePaymentTerm"""
+  due_date: String!
+}
+
+"""InvoiceMetadata"""
+type InvoiceMetadata {
+  """ID of the persistence object"""
+  id: ID
+
+  """Created date"""
+  createdAt: DateTime
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Users who own the object"""
+  ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """Updated date"""
+  updatedAt: DateTime
+
+  """create_time of InvoiceMetadata"""
+  create_time: String!
+
+  """recipient_view_url of InvoiceMetadata"""
+  recipient_view_url: String!
+
+  """invoicer_view_url of InvoiceMetadata"""
+  invoicer_view_url: String!
+}
+
+"""InvoiceDetail"""
+type InvoiceDetail {
+  """ID of the persistence object"""
+  id: ID
+
+  """Created date"""
+  createdAt: DateTime
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Users who own the object"""
+  ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """Updated date"""
+  updatedAt: DateTime
+
+  """invoice_number of InvoiceDetail"""
+  invoice_number: String!
+
+  """reference of InvoiceDetail"""
+  reference: String!
+
+  """invoice_date of InvoiceDetail"""
+  invoice_date: String!
+
+  """currency_code of InvoiceDetail"""
+  currency_code: String!
+
+  """note of InvoiceDetail"""
+  note: String!
+
+  """term of InvoiceDetail"""
+  term: String!
+
+  """memo of InvoiceDetail"""
+  memo: String!
+
+  """payment_term of InvoiceDetail"""
+  payment_term: InvoicePaymentTerm!
+
+  """metadata of InvoiceDetail"""
+  metadata: InvoiceMetadata!
+}
+
+"""Invoice"""
+type Invoice {
+  """id of Invoice"""
+  id: String!
+
+  """Created date"""
+  createdAt: DateTime
+
+  """Labels of the object"""
+  labels: [String!]
+
+  """Users who own the object"""
+  ownerIds: [String!]
+
+  """Tags for the object"""
+  tags: [String!]
+
+  """Updated date"""
+  updatedAt: DateTime
+
+  """status of Invoice"""
+  status: String!
+
+  """status of Invoice"""
+  detail: InvoiceDetail!
+
+  """status of Invoice"""
+  invoicer: String!
+
+  """status of Invoice"""
+  primary_recipients: String!
+
+  """status of Invoice"""
+  amount: String!
+}
+
 type Query {
   """Get JWT token"""
   signIn(email: String!, password: String!): Auth!
@@ -96,6 +372,18 @@ type Query {
 
   """Request new password for user with email"""
   requestPasswordResetMail(email: String!): Boolean!
+
+  """Load SubscriptionPlans from paypal api to db"""
+  loadPlans: Boolean!
+
+  """Get all SubscriptionPlans"""
+  getAllPlans: [SubscriptionPlan!]!
+
+  """Get all SubscriptionPlans"""
+  getInvoices: [Invoice!]!
+
+  """Get all SubscriptionPlans"""
+  cancelSubscription(subscriptionId: String!): Boolean!
 }
 
 """Sorting the returned elements"""
