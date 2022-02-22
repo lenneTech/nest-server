@@ -32,8 +32,10 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'development',
     graphQl: {
-      debug: true,
-      introspection: true,
+      driver: {
+        debug: true,
+        introspection: true,
+      },
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
@@ -79,8 +81,10 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'productive',
     graphQl: {
-      debug: false,
-      introspection: true,
+      driver: {
+        debug: false,
+        introspection: true,
+      },
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',

@@ -20,7 +20,10 @@ export interface IServerOptions {
    * see https://docs.nestjs.com/graphql/quick-start
    * and https://www.apollographql.com/docs/apollo-server/api/apollo-server/
    */
-  graphQl?: ApolloDriverConfig;
+  graphQl?: {
+    driver?: ApolloDriverConfig;
+    enableSubscriptionAuth?: boolean;
+  };
 
   /**
    * Configuration of JavaScript Web Token (JWT) module
