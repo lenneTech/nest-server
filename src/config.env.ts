@@ -36,6 +36,7 @@ const config: { [env: string]: IServerOptions } = {
         debug: true,
         introspection: true,
       },
+      voyager: true,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',

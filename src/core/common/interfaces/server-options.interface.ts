@@ -21,8 +21,21 @@ export interface IServerOptions {
    * and https://www.apollographql.com/docs/apollo-server/api/apollo-server/
    */
   graphQl?: {
+    /**
+     * Driver configuration for Apollo
+     */
     driver?: ApolloDriverConfig;
+
+    /**
+     * Subscription authentication
+     */
     enableSubscriptionAuth?: boolean;
+
+    /**
+     * Enable GraphQL Voyager
+     * https://github.com/APIs-guru/graphql-voyager
+     */
+    voyager?: boolean;
   };
 
   /**
