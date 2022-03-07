@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -86,6 +86,7 @@
     "fastify": "3.27.1",
     "graphql": "16.3.0",
     "graphql-subscriptions": "2.0.0",
+    "graphql-voyager": "1.0.0-rc.31",
     "grunt": "1.4.1",
     "grunt-bg-shell": "2.3.3",
     "grunt-contrib-clean": "2.0.0",
