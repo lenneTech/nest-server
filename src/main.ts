@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import envConfig from './config.env';
 import { ServerModule } from './server/server.module';
+import { express as voyagerMiddleware } from 'graphql-voyager/middleware';
 
 /**
  * Preparations for server start
@@ -22,6 +23,11 @@ async function bootstrap() {
 
   // Enable cors to allow requests from other domains
   server.enableCors();
+
+  // Activate GraphQL Voyager
+  if (envConfig.graphQl?.voyager) {
+    server.use('/voyager', voyagerMiddleware({ endpointUrl: '/graphql' }));
+  }
 
   // Start server on configured port
   await server.listen(envConfig.port);

@@ -4,6 +4,7 @@ import { CoreModule } from '../core.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileController } from './modules/file/file.controller';
 import { ServerController } from './server.controller';
+import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 
 /**
  * Server module (dynamic)
@@ -15,7 +16,7 @@ import { ServerController } from './server.controller';
   // Include modules
   imports: [
     // Include CoreModule for standard processes
-    CoreModule.forRoot(envConfig),
+    CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
 
     // Include AuthModule for authorization handling,
     // which will also include UserModule

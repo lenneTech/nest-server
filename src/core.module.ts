@@ -1,4 +1,4 @@
-import { DynamicModule, Global, Module } from '@nestjs/common';
+import { DynamicModule, Global, Module, UnauthorizedException } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { Config } from './core/common/helpers/config.helper';
@@ -34,23 +34,43 @@ export class CoreModule {
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
-  static forRoot(options: Partial<IServerOptions>): DynamicModule {
+  static forRoot(AuthService: any, AuthModule: any, options: Partial<IServerOptions>): DynamicModule {
     // Process config
     const config: IServerOptions = Config.merge(
       {
         env: 'develop',
         graphQl: {
-          autoSchemaFile: 'schema.gql',
-          context: ({ req }) => ({ req }),
-          installSubscriptionHandlers: true,
-          subscriptions: {
-            'subscriptions-transport-ws': {
-              onConnect: (connectionParams) => {
-                // TODO: Handle Authorization
-                const authToken = connectionParams.Authorization;
+          driver: {
+            imports: [AuthModule],
+            inject: [AuthService],
+            useFactory: async (authService: any) => ({
+              autoSchemaFile: 'schema.gql',
+              context: ({ req }) => ({ req }),
+              installSubscriptionHandlers: true,
+              subscriptions: {
+                'subscriptions-transport-ws': {
+                  onConnect: async (connectionParams) => {
+                    if (config.graphQl.enableSubscriptionAuth) {
+                      // get authToken from authorization header
+                      const authToken: string =
+                        'Authorization' in connectionParams && connectionParams?.Authorization?.split(' ')[1];
+
+                      if (authToken) {
+                        // verify authToken/getJwtPayLoad
+                        const payload = authService.decodeJwt(authToken);
+                        const user = await authService.validateUser(payload);
+                        // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
+                        return { user: user, headers: connectionParams };
+                      }
+
+                      throw new UnauthorizedException();
+                    }
+                  },
+                },
               },
-            },
+            }),
           },
+          enableSubscriptionAuth: true,
         },
         port: 3000,
         mongoose: {
@@ -107,7 +127,7 @@ export class CoreModule {
       module: CoreModule,
       imports: [
         MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
-        GraphQLModule.forRoot<ApolloDriverConfig>(Object.assign({ driver: ApolloDriver }, config.graphQl)),
+        GraphQLModule.forRootAsync<ApolloDriverConfig>(Object.assign({ driver: ApolloDriver }, config.graphQl.driver)),
       ],
       providers,
       exports: [ConfigService, EmailService, TemplateService, MailjetService],

@@ -33,4 +33,8 @@ export class CoreAuthService {
   async validateUser(payload: JwtPayload): Promise<any> {
     return await this.userService.getViaEmail(payload.email);
   }
+
+  decodeJwt(token: string): JwtPayload {
+    return this.jwtService.decode(token) as JwtPayload;
+  }
 }
