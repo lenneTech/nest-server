@@ -43,32 +43,36 @@ export class CoreModule {
           driver: {
             imports: [AuthModule],
             inject: [AuthService],
-            useFactory: async (authService: any) => ({
-              autoSchemaFile: 'schema.gql',
-              context: ({ req }) => ({ req }),
-              installSubscriptionHandlers: true,
-              subscriptions: {
-                'subscriptions-transport-ws': {
-                  onConnect: async (connectionParams) => {
-                    if (config.graphQl.enableSubscriptionAuth) {
-                      // get authToken from authorization header
-                      const authToken: string =
-                        'Authorization' in connectionParams && connectionParams?.Authorization?.split(' ')[1];
+            useFactory: async (authService: any) =>
+              Object.assign(
+                {
+                  autoSchemaFile: 'schema.gql',
+                  context: ({ req }) => ({ req }),
+                  installSubscriptionHandlers: true,
+                  subscriptions: {
+                    'subscriptions-transport-ws': {
+                      onConnect: async (connectionParams) => {
+                        if (config.graphQl.enableSubscriptionAuth) {
+                          // get authToken from authorization header
+                          const authToken: string =
+                            'Authorization' in connectionParams && connectionParams?.Authorization?.split(' ')[1];
 
-                      if (authToken) {
-                        // verify authToken/getJwtPayLoad
-                        const payload = authService.decodeJwt(authToken);
-                        const user = await authService.validateUser(payload);
-                        // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
-                        return { user: user, headers: connectionParams };
-                      }
+                          if (authToken) {
+                            // verify authToken/getJwtPayLoad
+                            const payload = authService.decodeJwt(authToken);
+                            const user = await authService.validateUser(payload);
+                            // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
+                            return { user: user, headers: connectionParams };
+                          }
 
-                      throw new UnauthorizedException();
-                    }
+                          throw new UnauthorizedException();
+                        }
+                      },
+                    },
                   },
                 },
-              },
-            }),
+                options?.graphQl?.driver
+              ),
           },
           enableSubscriptionAuth: true,
         },
