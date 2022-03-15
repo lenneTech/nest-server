@@ -30,12 +30,6 @@ export interface IServerOptions {
      * Subscription authentication
      */
     enableSubscriptionAuth?: boolean;
-
-    /**
-     * Enable GraphQL Voyager
-     * https://github.com/APIs-guru/graphql-voyager
-     */
-    voyager?: boolean;
   };
 
   /**
