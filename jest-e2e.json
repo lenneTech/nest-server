@@ -6,6 +6,5 @@
   "testRegex": "tests/.*.e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  },
-  "preset": "@shelf/jest-mongodb"
+  }
 }
