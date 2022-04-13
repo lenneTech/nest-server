@@ -5,7 +5,7 @@ import { FilterArgs } from '../../../core/common/args/filter.args';
 import { GraphQLUser } from '../../../core/common/decorators/graphql-user.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { InputHelper } from '../../../core/common/helpers/input.helper';
+import { check } from '../../../core/common/helpers/input.helper';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User } from './user.model';
@@ -78,7 +78,7 @@ export class UserResolver {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
-    input = await InputHelper.check(input, user, UserCreateInput);
+    input = await check(input, user, UserCreateInput);
 
     return await this.usersService.create(input, user);
   }
@@ -92,7 +92,7 @@ export class UserResolver {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
-    input = await InputHelper.check(input, user, UserInput);
+    input = await check(input, user, UserInput);
 
     // Update user
     return await this.usersService.update(id, input, user);

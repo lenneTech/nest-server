@@ -1,7 +1,7 @@
 import { ArgumentMetadata, Inject, Injectable, PipeTransform } from '@nestjs/common';
 import { CONTEXT } from '@nestjs/graphql';
-import { Context } from '../helpers/context.helper';
-import { InputHelper } from '../helpers/input.helper';
+import { getContextData } from '../helpers/context.helper';
+import { check } from '../helpers/input.helper';
 
 /**
  * The CheckInputPipe checks the permissibility of individual properties of inputs for the resolvers
@@ -25,9 +25,9 @@ export class CheckInputPipe implements PipeTransform {
     const metatype = metadata?.metatype;
 
     // Get user
-    const { user }: any = Context.getData(this.context);
+    const { user }: any = getContextData(this.context);
 
     // Check and return
-    return InputHelper.check(value, user, metatype);
+    return check(value, user, metatype);
   }
 }

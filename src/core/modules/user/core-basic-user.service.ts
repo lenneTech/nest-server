@@ -2,7 +2,7 @@ import { NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
-import { Filter } from '../../common/helpers/filter.helper';
+import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
@@ -85,7 +85,7 @@ export abstract class CoreBasicUserService<
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
     // Return found users
-    return this.userModel.find(...Filter.convertFilterArgsToQuery(filterArgs)).exec();
+    return this.userModel.find(...convertFilterArgsToQuery(filterArgs)).exec();
   }
 
   /**

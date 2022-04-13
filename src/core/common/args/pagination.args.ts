@@ -1,6 +1,6 @@
 import { IsOptional, Max } from 'class-validator';
 import { ArgsType, Field, Int } from '@nestjs/graphql';
-import { ModelHelper } from '../helpers/model.helper';
+import { maps } from '../helpers/model.helper';
 import { CoreInput } from '../inputs/core-input.input';
 import { SortInput } from '../inputs/sort.input';
 
@@ -90,7 +90,7 @@ export class PaginationArgs extends CoreInput {
     } = {}
   ): this {
     super.map(data, options);
-    this.sort = ModelHelper.maps(data.sort, SortInput, options.cloneDeep);
+    this.sort = maps(data.sort, SortInput, options.cloneDeep);
     Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }

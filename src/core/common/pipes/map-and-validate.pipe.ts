@@ -1,14 +1,14 @@
 import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { InputHelper } from '../helpers/input.helper';
+import { isBasicType } from '../helpers/input.helper';
 
 @Injectable()
 export class MapAndValidatePipe implements PipeTransform {
   async transform(value: any, metadata: ArgumentMetadata) {
     const { metatype } = metadata;
 
-    if (typeof value !== 'object' || !metatype || InputHelper.isBasicType(metatype)) {
+    if (typeof value !== 'object' || !metatype || isBasicType(metatype)) {
       return value;
     }
 

@@ -2,15 +2,14 @@ import { BadRequestException, NotFoundException, UnprocessableEntityException } 
 import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../common/args/filter.args';
-import { Filter } from '../../common/helpers/filter.helper';
-import { ServiceHelper } from '../../common/helpers/service.helper';
+import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
+import { prepareInput, prepareOutput } from '../../common/helpers/service.helper';
 import { CoreBasicUserService } from './core-basic-user.service';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
 import { Model, Document } from 'mongoose';
 import * as crypto from 'crypto';
-import envConfig from '../../../config.env';
 import { EmailService } from '../../common/services/email.service';
 
 // Subscription
@@ -108,7 +107,7 @@ export abstract class CoreUserService<
    * Get users via filter
    */
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
-    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
+    const filterQuery = convertFilterArgsToQuery(filterArgs);
     // Return found users
     return await Promise.all(
       (
@@ -245,7 +244,7 @@ export abstract class CoreUserService<
     options: { [key: string]: any; checkRoles?: boolean; clone?: boolean } = {},
     ...args: any[]
   ) {
-    return ServiceHelper.prepareInput(input, currentUser, options);
+    return prepareInput(input, currentUser, options);
   }
 
   /**
@@ -256,6 +255,6 @@ export abstract class CoreUserService<
     options: { [key: string]: any; clone?: boolean } = {},
     ...args: any[]
   ): Promise<TUser> {
-    return ServiceHelper.prepareOutput(user, options);
+    return prepareOutput(user, options);
   }
 }

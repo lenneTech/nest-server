@@ -2,8 +2,8 @@ import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException
 import * as fs from 'fs';
 import envConfig from '../../../config.env';
 import { FilterArgs } from '../../../core/common/args/filter.args';
-import { Filter } from '../../../core/common/helpers/filter.helper';
-import { ServiceHelper } from '../../../core/common/helpers/service.helper';
+import { convertFilterArgsToQuery } from '../../../core/common/helpers/filter.helper';
+import { prepareInput, prepareOutput } from '../../../core/common/helpers/service.helper';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
@@ -71,7 +71,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Get users via filter
    */
   find(filterArgs?: FilterArgs, ...args: any[]): Promise<User[]> {
-    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
+    const filterQuery = convertFilterArgsToQuery(filterArgs);
     // Return found users
     return this.userModel.find(filterQuery[0], null, filterQuery[1]).exec();
   }
@@ -133,13 +133,13 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Prepare input before save
    */
   protected async prepareInput(input: { [key: string]: any }, currentUser: User, options: { create?: boolean } = {}) {
-    return ServiceHelper.prepareInput(input, currentUser, options);
+    return prepareInput(input, currentUser, options);
   }
 
   /**
    * Prepare output before return
    */
   protected async prepareOutput(user: User): Promise<User> {
-    return ServiceHelper.prepareOutput(user);
+    return prepareOutput(user);
   }
 }

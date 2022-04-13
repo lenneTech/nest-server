@@ -1,7 +1,7 @@
 import { DynamicModule, Global, Module, UnauthorizedException } from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { Config } from './core/common/helpers/config.helper';
+import { merge } from './core/common/helpers/config.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
@@ -36,7 +36,7 @@ export class CoreModule {
    */
   static forRoot(AuthService: any, AuthModule: any, options: Partial<IServerOptions>): DynamicModule {
     // Process config
-    const config: IServerOptions = Config.merge(
+    const config: IServerOptions = merge(
       {
         env: 'develop',
         graphQl: {

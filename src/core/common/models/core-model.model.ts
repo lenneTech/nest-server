@@ -1,4 +1,4 @@
-import { ModelHelper } from '../helpers/model.helper';
+import { map } from '../helpers/model.helper';
 
 /**
  * Core Model
@@ -99,7 +99,7 @@ export abstract class CoreModel {
       mapId: false,
       ...options,
     };
-    return config.init ? ModelHelper.map(data, this, config).init(config.init) : ModelHelper.map(data, this, config);
+    return config.init ? map(data, this, config).init(config.init) : map(data, this, config);
   }
 
   /**
