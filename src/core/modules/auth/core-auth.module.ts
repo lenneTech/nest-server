@@ -25,7 +25,7 @@ export class CoreAuthModule {
       providers?: Provider[];
     }
   ): DynamicModule {
-    // Porcess imports
+    // Process imports
     let imports: any[] = [UserModule, PassportModule.register({ defaultStrategy: 'jwt' }), JwtModule.register(options)];
     if (Array.isArray(options?.imports)) {
       imports = imports.concat(options.imports);

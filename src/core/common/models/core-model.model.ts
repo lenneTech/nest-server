@@ -26,6 +26,7 @@ export abstract class CoreModel {
     this: new (...args: any[]) => T,
     data: Partial<T> | Record<string, any>,
     options: {
+      [key: string]: any;
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       init?: any;
@@ -55,6 +56,7 @@ export abstract class CoreModel {
     this: new (...args: any[]) => T,
     data: Partial<T> | Record<string, any>,
     options: {
+      [key: string]: any;
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       init?: any;
@@ -86,6 +88,7 @@ export abstract class CoreModel {
   public map(
     data: Partial<this> | Record<string, any>,
     options: {
+      [key: string]: any;
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       init?: any;
@@ -113,6 +116,7 @@ export abstract class CoreModel {
   public mapDeep(
     data: Partial<this> | Record<string, any>,
     options: {
+      [key: string]: any;
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       init?: any;

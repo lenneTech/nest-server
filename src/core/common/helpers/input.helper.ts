@@ -384,3 +384,45 @@ export function mapClass<T>(values: Partial<T>, ctor: new () => T, cloneDeep = t
     return obj;
   }, instance);
 }
+
+/**
+ * Get type of array (via first item)
+ */
+export function typeofArray(arr: any[], strict = false): string {
+  let type: string = undefined;
+  if (!arr?.length) {
+    return type;
+  }
+  type = typeof arr[0];
+  if (strict) {
+    for (const item of arr) {
+      if (typeof item !== type) {
+        return undefined;
+      }
+    }
+  }
+  return type;
+}
+
+/**
+ * Get instance of array items (via first item)
+ */
+export function instanceofArray(arr: any[], strict = false): string {
+  let constructor: string = undefined;
+  if (!arr?.length) {
+    return constructor;
+  }
+  try {
+    constructor = arr[0].constructor;
+    if (strict) {
+      for (const item of arr) {
+        if (item.constructor !== constructor) {
+          return undefined;
+        }
+      }
+    }
+  } catch (e) {
+    return undefined;
+  }
+  return constructor;
+}

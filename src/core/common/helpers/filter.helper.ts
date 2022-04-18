@@ -38,7 +38,7 @@ export class Filter {
  * @param filterArgs
  */
 export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
-  return [generateFilterQuery(filterArgs.filter), generateFindOptions(filterArgs)];
+  return [generateFilterQuery(filterArgs?.filter), generateFindOptions(filterArgs)];
 }
 
 /**

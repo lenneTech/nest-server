@@ -1,33 +1,23 @@
 import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
 import * as fs from 'fs';
+import { PubSub } from 'graphql-subscriptions';
+import { Model } from 'mongoose';
 import envConfig from '../../../config.env';
-import { FilterArgs } from '../../../core/common/args/filter.args';
-import { convertFilterArgsToQuery } from '../../../core/common/helpers/filter.helper';
-import { prepareInput, prepareOutput } from '../../../core/common/helpers/service.helper';
+import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
+import { CoreModelConstructor } from '../../../core/common/types/core-model-constructor.type';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { User, UserDocument } from './user.model';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { ICorePersistenceModel } from '../../../core/common/interfaces/core-persistence-model.interface';
-import { PubSub } from 'graphql-subscriptions';
 
 /**
  * User service
  */
 @Injectable()
 export class UserService extends CoreUserService<User, UserInput, UserCreateInput> {
-  // ===================================================================================================================
-  // Properties
-  // ===================================================================================================================
-
-  /**
-   * User model
-   */
-  protected readonly model: ICorePersistenceModel;
   // ===================================================================================================================
   // Injections
   // ===================================================================================================================
@@ -38,11 +28,11 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   constructor(
     protected readonly configService: ConfigService,
     protected readonly emailService: EmailService,
-    @InjectModel('User') protected readonly userModel: Model<UserDocument>,
+    @Inject('USER_CLASS') protected readonly mainModelConstructor: CoreModelConstructor<User>,
+    @InjectModel('User') protected readonly mainDbModel: Model<UserDocument>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
-    super(userModel, emailService);
-    this.model = User;
+    super(emailService, mainDbModel, mainModelConstructor);
   }
 
   // ===================================================================================================================
@@ -52,28 +42,23 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Create new user and send welcome email
    */
-  async create(input: UserCreateInput, currentUser?: User): Promise<User> {
-    const user = await super.create(input, currentUser);
+  async create(input: UserCreateInput, serviceOptions?: ServiceOptions): Promise<User> {
+    // Get prepared user
+    const user = await super.create(input, serviceOptions);
 
-    await this.prepareOutput(user);
+    // Publish action
+    if (serviceOptions?.pubSub === undefined || serviceOptions.pubSub) {
+      await this.pubSub.publish('userCreated', User.map(user));
+    }
 
-    await this.pubSub.publish('userCreated', User.map(user));
-
+    // Send email
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
       templateData: { name: user.username, link: envConfig.email.verificationLink + '/' + user.verificationToken },
     });
 
+    // Return created user
     return user;
-  }
-
-  /**
-   * Get users via filter
-   */
-  find(filterArgs?: FilterArgs, ...args: any[]): Promise<User[]> {
-    const filterQuery = convertFilterArgsToQuery(filterArgs);
-    // Return found users
-    return this.userModel.find(filterQuery[0], null, filterQuery[1]).exec();
   }
 
   /**
@@ -81,14 +66,17 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    *
    * @param email
    */
-  async sendPasswordResetMail(email: string): Promise<User> {
-    const user = await super.setPasswordResetTokenForEmail(email);
+  async sendPasswordResetMail(email: string, serviceOptions?: ServiceOptions): Promise<User> {
+    // Set password reset token
+    const user = await super.setPasswordResetTokenForEmail(email, serviceOptions);
 
+    // Send email
     await this.emailService.sendMail(user.email, 'Password reset', {
       htmlTemplate: 'password-reset',
       templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + user.passwordResetToken },
     });
 
+    // Return user
     return user;
   }
 
@@ -96,7 +84,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Set avatar image
    */
   async setAvatar(file: Express.Multer.File, user: User): Promise<string> {
-    const dbUser = await this.userModel.findOne({ id: user.id }).exec();
+    const dbUser = await this.mainDbModel.findOne({ id: user.id }).exec();
     // Check user
     if (!dbUser) {
       throw new UnauthorizedException();
@@ -123,23 +111,5 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Return user
     return file.filename;
-  }
-
-  // ===================================================================================================================
-  // Helper methods
-  // ===================================================================================================================
-
-  /**
-   * Prepare input before save
-   */
-  protected async prepareInput(input: { [key: string]: any }, currentUser: User, options: { create?: boolean } = {}) {
-    return prepareInput(input, currentUser, options);
-  }
-
-  /**
-   * Prepare output before return
-   */
-  protected async prepareOutput(user: User): Promise<User> {
-    return prepareOutput(user);
   }
 }
