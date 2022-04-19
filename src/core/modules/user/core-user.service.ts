@@ -1,20 +1,15 @@
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { PubSub } from 'graphql-subscriptions';
-import { FilterArgs } from '../../common/args/filter.args';
-import { Filter } from '../../common/helpers/filter.helper';
-import { ServiceHelper } from '../../common/helpers/service.helper';
-import { CoreBasicUserService } from './core-basic-user.service';
+import * as crypto from 'crypto';
+import { Document, Model } from 'mongoose';
+import { merge } from '../../common/helpers/config.helper';
+import { ServiceOptions } from '../../common/interfaces/service-options.interface';
+import { CrudService } from '../../common/services/crud.service';
+import { EmailService } from '../../common/services/email.service';
+import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
-import { Model, Document } from 'mongoose';
-import * as crypto from 'crypto';
-import envConfig from '../../../config.env';
-import { EmailService } from '../../common/services/email.service';
-
-// Subscription
-const pubSub = new PubSub();
 
 /**
  * User service
@@ -23,9 +18,13 @@ export abstract class CoreUserService<
   TUser extends CoreUserModel,
   TUserInput extends CoreUserInput,
   TUserCreateInput extends CoreUserCreateInput
-> extends CoreBasicUserService<TUser, TUserInput, TUserCreateInput> {
-  protected constructor(protected readonly userModel: Model<TUser & Document>, protected emailService: EmailService) {
-    super(userModel);
+> extends CrudService<TUser> {
+  protected constructor(
+    protected emailService: EmailService,
+    protected readonly mainDbModel: Model<TUser & Document>,
+    protected mainModelConstructor: CoreModelConstructor<TUser>
+  ) {
+    super();
   }
 
   // ===================================================================================================================
@@ -35,167 +34,149 @@ export abstract class CoreUserService<
   /**
    * Create user
    */
-  async create(input: TUserCreateInput, currentUser?: TUser, ...args: any[]): Promise<TUser> {
-    // Prepare input
-    await this.prepareInput(input, currentUser, { create: true });
+  async create(input: any, serviceOptions?: ServiceOptions): Promise<TUser> {
+    merge({ prepareInput: { create: true } }, serviceOptions);
+    return this.process(
+      async (data) => {
+        // Create user with verification token
+        const createdUser = new this.mainDbModel({
+          ...data.input,
+          verificationToken: crypto.randomBytes(32).toString('hex'),
+        });
 
-    // Create new user
-    const createdUser = new this.userModel({
-      ...input,
-      verificationToken: crypto.randomBytes(32).toString('hex'),
-    });
+        // Distinguish between different error messages when saving
+        try {
+          await createdUser.save();
+        } catch (error) {
+          if (error.code === 11000) {
+            throw new UnprocessableEntityException(
+              `User with email address "${(data.input as any).email}" already exists`
+            );
+          } else {
+            throw new UnprocessableEntityException();
+          }
+        }
 
-    try {
-      // Save created user
-      await createdUser.save();
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new UnprocessableEntityException(`User with email address "${(input as any).email}" already exists`);
-      } else {
-        throw new UnprocessableEntityException();
-      }
-    }
-
-    // Prepare output
-    const preparedUser = await this.prepareOutput(this.model.map(createdUser), args[0]);
-
-    // Inform subscriber
-    pubSub.publish('userCreated', { userCreated: preparedUser });
-
-    // Return created user
-    return preparedUser;
-  }
-
-  /**
-   * Delete user via ID
-   */
-  async delete(id: string, ...args: any[]): Promise<TUser> {
-    // Search user
-    const user = await this.userModel.findById(id).exec();
-
-    // Check user
-    if (!user) {
-      throw new NotFoundException();
-    }
-
-    // Delete user
-    await user.delete();
-
-    // Prepare output
-    const deletedUser = await this.prepareOutput(this.model.map(user), args[0]);
-
-    // Inform subscriber
-    pubSub.publish('userDeleted', { userDeleted: deletedUser });
-
-    // Return deleted user
-    return deletedUser;
-  }
-
-  /**
-   * Get user via ID
-   */
-  async get(id: string, ...args: any[]): Promise<TUser> {
-    const user = await this.userModel.findById(id).exec();
-
-    if (!user) {
-      throw new NotFoundException();
-    }
-
-    return this.prepareOutput(this.model.map(user), args[0]);
-  }
-
-  /**
-   * Get users via filter
-   */
-  async find(filterArgs?: FilterArgs, ...args: any[]): Promise<TUser[]> {
-    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
-    // Return found users
-    return await Promise.all(
-      (
-        await this.userModel.find(filterQuery[0], null, filterQuery[1]).exec()
-      ).map((user) => {
-        return this.prepareOutput(this.model.map(user), args[0]);
-      })
+        // Return created user
+        return createdUser;
+      },
+      { input, serviceOptions }
     );
+  }
+
+  /**
+   * Get user via email
+   */
+  async getViaEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    return this.process(
+      async () => {
+        const user = await this.mainDbModel.findOne({ email }).exec();
+        if (!user) {
+          throw new NotFoundException(`No user found with email: ${email}`);
+        }
+        return user;
+      },
+      { serviceOptions }
+    );
+  }
+
+  /**
+   * Get verified state of user by token
+   */
+  async getVerifiedState(token: string, serviceOptions?: ServiceOptions): Promise<boolean> {
+    const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
+
+    if (!user) {
+      throw new NotFoundException(`No user found with verify token: ${token}`);
+    }
+
+    return user.verified;
   }
 
   /**
    * Verify user with token
    */
-  async verify(token: string, ...args: any[]): Promise<TUser> {
-    const user = await this.userModel.findOne({ verificationToken: token }).exec();
+  async verify(token: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    return this.process(
+      async () => {
+        // Get user
+        const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
+        if (!user) {
+          throw new NotFoundException(`No user found with verify token: ${token}`);
+        }
+        if (!user.verificationToken) {
+          throw new Error('User has no token');
+        }
+        if (user.verified) {
+          throw new Error('User already verified');
+        }
 
-    if (!user) {
-      throw new NotFoundException();
-    }
+        // Update user
+        await Object.assign(user, {
+          verified: true,
+          verificationToken: null,
+        }).save();
 
-    if (!user.verificationToken) {
-      throw new Error('User has no token');
-    }
-
-    if (user.verified) {
-      throw new Error('User already verified');
-    }
-
-    // Update user
-    await Object.assign(user, {
-      verified: true,
-      verificationToken: null,
-    }).save();
-
-    // Prepare verified user
-    const verifiedUser = this.prepareOutput(this.model.map(user), args[0]);
-
-    // Inform subscriber
-    pubSub.publish('userVerified', { userVerified: verifiedUser });
-
-    // Return prepared verified user
-    return verifiedUser;
+        // Return prepared user
+        return user;
+      },
+      { serviceOptions }
+    );
   }
 
   /**
    * Set newpassword for user with token
    */
-  async resetPassword(token: string, newPassword: string, ...args: any[]): Promise<TUser> {
-    const user = await this.userModel.findOne({ passwordResetToken: token }).exec();
+  async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    return this.process(
+      async () => {
+        // Get user
+        const user = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
+        if (!user) {
+          throw new NotFoundException(`No user found with password reset token: ${token}`);
+        }
 
-    if (!user) {
-      throw new NotFoundException();
-    }
+        // Update user
+        await Object.assign(user, {
+          password: await bcrypt.hash(newPassword, 10),
+          passwordResetToken: null,
+        }).save();
 
-    // Update user
-    await Object.assign(user, {
-      password: await bcrypt.hash(newPassword, 10),
-      passwordResetToken: null,
-    }).save();
-
-    // Return prepared user with changed password
-    return this.prepareOutput(this.model.map(user), args[0]);
+        // Return user
+        return user;
+      },
+      { serviceOptions }
+    );
   }
 
   /**
    * Set password rest token for email
    */
-  async setPasswordResetTokenForEmail(email: string, ...args: any[]): Promise<TUser> {
-    const user = await this.userModel.findOne({ email }).exec();
+  async setPasswordResetTokenForEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    return this.process(
+      async () => {
+        // Get user
+        const user = await this.mainDbModel.findOne({ email }).exec();
+        if (!user) {
+          throw new NotFoundException(`No user found with email: ${email}`);
+        }
 
-    if (!user) {
-      throw new NotFoundException();
-    }
+        // Set reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        user.passwordResetToken = resetToken;
+        await user.save();
 
-    // Set reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken = resetToken;
-    await user.save();
-
-    // Return user who want to reset the password
-    return this.prepareOutput(this.model.map(user), args[0]);
+        // Return user
+        return user;
+      },
+      { serviceOptions }
+    );
   }
 
   /**
    * Set roles for specified user
    */
-  async setRoles(userId: string, roles: string[], ...args: any[]): Promise<TUser> {
+  async setRoles(userId: string, roles: string[], serviceOptions?: ServiceOptions): Promise<TUser> {
     // Check roles
     if (!Array.isArray(roles)) {
       throw new BadRequestException('Missing roles');
@@ -207,55 +188,11 @@ export abstract class CoreUserService<
     }
 
     // Update and return user
-    const user = await this.userModel.findByIdAndUpdate(userId, { roles }).exec();
-    return this.prepareOutput(this.model.map(user), args[0]);
-  }
-
-  /**
-   * Update user via ID
-   */
-  async update(id: string, input: TUserInput, currentUser: TUser, ...args: any[]): Promise<TUser> {
-    // Check if user exists
-    const user = await this.userModel.findById(id).exec();
-
-    if (!user) {
-      throw new NotFoundException(`User not found with ID: ${id}`);
-    }
-
-    // Prepare input
-    await this.prepareInput(input, currentUser);
-
-    // Update
-    await Object.assign(user, input).save();
-
-    // Return user
-    return await this.prepareOutput(this.model.map(user), args[0]);
-  }
-
-  // ===================================================================================================================
-  // Helper methods
-  // ===================================================================================================================
-
-  /**
-   * Prepare input before save
-   */
-  protected async prepareInput(
-    input: Record<string, any>,
-    currentUser?: TUser,
-    options: { [key: string]: any; checkRoles?: boolean; clone?: boolean } = {},
-    ...args: any[]
-  ) {
-    return ServiceHelper.prepareInput(input, currentUser, options);
-  }
-
-  /**
-   * Prepare output before return
-   */
-  protected async prepareOutput(
-    user: TUser,
-    options: { [key: string]: any; clone?: boolean } = {},
-    ...args: any[]
-  ): Promise<TUser> {
-    return ServiceHelper.prepareOutput(user, options);
+    return this.process(
+      async (data) => {
+        return await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
+      },
+      { serviceOptions }
+    );
   }
 }

@@ -5,7 +5,7 @@ import envConfig from '../../../config.env';
 import { RESTUser } from '../../../core/common/decorators/rest-user.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { FileHelper } from '../../../core/common/helpers/file.helper';
+import { multerOptionsForImageUpload } from '../../../core/common/helpers/file.helper';
 import { User } from './user.model';
 import { UserService } from './user.service';
 
@@ -27,7 +27,7 @@ export class AvatarController {
   @UseInterceptors(
     FileInterceptor(
       'file',
-      FileHelper.multerOptionsForImageUpload({
+      multerOptionsForImageUpload({
         destination: envConfig.staticAssets.path + '/avatars',
       })
     )

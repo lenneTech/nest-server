@@ -1,4 +1,4 @@
-import { ModelHelper } from '../helpers/model.helper';
+import { map } from '../helpers/model.helper';
 import { CoreModel } from '../models/core-model.model';
 
 /**
@@ -29,7 +29,7 @@ export abstract class CoreInput extends CoreModel {
       mapId: false,
       ...options,
     };
-    const coreInput = ModelHelper.map(data, this, config);
+    const coreInput = map(data, this, config);
     Object.keys(coreInput).forEach((key) => coreInput[key] === undefined && delete coreInput[key]);
     return coreInput;
   }

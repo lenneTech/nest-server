@@ -1,8 +1,9 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+import { Prop, Schema as MongooseSchema } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
+import { User } from '../../../server/modules/user/user.model';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { Prop, Schema as MongooseSchema } from '@nestjs/mongoose';
 
 export type CoreUserModelDocument = CoreUserModel & Document;
 

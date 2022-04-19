@@ -1,6 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
-import { ModelHelper } from '../helpers/model.helper';
+import { maps } from '../helpers/model.helper';
 import { CoreInput } from './core-input.input';
 import { FilterInput } from './filter.input';
 
@@ -40,7 +40,7 @@ export class CombinedFilterInput extends CoreInput {
     } = {}
   ): this {
     super.map(data, options);
-    this.filters = ModelHelper.maps(data.filters, FilterInput, options.cloneDeep);
+    this.filters = maps(data.filters, FilterInput, options.cloneDeep);
     Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }

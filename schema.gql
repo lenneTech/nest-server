@@ -68,9 +68,6 @@ type Query {
   """Get JWT token"""
   signIn(email: String!, password: String!): Auth!
 
-  """Get user with specified ID"""
-  getUser(id: String!): User!
-
   """Find users (via filter)"""
   findUsers(
     """
@@ -93,6 +90,12 @@ type Query {
     """Input for filtering"""
     filter: FilterInput
   ): [User!]!
+
+  """Get user with specified ID"""
+  getUser(id: String!): User!
+
+  """Get verified state of user with token"""
+  getVerifiedState(token: String!): Boolean!
 
   """Request new password for user with email"""
   requestPasswordResetMail(email: String!): Boolean!
@@ -185,20 +188,20 @@ JSON scalar type. Information on the exact schema of the JSON object is containe
 scalar JSON
 
 type Mutation {
-  """Verify user with email"""
-  verifyUser(token: String!): Boolean!
+  """Create a new user"""
+  createUser(input: UserCreateInput!): User!
+
+  """Delete existing user"""
+  deleteUser(id: String!): User!
 
   """Set new password for user with token"""
   resetPassword(token: String!, password: String!): Boolean!
 
-  """Create a new user"""
-  createUser(input: UserCreateInput!): User!
-
   """Update existing user"""
   updateUser(input: UserInput!, id: String!): User!
 
-  """Delete existing user"""
-  deleteUser(id: String!): User!
+  """Verify user with email"""
+  verifyUser(token: String!): Boolean!
 }
 
 """User input to create a new user"""

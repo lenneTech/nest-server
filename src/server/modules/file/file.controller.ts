@@ -4,7 +4,7 @@ import { diskStorage } from 'multer';
 import envConfig from '../../../config.env';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { FileHelper } from '../../../core/common/helpers/file.helper';
+import { multerRandomFileName } from '../../../core/common/helpers/file.helper';
 
 /**
  * File controller for
@@ -27,7 +27,7 @@ export class FileController {
         destination: envConfig.staticAssets.path,
 
         // Generated random file name
-        filename: FileHelper.multerRandomFileName(),
+        filename: multerRandomFileName(),
       }),
     })
   )

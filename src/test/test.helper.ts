@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { FastifyInstance } from 'fastify';
+// import { FastifyInstance } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
 import * as supertest from 'supertest';
@@ -101,7 +101,8 @@ export interface TestRestOptions {
  * Test helper
  */
 export class TestHelper {
-  app: FastifyInstance | INestApplication;
+  // app: FastifyInstance | INestApplication;
+  app: INestApplication;
 
   /**
    * Constructor
@@ -202,15 +203,15 @@ export class TestHelper {
     const response = await this.getResponse(token, requestConfig, statusCode, log, logError);
 
     // Response of fastify
-    if ((this.app as FastifyInstance).inject) {
-      // Check data
-      expect(response.headers['content-type']).toBe('application/json');
-
-      // return data
-      return JSON.parse(response.payload).data
-        ? JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name]
-        : JSON.parse(response.payload);
-    }
+    // if ((this.app as FastifyInstance).inject) {
+    //   // Check data
+    //   expect(response.headers['content-type']).toBe('application/json');
+    //
+    //   // return data
+    //   return JSON.parse(response.payload).data
+    //     ? JSON.parse(response.payload).data[(graphql as TestGraphQLConfig).name]
+    //     : JSON.parse(response.payload);
+    // }
 
     // Check data
     expect(response.headers['content-type']).toMatch('application/json');
@@ -322,24 +323,24 @@ export class TestHelper {
     }
 
     // Init response
-    let response: any;
+    // let response: any;
 
-    // Response of fastify
-    if ((this.app as FastifyInstance).inject) {
-      // Get response
-      response = await (this.app as FastifyInstance).inject(requestConfig);
-
-      // Log response
-      if (log) {
-        console.log(response);
-      }
-
-      // Check data
-      expect(response.statusCode).toBe(statusCode);
-
-      // Return response
-      return response;
-    }
+    // // Response of fastify
+    // if ((this.app as FastifyInstance).inject) {
+    //   // Get response
+    //   response = await (this.app as FastifyInstance).inject(requestConfig);
+    //
+    //   // Log response
+    //   if (log) {
+    //     console.log(response);
+    //   }
+    //
+    //   // Check data
+    //   expect(response.statusCode).toBe(statusCode);
+    //
+    //   // Return response
+    //   return response;
+    // }
 
     // Express request
     const method: string = requestConfig.method.toLowerCase();
@@ -349,7 +350,7 @@ export class TestHelper {
     }
 
     // Response
-    response = await request.send(requestConfig.payload);
+    const response = await request.send(requestConfig.payload);
 
     // Log response
     if (log) {
