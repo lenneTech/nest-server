@@ -49,9 +49,9 @@ describe('ServerModule (e2e)', () => {
   /**
    * After all tests are finished
    */
-  afterAll(() => {
-    connection.close();
-    app.close();
+  afterAll(async () => {
+    await connection.close();
+    await app.close();
   });
 
   // ===================================================================================================================
