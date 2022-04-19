@@ -1,6 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { merge } from '../../../common/helpers/config.helper';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthUserService } from './core-auth-user.service';
@@ -15,15 +17,20 @@ export class CoreAuthService {
   /**
    * User sign in via email
    */
-  async signIn(email: string, password: string): Promise<{ token: string; user: ICoreAuthUser }> {
-    const user = await this.userService.getViaEmail(email);
-    if (!(await bcrypt.compare(password, user.password))) {
+  async signIn(
+    email: string,
+    password: string,
+    serviceOptions?: ServiceOptions
+  ): Promise<{ token: string; user: ICoreAuthUser }> {
+    serviceOptions = merge(serviceOptions || {}, { prepareOutput: null });
+    const user = await this.userService.getViaEmail(email, serviceOptions);
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       throw new UnauthorizedException();
     }
     const payload: JwtPayload = { email: user.email };
     return {
       token: this.jwtService.sign(payload),
-      user,
+      user: await this.userService.prepareOutput(user),
     };
   }
 
@@ -34,6 +41,9 @@ export class CoreAuthService {
     return await this.userService.getViaEmail(payload.email);
   }
 
+  /**
+   * Decode JWT
+   */
   decodeJwt(token: string): JwtPayload {
     return this.jwtService.decode(token) as JwtPayload;
   }

@@ -1,3 +1,4 @@
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
 
 /**
@@ -7,5 +8,10 @@ export abstract class CoreAuthUserService {
   /**
    * Get user via email
    */
-  abstract getViaEmail(email: string): Promise<ICoreAuthUser>;
+  abstract getViaEmail(email: string, serviceOptions?: ServiceOptions): Promise<ICoreAuthUser>;
+
+  /**
+   * Prepare output
+   */
+  abstract prepareOutput(output: any, options?: ServiceOptions): Promise<ICoreAuthUser>;
 }

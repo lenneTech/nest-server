@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { Attachment } from 'nodemailer/lib/mailer';
-import { InputHelper } from '../helpers/input.helper';
+import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
 
@@ -43,10 +43,10 @@ export class EmailService {
     let text = config.text;
 
     // Check parameter
-    InputHelper.isTrue(recipients);
-    InputHelper.isNonEmptyString(subject);
-    InputHelper.isNonEmptyString(senderName);
-    InputHelper.isNonEmptyString(senderEmail);
+    isTrue(recipients);
+    isNonEmptyString(subject);
+    isNonEmptyString(senderName);
+    isNonEmptyString(senderEmail);
 
     // Process text template
     if (htmlTemplate) {
@@ -59,11 +59,11 @@ export class EmailService {
     }
 
     // Check if at lest one of text or html is set
-    if (!InputHelper.isNonEmptyString(html, InputHelper.returnFalse)) {
-      InputHelper.isNonEmptyString(text);
+    if (!isNonEmptyString(html, returnFalse)) {
+      isNonEmptyString(text);
     }
-    if (!InputHelper.isNonEmptyString(text, InputHelper.returnFalse)) {
-      InputHelper.isNonEmptyString(html);
+    if (!isNonEmptyString(text, returnFalse)) {
+      isNonEmptyString(html);
     }
 
     // Init transporter
