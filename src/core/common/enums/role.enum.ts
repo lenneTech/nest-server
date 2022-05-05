@@ -2,12 +2,30 @@
  * Enums for role decorator
  */
 export enum RoleEnum {
-  // User must be an administrator
+  // ===================================================================================================================
+  // Real roles (integrated into user.roles), which can be used via @Roles for Models (properties)
+  // and Resolvers (methods)
+  // ===================================================================================================================
+
+  // User must be an administrator (see roles of user)
   ADMIN = 'admin',
 
-  // User must be the owner of the processed object(s)
-  OWNER = 'owner',
+  // ===================================================================================================================
+  // Special system roles, which can be used via @Roles for Models (properties) and Resolvers (methods)
+  // and via ServiceOptions for Resolver methods. This roles should not be integrated into user.roles!
+  // ===================================================================================================================
 
-  // User must be signed in
-  USER = 'user',
+  // User must be signed in (see context user, e.g. @GraphQLUser)
+  S_USER = 's_user',
+
+  // ===================================================================================================================
+  // Special system roles that check rights for DB objects and can be used via @Roles for Models (properties)
+  // and via ServiceOptions for Resolver methods. These roles should not be integrated in user.roles!
+  // ===================================================================================================================
+
+  // User must be the creator of the processed object(s) (see createdBy property of object(s))
+  S_CREATOR = 's_creator',
+
+  // User must be an owner of the processed object(s) (see owners property of object(s))
+  S_OWNER = 's_owner',
 }

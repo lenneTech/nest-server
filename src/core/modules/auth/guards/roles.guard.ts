@@ -8,7 +8,8 @@ import { AuthGuard } from './auth.guard';
  * Role guard
  *
  * The RoleGuard is activated by the Role decorator. It checks whether the current user has at least one of the
- * specified roles. If this is not the case, an UnauthorizedException is thrown.
+ * specified roles or is logged in when the S_USER role is set.
+ * If this is not the case, an UnauthorizedException is thrown.
  */
 @Injectable()
 export class RolesGuard extends AuthGuard('jwt') {
@@ -41,11 +42,8 @@ export class RolesGuard extends AuthGuard('jwt') {
       // Get args
       const args: any = GqlExecutionContext.create(context).getArgs();
 
-      // Check special role for user or owner
-      if (
-        user &&
-        (roles.includes(RoleEnum.USER) || (roles.includes(RoleEnum.OWNER) && user.id.toString() === args.id))
-      ) {
+      // Check special user role (user is logged in)
+      if (user && roles.includes(RoleEnum.S_USER)) {
         return user;
       }
 

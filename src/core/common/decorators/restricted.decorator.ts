@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
 import { RoleEnum } from '../enums/role.enum';
-import { getStringIds } from '../helpers/db.helper';
+import { equalIds, getStringIds } from '../helpers/db.helper';
 import { IdsType } from '../types/ids.type';
 
 /**
@@ -31,12 +31,13 @@ export const getRestricted = (object: unknown, propertyKey: string) => {
 /**
  * Check data for restricted properties (properties with `Restricted` decorator)
  *
- * If restricted roles includes RoleEnum.OWNER, ownerId(s) from current data (in DB) must be set in options.
+ * If restricted roles includes RoleEnum.S_CREATOR, `creator` (createdBy) from current (DB) data must be set in options
+ * If restricted roles includes RoleEnum.S_OWNER, `ownerIds` from current (DB) data must be set in options
  */
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  options: { ignoreUndefined?: boolean; ownerIds?: IdsType; throwError?: boolean } = {},
+  options: { creator?: IdsType; ignoreUndefined?: boolean; ownerIds?: IdsType; throwError?: boolean } = {},
   processedObjects: any[] = []
 ) => {
   const config = {
@@ -76,8 +77,13 @@ export const checkRestricted = (
     if (roles && roles.some((value) => !!value)) {
       // Check user and user roles
       if (!user || !user.hasRole(roles)) {
-        // Check special role for owner
-        if (user && roles.includes(RoleEnum.OWNER)) {
+        // Check special creator role
+        if (user?.id && roles.includes(RoleEnum.S_CREATOR) && equalIds(user.id, config.creator)) {
+          continue;
+        }
+
+        // Check special owner role
+        else if (user && roles.includes(RoleEnum.S_OWNER)) {
           const userId = getStringIds(user);
           const ownerIds = config.ownerIds ? getStringIds(config.ownerIds) : null;
 

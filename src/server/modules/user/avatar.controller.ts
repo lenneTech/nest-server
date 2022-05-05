@@ -22,7 +22,7 @@ export class AvatarController {
   /**
    * Upload files
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Post('upload')
   @UseInterceptors(
     FileInterceptor(

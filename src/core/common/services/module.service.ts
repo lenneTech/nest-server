@@ -39,6 +39,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     input: any,
     currentUser: { id: any; hasRole: (roles: string[]) => boolean },
     options?: {
+      creator?: IdsType;
       metatype?: any;
       ownerIds?: IdsType;
       roles?: string | string[];
@@ -86,24 +87,31 @@ export abstract class ModuleService<T extends CoreModel = any> {
       await this.prepareInput(config.input, config.prepareInput);
     }
 
+    // Get DB object
+    const getDbObject = async () => {
+      if (config.dbObject) {
+        if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
+          const dbObject = await this.get(getStringIds(config.dbObject));
+          if (dbObject) {
+            config.dbObject = dbObject;
+          }
+        }
+      }
+      return config.dbObject;
+    };
+
     // Get owner IDs
     let ownerIds = undefined;
     if (config.checkRights && this.checkRights) {
       ownerIds = getStringIds(config.ownerIds);
       if (!ownerIds?.length) {
-        if (config.dbObject) {
-          if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
-            ownerIds = (await this.get(getStringIds(config.dbObject)))?.ownerIds;
-          } else {
-            ownerIds = config.dbObject.ownerIds;
-          }
-        }
+        ownerIds = (await getDbObject())?.ownerIds;
       }
     }
 
     // Check rights for input
     if (config.input && config.checkRights && this.checkRights) {
-      const opts: any = { ownerIds, roles: config.roles };
+      const opts: any = { creator: (await getDbObject())?.createdBy, ownerIds, roles: config.roles };
       if (config.inputType) {
         opts.metatype = config.resultType;
       }
@@ -129,7 +137,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Check output rights
     if (config.checkRights && this.checkRights) {
-      const opts: any = { ownerIds, roles: config.roles, throwError: false };
+      const opts: any = { creator: (await getDbObject())?.createdBy, ownerIds, roles: config.roles, throwError: false };
       if (config.resultType) {
         opts.metatype = config.resultType;
       }

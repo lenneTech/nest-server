@@ -5,7 +5,7 @@ import * as _ from 'lodash';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
 import { IdsType } from '../types/ids.type';
-import { getStringIds } from './db.helper';
+import { equalIds, getStringIds } from './db.helper';
 
 /**
  * Helper class for inputs
@@ -18,7 +18,7 @@ export default class InputHelper {
   public static async check(
     value: any,
     user: { id: any; hasRole: (roles: string[]) => boolean },
-    options?: { metatype?: any; ownerIds?: IdsType; roles?: string | string[] }
+    options?: { creator?: IdsType; metatype?: any; ownerIds?: IdsType; roles?: string | string[] }
   ): Promise<any> {
     return check(value, user, options);
   }
@@ -182,7 +182,7 @@ export default class InputHelper {
 export async function check(
   value: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  options?: { metatype?: any; ownerIds?: IdsType; roles?: string | string[]; throwError?: boolean }
+  options?: { creator?: IdsType; metatype?: any; ownerIds?: IdsType; roles?: string | string[]; throwError?: boolean }
 ): Promise<any> {
   const config = {
     throwError: true,
@@ -196,11 +196,13 @@ export async function check(
       roles = [roles];
     }
     let valid = false;
-    if (roles.includes(RoleEnum.USER) && user?.id) {
+    if (roles.includes(RoleEnum.S_USER) && user?.id) {
       valid = true;
     } else if (user.hasRole(roles)) {
       valid = true;
-    } else if (roles.includes(RoleEnum.OWNER) && user?.id && config.ownerIds) {
+    } else if (roles.includes(RoleEnum.S_CREATOR) && user?.id && equalIds(user.id, config.creator)) {
+      valid = true;
+    } else if (roles.includes(RoleEnum.S_OWNER) && user?.id && config.ownerIds) {
       let ownerIds: string | string[] = getStringIds(config.ownerIds);
       if (!Array.isArray(ownerIds)) {
         ownerIds = [ownerIds];
