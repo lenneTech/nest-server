@@ -1,17 +1,17 @@
 /**
- * Enums for role decorator
+ * Enums for Resolver @Role and Model @Restricted decorator and for roles property in ServiceOptions
  */
 export enum RoleEnum {
   // ===================================================================================================================
-  // Real roles (integrated into user.roles), which can be used via @Roles for Models (properties)
-  // and Resolvers (methods)
+  // Real roles (integrated into user.roles), which can be used via @Restricted for Models (properties),
+  // via @Roles for Resolvers (methods) and via ServiceOptions for Resolver methods.
   // ===================================================================================================================
 
   // User must be an administrator (see roles of user)
   ADMIN = 'admin',
 
   // ===================================================================================================================
-  // Special system roles, which can be used via @Roles for Models (properties) and Resolvers (methods)
+  // Special system roles, which can be used via @Restricted for Models (properties), via @Roles for Resolvers (methods)
   // and via ServiceOptions for Resolver methods. This roles should not be integrated into user.roles!
   // ===================================================================================================================
 
@@ -19,7 +19,7 @@ export enum RoleEnum {
   S_USER = 's_user',
 
   // ===================================================================================================================
-  // Special system roles that check rights for DB objects and can be used via @Roles for Models (properties)
+  // Special system roles that check rights for DB objects and can be used via @Restricted for Models (properties)
   // and via ServiceOptions for Resolver methods. These roles should not be integrated in user.roles!
   // ===================================================================================================================
 
