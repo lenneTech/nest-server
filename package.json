@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "8.2.0",
+  "version": "8.3.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -61,8 +61,8 @@
     "@nestjs/mongoose": "9.0.3",
     "@nestjs/passport": "8.2.1",
     "@nestjs/platform-express": "8.4.4",
-    "apollo-server-core": "3.6.7",
-    "apollo-server-express": "3.6.7",
+    "apollo-server-core": "3.6.8",
+    "apollo-server-express": "3.6.8",
     "bcrypt": "5.0.1",
     "class-transformer": "0.5.1",
     "class-validator": "0.13.2",
@@ -75,7 +75,7 @@
     "mongodb": "4.5.0",
     "mongoose": "6.3.2",
     "multer": "1.4.4",
-    "node-mailjet": "3.3.13",
+    "node-mailjet": "3.4.1",
     "nodemailer": "6.7.5",
     "nodemon": "2.0.16",
     "passport": "0.5.2",

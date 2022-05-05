@@ -35,7 +35,7 @@ export abstract class CoreUserService<
    * Create user
    */
   async create(input: any, serviceOptions?: ServiceOptions): Promise<TUser> {
-    merge({ prepareInput: { create: true } }, serviceOptions);
+    serviceOptions = merge({ prepareInput: { create: true } }, serviceOptions);
     return this.process(
       async (data) => {
         // Create user with verification token
@@ -46,11 +46,6 @@ export abstract class CoreUserService<
 
         // Distinguish between different error messages when saving
         try {
-          await createdUser.save();
-          if (!createdUser.ownerIds) {
-            createdUser.ownerIds = [];
-          }
-          createdUser.ownerIds.push(createdUser.id);
           await createdUser.save();
         } catch (error) {
           if (error.code === 11000) {
