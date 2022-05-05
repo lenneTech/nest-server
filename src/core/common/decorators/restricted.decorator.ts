@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
 import { RoleEnum } from '../enums/role.enum';
+import { getStringIds } from '../helpers/db.helper';
+import { IdsType } from '../types/ids.type';
 
 /**
  * Restricted meta key
@@ -28,11 +30,13 @@ export const getRestricted = (object: unknown, propertyKey: string) => {
 
 /**
  * Check data for restricted properties (properties with `Restricted` decorator)
+ *
+ * If restricted roles includes RoleEnum.OWNER, ownerId(s) from current data (in DB) must be set in options.
  */
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  options: { ignoreUndefined?: boolean; throwError?: boolean } = {},
+  options: { ignoreUndefined?: boolean; ownerIds?: IdsType; throwError?: boolean } = {},
   processedObjects: any[] = []
 ) => {
   const config = {
@@ -55,7 +59,7 @@ export const checkRestricted = (
   // Array
   if (Array.isArray(data)) {
     // Check array items
-    return data.map((item) => checkRestricted(item, user, options, processedObjects));
+    return data.map((item) => checkRestricted(item, user, config, processedObjects));
   }
 
   // Object
@@ -74,18 +78,20 @@ export const checkRestricted = (
       if (!user || !user.hasRole(roles)) {
         // Check special role for owner
         if (user && roles.includes(RoleEnum.OWNER)) {
-          const userId = user.id.toString();
+          const userId = getStringIds(user);
+          const ownerIds = config.ownerIds ? getStringIds(config.ownerIds) : null;
 
           if (
-            !data.ownerIds ||
-            !(
-              data.ownerIds === userId ||
-              (Array.isArray(data.ownerIds) &&
-                data.ownerIds.some((item) => (item.id ? item.id.toString() === userId : item.toString() === userId)))
-            )
+            // No owner IDs
+            !ownerIds ||
+            // User is not the owner
+            !(ownerIds === userId || (Array.isArray(ownerIds) && ownerIds.includes(userId)))
           ) {
             // The user does not have the required rights and is not the owner
             if (config.throwError) {
+              if (!config.ownerIds) {
+                throw new UnauthorizedException('Lack of ownerIds to verify ownership of ' + propertyKey);
+              }
               throw new UnauthorizedException('Current user is not allowed to set ' + propertyKey);
             }
             continue;
@@ -101,7 +107,7 @@ export const checkRestricted = (
     }
 
     // Check property data
-    data[propertyKey] = checkRestricted(data[propertyKey], user, options, processedObjects);
+    data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
   }
 
   // Return processed data

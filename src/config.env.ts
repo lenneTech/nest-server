@@ -109,8 +109,9 @@ const config: { [env: string]: IServerOptions } = {
  *
  * default: development
  */
-const envConfig = config[process.env['NODE' + '_ENV'] || 'development'] || config.development;
-console.log('Server starts in mode: ', process.env['NODE' + '_ENV'] || 'development');
+const env = process.env['NODE' + '_ENV'] || 'development';
+const envConfig = config[env] || config.development;
+console.log('Configured for: ' + envConfig.env + (env !== envConfig.env ? ' (requested: ' + env + ')' : ''));
 
 /**
  * Export envConfig as default

@@ -1,8 +1,11 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import * as _ from 'lodash';
 import { checkRestricted } from '../decorators/restricted.decorator';
+import { RoleEnum } from '../enums/role.enum';
+import { IdsType } from '../types/ids.type';
+import { getStringIds } from './db.helper';
 
 /**
  * Helper class for inputs
@@ -15,9 +18,9 @@ export default class InputHelper {
   public static async check(
     value: any,
     user: { id: any; hasRole: (roles: string[]) => boolean },
-    metatype?
+    options?: { metatype?: any; ownerIds?: IdsType; roles?: string | string[] }
   ): Promise<any> {
-    return check(value, user, metatype);
+    return check(value, user, options);
   }
 
   // Standard error function
@@ -179,34 +182,80 @@ export default class InputHelper {
 export async function check(
   value: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  metatype?
+  options?: { metatype?: any; ownerIds?: IdsType; roles?: string | string[]; throwError?: boolean }
 ): Promise<any> {
+  const config = {
+    throwError: true,
+    ...options,
+  };
+
+  // Check roles
+  if (config.roles?.length && config.throwError) {
+    let roles = config.roles;
+    if (!Array.isArray(roles)) {
+      roles = [roles];
+    }
+    let valid = false;
+    if (roles.includes(RoleEnum.USER) && user?.id) {
+      valid = true;
+    } else if (user.hasRole(roles)) {
+      valid = true;
+    } else if (roles.includes(RoleEnum.OWNER) && user?.id && config.ownerIds) {
+      let ownerIds: string | string[] = getStringIds(config.ownerIds);
+      if (!Array.isArray(ownerIds)) {
+        ownerIds = [ownerIds];
+      }
+      valid = ownerIds.includes(getStringIds(user.id));
+    }
+    if (!valid) {
+      throw new UnauthorizedException('Missing rights');
+    }
+  }
+
   // Return value if it is only a basic type
-  if (typeof value !== 'object' || !metatype || isBasicType(metatype)) {
+  if (typeof value !== 'object') {
     return value;
   }
 
-  // Convert to metatype
-  if (!(value instanceof metatype)) {
-    if ((metatype as any)?.map) {
-      value = (metatype as any)?.map(value);
-    } else {
-      value = plainToInstance(metatype, value);
+  // Check array
+  if (Array.isArray(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      value[key] = await check(item, user, config);
+    }
+    return value;
+  }
+
+  const metatype = config.metatype;
+  if (metatype) {
+    // Check metatype
+    if (isBasicType(metatype)) {
+      return value;
+    }
+
+    // Convert to metatype
+    if (!(value instanceof metatype)) {
+      if ((metatype as any)?.map) {
+        value = (metatype as any)?.map(value);
+      } else {
+        value = plainToInstance(metatype, value);
+      }
     }
   }
 
   // Validate
   const errors = await validate(value);
-  if (errors.length > 0) {
+  if (errors.length > 0 && config.throwError) {
     throw new BadRequestException('Validation failed');
   }
 
   // Remove restricted values if roles are missing
-  value = checkRestricted(value, user);
+  value = checkRestricted(value, user, config);
   return value;
 }
 
-// Standard error function
+/**
+ * Standard error function
+ */
 export function errorFunction(caller: (...params) => any, message = 'Required parameter is missing or invalid') {
   const err = new Error(message);
   Error.captureStackTrace(err, caller);

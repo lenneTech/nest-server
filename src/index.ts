@@ -52,6 +52,7 @@ export * from './core/common/services/module.service';
 export * from './core/common/services/template.service';
 export * from './core/common/types/core-model-constructor.type';
 export * from './core/common/types/field-selection.type';
+export * from './core/common/types/ids.type';
 export * from './core/common/types/plain-input.type';
 export * from './core/common/types/string-or-object-id.type';
 

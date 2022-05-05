@@ -28,6 +28,6 @@ export class CheckInputPipe implements PipeTransform {
     const { user }: any = getContextData(this.context);
 
     // Check and return
-    return check(value, user, metatype);
+    return check(value, user, { metatype });
   }
 }
