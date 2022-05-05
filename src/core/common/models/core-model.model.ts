@@ -78,7 +78,7 @@ export abstract class CoreModel {
    * Initialize instance with default values instead of undefined
    * Should be overwritten in child class to organize the defaults
    */
-  public init<T extends CoreModel>(...args: any[]): this {
+  public init(...args: any[]): this {
     return this;
   }
 

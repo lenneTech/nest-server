@@ -1,9 +1,11 @@
-import { Document, Model } from 'mongoose';
-import { popAndMap } from '../helpers/db.helper';
+import { Document, Model, Types } from 'mongoose';
+import { getStringIds, popAndMap } from '../helpers/db.helper';
+import { check } from '../helpers/input.helper';
 import { prepareInput, prepareOutput } from '../helpers/service.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
+import { IdsType } from '../types/ids.type';
 
 /**
  * Module service class to be extended by concrete module services
@@ -31,16 +33,47 @@ export abstract class ModuleService<T extends CoreModel = any> {
   }
 
   /**
+   * Check rights of current user for input
+   */
+  checkRights(
+    input: any,
+    currentUser: { id: any; hasRole: (roles: string[]) => boolean },
+    options?: {
+      metatype?: any;
+      ownerIds?: IdsType;
+      roles?: string | string[];
+      throwError?: boolean;
+    }
+  ): Promise<any> {
+    const config = {
+      metatype: this.mainModelConstructor,
+      ...options,
+    };
+    return check(input, currentUser, config);
+  }
+
+  /**
+   * Get function to get Object via ID, necessary for checkInput
+   */
+  abstract get(id: any, ...args: any[]): any;
+
+  /**
    * Run service function with pre- and post-functions
    */
   async process(
     serviceFunc: (options?: { [key: string]: any; input?: any; serviceOptions?: ServiceOptions }) => any,
-    options?: { [key: string]: any; input?: any; serviceOptions?: ServiceOptions }
+    options?: {
+      [key: string]: any;
+      dbObject?: string | Types.ObjectId | any;
+      input?: any;
+      serviceOptions?: ServiceOptions;
+    }
   ) {
     // Configuration with default values
     const config = {
-      currentUser: null,
-      fieldSelection: null,
+      checkRights: true,
+      dbObject: options?.dbObject,
+      input: options?.input,
       processFieldSelection: {},
       prepareInput: {},
       prepareOutput: {},
@@ -50,11 +83,35 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Prepare input
     if (config.prepareInput && this.prepareInput) {
-      await this.prepareInput(options?.input, config.prepareInput);
+      await this.prepareInput(config.input, config.prepareInput);
+    }
+
+    // Get owner IDs
+    let ownerIds = undefined;
+    if (config.checkRights && this.checkRights) {
+      ownerIds = getStringIds(config.ownerIds);
+      if (!ownerIds?.length) {
+        if (config.dbObject) {
+          if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
+            ownerIds = (await this.get(getStringIds(config.dbObject)))?.ownerIds;
+          } else {
+            ownerIds = config.dbObject.ownerIds;
+          }
+        }
+      }
+    }
+
+    // Check rights for input
+    if (config.input && config.checkRights && this.checkRights) {
+      const opts: any = { ownerIds, roles: config.roles };
+      if (config.inputType) {
+        opts.metatype = config.resultType;
+      }
+      config.input = await this.checkRights(config.input, config.currentUser as any, opts);
     }
 
     // Run service function
-    const result = await serviceFunc(options);
+    let result = await serviceFunc(config);
 
     // Pop and map main model
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
@@ -67,10 +124,19 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
         config.prepareOutput.targetModel = null;
       }
-      return this.prepareOutput(result, config.prepareOutput);
+      result = await this.prepareOutput(result, config.prepareOutput);
     }
 
-    // Return result without output preparation
+    // Check output rights
+    if (config.checkRights && this.checkRights) {
+      const opts: any = { ownerIds, roles: config.roles, throwError: false };
+      if (config.resultType) {
+        opts.metatype = config.resultType;
+      }
+      result = await this.checkRights(result, config.currentUser as any, opts);
+    }
+
+    // Return (prepared) result
     return result;
   }
 
