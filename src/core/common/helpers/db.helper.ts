@@ -4,6 +4,7 @@ import { Document, Model, PopulateOptions, Query, SchemaType, Types } from 'mong
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
+import { IdsType } from '../types/ids.type';
 import { StringOrObjectId } from '../types/string-or-object-id.type';
 
 // =====================================================================================================================
@@ -79,6 +80,20 @@ export function addIds(
 }
 
 /**
+ * Checks if all IDs are equal
+ */
+export function equalIds(...ids: IdsType[]): boolean {
+  if (!ids) {
+    return true;
+  }
+  const compare = getStringIds(ids[0]);
+  if (!compare) {
+    return false;
+  }
+  return ids.every((id) => getStringIds(id) === compare);
+}
+
+/**
  * Get indexes of IDs in an array
  */
 export function getIndexesViaIds(ids: any | any[], array: any[]): number[] {
@@ -97,7 +112,7 @@ export function getIndexesViaIds(ids: any | any[], array: any[]): number[] {
   const indexes: number[] = [];
   ids.forEach((id) => {
     array.forEach((element, index) => {
-      if (getStringIds(id) === getStringIds(element)) {
+      if (equalIds(id, element)) {
         indexes.push(index);
       }
     });

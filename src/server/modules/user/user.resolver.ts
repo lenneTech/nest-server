@@ -40,13 +40,13 @@ export class UserResolver {
   /**
    * Get user via ID
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Query((returns) => User, { description: 'Get user with specified ID' })
   async getUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
     return await this.userService.get(id, {
       currentUser: user,
       fieldSelection: { info, select: 'getUser' },
-      roles: [RoleEnum.OWNER, RoleEnum.ADMIN],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
 
@@ -89,13 +89,13 @@ export class UserResolver {
   /**
    * Delete existing user
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Mutation((returns) => User, { description: 'Delete existing user' })
   async deleteUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
     return await this.userService.delete(id, {
       currentUser: user,
       fieldSelection: { info, select: 'deleteUser' },
-      roles: [RoleEnum.ADMIN, RoleEnum.OWNER],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
 
@@ -110,7 +110,7 @@ export class UserResolver {
   /**
    * Update existing user
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Mutation((returns) => User, { description: 'Update existing user' })
   async updateUser(
     @Args('input') input: UserInput,
@@ -123,7 +123,7 @@ export class UserResolver {
       currentUser: user,
       fieldSelection: { info, select: 'updateUser' },
       inputType: UserInput,
-      roles: [RoleEnum.ADMIN, RoleEnum.OWNER],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
 

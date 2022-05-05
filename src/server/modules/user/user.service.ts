@@ -44,7 +44,14 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    */
   async create(input: UserCreateInput, serviceOptions?: ServiceOptions): Promise<User> {
     // Get prepared user
-    const user = await super.create(input, serviceOptions);
+    let user = await super.create(input, serviceOptions);
+
+    // Add the createdBy information in an additional step if it was not set by the system,
+    // because the user created himself and could not exist as currentUser before
+    if (!user.createdBy) {
+      await this.mainDbModel.findByIdAndUpdate(user.id, { createdBy: user.id });
+      user = await this.get(user.id, serviceOptions);
+    }
 
     // Publish action
     if (serviceOptions?.pubSub === undefined || serviceOptions.pubSub) {

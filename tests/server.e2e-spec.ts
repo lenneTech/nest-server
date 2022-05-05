@@ -91,10 +91,11 @@ describe('ServerModule (e2e)', () => {
           firstName: 'Everardo',
         },
       },
-      fields: ['id', 'email', 'roles'],
+      fields: ['id', 'email', 'roles', { createdBy: ['id'] }],
     });
     expect(res.email).toEqual(gEmail);
     expect(res.roles).toEqual([]);
+    expect(res.createdBy.id).toEqual(res.id);
     gId = res.id;
   });
 
@@ -230,7 +231,6 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken }
     );
-    console.log(res);
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
@@ -302,7 +302,6 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken }
     );
-    console.log(res);
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
 
