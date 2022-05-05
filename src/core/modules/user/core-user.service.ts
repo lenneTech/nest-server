@@ -47,6 +47,11 @@ export abstract class CoreUserService<
         // Distinguish between different error messages when saving
         try {
           await createdUser.save();
+          if (!createdUser.ownerIds) {
+            createdUser.ownerIds = [];
+          }
+          createdUser.ownerIds.push(createdUser.id);
+          await createdUser.save();
         } catch (error) {
           if (error.code === 11000) {
             throw new UnprocessableEntityException(
@@ -68,16 +73,11 @@ export abstract class CoreUserService<
    * Get user via email
    */
   async getViaEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
-    return this.process(
-      async () => {
-        const user = await this.mainDbModel.findOne({ email }).exec();
-        if (!user) {
-          throw new NotFoundException(`No user found with email: ${email}`);
-        }
-        return user;
-      },
-      { serviceOptions }
-    );
+    const dbObject = await this.mainDbModel.findOne({ email }).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No user found with email: ${email}`);
+    }
+    return this.process(async () => dbObject, { dbObject, serviceOptions });
   }
 
   /**
@@ -97,30 +97,29 @@ export abstract class CoreUserService<
    * Verify user with token
    */
   async verify(token: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    // Get user
+    const dbObject = await this.mainDbModel.findOne({ verificationToken: token }).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No user found with verify token: ${token}`);
+    }
+    if (!dbObject.verificationToken) {
+      throw new Error('User has no token');
+    }
+    if (dbObject.verified) {
+      throw new Error('User already verified');
+    }
     return this.process(
       async () => {
-        // Get user
-        const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
-        if (!user) {
-          throw new NotFoundException(`No user found with verify token: ${token}`);
-        }
-        if (!user.verificationToken) {
-          throw new Error('User has no token');
-        }
-        if (user.verified) {
-          throw new Error('User already verified');
-        }
-
         // Update user
-        await Object.assign(user, {
+        await Object.assign(dbObject, {
           verified: true,
           verificationToken: null,
         }).save();
 
         // Return prepared user
-        return user;
+        return dbObject;
       },
-      { serviceOptions }
+      { dbObject, serviceOptions }
     );
   }
 
@@ -128,24 +127,24 @@ export abstract class CoreUserService<
    * Set newpassword for user with token
    */
   async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    // Get user
+    const dbObject = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No user found with password reset token: ${token}`);
+    }
+
     return this.process(
       async () => {
-        // Get user
-        const user = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
-        if (!user) {
-          throw new NotFoundException(`No user found with password reset token: ${token}`);
-        }
-
         // Update user
-        await Object.assign(user, {
+        await Object.assign(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
         }).save();
 
         // Return user
-        return user;
+        return dbObject;
       },
-      { serviceOptions }
+      { dbObject, serviceOptions }
     );
   }
 
@@ -153,23 +152,22 @@ export abstract class CoreUserService<
    * Set password rest token for email
    */
   async setPasswordResetTokenForEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    // Get user
+    const dbObject = await this.mainDbModel.findOne({ email }).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No user found with email: ${email}`);
+    }
     return this.process(
       async () => {
-        // Get user
-        const user = await this.mainDbModel.findOne({ email }).exec();
-        if (!user) {
-          throw new NotFoundException(`No user found with email: ${email}`);
-        }
-
         // Set reset token
         const resetToken = crypto.randomBytes(32).toString('hex');
-        user.passwordResetToken = resetToken;
-        await user.save();
+        dbObject.passwordResetToken = resetToken;
+        await dbObject.save();
 
         // Return user
-        return user;
+        return dbObject;
       },
-      { serviceOptions }
+      { dbObject, serviceOptions }
     );
   }
 

@@ -230,6 +230,7 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken }
     );
+    console.log(res);
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
     expect(res.firstName).toEqual('Jonny');
@@ -301,6 +302,7 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken }
     );
+    console.log(res);
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
 

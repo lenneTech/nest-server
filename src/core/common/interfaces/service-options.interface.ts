@@ -1,5 +1,6 @@
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { FieldSelection } from '../types/field-selection.type';
+import { IdsType } from '../types/ids.type';
 
 /**
  * General service options
@@ -7,6 +8,11 @@ import { FieldSelection } from '../types/field-selection.type';
 export interface ServiceOptions {
   // All fields are allowed to be compatible as far as possible
   [key: string]: any;
+
+  // Check rights for input data (see check function in InputHelper)
+  // If falsy: input data will not be checked
+  // If truly (default): input data will be checked
+  checkRights?: boolean;
 
   // Current user to set ownership, check roles and other things
   currentUser?: {
@@ -17,6 +23,12 @@ export interface ServiceOptions {
 
   // Field selection for results
   fieldSelection?: FieldSelection;
+
+  // Overwrites type of input (array items)
+  inputType?: new (...params: any[]) => any;
+
+  // Owner IDs
+  ownerIds?: IdsType;
 
   // Process field selection
   // If {} or not set, then the field selection runs with defaults
@@ -50,4 +62,10 @@ export interface ServiceOptions {
 
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;
+
+  // Overwrites type of result (array items)
+  resultType?: new (...params: any[]) => any;
+
+  // Roles (as string) to check
+  roles?: string | string[];
 }

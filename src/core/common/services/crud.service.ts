@@ -24,16 +24,11 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Get item by ID
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<T> {
-    return this.process(
-      async (data) => {
-        const item = await this.mainDbModel.findById(data.input).exec();
-        if (!item) {
-          throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
-        }
-        return item;
-      },
-      { input: id, serviceOptions }
-    );
+    const dbObject = await this.mainDbModel.findById(id).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+    }
+    return this.process(async () => dbObject, { dbObject, serviceOptions });
   }
 
   /**
@@ -74,15 +69,15 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Update item via ID
    */
   async update(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+    const dbObject = await this.mainDbModel.findById(id).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+    }
     return this.process(
       async (data) => {
-        const item = await this.mainDbModel.findById(id).exec();
-        if (!item) {
-          throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
-        }
-        return await Object.assign(item, data.input).save();
+        return await Object.assign(dbObject, data.input).save();
       },
-      { input, serviceOptions }
+      { dbObject, input, serviceOptions }
     );
   }
 
@@ -90,16 +85,16 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Delete item via ID
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+    const dbObject = await this.mainDbModel.findById(id).exec();
+    if (!dbObject) {
+      throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+    }
     return this.process(
       async (data) => {
-        const item = await this.mainDbModel.findById(id).exec();
-        if (!item) {
-          throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
-        }
         await this.mainDbModel.findByIdAndDelete(id).exec();
-        return item;
+        return dbObject;
       },
-      { input: id, serviceOptions }
+      { dbObject, input: id, serviceOptions }
     );
   }
 }
