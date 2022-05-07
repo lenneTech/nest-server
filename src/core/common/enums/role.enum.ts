@@ -15,7 +15,7 @@ export enum RoleEnum {
   // and via ServiceOptions for Resolver methods. This roles should not be integrated into user.roles!
   // ===================================================================================================================
 
-  // User must be signed in (see context user, e.g. @GraphQLUser)
+  // User must be logged in (see context user, e.g. @GraphQLUser)
   S_USER = 's_user',
 
   // ===================================================================================================================
@@ -25,7 +25,4 @@ export enum RoleEnum {
 
   // User must be the creator of the processed object(s) (see createdBy property of object(s))
   S_CREATOR = 's_creator',
-
-  // User must be an owner of the processed object(s) (see owners property of object(s))
-  S_OWNER = 's_owner',
 }

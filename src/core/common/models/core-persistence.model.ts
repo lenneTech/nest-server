@@ -60,16 +60,6 @@ export abstract class CorePersistenceModel extends CoreModel {
   labels: string[] = undefined;
 
   /**
-   * IDs of the Owners
-   */
-  @Field((type) => [String], {
-    description: 'Users who own the object',
-    nullable: true,
-  })
-  @Prop([String])
-  ownerIds: string[] = undefined;
-
-  /**
    * Tags for the object
    */
   @Field((type) => [String], {
@@ -97,7 +87,6 @@ export abstract class CorePersistenceModel extends CoreModel {
     super.init();
     this.createdAt = this.createdAt === undefined ? new Date() : this.createdAt;
     this.labels = this.labels === undefined ? [] : this.labels;
-    this.ownerIds = this.ownerIds === undefined ? [] : this.ownerIds;
     this.tags = this.tags === undefined ? [] : this.tags;
     this.updatedAt = this.tags === undefined ? this.createdAt : this.updatedAt;
     return this;

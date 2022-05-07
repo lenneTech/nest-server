@@ -1,43 +1,55 @@
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
+import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
-import { equalIds, getStringIds } from '../helpers/db.helper';
-import { IdsType } from '../types/ids.type';
+import { getIncludedIds } from '../helpers/db.helper';
+import { RequireAtLeastOne } from '../types/required-at-least-one.type';
 
 /**
  * Restricted meta key
  */
 const restrictedMetaKey = Symbol('restricted');
+export type RestrictedType = (
+  | string
+  | RequireAtLeastOne<
+      { memberOf?: string | string[]; roles?: string | string[]; processType?: ProcessType },
+      'memberOf' | 'roles'
+    >
+)[];
 
 /**
  * Decorator for restricted properties
  *
- * If the decorator is used it will be checked if the current user has one of the included roles.
- * If this is not the case, the property is removed from the return object.
+ * The restricted decorator can include roles as strings or object with property `roles`
+ * and memberships as objects with property `memberOf`.
  *
- * Activation of the CheckResponseInterceptor is necessary for use.
+ * Roles:
+ *    If one or more Role(Enum)s are set, the user must have at least one of it in his `role` property.
+ *
+ * Memberships:
+ *    If one or more membership objects are set, the ID of the user must be included in one of the
+ *    properties of the processed item, which is specified by the value of `memberOf`
+ *    Via processType the restriction can be set for input or output only
  */
-export const Restricted = (...roles: string[]): PropertyDecorator => {
-  return Reflect.metadata(restrictedMetaKey, roles);
+export const Restricted = (...rolesOrMember: RestrictedType): PropertyDecorator => {
+  return Reflect.metadata(restrictedMetaKey, rolesOrMember);
 };
 
 /**
  * Get restricted
  */
-export const getRestricted = (object: unknown, propertyKey: string) => {
+export const getRestricted = (object: unknown, propertyKey: string): RestrictedType => {
   return Reflect.getMetadata(restrictedMetaKey, object, propertyKey);
 };
 
 /**
  * Check data for restricted properties (properties with `Restricted` decorator)
- *
- * If restricted roles includes RoleEnum.S_CREATOR, `creator` (createdBy) from current (DB) data must be set in options
- * If restricted roles includes RoleEnum.S_OWNER, `ownerIds` from current (DB) data must be set in options
+ * For special Roles and member of group checking the dbObject must be set in options
  */
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  options: { creator?: IdsType; ignoreUndefined?: boolean; ownerIds?: IdsType; throwError?: boolean } = {},
+  options: { dbObject?: any; ignoreUndefined?: boolean; processType?: ProcessType; throwError?: boolean } = {},
   processedObjects: any[] = []
 ) => {
   const config = {
@@ -70,50 +82,99 @@ export const checkRestricted = (
       continue;
     }
 
-    // Get roles
-    const roles = getRestricted(data, propertyKey);
+    // Check restricted
+    const restricted = getRestricted(data, propertyKey);
+    let valid = true;
+    if (restricted?.length) {
+      valid = false;
 
-    // If roles are specified
-    if (roles && roles.some((value) => !!value)) {
-      // Check user and user roles
-      if (!user || !user.hasRole(roles)) {
-        // Check special creator role
-        if (user?.id && roles.includes(RoleEnum.S_CREATOR) && equalIds(user.id, config.creator)) {
-          continue;
+      // Get roles
+      const roles: string[] = [];
+      restricted.forEach((item) => {
+        if (typeof item === 'string') {
+          roles.push(item);
+        } else if (
+          item?.roles?.length &&
+          (config.processType && item.processType ? config.processType === item.processType : true)
+        ) {
+          if (Array.isArray(item.roles)) {
+            roles.push(...item.roles);
+          } else {
+            roles.push(item.roles);
+          }
+        }
+      });
+
+      // Check roles
+      if (roles.length) {
+        // Check roles
+        if (
+          user?.hasRole(roles) ||
+          (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
+        ) {
+          valid = true;
+        }
+      }
+
+      if (!valid) {
+        // Get groups
+        const groups = restricted.filter((item) => {
+          return (
+            typeof item === 'object' &&
+            // Check if object is valid
+            item.memberOf.length &&
+            // Check if processType is specified and is valid for current process
+            (config.processType && item.processType ? config.processType === item.processType : true)
+          );
+        }) as { memberOf: string | string[] }[];
+
+        // Check groups
+        if (groups.length) {
+          // Get members from groups
+          const members = [];
+          for (const group of groups) {
+            let properties: string[] = group.memberOf as string[];
+            if (!Array.isArray(group.memberOf)) {
+              properties = [group.memberOf];
+            }
+            for (const property of properties) {
+              const items = config.dbObject?.[property];
+              if (items) {
+                if (Array.isArray(items)) {
+                  members.concat(items);
+                } else {
+                  members.push(items);
+                }
+              }
+            }
+          }
+
+          // Check if user is a member
+          if (getIncludedIds(members, user)) {
+            valid = true;
+          }
         }
 
-        // Check special owner role
-        else if (user && roles.includes(RoleEnum.S_OWNER)) {
-          const userId = getStringIds(user);
-          const ownerIds = config.ownerIds ? getStringIds(config.ownerIds) : null;
-
-          if (
-            // No owner IDs
-            !ownerIds ||
-            // User is not the owner
-            !(ownerIds === userId || (Array.isArray(ownerIds) && ownerIds.includes(userId)))
-          ) {
-            // The user does not have the required rights and is not the owner
-            if (config.throwError) {
-              if (!config.ownerIds) {
-                throw new UnauthorizedException('Lack of ownerIds to verify ownership of ' + propertyKey);
-              }
-              throw new UnauthorizedException('Current user is not allowed to set ' + propertyKey);
-            }
-            continue;
-          }
-        } else {
-          // The user does not have the required rights
-          if (config.throwError) {
-            throw new UnauthorizedException('Current user is not allowed to set ' + propertyKey);
-          }
-          continue;
+        // Check if there are no limitations
+        if (!roles.length && !groups.length) {
+          valid = true;
         }
       }
     }
 
-    // Check property data
-    data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
+    // Check rights
+    if (valid) {
+      // Check deep
+      data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
+    } else {
+      // Throw error
+      if (config.throwError) {
+        throw new UnauthorizedException('The current user has no access rights for ' + propertyKey);
+      }
+
+      // Remove property
+      delete data[propertyKey];
+    }
   }
 
   // Return processed data

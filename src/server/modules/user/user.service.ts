@@ -46,11 +46,11 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     // Get prepared user
     let user = await super.create(input, serviceOptions);
 
-    // Add the createdBy information in an additional step if it was not set by the system,
-    // because the user created himself and could not exist as currentUser before
+    // Add the createdBy information in an extra step if it was not set by the system because the user created himself
+    // and could not exist as currentUser before
     if (!user.createdBy) {
       await this.mainDbModel.findByIdAndUpdate(user.id, { createdBy: user.id });
-      user = await this.get(user.id, serviceOptions);
+      user = await this.get(user.id, { ...serviceOptions, currentUser: serviceOptions.currentUser || user });
     }
 
     // Publish action
