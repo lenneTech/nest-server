@@ -1,6 +1,5 @@
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { FieldSelection } from '../types/field-selection.type';
-import { IdsType } from '../types/ids.type';
 
 /**
  * General service options
@@ -14,7 +13,7 @@ export interface ServiceOptions {
   // If truly (default): input data will be checked
   checkRights?: boolean;
 
-  // Current user to set ownership, check roles and other things
+  // Current user to set ownership, check rights and other things
   currentUser?: {
     [key: string]: any;
     id: string;
@@ -26,9 +25,6 @@ export interface ServiceOptions {
 
   // Overwrites type of input (array items)
   inputType?: new (...params: any[]) => any;
-
-  // Owner IDs
-  ownerIds?: IdsType;
 
   // Process field selection
   // If {} or not set, then the field selection runs with defaults

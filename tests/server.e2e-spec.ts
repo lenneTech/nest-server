@@ -257,7 +257,7 @@ describe('ServerModule (e2e)', () => {
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.response.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Current user is not allowed to set roles');
+    expect(res.errors[0].message).toEqual('The current user has no access rights for roles');
     expect(res.data).toBe(null);
   });
 
