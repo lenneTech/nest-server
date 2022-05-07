@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "8.3.1",
+  "version": "8.4.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -98,7 +98,7 @@
     "@typescript-eslint/eslint-plugin": "5.22.0",
     "@typescript-eslint/parser": "5.22.0",
     "coffeescript": "2.7.0",
-    "eslint": "8.14.0",
+    "eslint": "8.15.0",
     "eslint-config-prettier": "8.5.0",
     "find-file-up": "2.0.1",
     "grunt": "1.5.2",
@@ -107,7 +107,7 @@
     "grunt-contrib-watch": "1.1.0",
     "grunt-sync": "0.8.2",
     "husky": "7.0.4",
-    "jest": "28.0.3",
+    "jest": "28.1.0",
     "pm2": "5.2.0",
     "prettier": "2.6.2",
     "pretty-quick": "3.1.3",

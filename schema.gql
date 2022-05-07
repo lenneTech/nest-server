@@ -13,9 +13,6 @@ type User {
   """Labels of the object"""
   labels: [String!]
 
-  """Users who own the object"""
-  ownerIds: [String!]
-
   """Tags for the object"""
   tags: [String!]
 

@@ -84,7 +84,7 @@ export function addIds(
  */
 export function equalIds(...ids: IdsType[]): boolean {
   if (!ids) {
-    return true;
+    return false;
   }
   const compare = getStringIds(ids[0]);
   if (!compare) {
@@ -94,9 +94,50 @@ export function equalIds(...ids: IdsType[]): boolean {
 }
 
 /**
+ * Get included ids
+ * @param includes IdsType, which should be checked if it contains the ID
+ * @param ids IdsType, which should be included
+ * @param convert If set the result array will be converted to pure type String array or ObjectId array
+ * @return IdsType with IDs which are included, undefined if includes or ids are missing or null if none is included
+ */
+export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'string'): string[];
+export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'object'): Types.ObjectId[];
+export function getIncludedIds<T = IdsType>(
+  includes: IdsType,
+  ids: T | IdsType,
+  convert?: 'string' | 'object'
+): T[] | null | undefined {
+  if (!includes || !ids) {
+    return undefined;
+  }
+
+  if (!Array.isArray(includes)) {
+    includes = [includes];
+  }
+
+  if (!Array.isArray(ids)) {
+    ids = [ids];
+  }
+
+  let result = [];
+  const includesStrings = getStringIds(includes);
+  for (const id of ids) {
+    if (includesStrings.includes(getStringIds(id))) {
+      result.push(id);
+    }
+  }
+
+  if (convert) {
+    result = convert === 'string' ? getStringIds(result) : getObjectIds(result);
+  }
+
+  return result.length ? result : null;
+}
+
+/**
  * Get indexes of IDs in an array
  */
-export function getIndexesViaIds(ids: any | any[], array: any[]): number[] {
+export function getIndexesViaIds(ids: IdsType, array: IdsType): number[] {
   // Check and prepare parameters
   if (!ids) {
     return [];
@@ -299,55 +340,6 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
  */
 export function getJSONClone<T = any>(obj: T): Partial<T> {
   return JSON.parse(JSON.stringify(obj));
-}
-
-/**
- * Check if ID is included
- * @param includes String, ObjectId or array with both, which should be checked if it contains the ID
- * @param ids String, ObjectId or array with both, which should be included
- * @param convert If set the result array will be converted to pure type String array or ObjectId array
- * @return StringOrObjectId[] Array with IDs which are included or null if none is included
- */
-export function includesIds(
-  includes: StringOrObjectId | StringOrObjectId[],
-  ids: StringOrObjectId | StringOrObjectId[],
-  convert?: 'string'
-): string[];
-export function includesIds(
-  includes: StringOrObjectId | StringOrObjectId[],
-  ids: StringOrObjectId | StringOrObjectId[],
-  convert?: 'object'
-): Types.ObjectId[];
-export function includesIds<T = StringOrObjectId>(
-  includes: StringOrObjectId | StringOrObjectId[] | any | any[],
-  ids: T | StringOrObjectId[],
-  convert?: 'string' | 'object'
-): T[] | null {
-  if (!includes || !ids) {
-    return null;
-  }
-
-  if (!Array.isArray(includes)) {
-    includes = [includes];
-  }
-
-  if (!Array.isArray(ids)) {
-    ids = [ids] as any;
-  }
-
-  let result = [];
-  const includesStrings = getStringIds(includes);
-  for (const id of ids as StringOrObjectId[]) {
-    if (includesStrings.includes(getStringIds(id))) {
-      result.push(id);
-    }
-  }
-
-  if (convert) {
-    result = convert === 'string' ? getStringIds(result) : getObjectIds(result);
-  }
-
-  return result.length ? result : null;
 }
 
 /**

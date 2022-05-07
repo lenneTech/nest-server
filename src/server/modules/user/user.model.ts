@@ -1,8 +1,8 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema } from 'mongoose';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
-import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Schema, Document } from 'mongoose';
 
 export type UserDocument = User & Document;
 

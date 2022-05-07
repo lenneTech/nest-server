@@ -15,6 +15,7 @@ export * from './core/common/decorators/restricted.decorator';
 export * from './core/common/decorators/roles.decorator';
 export * from './core/common/enums/comparison-operator.enum';
 export * from './core/common/enums/logical-operator.enum';
+export * from './core/common/enums/process-type.enum';
 export * from './core/common/enums/role.enum';
 export * from './core/common/enums/sort-order.emum';
 export * from './core/common/helpers/config.helper';
@@ -54,6 +55,8 @@ export * from './core/common/types/core-model-constructor.type';
 export * from './core/common/types/field-selection.type';
 export * from './core/common/types/ids.type';
 export * from './core/common/types/plain-input.type';
+export * from './core/common/types/require-only-one.type';
+export * from './core/common/types/required-at-least-one.type';
 export * from './core/common/types/string-or-object-id.type';
 
 // =====================================================================================================================

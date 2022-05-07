@@ -1,8 +1,7 @@
 import { DynamicModule, Global, Module, UnauthorizedException } from '@nestjs/common';
-import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { merge } from './core/common/helpers/config.helper';
-import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ConfigService } from './core/common/services/config.service';
@@ -19,8 +18,6 @@ import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
  * - MongooseModule
  * - GraphQL
  * - ConfigService
- * - CheckInput
- * - CheckResponse
  *
  * and sets the following services as globals:
  * - ConfigService
@@ -98,21 +95,6 @@ export class CoreModule {
         provide: ConfigService,
         useValue: new ConfigService(config),
       },
-
-      // [Global] The CheckResponseInterceptor restricts the response to the properties
-      // that are permitted for the current user
-      {
-        provide: APP_INTERCEPTOR,
-        useClass: CheckResponseInterceptor,
-      },
-
-      // [Global] The CheckInputPipe checks the permissibility of individual properties of inputs for the resolvers
-      // in relation to the current user, replaces MapAndValidatePipe
-      // Does not work yet, because context is missing: https://github.com/nestjs/graphql/issues/325
-      // {
-      //   provide: APP_PIPE,
-      //   useClass: CheckInputPipe,
-      // },
 
       // [Global] Map plain objects to metatype and validate
       {
