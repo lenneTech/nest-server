@@ -63,48 +63,6 @@ describe('Project (e2e)', () => {
   });
 
   // ===================================================================================================================
-  // Preparations
-  // ===================================================================================================================
-
-  /**
-   * Before all tests
-   */
-  beforeAll(async () => {
-    try {
-      const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [ServerModule],
-        providers: [
-          UserService,
-          {
-            provide: 'PUB_SUB',
-            useValue: new PubSub(),
-          },
-        ],
-      }).compile();
-      app = moduleFixture.createNestApplication();
-      app.setBaseViewsDir(envConfig.templates.path);
-      app.setViewEngine(envConfig.templates.engine);
-      await app.init();
-      testHelper = new TestHelper(app);
-      userService = moduleFixture.get<UserService>(UserService);
-
-      // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
-    } catch (e) {
-      console.log('beforeAllError', e);
-    }
-  });
-
-  /**
-   * After all tests are finished
-   */
-  afterAll(() => {
-    connection.close();
-    app.close();
-  });
-
-  // ===================================================================================================================
   // Initialization tests
   // ===================================================================================================================
 
