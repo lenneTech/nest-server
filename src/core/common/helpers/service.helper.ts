@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { plainToInstance } from 'class-transformer';
 import * as _ from 'lodash';
 import { RoleEnum } from '../enums/role.enum';
 
@@ -54,6 +55,7 @@ export async function prepareInput<T = any>(
     clone?: boolean;
     getNewArray?: boolean;
     removeUndefined?: boolean;
+    targetModel?: new (...args: any[]) => T;
   } = {}
 ): Promise<T> {
   // Configuration
@@ -83,6 +85,15 @@ export async function prepareInput<T = any>(
       input = await Object.getPrototypeOf(input).mapDeep(input);
     } else {
       input = _.cloneDeep(input);
+    }
+  }
+
+  // Map input if target model exist
+  if (config.targetModel && !(input instanceof config.targetModel)) {
+    if ((config.targetModel as any)?.map) {
+      input = await (config.targetModel as any).map(input);
+    } else {
+      input = plainToInstance(config.targetModel, input);
     }
   }
 
@@ -171,8 +182,12 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   }
 
   // Map output if target model exist
-  if (config.targetModel) {
-    output = await (config.targetModel as any).map(output);
+  if (config.targetModel && !(output instanceof config.targetModel)) {
+    if ((config.targetModel as any)?.map) {
+      output = await (config.targetModel as any).map(output);
+    } else {
+      output = plainToInstance(config.targetModel, output);
+    }
   }
 
   // Remove password if exists

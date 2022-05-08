@@ -26,6 +26,9 @@ export interface ServiceOptions {
   // Overwrites type of input (array items)
   inputType?: new (...params: any[]) => any;
 
+  // Overwrites type of output (array items)
+  outputType?: new (...params: any[]) => any;
+
   // Process field selection
   // If {} or not set, then the field selection runs with defaults
   // If falsy, then the field selection will not be automatically executed
@@ -58,9 +61,6 @@ export interface ServiceOptions {
 
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;
-
-  // Overwrites type of result (array items)
-  resultType?: new (...params: any[]) => any;
 
   // Roles (as string) to check
   roles?: string | string[];

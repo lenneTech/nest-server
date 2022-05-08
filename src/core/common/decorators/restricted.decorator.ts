@@ -9,6 +9,10 @@ import { RequireAtLeastOne } from '../types/required-at-least-one.type';
  * Restricted meta key
  */
 const restrictedMetaKey = Symbol('restricted');
+
+/**
+ * Restricted type
+ */
 export type RestrictedType = (
   | string
   | RequireAtLeastOne<
@@ -31,14 +35,17 @@ export type RestrictedType = (
  *    properties of the processed item, which is specified by the value of `memberOf`
  *    Via processType the restriction can be set for input or output only
  */
-export const Restricted = (...rolesOrMember: RestrictedType): PropertyDecorator => {
+export const Restricted = (...rolesOrMember: RestrictedType): ClassDecorator & PropertyDecorator => {
   return Reflect.metadata(restrictedMetaKey, rolesOrMember);
 };
 
 /**
- * Get restricted
+ * Get restricted data for (property of) object
  */
-export const getRestricted = (object: unknown, propertyKey: string): RestrictedType => {
+export const getRestricted = (object: unknown, propertyKey?: string): RestrictedType => {
+  if (!propertyKey) {
+    return Reflect.getMetadata(restrictedMetaKey, object);
+  }
   return Reflect.getMetadata(restrictedMetaKey, object, propertyKey);
 };
 
@@ -49,11 +56,18 @@ export const getRestricted = (object: unknown, propertyKey: string): RestrictedT
 export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
-  options: { dbObject?: any; ignoreUndefined?: boolean; processType?: ProcessType; throwError?: boolean } = {},
+  options: {
+    dbObject?: any;
+    ignoreUndefined?: boolean;
+    processType?: ProcessType;
+    removeUndefinedFromResultArray?: boolean;
+    throwError?: boolean;
+  } = {},
   processedObjects: any[] = []
 ) => {
   const config = {
     ignoreUndefined: true,
+    removeUndefinedFromResultArray: true,
     throwError: true,
     ...options,
   };
@@ -72,18 +86,15 @@ export const checkRestricted = (
   // Array
   if (Array.isArray(data)) {
     // Check array items
-    return data.map((item) => checkRestricted(item, user, config, processedObjects));
+    let result = data.map((item) => checkRestricted(item, user, config, processedObjects));
+    if (!config.throwError && config.removeUndefinedFromResultArray) {
+      result = result.filter((item) => item !== undefined);
+    }
+    return result;
   }
 
-  // Object
-  for (const propertyKey of Object.keys(data)) {
-    // Check undefined
-    if (data[propertyKey] === undefined && config.ignoreUndefined) {
-      continue;
-    }
-
-    // Check restricted
-    const restricted = getRestricted(data, propertyKey);
+  // Check function
+  const validateRestricted = (restricted) => {
     let valid = true;
     if (restricted?.length) {
       valid = false;
@@ -110,6 +121,7 @@ export const checkRestricted = (
         // Check roles
         if (
           user?.hasRole(roles) ||
+          (user?.id && roles.includes(RoleEnum.S_USER)) ||
           (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
         ) {
           valid = true;
@@ -161,6 +173,30 @@ export const checkRestricted = (
         }
       }
     }
+    return valid;
+  };
+
+  // Check object
+  const objectRestrictions = getRestricted(data.constructor);
+  const objectIsValid = validateRestricted(objectRestrictions);
+  if (!objectIsValid) {
+    // Throw error
+    if (config.throwError) {
+      throw new UnauthorizedException('The current user has no access rights for ' + data.constructor?.name);
+    }
+    return null;
+  }
+
+  // Check properties of object
+  for (const propertyKey of Object.keys(data)) {
+    // Check undefined
+    if (data[propertyKey] === undefined && config.ignoreUndefined) {
+      continue;
+    }
+
+    // Check restricted
+    const restricted = getRestricted(data, propertyKey);
+    const valid = validateRestricted(restricted);
 
     // Check rights
     if (valid) {

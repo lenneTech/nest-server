@@ -84,7 +84,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Prepare input
     if (config.prepareInput && this.prepareInput) {
-      await this.prepareInput(config.input, config.prepareInput);
+      const opts = config.prepareInput;
+      if (!opts.targetModel && config.inputType) {
+        opts.targetModel = config.inputType;
+      }
+      await this.prepareInput(config.input, opts);
     }
 
     // Get DB object
@@ -101,7 +105,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     if (config.input && config.checkRights && this.checkRights) {
       const opts: any = { dbObject: config.dbObject, processType: ProcessType.INPUT, roles: config.roles };
       if (config.inputType) {
-        opts.metatype = config.resultType;
+        opts.metatype = config.inputType;
       }
       config.input = await this.checkRights(config.input, config.currentUser as any, opts);
     }
@@ -116,11 +120,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Prepare output
     if (config.prepareOutput && this.prepareOutput) {
-      // Check if mapping is already done by processFieldSelection
-      if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
-        config.prepareOutput.targetModel = null;
+      const opts = config.prepareOutput;
+      if (!opts.targetModel && config.outputType) {
+        opts.targetModel = config.outputType;
       }
-      result = await this.prepareOutput(result, config.prepareOutput);
+      result = await this.prepareOutput(result, opts);
     }
 
     // Check output rights
@@ -131,8 +135,8 @@ export abstract class ModuleService<T extends CoreModel = any> {
         roles: config.roles,
         throwError: false,
       };
-      if (config.resultType) {
-        opts.metatype = config.resultType;
+      if (config.outputType) {
+        opts.metatype = config.outputType;
       }
       result = await this.checkRights(result, config.currentUser as any, opts);
     }
@@ -145,7 +149,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
    * Prepare input before save
    */
   async prepareInput(input: Record<string, any>, options: ServiceOptions = {}) {
-    return prepareInput(input, options.currentUser, options.prepareInput);
+    const config = {
+      targetModel: this.mainModelConstructor,
+      ...options?.prepareInput,
+    };
+    return prepareInput(input, options.currentUser, config);
   }
 
   /**
