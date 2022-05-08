@@ -3,22 +3,22 @@ import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model';
 import { User } from '../user/user.model';
 
 /**
- * CoreAuthModel model for the response after the sign in
+ * Authentication data
  */
-@ObjectType({ description: 'Auth' })
+@ObjectType({ description: 'Authentication data' })
 export class Auth extends CoreAuthModel {
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
 
   /**
-   * Signed in user
+   * Signed-in user
    */
-  @Field((type) => User, { description: 'User who signed in' })
+  @Field(() => User, { description: 'User who signed in' })
   user: User = undefined;
 
   // ===================================================================================================================
-  // Properties
+  // Methods
   // ===================================================================================================================
 
   /**

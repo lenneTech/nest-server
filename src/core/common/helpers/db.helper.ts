@@ -275,19 +275,41 @@ export function getElementsViaIds<T = any>(
 /**
  * Get populate options from GraphQL resolve info
  */
-export function getPopulateOptions(info: GraphQLResolveInfo, select?: string): PopulateOptions[] {
+export function getPopulateOptions(info: GraphQLResolveInfo, dotSeparatedSelect?: string): PopulateOptions[] {
   const result = [];
 
   if (!info?.fieldNodes?.length) {
     return result;
   }
 
-  for (const fieldNode of info.fieldNodes) {
-    if ((select || fieldNode?.name?.value === select) && fieldNode?.selectionSet?.selections?.length) {
-      return getPopulatOptionsFromSelections(fieldNode.selectionSet.selections);
+  if (dotSeparatedSelect?.length) {
+    for (const fieldNode of info.fieldNodes) {
+      const selects = dotSeparatedSelect.split('.');
+      const fieldNodeName = selects.shift();
+      if (fieldNode?.name?.value === fieldNodeName && fieldNode?.selectionSet?.selections?.length) {
+        if (!selects.length) {
+          return getPopulatOptionsFromSelections(fieldNode.selectionSet.selections);
+        } else {
+          let selections = fieldNode.selectionSet.selections;
+          do {
+            if (!selections?.length) {
+              break;
+            }
+            const select = selects.shift();
+            for (const selection of selections) {
+              if ((selection as FieldNode)?.name?.value === select) {
+                selections = (selection as FieldNode)?.selectionSet?.selections;
+                if (!selects.length) {
+                  return getPopulatOptionsFromSelections(selections);
+                }
+                break;
+              }
+            }
+          } while (selects.length);
+        }
+      }
     }
   }
-
   return result;
 }
 
