@@ -34,14 +34,9 @@ export abstract class CoreModel {
       mapId?: boolean;
     } = {}
   ): T {
-    const config = {
-      init: true,
-      ...options,
-    };
-
     const item = options.item || new this();
     delete options.item;
-    return item.map(data, config);
+    return item.map(data, options);
   }
 
   /**
@@ -64,14 +59,9 @@ export abstract class CoreModel {
       mapId?: boolean;
     } = {}
   ): T {
-    const config = {
-      init: true,
-      ...options,
-    };
-
     const item = options.item || new this();
     delete options.item;
-    return item.mapDeep(data, config);
+    return item.mapDeep(data, options);
   }
 
   /**
