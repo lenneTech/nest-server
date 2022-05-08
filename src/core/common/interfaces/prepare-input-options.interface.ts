@@ -1,3 +1,6 @@
+/**
+ * Interface for prepare input options
+ */
 export interface PrepareInputOptions {
   [key: string]: any;
   create?: boolean;

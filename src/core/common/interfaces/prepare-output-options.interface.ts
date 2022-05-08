@@ -1,3 +1,6 @@
+/**
+ * Interface for prepare output options
+ */
 export interface PrepareOutputOptions {
   [key: string]: any;
   clone?: boolean;
