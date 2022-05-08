@@ -4,7 +4,7 @@ import { CoreAuthSignUpInput } from '../../../../core/modules/auth/inputs/core-a
 /**
  * SignUp input
  */
-@InputType({ description: 'Description for AuthSignUpInput' })
+@InputType({ description: 'Sign-up input' })
 export class AuthSignUpInput extends CoreAuthSignUpInput {
   // ===================================================================================================================
   // Properties

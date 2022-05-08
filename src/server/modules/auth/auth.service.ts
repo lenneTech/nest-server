@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import envConfig from '../../../config.env';
 import { prepareServiceOptions } from '../../../core/common/helpers/service.helper';
-import { ResolveSelector } from '../../../core/common/interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { EmailService } from '../../../core/common/services/email.service';
 import { JwtPayload } from '../../../core/modules/auth/interfaces/jwt-payload.interface';

@@ -98,7 +98,7 @@ type Query {
   requestPasswordResetMail(email: String!): Boolean!
 }
 
-"""Description for AuthSignInInput"""
+"""Sign-in input"""
 input AuthSignInInput {
   """Email"""
   email: String!
@@ -213,7 +213,7 @@ type Mutation {
   verifyUser(token: String!): Boolean!
 }
 
-"""Description for AuthSignUpInput"""
+"""Sign-up input"""
 input AuthSignUpInput {
   """Email"""
   email: String!
