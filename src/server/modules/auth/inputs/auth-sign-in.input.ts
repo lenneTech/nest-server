@@ -4,7 +4,7 @@ import { CoreAuthSignInInput } from '../../../../core/modules/auth/inputs/core-a
 /**
  * SignIn input
  */
-@InputType({ description: 'Description for AuthSignInInput' })
+@InputType({ description: 'Sign-in input' })
 export class AuthSignInInput extends CoreAuthSignInInput {
   // Extend UserInput here
 }

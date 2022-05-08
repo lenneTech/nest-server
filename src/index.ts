@@ -67,6 +67,8 @@ export * from './core/common/types/string-or-object-id.type';
 
 export * from './core/modules/auth/guards/auth.guard';
 export * from './core/modules/auth/guards/roles.guard';
+export * from './core/modules/auth/inputs/core-auth-sign-in.input';
+export * from './core/modules/auth/inputs/core-auth-sign-up.input';
 export * from './core/modules/auth/interfaces/core-auth-user.interface';
 export * from './core/modules/auth/interfaces/jwt-payload.interface';
 export * from './core/modules/auth/services/core-auth.service';
