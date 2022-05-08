@@ -1,5 +1,7 @@
 import { Model } from 'mongoose';
 import { FieldSelection } from '../types/field-selection.type';
+import { PrepareInputOptions } from './prepare-input-options.interface';
+import { PrepareOutputOptions } from './prepare-output-options.interface';
 
 /**
  * General service options
@@ -40,24 +42,12 @@ export interface ServiceOptions {
   // Prepare input configuration:
   // If {} or not set, then the prepareInput function will run with defaults
   // If falsy, then the prepareInput function is not executed
-  prepareInput?: {
-    [key: string]: any;
-    create?: boolean;
-    clone?: boolean;
-    getNewArray?: boolean;
-    removeUndefined?: boolean;
-  };
+  prepareInput?: PrepareInputOptions;
 
   // Prepare output configuration:
   // If {} or not set, then the prepareInput function will run with defaults
   // If falsy, then the prepareInput function is not executed
-  prepareOutput?: {
-    [key: string]: any;
-    clone?: boolean;
-    getNewArray?: boolean;
-    removeUndefined?: boolean;
-    targetModel?: new (...args: any[]) => any;
-  };
+  prepareOutput?: PrepareOutputOptions;
 
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;

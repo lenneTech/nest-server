@@ -52,7 +52,7 @@ A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date
 """
 scalar DateTime
 
-"""Auth"""
+"""Authentication data"""
 type Auth {
   """JavaScript Web Token (JWT)"""
   token: String!
@@ -62,8 +62,8 @@ type Auth {
 }
 
 type Query {
-  """Get JWT token"""
-  signIn(email: String!, password: String!): Auth!
+  """Sign in and get JWT token"""
+  signIn(input: AuthSignInInput!): Auth!
 
   """Find users (via filter)"""
   findUsers(
@@ -96,6 +96,15 @@ type Query {
 
   """Request new password for user with email"""
   requestPasswordResetMail(email: String!): Boolean!
+}
+
+"""Description for AuthSignInInput"""
+input AuthSignInInput {
+  """Email"""
+  email: String!
+
+  """Password"""
+  password: String!
 }
 
 """Sorting the returned elements"""
@@ -185,6 +194,9 @@ JSON scalar type. Information on the exact schema of the JSON object is containe
 scalar JSON
 
 type Mutation {
+  """Sign up user and get JWT token"""
+  signUp(input: AuthSignUpInput!): Auth!
+
   """Create a new user"""
   createUser(input: UserCreateInput!): User!
 
@@ -199,6 +211,21 @@ type Mutation {
 
   """Verify user with email"""
   verifyUser(token: String!): Boolean!
+}
+
+"""Description for AuthSignUpInput"""
+input AuthSignUpInput {
+  """Email"""
+  email: String!
+
+  """Password"""
+  password: String!
+
+  """firstName"""
+  firstName: String
+
+  """lastName"""
+  lastName: String
 }
 
 """User input to create a new user"""

@@ -71,18 +71,18 @@ describe('ServerModule (e2e)', () => {
    * Get config without token should fail
    */
   it('get config without token', async () => {
-    const res: any = await testHelper.rest('/config', { statusCode: 401 });
+    await testHelper.rest('/config', { statusCode: 401 });
   });
 
   /**
-   * Create new user
+   * Sign up new user
    */
-  it('createUser', async () => {
+  it('signUp', async () => {
     gPassword = Math.random().toString(36).substring(7);
     gEmail = gPassword + '@testuser.com';
 
     const res: any = await testHelper.graphQl({
-      name: 'createUser',
+      name: 'signUp',
       type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
@@ -91,12 +91,12 @@ describe('ServerModule (e2e)', () => {
           firstName: 'Everardo',
         },
       },
-      fields: ['id', 'email', 'roles', { createdBy: ['id'] }],
+      fields: [{ user: ['id', 'email', 'roles', { createdBy: ['id'] }] }],
     });
-    expect(res.email).toEqual(gEmail);
-    expect(res.roles).toEqual([]);
-    expect(res.createdBy.id).toEqual(res.id);
-    gId = res.id;
+    expect(res.user.email).toEqual(gEmail);
+    expect(res.user.roles).toEqual([]);
+    expect(res.user.createdBy.id).toEqual(res.user.id);
+    gId = res.user.id;
   });
 
   /**
@@ -165,8 +165,10 @@ describe('ServerModule (e2e)', () => {
     const res: any = await testHelper.graphQl({
       name: 'signIn',
       arguments: {
-        email: gEmail,
-        password: gPassword,
+        input: {
+          email: gEmail,
+          password: gPassword,
+        },
       },
       fields: ['token', { user: ['id', 'email'] }],
     });
@@ -210,7 +212,7 @@ describe('ServerModule (e2e)', () => {
    * Get config without admin rights should fail
    */
   it('get config without admin rights should fail', async () => {
-    const res: any = await testHelper.rest('/config', { token: gToken, statusCode: 401 });
+    await testHelper.rest('/config', { token: gToken, statusCode: 401 });
   });
 
   /**

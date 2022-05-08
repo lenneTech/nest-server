@@ -14,7 +14,7 @@ import { UserService } from './user.service';
 /**
  * Resolver to process with user data
  */
-@Resolver((of) => User)
+@Resolver(() => User)
 export class UserResolver {
   /**
    * Import services
@@ -29,7 +29,7 @@ export class UserResolver {
    * Get users (via filter)
    */
   @Roles(RoleEnum.ADMIN)
-  @Query((returns) => [User], { description: 'Find users (via filter)' })
+  @Query(() => [User], { description: 'Find users (via filter)' })
   async findUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
     return await this.userService.find(args, {
       fieldSelection: { info, select: 'findUsers' },
@@ -41,7 +41,7 @@ export class UserResolver {
    * Get user via ID
    */
   @Roles(RoleEnum.S_USER)
-  @Query((returns) => User, { description: 'Get user with specified ID' })
+  @Query(() => User, { description: 'Get user with specified ID' })
   async getUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
     return await this.userService.get(id, {
       currentUser: user,
@@ -53,7 +53,7 @@ export class UserResolver {
   /**
    * Get verified state of user with token
    */
-  @Query((returns) => Boolean, { description: 'Get verified state of user with token' })
+  @Query(() => Boolean, { description: 'Get verified state of user with token' })
   async getVerifiedState(@Args('token') token: string) {
     return await this.userService.getVerifiedState(token);
   }
@@ -61,7 +61,7 @@ export class UserResolver {
   /**
    * Request new password for user with email
    */
-  @Query((returns) => Boolean, { description: 'Request new password for user with email' })
+  @Query(() => Boolean, { description: 'Request new password for user with email' })
   async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
     return !!(await this.userService.sendPasswordResetMail(email));
   }
@@ -73,7 +73,8 @@ export class UserResolver {
   /**
    * Create new user
    */
-  @Mutation((returns) => User, { description: 'Create a new user' })
+  @Roles(RoleEnum.ADMIN)
+  @Mutation(() => User, { description: 'Create a new user' })
   async createUser(
     @Args('input') input: UserCreateInput,
     @GraphQLUser() user: User,
@@ -90,7 +91,7 @@ export class UserResolver {
    * Delete existing user
    */
   @Roles(RoleEnum.S_USER)
-  @Mutation((returns) => User, { description: 'Delete existing user' })
+  @Mutation(() => User, { description: 'Delete existing user' })
   async deleteUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
     return await this.userService.delete(id, {
       currentUser: user,
@@ -102,7 +103,7 @@ export class UserResolver {
   /**
    * Set new password for user with token
    */
-  @Mutation((returns) => Boolean, { description: 'Set new password for user with token' })
+  @Mutation(() => Boolean, { description: 'Set new password for user with token' })
   async resetPassword(@Args('token') token: string, @Args('password') password: string): Promise<boolean> {
     return !!(await this.userService.resetPassword(token, password));
   }
@@ -111,7 +112,7 @@ export class UserResolver {
    * Update existing user
    */
   @Roles(RoleEnum.S_USER)
-  @Mutation((returns) => User, { description: 'Update existing user' })
+  @Mutation(() => User, { description: 'Update existing user' })
   async updateUser(
     @Args('input') input: UserInput,
     @Args('id') id: string,
@@ -130,7 +131,7 @@ export class UserResolver {
   /**
    * Verify user with email
    */
-  @Mutation((returns) => Boolean, { description: 'Verify user with email' })
+  @Mutation(() => Boolean, { description: 'Verify user with email' })
   async verifyUser(@Args('token') token: string): Promise<boolean> {
     return !!(await this.userService.verify(token));
   }
@@ -142,7 +143,7 @@ export class UserResolver {
   /**
    * Subscription for created user
    */
-  @Subscription((returns) => User, {
+  @Subscription(() => User, {
     filter(this: UserResolver, payload, variables, context) {
       return context.user.roles.include(RoleEnum.ADMIN);
     },
