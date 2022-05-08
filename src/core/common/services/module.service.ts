@@ -88,7 +88,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.inputType) {
         opts.targetModel = config.inputType;
       }
-      await this.prepareInput(config.input, opts);
+      config.input = await this.prepareInput(config.input, opts);
     }
 
     // Get DB object

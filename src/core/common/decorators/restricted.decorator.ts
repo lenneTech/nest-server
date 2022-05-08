@@ -134,7 +134,7 @@ export const checkRestricted = (
           return (
             typeof item === 'object' &&
             // Check if object is valid
-            item.memberOf.length &&
+            item.memberOf?.length &&
             // Check if processType is specified and is valid for current process
             (config.processType && item.processType ? config.processType === item.processType : true)
           );
