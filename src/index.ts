@@ -35,6 +35,8 @@ export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interfaces/core-persistence-model.interface';
 export * from './core/common/interfaces/mailjet-options.interface';
+export * from './core/common/interfaces/prepare-input-options.interface';
+export * from './core/common/interfaces/prepare-output-options.interface';
 export * from './core/common/interfaces/resolve-selector.interface';
 export * from './core/common/interfaces/server-options.interface';
 export * from './core/common/interfaces/service-options.interface';

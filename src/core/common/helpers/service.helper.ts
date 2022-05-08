@@ -3,6 +3,10 @@ import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
 import * as _ from 'lodash';
 import { RoleEnum } from '../enums/role.enum';
+import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
+import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
+import { ResolveSelector } from '../interfaces/resolve-selector.interface';
+import { ServiceOptions } from '../interfaces/service-options.interface';
 
 /**
  * Helper class for services
@@ -212,4 +216,55 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Return prepared output
   return output;
+}
+
+/**
+ * Prepare service options
+ */
+export function prepareServiceOptions(
+  serviceOptions: ServiceOptions,
+  options?: {
+    clone?: boolean;
+    inputType?: any;
+    outputType?: any;
+    subFieldSelection?: string;
+    prepareInput?: PrepareInputOptions;
+    prepareOutput?: PrepareOutputOptions;
+  }
+): ServiceOptions {
+  // Set default values
+  const config = {
+    clone: true,
+    ...options,
+  };
+
+  // Clone
+  if (serviceOptions && config.clone) {
+    serviceOptions = _.cloneDeep(serviceOptions);
+  }
+
+  // Init if not exists
+  serviceOptions = serviceOptions || {};
+
+  // Set properties
+  serviceOptions.inputType = serviceOptions.inputType || options?.inputType;
+  serviceOptions.outputType = serviceOptions.outputType || options?.outputType;
+
+  // Set properties which can deactivate handling when falsy
+  if (!serviceOptions.prepareInput && 'prepareInput' in config) {
+    serviceOptions.prepareInput = config.prepareInput;
+  }
+  if (!serviceOptions.prepareOutput && 'prepareOutput' in config) {
+    serviceOptions.prepareOutput = config.prepareOutput;
+  }
+
+  // Set subfield selection
+  if (config.subFieldSelection) {
+    if ((serviceOptions.fieldSelection as ResolveSelector)?.select) {
+      (serviceOptions.fieldSelection as ResolveSelector).select += '.' + config.subFieldSelection;
+    }
+  }
+
+  // Return (cloned and) prepared service options
+  return serviceOptions;
 }

@@ -1,22 +1,40 @@
-import { Args, Info, Query, Resolver } from '@nestjs/graphql';
+import { Args, Info, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { GraphQLResolveInfo } from 'graphql';
-import { CoreAuthResolver } from '../../../core/modules/auth/core-auth.resolver';
 import { Auth } from './auth.model';
+import { AuthService } from './auth.service';
+import { AuthSignInInput } from './inputs/auth-sign-in.input';
+import { AuthSignUpInput } from './inputs/auth-sign-up.input';
 
 /**
  * Authentication resolver for the sign in
  */
-@Resolver((of) => Auth)
-export class AuthResolver extends CoreAuthResolver {
+@Resolver(() => Auth)
+export class AuthResolver {
   /**
-   * Get user via ID
+   * Integrate services
    */
-  @Query((returns) => Auth, { description: 'Get JWT token' })
-  async signIn(
-    @Args('email') email: string,
-    @Args('password') password: string,
-    @Info() info: GraphQLResolveInfo
-  ): Promise<Auth> {
-    return (await this.authService.signIn(email, password, { fieldSelection: { info, select: 'signIn' } })) as Auth;
+  constructor(private readonly authService: AuthService) {}
+
+  /**
+   * SignIn for User
+   */
+  @Query(() => Auth, { description: 'Sign in and get JWT token' })
+  async signIn(@Info() info: GraphQLResolveInfo, @Args('input') input: AuthSignInInput): Promise<Auth> {
+    return this.authService.signIn(input, {
+      fieldSelection: { info, select: 'signIn' },
+      inputType: AuthSignInInput,
+    });
+  }
+
+  /**
+   * Sign up for user
+   */
+  @Mutation(() => Auth, {
+    description: 'Sign up user and get JWT token',
+  })
+  async signUp(@Info() info: GraphQLResolveInfo, @Args('input') input: AuthSignUpInput): Promise<Auth> {
+    return this.authService.signUp(input, {
+      fieldSelection: { info, select: 'signUp' },
+    });
   }
 }
