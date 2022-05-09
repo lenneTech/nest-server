@@ -50,7 +50,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     // and could not exist as currentUser before
     if (!user.createdBy) {
       await this.mainDbModel.findByIdAndUpdate(user.id, { createdBy: user.id });
-      user = await this.get(user.id, { ...serviceOptions, currentUser: serviceOptions.currentUser || user });
+      user = await this.get(user.id, { ...serviceOptions, currentUser: serviceOptions?.currentUser || user });
     }
 
     // Publish action
