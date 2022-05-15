@@ -32,6 +32,6 @@ export class FileController {
     })
   )
   uploadFile(@UploadedFiles() files, @Body() fields: any) {
-    console.log(files, fields);
+    console.log(JSON.stringify({ files, fields }, null, 2));
   }
 }

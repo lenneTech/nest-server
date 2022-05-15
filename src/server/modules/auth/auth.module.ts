@@ -27,9 +27,8 @@ export class AuthModule {
             // providers: [] // Integrate additional Providers here to resolve dependencies
           },
         }),
-        EmailService,
       ],
-      providers: [AuthResolver, AuthService],
+      providers: [AuthResolver, AuthService, EmailService],
       exports: [AuthResolver, CoreAuthModule],
     };
   }

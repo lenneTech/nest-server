@@ -145,8 +145,8 @@ describe('Project (e2e)', () => {
    * Delete users
    */
   it('deleteUsers', async () => {
-    // Add admin role to user 2
-    await userService.setRoles(users[1].id, ['admin']);
+    // Add admin role to last user
+    await userService.setRoles(users[users.length - 1].id, ['admin']);
 
     for (const user of users) {
       const res: any = await testHelper.graphQl(
@@ -158,7 +158,7 @@ describe('Project (e2e)', () => {
           },
           fields: ['id'],
         },
-        { token: users[1].token }
+        { token: users[users.length - 1].token }
       );
       expect(res.id).toEqual(user.id);
     }
