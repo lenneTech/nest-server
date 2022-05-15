@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { MongoClient, ObjectId } from 'mongodb';
+import { TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
-import { TestGraphQLType, TestHelper } from '../src';
-import { MongoClient, ObjectId } from 'mongodb';
 
 describe('ServerModule (e2e)', () => {
+  const port = 3030;
   let app;
   let testHelper: TestHelper;
 
@@ -27,15 +28,18 @@ describe('ServerModule (e2e)', () => {
    */
   beforeAll(async () => {
     try {
+      // Start server for testing
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
       }).compile();
       app = moduleFixture.createNestApplication();
-
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
-      testHelper = new TestHelper(app);
+      await app.listen(port, '0.0.0.0'); // app.listen is required by subscriptions
+
+      // Init TestHelper
+      testHelper = new TestHelper(app, 'ws://localhost:' + port + '/graphql');
 
       // Get db
       console.log('MongoDB: Create connection to ' + envConfig.mongoose.uri);
@@ -305,6 +309,56 @@ describe('ServerModule (e2e)', () => {
       { token: gToken }
     );
     expect(res.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * Subscription
+   */
+  it('subscription', async () => {
+    // Start subscription
+    const subscription: any = testHelper.graphQl(
+      {
+        name: 'userCreated',
+        fields: ['id', 'email'],
+        type: TestGraphQLType.SUBSCRIPTION,
+      },
+      { token: gToken, countOfSubscriptionMessages: 1 }
+    );
+
+    // Create user
+    const passwd = Math.random().toString(36).substring(7);
+    const email = passwd + '@testuser.com';
+    const create: any = await testHelper.graphQl({
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+      arguments: {
+        input: {
+          email: email,
+          password: passwd,
+        },
+      },
+      fields: [{ user: ['id', 'email'] }],
+    });
+    expect(create.user.email).toEqual(email);
+
+    // Check subscription result
+    const messages = await subscription;
+    expect(messages.length).toEqual(1);
+    expect(messages[0].email).toEqual(create.user.email);
+
+    // Delete user
+    const del: any = await testHelper.graphQl(
+      {
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+        arguments: {
+          id: create.user.id,
+        },
+        fields: ['id'],
+      },
+      { token: gToken }
+    );
+    expect(del.id).toEqual(create.user.id);
   });
 
   /**

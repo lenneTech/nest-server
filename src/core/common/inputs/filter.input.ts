@@ -1,5 +1,4 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { ModelHelper } from '../helpers/model.helper';
 import { CombinedFilterInput } from './combined-filter.input';
 import { CoreInput } from './core-input.input';
 import { SingleFilterInput } from './single-filter.input';

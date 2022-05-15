@@ -1,15 +1,17 @@
-import { DynamicModule, Global, Module, UnauthorizedException } from '@nestjs/common';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, UnauthorizedException } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Context } from 'apollo-server-core';
+import { graphqlUploadExpress } from 'graphql-upload';
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
-import { TemplateService } from './core/common/services/template.service';
-import { MongooseModule } from '@nestjs/mongoose';
 import { MailjetService } from './core/common/services/mailjet.service';
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { TemplateService } from './core/common/services/template.service';
 
 /**
  * Core module (dynamic)
@@ -26,7 +28,13 @@ import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
  */
 @Global()
 @Module({})
-export class CoreModule {
+export class CoreModule implements NestModule {
+  /**
+   * Integrate middleware, e.g. GraphQL upload handing for express
+   */
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+  }
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
@@ -65,6 +73,28 @@ export class CoreModule {
                           throw new UnauthorizedException();
                         }
                       },
+                    },
+                    'graphql-ws': {
+                      onConnect: async (context: Context<any>) => {
+                        const { connectionParams, extra } = context;
+                        if (config.graphQl.enableSubscriptionAuth) {
+                          // get authToken from authorization header
+                          const authToken: string =
+                            'Authorization' in connectionParams && connectionParams?.Authorization?.split(' ')[1];
+                          if (authToken) {
+                            // verify authToken/getJwtPayLoad
+                            const payload = authService.decodeJwt(authToken);
+                            const user = await authService.validateUser(payload);
+                            // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
+                            extra.user = user;
+                            extra.header = connectionParams;
+                            return extra;
+                          }
+
+                          throw new UnauthorizedException();
+                        }
+                      },
+                      context: ({ extra }) => extra,
                     },
                   },
                 },
@@ -113,7 +143,9 @@ export class CoreModule {
       module: CoreModule,
       imports: [
         MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
-        GraphQLModule.forRootAsync<ApolloDriverConfig>(Object.assign({ driver: ApolloDriver }, config.graphQl.driver)),
+        GraphQLModule.forRootAsync<ApolloDriverConfig>(
+          Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options)
+        ),
       ],
       providers,
       exports: [ConfigService, EmailService, TemplateService, MailjetService],

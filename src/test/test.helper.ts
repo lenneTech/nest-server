@@ -1,9 +1,11 @@
 import { INestApplication } from '@nestjs/common';
+import { createClient } from 'graphql-ws';
 // import { FastifyInstance } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
 import * as supertest from 'supertest';
 import * as util from 'util';
+import * as ws from 'ws';
 
 /**
  * GraphQL request type
@@ -65,6 +67,11 @@ export interface TestGraphQLOptions {
   convertEnums?: boolean | string[];
 
   /**
+   * Count of subscription messages, specifies how many messages are to be received on subscription
+   */
+  countOfSubscriptionMessages?: number;
+
+  /**
    * Print console logs
    */
   log?: boolean;
@@ -104,11 +111,16 @@ export class TestHelper {
   // app: FastifyInstance | INestApplication;
   app: INestApplication;
 
+  // URL with port and directory to subscription endpoint
+  // e.g.: ws://localhost:3030/graphql
+  subscriptionUrl: string;
+
   /**
    * Constructor
    */
-  constructor(app: any) {
+  constructor(app: any, subscriptionUrl?: string) {
     this.app = app;
+    this.subscriptionUrl = subscriptionUrl;
   }
 
   /**
@@ -121,6 +133,7 @@ export class TestHelper {
     options = Object.assign(
       {
         convertEnums: true,
+        countOfSubscriptionMessages: 1,
         token: null,
         statusCode: 200,
         log: false,
@@ -172,6 +185,10 @@ export class TestHelper {
 
       // Create request payload query
       query = jsonToGraphQLQuery(queryObj, { pretty: true });
+    }
+
+    if ((graphql as TestGraphQLConfig).type === TestGraphQLType.SUBSCRIPTION) {
+      return this.getSubscription(graphql as TestGraphQLConfig, query, options);
     }
 
     // Convert uppercase strings in arguments of query to enums
@@ -354,7 +371,7 @@ export class TestHelper {
 
     // Log response
     if (log) {
-      console.log(response);
+      console.log(JSON.stringify(response, null, 2));
     }
 
     // Log error
@@ -372,5 +389,53 @@ export class TestHelper {
 
     // Return response
     return response;
+  }
+
+  /**
+   * Get subscription
+   */
+  async getSubscription(graphql: TestGraphQLConfig, query: string, options?: TestGraphQLOptions) {
+    // Check url
+    if (!this.subscriptionUrl) {
+      throw new Error("Missing subscriptionUrl in TestHelper: new TestHelper(app, 'ws://localhost:3030/graphql')");
+    }
+
+    // Prepare subscription
+    let connectionParams;
+    if (options?.token) {
+      connectionParams = { Authorization: `Bearer ${options?.token}` };
+    }
+
+    // Init client
+    if (options.log) {
+      console.log('Subscription query', JSON.stringify(query, null, 2));
+    }
+    const client = createClient({ url: this.subscriptionUrl, connectionParams, webSocketImpl: ws });
+    const messages: any[] = [];
+    let unsubscribe: () => void;
+    const onNext = (message) => {
+      if (options.log) {
+        console.log('Subscription message', JSON.stringify(message, null, 2));
+      }
+      messages.push(message?.data?.[graphql.name]);
+      if (messages.length <= options.countOfSubscriptionMessages) {
+        unsubscribe();
+      }
+    };
+
+    // Subscribe
+    await new Promise((resolve, reject) => {
+      unsubscribe = client.subscribe(
+        { query },
+        {
+          next: onNext,
+          error: reject,
+          complete: resolve as any,
+        }
+      );
+    });
+
+    // Return subscribed messages
+    return messages;
   }
 }
