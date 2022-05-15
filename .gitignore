@@ -5,6 +5,9 @@ public
 uploads/**
 !uploads/assets/**
 
+# Schema
+schema.gql
+
 # Logs
 logs
 *.log
