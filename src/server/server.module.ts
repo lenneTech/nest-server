@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import envConfig from '../config.env';
 import { CoreModule } from '../core.module';
+import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileController } from './modules/file/file.controller';
+import { FileResolver } from './modules/file/file.resolver';
 import { ServerController } from './server.controller';
-import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 
 /**
  * Server module (dynamic)
@@ -25,6 +26,9 @@ import { CoreAuthService } from '../core/modules/auth/services/core-auth.service
 
   // Include REST controllers
   controllers: [FileController, ServerController],
+
+  // Include resolvers, services and other providers
+  providers: [FileResolver],
 
   // Export modules for reuse in other modules
   exports: [CoreModule, AuthModule],

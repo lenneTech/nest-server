@@ -31,6 +31,7 @@ const config: { [env: string]: IServerOptions } = {
       passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'development',
+    execAfterInit: 'npm run docs:bootstrap',
     graphQl: {
       driver: {
         debug: true,
@@ -46,7 +47,7 @@ const config: { [env: string]: IServerOptions } = {
     port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
-      options: { prefix: '/public/' },
+      options: { prefix: '' },
     },
     templates: {
       path: join(__dirname, 'templates'),
@@ -80,6 +81,7 @@ const config: { [env: string]: IServerOptions } = {
       passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'productive',
+    execAfterInit: 'npm run docs:bootstrap',
     graphQl: {
       driver: {
         debug: false,
@@ -95,7 +97,7 @@ const config: { [env: string]: IServerOptions } = {
     port: 3000,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
-      options: { prefix: '/public/' },
+      options: { prefix: '' },
     },
     templates: {
       path: join(__dirname, 'templates'),

@@ -1,4 +1,5 @@
 import { ApolloDriverConfig } from '@nestjs/apollo';
+import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose/dist/interfaces/mongoose-options.interface';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
@@ -10,10 +11,56 @@ import { MailjetOptions } from './mailjet-options.interface';
  */
 export interface IServerOptions {
   /**
+   * SMTP and template configuration for sending emails
+   */
+  email?: {
+    /**
+     * Data for default sender
+     */
+    defaultSender?: {
+      /**
+       * Default email for sending emails
+       */
+      email?: string;
+
+      /**
+       * Default name for sending emails
+       */
+      name?: string;
+    };
+
+    /**
+     * Options for Mailjet
+     */
+    mailjet?: MailjetOptions;
+
+    /**
+     * Password reset link for email
+     */
+    passwordResetLink?: string;
+
+    /**
+     * SMTP configuration for nodemailer
+     */
+    smtp?: SMTPTransport | SMTPTransport.Options | string;
+
+    /**
+     * Verification link for email
+     */
+    verificationLink?: string;
+  };
+
+  /**
    * Environment
    * e.g. 'development'
    */
   env?: string;
+
+  /**
+   * Exec a command after server is initialized
+   * e.g. 'npm run docs:bootstrap'
+   */
+  execAfterInit?: string;
 
   /**
    * Configuration of the GraphQL module
@@ -30,6 +77,11 @@ export interface IServerOptions {
      * Subscription authentication
      */
     enableSubscriptionAuth?: boolean;
+
+    /**
+     * Module options (forRootAsync)
+     */
+    options?: GqlModuleAsyncOptions;
   };
 
   /**
@@ -68,67 +120,31 @@ export interface IServerOptions {
   } & JwtModuleOptions;
 
   /**
+   * Configuration for Mongoose
+   */
+  mongoose?: { uri: string; options?: MongooseModuleOptions };
+
+  /**
    * Port number of the server
    * e.g. 8080
    */
   port?: number;
 
   /**
-   * SMTP and template configuration for sending emails
-   */
-  email?: {
-    /**
-     * SMTP configuration for nodemailer
-     */
-    smtp?: SMTPTransport | SMTPTransport.Options | string;
-
-    mailjet?: MailjetOptions;
-    /**
-     * Verification link for email
-     */
-    verificationLink?: string;
-
-    /**
-     * Password reset link for email
-     */
-    passwordResetLink?: string;
-
-    /**
-     * Data for default sender
-     */
-    defaultSender?: {
-      /**
-       * Default email for sending emails
-       */
-      email?: string;
-
-      /**
-       * Default name for sending emails
-       */
-      name?: string;
-    };
-  };
-
-  /**
-   * Configuration for Mongoose
-   */
-  mongoose?: { uri: string; options?: MongooseModuleOptions };
-
-  /**
    * Configuration for useStaticAssets
    */
   staticAssets?: {
-    /**
-     * Root directory for static assets
-     * e.g. join(__dirname, '..', 'public')
-     */
-    path?: string;
-
     /**
      * Additional options for useStaticAssets
      * e.g. {prefix: '/public/'}
      */
     options?: ServeStaticOptions;
+
+    /**
+     * Root directory for static assets
+     * e.g. join(__dirname, '..', 'public')
+     */
+    path?: string;
   };
 
   /**
@@ -136,15 +152,15 @@ export interface IServerOptions {
    */
   templates?: {
     /**
-     * Directory for templates
-     *  e.g. join(__dirname, '..', 'templates')
-     */
-    path?: string;
-
-    /**
      * View engine
      * e.g. 'ejs'
      */
     engine?: string;
+
+    /**
+     * Directory for templates
+     *  e.g. join(__dirname, '..', 'templates')
+     */
+    path?: string;
   };
 }

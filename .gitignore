@@ -1,7 +1,12 @@
-# uniTools
+# General
 dist
 typedocs
 public
+uploads/**
+!uploads/assets/**
+
+# Schema
+schema.gql
 
 # Logs
 logs
@@ -85,3 +90,6 @@ typings/
 !.vscode/extensions.json
 
 globalConfig.json
+
+# Keep .gitkeep files
+!/**/.gitkeep

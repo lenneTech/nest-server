@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { exec } from 'child_process';
 import envConfig from './config.env';
 import { ServerModule } from './server/server.module';
 
@@ -25,6 +26,21 @@ async function bootstrap() {
 
   // Start server on configured port
   await server.listen(envConfig.port);
+
+  // Run command after server init
+  if (envConfig.execAfterInit) {
+    exec(envConfig.execAfterInit, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`error: ${error.message}`);
+        return;
+      }
+
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
+        return;
+      }
+    });
+  }
 }
 
 // Start server
