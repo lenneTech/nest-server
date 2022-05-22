@@ -145,7 +145,7 @@ export class UserResolver {
    */
   @Subscription(() => User, {
     filter(this: UserResolver, payload, variables, context) {
-      return context.user.hasRole(RoleEnum.ADMIN);
+      return context?.user?.hasRole?.(RoleEnum.ADMIN);
     },
     resolve: (user) => user,
   })

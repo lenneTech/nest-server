@@ -4,6 +4,8 @@ import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
 import { FilterInput } from '../inputs/filter.input';
 import { SortInput } from '../inputs/sort.input';
+import { getObjectIds } from './db.helper';
+import { assignPlain } from './input.helper';
 
 /**
  * Helper for filter handling
@@ -34,8 +36,71 @@ export class Filter {
 }
 
 /**
+ * Helper function to create $and, $or or $nor filter
+ */
+export function findFilter(options?: {
+  conditions?: Record<string, any>[];
+  filterOptions?: FilterQuery<any>;
+  id?: any;
+  ids?: any[];
+  type?: '$and' | '$or' | '$nor';
+}): FilterQuery<any> {
+  const config = {
+    type: '$and',
+    ...options,
+  };
+
+  // Init filter Option
+  let filterOptions: FilterQuery<any> = config?.filterOptions;
+
+  // Check where condition
+  if (!filterOptions) {
+    filterOptions = {};
+    filterOptions[config.type] = [];
+  }
+
+  // Convert where condition to array
+  if (!Array.isArray(filterOptions?.[config.type])) {
+    filterOptions = {};
+    filterOptions[config.type] = [config?.filterOptions];
+  }
+
+  // ObjectId
+  if (config?.id) {
+    filterOptions[config.type].push({ _id: getObjectIds(config.id) });
+  }
+
+  // ObjectIds
+  if (config?.ids) {
+    if (!Array.isArray(config.ids)) {
+      config.ids = [config.ids];
+    }
+    filterOptions[config.type].push({ _id: { $in: getObjectIds(config.ids) } });
+  }
+
+  // Integrate conditions
+  if (config?.conditions) {
+    filterOptions[config.type] = [...filterOptions[config.type], ...config.conditions];
+  }
+
+  // Filter falsy values
+  filterOptions[config.type] = filterOptions[config.type].filter((value) => value);
+
+  // Optimizations
+  if (!filterOptions[config.type].length) {
+    filterOptions = {};
+  } else if (filterOptions[config.type].length === 1) {
+    const additionalProperties = filterOptions[config.type][0];
+    delete filterOptions[config.type];
+    assignPlain(filterOptions, additionalProperties);
+  }
+
+  // Return filter config
+  return filterOptions;
+}
+
+/**
  * Convert filter arguments to a query array
- * @param filterArgs
  */
 export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
   return [generateFilterQuery(filterArgs?.filter), generateFindOptions(filterArgs)];

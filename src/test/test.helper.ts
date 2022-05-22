@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
 import { createClient } from 'graphql-ws';
-// import { FastifyInstance } from 'fastify';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
 import * as supertest from 'supertest';
@@ -125,25 +124,21 @@ export class TestHelper {
 
   /**
    * GraphQL request
-   * @param graphql
-   * @param options
    */
   async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
     // Default options
-    options = Object.assign(
-      {
-        convertEnums: true,
-        countOfSubscriptionMessages: 1,
-        token: null,
-        statusCode: 200,
-        log: false,
-        logError: false,
-      },
-      options
-    );
+    const config = {
+      convertEnums: true,
+      countOfSubscriptionMessages: 1,
+      token: null,
+      statusCode: 200,
+      log: false,
+      logError: false,
+      ...options,
+    };
 
     // Init vars
-    const { token, statusCode, log, logError } = options;
+    const { token, statusCode, log, logError } = config;
 
     // Init
     let query = '';
@@ -188,13 +183,13 @@ export class TestHelper {
     }
 
     if ((graphql as TestGraphQLConfig).type === TestGraphQLType.SUBSCRIPTION) {
-      return this.getSubscription(graphql as TestGraphQLConfig, query, options);
+      return this.getSubscription(graphql as TestGraphQLConfig, query, config);
     }
 
     // Convert uppercase strings in arguments of query to enums
-    if (options.convertEnums) {
-      if (Array.isArray(options.convertEnums)) {
-        for (const key of Object.values(options.convertEnums)) {
+    if (config.convertEnums) {
+      if (Array.isArray(config.convertEnums)) {
+        for (const key of Object.values(config.convertEnums)) {
           const regExpStr = '(' + key + ': )\\"([_A-Z][_0-9A-Z]*)\\"';
           const regExp = new RegExp(regExpStr, 'g');
           query = query.replace(regExp, '$1$2');
@@ -242,28 +237,26 @@ export class TestHelper {
    */
   async rest(url: string, options: TestRestOptions = {}): Promise<any> {
     // Default options
-    options = Object.assign(
-      {
-        token: null,
-        statusCode: 200,
-        log: false,
-        logError: false,
-        payload: null,
-        method: 'GET',
-      },
-      options
-    );
+    const config: TestRestOptions = {
+      token: null,
+      statusCode: 200,
+      log: false,
+      logError: false,
+      payload: null,
+      method: 'GET',
+      ...options,
+    };
 
     // Init vars
-    const { token, statusCode, log, logError } = options;
+    const { token, statusCode, log, logError } = config;
 
     // Request configuration
     const requestConfig: LightMyRequest.InjectOptions = {
-      method: options.method,
+      method: config.method,
       url,
     };
-    if (options.payload) {
-      requestConfig.payload = options.payload;
+    if (config.payload) {
+      requestConfig.payload = config.payload;
     }
 
     // Process response

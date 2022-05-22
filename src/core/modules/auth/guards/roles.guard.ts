@@ -38,7 +38,7 @@ export class RolesGuard extends AuthGuard('jwt') {
     }
 
     // Check user and user roles
-    if (!user || !user.hasRole(roles)) {
+    if (!user?.hasRole?.(roles)) {
       // Get args
       const args: any = GqlExecutionContext.create(context).getArgs();
 
