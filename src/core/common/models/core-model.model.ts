@@ -92,7 +92,10 @@ export abstract class CoreModel {
       mapId: false,
       ...options,
     };
-    return config.init ? map(data, this, config).init(config.init) : map(data, this, config);
+    if (config.init) {
+      this.init(config.init);
+    }
+    return map(data, this, config);
   }
 
   /**

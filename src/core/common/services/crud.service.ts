@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { FilterArgs } from '../args/filter.args';
 import { merge } from '../helpers/config.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
+import { assignPlain } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { ModuleService } from './module.service';
@@ -14,7 +15,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     merge({ prepareInput: { create: true } }, serviceOptions);
     return this.process(
       async (data) => {
-        return new this.mainDbModel({ ...data.input }).save();
+        const currentUserId = serviceOptions?.currentUser?.id;
+        return new this.mainDbModel({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId }).save();
       },
       { input, serviceOptions }
     );
@@ -75,7 +77,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     }
     return this.process(
       async (data) => {
-        return await Object.assign(dbObject, data.input).save();
+        const currentUserId = serviceOptions?.currentUser?.id;
+        return await assignPlain(dbObject, data.input, { updatedBy: currentUserId }).save();
       },
       { dbObject, input, serviceOptions }
     );
@@ -90,11 +93,11 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
     return this.process(
-      async (data) => {
+      async () => {
         await this.mainDbModel.findByIdAndDelete(id).exec();
         return dbObject;
       },
-      { dbObject, input: id, serviceOptions }
+      { dbObject, serviceOptions }
     );
   }
 }

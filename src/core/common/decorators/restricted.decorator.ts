@@ -118,9 +118,8 @@ export const checkRestricted = (
 
       // Check roles
       if (roles.length) {
-        // Check roles
         if (
-          user?.hasRole(roles) ||
+          user?.hasRole?.(roles) ||
           (user?.id && roles.includes(RoleEnum.S_USER)) ||
           (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
         ) {
