@@ -1,6 +1,7 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
 import * as _ from 'lodash';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
@@ -183,6 +184,24 @@ export default class InputHelper {
 }
 
 /**
+ * Assign plain objects to the target object and ignores undefined
+ */
+export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[]): any {
+  return Object.assign(
+    target,
+    ...args.map(
+      // Prepare records
+      (item) =>
+        !item
+          ? // Return item if not an object
+            item
+          : // Return cloned record with undefined properties removed
+            filterProperties(JSON.parse(JSON.stringify(item)), (prop) => prop !== undefined)
+    )
+  );
+}
+
+/**
  * Check input
  */
 export async function check(
@@ -194,11 +213,16 @@ export async function check(
     processType?: ProcessType;
     roles?: string | string[];
     throwError?: boolean;
+    validatorOptions?: ValidatorOptions;
   }
 ): Promise<any> {
   const config = {
     throwError: true,
     ...options,
+    validatorOptions: {
+      skipUndefinedProperties: true,
+      ...options?.validatorOptions,
+    },
   };
 
   // Check roles
@@ -212,7 +236,7 @@ export async function check(
       // check if user is logged in
       (roles.includes(RoleEnum.S_USER) && user?.id) ||
       // check if the user has at least one of the required roles
-      user.hasRole(roles) ||
+      user?.hasRole?.(roles) ||
       // check if the user is the creator
       (roles.includes(RoleEnum.S_CREATOR) && equalIds(config.dbObject?.createdBy, user))
     ) {
@@ -254,7 +278,7 @@ export async function check(
   }
 
   // Validate
-  const errors = await validate(value);
+  const errors = await validate(value, config.validatorOptions);
   if (errors.length > 0 && config.throwError) {
     throw new BadRequestException('Validation failed');
   }
@@ -265,12 +289,31 @@ export async function check(
 }
 
 /**
+ * Combines objects to a new single plain object and ignores undefined
+ */
+export function combinePlain(...args: Record<any, any>[]): any {
+  return assignPlain({}, ...args);
+}
+
+/**
  * Standard error function
  */
 export function errorFunction(caller: (...params) => any, message = 'Required parameter is missing or invalid') {
   const err = new Error(message);
   Error.captureStackTrace(err, caller);
   throw err;
+}
+
+/**
+ * Filter function for objects
+ */
+export function filterProperties<T = Record<string, any>>(
+  obj: T,
+  filterFunction: (value?: any, key?: string, obj?: T) => boolean
+): Partial<T> {
+  return Object.keys(obj)
+    .filter((key) => filterFunction(obj[key], key, obj))
+    .reduce((res, key) => Object.assign(res, { [key]: obj[key] }), {});
 }
 
 /**
@@ -431,6 +474,22 @@ export function isString(parameter: string, falseFunction: (...params) => any = 
  */
 export function returnFalse(): boolean {
   return false;
+}
+
+/**
+ * Match function to use instead of switch case
+ * Inspired by https://yusfuu.medium.com/dont-use-switch-or-if-else-in-javascript-instead-try-this-82f32616c269
+ *
+ * Example:
+ * const matched = match(expr, {
+ *   Oranges: 'Oranges are $0.59 a pound.',
+ *   Mangoes: 'Mangoes and papayas are $2.79 a pound.',
+ *   Papayas: 'Mangoes and papayas are $2.79 a pound.',
+ *   default: `Sorry, we are out of ${expr}.`,
+ * });
+ */
+export function match(expression: any, cases: Record<any, any>): any {
+  return cases[expression] || cases?.default;
 }
 
 /**

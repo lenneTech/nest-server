@@ -150,7 +150,6 @@ export abstract class ModuleService<T extends CoreModel = any> {
    */
   async prepareInput(input: Record<string, any>, options: ServiceOptions = {}) {
     const config = {
-      targetModel: this.mainModelConstructor,
       ...options?.prepareInput,
     };
     return prepareInput(input, options.currentUser, config);

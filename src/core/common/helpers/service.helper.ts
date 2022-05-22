@@ -68,7 +68,7 @@ export async function prepareInput<T = any>(
     clone: false,
     create: false,
     getNewArray: false,
-    removeUndefined: false,
+    removeUndefined: true,
     ...options,
   };
 
@@ -107,11 +107,7 @@ export async function prepareInput<T = any>(
   }
 
   // Process roles
-  if (
-    config.checkRoles &&
-    (input as Record<string, any>).roles &&
-    (!currentUser?.hasRole || !currentUser.hasRole(RoleEnum.ADMIN))
-  ) {
+  if (config.checkRoles && (input as Record<string, any>).roles && !currentUser?.hasRole?.(RoleEnum.ADMIN)) {
     if (!(currentUser as any)?.roles) {
       throw new UnauthorizedException('Missing roles of current user');
     } else {

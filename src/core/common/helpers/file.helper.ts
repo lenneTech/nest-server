@@ -75,23 +75,21 @@ export function multerOptionsForImageUpload(options: {
   fileSize?: number;
   fileTypeRegex?: RegExp;
 }): MulterOptions {
-  // Default options
-  options = Object.assign(
-    {
-      fileSize: 1024 * 1024, // 1MB
-      fileTypeRegex: /jpeg|jpg|png/, // Images only
-    },
-    options
-  );
+  // Set config
+  const config = {
+    fileSize: 1024 * 1024, // 1MB
+    fileTypeRegex: /jpeg|jpg|png/, // Images only
+    ...options,
+  };
 
   return {
     // File filter
-    fileFilter: options.fileTypeRegex ? multerFileFilter(options.fileTypeRegex) : undefined,
+    fileFilter: config.fileTypeRegex ? multerFileFilter(config.fileTypeRegex) : undefined,
 
     // Limits
     limits: {
       // Limit of file size
-      fileSize: options.fileSize ? options.fileSize : undefined,
+      fileSize: config.fileSize ? config.fileSize : undefined,
     },
 
     // Automatic storage handling
@@ -100,7 +98,7 @@ export function multerOptionsForImageUpload(options: {
       // Destination for uploaded file
       // If destination is not set file will be buffered and can be processed
       // in the method
-      destination: options.destination ? options.destination : undefined,
+      destination: config.destination ? config.destination : undefined,
 
       // Generated random file name
       filename: multerRandomFileName(),

@@ -1,9 +1,10 @@
 # General
 dist
 typedocs
+uploads
 public
-uploads/**
-!uploads/assets/**
+!public/assets
+!public/images
 
 # Schema
 schema.gql

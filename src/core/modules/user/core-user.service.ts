@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Document, Model } from 'mongoose';
 import { merge } from '../../common/helpers/config.helper';
+import { assignPlain } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { CrudService } from '../../common/services/crud.service';
 import { EmailService } from '../../common/services/email.service';
@@ -39,9 +40,12 @@ export abstract class CoreUserService<
     return this.process(
       async (data) => {
         // Create user with verification token
+        const currentUserId = serviceOptions?.currentUser?._id;
         const createdUser = new this.mainDbModel({
           ...data.input,
           verificationToken: crypto.randomBytes(32).toString('hex'),
+          createdBy: currentUserId,
+          updatedBy: currentUserId,
         });
 
         // Distinguish between different error messages when saving
@@ -105,21 +109,15 @@ export abstract class CoreUserService<
     }
     return this.process(
       async () => {
-        // Update user
-        await Object.assign(dbObject, {
-          verified: true,
-          verificationToken: null,
-        }).save();
-
-        // Return prepared user
-        return dbObject;
+        // Update and return user
+        return await assignPlain(dbObject, { verified: true, verificationToken: null }).save();
       },
       { dbObject, serviceOptions }
     );
   }
 
   /**
-   * Set newpassword for user with token
+   * Set new password for user with token
    */
   async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {
     // Get user
@@ -130,14 +128,11 @@ export abstract class CoreUserService<
 
     return this.process(
       async () => {
-        // Update user
-        await Object.assign(dbObject, {
+        // Update and return user
+        return await assignPlain(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
         }).save();
-
-        // Return user
-        return dbObject;
       },
       { dbObject, serviceOptions }
     );
@@ -154,13 +149,9 @@ export abstract class CoreUserService<
     }
     return this.process(
       async () => {
-        // Set reset token
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        dbObject.passwordResetToken = resetToken;
-        await dbObject.save();
-
-        // Return user
-        return dbObject;
+        // Set reset token and return
+        dbObject.passwordResetToken = crypto.randomBytes(32).toString('hex');
+        return await dbObject.save();
       },
       { dbObject, serviceOptions }
     );
@@ -182,7 +173,7 @@ export abstract class CoreUserService<
 
     // Update and return user
     return this.process(
-      async (data) => {
+      async () => {
         return await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
       },
       { serviceOptions }
