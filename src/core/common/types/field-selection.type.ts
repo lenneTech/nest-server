@@ -5,4 +5,4 @@ import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 /**
  * Field selection to set fields of (populated) result
  */
-export type FieldSelection = PopulateOptions[] | SelectionNode[] | ResolveSelector;
+export type FieldSelection = PopulateOptions | (PopulateOptions | string)[] | SelectionNode[] | ResolveSelector;

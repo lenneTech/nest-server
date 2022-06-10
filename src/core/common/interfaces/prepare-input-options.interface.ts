@@ -3,6 +3,7 @@
  */
 export interface PrepareInputOptions {
   [key: string]: any;
+  checkRoles?: boolean;
   create?: boolean;
   clone?: boolean;
   getNewArray?: boolean;
