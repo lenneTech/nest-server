@@ -1,4 +1,4 @@
-import { Model } from 'mongoose';
+import { Model, PopulateOptions } from 'mongoose';
 import { FieldSelection } from '../types/field-selection.type';
 import { PrepareInputOptions } from './prepare-input-options.interface';
 import { PrepareOutputOptions } from './prepare-output-options.interface';
@@ -22,14 +22,20 @@ export interface ServiceOptions {
     roles?: string[];
   };
 
-  // Field selection for results
+  // Field selection for results (will be overwritten by populate if populate was set)
   fieldSelection?: FieldSelection;
+
+  // Determines whether all restrictions are ignored
+  force?: boolean;
 
   // Overwrites type of input (array items)
   inputType?: new (...params: any[]) => any;
 
   // Overwrites type of output (array items)
   outputType?: new (...params: any[]) => any;
+
+  // Alias for fieldSelection (if both are set fielSelection is overwritten by populate)
+  populate?: PopulateOptions | (PopulateOptions | string)[];
 
   // Process field selection
   // If {} or not set, then the field selection runs with defaults

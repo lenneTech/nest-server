@@ -55,6 +55,7 @@ export async function prepareInput<T = any>(
   currentUser: { [key: string]: any; id: string },
   options: {
     [key: string]: any;
+    checkRoles?: boolean;
     create?: boolean;
     clone?: boolean;
     getNewArray?: boolean;
@@ -148,6 +149,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     [key: string]: any;
     clone?: boolean;
     getNewArray?: boolean;
+    removeSecrets?: boolean;
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
   } = {}
@@ -156,6 +158,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   const config = {
     clone: false,
     getNewArray: false,
+    removeSecrets: true,
     removeUndefined: false,
     targetModel: undefined,
     ...options,
@@ -191,17 +194,17 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   }
 
   // Remove password if exists
-  if (output.password) {
+  if (config.removeSecrets && output.password) {
     output.password = undefined;
   }
 
   // Remove verification token if exists
-  if (output.verificationToken) {
+  if (config.removeSecrets && output.verificationToken) {
     output.verificationToken = undefined;
   }
 
   // Remove password reset token if exists
-  if (output.passwordResetToken) {
+  if (config.removeSecrets && output.passwordResetToken) {
     output.passwordResetToken = undefined;
   }
 
