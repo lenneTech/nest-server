@@ -74,6 +74,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     const config = {
       checkRights: true,
       dbObject: options?.dbObject,
+      force: false,
       input: options?.input,
       processFieldSelection: {},
       prepareInput: {},
@@ -81,6 +82,22 @@ export abstract class ModuleService<T extends CoreModel = any> {
       pubSub: true,
       ...options?.serviceOptions,
     };
+
+    // Note force configuration
+    if (config.force) {
+      config.checkRights = false;
+      if (typeof config.prepareInput === 'object') {
+        config.prepareInput.checkRoles = false;
+      }
+      if (typeof config.prepareOutput === 'object') {
+        config.prepareOutput.removeSecrets = false;
+      }
+    }
+
+    // Note populate
+    if (config.populate) {
+      config.fieldSelection = config.populate;
+    }
 
     // Prepare input
     if (config.prepareInput && this.prepareInput) {

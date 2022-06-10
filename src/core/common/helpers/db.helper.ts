@@ -423,7 +423,9 @@ export function removeUnresolvedReferences<T = any>(
   if (typeof populated === 'object') {
     // populatedOptions is an array
     if (Array.isArray(populatedOptions)) {
-      populatedOptions.forEach((po) => removeUnresolvedReferences(populated, ignoreFirst ? po.populate : po, false));
+      populatedOptions.forEach((po) =>
+        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false)
+      );
       return populated;
     }
 
@@ -462,7 +464,10 @@ export async function popAndMap<T extends CoreModel>(
   let result;
   let populateOptions: PopulateOptions[] = [];
   if (populate) {
-    if (Array.isArray(populate) && typeof (populate as PopulateOptions[])[0]?.path === 'string') {
+    if (
+      Array.isArray(populate) &&
+      (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
+    ) {
       populateOptions = populate as PopulateOptions[];
     } else if (Array.isArray(populate) && typeof (populate as SelectionNode[])[0]?.kind === 'string') {
       populateOptions = getPopulatOptionsFromSelections(populate as SelectionNode[]);
