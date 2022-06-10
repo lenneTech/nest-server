@@ -34,7 +34,7 @@ export interface ServiceOptions {
   // Overwrites type of output (array items)
   outputType?: new (...params: any[]) => any;
 
-  // Alias for fieldSelection (if both are set fielSelection is overwritten by populate)
+  // Alias for fieldSelection (if both are set fieldSelection is overwritten by populate)
   populate?: PopulateOptions | (PopulateOptions | string)[];
 
   // Process field selection
