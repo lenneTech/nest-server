@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from './config.service';
-import * as mailjet from 'node-mailjet';
+import mailjet from 'node-mailjet';
 
 /**
  * Mailjet service
