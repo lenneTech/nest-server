@@ -81,7 +81,7 @@
     "mongodb": "4.7.0",
     "mongoose": "6.3.8",
     "multer": "1.4.4",
-    "node-mailjet": "4.0.1",
+    "node-mailjet": "3.4.1",
     "nodemailer": "6.7.5",
     "nodemon": "2.0.16",
     "passport": "0.6.0",
