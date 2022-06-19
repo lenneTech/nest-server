@@ -1,4 +1,6 @@
+import { plainToInstance } from 'class-transformer';
 import * as _ from 'lodash';
+import { Types } from 'mongoose';
 
 /**
  * Helper class for models
@@ -149,4 +151,154 @@ export function maps<T = Record<string, any>>(
   return (data as any[]).map((item) => {
     return (targetClass as any).map(item, { cloneDeep });
   });
+}
+
+/**
+ * It takes an object, a mapping of properties to classes, and returns a new object with the properties mapped to instances
+ * of the classes
+ * @param input - The input object to map
+ * @param mapping - A mapping of property names to classes
+ * @param [target] - The object to map the input to. If not provided, a new object will be created
+ * @returns Record with mapped objects
+ */
+export function mapClasses<T = Record<string, any>>(
+  input: Record<string, any>,
+  mapping: Record<string, new (...args: any[]) => any>,
+  target?: T
+): T {
+  // Check params
+  if (!target) {
+    target = {} as T;
+  }
+  if (!input || !mapping) {
+    return target;
+  }
+
+  // Process input
+  for (const [prop, value] of Object.entries(input)) {
+    if (prop in mapping) {
+      const targetClass = mapping[prop] as any;
+
+      // Process array
+      if (Array.isArray(value)) {
+        const arr = [];
+        for (const item of value) {
+          if (value instanceof targetClass) {
+            arr.push(value);
+          }
+          if (value instanceof Types.ObjectId) {
+            arr.push(value);
+          } else if (typeof value === 'object') {
+            if (targetClass.map) {
+              arr.push(targetClass.map(item));
+            } else if (typeof value === 'object') {
+              arr.push(plainToInstance(targetClass, item));
+            }
+          } else {
+            arr.push(value);
+          }
+        }
+        target[prop] = arr as any;
+      }
+
+      // Process ObjectId
+      else if (value instanceof Types.ObjectId) {
+        target[prop] = value as any;
+      }
+
+      // Process object
+      else if (typeof value === 'object') {
+        if (value instanceof targetClass) {
+          target[prop] = value as any;
+        }
+        if (targetClass.map) {
+          target[prop] = targetClass.map(value);
+        } else {
+          target[prop] = plainToInstance(targetClass, value) as any;
+        }
+      }
+
+      // Others
+      else {
+        target[prop] = value;
+      }
+    }
+  }
+
+  return target;
+}
+
+/**
+ * It takes an object, a mapping of properties to classes, and returns a new object with the properties mapped to instances
+ * of the classes async
+ * @param input - The input object to map
+ * @param mapping - A mapping of property names to classes
+ * @param [target] - The object to map the input to. If not provided, a new object will be created
+ * @returns Record with mapped objects
+ */
+export async function mapClassesAsync<T = Record<string, any>>(
+  input: Record<string, any>,
+  mapping: Record<string, new (...args: any[]) => any>,
+  target?: T
+): Promise<T> {
+  // Check params
+  if (!target) {
+    target = {} as T;
+  }
+  if (!input || !mapping) {
+    return target;
+  }
+
+  // Process input
+  for (const [prop, value] of Object.entries(input)) {
+    if (prop in mapping) {
+      const targetClass = mapping[prop] as any;
+
+      // Process array
+      if (Array.isArray(value)) {
+        const arr = [];
+        for (const item of value) {
+          if (value instanceof targetClass) {
+            arr.push(value);
+          }
+          if (value instanceof Types.ObjectId) {
+            arr.push(value);
+          } else if (typeof value === 'object') {
+            if (targetClass.map) {
+              arr.push(await targetClass.map(item));
+            } else if (typeof value === 'object') {
+              arr.push(plainToInstance(targetClass, item));
+            }
+          } else {
+            arr.push(value);
+          }
+        }
+        target[prop] = arr as any;
+      }
+
+      // Process ObjectId
+      else if (value instanceof Types.ObjectId) {
+        target[prop] = value as any;
+      }
+
+      // Process object
+      else if (typeof value === 'object') {
+        if (value instanceof targetClass) {
+          target[prop] = value as any;
+        }
+        if (targetClass.map) {
+          target[prop] = await targetClass.map(value);
+        } else {
+          target[prop] = plainToInstance(targetClass, value) as any;
+        }
+      }
+
+      // Others
+      else {
+        target[prop] = value;
+      }
+    }
+  }
+
+  return target;
 }
