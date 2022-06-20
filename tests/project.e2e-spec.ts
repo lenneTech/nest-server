@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
-import { RoleEnum } from '../src/core/common/enums/role.enum';
-import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
+import { MongoClient, ObjectId } from 'mongodb';
+import * as path from 'path';
 import envConfig from '../src/config.env';
+import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
-import { MongoClient, ObjectId } from 'mongodb';
+import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('Project (e2e)', () => {
   let app;
@@ -129,6 +131,65 @@ describe('Project (e2e)', () => {
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================
+
+  it('uploadFile', async () => {
+    // Set paths
+    const local = path.join(__dirname, 'test.txt');
+    const remote = path.join(__dirname, '..', 'uploads', 'test.txt');
+
+    // Write and send file
+    await fs.promises.writeFile(local, 'Hello World');
+    const res: any = await testHelper.graphQLWithVariables(
+      `
+        mutation($file: Upload!) {
+          uploadFile(file: $file)
+        }
+      `,
+      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token }
+    );
+    expect(res.data.uploadFile).toEqual(true);
+
+    // Check uploaded files
+    const stat = await fs.promises.stat(remote);
+    expect(!!stat).toEqual(true);
+
+    // Remove files
+    await fs.promises.unlink(local);
+    await fs.promises.unlink(remote);
+  });
+
+  it('uploadFiles', async () => {
+    // Set paths
+    const local1 = path.join(__dirname, 'test1.txt');
+    const local2 = path.join(__dirname, 'test2.txt');
+    const remote1 = path.join(__dirname, '..', 'uploads', 'test1.txt');
+    const remote2 = path.join(__dirname, '..', 'uploads', 'test2.txt');
+
+    // Write and send file
+    await fs.promises.writeFile(local1, 'Hello World 1');
+    await fs.promises.writeFile(local2, 'Hello World 2');
+    const res: any = await testHelper.graphQLWithVariables(
+      `
+        mutation($files: [Upload!]!) {
+          uploadFiles(files: $files)
+        }
+      `,
+      { variables: { files: { type: 'attachment', value: [local1, local2] } }, token: users[0].token }
+    );
+    expect(res.data.uploadFiles).toEqual(true);
+
+    // Check uploaded files
+    const stat1 = await fs.promises.stat(remote1);
+    expect(!!stat1).toEqual(true);
+    const stat2 = await fs.promises.stat(remote2);
+    expect(!!stat2).toEqual(true);
+
+    // Remove files
+    await fs.promises.unlink(local1);
+    await fs.promises.unlink(local2);
+    await fs.promises.unlink(remote1);
+    await fs.promises.unlink(remote2);
+  });
 
   /**
    * Test

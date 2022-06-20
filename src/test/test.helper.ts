@@ -1,4 +1,6 @@
 import { INestApplication } from '@nestjs/common';
+import { Blob } from 'buffer';
+import * as fs from 'fs';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
@@ -55,6 +57,16 @@ export interface TestGraphQLConfig {
   type?: TestGraphQLType;
 }
 
+export interface TestGraphQLAttachment {
+  file: Blob | Buffer | fs.ReadStream | string | boolean | number;
+  options?: string | { filename?: string | undefined; contentType?: string | undefined };
+}
+
+export interface TestGraphQLVariable {
+  value: string | string[] | TestGraphQLAttachment | TestGraphQLAttachment[] | any;
+  type: 'field' | 'attachment';
+}
+
 /**
  * Options for graphql requests
  */
@@ -89,6 +101,11 @@ export interface TestGraphQLOptions {
    * Token of user who is logged in
    */
   token?: string;
+
+  /**
+   * GraphQL variables
+   */
+  variables?: Record<string, TestGraphQLVariable>;
 }
 
 /**
@@ -123,6 +140,71 @@ export class TestHelper {
   }
 
   /**
+   * Graphql request with attachments
+   * inspired by https://github.com/jaydenseric/graphql-upload/issues/125#issuecomment-546314318
+   */
+  async graphQLWithVariables(query: string, options: TestGraphQLOptions): Promise<any> {
+    // Default options
+    const config = {
+      convertEnums: true,
+      countOfSubscriptionMessages: 1,
+      token: null,
+      statusCode: 200,
+      log: false,
+      logError: false,
+      ...options,
+    };
+
+    // Init vars
+    const { token, statusCode, log, logError, variables } = config;
+
+    // Create map
+    const mapArray: { key: string; type: 'attachment' | 'field'; value: any; index?: number }[] = [];
+    for (const [key, item] of Object.entries(variables)) {
+      if (item.type === 'attachment' && Array.isArray(item.value)) {
+        item.value.forEach((element, index) => {
+          mapArray.push({ key, type: 'attachment', value: element, index });
+        });
+      } else {
+        mapArray.push({ key, type: item.type, value: item.value });
+      }
+    }
+    const map = {};
+    mapArray.forEach((item, index) => {
+      map[index] = ['variables.' + item.key + ('index' in item ? '.' + item.index : '')];
+    });
+
+    const request = supertest((this.app as INestApplication).getHttpServer())
+      .post('/graphql')
+      .field('operations', JSON.stringify({ query }))
+      .field('map', JSON.stringify(map));
+
+    mapArray.forEach((variable, i) => {
+      if (variable.type === 'attachment') {
+        if (typeof variable.value === 'object' && variable.value.file) {
+          request.attach(`${i}`, variable.value.file, variable.value.options);
+        } else {
+          request.attach(`${i}`, variable.value);
+        }
+      } else {
+        request.field(`${i}`, variable.value);
+      }
+    });
+
+    if (token) {
+      request.set('Authorization', 'bearer ' + token);
+    }
+
+    const response = this.processResponse(await request, statusCode, log, logError);
+
+    // Check data
+    expect(response.headers['content-type']).toMatch('application/json');
+
+    // return data
+    return response.body;
+  }
+
+  /**
    * GraphQL request
    */
   async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
@@ -138,7 +220,7 @@ export class TestHelper {
     };
 
     // Init vars
-    const { token, statusCode, log, logError } = config;
+    const { token, statusCode, log, logError, variables } = config;
 
     // Init
     let query = '';
@@ -197,6 +279,13 @@ export class TestHelper {
       } else {
         query = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
       }
+    }
+
+    if (variables) {
+      if (typeof graphql !== 'string') {
+        graphql = query;
+      }
+      return this.graphQLWithVariables(graphql as string, options);
     }
 
     // Request configuration
@@ -361,7 +450,10 @@ export class TestHelper {
 
     // Response
     const response = await request.send(requestConfig.payload);
+    return this.processResponse(response, statusCode, log, logError);
+  }
 
+  processResponse(response, statusCode, log, logError) {
     // Log response
     if (log) {
       console.log(JSON.stringify(response, null, 2));
@@ -372,7 +464,7 @@ export class TestHelper {
       if (response && response.error && response.error.text) {
         const errors = JSON.parse(response.error.text).errors;
         for (const error of errors) {
-          console.log(util.inspect(error, false, null, true));
+          console.error(util.inspect(error, false, null, true));
         }
       }
     }
