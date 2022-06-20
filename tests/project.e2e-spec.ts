@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
+import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
 import envConfig from '../src/config.env';
@@ -139,15 +140,16 @@ describe('Project (e2e)', () => {
 
     // Write and send file
     await fs.promises.writeFile(local, 'Hello World');
-    const res: any = await testHelper.graphQLWithVariables(
-      `
-        mutation($file: Upload!) {
-          uploadFile(file: $file)
-        }
-      `,
-      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token }
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'uploadFile',
+        type: TestGraphQLType.MUTATION,
+        variables: { file: 'Upload!' },
+        arguments: { file: new VariableType('file') },
+      },
+      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token, log: true, logError: true }
     );
-    expect(res.data.uploadFile).toEqual(true);
+    expect(res).toEqual(true);
 
     // Check uploaded files
     const stat = await fs.promises.stat(remote);
@@ -168,15 +170,16 @@ describe('Project (e2e)', () => {
     // Write and send file
     await fs.promises.writeFile(local1, 'Hello World 1');
     await fs.promises.writeFile(local2, 'Hello World 2');
-    const res: any = await testHelper.graphQLWithVariables(
-      `
-        mutation($files: [Upload!]!) {
-          uploadFiles(files: $files)
-        }
-      `,
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'uploadFiles',
+        type: TestGraphQLType.MUTATION,
+        variables: { files: '[Upload!]!' },
+        arguments: { files: new VariableType('files') },
+      },
       { variables: { files: { type: 'attachment', value: [local1, local2] } }, token: users[0].token }
     );
-    expect(res.data.uploadFiles).toEqual(true);
+    expect(res).toEqual(true);
 
     // Check uploaded files
     const stat1 = await fs.promises.stat(remote1);

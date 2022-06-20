@@ -55,6 +55,11 @@ export interface TestGraphQLConfig {
    * https://graphql.org/learn/queries
    */
   type?: TestGraphQLType;
+
+  /**
+   * GraphQL variables with variable name as key and Type as value
+   */
+  variables?: Record<string, string>;
 }
 
 export interface TestGraphQLAttachment {
@@ -140,71 +145,6 @@ export class TestHelper {
   }
 
   /**
-   * Graphql request with attachments
-   * inspired by https://github.com/jaydenseric/graphql-upload/issues/125#issuecomment-546314318
-   */
-  async graphQLWithVariables(query: string, options: TestGraphQLOptions): Promise<any> {
-    // Default options
-    const config = {
-      convertEnums: true,
-      countOfSubscriptionMessages: 1,
-      token: null,
-      statusCode: 200,
-      log: false,
-      logError: false,
-      ...options,
-    };
-
-    // Init vars
-    const { token, statusCode, log, logError, variables } = config;
-
-    // Create map
-    const mapArray: { key: string; type: 'attachment' | 'field'; value: any; index?: number }[] = [];
-    for (const [key, item] of Object.entries(variables)) {
-      if (item.type === 'attachment' && Array.isArray(item.value)) {
-        item.value.forEach((element, index) => {
-          mapArray.push({ key, type: 'attachment', value: element, index });
-        });
-      } else {
-        mapArray.push({ key, type: item.type, value: item.value });
-      }
-    }
-    const map = {};
-    mapArray.forEach((item, index) => {
-      map[index] = ['variables.' + item.key + ('index' in item ? '.' + item.index : '')];
-    });
-
-    const request = supertest((this.app as INestApplication).getHttpServer())
-      .post('/graphql')
-      .field('operations', JSON.stringify({ query }))
-      .field('map', JSON.stringify(map));
-
-    mapArray.forEach((variable, i) => {
-      if (variable.type === 'attachment') {
-        if (typeof variable.value === 'object' && variable.value.file) {
-          request.attach(`${i}`, variable.value.file, variable.value.options);
-        } else {
-          request.attach(`${i}`, variable.value);
-        }
-      } else {
-        request.field(`${i}`, variable.value);
-      }
-    });
-
-    if (token) {
-      request.set('Authorization', 'bearer ' + token);
-    }
-
-    const response = this.processResponse(await request, statusCode, log, logError);
-
-    // Check data
-    expect(response.headers['content-type']).toMatch('application/json');
-
-    // return data
-    return response.body;
-  }
-
-  /**
    * GraphQL request
    */
   async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
@@ -252,6 +192,11 @@ export class TestHelper {
       // Set request type
       queryObj[graphql.type] = {};
 
+      // Set variables
+      if (graphql.variables) {
+        queryObj[graphql.type]['__variables'] = graphql.variables;
+      }
+
       // Set request name and fields
       queryObj[graphql.type][graphql.name] = this.prepareFields(graphql.fields) || {};
 
@@ -281,13 +226,6 @@ export class TestHelper {
       }
     }
 
-    if (variables) {
-      if (typeof graphql !== 'string') {
-        graphql = query;
-      }
-      return this.graphQLWithVariables(graphql as string, options);
-    }
-
     // Request configuration
     const requestConfig: LightMyRequest.InjectOptions = {
       method: 'POST',
@@ -301,7 +239,7 @@ export class TestHelper {
     }
 
     // Get response
-    const response = await this.getResponse(token, requestConfig, statusCode, log, logError);
+    const response = await this.getResponse(token, requestConfig, statusCode, log, logError, variables);
 
     // Response of fastify
     // if ((this.app as FastifyInstance).inject) {
@@ -414,7 +352,8 @@ export class TestHelper {
     requestConfig: LightMyRequest.InjectOptions,
     statusCode: number,
     log: boolean,
-    logError: boolean
+    logError: boolean,
+    variables?: Record<string, TestGraphQLVariable>
   ): Promise<any> {
     // Token
     if (token) {
@@ -445,14 +384,70 @@ export class TestHelper {
     const method: string = requestConfig.method.toLowerCase();
     let request = supertest((this.app as INestApplication).getHttpServer())[method](requestConfig.url as string);
     if (token) {
-      request = request.set('Authorization', 'bearer ' + token);
+      request.set('Authorization', 'bearer ' + token);
+    }
+
+    // Process variables
+    if (variables) {
+      request = this.processVariables(request, variables, (requestConfig.payload as any)?.query);
     }
 
     // Response
-    const response = await request.send(requestConfig.payload);
+    const response = await (variables ? request : request.send(requestConfig.payload));
     return this.processResponse(response, statusCode, log, logError);
   }
 
+  /**
+   * Process GraphQL variables
+   */
+  processVariables(request: any, variables: Record<string, TestGraphQLVariable>, query: string | object) {
+    // Check and optimize parameters
+    if (!variables) {
+      return request;
+    }
+    if (typeof query === 'object') {
+      query = JSON.stringify(query).replace(/"/g, '');
+    }
+
+    // Create map
+    const mapArray: { key: string; type: 'attachment' | 'field'; value: any; index?: number }[] = [];
+    for (const [key, item] of Object.entries(variables)) {
+      if (item.type === 'attachment' && Array.isArray(item.value)) {
+        item.value.forEach((element, index) => {
+          mapArray.push({ key, type: 'attachment', value: element, index });
+        });
+      } else {
+        mapArray.push({ key, type: item.type, value: item.value });
+      }
+    }
+    const map = {};
+    mapArray.forEach((item, index) => {
+      map[index] = ['variables.' + item.key + ('index' in item ? '.' + item.index : '')];
+    });
+
+    // Add operations
+    request.field('operations', JSON.stringify({ query })).field('map', JSON.stringify(map));
+
+    // Add variables as attachment or field
+    mapArray.forEach((variable, i) => {
+      if (variable.type === 'attachment') {
+        if (typeof variable.value === 'object' && variable.value.file) {
+          request.attach(`${i}`, variable.value.file, variable.value.options);
+        } else {
+          request.attach(`${i}`, variable.value);
+        }
+      } else {
+        request.field(`${i}`, variable.value);
+      }
+    });
+
+    // Return processed request
+    return request;
+  }
+
+  /**
+   * Process GraphQL response
+   */
   processResponse(response, statusCode, log, logError) {
     // Log response
     if (log) {
