@@ -1,6 +1,7 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
+import { mapClasses } from '../../../core/common/helpers/model.helper';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
@@ -58,6 +59,14 @@ export class User extends CoreUserModel implements PersistenceModel {
     super.init();
     // Nothing more to initialize yet
     return this;
+  }
+
+  /**
+   * Map input
+   */
+  map(input) {
+    super.map(input);
+    return mapClasses(input, { createdBy: User, updatedBy: User }, this);
   }
 }
 

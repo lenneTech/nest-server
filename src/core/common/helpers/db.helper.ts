@@ -473,6 +473,8 @@ export async function popAndMap<T extends CoreModel>(
       populateOptions = getPopulatOptionsFromSelections(populate as SelectionNode[]);
     } else if ((populate as ResolveSelector).info) {
       populateOptions = getPopulateOptions((populate as ResolveSelector).info, (populate as ResolveSelector).select);
+    } else if (typeof populate === 'string' || (populate as PopulateOptions).path) {
+      populateOptions = [populate as PopulateOptions];
     }
   }
   if (queryOrDocument instanceof Query) {

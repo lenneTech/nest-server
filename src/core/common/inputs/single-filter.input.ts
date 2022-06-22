@@ -9,7 +9,16 @@ import { CoreInput } from './core-input.input';
 @InputType({ description: 'Input for a configuration of a filter' })
 export class SingleFilterInput extends CoreInput {
   /**
-   * Name of the property to be used for the filter'
+   * Convert value to ObjectId
+   */
+  @Field({
+    description: 'Convert value to ObjectId',
+    nullable: true,
+  })
+  convertToObjectId?: boolean = undefined;
+
+  /**
+   * Name of the property to be used for the filter
    */
   @Field({ description: 'Name of the property to be used for the filter' })
   field: string = undefined;

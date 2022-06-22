@@ -139,7 +139,13 @@ export function generateFilterQuery<T = any>(filter?: Partial<FilterInput>): Fil
   // Process single filter
   if (filter.singleFilter) {
     // Init variables
-    const { not, options, field, value } = filter.singleFilter;
+    const { not, options, field, convertToObjectId } = filter.singleFilter;
+    let value = filter.singleFilter.value;
+
+    // Convert value to object ID(s)
+    if (convertToObjectId) {
+      value = getObjectIds(value);
+    }
 
     // Convert filter
     switch (filter.singleFilter.operator) {
