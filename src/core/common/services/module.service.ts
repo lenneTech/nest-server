@@ -71,7 +71,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
   ) {
     // Configuration with default values
-    const config = {
+    const config: { dbObject: string | Types.ObjectId | any; input: any } & ServiceOptions = {
       checkRights: true,
       dbObject: options?.dbObject,
       force: false,
