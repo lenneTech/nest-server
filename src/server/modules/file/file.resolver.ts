@@ -1,9 +1,11 @@
-import { Args, Mutation, Resolver } from '@nestjs/graphql';
+import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { createWriteStream } from 'fs';
 import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';
-import type { FileUpload } from 'graphql-upload/processRequest.js';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { FileInfo } from '../../../core/modules/file/file-info.output';
+import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
+import { FileService } from './file.service';
 
 /**
  * File resolver
@@ -11,23 +13,46 @@ import { RoleEnum } from '../../../core/common/enums/role.enum';
 @Resolver()
 export class FileResolver {
   /**
+   * Integrate services
+   */
+  constructor(protected readonly fileService: FileService) {}
+
+  // ===========================================================================
+  // Queries
+  // ===========================================================================
+
+  /**
+   * Get file info
+   */
+  @Roles(RoleEnum.ADMIN)
+  @Query(() => FileInfo, { nullable: true })
+  async getFileInfo(@Args({ name: 'filename', type: () => String }) filename: string) {
+    return await this.fileService.getFileInfoByName(filename);
+  }
+
+  // ===========================================================================
+  // Mutations
+  // ===========================================================================
+
+  /**
+   * Delete file
+   */
+  @Roles(RoleEnum.ADMIN)
+  @Mutation(() => FileInfo)
+  async deleteFile(@Args({ name: 'filename', type: () => String }) filename: string) {
+    return await this.fileService.deleteFileByName(filename);
+  }
+
+  /**
    * Upload file
    */
   @Roles(RoleEnum.ADMIN)
-  @Mutation(() => Boolean)
-  async uploadFile(
-    @Args({ name: 'file', type: () => GraphQLUpload })
-    file: FileUpload
-  ) {
+  @Mutation(() => FileInfo)
+  async uploadFile(@Args({ name: 'file', type: () => GraphQLUpload }) file: FileUpload) {
     const { filename, mimetype, encoding, createReadStream } = file;
-    console.log('file', filename, mimetype, encoding);
-    await new Promise((resolve, reject) =>
-      createReadStream()
-        .pipe(createWriteStream(`./uploads/${filename}`))
-        .on('finish', () => resolve(true))
-        .on('error', (error) => reject(error))
-    );
-    return true;
+
+    // Save file in DB
+    return await this.fileService.createFile(file);
   }
 
   /**
@@ -35,14 +60,11 @@ export class FileResolver {
    */
   @Roles(RoleEnum.ADMIN)
   @Mutation(() => Boolean)
-  async uploadFiles(
-    @Args({ name: 'files', type: () => [GraphQLUpload] })
-    files: FileUpload[]
-  ) {
+  async uploadFiles(@Args({ name: 'files', type: () => [GraphQLUpload] }) files: FileUpload[]) {
+    // Save files in filesystem
     const promises: Promise<any>[] = [];
     for (const file of files) {
       const { filename, mimetype, encoding, createReadStream } = await file;
-      console.log('file', filename, mimetype, encoding);
       promises.push(
         new Promise((resolve, reject) =>
           createReadStream()

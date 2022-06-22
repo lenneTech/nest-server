@@ -145,6 +145,35 @@ export class TestHelper {
   }
 
   /**
+   * Download file from URL
+   */
+  download(url: string, token?: string) {
+    return new Promise((resolve, reject) => {
+      const request = supertest((this.app as INestApplication).getHttpServer()).get(url);
+      if (token) {
+        request.set('Authorization', 'bearer ' + token);
+      }
+      let data = '';
+      request
+        .buffer()
+        .parse((res: any, callback) => {
+          res.setEncoding('binary');
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('error', reject);
+          res.on('end', (err) => {
+            err ? reject(err) : callback(null, null);
+          });
+        })
+        .end((err, res: unknown) => {
+          (res as Response & { data: string }).data = new Buffer(data, 'binary').toString();
+          err ? reject(err) : resolve(res);
+        });
+    });
+  }
+
+  /**
    * GraphQL request
    */
   async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {

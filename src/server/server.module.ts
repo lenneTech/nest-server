@@ -5,6 +5,7 @@ import { CoreAuthService } from '../core/modules/auth/services/core-auth.service
 import { AuthModule } from './modules/auth/auth.module';
 import { FileController } from './modules/file/file.controller';
 import { FileResolver } from './modules/file/file.resolver';
+import { FileService } from './modules/file/file.service';
 import { ServerController } from './server.controller';
 
 /**
@@ -28,7 +29,7 @@ import { ServerController } from './server.controller';
   controllers: [FileController, ServerController],
 
   // Include resolvers, services and other providers
-  providers: [FileResolver],
+  providers: [FileService, FileResolver],
 
   // Export modules for reuse in other modules
   exports: [CoreModule, AuthModule],
