@@ -1,6 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import { Document, Schema, Types } from 'mongoose';
 import { mapClasses } from '../../../core/common/helpers/model.helper';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
@@ -8,7 +8,7 @@ import { PersistenceModel } from '../../common/models/persistence.model';
 export type UserDocument = User & Document;
 
 /**
- * User schema
+ * User model
  */
 @ObjectType({ description: 'User' })
 @MongooseSchema({ timestamps: true })
@@ -25,28 +25,28 @@ export class User extends CoreUserModel implements PersistenceModel {
   avatar: string = undefined;
 
   /**
-   * Editor who created the object
+   * ID of the user who created the object
    *
    * Not set when created by system
    */
-  @Field((type) => User, {
+  @Field(() => String, {
     description: 'ID of the user who created the object',
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  createdBy: User = undefined;
+  createdBy: Types.ObjectId | string = undefined;
 
   /**
-   * Editor who last updated the object
+   * ID of the user who updated the object
    *
    * Not set when updated by system
    */
-  @Field((type) => User, {
+  @Field(() => String, {
     description: 'ID of the user who last updated the object',
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  updatedBy: User = undefined;
+  updatedBy: Types.ObjectId | string = undefined;
 
   // ===================================================================================================================
   // Methods

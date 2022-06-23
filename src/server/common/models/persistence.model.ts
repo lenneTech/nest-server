@@ -15,33 +15,37 @@ import { User } from '../../modules/user/user.model';
   isAbstract: true,
 })
 export abstract class PersistenceModel extends CorePersistenceModel {
+  // ===================================================================================================================
+  // Properties
+  // ===================================================================================================================
+
   /**
-   * User who created the object
+   * ID of the user who created the object
    *
    * Not set when created by system
    */
-  @Field((type) => User, {
-    description: 'User who created the object',
+  @Field(() => User, {
+    description: 'ID of the user who created the object',
     nullable: true,
   })
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
-  createdBy?: Types.ObjectId | User = undefined;
+  createdBy?: Types.ObjectId | string = undefined;
 
   /**
-   * User who last updated the object
+   * ID of the user who updated the object
    *
    * Not set when updated by system
    */
-  @Field((type) => User, {
-    description: 'User who last updated the object',
+  @Field(() => User, {
+    description: 'ID of the user who updated the object',
     nullable: true,
   })
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
-  updatedBy?: Types.ObjectId | User = undefined;
+  updatedBy?: Types.ObjectId | string = undefined;
 
-  // ===========================================================================
-  // Properties
-  // ===========================================================================
+  // ===================================================================================================================
+  // Methods
+  // ===================================================================================================================
 
   /**
    * Initialize instance with default values instead of undefined
@@ -49,6 +53,15 @@ export abstract class PersistenceModel extends CorePersistenceModel {
   init() {
     super.init();
     // Nothing more to initialize yet
+    return this;
+  }
+
+  /**
+   * Map input
+   */
+  map(input) {
+    super.map(input);
+    // There is nothing to map yet, if something comes up you can use `mapClass` / `mapClassAsync` from ModelHelper
     return this;
   }
 }
