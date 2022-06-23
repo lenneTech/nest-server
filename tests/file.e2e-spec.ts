@@ -173,7 +173,6 @@ describe('Project (e2e)', () => {
       },
       { token: users[0].token, logError: true }
     );
-    console.log(res, fileInfo);
     expect(res.id).toEqual(fileInfo.id);
     expect(res.filename).toEqual(fileInfo.filename);
   });
@@ -185,8 +184,6 @@ describe('Project (e2e)', () => {
     } catch (err) {
       console.error('Fehler', err);
     }
-
-    console.log(JSON.stringify(res, null, 2));
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
@@ -201,7 +198,6 @@ describe('Project (e2e)', () => {
       },
       { token: users[0].token }
     );
-    console.log(res);
     expect(res.id).toEqual(fileInfo.id);
   });
 

@@ -51,7 +51,7 @@ export class FileController {
     })
   )
   uploadFiles(@UploadedFiles() files, @Body() fields: any) {
-    console.log(JSON.stringify({ files, fields }, null, 2));
+    console.log('Saved file info', JSON.stringify({ files, fields }, null, 2));
   }
 
   /**
