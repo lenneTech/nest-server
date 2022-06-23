@@ -21,7 +21,7 @@ import { User } from '../user/user.model';
 import { FileService } from './file.service';
 
 /**
- * File controller for
+ * File controller
  */
 @Controller('files')
 export class FileController {

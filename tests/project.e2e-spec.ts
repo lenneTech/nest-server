@@ -1,12 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
-import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
-import * as path from 'path';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
-import { FileInfo } from '../src/core/modules/file/file-info.output';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
@@ -23,8 +19,6 @@ describe('Project (e2e)', () => {
   // Global vars
   let userService: UserService;
   const users: Partial<User & { token: string }>[] = [];
-  let fileInfo: FileInfo;
-  let fileContent: string;
 
   // ===================================================================================================================
   // Preparations

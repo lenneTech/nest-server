@@ -79,8 +79,7 @@ export class CoreModule implements NestModule {
                         const { connectionParams, extra } = context;
                         if (config.graphQl.enableSubscriptionAuth) {
                           // get authToken from authorization header
-                          const authToken: string =
-                            'Authorization' in connectionParams && connectionParams?.Authorization?.split(' ')[1];
+                          const authToken: string = connectionParams?.Authorization?.split(' ')[1];
                           if (authToken) {
                             // verify authToken/getJwtPayLoad
                             const payload = authService.decodeJwt(authToken);

@@ -17,7 +17,7 @@ export class CoreAuthModel extends CoreModel {
   token: string = undefined;
 
   // ===================================================================================================================
-  // Properties
+  // Methods
   // ===================================================================================================================
 
   /**
@@ -26,6 +26,15 @@ export class CoreAuthModel extends CoreModel {
   init() {
     super.init();
     // Nothing more to initialize yet
+    return this;
+  }
+
+  /**
+   * Map input
+   */
+  map(input) {
+    super.map(input);
+    // There is nothing to map yet, if something comes up you can use `mapClass` / `mapClassAsync` from ModelHelper
     return this;
   }
 }

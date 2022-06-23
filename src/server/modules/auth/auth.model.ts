@@ -29,4 +29,13 @@ export class Auth extends CoreAuthModel {
     // Nothing more to initialize yet
     return this;
   }
+
+  /**
+   * Map input
+   */
+  map(input) {
+    super.map(input);
+    // There is nothing to map yet, if something comes up you can use `mapClass` / `mapClassAsync` from ModelHelper
+    return this;
+  }
 }
