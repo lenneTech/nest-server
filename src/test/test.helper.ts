@@ -169,7 +169,7 @@ export class TestHelper {
           });
         })
         .end((err, res: superagent.Response) => {
-          (res as superagent.Response & { data: string }).data = new Buffer(data, 'binary').toString();
+          (res as superagent.Response & { data: string }).data = Buffer.from(data, 'binary').toString();
           err ? reject(err) : resolve(res as superagent.Response & { data: string });
         });
     });
