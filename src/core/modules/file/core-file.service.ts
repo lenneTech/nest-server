@@ -7,6 +7,7 @@ import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
+import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { FileInfo } from './file-info.output';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUpload } from './interfaces/file-upload.interface';
@@ -27,9 +28,9 @@ export abstract class CoreFileService {
   /**
    * Save file in DB
    */
-  createFile(file: FileUpload, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
+  createFile(file: MaybePromise<FileUpload>, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
     return new Promise(async (resolve, reject) => {
-      const { filename, mimetype, encoding, createReadStream } = file;
+      const { filename, mimetype, encoding, createReadStream } = await file;
       const readStream = createReadStream();
       const options: MongoGridFSOptions = { filename, contentType: mimetype };
       this.files.writeFile(options, readStream, (error, fileInfo) => {
@@ -41,7 +42,7 @@ export abstract class CoreFileService {
   /**
    * Save files in DB
    */
-  async createFiles(files: FileUpload[], serviceOptions?: FileServiceOptions): Promise<FileInfo[]> {
+  async createFiles(files: MaybePromise<FileUpload>[], serviceOptions?: FileServiceOptions): Promise<FileInfo[]> {
     const promises: Promise<FileInfo>[] = [];
     for (const file of files) {
       promises.push(this.createFile(file, serviceOptions));
