@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
+import * as superagent from 'superagent';
 import * as supertest from 'supertest';
 import * as util from 'util';
 import * as ws from 'ws';
@@ -146,8 +147,9 @@ export class TestHelper {
 
   /**
    * Download file from URL
+   * @return Superagent response with additional data field containing the content of the file
    */
-  download(url: string, token?: string) {
+  download(url: string, token?: string): Promise<superagent.Response & { data: string }> {
     return new Promise((resolve, reject) => {
       const request = supertest((this.app as INestApplication).getHttpServer()).get(url);
       if (token) {
@@ -166,9 +168,9 @@ export class TestHelper {
             err ? reject(err) : callback(null, null);
           });
         })
-        .end((err, res: unknown) => {
-          (res as Response & { data: string }).data = new Buffer(data, 'binary').toString();
-          err ? reject(err) : resolve(res);
+        .end((err, res: superagent.Response) => {
+          (res as superagent.Response & { data: string }).data = new Buffer(data, 'binary').toString();
+          err ? reject(err) : resolve(res as superagent.Response & { data: string });
         });
     });
   }
@@ -480,7 +482,7 @@ export class TestHelper {
   processResponse(response, statusCode, log, logError) {
     // Log response
     if (log) {
-      console.log(JSON.stringify(response, null, 2));
+      console.log('Response', JSON.stringify(response, null, 2));
     }
 
     // Log error
