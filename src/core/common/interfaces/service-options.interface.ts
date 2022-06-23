@@ -35,7 +35,7 @@ export interface ServiceOptions {
   outputType?: new (...params: any[]) => any;
 
   // Alias for fieldSelection (if both are set fieldSelection is overwritten by populate)
-  populate?: PopulateOptions | (PopulateOptions | string)[];
+  populate?: string | PopulateOptions | (PopulateOptions | string)[];
 
   // Process field selection
   // If {} or not set, then the field selection runs with defaults

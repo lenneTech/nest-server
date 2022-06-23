@@ -543,7 +543,7 @@ export function removeIds(source: any[], ids: StringOrObjectId | StringOrObjectI
  */
 export async function setPopulates<T = Query<any, any> | Document>(
   queryOrDocument: T,
-  populateOptions: PopulateOptions[],
+  populateOptions: string[] | PopulateOptions[] | (string | PopulateOptions)[],
   modelSchemaPaths?: { [key: string]: SchemaType }
 ): Promise<T> {
   // Check parameters
@@ -553,8 +553,12 @@ export async function setPopulates<T = Query<any, any> | Document>(
 
   // Filter populate options via model schema paths
   if (modelSchemaPaths) {
-    populateOptions = populateOptions.filter((options) => {
-      return Object.keys(modelSchemaPaths).includes(options.path);
+    populateOptions = populateOptions.filter((option: string | PopulateOptions) => {
+      let key: string = option as string;
+      if ((option as PopulateOptions)?.path) {
+        key = (option as PopulateOptions)?.path;
+      }
+      return Object.keys(modelSchemaPaths).includes(key);
     });
   }
 
