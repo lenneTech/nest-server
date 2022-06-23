@@ -34,7 +34,8 @@ export class CoreAuthModel extends CoreModel {
    */
   map(input) {
     super.map(input);
-    // There is nothing to map yet, if something comes up you can use `mapClass` / `mapClassAsync` from ModelHelper
+    // There is nothing to map yet. Non-primitive variables should always be mapped.
+    // If something comes up, you can use `mapClasses` / `mapClassesAsync` from ModelHelper.
     return this;
   }
 }
