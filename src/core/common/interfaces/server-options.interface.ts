@@ -1,7 +1,7 @@
 import { ApolloDriverConfig } from '@nestjs/apollo';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
-import { MongooseModuleOptions } from '@nestjs/mongoose/dist/interfaces/mongoose-options.interface';
+import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { MailjetOptions } from './mailjet-options.interface';

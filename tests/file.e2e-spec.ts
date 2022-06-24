@@ -4,9 +4,9 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
+import { FileInfo } from '../src/server/modules/file/file-info.model';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
-import { CoreFileInfo } from '../src/core/modules/file/core-file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
@@ -23,7 +23,7 @@ describe('Project (e2e)', () => {
   // Global vars
   let userService: UserService;
   const users: Partial<User & { token: string }>[] = [];
-  let fileInfo: CoreFileInfo;
+  let fileInfo: FileInfo;
   let fileContent: string;
 
   // ===================================================================================================================
