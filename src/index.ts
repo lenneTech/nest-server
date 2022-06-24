@@ -85,8 +85,10 @@ export * from './core/modules/auth/jwt.strategy';
 
 export * from './core/modules/file/interfaces/file-service-options.interface';
 export * from './core/modules/file/interfaces/file-upload.interface';
+export * from './core/modules/file/core-file.controller';
+export * from './core/modules/file/core-file.resolver';
 export * from './core/modules/file/core-file.service';
-export * from './core/modules/file/file-info.output';
+export * from './core/modules/file/core-file-info.model';
 
 // =====================================================================================================================
 // Core - Modules - User

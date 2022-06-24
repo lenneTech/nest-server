@@ -3,8 +3,8 @@ import { createWriteStream } from 'fs';
 import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { FileInfo } from '../../../core/modules/file/file-info.output';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
+import { FileInfo } from './file-info.model';
 import { FileService } from './file.service';
 
 /**
@@ -49,9 +49,6 @@ export class FileResolver {
   @Roles(RoleEnum.ADMIN)
   @Mutation(() => FileInfo)
   async uploadFile(@Args({ name: 'file', type: () => GraphQLUpload }) file: FileUpload) {
-    const { filename, mimetype, encoding, createReadStream } = file;
-
-    // Save file in DB
     return await this.fileService.createFile(file);
   }
 

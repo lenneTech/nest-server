@@ -8,9 +8,14 @@ import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
-import { FileInfo } from './file-info.output';
+import { CoreFileInfo } from './core-file-info.model';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUpload } from './interfaces/file-upload.interface';
+
+/**
+ * Type for checking input
+ */
+export type FileInputCheckType = 'file' | 'files' | 'filterArgs' | 'id' | 'filename';
 
 /**
  * Abstract core file service
@@ -21,15 +26,18 @@ export abstract class CoreFileService {
   /**
    * Include MongoDB connection and create File bucket
    */
-  protected constructor(protected readonly connection: Connection, modelName = 'File') {
-    this.files = createBucket({ modelName, connection });
+  protected constructor(protected readonly connection: Connection, bucketName = 'fs') {
+    this.files = createBucket({ bucketName, connection });
   }
 
   /**
    * Save file in DB
    */
-  createFile(file: MaybePromise<FileUpload>, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
-    return new Promise(async (resolve, reject) => {
+  async createFile(file: MaybePromise<FileUpload>, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (!(await this.checkRights(file, { ...serviceOptions, checkInputType: 'file' }))) {
+      return null;
+    }
+    return await new Promise(async (resolve, reject) => {
       const { filename, mimetype, encoding, createReadStream } = await file;
       const readStream = createReadStream();
       const options: MongoGridFSOptions = { filename, contentType: mimetype };
@@ -42,8 +50,12 @@ export abstract class CoreFileService {
   /**
    * Save files in DB
    */
-  async createFiles(files: MaybePromise<FileUpload>[], serviceOptions?: FileServiceOptions): Promise<FileInfo[]> {
-    const promises: Promise<FileInfo>[] = [];
+  async createFiles(files: MaybePromise<FileUpload>[], serviceOptions?: FileServiceOptions): Promise<CoreFileInfo[]> {
+    if (!(await this.checkRights(files, { ...serviceOptions, checkInputType: 'files' }))) {
+      return null;
+    }
+    console.log(files);
+    const promises: Promise<CoreFileInfo>[] = [];
     for (const file of files) {
       promises.push(this.createFile(file, serviceOptions));
     }
@@ -53,8 +65,11 @@ export abstract class CoreFileService {
   /**
    * Get file infos via filter
    */
-  findFileInfo(filterArgs?: FilterArgs, serviceOptions?: FileServiceOptions): Promise<FileInfo[]> {
-    return new Promise((resolve, reject) => {
+  async findFileInfo(filterArgs?: FilterArgs, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo[]> {
+    if (!(await this.checkRights(filterArgs, { ...serviceOptions, checkInputType: 'filterArgs' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       const filterQuery = convertFilterArgsToQuery(filterArgs);
       const cursor = this.files.find(filterQuery[0], filterQuery[1]);
       if (!cursor) {
@@ -69,8 +84,11 @@ export abstract class CoreFileService {
   /**
    * Get info about file via file ID
    */
-  getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
-    return new Promise((resolve, reject) => {
+  async getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       this.files.findById(getObjectIds(id), (error, fileInfo) => {
         error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
       });
@@ -80,8 +98,11 @@ export abstract class CoreFileService {
   /**
    * Get info about file via filename
    */
-  getFileInfoByName(filename: string, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
-    return new Promise((resolve, reject) => {
+  async getFileInfoByName(filename: string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       this.files.findOne({ filename }, (error, fileInfo) => {
         error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
       });
@@ -91,22 +112,34 @@ export abstract class CoreFileService {
   /**
    * Get file stream (for big files) via file ID
    */
-  getFileStream(id: string | Types.ObjectId, options?: GridFSBucketReadStreamOptions) {
-    return this.files.openDownloadStream(getObjectIds(id), options);
+  async getFileStream(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions) {
+    if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
+      return null;
+    }
+    return this.files.openDownloadStream(getObjectIds(id));
   }
 
   /**
    * Get file stream (for big files) via filename
    */
-  getFileStreamByName(filename: string): GridFSBucketReadStreamOptions {
+  async getFileStreamByName(
+    filename: string,
+    serviceOptions?: FileServiceOptions
+  ): Promise<GridFSBucketReadStreamOptions> {
+    if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
+      return null;
+    }
     return this.files.readFile({ filename });
   }
 
   /**
    * Get file buffer (for small files) via file ID
    */
-  getBuffer(id: string | Types.ObjectId): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+  async getBuffer(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<Buffer> {
+    if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       this.files.readFile({ _id: getObjectIds(id) }, (error, buffer) => {
         error ? reject(error) : resolve(buffer);
       });
@@ -116,8 +149,11 @@ export abstract class CoreFileService {
   /**
    * Get file buffer (for small files) via file ID
    */
-  getBufferByName(filename: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+  async getBufferByName(filename: string, serviceOptions?: FileServiceOptions): Promise<Buffer> {
+    if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       this.files.readFile({ filename }, (error, buffer) => {
         error ? reject(error) : resolve(buffer);
       });
@@ -127,8 +163,11 @@ export abstract class CoreFileService {
   /**
    * Delete file reference of avatar
    */
-  deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
-    return new Promise((resolve, reject) => {
+  async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
       return this.files.unlink(getObjectIds(id), (error, fileInfo) => {
         error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
       });
@@ -138,7 +177,10 @@ export abstract class CoreFileService {
   /**
    * Delete file reference of avatar
    */
-  async deleteFileByName(filename: string, serviceOptions?: FileServiceOptions): Promise<FileInfo> {
+  async deleteFileByName(filename: string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
+      return null;
+    }
     const fileInfo = await this.getFileInfoByName(filename);
     if (!fileInfo) {
       throw new NotFoundException('File not found with filename ' + filename);
@@ -151,21 +193,32 @@ export abstract class CoreFileService {
   // ===================================================================================================================
 
   /**
+   * Check rights before processing file handling
+   * Can throw an exception if the rights do not fit
+   */
+  protected checkRights(
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType }
+  ): MaybePromise<boolean> {
+    return true;
+  }
+
+  /**
    * Prepare output before return
    */
-  protected async prepareOutput(fileInfo: FileInfo | FileInfo[], options?: FileServiceOptions) {
+  protected async prepareOutput(fileInfo: CoreFileInfo | CoreFileInfo[], options?: FileServiceOptions) {
     if (!fileInfo) {
       return fileInfo;
     }
     this.setId(fileInfo);
-    fileInfo = await prepareOutput(fileInfo, { targetModel: FileInfo });
+    fileInfo = await prepareOutput(fileInfo, { targetModel: CoreFileInfo });
     return check(fileInfo, options?.currentUser, { roles: options?.roles });
   }
 
   /**
    * Set file info ID via _id
    */
-  protected setId(fileInfo: FileInfo | FileInfo[]) {
+  protected setId(fileInfo: CoreFileInfo | CoreFileInfo[]) {
     if (Array.isArray(fileInfo)) {
       fileInfo.forEach((item) => {
         if (typeof item === 'object') {
