@@ -54,7 +54,6 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(files, { ...serviceOptions, checkInputType: 'files' }))) {
       return null;
     }
-    console.log(files);
     const promises: Promise<CoreFileInfo>[] = [];
     for (const file of files) {
       promises.push(this.createFile(file, serviceOptions));
