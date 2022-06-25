@@ -47,7 +47,6 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
   ): Promise<any> {
     const config = {
-      metatype: this.mainModelConstructor,
       ...options,
     };
     return check(input, currentUser, config);
