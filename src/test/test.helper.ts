@@ -4,10 +4,12 @@ import * as fs from 'fs';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import * as LightMyRequest from 'light-my-request';
+import { Types } from 'mongoose';
 import * as superagent from 'superagent';
 import * as supertest from 'supertest';
 import * as util from 'util';
 import * as ws from 'ws';
+import { getStringIds } from '../core/common/helpers/db.helper';
 
 /**
  * GraphQL request type
@@ -99,6 +101,11 @@ export interface TestGraphQLOptions {
   logError?: boolean;
 
   /**
+   * Whether to prepare arguments (like dates)
+   */
+  prepareArguments?: boolean;
+
+  /**
    * Status Code = 400
    */
   statusCode?: number;
@@ -187,6 +194,7 @@ export class TestHelper {
       statusCode: 200,
       log: false,
       logError: false,
+      prepareArguments: true,
       ...options,
     };
 
@@ -233,7 +241,9 @@ export class TestHelper {
 
       // Set arguments
       if (graphql.arguments) {
-        queryObj[graphql.type][graphql.name].__args = graphql.arguments;
+        queryObj[graphql.type][graphql.name].__args = config.prepareArguments
+          ? this.prepareArguments(graphql.arguments)
+          : graphql.arguments;
       }
 
       // Create request payload query
@@ -331,6 +341,39 @@ export class TestHelper {
   }
 
   /**
+   * Prepare arguments
+   */
+  prepareArguments(args: any, objects?: WeakMap<any, any>) {
+    if (!args) {
+      return args;
+    }
+    if (args instanceof Date) {
+      return args.toISOString();
+    }
+    if (args instanceof Types.ObjectId) {
+      return getStringIds(args);
+    }
+    if (!objects) {
+      objects = new WeakMap<any, any>();
+    }
+    if (typeof args === 'object' && objects.get(args)) {
+      return objects.get(args);
+    }
+    if (Array.isArray(args)) {
+      objects.set(args, args);
+      return args.map((item) => this.prepareArguments(item, objects));
+    }
+    if (typeof args === 'object') {
+      objects.set(args, args);
+      for (const [key, value] of Object.entries(args)) {
+        args[key] = this.prepareArguments(value, objects);
+      }
+      return args;
+    }
+    return args;
+  }
+
+  /**
    * Prepare GraphQL fields for request
    * @param fields
    */
@@ -424,6 +467,9 @@ export class TestHelper {
     }
 
     // Response
+    if (log) {
+      console.log(requestConfig);
+    }
     const response = await (variables ? request : request.send(requestConfig.payload));
     return this.processResponse(response, statusCode, log, logError);
   }
