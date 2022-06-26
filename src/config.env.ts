@@ -1,3 +1,4 @@
+import { CronExpression } from '@nestjs/schedule';
 import { join } from 'path';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
@@ -5,6 +6,63 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
  * Configuration for the different environments
  */
 const config: { [env: string]: IServerOptions } = {
+  // ===========================================================================
+  // Local environment
+  // ===========================================================================
+  local: {
+    cronJobs: {
+      sayHello: {
+        cronTime: CronExpression.EVERY_5_MINUTES,
+        timeZone: 'Europe/Berlin',
+        runOnInit: false,
+      },
+    },
+    email: {
+      smtp: {
+        auth: {
+          user: 'rebeca68@ethereal.email',
+          pass: 'v5WUScAN98AzGbRjpc',
+        },
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+      },
+      mailjet: {
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+      },
+      defaultSender: {
+        email: 'rebeca68@ethereal.email',
+        name: 'Rebeca Sixtyeight',
+      },
+      verificationLink: 'http://localhost:4200/user/verification',
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
+    },
+    env: 'local',
+    execAfterInit: 'npm run docs:bootstrap',
+    graphQl: {
+      driver: {
+        debug: true,
+        introspection: true,
+      },
+    },
+    jwt: {
+      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+    },
+    mongoose: {
+      uri: 'mongodb://localhost/nest-server-dev',
+    },
+    port: 3000,
+    staticAssets: {
+      path: join(__dirname, '..', 'public'),
+      options: { prefix: '' },
+    },
+    templates: {
+      path: join(__dirname, 'templates'),
+      engine: 'ejs',
+    },
+  },
+
   // ===========================================================================
   // Development environment
   // ===========================================================================

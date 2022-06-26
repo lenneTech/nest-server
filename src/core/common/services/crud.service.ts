@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { FilterQuery, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { merge } from '../helpers/config.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
@@ -12,7 +13,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Create item
    */
   async create(input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    merge({ prepareInput: { create: true } }, serviceOptions);
+    serviceOptions = merge({ prepareInput: { create: true } }, serviceOptions);
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
@@ -36,13 +37,24 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   /**
    * Get items via filter
    */
-  async find(filterArgs?: FilterArgs, serviceOptions?: ServiceOptions): Promise<T[]> {
+  async find(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T[]> {
     return this.process(
       async (data) => {
-        const filterQuery = convertFilterArgsToQuery(data.input);
-        return this.mainDbModel.find(filterQuery[0], null, filterQuery[1]).exec();
+        // Prepare filter query
+        const filterQuery = { filterQuery: data?.input?.filterQuery, queryOptions: data?.input?.queryOptions };
+        if (data?.input instanceof FilterArgs) {
+          const converted = convertFilterArgsToQuery(data.input);
+          filterQuery.filterQuery = converted[0];
+          filterQuery.queryOptions = converted[1];
+        }
+
+        // Find in DB
+        return this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions).exec();
       },
-      { input: filterArgs, serviceOptions }
+      { input: filter, serviceOptions }
     );
   }
 
