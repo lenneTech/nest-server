@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { FilterQuery, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { merge } from '../helpers/config.helper';
+import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { assignPlain } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
@@ -59,6 +60,34 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Find and update
+   */
+  async findAndUpdate(
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    update: any,
+    serviceOptions?: ServiceOptions
+  ): Promise<T[]> {
+    const dbItems: T[] = await this.find(filter, serviceOptions);
+    if (!dbItems?.length) {
+      return [];
+    }
+    const promises: Promise<T>[] = [];
+    for (const dbItem of dbItems) {
+      promises.push(
+        new Promise(async (resolve, reject) => {
+          try {
+            const item = await this.update(getStringIds(dbItem as any), update, serviceOptions);
+            resolve(item);
+          } catch (e) {
+            reject(e);
+          }
+        })
+      );
+    }
+    return await Promise.all(promises);
+  }
+
+  /**
    * CRUD alias for get
    */
   async read(id: string, serviceOptions?: ServiceOptions): Promise<T>;
@@ -66,12 +95,18 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   /**
    * CRUD alias for find
    */
-  async read(filterArgs?: FilterArgs, serviceOptions?: ServiceOptions): Promise<T[]>;
+  async read(
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T[]>;
 
   /**
    * CRUD alias for get or find
    */
-  async read(input: string | FilterArgs, serviceOptions?: ServiceOptions): Promise<T | T[]> {
+  async read(
+    input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T | T[]> {
     if (typeof input === 'string') {
       return this.get(input, serviceOptions);
     } else {
