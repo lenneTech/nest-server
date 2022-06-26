@@ -3,13 +3,22 @@ import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
+import { CronExpression } from '@nestjs/schedule';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
+import { Falsy } from '../types/falsy.type';
+import { CronJobConfig } from './cron-job-config.interface';
 import { MailjetOptions } from './mailjet-options.interface';
 
 /**
  * Options for the server
  */
 export interface IServerOptions {
+  /**
+   * Cron jobs configuration object with the name of the cron job function as key
+   * and the cron expression or config as value
+   */
+  cronJobs?: Record<string, CronExpression | string | Date | Falsy | CronJobConfig>;
+
   /**
    * SMTP and template configuration for sending emails
    */
