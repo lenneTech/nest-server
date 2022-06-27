@@ -15,6 +15,11 @@ export abstract class CoreCronJobs {
     log: boolean;
   };
 
+  /**
+   * Cron jobs that are currently running
+   */
+  runningJobs: Record<string, Date[]> = {};
+
   // ===================================================================================================================
   // Initializations
   // ===================================================================================================================
@@ -51,18 +56,20 @@ export abstract class CoreCronJobs {
       }
 
       // Prepare config
-      let config: CronExpression | string | Date | Falsy | CronJobConfig = CronExpressionOrConfig;
-      if (typeof config === 'string' || config instanceof Date) {
-        config = {
-          cronTime: config,
+      let conf: CronExpression | string | Date | Falsy | CronJobConfig = CronExpressionOrConfig;
+      if (typeof conf === 'string' || conf instanceof Date) {
+        conf = {
+          cronTime: conf,
         };
       }
 
       // Set defaults
-      config = {
-        timeZone: 'Europe/Berlin',
+      const config: CronJobConfig = {
         runOnInit: true,
-        ...config,
+        runParallel: true,
+        throwException: true,
+        timeZone: 'Europe/Berlin',
+        ...conf,
       };
 
       // Check if cron job should be activated
@@ -81,8 +88,40 @@ export abstract class CoreCronJobs {
       // Init cron job
       const job = new CronJob(
         config.cronTime,
-        () => {
-          this[name]();
+        async () => {
+          // Get current processes of cron job
+          const dates = this.runningJobs[name];
+
+          // Check if parallel execution is allowed and if so how many can run in parallel
+          if (
+            dates?.length &&
+            (!config.runParallel || (typeof config.runParallel === 'number' && dates.length >= config.runParallel))
+          ) {
+            return;
+          }
+
+          // Prepare the acquisition of parallel job executions
+          if (!this.runningJobs[name]) {
+            this.runningJobs[name] = [];
+          }
+          const date = new Date();
+          this.runningJobs[name].push(date);
+
+          // Execute the job and wait until job process is done
+          try {
+            await this[name]();
+          } catch (e) {
+            // Remove job from running list
+            this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
+            if (config.throwException) {
+              throw e;
+            } else {
+              console.error(e);
+            }
+          }
+
+          // Remove job from running list
+          this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
         },
         null,
         true,

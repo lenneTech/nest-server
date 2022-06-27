@@ -12,9 +12,11 @@ const config: { [env: string]: IServerOptions } = {
   local: {
     cronJobs: {
       sayHello: {
-        cronTime: CronExpression.EVERY_5_MINUTES,
-        timeZone: 'Europe/Berlin',
+        cronTime: CronExpression.EVERY_10_SECONDS,
         runOnInit: false,
+        runParallel: 1,
+        timeZone: 'Europe/Berlin',
+        throwException: false,
       },
     },
     email: {

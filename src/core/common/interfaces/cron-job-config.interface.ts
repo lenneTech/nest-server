@@ -24,10 +24,23 @@ export interface CronJobConfig {
   onComplete?: CronCommand | null;
 
   /**
-   * This will immediately fire your `onTickfunction as soon as the requisit initialization has happened.
-   * This option is set to ``true``` by default.
+   * This will immediately fire your `onTickfunction` as soon as the requisit initialization has happened.
+   * This option is set to `true` by default.
    */
   runOnInit?: boolean;
+
+  /**
+   * Depending on how long the execution of a job takes, it may happen that several executions take place at the
+   * same time. This can be prevented with `runParallel = false`.This option is set to `true` by default.
+   * If a number is specified, it is used as the number of maximum parallel executions.
+   */
+  runParallel?: boolean | number;
+
+  /**
+   * Whether an exception is thrown or only acknowledged with a console.error.
+   * This option is set to `true` by default.
+   */
+  throwException?: boolean;
 
   /**
    * Specify the timezone for the execution. This will modify the actual time relative to your timezone.
