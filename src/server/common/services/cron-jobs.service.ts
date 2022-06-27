@@ -20,7 +20,10 @@ export class CronJobs extends CoreCronJobs {
   // Cron jobs
   // ===================================================================================================================
 
-  protected sayHello() {
+  protected async sayHello() {
     console.log('Hello :)');
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 30000);
+    });
   }
 }
