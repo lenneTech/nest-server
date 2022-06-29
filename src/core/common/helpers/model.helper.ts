@@ -175,9 +175,10 @@ export function mapClasses<T = Record<string, any>>(
   }
 
   // Process input
-  for (const [prop, value] of Object.entries(input)) {
-    if (prop in mapping) {
-      const targetClass = mapping[prop] as any;
+  for (const [prop, mapTarget] of Object.entries(mapping)) {
+    if (prop in input) {
+      const targetClass = mapTarget as any;
+      const value = input[prop];
 
       // Process array
       if (Array.isArray(value)) {
@@ -250,9 +251,10 @@ export async function mapClassesAsync<T = Record<string, any>>(
   }
 
   // Process input
-  for (const [prop, value] of Object.entries(input)) {
-    if (prop in mapping) {
-      const targetClass = mapping[prop] as any;
+  for (const [prop, mapTarget] of Object.entries(mapping)) {
+    if (prop in input) {
+      const targetClass = mapTarget as any;
+      const value = input[prop];
 
       // Process array
       if (Array.isArray(value)) {

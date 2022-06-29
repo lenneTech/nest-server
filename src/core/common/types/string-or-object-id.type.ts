@@ -1,3 +1,6 @@
 import { Types } from 'mongoose';
 
-export type StringOrObjectId = string | Types.ObjectId | any;
+/**
+ * Everything which will be used by getStringIds or getObjectIds (see helpers/db.helper.ts)
+ */
+export type StringOrObjectId<T = any> = string | Types.ObjectId | T;
