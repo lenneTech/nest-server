@@ -107,8 +107,13 @@ export abstract class ModuleService<T extends CoreModel = any> {
       config.input = await this.prepareInput(config.input, opts);
     }
 
+    // Check rights
+    if (config.checkRights && this.checkRights) {
+      await this.checkRights(undefined, config.currentUser as any, config);
+    }
+
     // Get DB object
-    if (config.dbObject && config.checkRights && await this.checkRights(undefined, config.currentUser as any, config)) {
+    if (config.dbObject && config.checkRights && this.checkRights) {
       if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
         const dbObject = await this.get(getStringIds(config.dbObject));
         if (dbObject) {
@@ -118,7 +123,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Check rights for input
-    if (config.input && config.checkRights) {
+    if (config.input && config.checkRights && this.checkRights) {
       const opts: any = { dbObject: config.dbObject, processType: ProcessType.INPUT, roles: config.roles };
       if (config.inputType) {
         opts.metatype = config.inputType;
@@ -144,7 +149,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Check output rights
-    if (config.checkRights && await this.checkRights(undefined, config.currentUser as any, config)) {
+    if (config.checkRights && (await this.checkRights(undefined, config.currentUser as any, config))) {
       const opts: any = {
         dbObject: config.dbObject,
         processType: ProcessType.OUTPUT,
