@@ -261,6 +261,7 @@ describe('ServerModule (e2e)', () => {
       },
       { token: gToken }
     );
+
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.response.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('The current user has no access rights for roles');

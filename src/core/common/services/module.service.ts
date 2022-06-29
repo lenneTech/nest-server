@@ -118,7 +118,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Check rights for input
-    if (config.input && config.checkRights && await this.checkRights(undefined, config.currentUser as any, config)) {
+    if (config.input && config.checkRights) {
       const opts: any = { dbObject: config.dbObject, processType: ProcessType.INPUT, roles: config.roles };
       if (config.inputType) {
         opts.metatype = config.inputType;
