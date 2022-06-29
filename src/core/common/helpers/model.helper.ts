@@ -186,13 +186,12 @@ export function mapClasses<T = Record<string, any>>(
         for (const item of value) {
           if (value instanceof targetClass) {
             arr.push(value);
-          }
-          if (value instanceof Types.ObjectId) {
+          } else if (value instanceof Types.ObjectId) {
             arr.push(value);
           } else if (typeof value === 'object') {
             if (targetClass.map) {
               arr.push(targetClass.map(item));
-            } else if (typeof value === 'object') {
+            } else {
               arr.push(plainToInstance(targetClass, item));
             }
           } else {
@@ -211,11 +210,12 @@ export function mapClasses<T = Record<string, any>>(
       else if (typeof value === 'object') {
         if (value instanceof targetClass) {
           target[prop] = value as any;
-        }
-        if (targetClass.map) {
-          target[prop] = targetClass.map(value);
         } else {
-          target[prop] = plainToInstance(targetClass, value) as any;
+          if (targetClass.map) {
+            target[prop] = targetClass.map(value);
+          } else {
+            target[prop] = plainToInstance(targetClass, value) as any;
+          }
         }
       }
 
@@ -262,13 +262,12 @@ export async function mapClassesAsync<T = Record<string, any>>(
         for (const item of value) {
           if (value instanceof targetClass) {
             arr.push(value);
-          }
-          if (value instanceof Types.ObjectId) {
+          } else if (value instanceof Types.ObjectId) {
             arr.push(value);
           } else if (typeof value === 'object') {
             if (targetClass.map) {
               arr.push(await targetClass.map(item));
-            } else if (typeof value === 'object') {
+            } else {
               arr.push(plainToInstance(targetClass, item));
             }
           } else {
@@ -287,11 +286,12 @@ export async function mapClassesAsync<T = Record<string, any>>(
       else if (typeof value === 'object') {
         if (value instanceof targetClass) {
           target[prop] = value as any;
-        }
-        if (targetClass.map) {
-          target[prop] = await targetClass.map(value);
         } else {
-          target[prop] = plainToInstance(targetClass, value) as any;
+          if (targetClass.map) {
+            target[prop] = await targetClass.map(value);
+          } else {
+            target[prop] = plainToInstance(targetClass, value) as any;
+          }
         }
       }
 

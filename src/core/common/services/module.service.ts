@@ -107,6 +107,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
       config.input = await this.prepareInput(config.input, opts);
     }
 
+    // Check rights
+    if (config.checkRights && this.checkRights) {
+      await this.checkRights(undefined, config.currentUser as any, config);
+    }
+
     // Get DB object
     if (config.dbObject && config.checkRights && this.checkRights) {
       if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
@@ -144,7 +149,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Check output rights
-    if (config.checkRights && this.checkRights) {
+    if (config.checkRights && (await this.checkRights(undefined, config.currentUser as any, config))) {
       const opts: any = {
         dbObject: config.dbObject,
         processType: ProcessType.OUTPUT,
