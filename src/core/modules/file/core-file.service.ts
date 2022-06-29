@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { GridFSBucket, GridFSBucketReadStreamOptions } from 'mongodb';
+import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
 import { Connection, Types } from 'mongoose';
 import { createBucket, MongoGridFSOptions, MongooseGridFS } from 'mongoose-gridfs';
 import { FilterArgs } from '../../common/args/filter.args';
@@ -115,7 +115,7 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return this.files.openDownloadStream(getObjectIds(id));
+    return this.files.openDownloadStream(getObjectIds(id)) as GridFSBucketReadStream;
   }
 
   /**
