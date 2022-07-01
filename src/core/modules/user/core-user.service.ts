@@ -11,6 +11,7 @@ import { CoreModelConstructor } from '../../common/types/core-model-constructor.
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
+import { sha256 } from 'js-sha256';
 
 /**
  * User service
@@ -128,6 +129,14 @@ export abstract class CoreUserService<
 
     return this.process(
       async () => {
+        const regexExp = /^[a-f0-9]{64}$/gi;
+
+        // Check password is a sha256 string
+        if (!regexExp.test(newPassword)) {
+          // Convert to sha256 string
+          newPassword = sha256(newPassword)
+        }
+
         // Update and return user
         return await assignPlain(dbObject, {
           password: await bcrypt.hash(newPassword, 10),

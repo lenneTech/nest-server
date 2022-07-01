@@ -7,6 +7,7 @@ import { PrepareInputOptions } from '../interfaces/prepare-input-options.interfa
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
+import { sha256 } from 'js-sha256';
 
 /**
  * Helper class for services
@@ -123,6 +124,15 @@ export async function prepareInput<T = any>(
 
   // Hash password
   if ((input as Record<string, any>).password) {
+    const regexExp = /^[a-f0-9]{64}$/gi;
+
+    // Check password is a sha256 string
+    if (!regexExp.test((input as any).password)) {
+      // Convert to sha256 string
+      (input as any).password = sha256((input as any).password as string)
+    }
+
+    // Hash password
     (input as Record<string, any>).password = await bcrypt.hash((input as any).password, 10);
   }
 
