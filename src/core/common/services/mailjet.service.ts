@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from './config.service';
-import mailjet from 'node-mailjet';
+import Mailjet from 'node-mailjet';
 
 /**
  * Mailjet service
@@ -22,11 +22,16 @@ export class MailjetService {
     config: {
       senderEmail?: string;
       senderName?: string;
-      attachments?: mailjet.Email.Attachment[];
+      attachments?: {
+        ContentID?: string;
+        ContentType: string;
+        Filename: string;
+        Base64Content: string;
+      }[];
       templateData?: { [key: string]: any };
       sandbox?: boolean;
     }
-  ): Promise<mailjet.Email.PostResponse> {
+  ) {
     // Process config
     const { senderName, senderEmail, templateData, attachments, sandbox } = {
       senderEmail: this.configService.get('email.defaultSender.email'),
@@ -49,7 +54,7 @@ export class MailjetService {
     }
 
     // Parse body for mailjet request
-    const body: mailjet.Email.SendParams = {
+    const body = {
       Messages: [
         {
           From: {
@@ -67,13 +72,13 @@ export class MailjetService {
       SandboxMode: sandbox,
     };
 
-    let connection: mailjet.Email.Client;
+    let connection;
     try {
       // Connect to mailjet
-      connection = await mailjet.connect(
-        this.configService.get('email.mailjet.api_key_public'),
-        this.configService.get('email.mailjet.api_key_private')
-      );
+      connection = new Mailjet({
+        apiKey: this.configService.get('email.mailjet.api_key_public'),
+        apiSecret: this.configService.get('email.mailjet.api_key_private'),
+      });
     } catch (e) {
       throw new Error('Cannot connect to mailjet.');
     }

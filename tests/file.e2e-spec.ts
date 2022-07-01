@@ -50,7 +50,7 @@ describe('Project (e2e)', () => {
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
       testHelper = new TestHelper(app);
-      userService = moduleFixture.get<UserService>(UserService);
+      userService = moduleFixture.get(UserService);
 
       // Connection to database
       connection = await MongoClient.connect(envConfig.mongoose.uri);
