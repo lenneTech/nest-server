@@ -171,7 +171,9 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Process array
   if (Array.isArray(output)) {
-    const processedArray = output.map(async (item) => await prepareOutput(item, options)) as any;
+    const processedArray = output.map(async (item, index) => {
+      output[index] = await prepareOutput(item, options);
+    }) as any;
     return config.getNewArray ? processedArray : output;
   }
 
