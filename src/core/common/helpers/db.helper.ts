@@ -597,7 +597,7 @@ function getStringId(element: any): string {
     return element;
   }
 
-  // Sring handling
+  // String handling
   if (typeof element === 'string') {
     return element;
   }
