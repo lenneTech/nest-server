@@ -8,7 +8,17 @@ import { CoreModel } from '../../common/models/core-model.model';
  */
 @ObjectType({ description: 'Information about file' })
 export class CoreFileInfo extends CoreModel {
-  _id: Types.ObjectId;
+  // ===========================================================================
+  // Getter
+  // ===========================================================================
+
+  get _id() {
+    return new Types.ObjectId(this.id);
+  }
+
+  // ===========================================================================
+  // Properties
+  // ===========================================================================
 
   @Field(() => String, { description: 'ID of the file' })
   id: string = undefined;

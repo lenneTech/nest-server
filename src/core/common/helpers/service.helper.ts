@@ -81,8 +81,14 @@ export async function prepareInput<T = any>(
 
   // Process array
   if (Array.isArray(input)) {
-    const processedArray = input.map(async (item) => await prepareInput(item, currentUser, options)) as any;
-    return config.getNewArray ? processedArray : input;
+    const processedArray = config.getNewArray ? ([] as T & any[]) : input;
+    for (let i = 0; i <= input.length - 1; i++) {
+      processedArray[i] = await prepareOutput(input[i], options);
+      if (processedArray[i] === undefined && config.removeUndefined) {
+        processedArray.splice(i, 1);
+      }
+    }
+    return processedArray;
   }
 
   // Clone input
@@ -104,8 +110,8 @@ export async function prepareInput<T = any>(
   }
 
   // Remove undefined properties to avoid unwanted overwrites
-  if (config.removeUndefined) {
-    Object.keys(input).forEach((key) => input[key] === undefined && delete input[key]);
+  for (const [key, value] of Object.entries(input)) {
+    value === undefined && delete input[key];
   }
 
   // Process roles
@@ -179,10 +185,14 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Process array
   if (Array.isArray(output)) {
-    const processedArray = output.map(async (item, index) => {
-      output[index] = await prepareOutput(item, options);
-    }) as any;
-    return config.getNewArray ? processedArray : output;
+    const processedArray = config.getNewArray ? [] : output;
+    for (let i = 0; i <= output.length - 1; i++) {
+      processedArray[i] = await prepareOutput(output[i], options);
+      if (processedArray[i] === undefined && config.removeUndefined) {
+        processedArray.splice(i, 1);
+      }
+    }
+    return processedArray;
   }
 
   // Clone output
@@ -220,7 +230,9 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Remove undefined properties to avoid unwanted overwrites
   if (config.removeUndefined) {
-    Object.keys(output).forEach((key) => output[key] === undefined && delete output[key]);
+    for (const [key, value] of Object.entries(output)) {
+      value === undefined && delete output[key];
+    }
   }
 
   // Return prepared output

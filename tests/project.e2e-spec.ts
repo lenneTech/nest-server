@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
+import { getPlain } from '../src/core/common/helpers/input.helper';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
@@ -50,7 +51,7 @@ describe('Project (e2e)', () => {
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.log('beforeAllError', e);
+      console.error('beforeAllError', e);
     }
   });
 
@@ -71,13 +72,13 @@ describe('Project (e2e)', () => {
    */
   it('createAndVerifyUsers', async () => {
     const userCount = 2;
+    const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
-      const random = Math.random().toString(36).substring(7);
       const input = {
-        password: random,
-        email: random + '@testusers.com',
-        firstName: 'Test' + random,
-        lastName: 'User' + random,
+        password: random + i,
+        email: random + i + '@testusers.com',
+        firstName: 'Test' + '0'.repeat((userCount + '').length - (i + '').length) + i + random,
+        lastName: 'User' + i + random,
       };
 
       // Sign up user
@@ -94,6 +95,26 @@ describe('Project (e2e)', () => {
       await db.collection('users').updateOne({ _id: new ObjectId(res.id) }, { $set: { verified: true } });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
+
+    // Check users
+    const userArray = await userService.find({
+      filterQuery: {
+        firstName: { $regex: '^.*' + random + '$' },
+      },
+      queryOptions: { sort: { firstName: -1 } },
+    });
+    const testUser = await userService.get(users[users.length - 1].id);
+    expect(userArray.length).toEqual(userCount);
+    expect(userArray[0] instanceof User).toEqual(true);
+    expect(testUser instanceof User).toEqual(true);
+    expect(users[users.length - 1].id).toEqual(testUser.id);
+    expect(users[users.length - 1].id).toEqual(userArray[0].id);
+    const keys = Object.keys(getPlain(testUser));
+    expect(keys.length).toBeGreaterThan(1);
+    expect(keys.length).toEqual(Object.keys(getPlain(userArray[0])).length);
+    for (const key of Object.keys(getPlain(testUser))) {
+      expect(testUser[key]).toEqual(userArray[0][key]);
+    }
   });
 
   /**
@@ -134,7 +155,7 @@ describe('Project (e2e)', () => {
    * Test
    */
   it('test', async () => {
-    console.log('Implement test here');
+    console.info('Implement test here');
   });
 
   // ===================================================================================================================

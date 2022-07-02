@@ -317,6 +317,14 @@ export function filterProperties<T = Record<string, any>>(
 }
 
 /**
+ * Get plain copy of object
+ * @param element
+ */
+export function getPlain(object: any) {
+  return JSON.parse(JSON.stringify(object));
+}
+
+/**
  * Check if parameter is an array
  */
 export function isArray(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {

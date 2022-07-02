@@ -80,7 +80,7 @@ export abstract class CoreCronJobs {
       // check if cron job exists
       if (!this[name]) {
         if (this.config.log) {
-          console.log('Missing cron job function ' + name);
+          console.info('Missing cron job function ' + name);
         }
         continue;
       }
@@ -133,7 +133,7 @@ export abstract class CoreCronJobs {
       );
       this.schedulerRegistry.addCronJob(name, job);
       if (this.config.log && this.schedulerRegistry.getCronJob(name)) {
-        console.log(`CronJob ${name} initialized with "${config.cronTime}"`);
+        console.info(`CronJob ${name} initialized with "${config.cronTime}"`);
       }
     }
   }

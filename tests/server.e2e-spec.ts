@@ -42,11 +42,11 @@ describe('ServerModule (e2e)', () => {
       testHelper = new TestHelper(app, 'ws://localhost:' + port + '/graphql');
 
       // Get db
-      console.log('MongoDB: Create connection to ' + envConfig.mongoose.uri);
+      console.info('MongoDB: Create connection to ' + envConfig.mongoose.uri);
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.log('beforeAllError', e);
+      console.info('beforeAllError', e);
     }
   });
 
