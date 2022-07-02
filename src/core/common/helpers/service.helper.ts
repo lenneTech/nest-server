@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
 import * as _ from 'lodash';
+import { Types } from 'mongoose';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -163,6 +164,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     [key: string]: any;
     clone?: boolean;
     getNewArray?: boolean;
+    objectIdsToStrings?: boolean;
     removeSecrets?: boolean;
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
@@ -172,6 +174,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   const config = {
     clone: false,
     getNewArray: false,
+    objectIdsToStrings: true,
     removeSecrets: true,
     removeUndefined: false,
     targetModel: undefined,
@@ -232,6 +235,15 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   if (config.removeUndefined) {
     for (const [key, value] of Object.entries(output)) {
       value === undefined && delete output[key];
+    }
+  }
+
+  // Convert ObjectIds into strings
+  if (config.objectIdsToStrings) {
+    for (const [key, value] of Object.entries(output)) {
+      if (value instanceof Types.ObjectId) {
+        output[key] = value.toHexString();
+      }
     }
   }
 
