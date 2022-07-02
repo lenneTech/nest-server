@@ -1,13 +1,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
+import { sha256 } from 'js-sha256';
 import * as _ from 'lodash';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
-import { sha256 } from 'js-sha256';
 
 /**
  * Helper class for services
@@ -123,17 +123,15 @@ export async function prepareInput<T = any>(
   }
 
   // Hash password
-  if ((input as Record<string, any>).password) {
-    const regexExp = /^[a-f0-9]{64}$/gi;
-
-    // Check password is a sha256 string
-    if (!regexExp.test((input as any).password)) {
-      // Convert to sha256 string
-      (input as any).password = sha256((input as any).password as string)
-    }
+  if ((input as any).password) {
+    // Check if the password was transmitted encrypted
+    // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
+    (input as any).password = /^[a-f0-9]{64}$/i.test((input as any).password)
+      ? (input as any).password
+      : sha256((input as any).password);
 
     // Hash password
-    (input as Record<string, any>).password = await bcrypt.hash((input as any).password, 10);
+    (input as any).password = await bcrypt.hash((input as any).password, 10);
   }
 
   // Set creator

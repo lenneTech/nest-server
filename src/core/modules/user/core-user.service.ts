@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 import { merge } from '../../common/helpers/config.helper';
 import { assignPlain } from '../../common/helpers/input.helper';
@@ -11,7 +12,6 @@ import { CoreModelConstructor } from '../../common/types/core-model-constructor.
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
-import { sha256 } from 'js-sha256';
 
 /**
  * User service
@@ -129,13 +129,9 @@ export abstract class CoreUserService<
 
     return this.process(
       async () => {
-        const regexExp = /^[a-f0-9]{64}$/gi;
-
-        // Check password is a sha256 string
-        if (!regexExp.test(newPassword)) {
-          // Convert to sha256 string
-          newPassword = sha256(newPassword)
-        }
+        // Check if the password was transmitted encrypted
+        // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
+        newPassword = /^[a-f0-9]{64}$/i.test(newPassword) ? newPassword : sha256(newPassword);
 
         // Update and return user
         return await assignPlain(dbObject, {

@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { sha256 } from 'js-sha256';
 import envConfig from '../../../config.env';
 import { prepareServiceOptions } from '../../../core/common/helpers/service.helper';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
@@ -10,7 +11,6 @@ import { UserService } from '../user/user.service';
 import { Auth } from './auth.model';
 import { AuthSignInInput } from './inputs/auth-sign-in.input';
 import { AuthSignUpInput } from './inputs/auth-sign-up.input';
-import { sha256 } from 'js-sha256';
 
 @Injectable()
 export class AuthService {
@@ -33,23 +33,15 @@ export class AuthService {
       subFieldSelection: 'user',
     });
 
-
     // Get and check user
     const user = await this.userService.getViaEmail(input.email, serviceOptionsForUserService);
-    if (!user) {
-      throw new UnauthorizedException();
-    }
-
-    const regexExp = /^[a-f0-9]{64}$/gi;
-    // Check password is a sha256 string
-    if (!regexExp.test(input.password)) {
-      // Convert to sha256 string
-      input.password = sha256(input.password);
-    }
-
-
-    // Check password
-    if (!(await bcrypt.compare(input.password, user.password))) {
+    if (
+      !user ||
+      !(
+        (await bcrypt.compare(input.password, user.password)) ||
+        (await bcrypt.compare(sha256(input.password), user.password))
+      )
+    ) {
       throw new UnauthorizedException();
     }
 
