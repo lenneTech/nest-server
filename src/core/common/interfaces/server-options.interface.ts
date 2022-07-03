@@ -4,6 +4,7 @@ import { JwtModuleOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
+import { sha256 } from 'js-sha256';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
@@ -155,6 +156,12 @@ export interface IServerOptions {
      */
     path?: string;
   };
+
+  /**
+   * Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
+   * default = false, sha256 format check: /^[a-f0-9]{64}$/i
+   */
+  sha256?: boolean;
 
   /**
    * Templates
