@@ -126,7 +126,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       config.input = await this.checkRights(config.input, config.currentUser as any, opts);
     }
 
-    // Check roles before processing the service function if inputs are not checked
+    // Check roles before processing the service function if they were not already checked during the input check
     else if (!config.input && config.checkRights && this.checkRights) {
       await this.checkRights(undefined, config.currentUser as any, config);
     }

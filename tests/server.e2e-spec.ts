@@ -56,6 +56,7 @@ describe('ServerModule (e2e)', () => {
       await app.listen(port, '0.0.0.0'); // app.listen is required by subscriptions
 
       // Connection to database
+      console.info('MongoDB: Create connection to ' + envConfig.mongoose.uri);
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
