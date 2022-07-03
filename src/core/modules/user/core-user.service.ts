@@ -132,7 +132,9 @@ export abstract class CoreUserService<
       async () => {
         // Check if the password was transmitted encrypted
         // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-        newPassword = !envConfig.sha256 || /^[a-f0-9]{64}$/i.test(newPassword) ? newPassword : sha256(newPassword);
+        if (envConfig.sha256 && !/^[a-f0-9]{64}$/i.test(newPassword)) {
+          newPassword = sha256(newPassword);
+        }
 
         // Update and return user
         return await assignPlain(dbObject, {
