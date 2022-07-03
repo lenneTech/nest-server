@@ -1,6 +1,12 @@
 /**
  * Enums for Resolver @Role and Model @Restricted decorator and for roles property in ServiceOptions
  *
+ * There are two types of roles. The "normal" roles that can be defined as strings on the user in the `roles` property
+ * and there are special system roles (with the prefix `S_`) that are defined by the current context e.g.
+ * `S_USER` applies to all logged in users or `S_CREATOR` applies to the creator of a specific object.
+ * The special roles can only be used under certain situations (see below). The "normal" roles can be used anywhere
+ * that involves checking the current user.
+ *
  * Except for the role `S_NO_ONE` all roles extend the access. If for example the role `ADMIN` is specified for a class
  * then the accesses to all methods / properties are limited to administrators. If then e.g. for a method of the class
  * the role `S_USER` is specified, the method is accessible for all users (administrators & all users = all users). All
@@ -17,16 +23,17 @@
  */
 export enum RoleEnum {
   // ===================================================================================================================
-  // Real roles (integrated into user.roles), which can be used via @Restricted for Models (properties),
-  // via @Roles for Resolvers (methods) and via ServiceOptions for Resolver methods.
+  // Real roles (integrated into user.roles), which can be used via @Restricted for Model class and properties,
+  // via @Roles for Resolver class and methods and via ServiceOptions for Resolver methods.
   // ===================================================================================================================
 
   // User must be an administrator (see roles of user)
   ADMIN = 'admin',
 
   // ===================================================================================================================
-  // Special system roles, which can be used via @Restricted for Models (properties), via @Roles for Resolvers (methods)
-  // and via ServiceOptions for Resolver methods. This roles should not be integrated into user.roles!
+  // Special system roles, which can be used via @Restricted for Model class and properties, via @Roles for Resolver
+  // class and methods and via ServiceOptions for Resolver methods. This roles should not be integrated into
+  // user.roles!
   // ===================================================================================================================
 
   // Everyone, including users who are not logged in, can access (see context user, e.g. @GraphQLUser)
@@ -39,8 +46,9 @@ export enum RoleEnum {
   S_USER = 's_user',
 
   // ===================================================================================================================
-  // Special system roles that check rights for DB objects and can be used via @Restricted for Models (properties)
-  // and via ServiceOptions for Resolver methods. These roles should not be integrated in user.roles!
+  // Special system roles that check rights for DB objects and can be used via @Restricted for Model
+  // class and properties and via ServiceOptions for Resolver methods. These roles should not be integrated in
+  // user.roles!
   // ===================================================================================================================
 
   // User must be the creator of the processed object(s) (see createdBy property of object(s))
