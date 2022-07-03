@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
 import envConfig from '../../../config.env';
+import { Roles } from '../../../core/common/decorators/roles.decorator';
+import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { prepareServiceOptions } from '../../../core/common/helpers/service.helper';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { EmailService } from '../../../core/common/services/email.service';
@@ -13,6 +15,7 @@ import { AuthSignInInput } from './inputs/auth-sign-in.input';
 import { AuthSignUpInput } from './inputs/auth-sign-up.input';
 
 @Injectable()
+@Roles(RoleEnum.ADMIN)
 export class AuthService {
   constructor(
     protected readonly jwtService: JwtService,
@@ -23,6 +26,7 @@ export class AuthService {
   /**
    * Sign in for user
    */
+  @Roles(RoleEnum.S_EVERYONE)
   async signIn(input: AuthSignInInput, serviceOptions?: ServiceOptions): Promise<Auth> {
     // Prepare service options
     const serviceOptionsForUserService = prepareServiceOptions(serviceOptions, {
@@ -56,6 +60,7 @@ export class AuthService {
   /**
    * Register a new user Account
    */
+  @Roles(RoleEnum.S_EVERYONE)
   async signUp(input: AuthSignUpInput, serviceOptions?: ServiceOptions): Promise<Auth> {
     // Prepare service options
     const serviceOptionsForUserService = prepareServiceOptions(serviceOptions, {
