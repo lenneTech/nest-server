@@ -54,7 +54,7 @@ export class UserResolver {
   /**
    * Get verified state of user with token
    */
-  @Roles(RoleEnum.S_USER)
+  @Roles(RoleEnum.S_EVERYONE)
   @Query(() => Boolean, { description: 'Get verified state of user with token' })
   async getVerifiedState(@Args('token') token: string) {
     return await this.userService.getVerifiedState(token);
@@ -148,7 +148,6 @@ export class UserResolver {
   /**
    * Subscription for created user
    */
-  @Roles(RoleEnum.ADMIN)
   @Subscription(() => User, {
     filter(this: UserResolver, payload, variables, context) {
       return context?.user?.hasRole?.(RoleEnum.ADMIN);
