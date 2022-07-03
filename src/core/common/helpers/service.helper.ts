@@ -134,10 +134,9 @@ export async function prepareInput<T = any>(
   if ((input as any).password) {
     // Check if the password was transmitted encrypted
     // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-    (input as any).password =
-      !envConfig.sha256 || /^[a-f0-9]{64}$/i.test((input as any).password)
-        ? (input as any).password
-        : sha256((input as any).password);
+    if (envConfig.sha256 && !/^[a-f0-9]{64}$/i.test((input as any).password)) {
+      (input as any).password = sha256((input as any).password);
+    }
 
     // Hash password
     (input as any).password = await bcrypt.hash((input as any).password, 10);
