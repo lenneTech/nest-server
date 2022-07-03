@@ -4,7 +4,6 @@ import { JwtModuleOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
-import { sha256 } from 'js-sha256';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
