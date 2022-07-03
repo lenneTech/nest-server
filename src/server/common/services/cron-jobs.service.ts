@@ -21,7 +21,7 @@ export class CronJobs extends CoreCronJobs {
   // ===================================================================================================================
 
   protected async sayHello() {
-    console.log('Hello :)');
+    console.info('Hello :)');
     await new Promise<void>((resolve) => {
       setTimeout(() => resolve(), 30000);
     });

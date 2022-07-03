@@ -4,6 +4,7 @@ import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
+import * as _ from 'lodash';
 
 /**
  * Restricted meta key
@@ -57,6 +58,7 @@ export const checkRestricted = (
   data: any,
   user: { id: any; hasRole: (roles: string[]) => boolean },
   options: {
+    checkObjectItself?: boolean;
     dbObject?: any;
     ignoreUndefined?: boolean;
     processType?: ProcessType;
@@ -66,6 +68,7 @@ export const checkRestricted = (
   processedObjects: any[] = []
 ) => {
   const config = {
+    checkObjectItself: false,
     ignoreUndefined: true,
     removeUndefinedFromResultArray: true,
     throwError: true,
@@ -95,95 +98,107 @@ export const checkRestricted = (
 
   // Check function
   const validateRestricted = (restricted) => {
-    let valid = true;
-    if (restricted?.length) {
-      valid = false;
+    // Check restrictions
+    if (!restricted?.length) {
+      return true;
+    }
 
-      // Get roles
-      const roles: string[] = [];
-      restricted.forEach((item) => {
-        if (typeof item === 'string') {
-          roles.push(item);
-        } else if (
-          item?.roles?.length &&
-          (config.processType && item.processType ? config.processType === item.processType : true)
-        ) {
-          if (Array.isArray(item.roles)) {
-            roles.push(...item.roles);
-          } else {
-            roles.push(item.roles);
-          }
-        }
-      });
+    let valid = false;
 
-      // Check roles
-      if (roles.length) {
-        if (
-          user?.hasRole?.(roles) ||
-          (user?.id && roles.includes(RoleEnum.S_USER)) ||
-          (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
-        ) {
-          valid = true;
+    // Get roles
+    const roles: string[] = [];
+    restricted.forEach((item) => {
+      if (typeof item === 'string') {
+        roles.push(item);
+      } else if (
+        item?.roles?.length &&
+        (config.processType && item.processType ? config.processType === item.processType : true)
+      ) {
+        if (Array.isArray(item.roles)) {
+          roles.push(...item.roles);
+        } else {
+          roles.push(item.roles);
         }
       }
+    });
 
-      if (!valid) {
-        // Get groups
-        const groups = restricted.filter((item) => {
-          return (
-            typeof item === 'object' &&
-            // Check if object is valid
-            item.memberOf?.length &&
-            // Check if processType is specified and is valid for current process
-            (config.processType && item.processType ? config.processType === item.processType : true)
-          );
-        }) as { memberOf: string | string[] }[];
+    // Check roles
+    if (roles.length) {
+      // Prevent access for everyone, including administrators
+      if (roles.includes(RoleEnum.S_NO_ONE)) {
+        return false;
+      }
 
-        // Check groups
-        if (groups.length) {
-          // Get members from groups
-          const members = [];
-          for (const group of groups) {
-            let properties: string[] = group.memberOf as string[];
-            if (!Array.isArray(group.memberOf)) {
-              properties = [group.memberOf];
-            }
-            for (const property of properties) {
-              const items = config.dbObject?.[property];
-              if (items) {
-                if (Array.isArray(items)) {
-                  members.concat(items);
-                } else {
-                  members.push(items);
-                }
+      // Check access rights
+      if (
+        roles.includes(RoleEnum.S_EVERYONE) ||
+        user?.hasRole?.(roles) ||
+        (user?.id && roles.includes(RoleEnum.S_USER)) ||
+        (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
+      ) {
+        valid = true;
+      }
+    }
+
+    if (!valid) {
+      // Get groups
+      const groups = restricted.filter((item) => {
+        return (
+          typeof item === 'object' &&
+          // Check if object is valid
+          item.memberOf?.length &&
+          // Check if processType is specified and is valid for current process
+          (config.processType && item.processType ? config.processType === item.processType : true)
+        );
+      }) as { memberOf: string | string[] }[];
+
+      // Check groups
+      if (groups.length) {
+        // Get members from groups
+        const members = [];
+        for (const group of groups) {
+          let properties: string[] = group.memberOf as string[];
+          if (!Array.isArray(group.memberOf)) {
+            properties = [group.memberOf];
+          }
+          for (const property of properties) {
+            const items = config.dbObject?.[property];
+            if (items) {
+              if (Array.isArray(items)) {
+                members.concat(items);
+              } else {
+                members.push(items);
               }
             }
           }
-
-          // Check if user is a member
-          if (getIncludedIds(members, user)) {
-            valid = true;
-          }
         }
 
-        // Check if there are no limitations
-        if (!roles.length && !groups.length) {
+        // Check if user is a member
+        if (getIncludedIds(members, user)) {
           valid = true;
         }
       }
+
+      // Check if there are no limitations
+      if (!roles.length && !groups.length) {
+        valid = true;
+      }
     }
+
     return valid;
   };
 
   // Check object
-  const objectRestrictions = getRestricted(data.constructor);
-  const objectIsValid = validateRestricted(objectRestrictions);
-  if (!objectIsValid) {
-    // Throw error
-    if (config.throwError) {
-      throw new UnauthorizedException('The current user has no access rights for ' + data.constructor?.name);
+  const objectRestrictions = getRestricted(data.constructor) || [];
+  if (config.checkObjectItself) {
+    const objectIsValid = validateRestricted(objectRestrictions);
+    if (!objectIsValid) {
+      // Throw error
+      if (config.throwError) {
+        throw new UnauthorizedException('The current user has no access rights for ' + data.constructor?.name);
+      }
+      return null;
     }
-    return null;
   }
 
   // Check properties of object
@@ -194,8 +209,9 @@ export const checkRestricted = (
     }
 
     // Check restricted
-    const restricted = getRestricted(data, propertyKey);
-    const valid = validateRestricted(restricted);
+    const restricted = getRestricted(data, propertyKey) || [];
+    const concatenatedRestrictions = _.uniq(objectRestrictions.concat(restricted));
+    const valid = validateRestricted(concatenatedRestrictions);
 
     // Check rights
     if (valid) {
@@ -204,7 +220,11 @@ export const checkRestricted = (
     } else {
       // Throw error
       if (config.throwError) {
-        throw new UnauthorizedException('The current user has no access rights for ' + propertyKey);
+        throw new UnauthorizedException(
+          'The current user has no access rights for ' +
+            propertyKey +
+            (data.constructor?.name ? ' of ' + data.constructor.name : '')
+        );
       }
 
       // Remove property

@@ -62,6 +62,7 @@ export * from './core/common/types/field-selection.type';
 export * from './core/common/types/ids.type';
 export * from './core/common/types/maybe-promise.type';
 export * from './core/common/types/plain-input.type';
+export * from './core/common/types/plain-object.type';
 export * from './core/common/types/remove-methods.type';
 export * from './core/common/types/require-only-one.type';
 export * from './core/common/types/required-at-least-one.type';

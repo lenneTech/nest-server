@@ -1,7 +1,9 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
+import { sha256 } from 'js-sha256';
 import * as _ from 'lodash';
+import { Types } from 'mongoose';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -80,8 +82,14 @@ export async function prepareInput<T = any>(
 
   // Process array
   if (Array.isArray(input)) {
-    const processedArray = input.map(async (item) => await prepareInput(item, currentUser, options)) as any;
-    return config.getNewArray ? processedArray : input;
+    const processedArray = config.getNewArray ? ([] as T & any[]) : input;
+    for (let i = 0; i <= input.length - 1; i++) {
+      processedArray[i] = await prepareOutput(input[i], options);
+      if (processedArray[i] === undefined && config.removeUndefined) {
+        processedArray.splice(i, 1);
+      }
+    }
+    return processedArray;
   }
 
   // Clone input
@@ -103,8 +111,8 @@ export async function prepareInput<T = any>(
   }
 
   // Remove undefined properties to avoid unwanted overwrites
-  if (config.removeUndefined) {
-    Object.keys(input).forEach((key) => input[key] === undefined && delete input[key]);
+  for (const [key, value] of Object.entries(input)) {
+    value === undefined && delete input[key];
   }
 
   // Process roles
@@ -122,8 +130,15 @@ export async function prepareInput<T = any>(
   }
 
   // Hash password
-  if ((input as Record<string, any>).password) {
-    (input as Record<string, any>).password = await bcrypt.hash((input as any).password, 10);
+  if ((input as any).password) {
+    // Check if the password was transmitted encrypted
+    // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
+    (input as any).password = /^[a-f0-9]{64}$/i.test((input as any).password)
+      ? (input as any).password
+      : sha256((input as any).password);
+
+    // Hash password
+    (input as any).password = await bcrypt.hash((input as any).password, 10);
   }
 
   // Set creator
@@ -149,6 +164,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     [key: string]: any;
     clone?: boolean;
     getNewArray?: boolean;
+    objectIdsToStrings?: boolean;
     removeSecrets?: boolean;
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
@@ -158,6 +174,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   const config = {
     clone: false,
     getNewArray: false,
+    objectIdsToStrings: true,
     removeSecrets: true,
     removeUndefined: false,
     targetModel: undefined,
@@ -171,10 +188,14 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Process array
   if (Array.isArray(output)) {
-    const processedArray = output.map(async (item, index) => {
-      output[index] = await prepareOutput(item, options);
-    }) as any;
-    return config.getNewArray ? processedArray : output;
+    const processedArray = config.getNewArray ? [] : output;
+    for (let i = 0; i <= output.length - 1; i++) {
+      processedArray[i] = await prepareOutput(output[i], options);
+      if (processedArray[i] === undefined && config.removeUndefined) {
+        processedArray.splice(i, 1);
+      }
+    }
+    return processedArray;
   }
 
   // Clone output
@@ -212,7 +233,18 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Remove undefined properties to avoid unwanted overwrites
   if (config.removeUndefined) {
-    Object.keys(output).forEach((key) => output[key] === undefined && delete output[key]);
+    for (const [key, value] of Object.entries(output)) {
+      value === undefined && delete output[key];
+    }
+  }
+
+  // Convert ObjectIds into strings
+  if (config.objectIdsToStrings) {
+    for (const [key, value] of Object.entries(output)) {
+      if (value instanceof Types.ObjectId) {
+        output[key] = value.toHexString();
+      }
+    }
   }
 
   // Return prepared output

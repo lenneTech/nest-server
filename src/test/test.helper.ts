@@ -91,7 +91,7 @@ export interface TestGraphQLOptions {
   countOfSubscriptionMessages?: number;
 
   /**
-   * Print console logs
+   * Output information in the console
    */
   log?: boolean;
 
@@ -444,7 +444,7 @@ export class TestHelper {
     //
     //   // Log response
     //   if (log) {
-    //     console.log(response);
+    //     console.info(response);
     //   }
     //
     //   // Check data
@@ -468,7 +468,7 @@ export class TestHelper {
 
     // Response
     if (log) {
-      console.log(requestConfig);
+      console.info(requestConfig);
     }
     const response = await (variables ? request : request.send(requestConfig.payload));
     return this.processResponse(response, statusCode, log, logError);
@@ -528,7 +528,7 @@ export class TestHelper {
   processResponse(response, statusCode, log, logError) {
     // Log response
     if (log) {
-      console.log('Response', JSON.stringify(response, null, 2));
+      console.info('Response', JSON.stringify(response, null, 2));
     }
 
     // Log error
@@ -565,14 +565,14 @@ export class TestHelper {
 
     // Init client
     if (options.log) {
-      console.log('Subscription query', JSON.stringify(query, null, 2));
+      console.info('Subscription query', JSON.stringify(query, null, 2));
     }
     const client = createClient({ url: this.subscriptionUrl, connectionParams, webSocketImpl: ws });
     const messages: any[] = [];
     let unsubscribe: () => void;
     const onNext = (message) => {
       if (options.log) {
-        console.log('Subscription message', JSON.stringify(message, null, 2));
+        console.info('Subscription message', JSON.stringify(message, null, 2));
       }
       messages.push(message?.data?.[graphql.name]);
       if (messages.length <= options.countOfSubscriptionMessages) {

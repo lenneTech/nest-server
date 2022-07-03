@@ -56,7 +56,7 @@ describe('Project (e2e)', () => {
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.log('beforeAllError', e);
+      console.error('beforeAllError', e);
     }
   });
 
@@ -178,12 +178,7 @@ describe('Project (e2e)', () => {
   });
 
   it('downloadFile', async () => {
-    let res: any;
-    try {
-      res = await testHelper.download('/files/' + fileInfo.filename, users[0].token);
-    } catch (err) {
-      console.error('Fehler', err);
-    }
+    const res = await testHelper.download('/files/' + fileInfo.filename, users[0].token);
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });

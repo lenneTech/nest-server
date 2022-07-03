@@ -98,7 +98,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     if (user.avatar) {
       fs.unlink(envConfig.staticAssets.path + '/avatars/' + user.avatar, (err) => {
         if (err) {
-          console.log(err);
+          console.error(err);
         }
       });
     }
