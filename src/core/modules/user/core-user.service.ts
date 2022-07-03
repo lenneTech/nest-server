@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
+import envConfig from '../../../config.env';
 import { merge } from '../../common/helpers/config.helper';
 import { assignPlain } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
@@ -131,7 +132,7 @@ export abstract class CoreUserService<
       async () => {
         // Check if the password was transmitted encrypted
         // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-        newPassword = /^[a-f0-9]{64}$/i.test(newPassword) ? newPassword : sha256(newPassword);
+        newPassword = !envConfig.sha256 || /^[a-f0-9]{64}$/i.test(newPassword) ? newPassword : sha256(newPassword);
 
         // Update and return user
         return await assignPlain(dbObject, {
