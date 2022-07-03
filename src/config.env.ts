@@ -55,6 +55,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://localhost/nest-server-dev',
     },
     port: 3000,
+    sha256: true,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
       options: { prefix: '' },
@@ -105,6 +106,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://localhost/nest-server-dev',
     },
     port: 3000,
+    sha256: true,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
       options: { prefix: '' },
@@ -155,6 +157,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://localhost/nest-server-prod',
     },
     port: 3000,
+    sha256: true,
     staticAssets: {
       path: join(__dirname, '..', 'public'),
       options: { prefix: '' },
