@@ -232,7 +232,16 @@ export async function check(
       roles = [roles];
     }
     let valid = false;
+
+    // Prevent access for everyone, including administrators
+    if (roles.includes(RoleEnum.S_NO_ONE)) {
+      throw new UnauthorizedException('No access');
+    }
+
+    // Check access
     if (
+      // check if any user, including users who are not logged in, can access
+      roles.includes(RoleEnum.S_EVERYONE) ||
       // check if user is logged in
       (roles.includes(RoleEnum.S_USER) && user?.id) ||
       // check if the user has at least one of the required roles

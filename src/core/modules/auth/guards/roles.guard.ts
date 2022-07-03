@@ -32,6 +32,11 @@ export class RolesGuard extends AuthGuard('jwt') {
         : reflectorRoles[0]
       : reflectorRoles[1];
 
+    // Check if locked
+    if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
+      throw new UnauthorizedException('No access');
+    }
+
     // Check roles
     if (!roles || !roles.some((value) => !!value)) {
       return user;
@@ -42,8 +47,8 @@ export class RolesGuard extends AuthGuard('jwt') {
       // Get args
       const args: any = GqlExecutionContext.create(context).getArgs();
 
-      // Check special user role (user is logged in)
-      if (user && roles.includes(RoleEnum.S_USER)) {
+      // Check special user roles (user is logged in or access is free for any)
+      if ((user && roles.includes(RoleEnum.S_USER)) || roles.includes(RoleEnum.S_EVERYONE)) {
         return user;
       }
 

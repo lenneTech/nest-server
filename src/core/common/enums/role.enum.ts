@@ -1,5 +1,19 @@
 /**
  * Enums for Resolver @Role and Model @Restricted decorator and for roles property in ServiceOptions
+ *
+ * Except for the role `S_NO_ONE` all roles extend the access. If for example the role `ADMIN` is specified for a class
+ * then the accesses to all methods / properties are limited to administrators. If then e.g. for a method of the class
+ * the role `S_USER` is specified, the method is accessible for all users (administrators & all users = all users). All
+ * other methods and properties of the class are still only accessible for administrators.
+ *
+ * The role `S_NO_ONE` is an exception to this behavior. If this role is specified, then no one can access the
+ * associated class or associated methods and properties no matter what other roles were specified for access.
+ * This role should be used thus only for classes, methods or characteristics, which are to be locked for a transition
+ * period but not deleted from the source code completely.
+ *
+ * The roles are divided into different scopes and can be used in `@Roles` or `@Restricted`. The scopes are specified
+ * and explained below.
+ *
  */
 export enum RoleEnum {
   // ===================================================================================================================
@@ -14,6 +28,12 @@ export enum RoleEnum {
   // Special system roles, which can be used via @Restricted for Models (properties), via @Roles for Resolvers (methods)
   // and via ServiceOptions for Resolver methods. This roles should not be integrated into user.roles!
   // ===================================================================================================================
+
+  // Everyone, including users who are not logged in, can access (see context user, e.g. @GraphQLUser)
+  S_EVERYONE = 's_everyone',
+
+  // No one has access, not even administrators
+  S_NO_ONE = 's_no_one',
 
   // User must be logged in (see context user, e.g. @GraphQLUser)
   S_USER = 's_user',

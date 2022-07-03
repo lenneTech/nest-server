@@ -118,7 +118,14 @@ export const checkRestricted = (
 
       // Check roles
       if (roles.length) {
+        // Prevent access for everyone, including administrators
+        if (roles.includes(RoleEnum.S_NO_ONE)) {
+          return false;
+        }
+
+        // Check access rights
         if (
+          roles.includes(RoleEnum.S_EVERYONE) ||
           user?.hasRole?.(roles) ||
           (user?.id && roles.includes(RoleEnum.S_USER)) ||
           (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
