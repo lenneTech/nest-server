@@ -50,7 +50,7 @@ describe('Project (e2e)', () => {
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.log('beforeAllError', e);
+      console.error('beforeAllError', e);
     }
   });
 
@@ -71,13 +71,13 @@ describe('Project (e2e)', () => {
    */
   it('createAndVerifyUsers', async () => {
     const userCount = 2;
+    const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
-      const random = Math.random().toString(36).substring(7);
       const input = {
-        password: random,
-        email: random + '@testusers.com',
-        firstName: 'Test' + random,
-        lastName: 'User' + random,
+        password: random + i,
+        email: random + i + '@testusers.com',
+        firstName: 'Test' + '0'.repeat((userCount + '').length - (i + '').length) + i + random,
+        lastName: 'User' + i + random,
       };
 
       // Sign up user
@@ -134,7 +134,7 @@ describe('Project (e2e)', () => {
    * Test
    */
   it('test', async () => {
-    console.log('Implement test here');
+    console.info('Implement test here');
   });
 
   // ===================================================================================================================

@@ -1,7 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema, Types } from 'mongoose';
-import { mapClasses } from '../../../core/common/helpers/model.helper';
+import { Document, Schema } from 'mongoose';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
@@ -34,7 +33,7 @@ export class User extends CoreUserModel implements PersistenceModel {
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  createdBy: Types.ObjectId | string = undefined;
+  createdBy: string = undefined;
 
   /**
    * ID of the user who updated the object
@@ -46,7 +45,7 @@ export class User extends CoreUserModel implements PersistenceModel {
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  updatedBy: Types.ObjectId | string = undefined;
+  updatedBy: string = undefined;
 
   // ===================================================================================================================
   // Methods
@@ -66,7 +65,9 @@ export class User extends CoreUserModel implements PersistenceModel {
    */
   map(input) {
     super.map(input);
-    return mapClasses(input, { createdBy: User, updatedBy: User }, this);
+    // There is nothing to map yet. Non-primitive variables should always be mapped.
+    // If something comes up, you can use `mapClasses` / `mapClassesAsync` from ModelHelper.
+    return this;
   }
 }
 

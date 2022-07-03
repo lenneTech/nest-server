@@ -30,14 +30,14 @@ export function getContextData(context: ExecutionContext): { currentUser: { [key
   try {
     ctx = GqlExecutionContext.create(context)?.getContext();
   } catch (e) {
-    // console.log(e);
+    // console.info(e);
   }
 
   let args: any;
   try {
     args = GqlExecutionContext.create(context)?.getArgs();
   } catch (e) {
-    // console.log(e);
+    // console.info(e);
   }
 
   // Get data

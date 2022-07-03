@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { JSON } from '../../../core/common/scalars/json.scalar';
+import { ConfigService } from '../../../core/common/services/config.service';
 import { AvatarController } from './avatar.controller';
 import { User, UserSchema } from './user.model';
 import { UserResolver } from './user.resolver';
@@ -16,6 +17,7 @@ import { UserService } from './user.service';
   providers: [
     JSON,
     UserResolver,
+    ConfigService,
     UserService,
     {
       provide: 'USER_CLASS',

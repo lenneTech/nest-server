@@ -15,6 +15,7 @@ import { UserService } from './user.service';
  * Resolver to process with user data
  */
 @Resolver(() => User)
+@Roles(RoleEnum.ADMIN)
 export class UserResolver {
   /**
    * Import services
@@ -53,6 +54,7 @@ export class UserResolver {
   /**
    * Get verified state of user with token
    */
+  @Roles(RoleEnum.S_USER)
   @Query(() => Boolean, { description: 'Get verified state of user with token' })
   async getVerifiedState(@Args('token') token: string) {
     return await this.userService.getVerifiedState(token);
@@ -61,6 +63,7 @@ export class UserResolver {
   /**
    * Request new password for user with email
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Query(() => Boolean, { description: 'Request new password for user with email' })
   async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
     return !!(await this.userService.sendPasswordResetMail(email));
@@ -103,6 +106,7 @@ export class UserResolver {
   /**
    * Set new password for user with token
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Boolean, { description: 'Set new password for user with token' })
   async resetPassword(@Args('token') token: string, @Args('password') password: string): Promise<boolean> {
     return !!(await this.userService.resetPassword(token, password));
@@ -131,6 +135,7 @@ export class UserResolver {
   /**
    * Verify user with email
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Boolean, { description: 'Verify user with email' })
   async verifyUser(@Args('token') token: string): Promise<boolean> {
     return !!(await this.userService.verify(token));
@@ -143,6 +148,7 @@ export class UserResolver {
   /**
    * Subscription for created user
    */
+  @Roles(RoleEnum.ADMIN)
   @Subscription(() => User, {
     filter(this: UserResolver, payload, variables, context) {
       return context?.user?.hasRole?.(RoleEnum.ADMIN);

@@ -11,6 +11,7 @@ import { FileService } from './file.service';
  * File resolver
  */
 @Resolver()
+@Roles(RoleEnum.ADMIN)
 export class FileResolver {
   /**
    * Integrate services

@@ -164,7 +164,8 @@ export function maps<T = Record<string, any>>(
 export function mapClasses<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
-  target?: T
+  target?: T,
+  options?: { objectIdsToString?: boolean }
 ): T {
   // Check params
   if (!target) {
@@ -173,6 +174,12 @@ export function mapClasses<T = Record<string, any>>(
   if (!input || !mapping) {
     return target;
   }
+
+  // Get config
+  const config = {
+    objectIdsToString: true,
+    ...options,
+  };
 
   // Process input
   for (const [prop, mapTarget] of Object.entries(mapping)) {
@@ -187,7 +194,7 @@ export function mapClasses<T = Record<string, any>>(
           if (value instanceof targetClass) {
             arr.push(value);
           } else if (value instanceof Types.ObjectId) {
-            arr.push(value);
+            config.objectIdsToString ? arr.push(value.toHexString()) : arr.push(value);
           } else if (typeof value === 'object') {
             if (targetClass.map) {
               arr.push(targetClass.map(item));
@@ -203,7 +210,7 @@ export function mapClasses<T = Record<string, any>>(
 
       // Process ObjectId
       else if (value instanceof Types.ObjectId) {
-        target[prop] = value as any;
+        target[prop] = config.objectIdsToString ? value.toHexString() : value;
       }
 
       // Process object
@@ -240,7 +247,8 @@ export function mapClasses<T = Record<string, any>>(
 export async function mapClassesAsync<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
-  target?: T
+  target?: T,
+  options?: { objectIdsToString?: boolean }
 ): Promise<T> {
   // Check params
   if (!target) {
@@ -249,6 +257,12 @@ export async function mapClassesAsync<T = Record<string, any>>(
   if (!input || !mapping) {
     return target;
   }
+
+  // Get config
+  const config = {
+    objectIdsToString: true,
+    ...options,
+  };
 
   // Process input
   for (const [prop, mapTarget] of Object.entries(mapping)) {
@@ -263,7 +277,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
           if (value instanceof targetClass) {
             arr.push(value);
           } else if (value instanceof Types.ObjectId) {
-            arr.push(value);
+            config.objectIdsToString ? arr.push(value.toHexString()) : arr.push(value);
           } else if (typeof value === 'object') {
             if (targetClass.map) {
               arr.push(await targetClass.map(item));
@@ -279,7 +293,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
 
       // Process ObjectId
       else if (value instanceof Types.ObjectId) {
-        target[prop] = value as any;
+        target[prop] = config.objectIdsToString ? value.toHexString() : value;
       }
 
       // Process object
