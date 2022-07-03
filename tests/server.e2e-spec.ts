@@ -1,8 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { TestGraphQLType, TestHelper } from '../src';
+import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
+import { getPlain } from '../src/core/common/helpers/input.helper';
 import envConfig from '../src/config.env';
+import { User } from '../src/server/modules/user/user.model';
+import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
+import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('ServerModule (e2e)', () => {
   const port = 3030;
@@ -12,6 +17,9 @@ describe('ServerModule (e2e)', () => {
   // database
   let connection;
   let db;
+
+  // Services
+  let userService: UserService;
 
   // Global vars
   let gId: string;
@@ -31,22 +39,27 @@ describe('ServerModule (e2e)', () => {
       // Start server for testing
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
+        providers: [
+          UserService,
+          {
+            provide: 'PUB_SUB',
+            useValue: new PubSub(),
+          },
+        ],
       }).compile();
       app = moduleFixture.createNestApplication();
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
+      testHelper = new TestHelper(app, 'ws://localhost:' + port + '/graphql');
+      userService = moduleFixture.get(UserService);
       await app.listen(port, '0.0.0.0'); // app.listen is required by subscriptions
 
-      // Init TestHelper
-      testHelper = new TestHelper(app, 'ws://localhost:' + port + '/graphql');
-
-      // Get db
-      console.info('MongoDB: Create connection to ' + envConfig.mongoose.uri);
+      // Connection to database
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.info('beforeAllError', e);
+      console.error('beforeAllError', e);
     }
   });
 
@@ -403,5 +416,56 @@ describe('ServerModule (e2e)', () => {
       { token: gToken }
     );
     expect(res.id).toEqual(gId);
+  });
+
+  /**
+   * Check user service
+   */
+  it('check user service', async () => {
+    const userCount = 2;
+    const random = Math.random().toString(36).substring(7);
+    const users = [];
+    for (let i = 0; i < userCount; i++) {
+      const input = {
+        password: random + i,
+        email: random + i + '@testusers.com',
+        firstName: 'Test' + '0'.repeat((userCount + '').length - (i + '').length) + i + random,
+        lastName: 'User' + i + random,
+      };
+      users.push(await userService.create(input as UserCreateInput));
+    }
+    expect(users.length).toBeGreaterThanOrEqual(userCount);
+
+    const findFilter = {
+      filterQuery: {
+        firstName: { $regex: '^.*' + random + '$' },
+      },
+      queryOptions: { sort: { firstName: -1 } },
+    };
+
+    // Check users
+    const userArray = await userService.find(findFilter);
+    const testUser = await userService.get(users[users.length - 1].id);
+    expect(userArray.length).toEqual(userCount);
+    expect(userArray[0] instanceof User).toEqual(true);
+    expect(testUser instanceof User).toEqual(true);
+    expect(users[users.length - 1].id).toEqual(testUser.id);
+    expect(users[users.length - 1].id).toEqual(userArray[0].id);
+    const keys = Object.keys(getPlain(testUser));
+    expect(keys.length).toBeGreaterThan(1);
+    expect(keys.length).toEqual(Object.keys(getPlain(userArray[0])).length);
+    for (const key of Object.keys(getPlain(testUser))) {
+      expect(testUser[key]).toEqual(userArray[0][key]);
+    }
+
+    // Delete users
+    for (const user of users) {
+      await userService.delete(user.id);
+    }
+
+    // Try to find;
+    const found = await userService.find(findFilter);
+    expect(Array.isArray(found)).toEqual(true);
+    expect(found.length).toEqual(0);
   });
 });

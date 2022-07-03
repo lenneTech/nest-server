@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { getPlain } from '../src/core/common/helpers/input.helper';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
@@ -95,26 +94,6 @@ describe('Project (e2e)', () => {
       await db.collection('users').updateOne({ _id: new ObjectId(res.id) }, { $set: { verified: true } });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
-
-    // Check users
-    const userArray = await userService.find({
-      filterQuery: {
-        firstName: { $regex: '^.*' + random + '$' },
-      },
-      queryOptions: { sort: { firstName: -1 } },
-    });
-    const testUser = await userService.get(users[users.length - 1].id);
-    expect(userArray.length).toEqual(userCount);
-    expect(userArray[0] instanceof User).toEqual(true);
-    expect(testUser instanceof User).toEqual(true);
-    expect(users[users.length - 1].id).toEqual(testUser.id);
-    expect(users[users.length - 1].id).toEqual(userArray[0].id);
-    const keys = Object.keys(getPlain(testUser));
-    expect(keys.length).toBeGreaterThan(1);
-    expect(keys.length).toEqual(Object.keys(getPlain(userArray[0])).length);
-    for (const key of Object.keys(getPlain(testUser))) {
-      expect(testUser[key]).toEqual(userArray[0][key]);
-    }
   });
 
   /**
