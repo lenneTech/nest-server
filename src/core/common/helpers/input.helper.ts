@@ -305,6 +305,19 @@ export function combinePlain(...args: Record<any, any>[]): any {
 }
 
 /**
+ * Get deep frozen object
+ */
+export function deepFreeze(object: any) {
+  if (typeof object !== 'object') {
+    return object;
+  }
+  for (const [key, value] of Object.entries(object)) {
+    object[key] = deepFreeze(value);
+  }
+  return Object.freeze(object);
+}
+
+/**
  * Standard error function
  */
 export function errorFunction(caller: (...params) => any, message = 'Required parameter is missing or invalid') {

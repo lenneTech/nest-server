@@ -4,12 +4,12 @@ import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
 import * as _ from 'lodash';
 import { Types } from 'mongoose';
-import envConfig from '../../../config.env';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
+import { ConfigService } from '../services/config.service';
 
 /**
  * Helper class for services
@@ -24,10 +24,13 @@ export default class ServiceHelper {
     currentUser: { [key: string]: any; id: string },
     options: {
       [key: string]: any;
+      checkRoles?: boolean;
       create?: boolean;
       clone?: boolean;
       getNewArray?: boolean;
       removeUndefined?: boolean;
+      sha256?: boolean;
+      targetModel?: new (...args: any[]) => T;
     } = {}
   ): Promise<T> {
     return prepareInput(input, currentUser, options);
@@ -42,6 +45,8 @@ export default class ServiceHelper {
       [key: string]: any;
       clone?: boolean;
       getNewArray?: boolean;
+      objectIdsToStrings?: boolean;
+      removeSecrets?: boolean;
       removeUndefined?: boolean;
       targetModel?: new (...args: any[]) => T;
     } = {}
@@ -63,6 +68,7 @@ export async function prepareInput<T = any>(
     clone?: boolean;
     getNewArray?: boolean;
     removeUndefined?: boolean;
+    sha256?: boolean;
     targetModel?: new (...args: any[]) => T;
   } = {}
 ): Promise<T> {
@@ -73,6 +79,7 @@ export async function prepareInput<T = any>(
     create: false,
     getNewArray: false,
     removeUndefined: true,
+    sha256: ConfigService.config.sha256,
     ...options,
   };
 
@@ -134,7 +141,7 @@ export async function prepareInput<T = any>(
   if ((input as any).password) {
     // Check if the password was transmitted encrypted
     // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-    if (envConfig.sha256 && !/^[a-f0-9]{64}$/i.test((input as any).password)) {
+    if (config.sha256 && !/^[a-f0-9]{64}$/i.test((input as any).password)) {
       (input as any).password = sha256((input as any).password);
     }
 

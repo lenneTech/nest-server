@@ -3,7 +3,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
-import envConfig from '../../../config.env';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
@@ -72,7 +71,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     // Send email
     await this.emailService.sendMail(user.email, 'Password reset', {
       htmlTemplate: 'password-reset',
-      templateData: { name: user.username, link: envConfig.email.passwordResetLink + '/' + user.passwordResetToken },
+      templateData: {
+        name: user.username,
+        link: this.configService.config.email.passwordResetLink + '/' + user.passwordResetToken,
+      },
     });
 
     // Return user
@@ -96,7 +98,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Remove old avatar image
     if (user.avatar) {
-      fs.unlink(envConfig.staticAssets.path + '/avatars/' + user.avatar, (err) => {
+      fs.unlink(this.configService.config.staticAssets.path + '/avatars/' + user.avatar, (err) => {
         if (err) {
           console.error(err);
         }

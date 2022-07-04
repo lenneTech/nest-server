@@ -3,10 +3,10 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
-import envConfig from '../../../config.env';
 import { merge } from '../../common/helpers/config.helper';
 import { assignPlain } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
+import { ConfigService } from '../../common/services/config.service';
 import { CrudService } from '../../common/services/crud.service';
 import { EmailService } from '../../common/services/email.service';
 import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
@@ -23,9 +23,10 @@ export abstract class CoreUserService<
   TUserCreateInput extends CoreUserCreateInput
 > extends CrudService<TUser> {
   protected constructor(
-    protected emailService: EmailService,
+    protected readonly emailService: EmailService,
     protected readonly mainDbModel: Model<TUser & Document>,
-    protected mainModelConstructor: CoreModelConstructor<TUser>
+    protected readonly mainModelConstructor: CoreModelConstructor<TUser>,
+    protected readonly configService?: ConfigService
   ) {
     super();
   }
@@ -132,7 +133,7 @@ export abstract class CoreUserService<
       async () => {
         // Check if the password was transmitted encrypted
         // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-        if (envConfig.sha256 && !/^[a-f0-9]{64}$/i.test(newPassword)) {
+        if (this.configService.config.sha256 && !/^[a-f0-9]{64}$/i.test(newPassword)) {
           newPassword = sha256(newPassword);
         }
 
