@@ -34,8 +34,8 @@ export class EmailService {
   ): Promise<any> {
     // Process config
     const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {
-      senderEmail: this.configService.get('email.defaultSender.email'),
-      senderName: this.configService.get('email.defaultSender.name'),
+      senderEmail: this.configService.getFastButReadOnly('email.defaultSender.email'),
+      senderName: this.configService.getFastButReadOnly('email.defaultSender.name'),
       ...config,
     };
 

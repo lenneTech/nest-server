@@ -133,7 +133,7 @@ export abstract class CoreUserService<
       async () => {
         // Check if the password was transmitted encrypted
         // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-        if (this.configService.config.sha256 && !/^[a-f0-9]{64}$/i.test(newPassword)) {
+        if (this.configService.configFastButReadOnly.sha256 && !/^[a-f0-9]{64}$/i.test(newPassword)) {
           newPassword = sha256(newPassword);
         }
 

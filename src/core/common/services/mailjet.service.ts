@@ -34,8 +34,8 @@ export class MailjetService {
   ) {
     // Process config
     const { senderName, senderEmail, templateData, attachments, sandbox } = {
-      senderEmail: this.configService.get('email.defaultSender.email'),
-      senderName: this.configService.get('email.defaultSender.name'),
+      senderEmail: this.configService.getFastButReadOnly('email.defaultSender.email'),
+      senderName: this.configService.getFastButReadOnly('email.defaultSender.name'),
       sandbox: false,
       attachments: null,
       templateData: null,
@@ -76,8 +76,8 @@ export class MailjetService {
     try {
       // Connect to mailjet
       connection = new Mailjet({
-        apiKey: this.configService.get('email.mailjet.api_key_public'),
-        apiSecret: this.configService.get('email.mailjet.api_key_private'),
+        apiKey: this.configService.getFastButReadOnly('email.mailjet.api_key_public'),
+        apiSecret: this.configService.getFastButReadOnly('email.mailjet.api_key_private'),
       });
     } catch (e) {
       throw new Error('Cannot connect to mailjet.');

@@ -80,7 +80,7 @@ export class AuthService {
       htmlTemplate: 'welcome',
       templateData: {
         name: user.username,
-        link: this.configService.config.email.verificationLink + '/' + user.verificationToken,
+        link: this.configService.configFastButReadOnly.email.verificationLink + '/' + user.verificationToken,
       },
     });
 

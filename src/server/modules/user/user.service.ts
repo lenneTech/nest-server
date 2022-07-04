@@ -73,7 +73,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
       htmlTemplate: 'password-reset',
       templateData: {
         name: user.username,
-        link: this.configService.config.email.passwordResetLink + '/' + user.passwordResetToken,
+        link: this.configService.configFastButReadOnly.email.passwordResetLink + '/' + user.passwordResetToken,
       },
     });
 
@@ -98,7 +98,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Remove old avatar image
     if (user.avatar) {
-      fs.unlink(this.configService.config.staticAssets.path + '/avatars/' + user.avatar, (err) => {
+      fs.unlink(this.configService.configFastButReadOnly.staticAssets.path + '/avatars/' + user.avatar, (err) => {
         if (err) {
           console.error(err);
         }

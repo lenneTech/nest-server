@@ -3,7 +3,7 @@ import { cloneDeep } from 'lodash';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { merge } from '../helpers/config.helper';
-import { deepFreeze } from '../helpers/input.helper';
+import { clone, deepFreeze } from '../helpers/input.helper';
 import { IServerOptions } from '../interfaces/server-options.interface';
 
 /**
@@ -12,22 +12,22 @@ import { IServerOptions } from '../interfaces/server-options.interface';
  * Note:
  *
  * Direct access to the global configuration is not intended, since all objects in JavaScript interact by reference
- * it can come to unintentional changes. Two protected properties are available for access `config` and `configClone`,
- * as well as several methods that use these properties.
+ * it can come to unintentional changes. Two protected properties are available for access `config` and
+ * `configFastButReadOnly`, as well as several methods that use these properties.
  *
- * The return value of `config` is a cached deep frozen object to speed up access and to avoid unwanted side
- * effects (like accidentally changing the global configuration). However, this results in the object and all its
+ * The return value of `configFastButReadOnly` is a cached deep frozen object to speed up access and to avoid unwanted
+ * side effects (like accidentally changing the global configuration). However, this results in the object and all its
  * contents being read-only. Attempts to change the configuration will result in the
  * `TypeError: Cannot assign to read only property ...` If this error occurs during further processing of the
- * configuration, `configClone` should be used instead of `config`. The access to this form of the configuration is
- * substantially slower, but offers the advantage that the clone can be processed further (also without changing the
+ * configuration, `config` should be used instead of `configFastButReadOnly`. The access via `config` is substantially
+ * slower, but offers the advantage that the clone can be processed further (also without changing the
  * global configuration).
  *
- * `config` => fast read only copy of global configuration
- *            (return value of get, observable and promise)
+ * `configFastButReadOnly` => fast read only copy of global configuration
+ *                            (return value of getFastButReadOnly, observableFastButReadOnly and promiseFastButReadOnly)
  *
- * `configClone` => slow read and writeable copy of global configuration
- *                  (return value of getClone, observableClone and promiseClone)
+ * `config` => slower read and writeable copy of global configuration
+ *             (return value of get, observable and promise)
  */
 export class ConfigService {
   // ===================================================================================================================
@@ -99,59 +99,59 @@ export class ConfigService {
   // ===================================================================================================================
 
   /**
-   * Get fast read-only deep-frozen config
+   * Get readable and writable deep-cloned configuration
    */
   get config() {
     return ConfigService.config;
   }
 
   /**
-   * Get fast read-only deep-frozen config
+   * Get readable and writable deep-cloned configuration
    */
   static get config() {
+    return clone(ConfigService._configSubject$.getValue(), { circles: false });
+  }
+
+  /**
+   * Get faster but read-only deep-frozen configuration
+   */
+  get configFastButReadOnly() {
+    return ConfigService.configFastButReadOnly;
+  }
+
+  /**
+   * Get faster but read-only deep-frozen configuration
+   */
+  static get configFastButReadOnly() {
     return ConfigService._frozenConfigSubject$.getValue();
   }
 
   /**
-   * Get slow readable and writable deep-cloned configuration
-   */
-  get configClone() {
-    return ConfigService.configClone;
-  }
-
-  /**
-   * Get slow readable and writable deep-cloned configuration
-   */
-  static get configClone() {
-    return _.cloneDeep(ConfigService._configSubject$.getValue());
-  }
-
-  /**
-   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
+   * Get readable and writable deep-cloned property from configuration
    */
   get(key: string, defaultValue: any = undefined) {
     return ConfigService.get(key, defaultValue);
   }
 
   /**
-   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
+   * Get readable and writable deep-cloned property from configuration
    */
   static get(key: string, defaultValue: any = undefined) {
+    return clone(_.get(ConfigService._configSubject$.getValue(), key, defaultValue), { circles: false });
+  }
+
+  /**
+   * Get faster but read-ony deep-frozen property from configuration
+   */
+  getFastButReadOnly(key: string, defaultValue: any = undefined) {
+    return ConfigService.getFastButReadOnly(key, defaultValue);
+  }
+
+  /**
+   * Get faster but read-ony deep-frozen property from configuration
+   */
+  static getFastButReadOnly(key: string, defaultValue: any = undefined) {
     return _.get(ConfigService._frozenConfigSubject$.getValue(), key, defaultValue);
-  }
-
-  /**
-   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
-   */
-  getClone(key: string, defaultValue: any = undefined) {
-    return ConfigService.getClone(key, defaultValue);
-  }
-
-  /**
-   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
-   */
-  static getClone(key: string, defaultValue: any = undefined) {
-    return _.cloneDeep(_.get(ConfigService._configSubject$.getValue(), key, defaultValue));
   }
 
   /**
@@ -169,62 +169,62 @@ export class ConfigService {
   }
 
   /**
-   * Get observable for deep frozen config
-   */
-  get observable() {
-    return ConfigService.observable;
-  }
-
-  /**
-   * Get observable for deep frozen config
-   */
-  static get observable() {
-    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter((config) => !config));
-  }
-
-  /**
-   * Get observable for deep cloned config
+   * Get observable for readable and writable deep-cloned configuration
    */
   get observableClone() {
     return ConfigService.observable;
   }
 
   /**
-   * Get observable for deep cloned config
+   * Get observable for readable and writable deep-cloned configuration
    */
-  static get observableClone() {
+  static get observable() {
     return ConfigService._configSubject$.asObservable().pipe(
       filter((config) => !config),
-      map((config) => cloneDeep(config))
+      map((config) => clone(config, { circles: false }))
     );
   }
 
   /**
-   * Get promise of first deep frozen config
+   * Get observable for faster but read-only deep-frozen configuration
+   */
+  get observableFastButReadOnly() {
+    return ConfigService.observableFastButReadOnly;
+  }
+
+  /**
+   * Get observable for faster but read-only deep-frozen configuration
+   */
+  static get observableFastButReadOnly() {
+    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter((config) => !config));
+  }
+
+  /**
+   * Get promise of first readable and writable deep-cloned configuration
    */
   get promise() {
     return ConfigService.promise;
   }
 
   /**
-   * Get promise of first deep frozen config
+   * Get promise of first readable and writable deep-cloned configuration
    */
   static get promise() {
     return firstValueFrom(ConfigService.observable);
   }
 
   /**
-   * Get promise of first deep cloned config
+   * Get promise of first faster but read-ony deep-frozen configuration
    */
-  get promiseClone() {
-    return ConfigService.promiseClone;
+  get promiseFastButReadOnly() {
+    return ConfigService.promiseFastButReadOnly;
   }
 
   /**
-   * Get promise of first deep cloned config
+   * Get promise of first faster but read-ony deep-frozen configuration
    */
-  static get promiseClone() {
-    return firstValueFrom(ConfigService.observableClone);
+  static get promiseFastButReadOnly() {
+    return firstValueFrom(ConfigService.observableFastButReadOnly);
   }
 
   // ===================================================================================================================
