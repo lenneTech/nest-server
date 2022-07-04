@@ -8,6 +8,26 @@ import { IServerOptions } from '../interfaces/server-options.interface';
 
 /**
  * Config service can be used as provider (after initialization in CoreModule.forRoot)
+ *
+ * Note:
+ *
+ * Direct access to the global configuration is not intended, since all objects in JavaScript interact by reference
+ * it can come to unintentional changes. Two protected properties are available for access `config` and `configClone`,
+ * as well as several methods that use these properties.
+ *
+ * The return value of `config` is a cached deep frozen object to speed up access and to avoid unwanted side
+ * effects (like accidentally changing the global configuration). However, this results in the object and all its
+ * contents being read-only. Attempts to change the configuration will result in the
+ * `TypeError: Cannot assign to read only property ...` If this error occurs during further processing of the
+ * configuration, `configClone` should be used instead of `config`. The access to this form of the configuration is
+ * substantially slower, but offers the advantage that the clone can be processed further (also without changing the
+ * global configuration).
+ *
+ * `config` => fast read only copy of global configuration
+ *            (return value of get, observable and promise)
+ *
+ * `configClone` => slow read and writeable copy of global configuration
+ *                  (return value of getClone, observableClone and promiseClone)
  */
 export class ConfigService {
   // ===================================================================================================================
@@ -79,28 +99,28 @@ export class ConfigService {
   // ===================================================================================================================
 
   /**
-   * Get (deep-frozen) config (readonly, to avoid unwanted side effects)
+   * Get fast read-only deep-frozen config
    */
   get config() {
     return ConfigService.config;
   }
 
   /**
-   * Get (deep-frozen) config (readonly, to avoid unwanted side effects)
+   * Get fast read-only deep-frozen config
    */
   static get config() {
     return ConfigService._frozenConfigSubject$.getValue();
   }
 
   /**
-   * Get deep clone config (to avoid unwanted side effects)
+   * Get slow readable and writable deep-cloned configuration
    */
   get configClone() {
     return ConfigService.configClone;
   }
 
   /**
-   * Get deep clone config (to avoid unwanted side effects)
+   * Get slow readable and writable deep-cloned configuration
    */
   static get configClone() {
     return _.cloneDeep(ConfigService._configSubject$.getValue());
@@ -117,6 +137,20 @@ export class ConfigService {
    * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
    */
   static get(key: string, defaultValue: any = undefined) {
+    return _.get(ConfigService._frozenConfigSubject$.getValue(), key, defaultValue);
+  }
+
+  /**
+   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
+   */
+  getClone(key: string, defaultValue: any = undefined) {
+    return ConfigService.getClone(key, defaultValue);
+  }
+
+  /**
+   * Get deep-frozen data from config (readonly, to avoid unwanted side effects)
+   */
+  static getClone(key: string, defaultValue: any = undefined) {
     return _.cloneDeep(_.get(ConfigService._configSubject$.getValue(), key, defaultValue));
   }
 
