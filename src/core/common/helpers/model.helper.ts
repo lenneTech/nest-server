@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
-import * as _ from 'lodash';
 import { Types } from 'mongoose';
+import { clone } from './input.helper';
 
 /**
  * Helper class for models
@@ -63,15 +63,19 @@ export function prepareMap<T = Record<string, any>>(
   target: T,
   options: {
     cloneDeep?: boolean;
+    circles?: boolean;
     funcAllowed?: boolean;
     mapId?: boolean;
+    proto?: boolean;
   } = {}
 ): Partial<T> | Record<string, any> {
   // Set config
   const config = {
     cloneDeep: true,
+    circles: true,
     funcAllowed: false,
     mapId: false,
+    proto: false,
     ...options,
   };
 
@@ -85,7 +89,10 @@ export function prepareMap<T = Record<string, any>>(
       source[key] !== undefined &&
       (config.funcAllowed || typeof (source[key] !== 'function'))
     ) {
-      result[key] = source[key] !== 'function' && config.cloneDeep ? _.cloneDeep(source[key]) : source[key];
+      result[key] =
+        source[key] !== 'function' && config.cloneDeep
+          ? clone(source[key], { circles: config.circles, proto: config.proto })
+          : source[key];
     } else if (key === 'id' && !config.mapId) {
       result['id'] = source[key];
     }
@@ -102,21 +109,25 @@ export function map<T = Record<string, any>>(
   target: T,
   options: {
     cloneDeep?: boolean;
+    circles?: boolean;
     funcAllowed?: boolean;
     mapId?: boolean;
+    proto?: boolean;
   } = {}
 ): T {
   // Set config
   const config = {
     cloneDeep: true,
+    circles: false,
     funcAllowed: false,
     mapId: false,
+    proto: false,
     ...options,
   };
 
   // Check source
   if (!source || typeof source !== 'object' || Array.isArray(source)) {
-    return config.cloneDeep ? _.cloneDeep(target) : target;
+    return config.cloneDeep ? clone(target, { circles: config.circles, proto: config.proto }) : target;
   }
 
   // Prepare source

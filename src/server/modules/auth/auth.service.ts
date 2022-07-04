@@ -2,11 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
-import envConfig from '../../../config.env';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { prepareServiceOptions } from '../../../core/common/helpers/service.helper';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
+import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { JwtPayload } from '../../../core/modules/auth/interfaces/jwt-payload.interface';
 import { UserService } from '../user/user.service';
@@ -20,7 +20,8 @@ export class AuthService {
   constructor(
     protected readonly jwtService: JwtService,
     protected readonly emailService: EmailService,
-    protected readonly userService: UserService
+    protected readonly userService: UserService,
+    protected readonly configService: ConfigService
   ) {}
 
   /**
@@ -77,7 +78,10 @@ export class AuthService {
     // Send email
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
-      templateData: { name: user.username, link: envConfig.email.verificationLink + '/' + user.verificationToken },
+      templateData: {
+        name: user.username,
+        link: this.configService.configFastButReadOnly.email.verificationLink + '/' + user.verificationToken,
+      },
     });
 
     // Create JWT and return sign-in data

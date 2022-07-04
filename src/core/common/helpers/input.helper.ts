@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
 import * as _ from 'lodash';
+import * as rfdc from 'rfdc';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
@@ -196,7 +197,7 @@ export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[
           ? // Return item if not an object
             item
           : // Return cloned record with undefined properties removed
-            filterProperties(JSON.parse(JSON.stringify(item)), (prop) => prop !== undefined)
+            filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined)
     )
   );
 }
@@ -298,10 +299,61 @@ export async function check(
 }
 
 /**
+ * Clone object
+ * @param object Any object
+ * @param options Finetuning of rfdc cloning
+ * @param options.proto Copy prototype properties as well as own properties into the new object.
+ *                      It's marginally faster to allow enumerable properties on the prototype to be copied into the
+ *                      cloned object (not onto it's prototype, directly onto the object).
+ * @param options.circles Keeping track of circular references will slow down performance with an additional 25% overhead.
+ *                        Even if an object doesn't have any circular references, the tracking overhead is the cost.
+ *                        By default if an object with a circular reference is passed to rfdc, it will throw
+ *                        (similar to how JSON.stringify would throw). Use the circles option to detect and preserve
+ *                        circular references in the object. If performance is important, try removing the circular
+ *                        reference from the object (set to undefined) and then add it back manually after cloning
+ *                        instead of using this option.
+ */
+export function clone(object: any, options?: { proto?: boolean; circles?: boolean }) {
+  const config = {
+    proto: false,
+    circles: true,
+    ...options,
+  };
+  try {
+    return rfdc(config)(object);
+  } catch (e) {
+    console.info(e);
+    if (object.circle) {
+      try {
+        return rfdc({ ...config, ...{ circles: true } })(object);
+      } catch (e) {
+        console.info(e);
+        return _.clone(object);
+      }
+    } else {
+      return _.clone(object);
+    }
+  }
+}
+
+/**
  * Combines objects to a new single plain object and ignores undefined
  */
 export function combinePlain(...args: Record<any, any>[]): any {
   return assignPlain({}, ...args);
+}
+
+/**
+ * Get deep frozen object
+ */
+export function deepFreeze(object: any) {
+  if (typeof object !== 'object') {
+    return object;
+  }
+  for (const [key, value] of Object.entries(object)) {
+    object[key] = deepFreeze(value);
+  }
+  return Object.freeze(object);
 }
 
 /**
@@ -327,7 +379,6 @@ export function filterProperties<T = Record<string, any>>(
 
 /**
  * Get plain copy of object
- * @param element
  */
 export function getPlain(object: any) {
   return JSON.parse(JSON.stringify(object));
@@ -512,11 +563,24 @@ export function match(expression: any, cases: Record<any, any>): any {
 /**
  * Map values into specific type
  */
-export function mapClass<T>(values: Partial<T>, ctor: new () => T, cloneDeep = true): T {
+export function mapClass<T>(
+  values: Partial<T>,
+  ctor: new () => T,
+  options?: {
+    cloneDeep?: boolean;
+    circle?: boolean;
+    proto?: boolean;
+  }
+): T {
+  const config = {
+    cloneDeep: true,
+    circles: false,
+    proto: false,
+  };
   const instance = new ctor();
 
   return Object.keys(instance).reduce((obj, key) => {
-    obj[key] = cloneDeep ? _.cloneDeep(values[key]) : values[key];
+    obj[key] = config.cloneDeep ? clone(values[key], { circles: config.circles, proto: config.proto }) : values[key];
     return obj;
   }, instance);
 }

@@ -44,7 +44,7 @@ export class TemplateService {
 
       // Get template file
       fs.readFile(
-        join(this.configService.get('templates.path'), filePath) + '.ejs',
+        join(this.configService.getFastButReadOnly('templates.path'), filePath) + '.ejs',
         { encoding: 'utf8' },
         (err, data) => {
           if (err) {
