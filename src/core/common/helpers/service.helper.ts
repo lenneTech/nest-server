@@ -4,12 +4,13 @@ import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
 import * as _ from 'lodash';
 import { Types } from 'mongoose';
-import envConfig from '../../../config.env';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
+import { ConfigService } from '../services/config.service';
+import { clone } from './input.helper';
 
 /**
  * Helper class for services
@@ -24,10 +25,13 @@ export default class ServiceHelper {
     currentUser: { [key: string]: any; id: string },
     options: {
       [key: string]: any;
+      checkRoles?: boolean;
       create?: boolean;
       clone?: boolean;
       getNewArray?: boolean;
       removeUndefined?: boolean;
+      sha256?: boolean;
+      targetModel?: new (...args: any[]) => T;
     } = {}
   ): Promise<T> {
     return prepareInput(input, currentUser, options);
@@ -42,6 +46,8 @@ export default class ServiceHelper {
       [key: string]: any;
       clone?: boolean;
       getNewArray?: boolean;
+      objectIdsToStrings?: boolean;
+      removeSecrets?: boolean;
       removeUndefined?: boolean;
       targetModel?: new (...args: any[]) => T;
     } = {}
@@ -59,10 +65,13 @@ export async function prepareInput<T = any>(
   options: {
     [key: string]: any;
     checkRoles?: boolean;
+    circles?: boolean;
     create?: boolean;
     clone?: boolean;
     getNewArray?: boolean;
+    proto?: boolean;
     removeUndefined?: boolean;
+    sha256?: boolean;
     targetModel?: new (...args: any[]) => T;
   } = {}
 ): Promise<T> {
@@ -70,9 +79,12 @@ export async function prepareInput<T = any>(
   const config = {
     checkRoles: false,
     clone: false,
+    circles: false,
     create: false,
     getNewArray: false,
+    proto: false,
     removeUndefined: true,
+    sha256: ConfigService.configFastButReadOnly.sha256,
     ...options,
   };
 
@@ -98,7 +110,7 @@ export async function prepareInput<T = any>(
     if ((input as Record<string, any>).mapDeep && typeof (input as any).mapDeep === 'function') {
       input = await Object.getPrototypeOf(input).mapDeep(input);
     } else {
-      input = _.cloneDeep(input);
+      input = clone(input, { circles: config.circles, proto: config.proto });
     }
   }
 
@@ -134,7 +146,7 @@ export async function prepareInput<T = any>(
   if ((input as any).password) {
     // Check if the password was transmitted encrypted
     // If not, the password is encrypted to enable future encrypted and unencrypted transmissions
-    if (envConfig.sha256 && !/^[a-f0-9]{64}$/i.test((input as any).password)) {
+    if (config.sha256 && !/^[a-f0-9]{64}$/i.test((input as any).password)) {
       (input as any).password = sha256((input as any).password);
     }
 
@@ -164,8 +176,10 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   options: {
     [key: string]: any;
     clone?: boolean;
+    circles?: boolean;
     getNewArray?: boolean;
     objectIdsToStrings?: boolean;
+    proto?: boolean;
     removeSecrets?: boolean;
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
@@ -174,8 +188,10 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   // Configuration
   const config = {
     clone: false,
+    circles: false,
     getNewArray: false,
     objectIdsToStrings: true,
+    proto: false,
     removeSecrets: true,
     removeUndefined: false,
     targetModel: undefined,
@@ -204,7 +220,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     if (output.mapDeep && typeof output.mapDeep === 'function') {
       output = await Object.getPrototypeOf(output).mapDeep(output);
     } else {
-      output = _.cloneDeep(output);
+      output = clone(output, { circles: config.circles, proto: config.proto });
     }
   }
 
@@ -259,9 +275,11 @@ export function prepareServiceOptions(
   serviceOptions: ServiceOptions,
   options?: {
     clone?: boolean;
+    circles?: boolean;
     inputType?: any;
     outputType?: any;
     subFieldSelection?: string;
+    proto?: boolean;
     prepareInput?: PrepareInputOptions;
     prepareOutput?: PrepareOutputOptions;
   }
@@ -269,12 +287,14 @@ export function prepareServiceOptions(
   // Set default values
   const config = {
     clone: true,
+    circles: true,
+    proto: false,
     ...options,
   };
 
   // Clone
   if (serviceOptions && config.clone) {
-    serviceOptions = _.cloneDeep(serviceOptions);
+    serviceOptions = clone(serviceOptions, { circles: config.circles, proto: config.proto });
   }
 
   // Init if not exists

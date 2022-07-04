@@ -9,13 +9,13 @@ export class ServerController {
   @Render('index')
   root() {
     return {
-      env: this.configService.get('env'),
+      env: this.configService.getFastButReadOnly('env'),
     };
   }
 
   @Get('config')
   @Roles(RoleEnum.ADMIN)
   config() {
-    return this.configService.config;
+    return this.configService.configFastButReadOnly;
   }
 }
