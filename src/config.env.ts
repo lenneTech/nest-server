@@ -1,5 +1,6 @@
 import { CronExpression } from '@nestjs/schedule';
 import { join } from 'path';
+import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
 /**
@@ -22,8 +23,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'rebeca68@ethereal.email',
-          pass: 'v5WUScAN98AzGbRjpc',
+          user: 'sandra98@ethereal.email',
+          pass: 'JCQQdz8xJEfBSewahK',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -34,8 +35,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'rebeca68@ethereal.email',
-        name: 'Rebeca Sixtyeight',
+        email: 'sandra98@ethereal.email',
+        name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
@@ -51,6 +52,7 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
+    loadLocalConfig: false,
     mongoose: {
       uri: 'mongodb://localhost/nest-server-dev',
     },
@@ -73,8 +75,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'rebeca68@ethereal.email',
-          pass: 'v5WUScAN98AzGbRjpc',
+          user: 'sandra98@ethereal.email',
+          pass: 'JCQQdz8xJEfBSewahK',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -85,8 +87,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'rebeca68@ethereal.email',
-        name: 'Rebeca Sixtyeight',
+        email: 'sandra98@ethereal.email',
+        name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
@@ -102,6 +104,7 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
+    loadLocalConfig: false,
     mongoose: {
       uri: 'mongodb://localhost/nest-server-dev',
     },
@@ -124,8 +127,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'rebeca68@ethereal.email',
-          pass: 'v5WUScAN98AzGbRjpc',
+          user: 'sandra98@ethereal.email',
+          pass: 'JCQQdz8xJEfBSewahK',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -136,8 +139,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'rebeca68@ethereal.email',
-        name: 'Rebeca Sixtyeight',
+        email: 'sandra98@ethereal.email',
+        name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
@@ -153,6 +156,7 @@ const config: { [env: string]: IServerOptions } = {
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
+    loadLocalConfig: false,
     mongoose: {
       uri: 'mongodb://localhost/nest-server-prod',
     },
@@ -177,6 +181,29 @@ const config: { [env: string]: IServerOptions } = {
 const env = process.env['NODE' + '_ENV'] || 'development';
 const envConfig = config[env] || config.development;
 console.info('Configured for: ' + envConfig.env + (env !== envConfig.env ? ' (requested: ' + env + ')' : ''));
+
+// Merge with localConfig (e.g. config.json)
+if (envConfig.loadLocalConfig) {
+  let localConfig;
+  if (typeof envConfig.loadLocalConfig === 'string') {
+    localConfig = require(envConfig.loadLocalConfig);
+    merge(envConfig, localConfig);
+  } else {
+    try {
+      // get config from src directory
+      localConfig = require(__dirname + '/config.json');
+      merge(envConfig, localConfig);
+    } catch {
+      try {
+        // if not found try to find in project directory
+        localConfig = require(__dirname + '/../config.json');
+        merge(envConfig, localConfig);
+      } catch (e) {
+        // No config.json found => nothing to do
+      }
+    }
+  }
+}
 
 /**
  * Export envConfig as default
