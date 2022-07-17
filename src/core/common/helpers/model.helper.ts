@@ -202,18 +202,18 @@ export function mapClasses<T = Record<string, any>>(
       if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
-          if (value instanceof targetClass) {
-            arr.push(value);
-          } else if (value instanceof Types.ObjectId) {
-            config.objectIdsToString ? arr.push(value.toHexString()) : arr.push(value);
-          } else if (typeof value === 'object') {
+          if (item instanceof targetClass) {
+            arr.push(item);
+          } else if (item instanceof Types.ObjectId) {
+            config.objectIdsToString ? arr.push(item.toHexString()) : arr.push(item);
+          } else if (typeof item === 'object') {
             if (targetClass.map) {
               arr.push(targetClass.map(item));
             } else {
               arr.push(plainToInstance(targetClass, item));
             }
           } else {
-            arr.push(value);
+            arr.push(item);
           }
         }
         target[prop] = arr as any;
@@ -285,18 +285,18 @@ export async function mapClassesAsync<T = Record<string, any>>(
       if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
-          if (value instanceof targetClass) {
-            arr.push(value);
-          } else if (value instanceof Types.ObjectId) {
-            config.objectIdsToString ? arr.push(value.toHexString()) : arr.push(value);
-          } else if (typeof value === 'object') {
+          if (item instanceof targetClass) {
+            arr.push(item);
+          } else if (item instanceof Types.ObjectId) {
+            config.objectIdsToString ? arr.push(item.toHexString()) : arr.push(item);
+          } else if (typeof item === 'object') {
             if (targetClass.map) {
               arr.push(await targetClass.map(item));
             } else {
               arr.push(plainToInstance(targetClass, item));
             }
           } else {
-            arr.push(value);
+            arr.push(item);
           }
         }
         target[prop] = arr as any;

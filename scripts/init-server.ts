@@ -8,5 +8,6 @@ const run = async () => {
   const app: any = moduleFixture.createNestApplication();
   await app.init();
   await app.close();
+  process.exit(0);
 };
 run();

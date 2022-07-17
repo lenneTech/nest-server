@@ -6,6 +6,10 @@ public
 !public/assets
 !public/images
 
+# Config
+config.json
+src/config.json
+
 # Schema
 schema.gql
 

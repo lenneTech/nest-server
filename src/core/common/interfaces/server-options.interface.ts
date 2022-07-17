@@ -129,6 +129,14 @@ export interface IServerOptions {
   } & JwtModuleOptions;
 
   /**
+   * Load local configuration
+   * false: no local configuration is loaded,
+   * true: it tries to load ./config.json or ../config.json,
+   * string: path to configuration
+   */
+  loadLocalConfig?: boolean | string;
+
+  /**
    * Configuration for Mongoose
    */
   mongoose?: { uri: string; options?: MongooseModuleOptions };

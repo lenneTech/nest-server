@@ -322,12 +322,12 @@ export function clone(object: any, options?: { proto?: boolean; circles?: boolea
   try {
     return rfdc(config)(object);
   } catch (e) {
-    console.info(e);
-    if (object.circle) {
+    console.debug(e);
+    if (!config.circles) {
       try {
         return rfdc({ ...config, ...{ circles: true } })(object);
       } catch (e) {
-        console.info(e);
+        console.debug(e);
         return _.clone(object);
       }
     } else {
