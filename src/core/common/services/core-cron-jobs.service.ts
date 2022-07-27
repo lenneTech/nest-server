@@ -1,3 +1,4 @@
+import { OnApplicationBootstrap } from '@nestjs/common';
 import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { CronJobConfig } from '../interfaces/cron-job-config.interface';
@@ -6,7 +7,7 @@ import { Falsy } from '../types/falsy.type';
 /**
  * Cron jobs service to extend
  */
-export abstract class CoreCronJobs {
+export abstract class CoreCronJobs implements OnApplicationBootstrap {
   /**
    * Config for cron jobs
    */
@@ -36,6 +37,16 @@ export abstract class CoreCronJobs {
       log: true,
       ...options,
     };
+  }
+
+  /**
+   * Lifecycle hook method: Called once all modules have been initialized, but before listening for connections.
+   * Required to ensure that all services have been previously initiated
+   */
+  onApplicationBootstrap() {
+    if (this.config.log) {
+      console.info('Init CronJobs after application bootstrap');
+    }
     this.initCronJobs();
   }
 
