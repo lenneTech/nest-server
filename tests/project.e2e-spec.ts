@@ -72,7 +72,7 @@ describe('Project (e2e)', () => {
    * Create and verify users for testing
    */
   it('createAndVerifyUsers', async () => {
-    const userCount = 4;
+    const userCount = 5;
     const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
       const input = {
@@ -129,17 +129,19 @@ describe('Project (e2e)', () => {
   });
 
   it('findAndCountUsers', async () => {
+    const emails = users.map((user) => user.email);
+    emails.pop();
     const args = {
       filter: {
         singleFilter: {
           field: 'email',
           operator: ComparisonOperatorEnum.IN,
-          value: users.map((user) => user.email),
+          value: emails,
         },
       },
       skip: 1,
       limit: 2,
-      sort: [{ field: 'lastName', order: SortOrderEnum.DESC }],
+      sort: [{ field: 'firstName', order: SortOrderEnum.DESC }],
     };
     const res: any = await testHelper.graphQl(
       {
@@ -148,15 +150,17 @@ describe('Project (e2e)', () => {
         arguments: { ...args },
         fields: [{ items: ['id', 'email', 'firstName', 'lastName'] }, 'totalCount'],
       },
-      { token: users[0].token, log: true, logError: true }
+      { token: users[0].token }
     );
-    expect(res.totalCount).toBeGreaterThanOrEqual(4);
-    expect(res.items.length).toEqual(2);
-    for (let i = 0; i < Math.min(args.limit, users.length - args.skip); i++) {
-      const resPos = users.length - 1 - args.skip - i;
+    const min = Math.min(args.limit, emails.length - args.skip);
+    expect(res.totalCount).toEqual(emails.length);
+    expect(res.items.length).toEqual(min);
+    for (let i = 0; i < min; i++) {
+      const resPos = emails.length - 1 - args.skip - i;
       const curPos = i;
       expect(res.items[curPos].id).toEqual(users[resPos].id);
       expect(res.items[curPos].email).toEqual(users[resPos].email);
+      expect(emails.includes(res.items[curPos].email)).toBe(true);
       expect(res.items[curPos].firstName).toEqual(users[resPos].firstName);
       expect(res.items[curPos].lastName).toEqual(users[resPos].lastName);
     }
