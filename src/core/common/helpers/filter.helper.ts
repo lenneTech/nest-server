@@ -2,6 +2,7 @@ import { FilterQuery, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
+import { SortOrderEnum } from '../enums/sort-order.emum';
 import { FilterInput } from '../inputs/filter.input';
 import { SortInput } from '../inputs/sort.input';
 import { getObjectIds } from './db.helper';
@@ -193,36 +194,45 @@ export function generateFilterQuery<T = any>(filter?: Partial<FilterInput>): Fil
 /**
  * Generate find options
  */
-export function generateFindOptions<T = any>(filterArgs: Partial<FilterArgs>): QueryOptions {
+export function generateFindOptions<T = any>(
+  filterArgs: Partial<FilterArgs>,
+  options?: { maxLimit?: number }
+): QueryOptions {
   // Check filterArgs
   if (!filterArgs) {
     return {};
   }
 
+  // Config
+  const config = {
+    maxLimit: 100,
+    ...options,
+  };
+
   // Get values
   const { limit, offset, skip, sort, take } = filterArgs;
 
   // Init options
-  const options: QueryOptions = {
-    limit: limit ? limit : take,
+  const queryOptions: QueryOptions = {
+    limit: limit || take,
   };
 
   if (skip > 0 || offset > 0) {
-    options.skip = offset ? offset : skip;
+    queryOptions.skip = skip || offset;
   }
 
-  // Check take
-  if (!options.limit || options.limit > 100) {
-    options.limit = 25;
+  // Check limit
+  if (!queryOptions.limit || queryOptions.limit > config.maxLimit) {
+    queryOptions.limit = 25;
   }
 
   // Prepare order
   if (sort) {
-    options.sort = {};
+    queryOptions.sort = {};
     sort.forEach((item: SortInput) => {
-      options.sort[item.field] = item.order;
+      queryOptions.sort[item.field] = item.order === SortOrderEnum.DESC ? -1 : 1;
     });
   }
 
-  return options;
+  return queryOptions;
 }

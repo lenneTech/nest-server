@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
+import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
+import { SortOrderEnum } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
@@ -70,7 +72,7 @@ describe('Project (e2e)', () => {
    * Create and verify users for testing
    */
   it('createAndVerifyUsers', async () => {
-    const userCount = 2;
+    const userCount = 5;
     const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
       const input = {
@@ -124,6 +126,44 @@ describe('Project (e2e)', () => {
     await db
       .collection('users')
       .findOneAndUpdate({ _id: new ObjectId(users[0].id) }, { $set: { roles: [RoleEnum.ADMIN] } });
+  });
+
+  it('findAndCountUsers', async () => {
+    const emails = users.map((user) => user.email);
+    emails.pop();
+    const args = {
+      filter: {
+        singleFilter: {
+          field: 'email',
+          operator: ComparisonOperatorEnum.IN,
+          value: emails,
+        },
+      },
+      skip: 1,
+      limit: 2,
+      sort: [{ field: 'firstName', order: SortOrderEnum.DESC }],
+    };
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'findAndCountUsers',
+        type: TestGraphQLType.QUERY,
+        arguments: { ...args },
+        fields: [{ items: ['id', 'email', 'firstName', 'lastName'] }, 'totalCount'],
+      },
+      { token: users[0].token }
+    );
+    const min = Math.min(args.limit, emails.length - args.skip);
+    expect(res.totalCount).toEqual(emails.length);
+    expect(res.items.length).toEqual(min);
+    for (let i = 0; i < min; i++) {
+      const resPos = emails.length - 1 - args.skip - i;
+      const curPos = i;
+      expect(res.items[curPos].id).toEqual(users[resPos].id);
+      expect(res.items[curPos].email).toEqual(users[resPos].email);
+      expect(emails.includes(res.items[curPos].email)).toBe(true);
+      expect(res.items[curPos].firstName).toEqual(users[resPos].firstName);
+      expect(res.items[curPos].lastName).toEqual(users[resPos].lastName);
+    }
   });
 
   // ===================================================================================================================
