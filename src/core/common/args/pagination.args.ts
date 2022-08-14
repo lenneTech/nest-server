@@ -19,10 +19,10 @@ export class PaginationArgs extends CoreInput {
   limit?: number = undefined;
 
   /**
-   * Offset for pagination
+   * Alias for skip
    */
   @Field((type) => Int, {
-    description: 'Offset specifies how many found elements should be skipped on return',
+    description: 'Alias for skip',
     nullable: true,
     defaultValue: 0,
   })
@@ -30,10 +30,10 @@ export class PaginationArgs extends CoreInput {
   offset?: number = undefined;
 
   /**
-   * Alias for offset
+   * Skip for pagination
    */
   @Field((type) => Int, {
-    description: 'Alias for offset',
+    description: 'Skip specifies how many found elements should be skipped on return',
     nullable: true,
     defaultValue: undefined,
   })

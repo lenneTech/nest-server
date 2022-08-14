@@ -479,7 +479,7 @@ export async function popAndMap<T extends CoreModel>(
   }
   if (queryOrDocument instanceof Query) {
     // Get result
-    result = await setPopulates(queryOrDocument, populateOptions, mongooseModel?.schema?.paths);
+    result = await setPopulates(queryOrDocument, populateOptions, mongooseModel);
     if (result instanceof Query) {
       result = await result.exec();
     }
@@ -493,13 +493,13 @@ export async function popAndMap<T extends CoreModel>(
   } else {
     // Process documents
     if (Array.isArray(queryOrDocument)) {
-      await setPopulates(queryOrDocument, populateOptions, mongooseModel?.schema?.paths);
+      await setPopulates(queryOrDocument, populateOptions, mongooseModel);
       result = queryOrDocument.map((item) => (modelClass as any).map(item));
     }
 
     // Process document
     else {
-      await setPopulates(queryOrDocument, populateOptions, mongooseModel?.schema?.paths);
+      await setPopulates(queryOrDocument, populateOptions, mongooseModel);
       result = (modelClass as any).map(queryOrDocument);
     }
   }
@@ -544,7 +544,7 @@ export function removeIds(source: any[], ids: StringOrObjectId | StringOrObjectI
 export async function setPopulates<T = Query<any, any> | Document>(
   queryOrDocument: T,
   populateOptions: string[] | PopulateOptions[] | (string | PopulateOptions)[],
-  modelSchemaPaths?: { [key: string]: SchemaType }
+  mongooseModel: Model<any>
 ): Promise<T> {
   // Check parameters
   if (!populateOptions?.length || !queryOrDocument) {
@@ -552,13 +552,13 @@ export async function setPopulates<T = Query<any, any> | Document>(
   }
 
   // Filter populate options via model schema paths
-  if (modelSchemaPaths) {
+  if (mongooseModel?.schema?.paths) {
     populateOptions = populateOptions.filter((option: string | PopulateOptions) => {
       let key: string = option as string;
       if ((option as PopulateOptions)?.path) {
         key = (option as PopulateOptions)?.path;
       }
-      return Object.keys(modelSchemaPaths).includes(key);
+      return Object.keys(mongooseModel.schema.paths).includes(key);
     });
   }
 
@@ -573,12 +573,20 @@ export async function setPopulates<T = Query<any, any> | Document>(
   // Array with documents
   else if (Array.isArray(queryOrDocument)) {
     const promises = [];
-    queryOrDocument.forEach((item) => promises.push(item.populate(populateOptions)));
+    queryOrDocument.forEach((item) => {
+      if (item.populate) {
+        promises.push(item.populate(populateOptions));
+      } else if (mongooseModel) {
+        promises.push(mongooseModel.populate(item, populateOptions as any));
+      }
+    });
     await Promise.all(promises);
   }
   // Single document
-  else {
+  else if ((queryOrDocument as any).populate) {
     await (queryOrDocument as any).populate(populateOptions);
+  } else {
+    return (await mongooseModel.populate(queryOrDocument as any, populateOptions as any)) as any;
   }
 
   // Return populated
