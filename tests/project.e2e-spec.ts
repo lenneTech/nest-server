@@ -128,6 +128,9 @@ describe('Project (e2e)', () => {
       .findOneAndUpdate({ _id: new ObjectId(users[0].id) }, { $set: { roles: [RoleEnum.ADMIN] } });
   });
 
+  /**
+   * Find and count users
+   */
   it('findAndCountUsers', async () => {
     const emails = users.map((user) => user.email);
     emails.pop();

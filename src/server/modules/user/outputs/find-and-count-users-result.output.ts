@@ -2,7 +2,7 @@ import { Field, ObjectType } from '@nestjs/graphql';
 import { User } from '../user.model';
 
 @ObjectType({ description: 'Result of find and count' })
-export class FindAndCountUserResult {
+export class FindAndCountUsersResult {
   @Field(() => [User], { description: 'Found users' })
   items: User[];
 
