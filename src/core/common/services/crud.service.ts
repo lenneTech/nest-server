@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { FilterQuery, QueryOptions } from 'mongoose';
+import { FilterQuery, PipelineStage, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { merge } from '../helpers/config.helper';
 import { getStringIds } from '../helpers/db.helper';
@@ -56,6 +56,69 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
         return this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions).exec();
       },
       { input: filter, serviceOptions }
+    );
+  }
+
+  /**
+   * Get items and total count via filter
+   */
+  async findAndCount(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<{ items: T[]; totalCount: number }> {
+    return this.process(
+      async (data) => {
+        // Prepare filter query
+        const filterQuery = { filterQuery: data?.input?.filterQuery, queryOptions: data?.input?.queryOptions };
+        if (data?.input instanceof FilterArgs) {
+          const converted = convertFilterArgsToQuery(data.input);
+          filterQuery.filterQuery = converted[0];
+          filterQuery.queryOptions = converted[1];
+        }
+
+        // Prepare aggregation (with fixed defined sequence)
+        const aggregation: PipelineStage[] = [
+          {
+            // Add pipeline stage 1: match
+            $match: filterQuery.filterQuery,
+          },
+        ];
+
+        // Prepare $facet
+        const facet = {
+          items: [],
+          totalCount: [{ $count: 'total' }],
+        };
+
+        // Prepare query options
+        if (filterQuery.queryOptions) {
+          // Add pipeline stage 2: sort (optional)
+          const options = filterQuery.queryOptions;
+          if (options.sort) {
+            aggregation.push({ $sort: options.sort });
+          }
+
+          // Prepare skip / offset in facet
+          if (options.skip || options.offset) {
+            facet.items.push({ $skip: options.skip || options.offset });
+          }
+
+          // Prepare limit / take in facet
+          if (options.limit || options.take) {
+            facet.items.push({ $limit: options.limit || options.take });
+          }
+        }
+
+        // Set pipeline stage 3: facet => items (with skip & limit) and totalCount
+        aggregation.push({ $facet: facet });
+
+        // Find and process db items
+        const dbResult = (await this.mainDbModel.aggregate(aggregation).exec())[0];
+        dbResult.totalCount = dbResult.totalCount[0].total;
+        dbResult.items = dbResult.items.map((item) => this.mainDbModel.hydrate(item));
+        return dbResult;
+      },
+      { input: filter, outputPath: 'items', serviceOptions }
     );
   }
 

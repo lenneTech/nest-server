@@ -1,3 +1,4 @@
+import * as _ from 'lodash';
 import { Document, Model, Types } from 'mongoose';
 import { ProcessType } from '../enums/process-type.enum';
 import { getStringIds, popAndMap } from '../helpers/db.helper';
@@ -65,14 +66,20 @@ export abstract class ModuleService<T extends CoreModel = any> {
     options?: {
       [key: string]: any;
       dbObject?: string | Types.ObjectId | any;
+      outputPath?: string | string[];
       input?: any;
       serviceOptions?: ServiceOptions;
     }
   ) {
     // Configuration with default values
-    const config: { dbObject: string | Types.ObjectId | any; input: any } & ServiceOptions = {
+    const config: {
+      dbObject: string | Types.ObjectId | any;
+      outputPath: string | string[];
+      input: any;
+    } & ServiceOptions = {
       checkRights: true,
       dbObject: options?.dbObject,
+      outputPath: options?.outputPath,
       force: false,
       input: options?.input,
       processFieldSelection: {},
@@ -136,7 +143,8 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Pop and map main model
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
-      await this.processFieldSelection(result, config.fieldSelection, config.processFieldSelection);
+      const field = config.outputPath ? _.get(result, config.outputPath) : result;
+      await this.processFieldSelection(field, config.fieldSelection, config.processFieldSelection);
     }
 
     // Prepare output
@@ -145,7 +153,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.outputType) {
         opts.targetModel = config.outputType;
       }
-      result = await this.prepareOutput(result, opts);
+      if (config.outputPath) {
+        _.set(result, config.outputPath, await this.prepareOutput(_.get(result, config.outputPath), opts));
+      } else {
+        result = await this.prepareOutput(result, opts);
+      }
     }
 
     // Check output rights

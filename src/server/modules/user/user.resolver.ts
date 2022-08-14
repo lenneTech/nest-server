@@ -8,6 +8,7 @@ import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
+import { FindAndCountUserResult } from './outputs/find-and-count-user-result.output';
 import { User } from './user.model';
 import { UserService } from './user.service';
 
@@ -34,6 +35,18 @@ export class UserResolver {
   async findUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
     return await this.userService.find(args, {
       fieldSelection: { info, select: 'findUsers' },
+      inputType: FilterArgs,
+    });
+  }
+
+  /**
+   * Get users and total count (via filter)
+   */
+  @Roles(RoleEnum.ADMIN)
+  @Query(() => FindAndCountUserResult, { description: 'Find users (via filter)' })
+  async findAndCountUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+    return await this.userService.findAndCount(args, {
+      fieldSelection: { info, select: 'findAndCountUsers' },
       inputType: FilterArgs,
     });
   }
