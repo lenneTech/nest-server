@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { ComparisonOperatorEnum } from '../dist';
+import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { SortOrderEnum } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
