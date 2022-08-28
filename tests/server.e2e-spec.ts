@@ -115,6 +115,22 @@ describe('ServerModule (e2e)', () => {
     expect(res.user.roles).toEqual([]);
     expect(res.user.createdBy).toEqual(res.user.id);
     gId = res.user.id;
+    const res2: any = await testHelper.graphQl({
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+      arguments: {
+        input: {
+          email: gEmail,
+          password: gPassword + 2,
+          firstName: 'Everardo' + 2,
+        },
+      },
+      fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
+    });
+    expect(res2.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res2.errors[0].extensions.response.statusCode).toEqual(422);
+    expect(res2.errors[0].message).toEqual('Unprocessable Entity');
+    expect(res2.data).toBe(null);
   });
 
   /**
