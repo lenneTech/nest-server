@@ -51,9 +51,9 @@ describe('ServerModule (e2e)', () => {
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
-      testHelper = new TestHelper(app, 'ws://localhost:' + port + '/graphql');
+      testHelper = new TestHelper(app, 'ws://127.0.0.1:' + port + '/graphql');
       userService = moduleFixture.get(UserService);
-      await app.listen(port, '0.0.0.0'); // app.listen is required by subscriptions
+      await app.listen(port, '127.0.0.1'); // app.listen is required by subscriptions
 
       // Connection to database
       console.info('MongoDB: Create connection to ' + envConfig.mongoose.uri);

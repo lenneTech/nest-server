@@ -54,7 +54,7 @@ const config: { [env: string]: IServerOptions } = {
     },
     loadLocalConfig: false,
     mongoose: {
-      uri: 'mongodb://localhost/nest-server-dev',
+      uri: 'mongodb://127.0.0.1/nest-server-dev',
     },
     port: 3000,
     sha256: true,
@@ -106,7 +106,7 @@ const config: { [env: string]: IServerOptions } = {
     },
     loadLocalConfig: false,
     mongoose: {
-      uri: 'mongodb://localhost/nest-server-dev',
+      uri: 'mongodb://127.0.0.1/nest-server-dev',
     },
     port: 3000,
     sha256: true,
@@ -158,7 +158,7 @@ const config: { [env: string]: IServerOptions } = {
     },
     loadLocalConfig: false,
     mongoose: {
-      uri: 'mongodb://localhost/nest-server-prod',
+      uri: 'mongodb://127.0.0.1/nest-server-prod',
     },
     port: 3000,
     sha256: true,
