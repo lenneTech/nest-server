@@ -156,11 +156,17 @@ export abstract class CoreUserService<
     if (!dbObject) {
       throw new NotFoundException(`No user found with email: ${email}`);
     }
+
     return this.process(
       async () => {
         // Set reset token and return
         dbObject.passwordResetToken = crypto.randomBytes(32).toString('hex');
-        return await dbObject.save();
+
+        // Save
+        await dbObject.save();
+
+        // Return new user
+        return dbObject;
       },
       { dbObject, serviceOptions }
     );
