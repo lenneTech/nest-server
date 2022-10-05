@@ -343,6 +343,21 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * Find sample user
+   */
+  it('findSampleUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'findUsers',
+        arguments: { samples: 1 },
+        fields: ['id', 'email'],
+      },
+      { token: gToken }
+    );
+    expect(res.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
    * Subscription
    */
   it('subscription', async () => {
