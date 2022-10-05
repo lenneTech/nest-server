@@ -15,6 +15,16 @@ export class FilterArgs extends PaginationArgs {
   @IsOptional()
   filter?: FilterInput = undefined;
 
+  /**
+   * Get a specific number of random samples from filter results
+   */
+  @Field((type) => Number, {
+    description:
+      'Request only a specified number of samples from the filter results; if not specified, all results are returned.',
+    nullable: true,
+  })
+  samples?: number = undefined;
+
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================
