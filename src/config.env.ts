@@ -23,8 +23,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'sandra98@ethereal.email',
-          pass: 'JCQQdz8xJEfBSewahK',
+          user: 'cade72@ethereal.email',
+          pass: 'jpvTwGYeSajEqDvRKT',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -35,7 +35,7 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'sandra98@ethereal.email',
+        email: 'cade72@ethereal.email',
         name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',
@@ -75,8 +75,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'sandra98@ethereal.email',
-          pass: 'JCQQdz8xJEfBSewahK',
+          user: 'cade72@ethereal.email',
+          pass: 'jpvTwGYeSajEqDvRKT',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -87,7 +87,7 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'sandra98@ethereal.email',
+        email: 'cade72@ethereal.email',
         name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',
@@ -127,8 +127,8 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'sandra98@ethereal.email',
-          pass: 'JCQQdz8xJEfBSewahK',
+          user: 'cade72@ethereal.email',
+          pass: 'jpvTwGYeSajEqDvRKT',
         },
         host: 'smtp.ethereal.email',
         port: 587,
@@ -139,7 +139,7 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'sandra98@ethereal.email',
+        email: 'cade72@ethereal.email',
         name: 'Sandra Klein',
       },
       verificationLink: 'http://localhost:4200/user/verification',

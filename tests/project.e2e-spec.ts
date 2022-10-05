@@ -169,6 +169,51 @@ describe('Project (e2e)', () => {
     }
   });
 
+  /**
+   * Get sample user
+   */
+  it('getSampleUser', async () => {
+    const emails = users.map((user) => user.email);
+    emails.pop();
+    const args = {
+      filter: {
+        singleFilter: {
+          field: 'email',
+          operator: ComparisonOperatorEnum.IN,
+          value: emails,
+        },
+      },
+      samples: 1,
+    };
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'findUsers',
+        type: TestGraphQLType.QUERY,
+        arguments: { ...args },
+        fields: ['id', 'email', 'firstName', 'lastName'],
+      },
+      { token: users[0].token }
+    );
+    expect(res.length).toEqual(1);
+    expect(emails.includes(res[0].email)).toBe(true);
+    const email = res[0].email;
+    let otherEmail = res[0].email;
+    while (email === otherEmail) {
+      const otherRes: any = await testHelper.graphQl(
+        {
+          name: 'findUsers',
+          type: TestGraphQLType.QUERY,
+          arguments: { ...args },
+          fields: ['id', 'email', 'firstName', 'lastName'],
+        },
+        { token: users[0].token }
+      );
+      expect(otherRes.length).toEqual(1);
+      expect(emails.includes(otherRes[0].email)).toBe(true);
+      otherEmail = otherRes[0].email;
+    }
+  });
+
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================

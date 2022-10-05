@@ -39,11 +39,16 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Get items via filter
    */
   async find(
-    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
   ): Promise<T[]> {
     return this.process(
       async (data) => {
+        // Return only a certain number of random samples
+        if (filter?.samples) {
+          return (await this.findAndCount(filter, serviceOptions)).items;
+        }
+
         // Prepare filter query
         const filterQuery = { filterQuery: data?.input?.filterQuery, queryOptions: data?.input?.queryOptions };
         if (data?.input instanceof FilterArgs) {
@@ -63,7 +68,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Get items and total count via filter
    */
   async findAndCount(
-    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
   ): Promise<{ items: T[]; totalCount: number }> {
     return this.process(
@@ -77,12 +82,14 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
         }
 
         // Prepare aggregation (with fixed defined sequence)
-        const aggregation: PipelineStage[] = [
-          {
-            // Add pipeline stage 1: match
+        const aggregation: PipelineStage[] = [];
+
+        // Add pipeline stage 1: match
+        if (filterQuery.filterQuery) {
+          aggregation.push({
             $match: filterQuery.filterQuery,
-          },
-        ];
+          });
+        }
 
         // Prepare $facet
         const facet = {
@@ -107,6 +114,11 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
           if (options.limit || options.take) {
             facet.items.push({ $limit: options.limit || options.take });
           }
+        }
+
+        // Get a certain number of random samples
+        if (filter?.samples) {
+          facet.items.push({ $sample: { size: filter.samples } });
         }
 
         // Set pipeline stage 3: facet => items (with skip & limit) and totalCount
