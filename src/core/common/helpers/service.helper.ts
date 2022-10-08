@@ -97,7 +97,7 @@ export async function prepareInput<T = any>(
   if (Array.isArray(input)) {
     const processedArray = config.getNewArray ? ([] as T & any[]) : input;
     for (let i = 0; i <= input.length - 1; i++) {
-      processedArray[i] = await prepareOutput(input[i], options);
+      processedArray[i] = await prepareInput(input[i], currentUser, options);
       if (processedArray[i] === undefined && config.removeUndefined) {
         processedArray.splice(i, 1);
       }
