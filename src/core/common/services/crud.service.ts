@@ -25,6 +25,24 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Create item without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async createForce(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.create(input, serviceOptions);
+  }
+
+  /**
+   * Create item without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async createRaw(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.createForce(input, serviceOptions);
+  }
+
+  /**
    * Get item by ID
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<T> {
@@ -36,12 +54,36 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Get item by ID without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async getForce(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.get(id, serviceOptions);
+  }
+
+  /**
+   * Get item by ID without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.getForce(id, serviceOptions);
+  }
+
+  /**
    * Get items via filter
    */
   async find(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
   ): Promise<T[]> {
+    // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
+    // and should not be processed as FilterArgs
+    if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
+      serviceOptions = Object.assign({ prepareInput: null }, serviceOptions, { inputType: null });
+    }
+
     return this.process(
       async (data) => {
         // Return only a certain number of random samples
@@ -65,12 +107,42 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Get items via filter without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async findForce(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<T[]> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.find(filter, serviceOptions);
+  }
+
+  /**
+   * Get items via filter without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async findRaw(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<T[]> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.findForce(filter, serviceOptions);
+  }
+
+  /**
    * Get items and total count via filter
    */
   async findAndCount(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
   ): Promise<{ items: T[]; totalCount: number }> {
+    // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
+    // and should not be processed as FilterArgs
+    if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
+      serviceOptions = Object.assign({ prepareInput: null }, serviceOptions, { inputType: null });
+    }
+
     return this.process(
       async (data) => {
         // Prepare filter query
@@ -135,6 +207,30 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Get items and total count via filter without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async findAndCountForce(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<{ items: T[]; totalCount: number }> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.findAndCount(filter, serviceOptions);
+  }
+
+  /**
+   * Get items and total count via filter without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async findAndCountRaw(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<{ items: T[]; totalCount: number }> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.findAndCountForce(filter, serviceOptions);
+  }
+
+  /**
    * Find and update
    */
   async findAndUpdate(
@@ -160,6 +256,30 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
       );
     }
     return await Promise.all(promises);
+  }
+
+  /**
+   * Find and update without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async findAndUpdateForce(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<T[]> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.findAndUpdate(filter, serviceOptions);
+  }
+
+  /**
+   * Find and update without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async findAndUpdateRaw(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {}
+  ): Promise<T[]> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.findAndUpdateForce(filter, serviceOptions);
   }
 
   /**
@@ -190,6 +310,66 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * CRUD alias for getForce
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async readForce(id: string, serviceOptions?: ServiceOptions): Promise<T>;
+
+  /**
+   * CRUD alias for findForce
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async readForce(
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T[]>;
+
+  /**
+   * CRUD alias for getForce or findForce
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async readForce(
+    input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T | T[]> {
+    if (typeof input === 'string') {
+      return this.getForce(input, serviceOptions);
+    } else {
+      return this.findForce(input, serviceOptions);
+    }
+  }
+
+  /**
+   * CRUD alias for getRaw
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async readRaw(id: string, serviceOptions?: ServiceOptions): Promise<T>;
+
+  /**
+   * CRUD alias for findRaw
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async readRaw(
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T[]>;
+
+  /**
+   * CRUD alias for getRaw or findRaw
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async readRaw(
+    input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions
+  ): Promise<T | T[]> {
+    if (typeof input === 'string') {
+      return this.getRaw(input, serviceOptions);
+    } else {
+      return this.findRaw(input, serviceOptions);
+    }
+  }
+
+  /**
    * Update item via ID
    */
   async update(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
@@ -207,6 +387,24 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   }
 
   /**
+   * Update item via ID without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async updateForce(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.update(id, input, serviceOptions);
+  }
+
+  /**
+   * Update item via ID without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async updateRaw(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.updateForce(id, input, serviceOptions);
+  }
+
+  /**
    * Delete item via ID
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<T> {
@@ -221,5 +419,23 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
       },
       { dbObject, serviceOptions }
     );
+  }
+
+  /**
+   * Delete item via ID without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async deleteForce(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+    serviceOptions = merge(serviceOptions, { force: true });
+    return this.delete(id, serviceOptions);
+  }
+
+  /**
+   * Delete item via ID without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    return this.deleteForce(id, serviceOptions);
   }
 }

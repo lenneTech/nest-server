@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { SortOrderEnum } from '../src';
 import envConfig from '../src/config.env';
+import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
@@ -174,7 +174,6 @@ describe('Project (e2e)', () => {
    */
   it('getSampleUser', async () => {
     const emails = users.map((user) => user.email);
-    emails.pop();
     const args = {
       filter: {
         singleFilter: {
@@ -183,6 +182,8 @@ describe('Project (e2e)', () => {
           value: emails,
         },
       },
+      limit: 2,
+      sort: [{ field: 'email', order: SortOrderEnum.DESC }],
       samples: 1,
     };
     const res: any = await testHelper.graphQl(

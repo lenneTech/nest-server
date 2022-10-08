@@ -1,5 +1,5 @@
-import { IsOptional, Max } from 'class-validator';
 import { ArgsType, Field, Int } from '@nestjs/graphql';
+import { IsOptional } from 'class-validator';
 import { maps } from '../helpers/model.helper';
 import { CoreInput } from '../inputs/core-input.input';
 import { SortInput } from '../inputs/sort.input';
@@ -12,10 +12,8 @@ export class PaginationArgs extends CoreInput {
   @Field((type) => Int, {
     description: 'Limit specifies the maximum number of elements found that are to be returned',
     nullable: true,
-    defaultValue: 25,
   })
   @IsOptional()
-  @Max(100)
   limit?: number = undefined;
 
   /**
@@ -24,7 +22,6 @@ export class PaginationArgs extends CoreInput {
   @Field((type) => Int, {
     description: 'Alias for skip',
     nullable: true,
-    defaultValue: 0,
   })
   @IsOptional()
   offset?: number = undefined;
@@ -35,7 +32,6 @@ export class PaginationArgs extends CoreInput {
   @Field((type) => Int, {
     description: 'Skip specifies how many found elements should be skipped on return',
     nullable: true,
-    defaultValue: undefined,
   })
   @IsOptional()
   skip?: number = undefined;
@@ -56,27 +52,13 @@ export class PaginationArgs extends CoreInput {
   @Field((type) => Int, {
     description: 'Alias for limit',
     nullable: true,
-    defaultValue: 25,
   })
   @IsOptional()
-  @Max(100)
   take?: number = undefined;
 
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================
-
-  /**
-   * Initialize instance with default values instead of undefined
-   */
-  init(): this {
-    super.init();
-    this.limit = this.limit === undefined ? 25 : this.limit;
-    this.offset = this.offset === undefined ? 0 : this.offset;
-    this.skip = this.skip === undefined ? 0 : this.skip;
-    this.take = this.take === undefined ? 0 : this.take;
-    return this;
-  }
 
   /**
    * Mapping for Subtypes
