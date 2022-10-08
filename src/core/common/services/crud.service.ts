@@ -197,9 +197,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
         aggregation.push({ $facet: facet });
 
         // Find and process db items
-        const dbResult = (await this.mainDbModel.aggregate(aggregation).exec())[0];
-        dbResult.totalCount = dbResult.totalCount[0].total;
-        dbResult.items = dbResult.items.map((item) => this.mainDbModel.hydrate(item));
+        const dbResult = (await this.mainDbModel.aggregate(aggregation).exec())[0] || {};
+        dbResult.totalCount = dbResult.totalCount?.[0]?.total || 0;
+        dbResult.items = dbResult.items?.map((item) => this.mainDbModel.hydrate(item)) || [];
         return dbResult;
       },
       { input: filter, outputPath: 'items', serviceOptions }
