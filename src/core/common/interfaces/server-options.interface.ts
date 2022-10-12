@@ -14,6 +14,13 @@ import { MailjetOptions } from './mailjet-options.interface';
  */
 export interface IServerOptions {
   /**
+   * Automatically detect ObjectIds in string values in FilterQueries
+   * and expand them as OR query with string and ObjectId
+   * See generateFilterQuery in Filter helper (src/core/common/helpers/filter.helper.ts)
+   */
+  automaticObjectIdFiltering?: boolean;
+
+  /**
    * Cron jobs configuration object with the name of the cron job function as key
    * and the cron expression or config as value
    */

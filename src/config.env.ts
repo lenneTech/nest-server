@@ -11,6 +11,7 @@ const config: { [env: string]: IServerOptions } = {
   // Local environment
   // ===========================================================================
   local: {
+    automaticObjectIdFiltering: true,
     cronJobs: {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
@@ -72,6 +73,7 @@ const config: { [env: string]: IServerOptions } = {
   // Development environment
   // ===========================================================================
   development: {
+    automaticObjectIdFiltering: true,
     email: {
       smtp: {
         auth: {
@@ -124,6 +126,7 @@ const config: { [env: string]: IServerOptions } = {
   // Production environment
   // ===========================================================================
   production: {
+    automaticObjectIdFiltering: true,
     email: {
       smtp: {
         auth: {
