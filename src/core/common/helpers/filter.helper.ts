@@ -5,8 +5,9 @@ import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
 import { SortOrderEnum } from '../enums/sort-order.emum';
 import { FilterInput } from '../inputs/filter.input';
 import { SortInput } from '../inputs/sort.input';
-import { getObjectIds } from './db.helper';
-import { assignPlain } from './input.helper';
+import { ConfigService } from '../services/config.service';
+import { checkStringIds, getObjectIds } from './db.helper';
+import { assignPlain, clone } from './input.helper';
 
 /**
  * Helper for filter handling
@@ -110,11 +111,20 @@ export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs
 /**
  * Generate filter query
  */
-export function generateFilterQuery<T = any>(filter?: Partial<FilterInput>): FilterQuery<T> | any {
+export function generateFilterQuery<T = any>(
+  filter?: Partial<FilterInput>,
+  options?: { automaticObjectIdFiltering?: boolean }
+): FilterQuery<T> | any {
   // Check filter
   if (!filter) {
     return undefined;
   }
+
+  // Configuration
+  const config = {
+    automaticObjectIdFiltering: ConfigService.get('automaticObjectIdFiltering'),
+    ...options,
+  };
 
   // Init result
   const result: any = {};
@@ -124,15 +134,15 @@ export function generateFilterQuery<T = any>(filter?: Partial<FilterInput>): Fil
     switch (filter.combinedFilter.logicalOperator) {
       case LogicalOperatorEnum.AND:
         return {
-          $and: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item)),
+          $and: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item, options)),
         };
       case LogicalOperatorEnum.NOR:
         return {
-          $nor: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item)),
+          $nor: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item, options)),
         };
       case LogicalOperatorEnum.OR:
         return {
-          $or: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item)),
+          $or: filter.combinedFilter.filters.map((item: FilterInput) => generateFilterQuery(item, options)),
         };
     }
   }
@@ -140,12 +150,25 @@ export function generateFilterQuery<T = any>(filter?: Partial<FilterInput>): Fil
   // Process single filter
   if (filter.singleFilter) {
     // Init variables
-    const { not, options, field, convertToObjectId } = filter.singleFilter;
+    const { not, options, field, convertToObjectId, isReference } = filter.singleFilter;
     let value = filter.singleFilter.value;
 
     // Convert value to object ID(s)
-    if (convertToObjectId) {
+    if (convertToObjectId || isReference) {
       value = getObjectIds(value);
+    }
+
+    // Check if value is a string ID and automatic ObjectID filtering is activated
+    else if (config.automaticObjectIdFiltering && checkStringIds(value)) {
+      // Set both the string filter and the ObjectID filtering in an OR construction
+      const alternativeQuery = clone(filter.singleFilter, { circles: false });
+      alternativeQuery.value = getObjectIds(value);
+      return {
+        $or: [
+          generateFilterQuery(filter.singleFilter, Object.assign({}, config, { automaticObjectIdFiltering: false })),
+          generateFilterQuery(alternativeQuery, Object.assign({}, config, { automaticObjectIdFiltering: false })),
+        ],
+      };
     }
 
     // Convert filter
