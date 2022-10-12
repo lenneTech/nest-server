@@ -1,6 +1,6 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
 import * as _ from 'lodash';
-import { Document, Model, PopulateOptions, Query, SchemaType, Types } from 'mongoose';
+import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
@@ -77,6 +77,24 @@ export function addIds(
 
   // Return result
   return result;
+}
+
+/**
+ * Checks if string is a valid ID or if the string array contains only valid IDs that can be used in mongodb ObjectId
+ */
+export function checkStringIds(ids: string | string[]): boolean {
+  if (!Array.isArray(ids)) {
+    ids = [ids];
+  }
+  try {
+    for (const id of ids) {
+      if (typeof id !== 'string' || id.length !== 24 || !Types.ObjectId.isValid(id)) {
+        return false;
+      }
+    }
+    return true;
+  } catch (e) {}
+  return false;
 }
 
 /**

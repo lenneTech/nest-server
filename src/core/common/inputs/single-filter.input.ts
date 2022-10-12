@@ -24,6 +24,15 @@ export class SingleFilterInput extends CoreInput {
   field: string = undefined;
 
   /**
+   * Process value as reference
+   */
+  @Field({
+    description: 'Process value as reference',
+    nullable: true,
+  })
+  isReference?: boolean = undefined;
+
+  /**
    * [Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)
    */
   @Field({
