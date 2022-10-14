@@ -163,11 +163,9 @@ export function generateFilterQuery<T = any>(
       // Set both the string filter and the ObjectID filtering in an OR construction
       const alternativeQuery = clone(filter.singleFilter, { circles: false });
       alternativeQuery.value = getObjectIds(value);
+      const conf = Object.assign({}, config, { automaticObjectIdFiltering: false });
       return {
-        $or: [
-          generateFilterQuery(filter.singleFilter, Object.assign({}, config, { automaticObjectIdFiltering: false })),
-          generateFilterQuery(alternativeQuery, Object.assign({}, config, { automaticObjectIdFiltering: false })),
-        ],
+        $or: [generateFilterQuery(filter, conf), generateFilterQuery({ singleFilter: alternativeQuery }, conf)],
       };
     }
 
