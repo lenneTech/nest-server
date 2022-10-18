@@ -347,7 +347,7 @@ export function combinePlain(...args: Record<any, any>[]): any {
  * Get deep frozen object
  */
 export function deepFreeze(object: any) {
-  if (typeof object !== 'object') {
+  if (!object || typeof object !== 'object') {
     return object;
   }
   for (const [key, value] of Object.entries(object)) {

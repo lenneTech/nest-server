@@ -44,6 +44,9 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'local',
     execAfterInit: 'npm run docs:bootstrap',
+    filter: {
+      maxLimit: null,
+    },
     graphQl: {
       driver: {
         debug: true,
@@ -97,6 +100,9 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'development',
     execAfterInit: 'npm run docs:bootstrap',
+    filter: {
+      maxLimit: null,
+    },
     graphQl: {
       driver: {
         debug: true,
@@ -150,6 +156,9 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'productive',
     execAfterInit: 'npm run docs:bootstrap',
+    filter: {
+      maxLimit: null,
+    },
     graphQl: {
       driver: {
         debug: false,
