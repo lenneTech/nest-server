@@ -79,6 +79,16 @@ export interface IServerOptions {
   execAfterInit?: string;
 
   /**
+   * Filter configuration and defaults
+   */
+  filter?: {
+    /**
+     * Maximum limit for the number of results
+     */
+    maxLimit?: number;
+  };
+
+  /**
    * Configuration of the GraphQL module
    * see https://docs.nestjs.com/graphql/quick-start
    * and https://www.apollographql.com/docs/apollo-server/api/apollo-server/

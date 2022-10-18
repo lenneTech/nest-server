@@ -226,7 +226,7 @@ export function generateFindOptions<T = any>(
 
   // Config
   const config = {
-    maxLimit: 100,
+    maxLimit: ConfigService.get('filter.maxLimit'),
     ...options,
   };
 
@@ -243,8 +243,8 @@ export function generateFindOptions<T = any>(
   }
 
   // Check limit
-  if (!queryOptions.limit || queryOptions.limit > config.maxLimit) {
-    queryOptions.limit = 25;
+  if (config.maxLimit && (!queryOptions.limit || queryOptions.limit > config.maxLimit)) {
+    queryOptions.limit = config.maxLimit;
   }
 
   // Prepare order
