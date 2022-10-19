@@ -1,3 +1,4 @@
+import { CollationOptions } from 'mongodb';
 import { Model, PopulateOptions } from 'mongoose';
 import { FieldSelection } from '../types/field-selection.type';
 import { PrepareInputOptions } from './prepare-input-options.interface';
@@ -14,6 +15,10 @@ export interface ServiceOptions {
   // If falsy: input data will not be checked
   // If truly (default): input data will be checked
   checkRights?: boolean;
+
+  // Collation for mongodb
+  // See https://www.mongodb.com/docs/manual/reference/collation/
+  collation?: CollationOptions;
 
   // Current user to set ownership, check rights and other things
   currentUser?: {
