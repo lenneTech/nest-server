@@ -7,6 +7,7 @@ import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { assignPlain } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
+import { ConfigService } from './config.service';
 import { ModuleService } from './module.service';
 
 export abstract class CrudService<T extends CoreModel = any> extends ModuleService<T> {
@@ -100,7 +101,12 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
         }
 
         // Find in DB
-        return this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions).exec();
+        let find = this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions);
+        const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
+        if (collation) {
+          find = find.collation(collation);
+        }
+        return find.exec();
       },
       { input: filter, serviceOptions }
     );
@@ -197,7 +203,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
         aggregation.push({ $facet: facet });
 
         // Find and process db items
-        const dbResult = (await this.mainDbModel.aggregate(aggregation).exec())[0] || {};
+        const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
+        const dbResult =
+          (await this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}).exec())[0] || {};
         dbResult.totalCount = dbResult.totalCount?.[0]?.total || 0;
         dbResult.items = dbResult.items?.map((item) => this.mainDbModel.hydrate(item)) || [];
         return dbResult;

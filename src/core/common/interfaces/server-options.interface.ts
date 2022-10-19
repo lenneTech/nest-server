@@ -4,6 +4,7 @@ import { JwtModuleOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
+import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
@@ -156,7 +157,19 @@ export interface IServerOptions {
   /**
    * Configuration for Mongoose
    */
-  mongoose?: { uri: string; options?: MongooseModuleOptions };
+  mongoose?: {
+    collation?: CollationOptions;
+
+    /**
+     * Mongoose connection string
+     */
+    uri: string;
+
+    /**
+     * Mongoose module options
+     */
+    options?: MongooseModuleOptions;
+  };
 
   /**
    * Port number of the server
