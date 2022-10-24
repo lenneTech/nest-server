@@ -98,22 +98,25 @@ export abstract class CoreUserService<
   /**
    * Verify user with token
    */
-  async verify(token: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+  async verify(token: string, serviceOptions?: ServiceOptions): Promise<TUser | string> {
     // Get user
     const dbObject = await this.mainDbModel.findOne({ verificationToken: token }).exec();
     if (!dbObject) {
       throw new NotFoundException(`No user found with verify token: ${token}`);
     }
+
     if (!dbObject.verificationToken) {
       throw new Error('User has no token');
     }
+
     if (dbObject.verified) {
-      throw new Error('User already verified');
+      return 'User already verified';
     }
+
     return this.process(
       async () => {
         // Update and return user
-        return await assignPlain(dbObject, { verified: true, verificationToken: null }).save();
+        return await assignPlain(dbObject, { verified: true, verifiedAt: new Date() }).save();
       },
       { dbObject, serviceOptions }
     );
