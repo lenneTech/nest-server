@@ -84,6 +84,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @Prop({ type: Boolean })
   verified: boolean = undefined;
 
+  /**
+   * Verification date
+   */
+  @Field({ description: 'Verified date', nullable: true })
+  @Prop()
+  verifiedAt: Date = undefined;
+
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================
