@@ -626,3 +626,35 @@ export function instanceofArray(arr: any[], strict = false): string {
   }
   return constructor;
 }
+
+/**
+ * Process data via function deep
+ * @param data
+ * @param func
+ * @param processedObjects
+ */
+export function processDeep(data: any, func: (data: any) => any, processedObjects = new WeakMap()): any {
+  // Prevent circular processing
+  if (typeof data === 'object') {
+    if (processedObjects.get(data)) {
+      return data;
+    }
+    processedObjects.set(data, true);
+  }
+
+  // Process array
+  if (Array.isArray(data)) {
+    return data.map((item) => processDeep(item, func));
+  }
+
+  // Process object
+  if (typeof data === 'object') {
+    for (const [key, value] of Object.entries(data)) {
+      data[key] = processDeep(value, func, processedObjects);
+    }
+    return data;
+  }
+
+  // Process others
+  return func(data);
+}
