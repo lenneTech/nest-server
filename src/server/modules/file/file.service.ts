@@ -9,6 +9,15 @@ import { CoreFileService } from '../../../core/modules/file/core-file.service';
 @Injectable()
 export class FileService extends CoreFileService {
   constructor(@InjectConnection() protected readonly connection: Connection) {
-    super(connection, 'fs');
+    super(connection);
+  }
+
+  /**
+   * Duplicate file by name
+   */
+  async duplicate(fileName: string, newName: string): Promise<any> {
+    return new Promise(async (resolve, reject) => {
+      resolve(this.files.openDownloadStreamByName(fileName).pipe(this.files.openUploadStream(newName)));
+    });
   }
 }
