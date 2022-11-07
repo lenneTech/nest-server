@@ -4,12 +4,13 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
-import { RoleEnum, TestGraphQLType, TestHelper } from '../dist';
-import { FileInfo } from '../src/server/modules/file/file-info.model';
 import envConfig from '../src/config.env';
+import { RoleEnum } from '../src/core/common/enums/role.enum';
+import { FileInfo } from '../src/server/modules/file/file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
+import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('Project (e2e)', () => {
   let app;
