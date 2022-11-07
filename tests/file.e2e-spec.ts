@@ -4,9 +4,9 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
-import { FileInfo } from '../src/server/modules/file/file-info.model';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
+import { FileInfo } from '../src/server/modules/file/file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
@@ -133,12 +133,12 @@ describe('Project (e2e)', () => {
   });
 
   // ===================================================================================================================
-  // Tests
+  // Tests for file handling via GraphQL
   // ===================================================================================================================
 
-  it('uploadFile', async () => {
+  it('uploadFileViaGraphQL', async () => {
     const filename = Math.random().toString(36).substring(7) + '.txt';
-    fileContent = 'Hello World';
+    fileContent = 'Hello GraphQL';
 
     // Set paths
     const local = path.join(__dirname, filename);
@@ -163,7 +163,7 @@ describe('Project (e2e)', () => {
     await fs.promises.unlink(local);
   });
 
-  it('getFileInfo', async () => {
+  it('getFileInfoForGraphQLFile', async () => {
     const res: any = await testHelper.graphQl(
       {
         name: 'getFileInfo',
@@ -177,13 +177,13 @@ describe('Project (e2e)', () => {
     expect(res.filename).toEqual(fileInfo.filename);
   });
 
-  it('downloadFile', async () => {
-    const res = await testHelper.download('/files/' + fileInfo.filename, users[0].token);
+  it('downloadGraphQLFile', async () => {
+    const res = await testHelper.download('/files/' + fileInfo.id, users[0].token);
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
-  it('deleteFile', async () => {
+  it('deleteGraphQLFile', async () => {
     const res: any = await testHelper.graphQl(
       {
         name: 'deleteFile',
@@ -196,7 +196,7 @@ describe('Project (e2e)', () => {
     expect(res.id).toEqual(fileInfo.id);
   });
 
-  it('getFileInfo', async () => {
+  it('getGraphQLFileInfo', async () => {
     const res: any = await testHelper.graphQl(
       {
         name: 'getFileInfo',
@@ -209,7 +209,7 @@ describe('Project (e2e)', () => {
     expect(res).toEqual(null);
   });
 
-  it('uploadFiles', async () => {
+  it('uploadFilesViaGraphQL', async () => {
     // Set paths
     const local1 = path.join(__dirname, 'test1.txt');
     const local2 = path.join(__dirname, 'test2.txt');
@@ -217,8 +217,8 @@ describe('Project (e2e)', () => {
     const remote2 = path.join(__dirname, '..', 'uploads', 'test2.txt');
 
     // Write and send file
-    await fs.promises.writeFile(local1, 'Hello World 1');
-    await fs.promises.writeFile(local2, 'Hello World 2');
+    await fs.promises.writeFile(local1, 'Hello GraphQL 1');
+    await fs.promises.writeFile(local2, 'Hello GraphQL 2');
     const res: any = await testHelper.graphQl(
       {
         name: 'uploadFiles',
@@ -241,6 +241,54 @@ describe('Project (e2e)', () => {
     await fs.promises.unlink(local2);
     await fs.promises.unlink(remote1);
     await fs.promises.unlink(remote2);
+  });
+
+  // ===================================================================================================================
+  // Tests for file handling via REST
+  // ===================================================================================================================
+
+  it('uploadFileViaREST', async () => {
+    const filename = Math.random().toString(36).substring(7) + '.txt';
+    fileContent = 'Hello REST';
+
+    // Set paths
+    const local = path.join(__dirname, filename);
+
+    // Write and send file
+    await fs.promises.writeFile(local, fileContent);
+    const res = await testHelper.rest('/files/upload', {
+      statusCode: 201,
+      token: users[0].token,
+      attachments: { file: local },
+    });
+    expect(res.id.length).toBeGreaterThan(0);
+    expect(res.filename).toEqual(filename);
+    fileInfo = res;
+
+    // Remove files
+    await fs.promises.unlink(local);
+  });
+
+  it('getFileInfoForRESTFile', async () => {
+    const res = await testHelper.rest('/files/info/' + fileInfo.id, { token: users[0].token });
+    expect(res.id).toEqual(fileInfo.id);
+    expect(res.filename).toEqual(fileInfo.filename);
+  });
+
+  it('downloadGraphQLFile', async () => {
+    const res = await testHelper.download('/files/' + fileInfo.id, users[0].token);
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('deleteGraphQLFile', async () => {
+    const res = await testHelper.rest('/files/' + fileInfo.id, { method: 'DELETE', token: users[0].token });
+    expect(res.id).toEqual(fileInfo.id);
+  });
+
+  it('getGraphQLFileInfo', async () => {
+    const res = await testHelper.rest('/files/info/' + fileInfo.id, { log: true, token: users[0].token });
+    expect(res).toEqual(null);
   });
 
   // ===================================================================================================================

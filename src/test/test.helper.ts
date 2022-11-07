@@ -125,12 +125,13 @@ export interface TestGraphQLOptions {
  * Options for rest requests
  */
 export interface TestRestOptions {
+  attachments?: Record<string, string>;
   log?: boolean;
   logError?: boolean;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  payload?: any;
   statusCode?: number;
   token?: string;
-  payload?: any;
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 }
 
 /**
@@ -311,12 +312,12 @@ export class TestHelper {
       log: false,
       logError: false,
       payload: null,
-      method: 'GET',
+      method: options?.attachments ? 'POST' : 'GET',
       ...options,
     };
 
     // Init vars
-    const { token, statusCode, log, logError } = config;
+    const { token, statusCode, log, logError, attachments } = config;
 
     // Request configuration
     const requestConfig: LightMyRequest.InjectOptions = {
@@ -328,8 +329,11 @@ export class TestHelper {
     }
 
     // Process response
-    const response = await this.getResponse(token, requestConfig, statusCode, log, logError);
+    const response = await this.getResponse(token, requestConfig, statusCode, log, logError, null, attachments);
     let result = response.text;
+    if (response.text === '') {
+      return null;
+    }
     try {
       result = JSON.parse(response.text);
     } catch (e) {
@@ -427,7 +431,8 @@ export class TestHelper {
     statusCode: number,
     log: boolean,
     logError: boolean,
-    variables?: Record<string, TestGraphQLVariable>
+    variables?: Record<string, TestGraphQLVariable>,
+    attachments?: Record<string, string>
   ): Promise<any> {
     // Token
     if (token) {
@@ -461,16 +466,23 @@ export class TestHelper {
       request.set('Authorization', 'bearer ' + token);
     }
 
-    // Process variables
+    // Process variables (incl. attachments for GraphQL)
     if (variables) {
       request = this.processVariables(request, variables, (requestConfig.payload as any)?.query);
+    }
+
+    // Process REST attachments
+    if (attachments) {
+      for (const [key, value] of Object.entries(attachments)) {
+        request.attach(key, value);
+      }
     }
 
     // Response
     if (log) {
       console.info(requestConfig);
     }
-    const response = await (variables ? request : request.send(requestConfig.payload));
+    const response = await (variables || attachments ? request : request.send(requestConfig.payload));
     return this.processResponse(response, statusCode, log, logError);
   }
 
