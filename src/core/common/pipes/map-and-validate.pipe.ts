@@ -24,7 +24,7 @@ export class MapAndValidatePipe implements PipeTransform {
     // Validate
     const errors = await validate(value);
     if (errors.length > 0) {
-      throw new BadRequestException('Input validation failed');
+      throw new BadRequestException('Input validation failed:' + errors.join('; '));
     }
 
     return value;

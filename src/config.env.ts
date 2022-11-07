@@ -24,11 +24,11 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'cade72@ethereal.email',
-          pass: 'jpvTwGYeSajEqDvRKT',
+          user: 'oren.satterfield@ethereal.email',
+          pass: 'K4DvD8U31VKseT7vQC',
         },
-        host: 'smtp.ethereal.email',
-        port: 587,
+        host: 'mailhog.lenne.tech',
+        port: 1025,
         secure: false,
       },
       mailjet: {
@@ -36,8 +36,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'cade72@ethereal.email',
-        name: 'Sandra Klein',
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Local',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
@@ -83,11 +83,11 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'cade72@ethereal.email',
-          pass: 'jpvTwGYeSajEqDvRKT',
+          user: 'oren.satterfield@ethereal.email',
+          pass: 'K4DvD8U31VKseT7vQC',
         },
-        host: 'smtp.ethereal.email',
-        port: 587,
+        host: 'mailhog.lenne.tech',
+        port: 1025,
         secure: false,
       },
       mailjet: {
@@ -95,8 +95,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'cade72@ethereal.email',
-        name: 'Sandra Klein',
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Development',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
@@ -142,11 +142,11 @@ const config: { [env: string]: IServerOptions } = {
     email: {
       smtp: {
         auth: {
-          user: 'cade72@ethereal.email',
-          pass: 'jpvTwGYeSajEqDvRKT',
+          user: 'oren.satterfield@ethereal.email',
+          pass: 'K4DvD8U31VKseT7vQC',
         },
-        host: 'smtp.ethereal.email',
-        port: 587,
+        host: 'mailhog.lenne.tech',
+        port: 1025,
         secure: false,
       },
       mailjet: {
@@ -154,8 +154,8 @@ const config: { [env: string]: IServerOptions } = {
         api_key_private: 'MAILJET_API_KEY_PRIVATE',
       },
       defaultSender: {
-        email: 'cade72@ethereal.email',
-        name: 'Sandra Klein',
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Production',
       },
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
