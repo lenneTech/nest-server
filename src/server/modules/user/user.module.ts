@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
-import { JSON } from '../../../core/common/scalars/json.scalar';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { AvatarController } from './avatar.controller';
 import { User, UserSchema } from './user.model';
@@ -15,7 +14,6 @@ import { UserService } from './user.service';
   imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }])],
   controllers: [AvatarController],
   providers: [
-    JSON,
     UserResolver,
     ConfigService,
     UserService,

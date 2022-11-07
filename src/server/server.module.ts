@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import envConfig from '../config.env';
 import { CoreModule } from '../core.module';
+import { Any } from '../core/common/scalars/any.scalar';
+import { DateScalar } from '../core/common/scalars/date.scalar';
+import { JSON } from '../core/common/scalars/json.scalar';
 import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 import { CronJobs } from './common/services/cron-jobs.service';
 import { AuthModule } from './modules/auth/auth.module';
@@ -31,7 +34,7 @@ import { ServerController } from './server.controller';
     FileModule,
   ],
 
-  providers: [CronJobs],
+  providers: [Any, CronJobs, DateScalar, JSON],
 
   // Include REST controllers
   controllers: [ServerController],
