@@ -30,7 +30,7 @@
     "start": "npm run start:local",
     "stop": "./node_modules/.bin/pm2 delete nest",
     "start:pm2": "./node_modules/.bin/grunt",
-    "start:prod": "./node_modules/.bin/grunt productive",
+    "start:prod": "./node_modules/.bin/grunt production",
     "start:nodemon": "ts-node -r tsconfig-paths/register src/main.ts",
     "start:debug": "nodemon --config nodemon-debug.json",
     "start:dev": "nodemon",
