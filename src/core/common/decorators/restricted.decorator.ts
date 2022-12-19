@@ -44,6 +44,9 @@ export const Restricted = (...rolesOrMember: RestrictedType): ClassDecorator & P
  * Get restricted data for (property of) object
  */
 export const getRestricted = (object: unknown, propertyKey?: string): RestrictedType => {
+  if (!object) {
+    return null;
+  }
   if (!propertyKey) {
     return Reflect.getMetadata(restrictedMetaKey, object);
   }
