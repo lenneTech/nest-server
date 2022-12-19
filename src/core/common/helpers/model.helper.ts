@@ -9,9 +9,6 @@ import { clone } from './input.helper';
 export class ModelHelper {
   /**
    * Remove all properties from source which are not in target
-   * @param source
-   * @param target
-   * @param options
    */
   public static prepareMap<T = Record<string, any>>(
     source: Partial<T> | Record<string, any>,
@@ -54,9 +51,6 @@ export class ModelHelper {
 
 /**
  * Remove all properties from source which are not in target
- * @param source
- * @param target
- * @param options
  */
 export function prepareMap<T = Record<string, any>>(
   source: Partial<T> | Record<string, any>,
@@ -176,7 +170,7 @@ export function mapClasses<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
 ): T {
   // Check params
   if (!target) {
@@ -189,6 +183,7 @@ export function mapClasses<T = Record<string, any>>(
   // Get config
   const config = {
     objectIdsToString: true,
+    removeUndefinedProperties: false,
     ...options,
   };
 
@@ -238,7 +233,7 @@ export function mapClasses<T = Record<string, any>>(
       }
 
       // Others
-      else {
+      else if (!config.removeUndefinedProperties || value !== undefined) {
         target[prop] = value;
       }
     }
@@ -259,7 +254,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
 ): Promise<T> {
   // Check params
   if (!target) {
@@ -272,6 +267,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
   // Get config
   const config = {
     objectIdsToString: true,
+    removeUndefinedProperties: false,
     ...options,
   };
 
@@ -321,11 +317,45 @@ export async function mapClassesAsync<T = Record<string, any>>(
       }
 
       // Others
-      else {
+      else if (!config.removeUndefinedProperties || value !== undefined) {
         target[prop] = value;
       }
     }
   }
 
   return target;
+}
+
+/**
+ * Same as mapClasses but with option removeUndefinedProperties = true as default
+ */
+export function mapInputClasses<T = Record<string, any>>(
+  input: Record<string, any>,
+  mapping: Record<string, new (...args: any[]) => any>,
+  target?: T,
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+) {
+  // Get config
+  const config = {
+    removeUndefinedProperties: true,
+    ...options,
+  };
+  return mapClasses(input, mapping, target, options);
+}
+
+/**
+ * Same as mapClassesAsync but with option removeUndefinedProperties = true as default
+ */
+export function mapInputClassesAsync<T = Record<string, any>>(
+  input: Record<string, any>,
+  mapping: Record<string, new (...args: any[]) => any>,
+  target?: T,
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+) {
+  // Get config
+  const config = {
+    removeUndefinedProperties: true,
+    ...options,
+  };
+  return mapClassesAsync(input, mapping, target, options);
 }

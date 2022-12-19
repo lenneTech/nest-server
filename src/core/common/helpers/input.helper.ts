@@ -7,6 +7,7 @@ import * as rfdc from 'rfdc';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
+import { merge } from './config.helper';
 import { equalIds } from './db.helper';
 
 /**
@@ -535,6 +536,24 @@ export function isTrue(parameter: any, falseFunction: (...params) => any = error
  */
 export function isString(parameter: string, falseFunction: (...params) => any = errorFunction): boolean {
   return typeof parameter === 'string' ? true : falseFunction(isString);
+}
+
+/**
+ * Merge plain objects deep into target object and ignores undefined
+ */
+export function mergePlain(target: Record<any, any>, ...args: Record<any, any>[]): any {
+  return merge(
+    target,
+    ...args.map(
+      // Prepare records
+      (item) =>
+        !item
+          ? // Return item if not an object
+            item
+          : // Return cloned record with undefined properties removed
+            filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined)
+    )
+  );
 }
 
 /**
