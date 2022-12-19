@@ -4,7 +4,7 @@ import { FilterArgs } from '../args/filter.args';
 import { merge } from '../helpers/config.helper';
 import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
-import { assignPlain } from '../helpers/input.helper';
+import { mergePlain } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { ConfigService } from './config.service';
@@ -388,7 +388,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
-        return await assignPlain(dbObject, data.input, { updatedBy: currentUserId }).save();
+        return await mergePlain(dbObject, data.input, { updatedBy: currentUserId }).save();
       },
       { dbObject, input, serviceOptions }
     );

@@ -75,7 +75,7 @@ module.exports = function (grunt) {
     'bgShell:pm2',
     'watch',
   ]);
-  grunt.registerTask('productive', [
+  grunt.registerTask('production', [
     'clean:buildFolder',
     'bgShell:tsc',
     'sync',

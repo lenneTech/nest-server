@@ -160,7 +160,7 @@ const config: { [env: string]: IServerOptions } = {
       verificationLink: 'http://localhost:4200/user/verification',
       passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
-    env: 'productive',
+    env: 'production',
     execAfterInit: 'npm run docs:bootstrap',
     filter: {
       maxLimit: null,
