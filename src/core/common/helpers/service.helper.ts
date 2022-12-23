@@ -10,7 +10,8 @@ import { PrepareOutputOptions } from '../interfaces/prepare-output-options.inter
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { ConfigService } from '../services/config.service';
-import { clone } from './input.helper';
+import { getStringIds } from './db.helper';
+import { clone, processDeep } from './input.helper';
 
 /**
  * Helper class for services
@@ -66,6 +67,7 @@ export async function prepareInput<T = any>(
     [key: string]: any;
     checkRoles?: boolean;
     circles?: boolean;
+    convertObjectIdsToString?: boolean;
     create?: boolean;
     clone?: boolean;
     getNewArray?: boolean;
@@ -80,6 +82,7 @@ export async function prepareInput<T = any>(
     checkRoles: false,
     clone: false,
     circles: false,
+    convertObjectIdsToString: true,
     create: false,
     getNewArray: false,
     proto: false,
@@ -112,6 +115,20 @@ export async function prepareInput<T = any>(
     } else {
       input = clone(input, { circles: config.circles, proto: config.proto });
     }
+  }
+
+  // Convert ObjectIds to string
+  if (config.convertObjectIdsToString) {
+    input = processDeep(
+      input,
+      (property) => {
+        if (property instanceof Types.ObjectId) {
+          property = getStringIds(property);
+        }
+        return property;
+      },
+      { specialClasses: ['ObjectId'] }
+    );
   }
 
   // Map input if target model exist

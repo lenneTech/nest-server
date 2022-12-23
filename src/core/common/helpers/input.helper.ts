@@ -648,11 +648,22 @@ export function instanceofArray(arr: any[], strict = false): string {
 
 /**
  * Process data via function deep
- * @param data
- * @param func
- * @param processedObjects
  */
-export function processDeep(data: any, func: (data: any) => any, processedObjects = new WeakMap()): any {
+export function processDeep(
+  data: any,
+  func: (data: any) => any,
+  options?: {
+    processedObjects?: WeakMap<new () => any, boolean>;
+    specialClasses?: ((new (args: any[]) => any) | string)[];
+  }
+): any {
+  // Set options
+  const { processedObjects, specialClasses } = {
+    processedObjects: new WeakMap(),
+    specialClasses: [],
+    ...options,
+  };
+
   // Prevent circular processing
   if (typeof data === 'object') {
     if (processedObjects.get(data)) {
@@ -663,13 +674,21 @@ export function processDeep(data: any, func: (data: any) => any, processedObject
 
   // Process array
   if (Array.isArray(data)) {
-    return data.map((item) => processDeep(item, func));
+    return data.map((item) => processDeep(item, func, { processedObjects, specialClasses }));
   }
 
   // Process object
   if (typeof data === 'object') {
+    for (const specialClass of specialClasses) {
+      if (
+        (typeof specialClass === 'string' && specialClass === data.constructor.name) ||
+        (typeof specialClass !== 'string' && data instanceof specialClass)
+      ) {
+        return func(data);
+      }
+    }
     for (const [key, value] of Object.entries(data)) {
-      data[key] = processDeep(value, func, processedObjects);
+      data[key] = processDeep(value, func, { processedObjects, specialClasses });
     }
     return data;
   }
