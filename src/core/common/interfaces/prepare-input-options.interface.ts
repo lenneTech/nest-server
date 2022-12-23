@@ -4,6 +4,7 @@
 export interface PrepareInputOptions {
   [key: string]: any;
   checkRoles?: boolean;
+  convertObjectIdsToString?: boolean;
   create?: boolean;
   clone?: boolean;
   getNewArray?: boolean;

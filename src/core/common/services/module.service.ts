@@ -111,7 +111,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.inputType) {
         opts.targetModel = config.inputType;
       }
-      config.input = await this.prepareInput(config.input, opts);
+      config.input = await this.prepareInput(config.input, config);
     }
 
     // Get DB object
@@ -156,7 +156,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (config.outputPath) {
         _.set(result, config.outputPath, await this.prepareOutput(_.get(result, config.outputPath), opts));
       } else {
-        result = await this.prepareOutput(result, opts);
+        result = await this.prepareOutput(result, config);
       }
     }
 
