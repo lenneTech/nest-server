@@ -222,6 +222,7 @@ export async function check(
     throwError: true,
     ...options,
     validatorOptions: {
+      forbidUnknownValues: false,
       skipUndefinedProperties: true,
       ...options?.validatorOptions,
     },

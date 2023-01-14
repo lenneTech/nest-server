@@ -22,7 +22,7 @@ export class MapAndValidatePipe implements PipeTransform {
     }
 
     // Validate
-    const errors = await validate(value);
+    const errors = await validate(value, { forbidUnknownValues: false });
     if (errors.length > 0) {
       throw new BadRequestException('Input validation failed:' + errors.join('; '));
     }
