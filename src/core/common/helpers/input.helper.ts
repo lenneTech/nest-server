@@ -664,8 +664,13 @@ export function processDeep(
     ...options,
   };
 
+  // Check for falsifiable values
+  if (!data) {
+    return func(data);
+  }
+
   // Prevent circular processing
-  if (typeof data === 'object') {
+  else if (typeof data === 'object') {
     if (processedObjects.get(data)) {
       return data;
     }
