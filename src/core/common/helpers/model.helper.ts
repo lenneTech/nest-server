@@ -164,6 +164,7 @@ export function maps<T = Record<string, any>>(
  * @param input - The input object to map
  * @param mapping - A mapping of property names to classes
  * @param [target] - The object to map the input to. If not provided, a new object will be created
+ * @param [options] - Additional settings for processing
  * @returns Record with mapped objects
  */
 export function mapClasses<T = Record<string, any>>(
@@ -193,8 +194,14 @@ export function mapClasses<T = Record<string, any>>(
       const targetClass = mapTarget as any;
       const value = input[prop];
 
+      // Do not process null (undefined is removed at the end)
+      if (value === null) {
+        target[prop] = null;
+        continue;
+      }
+
       // Process array
-      if (Array.isArray(value)) {
+      else if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
           if (item instanceof targetClass) {
@@ -248,6 +255,7 @@ export function mapClasses<T = Record<string, any>>(
  * @param input - The input object to map
  * @param mapping - A mapping of property names to classes
  * @param [target] - The object to map the input to. If not provided, a new object will be created
+ * @param [options] - Additional settings for processing
  * @returns Record with mapped objects
  */
 export async function mapClassesAsync<T = Record<string, any>>(
@@ -277,8 +285,14 @@ export async function mapClassesAsync<T = Record<string, any>>(
       const targetClass = mapTarget as any;
       const value = input[prop];
 
+      // Do not process zero (undefined is removed at the end)
+      if (value === null) {
+        target[prop] = null;
+        continue;
+      }
+
       // Process array
-      if (Array.isArray(value)) {
+      else if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
           if (item instanceof targetClass) {
