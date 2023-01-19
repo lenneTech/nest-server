@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { template } from 'lodash';
 import { ConfigService } from './config.service';
 // eslint-disable-next-line
 const Mailjet = require('node-mailjet');
@@ -81,7 +82,27 @@ export class MailjetService {
         apiSecret: this.configService.getFastButReadOnly('email.mailjet.api_key_private'),
       });
     } catch (e) {
-      throw new Error('Cannot connect to mailjet.');
+      if (
+        this.configService.getFastButReadOnly('email.mailjet.api_key_public') &&
+        this.configService.getFastButReadOnly('email.mailjet.api_key_private')
+      ) {
+        throw new Error('Cannot connect to mailjet.');
+      }
+      console.debug(
+        JSON.stringify(
+          {
+            info: 'Mailjet credentials are missing',
+            'email.mailjet.api_key_public':
+              this.configService.getFastButReadOnly('email.mailjet.api_key_public') || 'missing',
+            'email.mailjet.api_key_private':
+              this.configService.getFastButReadOnly('email.mailjet.api_key_private') || 'missing',
+            templateData: templateData,
+          },
+          null,
+          2
+        )
+      );
+      return;
     }
 
     // Send mail with mailjet

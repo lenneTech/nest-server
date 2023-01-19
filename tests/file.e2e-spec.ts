@@ -171,7 +171,7 @@ describe('Project (e2e)', () => {
         arguments: { filename: fileInfo.filename },
         fields: ['id', 'filename'],
       },
-      { token: users[0].token, logError: true }
+      { token: users[0].token }
     );
     expect(res.id).toEqual(fileInfo.id);
     expect(res.filename).toEqual(fileInfo.filename);
@@ -287,7 +287,7 @@ describe('Project (e2e)', () => {
   });
 
   it('getGraphQLFileInfo', async () => {
-    const res = await testHelper.rest('/files/info/' + fileInfo.id, { log: true, token: users[0].token });
+    const res = await testHelper.rest('/files/info/' + fileInfo.id, { token: users[0].token });
     expect(res).toEqual(null);
   });
 

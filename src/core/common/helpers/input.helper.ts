@@ -324,12 +324,12 @@ export function clone(object: any, options?: { proto?: boolean; circles?: boolea
   try {
     return rfdc(config)(object);
   } catch (e) {
-    console.debug(e);
+    console.debug(e, config, object, 'automatic try to use rfdc with circles');
     if (!config.circles) {
       try {
         return rfdc({ ...config, ...{ circles: true } })(object);
       } catch (e) {
-        console.debug(e);
+        console.debug(e, 'rfcd with circles did not work automatic use of _.clone!');
         return _.clone(object);
       }
     } else {
