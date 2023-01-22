@@ -23,7 +23,7 @@ export class RolesGuard extends AuthGuard('jwt') {
   /**
    * Handle request
    */
-  handleRequest(err, user, info, context) {
+  override handleRequest(err, user, info, context) {
     // Get roles
     const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles: string[] = reflectorRoles[0]

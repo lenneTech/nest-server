@@ -15,7 +15,7 @@ export abstract class CoreInput extends CoreModel {
   /**
    * Map method
    */
-  public map(
+  public override map(
     data: Partial<this> | Record<string, any>,
     options: {
       cloneDeep?: boolean;

@@ -12,7 +12,7 @@ export class CronJobs extends CoreCronJobs {
   /**
    * Init cron jobs
    */
-  constructor(protected schedulerRegistry: SchedulerRegistry, protected configService: ConfigService) {
+  constructor(protected override schedulerRegistry: SchedulerRegistry, protected configService: ConfigService) {
     super(schedulerRegistry, configService.config.cronJobs, { log: true });
   }
 

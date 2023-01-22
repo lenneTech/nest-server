@@ -54,7 +54,7 @@ export class User extends CoreUserModel implements PersistenceModel {
   /**
    * Initialize instance with default values instead of undefined
    */
-  init() {
+  override init() {
     super.init();
     // Nothing more to initialize yet
     return this;
@@ -63,7 +63,7 @@ export class User extends CoreUserModel implements PersistenceModel {
   /**
    * Map input
    */
-  map(input) {
+  override map(input) {
     super.map(input);
     // There is nothing to map yet. Non-primitive variables should always be mapped.
     // If something comes up, you can use `mapClasses` / `mapClassesAsync` from ModelHelper.
