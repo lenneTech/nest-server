@@ -124,7 +124,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Initialize instance with default values instead of undefined
    */
-  public init() {
+  public override init() {
     super.init();
     this.roles = this.roles === undefined ? [] : this.roles;
     return this;
@@ -133,7 +133,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Map input
    */
-  map(input) {
+  override map(input) {
     super.map(input);
     // There is nothing to map yet. Non-primitive variables should always be mapped.
     // If something comes up, you can use `mapClasses` / `mapClassesAsync` from ModelHelper.

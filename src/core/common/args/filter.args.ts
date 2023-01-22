@@ -32,7 +32,7 @@ export class FilterArgs extends PaginationArgs {
   /**
    * Mapping for Subtypes
    */
-  map(
+  override map(
     data: Partial<this> | Record<string, any>,
     options: {
       cloneDeep?: boolean;

@@ -25,10 +25,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Constructor for injecting services
    */
   constructor(
-    protected readonly configService: ConfigService,
-    protected readonly emailService: EmailService,
-    @Inject('USER_CLASS') protected readonly mainModelConstructor: CoreModelConstructor<User>,
-    @InjectModel('User') protected readonly mainDbModel: Model<UserDocument>,
+    protected override readonly configService: ConfigService,
+    protected override readonly emailService: EmailService,
+    @Inject('USER_CLASS') protected override readonly mainModelConstructor: CoreModelConstructor<User>,
+    @InjectModel('User') protected override readonly mainDbModel: Model<UserDocument>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
     super(emailService, mainDbModel, mainModelConstructor);
@@ -41,7 +41,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   /**
    * Create new user and send welcome email
    */
-  async create(input: UserCreateInput, serviceOptions?: ServiceOptions): Promise<User> {
+  override async create(input: UserCreateInput, serviceOptions?: ServiceOptions): Promise<User> {
     // Get prepared user
     let user = await super.create(input, serviceOptions);
 

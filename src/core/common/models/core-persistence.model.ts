@@ -83,7 +83,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Initialize instance with default values instead of undefined
    */
-  init() {
+  override init() {
     super.init();
     this.createdAt = this.createdAt === undefined ? new Date() : this.createdAt;
     this.labels = this.labels === undefined ? [] : this.labels;

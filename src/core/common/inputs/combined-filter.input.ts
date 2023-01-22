@@ -31,7 +31,7 @@ export class CombinedFilterInput extends CoreInput {
   /**
    * Mapping for Subtypes
    */
-  map(
+  override map(
     data: Partial<this> | Record<string, any>,
     options: {
       cloneDeep?: boolean;
