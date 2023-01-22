@@ -25,7 +25,7 @@ export class Auth extends CoreAuthModel {
   /**
    * Initialize instance with default values instead of undefined
    */
-  init() {
+  override init() {
     super.init();
     // Nothing more to initialize yet
     return this;
@@ -34,7 +34,7 @@ export class Auth extends CoreAuthModel {
   /**
    * Map input
    */
-  map(input) {
+  override map(input) {
     super.map(input);
     return mapClasses(input, { user: User }, this);
   }

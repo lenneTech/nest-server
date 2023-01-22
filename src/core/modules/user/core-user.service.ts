@@ -24,8 +24,8 @@ export abstract class CoreUserService<
 > extends CrudService<TUser> {
   protected constructor(
     protected readonly emailService: EmailService,
-    protected readonly mainDbModel: Model<TUser & Document>,
-    protected readonly mainModelConstructor: CoreModelConstructor<TUser>,
+    protected override readonly mainDbModel: Model<TUser & Document>,
+    protected override readonly mainModelConstructor: CoreModelConstructor<TUser>,
     protected readonly configService?: ConfigService
   ) {
     super();
@@ -38,7 +38,7 @@ export abstract class CoreUserService<
   /**
    * Create user
    */
-  async create(input: any, serviceOptions?: ServiceOptions): Promise<TUser> {
+  override async create(input: any, serviceOptions?: ServiceOptions): Promise<TUser> {
     serviceOptions = merge({ prepareInput: { create: true } }, serviceOptions);
     return this.process(
       async (data) => {
