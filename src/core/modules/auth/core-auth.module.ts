@@ -21,6 +21,8 @@ export class CoreAuthModule {
     UserModule: Type<any>,
     UserService: Type<CoreAuthUserService>,
     options: JwtModuleOptions & {
+      authService?: Type<CoreAuthService>;
+      jwtStrategy?: Type<JwtStrategy>;
       imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
       providers?: Provider[];
     }
@@ -46,10 +48,14 @@ export class CoreAuthModule {
         provide: 'PUB_SUB',
         useValue: new PubSub(),
       },
-
-      // Standard services
-      CoreAuthService,
-      JwtStrategy,
+      {
+        provide: CoreAuthService,
+        useClass: options.authService || CoreAuthService,
+      },
+      {
+        provide: JwtStrategy,
+        useClass: options.jwtStrategy || JwtStrategy,
+      },
     ];
     if (Array.isArray(options?.providers)) {
       providers = imports.concat(options.providers);
