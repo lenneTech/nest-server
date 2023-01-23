@@ -303,7 +303,7 @@ export function prepareServiceOptions(
 ): ServiceOptions {
   // Set default values
   const config = {
-    clone: true,
+    clone: false,
     circles: true,
     proto: false,
     ...options,

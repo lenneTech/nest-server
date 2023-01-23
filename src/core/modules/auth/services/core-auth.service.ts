@@ -2,7 +2,6 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
-import { merge } from '../../../common/helpers/config.helper';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
@@ -23,7 +22,8 @@ export class CoreAuthService {
     password: string,
     serviceOptions?: ServiceOptions
   ): Promise<{ token: string; user: ICoreAuthUser }> {
-    serviceOptions = merge(serviceOptions || {}, { prepareOutput: null });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareOutput = null;
 
     // Get user
     const user = await this.userService.getViaEmail(email, serviceOptions);

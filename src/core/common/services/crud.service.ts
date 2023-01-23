@@ -1,10 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
 import { FilterQuery, PipelineStage, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
-import { merge } from '../helpers/config.helper';
 import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
-import { mergePlain } from '../helpers/input.helper';
+import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { ConfigService } from './config.service';
@@ -15,7 +14,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Create item
    */
   async create(input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    serviceOptions = merge({ prepareInput: { create: true } }, serviceOptions);
+    serviceOptions = prepareServiceOptionsForCreate(serviceOptions);
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
@@ -30,7 +29,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions!
    */
   async createForce(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.create(input, serviceOptions);
   }
 
@@ -39,7 +39,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async createRaw(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.createForce(input, serviceOptions);
   }
 
@@ -59,7 +62,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions!
    */
   async getForce(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.get(id, serviceOptions);
   }
 
@@ -68,7 +72,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.getForce(id, serviceOptions);
   }
 
@@ -120,7 +127,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.find(filter, serviceOptions);
   }
 
@@ -132,7 +140,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.findForce(filter, serviceOptions);
   }
 
@@ -222,7 +233,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<{ items: T[]; totalCount: number }> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.findAndCount(filter, serviceOptions);
   }
 
@@ -234,7 +246,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<{ items: T[]; totalCount: number }> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.findAndCountForce(filter, serviceOptions);
   }
 
@@ -274,7 +289,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.findAndUpdate(filter, serviceOptions);
   }
 
@@ -286,7 +302,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.findAndUpdateForce(filter, serviceOptions);
   }
 
@@ -399,7 +418,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions!
    */
   async updateForce(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.update(id, input, serviceOptions);
   }
 
@@ -408,7 +428,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async updateRaw(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.updateForce(id, input, serviceOptions);
   }
 
@@ -434,7 +457,8 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions!
    */
   async deleteForce(id: string, serviceOptions?: ServiceOptions): Promise<T> {
-    serviceOptions = merge(serviceOptions, { force: true });
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
     return this.delete(id, serviceOptions);
   }
 
@@ -443,7 +467,10 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<T> {
-    serviceOptions = merge(serviceOptions, { prepareInput: null, prepareOutput: null });
+    if (serviceOptions) {
+      serviceOptions.prepareInput = null;
+      serviceOptions.prepareOutput = null;
+    }
     return this.deleteForce(id, serviceOptions);
   }
 }

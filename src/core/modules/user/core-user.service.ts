@@ -3,8 +3,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
-import { merge } from '../../common/helpers/config.helper';
-import { assignPlain } from '../../common/helpers/input.helper';
+import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { CrudService } from '../../common/services/crud.service';
@@ -39,7 +38,7 @@ export abstract class CoreUserService<
    * Create user
    */
   override async create(input: any, serviceOptions?: ServiceOptions): Promise<TUser> {
-    serviceOptions = merge({ prepareInput: { create: true } }, serviceOptions);
+    serviceOptions = prepareServiceOptionsForCreate(serviceOptions);
     return this.process(
       async (data) => {
         // Create user with verification token
