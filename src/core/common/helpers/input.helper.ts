@@ -687,7 +687,7 @@ export function processDeep(
   if (typeof data === 'object') {
     for (const specialClass of specialClasses) {
       if (
-        (typeof specialClass === 'string' && specialClass === data.constructor.name) ||
+        (typeof specialClass === 'string' && specialClass === data.constructor?.name) ||
         (typeof specialClass !== 'string' && data instanceof specialClass)
       ) {
         return func(data);
