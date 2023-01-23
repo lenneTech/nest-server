@@ -39,10 +39,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async createRaw(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.createForce(input, serviceOptions);
   }
 
@@ -72,10 +71,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.getForce(id, serviceOptions);
   }
 
@@ -140,10 +138,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.findForce(filter, serviceOptions);
   }
 
@@ -246,10 +243,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<{ items: T[]; totalCount: number }> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.findAndCountForce(filter, serviceOptions);
   }
 
@@ -302,10 +298,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
   ): Promise<T[]> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.findAndUpdateForce(filter, serviceOptions);
   }
 
@@ -428,10 +423,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async updateRaw(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.updateForce(id, input, serviceOptions);
   }
 
@@ -467,10 +461,9 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<T> {
-    if (serviceOptions) {
-      serviceOptions.prepareInput = null;
-      serviceOptions.prepareOutput = null;
-    }
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
     return this.deleteForce(id, serviceOptions);
   }
 }
