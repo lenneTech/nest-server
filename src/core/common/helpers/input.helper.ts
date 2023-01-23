@@ -702,3 +702,19 @@ export function processDeep(
   // Process others
   return func(data);
 }
+
+/**
+ * Helper to avoid very slow merge of serviceOptions
+ */
+export function prepareServiceOptionsForCreate(serviceOptions: any) {
+  if (!serviceOptions) {
+    serviceOptions = {};
+  }
+  if (!serviceOptions.prepareInput) {
+    serviceOptions.prepareInput = {};
+  }
+  if (serviceOptions.prepareInput.create === undefined) {
+    serviceOptions.prepareInput.create;
+  }
+  return serviceOptions;
+}
