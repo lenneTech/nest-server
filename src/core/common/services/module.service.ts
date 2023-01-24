@@ -86,6 +86,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       prepareInput: {},
       prepareOutput: {},
       pubSub: true,
+      setCreateOrUpdateUserId: true,
       ...options?.serviceOptions,
     };
 
@@ -136,6 +137,16 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // Check roles before processing the service function if they were not already checked during the input check
     else if (!config.input && config.checkRights && this.checkRights) {
       await this.checkRights(undefined, config.currentUser as any, config);
+    }
+
+    if (config.input && config.currentUser && config.setCreateOrUpdateUserId) {
+      // Set creator
+      if (config.create) {
+        (config.input as Record<string, any>).createdBy = config.currentUser.id;
+      }
+
+      // Set updater
+      (config.input as Record<string, any>).updatedBy = config.currentUser.id;
     }
 
     // Run service function

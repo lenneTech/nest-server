@@ -171,16 +171,6 @@ export async function prepareInput<T = any>(
     (input as any).password = await bcrypt.hash((input as any).password, 10);
   }
 
-  // Set creator
-  if (config.create && currentUser) {
-    (input as Record<string, any>).createdBy = currentUser.id;
-  }
-
-  // Set updater
-  if (currentUser) {
-    (input as Record<string, any>).updatedBy = currentUser.id;
-  }
-
   // Return prepared input
   return input;
 }
