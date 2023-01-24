@@ -20,6 +20,11 @@ export interface ServiceOptions {
   // See https://www.mongodb.com/docs/manual/reference/collation/
   collation?: CollationOptions;
 
+  // Create mode activated (see e.g. setCreateOrUpdateUserId)
+  // If falsy (default): create mode is deactivated
+  // If truly: create mode is activated
+  create?: boolean;
+
   // Current user to set ownership, check rights and other things
   currentUser?: {
     [key: string]: any;
@@ -62,6 +67,11 @@ export interface ServiceOptions {
 
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;
+
+  // Add updateBy and/or createBy user ID into input after check
+  // If falsy: input data will not be changed
+  // If truly (default): updatedBy and/or createdBy (when create mode is activated) will be set if current user is available
+  setCreateOrUpdateUserId?: boolean;
 
   // Roles (as string) to check
   roles?: string | string[];
