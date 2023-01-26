@@ -395,14 +395,15 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Update item via ID
    */
   async update(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
-    const dbObject = await this.mainDbModel.findById(id).exec();
+    const dbObject = await this.mainDbModel.findById(id).lean();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
-        return await mergePlain(dbObject, data.input, { updatedBy: currentUserId }).save();
+        const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
+        return await this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' }).exec();
       },
       { dbObject, input, serviceOptions }
     );
