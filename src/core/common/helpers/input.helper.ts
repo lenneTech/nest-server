@@ -718,3 +718,52 @@ export function prepareServiceOptionsForCreate(serviceOptions: any) {
   }
   return serviceOptions;
 }
+
+/**
+ * Remove properties deep
+ */
+export function removePropertiesDeep(
+  data: any,
+  properties: string[],
+  options?: {
+    processedObjects?: WeakMap<new () => any, boolean>;
+  }
+): any {
+  // Set options
+  const { processedObjects } = {
+    processedObjects: new WeakMap(),
+    ...options,
+  };
+
+  // Check for falsifiable values
+  if (!data) {
+    return data;
+  }
+
+  // Prevent circular processing
+  else if (typeof data === 'object') {
+    if (processedObjects.get(data)) {
+      return data;
+    }
+    processedObjects.set(data, true);
+  }
+
+  // Process array
+  if (Array.isArray(data)) {
+    return data.map((item) => removePropertiesDeep(item, properties, { processedObjects }));
+  }
+
+  // Process object
+  if (typeof data === 'object') {
+    for (const prop of properties) {
+      delete data[prop];
+    }
+    for (const [key, value] of Object.entries(data)) {
+      data[key] = removePropertiesDeep(value, properties, { processedObjects });
+    }
+    return data;
+  }
+
+  // Process others
+  return data;
+}

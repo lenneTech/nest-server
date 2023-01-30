@@ -22,10 +22,10 @@ export abstract class CoreUserService<
   TUserCreateInput extends CoreUserCreateInput
 > extends CrudService<TUser> {
   protected constructor(
+    protected override readonly configService: ConfigService,
     protected readonly emailService: EmailService,
     protected override readonly mainDbModel: Model<TUser & Document>,
-    protected override readonly mainModelConstructor: CoreModelConstructor<TUser>,
-    protected readonly configService?: ConfigService
+    protected override readonly mainModelConstructor: CoreModelConstructor<TUser>
   ) {
     super();
   }

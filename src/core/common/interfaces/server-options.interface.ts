@@ -112,6 +112,14 @@ export interface IServerOptions {
   };
 
   /**
+   * Ignore selections in fieldSelection
+   * [ConfigService must be integrated in ModuleService]
+   * If falsy (default): select and populate information in fieldSelection will be respected
+   * If truly: select fields will be ignored and only populate fields in fieldSelection will be respected
+   */
+  ignoreSelectionsForPopulate?: boolean;
+
+  /**
    * Configuration of JavaScript Web Token (JWT) module
    */
   jwt?: {

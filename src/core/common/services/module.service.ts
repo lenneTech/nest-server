@@ -7,11 +7,17 @@ import { prepareInput, prepareOutput } from '../helpers/service.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
+import { ConfigService } from './config.service';
 
 /**
  * Module service class to be extended by concrete module services
  */
 export abstract class ModuleService<T extends CoreModel = any> {
+  /**
+   * Config service, is used to determine certain behavior
+   */
+  protected configService: ConfigService;
+
   /**
    * Main model constructor of the service, will be used as default for populate and mapping
    */
@@ -26,9 +32,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
    * Set main properties
    */
   protected constructor(options?: {
-    mainDbModel: Model<T & Document>;
+    configService?: ConfigService;
+    mainDbModel?: Model<T & Document>;
     mainModelConstructor?: new (...args: any[]) => T;
   }) {
+    this.configService = options?.configService;
     this.mainDbModel = options?.mainDbModel;
     this.mainModelConstructor = options?.mainModelConstructor;
   }
@@ -90,6 +98,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
       ...options?.serviceOptions,
     };
 
+    // Set default for ignoreSelections if not set
+    const ignoreSelections = this.configService?.getFastButReadOnly('ignoreSelectionsForPopulate', false);
+    if (ignoreSelections) {
+      if (config.processFieldSelection.ignoreSelections === undefined) {
+        config.processFieldSelection.ignoreSelections = ignoreSelections;
+      }
+    }
+
     // Note force configuration
     if (config.force) {
       config.checkRights = false;
@@ -104,6 +120,9 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // Note populate
     if (config.populate) {
       config.fieldSelection = config.populate;
+      if (config.processFieldSelection?.ignoreSelections) {
+        config.processFieldSelection.ignoreSelections = false;
+      }
     }
 
     // Prepare input
@@ -220,6 +239,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     options: {
       model?: new (...args: any[]) => T;
       dbModel?: Model<T & Document>;
+      ignoreSelections?: boolean;
     } = {}
   ) {
     const config = {
@@ -227,6 +247,8 @@ export abstract class ModuleService<T extends CoreModel = any> {
       dbModel: this.mainDbModel,
       ...options,
     };
-    return popAndMap(data, fieldsSelection, config.model, config.dbModel);
+    return popAndMap(data, fieldsSelection, config.model, config.dbModel, {
+      ignoreSelections: config.ignoreSelections,
+    });
   }
 }
