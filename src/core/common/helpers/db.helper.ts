@@ -6,6 +6,7 @@ import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { IdsType } from '../types/ids.type';
 import { StringOrObjectId } from '../types/string-or-object-id.type';
+import { removePropertiesDeep } from './input.helper';
 
 // =====================================================================================================================
 // Export functions
@@ -350,7 +351,7 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
     // Check for subfields
     if (node.selectionSet?.selections?.length) {
       for (const innerNode of node.selectionSet.selections as FieldNode[]) {
-        // Subfiled is a primitive
+        // Subfield is a primitive
         if (!innerNode.selectionSet?.selections?.length) {
           option.select ? option.select.push(innerNode.name.value) : (option.select = [innerNode.name.value]);
         }
@@ -477,10 +478,14 @@ export async function popAndMap<T extends CoreModel>(
   queryOrDocument: Query<any, any> | Document | Document[],
   populate: FieldSelection,
   modelClass: new (...args: any[]) => T,
-  mongooseModel?: Model<any>
+  mongooseModel?: Model<any>,
+  options?: {
+    ignoreSelections?: boolean;
+  }
 ): Promise<T | T[]> {
   let result;
   let populateOptions: PopulateOptions[] = [];
+  const ignoreSelections = options?.ignoreSelections;
   if (populate) {
     if (
       Array.isArray(populate) &&
@@ -511,13 +516,13 @@ export async function popAndMap<T extends CoreModel>(
   } else {
     // Process documents
     if (Array.isArray(queryOrDocument)) {
-      await setPopulates(queryOrDocument, populateOptions, mongooseModel);
+      await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
       result = queryOrDocument.map((item) => (modelClass as any).map(item));
     }
 
     // Process document
     else {
-      await setPopulates(queryOrDocument, populateOptions, mongooseModel);
+      await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
       result = (modelClass as any).map(queryOrDocument);
     }
   }
@@ -562,7 +567,8 @@ export function removeIds(source: any[], ids: StringOrObjectId | StringOrObjectI
 export async function setPopulates<T = Query<any, any> | Document>(
   queryOrDocument: T,
   populateOptions: string[] | PopulateOptions[] | (string | PopulateOptions)[],
-  mongooseModel: Model<any>
+  mongooseModel: Model<any>,
+  options?: { ignoreSelections: boolean }
 ): Promise<T> {
   // Check parameters
   if (!populateOptions?.length || !queryOrDocument) {
@@ -578,6 +584,10 @@ export async function setPopulates<T = Query<any, any> | Document>(
       }
       return Object.keys(mongooseModel.schema.paths).includes(key);
     });
+  }
+
+  if (options?.ignoreSelections) {
+    removePropertiesDeep(populateOptions, ['select']);
   }
 
   // Query => Chaining

@@ -53,6 +53,10 @@ export interface ServiceOptions {
   processFieldSelection?: {
     model?: new (...args: any[]) => any;
     dbModel?: Model<any>;
+    // Ignore selections in fieldSelection and populate
+    // If falsy (default, if not set in env.config): select and populate information in fieldSelection and populate will be respected
+    // If truly: select fields will be ignored and only populate fields in fieldSelection and populate will be respected
+    ignoreSelections?: boolean;
   };
 
   // Prepare input configuration:
