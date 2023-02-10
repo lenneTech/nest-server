@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
-import { getPlain } from '../src/core/common/helpers/input.helper';
+import { HttpExceptionLogFilter } from '../src';
 import envConfig from '../src/config.env';
+import { getPlain } from '../src/core/common/helpers/input.helper';
+import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
@@ -48,6 +49,7 @@ describe('ServerModule (e2e)', () => {
         ],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();

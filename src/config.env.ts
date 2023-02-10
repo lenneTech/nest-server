@@ -58,6 +58,7 @@ const config: { [env: string]: IServerOptions } = {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',
@@ -118,6 +119,7 @@ const config: { [env: string]: IServerOptions } = {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',
@@ -178,6 +180,7 @@ const config: { [env: string]: IServerOptions } = {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',

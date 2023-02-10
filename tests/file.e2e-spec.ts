@@ -4,6 +4,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
+import { HttpExceptionLogFilter } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { FileInfo } from '../src/server/modules/file/file-info.model';
@@ -46,6 +47,7 @@ describe('Project (e2e)', () => {
         ],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();

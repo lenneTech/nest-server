@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { exec } from 'child_process';
 import envConfig from './config.env';
+import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
 import { ServerModule } from './server/server.module';
 
 /**
@@ -13,6 +14,11 @@ async function bootstrap() {
     // Include server module, with all necessary modules for the project
     ServerModule
   );
+
+  // Log exceptions
+  if (envConfig.logExceptions) {
+    server.useGlobalFilters(new HttpExceptionLogFilter());
+  }
 
   // Asset directory
   server.useStaticAssets(envConfig.staticAssets.path, envConfig.staticAssets.options);

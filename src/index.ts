@@ -18,6 +18,7 @@ export * from './core/common/enums/logical-operator.enum';
 export * from './core/common/enums/process-type.enum';
 export * from './core/common/enums/role.enum';
 export * from './core/common/enums/sort-order.emum';
+export * from './core/common/filters/http-exception-log.filter';
 export * from './core/common/helpers/common.helper';
 export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/context.helper';

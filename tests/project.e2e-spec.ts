@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { SortOrderEnum } from '../src';
+import { HttpExceptionLogFilter, SortOrderEnum } from '../src';
 import envConfig from '../src/config.env';
 import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
@@ -42,6 +42,7 @@ describe('Project (e2e)', () => {
         ],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();

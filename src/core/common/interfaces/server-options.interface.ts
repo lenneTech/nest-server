@@ -168,6 +168,11 @@ export interface IServerOptions {
   loadLocalConfig?: boolean | string;
 
   /**
+   * Log exceptions (for better debugging)
+   */
+  logExceptions?: boolean;
+
+  /**
    * Configuration for Mongoose
    */
   mongoose?: {
