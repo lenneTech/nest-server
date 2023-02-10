@@ -8,6 +8,7 @@ import * as graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
+import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
@@ -135,6 +136,9 @@ export class CoreModule implements NestModule {
       EmailService,
       TemplateService,
       MailjetService,
+
+      // Plugins
+      ComplexityPlugin,
     ];
 
     // Return dynamic module
@@ -147,7 +151,7 @@ export class CoreModule implements NestModule {
         ),
       ],
       providers,
-      exports: [ConfigService, EmailService, TemplateService, MailjetService],
+      exports: [ConfigService, EmailService, TemplateService, MailjetService, ComplexityPlugin],
     };
   }
 }

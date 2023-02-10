@@ -52,6 +52,7 @@ const config: { [env: string]: IServerOptions } = {
         debug: true,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
@@ -111,6 +112,7 @@ const config: { [env: string]: IServerOptions } = {
         debug: true,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
@@ -170,6 +172,7 @@ const config: { [env: string]: IServerOptions } = {
         debug: false,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',

@@ -106,6 +106,11 @@ export interface IServerOptions {
     enableSubscriptionAuth?: boolean;
 
     /**
+     * Maximum complexity of GraphQL requests
+     */
+    maxComplexity?: number;
+
+    /**
      * Module options (forRootAsync)
      */
     options?: GqlModuleAsyncOptions;

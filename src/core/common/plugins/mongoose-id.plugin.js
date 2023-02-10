@@ -1,4 +1,4 @@
-module.exports = function mongooseIdPlugin(schema, options) {
+export function mongooseIdPlugin(schema, options) {
   schema.post(['find', 'findOne', 'save', 'deleteOne'], function (docs) {
     if (!Array.isArray(docs)) {
       docs = [docs];
@@ -10,4 +10,6 @@ module.exports = function mongooseIdPlugin(schema, options) {
       }
     }
   });
-};
+}
+
+module.exports = mongooseIdPlugin;
