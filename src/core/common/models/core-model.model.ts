@@ -125,4 +125,11 @@ export abstract class CoreModel {
     };
     return this.map(data, config);
   }
+
+  /**
+   * Verification of the user's rights to access the properties of this object
+   */
+  securityCheck(user: any, force?: boolean): this {
+    return this;
+  }
 }
