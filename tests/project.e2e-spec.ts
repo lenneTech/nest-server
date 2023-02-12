@@ -1,16 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { HttpExceptionLogFilter, SortOrderEnum } from '../src';
+import { HttpExceptionLogFilter, SortOrderEnum, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
-import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('Project (e2e)', () => {
+  const log = true;
+  const logError = true;
   let app;
   let testHelper: TestHelper;
 
@@ -106,6 +107,7 @@ describe('Project (e2e)', () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl({
         name: 'signIn',
+        type: TestGraphQLType.MUTATION,
         arguments: {
           input: {
             email: user.email,

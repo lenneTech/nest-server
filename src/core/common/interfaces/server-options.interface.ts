@@ -1,6 +1,7 @@
 import { ApolloDriverConfig } from '@nestjs/apollo';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
+import { JwtSignOptions } from '@nestjs/jwt/dist/interfaces';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
@@ -9,6 +10,46 @@ import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
 import { MailjetOptions } from './mailjet-options.interface';
+
+/**
+ * Interface for JWT configuration (main and refresh)
+ */
+export interface IJwt {
+  /**
+   * Private key
+   */
+  privateKey?: string;
+
+  /**
+   * Public key
+   */
+  publicKey?: string;
+
+  /**
+   * Secret to encrypt the JWT
+   */
+  secret?: string;
+
+  /**
+   * JWT Provider
+   * See https://github.com/mikenicholson/passport-jwt/blob/master/README.md#configure-strategy
+   */
+  secretOrKeyProvider?: (
+    request: Record<string, any>,
+    rawJwtToken: string,
+    done: (err: any, secret: string) => any
+  ) => any;
+
+  /**
+   * Alias of secret (for backwards compatibility)
+   */
+  secretOrPrivateKey?: string;
+
+  /**
+   * SignIn Options like expiresIn
+   */
+  signInOptions?: JwtSignOptions;
+}
 
 /**
  * Options for the server
@@ -128,36 +169,9 @@ export interface IServerOptions {
    * Configuration of JavaScript Web Token (JWT) module
    */
   jwt?: {
-    /**
-     * Private key
-     */
-    privateKey?: string;
-
-    /**
-     * Public key
-     */
-    publicKey?: string;
-
-    /**
-     * Secret to encrypt the JWT
-     */
-    secret?: string;
-
-    /**
-     * JWT Provider
-     * See https://github.com/mikenicholson/passport-jwt/blob/master/README.md#configure-strategy
-     */
-    secretOrKeyProvider?: (
-      request: Record<string, any>,
-      rawJwtToken: string,
-      done: (err: any, secret: string) => any
-    ) => any;
-
-    /**
-     * Alias of secret (for backwards compatibility)
-     */
-    secretOrPrivateKey?: string;
-  } & JwtModuleOptions;
+    refresh?: IJwt;
+  } & IJwt &
+    JwtModuleOptions;
 
   /**
    * Load local configuration

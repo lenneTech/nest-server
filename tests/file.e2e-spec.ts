@@ -4,16 +4,17 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
-import { HttpExceptionLogFilter } from '../src';
+import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { FileInfo } from '../src/server/modules/file/file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
-import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
-describe('Project (e2e)', () => {
+describe('File (e2e)', () => {
+  const log = true;
+  const logError = true;
   let app;
   let testHelper: TestHelper;
 
@@ -111,6 +112,7 @@ describe('Project (e2e)', () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl({
         name: 'signIn',
+        type: TestGraphQLType.MUTATION,
         arguments: {
           input: {
             email: user.email,

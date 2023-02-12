@@ -1,5 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { CoreModel } from '../../common/models/core-model.model';
+import { CoreUserModel } from '../user/core-user.model';
 
 /**
  * CoreAuth model for the response after the sign in
@@ -15,6 +16,18 @@ export class CoreAuthModel extends CoreModel {
    */
   @Field({ description: 'JavaScript Web Token (JWT)' })
   token: string = undefined;
+
+  /**
+   * Refresh token
+   */
+  @Field({ description: 'Refresh token' })
+  refreshToken: string = undefined;
+
+  /**
+   * Current user
+   */
+  @Field({ description: 'Current user' })
+  user: CoreUserModel = undefined;
 
   // ===================================================================================================================
   // Methods

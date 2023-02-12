@@ -87,7 +87,8 @@ export * from './core/modules/auth/services/core-auth-user.service';
 export * from './core/modules/auth/core-auth.model';
 export * from './core/modules/auth/core-auth.module';
 export * from './core/modules/auth/core-auth.resolver';
-export * from './core/modules/auth/jwt.strategy';
+export * from './core/modules/auth/strategies/jwt.strategy';
+export * from './core/modules/auth/strategies/jwt-refresh.strategy';
 
 // =====================================================================================================================
 // Core - Modules - File

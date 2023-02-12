@@ -1,17 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { HttpExceptionLogFilter } from '../src';
+import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { getPlain } from '../src/core/common/helpers/input.helper';
 import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
-import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
 describe('ServerModule (e2e)', () => {
   const port = 3030;
+  const log = true;
+  const logError = true;
   let app;
   let testHelper: TestHelper;
 
@@ -27,6 +28,7 @@ describe('ServerModule (e2e)', () => {
   let gEmail: string;
   let gPassword: string;
   let gToken: string;
+  let gRefreshToken: string;
 
   // ===================================================================================================================
   // Preparations
@@ -111,7 +113,7 @@ describe('ServerModule (e2e)', () => {
           firstName: 'Everardo',
         },
       },
-      fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
+      fields: ['token', 'refreshToken', { user: ['id', 'email', 'roles', 'createdBy'] }],
     });
     expect(res.user.email).toEqual(gEmail);
     expect(res.user.roles).toEqual([]);
@@ -200,17 +202,61 @@ describe('ServerModule (e2e)', () => {
   it('signIn', async () => {
     const res: any = await testHelper.graphQl({
       name: 'signIn',
+      type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
           email: gEmail,
           password: gPassword,
         },
       },
-      fields: ['token', { user: ['id', 'email'] }],
+      fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
     });
     expect(res.user.id).toEqual(gId);
     expect(res.user.email).toEqual(gEmail);
+    expect(res.token.length).toBeGreaterThan(0);
+    expect(res.refreshToken.length).toBeGreaterThan(0);
     gToken = res.token;
+    gRefreshToken = res.refreshToken;
+  });
+
+  /**
+   * Try to get refresh token with token
+   */
+  it('tryToGetRefreshTokenWithToken', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'refreshToken',
+        type: TestGraphQLType.MUTATION,
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
+      },
+      { token: gToken }
+    );
+    expect(res.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].message).toEqual('Unauthorized');
+    expect(res.data).toBe(null);
+  });
+
+  /**
+   * Get refresh token with refresh token
+   */
+  it('getRefreshTokenWithRefreshToken', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'refreshToken',
+        type: TestGraphQLType.MUTATION,
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
+      },
+      { token: gRefreshToken }
+    );
+    expect(res.user.id).toEqual(gId);
+    expect(res.user.email).toEqual(gEmail);
+    expect(res.token.length).toBeGreaterThan(0);
+    expect(res.refreshToken.length).toBeGreaterThan(0);
+    expect(res.token.length).not.toEqual(gToken);
+    expect(res.refreshToken.length).not.toEqual(gRefreshToken);
+    gToken = res.token;
+    gRefreshToken = res.refreshToken;
   });
 
   /**

@@ -55,7 +55,16 @@ const config: { [env: string]: IServerOptions } = {
       maxComplexity: 20,
     },
     jwt: {
-      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
     logExceptions: true,
@@ -63,7 +72,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
-      uri: 'mongodb://127.0.0.1/nest-server-dev',
+      uri: 'mongodb://127.0.0.1/nest-server-local',
     },
     port: 3000,
     sha256: true,
@@ -117,6 +126,15 @@ const config: { [env: string]: IServerOptions } = {
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
     logExceptions: true,
@@ -178,6 +196,15 @@ const config: { [env: string]: IServerOptions } = {
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
     logExceptions: true,

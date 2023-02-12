@@ -2,5 +2,5 @@
  * Interface for jwt payload
  */
 export interface JwtPayload {
-  email: string;
+  id: string;
 }
