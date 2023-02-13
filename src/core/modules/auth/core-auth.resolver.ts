@@ -1,7 +1,9 @@
 import { UseGuards } from '@nestjs/common';
-import { Args, Info, Mutation, Resolver } from '@nestjs/graphql';
+import { Args, Context, Info, Mutation, Resolver } from '@nestjs/graphql';
+import { Response as ResponseType } from 'express';
 import { GraphQLResolveInfo } from 'graphql';
 import { GraphQLUser } from '../../common/decorators/graphql-user.decorator';
+import { ConfigService } from '../../common/services/config.service';
 import { CoreAuthModel } from './core-auth.model';
 import { AuthGuard } from './guards/auth.guard';
 import { CoreAuthSignInInput } from './inputs/core-auth-sign-in.input';
@@ -17,7 +19,7 @@ export class CoreAuthResolver {
   /**
    * Import services
    */
-  constructor(protected readonly authService: CoreAuthService) {}
+  constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {}
 
   // ===========================================================================
   // Mutations
@@ -29,8 +31,13 @@ export class CoreAuthResolver {
   @Mutation((returns) => CoreAuthModel, {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
-  async signIn(@Info() info: GraphQLResolveInfo, @Args('input') input: CoreAuthSignInInput): Promise<CoreAuthModel> {
-    return await this.authService.signIn(input, { fieldSelection: { info, select: 'signIn' } });
+  async signIn(
+    @Info() info: GraphQLResolveInfo,
+    @Context() ctx: { res: ResponseType },
+    @Args('input') input: CoreAuthSignInInput
+  ): Promise<CoreAuthModel> {
+    const result = await this.authService.signIn(input, { fieldSelection: { info, select: 'signIn' } });
+    return this.processCookies(ctx, result);
   }
 
   /**
@@ -39,9 +46,11 @@ export class CoreAuthResolver {
   @Mutation((returns) => CoreAuthModel, { description: 'Logout user (from specific device)' })
   async logout(
     @GraphQLUser() currentUser: ICoreAuthUser,
+    @Context() ctx: { res: ResponseType },
     @Args('deviceId', { nullable: true }) deviceId?: string
   ): Promise<boolean> {
-    return await this.authService.logout({ currentUser, deviceId });
+    const result = await this.authService.logout({ currentUser, deviceId });
+    return this.processCookies(ctx, result);
   }
 
   /**
@@ -51,16 +60,55 @@ export class CoreAuthResolver {
   @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   async refreshToken(
     @GraphQLUser() user: ICoreAuthUser,
+    @Context() ctx: { res: ResponseType },
     @Args('deviceId', { nullable: true }) deviceId?: string
   ): Promise<CoreAuthModel> {
-    return await this.authService.refreshTokens(user, deviceId);
+    const result = await this.authService.refreshTokens(user, deviceId);
+    return this.processCookies(ctx, result);
   }
 
   /**
    * Register a new user account (on specific device)
    */
   @Mutation((returns) => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
-  async signUp(@Info() info: GraphQLResolveInfo, @Args('input') input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
-    return await this.authService.signUp(input, { fieldSelection: { info, select: 'signUp' } });
+  async signUp(
+    @Info() info: GraphQLResolveInfo,
+    @Context() ctx: { res: ResponseType },
+    @Args('input') input: CoreAuthSignUpInput
+  ): Promise<CoreAuthModel> {
+    const result = await this.authService.signUp(input, { fieldSelection: { info, select: 'signUp' } });
+    return this.processCookies(ctx, result);
+  }
+
+  // ===================================================================================================================
+  // Helper
+  // ===================================================================================================================
+
+  /**
+   * Process cookies
+   */
+  protected processCookies(ctx: { res: ResponseType }, result: any) {
+    // Check if cookie handling is activated
+    if (this.configService.getFastButReadOnly('cookies')) {
+      // Set cookies
+      if (typeof result !== 'object') {
+        ctx.res.cookie('token', '', { httpOnly: true });
+        ctx.res.cookie('refreshToken', '', { httpOnly: true });
+        return result;
+      }
+      ctx.res.cookie('token', result?.token || '', { httpOnly: true });
+      ctx.res.cookie('refreshToken', result?.refreshToken || '', { httpOnly: true });
+
+      // Remove tokens from result
+      if (result.token) {
+        delete result.token;
+      }
+      if (result.refreshToken) {
+        delete result.refreshToken;
+      }
+    }
+
+    // Return prepared result
+    return result;
   }
 }

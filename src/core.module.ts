@@ -42,6 +42,13 @@ export class CoreModule implements NestModule {
    */
   static forRoot(AuthService: any, AuthModule: any, options: Partial<IServerOptions>): DynamicModule {
     // Process config
+    let cors = {};
+    if (options?.cookies) {
+      cors = {
+        credentials: true,
+        origin: true,
+      };
+    }
     const config: IServerOptions = merge(
       {
         env: 'develop',
@@ -53,7 +60,8 @@ export class CoreModule implements NestModule {
               Object.assign(
                 {
                   autoSchemaFile: 'schema.gql',
-                  context: ({ req }) => ({ req }),
+                  context: ({ req, res }) => ({ req, res }),
+                  cors,
                   installSubscriptionHandlers: true,
                   subscriptions: {
                     'subscriptions-transport-ws': {

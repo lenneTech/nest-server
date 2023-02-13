@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import * as bcrypt from 'bcrypt';
-import { Request } from 'express';
+import { Request as RequestType, Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreAuthService } from '../services/core-auth.service';
@@ -10,7 +10,10 @@ import { CoreAuthService } from '../services/core-auth.service';
 export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
   constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        JwtRefreshStrategy.extractJWTFromCookie,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       privateKey: configService.get('jwt.refresh.privateKey'),
       publicKey: configService.get('jwt.refresh.publicKey'),
       secret: configService.get('jwt.refresh.secret') || configService.get('jwt.refresh.secretOrPrivateKey'),
@@ -18,6 +21,13 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
       secretOrKeyProvider: configService.get('jwt.refresh.secretOrKeyProvider'),
       passReqToCallback: true,
     });
+  }
+
+  /**
+   * Extract JWT from cookie
+   */
+  private static extractJWTFromCookie(req: RequestType): string | null {
+    return req?.cookies?.refreshToken || null;
   }
 
   /**

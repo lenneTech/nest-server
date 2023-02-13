@@ -63,6 +63,11 @@ export interface IServerOptions {
   automaticObjectIdFiltering?: boolean;
 
   /**
+   * Whether to use cookies for authentication handling
+   */
+  cookies?: boolean;
+
+  /**
    * Cron jobs configuration object with the name of the cron job function as key
    * and the cron expression or config as value
    */

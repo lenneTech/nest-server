@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '../../../common/services/config.service';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthService } from '../services/core-auth.service';
+import { Request as RequestType } from 'express';
 
 /**
  * Use JWT strategy for passport
@@ -15,13 +16,23 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    */
   constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        JwtStrategy.extractJWTFromCookie,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       privateKey: configService.get('jwt.privateKey'),
       publicKey: configService.get('jwt.publicKey'),
       secret: configService.get('jwt.secret') || configService.get('jwt.secretOrPrivateKey'),
       secretOrKey: configService.get('jwt.secretOrPrivateKey') || configService.get('jwt.secret'),
       secretOrKeyProvider: configService.get('jwt.secretOrKeyProvider'),
     });
+  }
+
+  /**
+   * Extract JWT from cookie
+   */
+  private static extractJWTFromCookie(req: RequestType): string | null {
+    return req?.cookies?.token || null;
   }
 
   /**

@@ -14,14 +14,14 @@ export class CoreAuthModel extends CoreModel {
   /**
    * JavaScript Web Token (JWT)
    */
-  @Field({ description: 'JavaScript Web Token (JWT)' })
-  token: string = undefined;
+  @Field({ description: 'JavaScript Web Token (JWT)', nullable: true })
+  token?: string = undefined;
 
   /**
    * Refresh token
    */
-  @Field({ description: 'Refresh token' })
-  refreshToken: string = undefined;
+  @Field({ description: 'Refresh token', nullable: true })
+  refreshToken?: string = undefined;
 
   /**
    * Current user
