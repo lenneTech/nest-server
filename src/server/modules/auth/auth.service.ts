@@ -47,7 +47,7 @@ export class AuthService extends CoreAuthService {
       },
     });
 
-    // Create JWT and return sign-in data
+    // Return mapped result
     return Auth.map(result);
   }
 }

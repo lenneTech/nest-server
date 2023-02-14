@@ -10,9 +10,12 @@ import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
 
 describe('ServerModule (e2e)', () => {
-  const port = 3030;
+  // To enable debugging, include these flags in the options of the request you want to debug
   const log = true;
   const logError = true;
+
+  // Testenvironment properties
+  const port = 3030;
   let app;
   let testHelper: TestHelper;
 
@@ -38,6 +41,10 @@ describe('ServerModule (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
+    // Indicates that cookies are enabled
+    if (envConfig.cookies) {
+      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
+    }
     try {
       // Start server for testing
       const moduleFixture: TestingModule = await Test.createTestingModule({

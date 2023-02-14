@@ -1,10 +1,10 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { FileResolver } from './file.resolver';
-import { FileService } from './file.service';
-import { FileController } from './file.controller';
-import { GridFsMulterConfigService } from './multer-config.service';
 import { MulterModule } from '@nestjs/platform-express';
 import { UserModule } from '../user/user.module';
+import { FileController } from './file.controller';
+import { FileResolver } from './file.resolver';
+import { FileService } from './file.service';
+import { GridFsMulterConfigService } from './multer-config.service';
 
 /**
  * File module

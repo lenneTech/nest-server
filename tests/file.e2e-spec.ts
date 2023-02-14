@@ -13,8 +13,11 @@ import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
 
 describe('File (e2e)', () => {
+  // To enable debugging, include these flags in the options of the request you want to debug
   const log = true;
   const logError = true;
+
+  // Testenvironment properties
   let app;
   let testHelper: TestHelper;
 
@@ -36,6 +39,10 @@ describe('File (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
+    // Indicates that cookies are enabled
+    if (envConfig.cookies) {
+      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
+    }
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
