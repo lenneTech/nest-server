@@ -3,6 +3,11 @@
  */
 export interface ICoreAuthUser {
   /**
+   * ID of the user
+   */
+  id: string;
+
+  /**
    * Email of the user
    */
   email: string;
@@ -11,4 +16,14 @@ export interface ICoreAuthUser {
    * Password of the user
    */
   password: string;
+
+  /**
+   * Refresh token
+   */
+  refreshToken?: string;
+
+  /**
+   * Refresh tokens for different devices
+   */
+  refreshTokens?: Record<string, string>;
 }

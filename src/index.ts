@@ -18,6 +18,7 @@ export * from './core/common/enums/logical-operator.enum';
 export * from './core/common/enums/process-type.enum';
 export * from './core/common/enums/role.enum';
 export * from './core/common/enums/sort-order.emum';
+export * from './core/common/filters/http-exception-log.filter';
 export * from './core/common/helpers/common.helper';
 export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/context.helper';
@@ -34,6 +35,7 @@ export * from './core/common/inputs/filter.input';
 export * from './core/common/inputs/single-filter.input';
 export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
+export * from './core/common/interceptors/check-security.interceptor';
 export * from './core/common/interfaces/core-persistence-model.interface';
 export * from './core/common/interfaces/cron-job-config.interface';
 export * from './core/common/interfaces/mailjet-options.interface';
@@ -46,6 +48,8 @@ export * from './core/common/models/core-model.model';
 export * from './core/common/models/core-persistence.model';
 export * from './core/common/pipes/check-input.pipe';
 export * from './core/common/pipes/map-and-validate.pipe';
+export * from './core/common/plugins/complexity.plugin';
+export * from './core/common/plugins/mongoose-id.plugin';
 export * from './core/common/scalars/any.scalar';
 export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/json.scalar';
@@ -83,7 +87,8 @@ export * from './core/modules/auth/services/core-auth-user.service';
 export * from './core/modules/auth/core-auth.model';
 export * from './core/modules/auth/core-auth.module';
 export * from './core/modules/auth/core-auth.resolver';
-export * from './core/modules/auth/jwt.strategy';
+export * from './core/modules/auth/strategies/jwt.strategy';
+export * from './core/modules/auth/strategies/jwt-refresh.strategy';
 
 // =====================================================================================================================
 // Core - Modules - File

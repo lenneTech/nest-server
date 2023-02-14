@@ -12,6 +12,8 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   local: {
     automaticObjectIdFiltering: true,
+    compression: true,
+    cookies: false,
     cronJobs: {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
@@ -52,16 +54,27 @@ const config: { [env: string]: IServerOptions } = {
         debug: true,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
-      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',
       },
-      uri: 'mongodb://127.0.0.1/nest-server-dev',
+      uri: 'mongodb://127.0.0.1/nest-server-local',
     },
     port: 3000,
     sha256: true,
@@ -80,6 +93,8 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   development: {
     automaticObjectIdFiltering: true,
+    compression: true,
+    cookies: false,
     email: {
       smtp: {
         auth: {
@@ -111,11 +126,22 @@ const config: { [env: string]: IServerOptions } = {
         debug: true,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',
@@ -139,6 +165,8 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   production: {
     automaticObjectIdFiltering: true,
+    compression: true,
+    cookies: false,
     email: {
       smtp: {
         auth: {
@@ -170,11 +198,22 @@ const config: { [env: string]: IServerOptions } = {
         debug: false,
         introspection: true,
       },
+      maxComplexity: 20,
     },
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+      refresh: {
+        secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
     },
     loadLocalConfig: false,
+    logExceptions: true,
     mongoose: {
       collation: {
         locale: 'de',

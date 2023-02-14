@@ -109,10 +109,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // Note force configuration
     if (config.force) {
       config.checkRights = false;
-      if (typeof config.prepareInput === 'object') {
+      if (config.prepareInput && typeof config.prepareInput === 'object') {
         config.prepareInput.checkRoles = false;
       }
-      if (typeof config.prepareOutput === 'object') {
+      if (config.prepareOutput && typeof config.prepareOutput === 'object') {
         config.prepareOutput.removeSecrets = false;
       }
     }

@@ -1,5 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop, Schema as MongooseSchema } from '@nestjs/mongoose';
+import { Prop, raw, Schema as MongooseSchema } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 import { User } from '../../../server/modules/user/user.model';
@@ -69,6 +69,22 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   @IsOptional()
   @Prop()
   passwordResetToken: string = undefined;
+
+  /**
+   * Hashed refresh JWT
+   */
+  @IsOptional()
+  @Prop()
+  refreshToken: string = undefined;
+
+  /**
+   * Refresh tokens for devices
+   * key: deviceID
+   * value: hashed JWT
+   */
+  @IsOptional()
+  @Prop(raw({}))
+  refreshTokens: Record<string, string> = undefined;
 
   /**
    * Verification token of the user
