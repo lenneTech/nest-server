@@ -129,28 +129,28 @@ export class ConfigService {
   /**
    * Get readable and writable deep-cloned property from configuration
    */
-  get(key: string, defaultValue: any = undefined) {
+  get<T = any>(key: string, defaultValue: any = undefined): T {
     return ConfigService.get(key, defaultValue);
   }
 
   /**
    * Get readable and writable deep-cloned property from configuration
    */
-  static get(key: string, defaultValue: any = undefined) {
+  static get<T = any>(key: string, defaultValue: any = undefined): T {
     return clone(_.get(ConfigService._configSubject$.getValue(), key, defaultValue), { circles: false });
   }
 
   /**
    * Get faster but read-ony deep-frozen property from configuration
    */
-  getFastButReadOnly(key: string, defaultValue: any = undefined) {
+  getFastButReadOnly<T = any>(key: string, defaultValue: any = undefined): T {
     return ConfigService.getFastButReadOnly(key, defaultValue);
   }
 
   /**
    * Get faster but read-ony deep-frozen property from configuration
    */
-  static getFastButReadOnly(key: string, defaultValue: any = undefined) {
+  static getFastButReadOnly<T = any>(key: string, defaultValue: any = undefined): T {
     return _.get(ConfigService._frozenConfigSubject$.getValue(), key, defaultValue);
   }
 

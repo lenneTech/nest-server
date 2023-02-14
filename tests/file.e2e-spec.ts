@@ -4,15 +4,20 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
+import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { FileInfo } from '../src/server/modules/file/file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
-import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
 
-describe('Project (e2e)', () => {
+describe('File (e2e)', () => {
+  // To enable debugging, include these flags in the options of the request you want to debug
+  const log = true;
+  const logError = true;
+
+  // Testenvironment properties
   let app;
   let testHelper: TestHelper;
 
@@ -34,6 +39,10 @@ describe('Project (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
+    // Indicates that cookies are enabled
+    if (envConfig.cookies) {
+      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
+    }
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
@@ -46,6 +55,7 @@ describe('Project (e2e)', () => {
         ],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
@@ -109,6 +119,7 @@ describe('Project (e2e)', () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl({
         name: 'signIn',
+        type: TestGraphQLType.MUTATION,
         arguments: {
           input: {
             email: user.email,

@@ -1,4 +1,5 @@
 import { CanActivate, ExecutionContext, Logger, mixin, Optional, UnauthorizedException } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
@@ -65,10 +66,7 @@ function createAuthGuard(type?: string): Type<CanActivate> {
 
       const options = { ...defaultOptions, ...this.options };
       const response = context?.switchToHttp()?.getResponse();
-      let request = this.getRequest(context);
-      if (!request) {
-        request = context?.switchToHttp()?.getRequest();
-      }
+      const request = this.getRequest(context);
       const passportFn = createPassportContext(request, response);
       const user = await passportFn(type || this.options.defaultStrategy, options, (err, currentUser, info) =>
         this.handleRequest(err, currentUser, info, context)
@@ -81,6 +79,15 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Prepare request
      */
     getRequest<T = any>(context: ExecutionContext): T {
+      // Try to get request GraphQL context
+      try {
+        const ctx = GqlExecutionContext.create(context)?.getContext();
+        if (ctx?.req) {
+          return ctx.req;
+        }
+      } catch (e) {}
+
+      // Else return HTTP request
       return context && context.switchToHttp() ? context.switchToHttp().getRequest() : null;
     }
 
@@ -110,4 +117,4 @@ function createAuthGuard(type?: string): Type<CanActivate> {
 /**
  * Export AuthGuard
  */
-export const AuthGuard: (type?: string) => Type<IAuthGuard> = memoize(createAuthGuard);
+export const AuthGuard: (type?: string | string[]) => Type<IAuthGuard> = memoize(createAuthGuard);

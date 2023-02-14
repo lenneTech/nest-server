@@ -1,14 +1,56 @@
 import { ApolloDriverConfig } from '@nestjs/apollo';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
+import { JwtSignOptions } from '@nestjs/jwt/dist/interfaces';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
+import compression from 'compression';
 import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
 import { MailjetOptions } from './mailjet-options.interface';
+
+/**
+ * Interface for JWT configuration (main and refresh)
+ */
+export interface IJwt {
+  /**
+   * Private key
+   */
+  privateKey?: string;
+
+  /**
+   * Public key
+   */
+  publicKey?: string;
+
+  /**
+   * Secret to encrypt the JWT
+   */
+  secret?: string;
+
+  /**
+   * JWT Provider
+   * See https://github.com/mikenicholson/passport-jwt/blob/master/README.md#configure-strategy
+   */
+  secretOrKeyProvider?: (
+    request: Record<string, any>,
+    rawJwtToken: string,
+    done: (err: any, secret: string) => any
+  ) => any;
+
+  /**
+   * Alias of secret (for backwards compatibility)
+   */
+  secretOrPrivateKey?: string;
+
+  /**
+   * SignIn Options like expiresIn
+   */
+  signInOptions?: JwtSignOptions;
+}
 
 /**
  * Options for the server
@@ -20,6 +62,18 @@ export interface IServerOptions {
    * See generateFilterQuery in Filter helper (src/core/common/helpers/filter.helper.ts)
    */
   automaticObjectIdFiltering?: boolean;
+
+  /**
+   * Whether to use the compression middleware package to enable gzip compression.
+   * See: https://docs.nestjs.com/techniques/compression
+   */
+  compression?: boolean | compression.CompressionOptions;
+
+  /**
+   * Whether to use cookies for authentication handling
+   * See: https://docs.nestjs.com/techniques/cookies
+   */
+  cookies?: boolean;
 
   /**
    * Cron jobs configuration object with the name of the cron job function as key
@@ -106,6 +160,11 @@ export interface IServerOptions {
     enableSubscriptionAuth?: boolean;
 
     /**
+     * Maximum complexity of GraphQL requests
+     */
+    maxComplexity?: number;
+
+    /**
      * Module options (forRootAsync)
      */
     options?: GqlModuleAsyncOptions;
@@ -123,36 +182,9 @@ export interface IServerOptions {
    * Configuration of JavaScript Web Token (JWT) module
    */
   jwt?: {
-    /**
-     * Private key
-     */
-    privateKey?: string;
-
-    /**
-     * Public key
-     */
-    publicKey?: string;
-
-    /**
-     * Secret to encrypt the JWT
-     */
-    secret?: string;
-
-    /**
-     * JWT Provider
-     * See https://github.com/mikenicholson/passport-jwt/blob/master/README.md#configure-strategy
-     */
-    secretOrKeyProvider?: (
-      request: Record<string, any>,
-      rawJwtToken: string,
-      done: (err: any, secret: string) => any
-    ) => any;
-
-    /**
-     * Alias of secret (for backwards compatibility)
-     */
-    secretOrPrivateKey?: string;
-  } & JwtModuleOptions;
+    refresh?: IJwt;
+  } & IJwt &
+    JwtModuleOptions;
 
   /**
    * Load local configuration
@@ -161,6 +193,11 @@ export interface IServerOptions {
    * string: path to configuration
    */
   loadLocalConfig?: boolean | string;
+
+  /**
+   * Log exceptions (for better debugging)
+   */
+  logExceptions?: boolean;
 
   /**
    * Configuration for Mongoose

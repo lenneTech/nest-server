@@ -3,7 +3,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { RolesGuard } from './guards/roles.guard';
-import { JwtStrategy } from './jwt.strategy';
+import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { JwtStrategy } from './strategies/jwt.strategy';
 import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
 import { PubSub } from 'graphql-subscriptions';
@@ -23,6 +24,7 @@ export class CoreAuthModule {
     options: JwtModuleOptions & {
       authService?: Type<CoreAuthService>;
       jwtStrategy?: Type<JwtStrategy>;
+      jwtRefreshStrategy?: Type<JwtRefreshStrategy>;
       imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
       providers?: Provider[];
     }
@@ -56,6 +58,10 @@ export class CoreAuthModule {
         provide: JwtStrategy,
         useClass: options.jwtStrategy || JwtStrategy,
       },
+      {
+        provide: JwtRefreshStrategy,
+        useClass: options.jwtRefreshStrategy || JwtRefreshStrategy,
+      },
     ];
     if (Array.isArray(options?.providers)) {
       providers = imports.concat(options.providers);
@@ -66,7 +72,7 @@ export class CoreAuthModule {
       module: CoreAuthModule,
       imports: imports,
       providers: providers,
-      exports: [CoreAuthService, JwtModule, JwtStrategy, PassportModule, UserModule],
+      exports: [CoreAuthService, JwtModule, JwtStrategy, JwtRefreshStrategy, PassportModule, UserModule],
     };
   }
 }

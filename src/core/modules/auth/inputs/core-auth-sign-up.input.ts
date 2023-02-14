@@ -10,6 +10,9 @@ export class CoreAuthSignUpInput extends CoreInput {
   // Properties
   // ===================================================================================================================
 
+  @Field({ description: 'Device ID', nullable: true })
+  deviceId?: string = undefined;
+
   @Field({ description: 'Email', nullable: false })
   email: string = undefined;
 
