@@ -1,7 +1,6 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { AuthResolver } from '../../../server/modules/auth/auth.resolver';
 import { getContextData } from '../helpers/context.helper';
 import { processDeep } from '../helpers/input.helper';
 
@@ -17,7 +16,9 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     // Set force mode for sign in and sign up
     let force = false;
     if (!user) {
-      if (context.getClass() === AuthResolver) {
+      // Here the name is used and not the class itself, because the concrete class is located in the respective project.
+      // In case of an override it is better to use the concrete class directly (context.getClass() instead of context.getClasss()?.name).
+      if (context.getClass()?.name === 'AuthResolver') {
         force = true;
       }
     }
