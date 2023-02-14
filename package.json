@@ -75,6 +75,7 @@
     "bcrypt": "5.1.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.14.0",
+    "compression": "1.7.4",
     "cookie-parser": "1.4.6",
     "ejs": "3.1.8",
     "graphql": "16.6.0",
@@ -102,6 +103,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "9.2.1",
+    "@types/compression": "1.7.2",
     "@types/cookie-parser": "1.4.3",
     "@types/cron": "2.0.0",
     "@types/ejs": "3.1.1",

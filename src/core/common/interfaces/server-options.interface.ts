@@ -5,6 +5,7 @@ import { JwtSignOptions } from '@nestjs/jwt/dist/interfaces';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
+import compression from 'compression';
 import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { Falsy } from '../types/falsy.type';
@@ -63,7 +64,14 @@ export interface IServerOptions {
   automaticObjectIdFiltering?: boolean;
 
   /**
+   * Whether to use the compression middleware package to enable gzip compression.
+   * See: https://docs.nestjs.com/techniques/compression
+   */
+  compression?: boolean | compression.CompressionOptions;
+
+  /**
    * Whether to use cookies for authentication handling
+   * See: https://docs.nestjs.com/techniques/cookies
    */
   cookies?: boolean;
 

@@ -1,10 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { exec } from 'child_process';
+import * as compression from 'compression';
+import * as cookieParser from 'cookie-parser';
 import envConfig from './config.env';
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
 import { ServerModule } from './server/server.module';
-import * as cookieParser from 'cookie-parser';
 
 /**
  * Preparations for server start
@@ -19,6 +20,22 @@ async function bootstrap() {
   // Log exceptions
   if (envConfig.logExceptions) {
     server.useGlobalFilters(new HttpExceptionLogFilter());
+  }
+
+  // Compression (gzip)
+  if (envConfig.compression) {
+    let envCompressionOptions = {};
+    if (typeof envConfig.compression === 'object') {
+      envCompressionOptions = envConfig.compression;
+    }
+    const compressionOptions = {
+      filter: () => {
+        return true;
+      },
+      threshold: 0,
+      ...envCompressionOptions,
+    };
+    server.use(compression(compressionOptions));
   }
 
   // Cookie handling
