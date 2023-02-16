@@ -1,6 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
 import { getStringIds } from '../../../common/helpers/db.helper';
 import { prepareServiceOptions } from '../../../common/helpers/service.helper';
@@ -37,40 +38,43 @@ export class CoreAuthService {
   /**
    * Logout user (from device)
    */
-  async logout(serviceOptions: ServiceOptions & { deviceId?: string }): Promise<boolean> {
+  async logout(
+    tokenOrRefreshToken: string,
+    serviceOptions: ServiceOptions & { allDevices?: boolean }
+  ): Promise<boolean> {
+    // Check authentication
     const user = serviceOptions.currentUser;
-    if (!serviceOptions.currentUser) {
+    if (!user || !tokenOrRefreshToken) {
       throw new UnauthorizedException();
     }
-    const deviceId = serviceOptions.deviceId;
-    if (deviceId) {
-      if (!user.refreshTokens[deviceId]) {
-        return false;
-      }
-      delete user.refreshTokens[deviceId];
-      await this.userService.update(user.id, { refreshTokens: user.refreshTokens }, serviceOptions);
+
+    // Check authorization
+    const deviceId = this.decodeJwt(tokenOrRefreshToken)?.deviceId;
+    if (!deviceId || !user.refreshTokens[deviceId]) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Logout from all devices
+    if (serviceOptions.allDevices) {
+      user.refreshTokens = {};
+      await this.userService.update(user.id, { refreshTokens: {} }, serviceOptions);
       return true;
     }
-    user.refreshToken = null;
-    user.refreshTokens = {};
-    await this.userService.update(
-      user.id,
-      {
-        refreshToken: user.refreshToken,
-        refreshTokens: user.refreshTokens,
-      },
-      serviceOptions
-    );
+
+    // Logout from specific devices
+    delete user.refreshTokens[deviceId];
+    await this.userService.update(user.id, { refreshTokens: user.refreshTokens }, serviceOptions);
     return true;
   }
 
   /**
    * Refresh tokens
    */
-  async refreshTokens(user: ICoreAuthUser, deviceId?: string) {
+  async refreshTokens(user: ICoreAuthUser, currentRefreshToken: string) {
     // Create new tokens
-    const tokens = await this.getTokens(user.id);
-    await this.updateRefreshToken(user, tokens.refreshToken, { deviceId });
+    const { deviceId, deviceDescription } = this.decodeJwt(currentRefreshToken);
+    const tokens = await this.createTokens(user.id, { deviceId, deviceDescription });
+    tokens.refreshToken = await this.updateRefreshToken(user, currentRefreshToken, tokens.refreshToken);
 
     // Return
     return CoreAuthModel.map({
@@ -93,10 +97,10 @@ export class CoreAuthService {
     });
 
     // Inputs
-    const { email, password, deviceId } = input;
+    const { email, password, deviceId, deviceDescription } = input;
 
     // Get user
-    const user = await this.userService.getViaEmail(email, serviceOptions);
+    const user = await this.userService.getViaEmail(email, serviceOptionsForUserService);
     if (
       !user ||
       !((await bcrypt.compare(password, user.password)) || (await bcrypt.compare(sha256(password), user.password)))
@@ -104,11 +108,8 @@ export class CoreAuthService {
       throw new UnauthorizedException();
     }
 
-    // Set device ID
-    serviceOptionsForUserService.deviceId = input.deviceId;
-
     // Return tokens and user
-    return this.getResult(user, serviceOptions);
+    return this.getResult(user, { deviceId, deviceDescription });
   }
 
   /**
@@ -124,14 +125,14 @@ export class CoreAuthService {
     // Get and check user
     const user = await this.userService.create(input, serviceOptionsForUserService);
     if (!user) {
-      throw Error('Email Address already in use');
+      throw new BadRequestException('Email Address already in use');
     }
 
     // Set device ID
-    serviceOptionsForUserService.deviceId = input.deviceId;
+    const { deviceId, deviceDescription } = input;
 
     // Return tokens and user
-    return this.getResult(user, serviceOptionsForUserService);
+    return this.getResult(user, { deviceId, deviceDescription });
   }
 
   /**
@@ -142,7 +143,8 @@ export class CoreAuthService {
     const user = await this.userService.get(payload.id);
 
     // Check if user exists and is logged in
-    if (!user?.refreshToken) {
+    const device = user?.refreshTokens?.[payload.deviceId];
+    if (!device || !payload.tokenId || device.tokenId !== payload.tokenId) {
       return null;
     }
 
@@ -157,12 +159,16 @@ export class CoreAuthService {
   /**
    * Rest result with user and tokens
    */
-  protected async getResult(user: ICoreAuthUser, serviceOptions: ServiceOptions & { deviceId?: string }) {
+  protected async getResult(
+    user: ICoreAuthUser,
+    data?: { [key: string]: any; deviceId?: string },
+    currentRefreshToken?: string
+  ) {
     // Create new tokens
-    const tokens = await this.getTokens(user.id);
+    const tokens = await this.createTokens(user.id, data);
 
     // Set refresh token
-    await this.updateRefreshToken(user, tokens.refreshToken, serviceOptions);
+    tokens.refreshToken = await this.updateRefreshToken(user, currentRefreshToken, tokens.refreshToken, data);
 
     // Return tokens and user
     return CoreAuthModel.map({
@@ -190,22 +196,22 @@ export class CoreAuthService {
   /**
    * Get JWT and refresh token
    */
-  protected async getTokens(userId: string) {
+  protected async createTokens(userId: string, data?: { [key: string]: any; deviceId?: string }) {
+    const payload: { [key: string]: any; id: string; deviceId: string } = {
+      ...data,
+      id: userId,
+      deviceId: data?.deviceId || randomUUID(),
+      tokenId: randomUUID(),
+    };
     const [token, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(
-        { id: userId },
-        {
-          secret: this.getSecretFromConfig(false),
-          ...this.configService.getFastButReadOnly('jwt.signInOptions', {}),
-        }
-      ),
-      this.jwtService.signAsync(
-        { id: userId },
-        {
-          secret: this.getSecretFromConfig(true),
-          ...this.configService.getFastButReadOnly('jwt.refresh.signInOptions', {}),
-        }
-      ),
+      this.jwtService.signAsync(payload, {
+        secret: this.getSecretFromConfig(false),
+        ...this.configService.getFastButReadOnly('jwt.signInOptions', {}),
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.getSecretFromConfig(true),
+        ...this.configService.getFastButReadOnly('jwt.refresh.signInOptions', {}),
+      }),
     ]);
     return {
       token,
@@ -218,39 +224,45 @@ export class CoreAuthService {
    */
   protected async updateRefreshToken(
     user: ICoreAuthUser,
-    refreshToken: string,
-    serviceOptions: ServiceOptions & { deviceId?: string } = {}
-  ) {
-    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-    const deviceId = serviceOptions?.deviceId;
-    if (deviceId) {
-      if (!user.refreshTokens) {
-        user.refreshTokens = {};
+    currentRefreshToken: string,
+    newRefreshToken: string,
+    data?: Record<string, any>
+  ): Promise<string> {
+    // Check if the update of the update token is allowed
+    let deviceId: string;
+    if (currentRefreshToken) {
+      deviceId = this.decodeJwt(currentRefreshToken)?.deviceId;
+      if (!deviceId || !user.refreshTokens?.[deviceId]) {
+        throw new UnauthorizedException('Invalid refresh token');
       }
-      user.refreshTokens[deviceId] = hashedRefreshToken;
-
-      // Refresh token must be set even if only a specific device is logged in, because of the check in the validateUser method
-      if (!user.refreshToken) {
-        user.refreshToken = hashedRefreshToken;
+      if (!this.configService.getFastButReadOnly('jwt.refresh.renewal')) {
+        // Return currentToken
+        return currentRefreshToken;
       }
-
-      return await this.userService.update(
-        getStringIds(user),
-        { refreshTokens: user.refreshTokens, refreshToken: user.refreshToken },
-        {
-          ...serviceOptions,
-          force: true,
-        }
-      );
     }
-    user.refreshToken = hashedRefreshToken;
-    return await this.userService.update(
-      getStringIds(user),
-      { refreshToken: hashedRefreshToken },
-      {
-        ...serviceOptions,
-        force: true,
-      }
-    );
+
+    // Prepare data
+    data = data || {};
+    if (!user.refreshTokens) {
+      user.refreshTokens = {};
+    }
+    if (deviceId) {
+      const oldData = user.refreshTokens[deviceId] || {};
+      data = Object.assign(oldData, data);
+    }
+
+    // Set new token
+    const payload = this.decodeJwt(newRefreshToken);
+    if (!payload) {
+      throw new UnauthorizedException();
+    }
+    if (!deviceId) {
+      deviceId = payload.deviceId;
+    }
+    user.refreshTokens[deviceId] = { ...data, deviceId, tokenId: payload.tokenId };
+    await this.userService.update(getStringIds(user), { refreshTokens: user.refreshTokens }, { force: true });
+
+    // Return new token
+    return newRefreshToken;
   }
 }

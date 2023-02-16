@@ -3,6 +3,7 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
+import * as jwt from 'jsonwebtoken';
 import * as passport from 'passport';
 
 /**
@@ -103,8 +104,14 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      * Process request
      */
     handleRequest(err, user, info, context): TUser {
-      if (err || !user) {
-        throw err || new UnauthorizedException();
+      if (err) {
+        if (err instanceof jwt.JsonWebTokenError) {
+          throw new UnauthorizedException('Invalid token');
+        }
+        throw err;
+      }
+      if (!user) {
+        throw new UnauthorizedException('Invalid token');
       }
       return user;
     }

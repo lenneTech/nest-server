@@ -10,8 +10,11 @@ export class CoreAuthSignInInput extends CoreInput {
   // Properties
   // ===================================================================================================================
 
-  @Field({ description: 'Device ID', nullable: true })
+  @Field({ description: 'Device ID (is created automatically if it is not set)', nullable: true })
   deviceId?: string = undefined;
+
+  @Field({ description: 'Device description', nullable: true })
+  deviceDescription?: string = undefined;
 
   @Field({ description: 'Email', nullable: false })
   email: string = undefined;

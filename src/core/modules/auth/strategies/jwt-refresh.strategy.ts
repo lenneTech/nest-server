@@ -37,17 +37,7 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh'
     // Check user
     const user = await this.authService.validateUser(payload);
     if (!user) {
-      throw new UnauthorizedException();
-    }
-
-    // Check refresh token
-    const refreshToken = req
-      .get('Authorization')
-      .replace(/bearer/i, '')
-      .trim();
-    const refreshTokenMatches = await bcrypt.compare(refreshToken, user.refreshToken);
-    if (!refreshTokenMatches) {
-      throw new ForbiddenException('Access Denied');
+      throw new UnauthorizedException('Unknown user');
     }
 
     // Return user
