@@ -240,7 +240,7 @@ describe('ServerModule (e2e)', () => {
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.response.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Unauthorized');
+    expect(res.errors[0].message).toEqual('Invalid token');
     expect(res.data).toBe(null);
   });
 

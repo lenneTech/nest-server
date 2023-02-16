@@ -25,9 +25,9 @@ export class CheckInputPipe implements PipeTransform {
     const metatype = metadata?.metatype;
 
     // Get user
-    const { user }: any = getContextData(this.context);
+    const { currentUser }: any = getContextData(this.context);
 
     // Check and return
-    return check(value, user, { metatype });
+    return check(value, currentUser, { metatype });
   }
 }

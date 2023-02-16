@@ -182,7 +182,17 @@ export interface IServerOptions {
    * Configuration of JavaScript Web Token (JWT) module
    */
   jwt?: {
-    refresh?: IJwt;
+    /**
+     * Configuration for refresh Token (JWT)
+     */
+    refresh?: {
+      /**
+       * Whether renewal of the refresh token is permitted
+       * If falsy (default): during refresh only a new token, the refresh token retains its original term
+       * If true: during refresh not only a new token but also a new refresh token is created
+       */
+      renewal?: boolean;
+    } & IJwt;
   } & IJwt &
     JwtModuleOptions;
 

@@ -1,5 +1,6 @@
 import { ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request as RequestType } from 'express';
 
 /**
  * Helper for context processing
@@ -10,7 +11,11 @@ export default class Context {
    * Get data from Context
    * @deprecated use getContextData function
    */
-  public static getData(context: ExecutionContext): { currentUser: { [key: string]: any }; args: any } {
+  public static getData(context: ExecutionContext): {
+    args: any;
+    currentUser: { [key: string]: any };
+    request: RequestType;
+  } {
     return getContextData(context);
   }
 }
@@ -18,26 +23,36 @@ export default class Context {
 /**
  * Get data from Context
  */
-export function getContextData(context: ExecutionContext): { currentUser: { [key: string]: any }; args: any } {
+export function getContextData(context: ExecutionContext): {
+  args: any;
+  currentUser: { [key: string]: any };
+  request: RequestType;
+} {
   // Check context
   if (!context) {
-    return { currentUser: null, args: null };
+    return { currentUser: null, args: null, request: null };
   }
 
   // Init data
   let user: { [key: string]: any };
+  let rawContext: any = null;
   let ctx: any = null;
+  let request: any;
   try {
-    ctx = GqlExecutionContext.create(context)?.getContext();
+    rawContext = GqlExecutionContext.create(context);
+    ctx = rawContext?.getContext();
+    request = ctx.req;
   } catch (e) {
     // console.info(e);
   }
 
   let args: any;
-  try {
-    args = GqlExecutionContext.create(context)?.getArgs();
-  } catch (e) {
-    // console.info(e);
+  if (rawContext) {
+    try {
+      args = rawContext.getArgs();
+    } catch (e) {
+      // console.info(e);
+    }
   }
 
   // Get data
@@ -45,7 +60,7 @@ export function getContextData(context: ExecutionContext): { currentUser: { [key
     // User from GraphQL context
     user = ctx?.user || ctx?.req?.user;
   } else {
-    const request = context?.switchToHttp ? context.switchToHttp()?.getRequest() : null;
+    request = context?.switchToHttp ? context.switchToHttp()?.getRequest() : null;
     if (request) {
       args = request.body;
 
@@ -55,5 +70,5 @@ export function getContextData(context: ExecutionContext): { currentUser: { [key
   }
 
   // Return data
-  return { currentUser: user, args };
+  return { args, currentUser: user, request };
 }

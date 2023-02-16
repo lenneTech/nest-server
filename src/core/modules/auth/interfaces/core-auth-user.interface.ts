@@ -1,3 +1,5 @@
+import { CoreTokenData } from './core-token-data.interface';
+
 /**
  * Interface for user used in authorization module
  */
@@ -18,12 +20,7 @@ export interface ICoreAuthUser {
   password: string;
 
   /**
-   * Refresh token
-   */
-  refreshToken?: string;
-
-  /**
    * Refresh tokens for different devices
    */
-  refreshTokens?: Record<string, string>;
+  refreshTokens?: Record<string, CoreTokenData>;
 }
