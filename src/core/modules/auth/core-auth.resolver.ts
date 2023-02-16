@@ -30,7 +30,7 @@ export class CoreAuthResolver {
    * Logout user (from specific device)
    */
   @UseGuards(AuthGuard('jwt'))
-  @Mutation((returns) => CoreAuthModel, { description: 'Logout user (from specific device)' })
+  @Mutation((returns) => Boolean, { description: 'Logout user (from specific device)' })
   async logout(
     @GraphQLUser() currentUser: ICoreAuthUser,
     @Context() ctx: { res: ResponseType },
