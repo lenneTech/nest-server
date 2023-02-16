@@ -30,7 +30,11 @@ export class CoreAuthModule {
     }
   ): DynamicModule {
     // Process imports
-    let imports: any[] = [UserModule, PassportModule.register({ defaultStrategy: 'jwt' }), JwtModule.register(options)];
+    let imports: any[] = [
+      UserModule,
+      PassportModule.register({ defaultStrategy: ['jwt', 'jwt-refresh'] }),
+      JwtModule.register(options),
+    ];
     if (Array.isArray(options?.imports)) {
       imports = imports.concat(options.imports);
     }

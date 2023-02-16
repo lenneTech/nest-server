@@ -10,6 +10,7 @@ import { CoreAuthSignInInput } from './inputs/core-auth-sign-in.input';
 import { CoreAuthSignUpInput } from './inputs/core-auth-sign-up.input';
 import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
 import { CoreAuthService } from './services/core-auth.service';
+import { Tokens } from './tokens.decorator';
 
 /**
  * Authentication resolver for the sign in
@@ -26,6 +27,35 @@ export class CoreAuthResolver {
   // ===========================================================================
 
   /**
+   * Logout user (from specific device)
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Mutation((returns) => CoreAuthModel, { description: 'Logout user (from specific device)' })
+  async logout(
+    @GraphQLUser() currentUser: ICoreAuthUser,
+    @Context() ctx: { res: ResponseType },
+    @Tokens('token') token: string,
+    @Args('allDevices', { nullable: true }) allDevices?: boolean
+  ): Promise<boolean> {
+    const result = await this.authService.logout(token, { currentUser, allDevices });
+    return this.processCookies(ctx, result);
+  }
+
+  /**
+   * Refresh token (for specific device)
+   */
+  @UseGuards(AuthGuard('jwt-refresh'))
+  @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
+  async refreshToken(
+    @GraphQLUser() user: ICoreAuthUser,
+    @Tokens('refreshToken') refreshToken: string,
+    @Context() ctx: { res: ResponseType }
+  ): Promise<CoreAuthModel> {
+    const result = await this.authService.refreshTokens(user, refreshToken);
+    return this.processCookies(ctx, result);
+  }
+
+  /**
    * Sign in user via email and password (on specific device)
    */
   @Mutation((returns) => CoreAuthModel, {
@@ -37,33 +67,6 @@ export class CoreAuthResolver {
     @Args('input') input: CoreAuthSignInInput
   ): Promise<CoreAuthModel> {
     const result = await this.authService.signIn(input, { fieldSelection: { info, select: 'signIn' } });
-    return this.processCookies(ctx, result);
-  }
-
-  /**
-   * Logout user (from specific device)
-   */
-  @Mutation((returns) => CoreAuthModel, { description: 'Logout user (from specific device)' })
-  async logout(
-    @GraphQLUser() currentUser: ICoreAuthUser,
-    @Context() ctx: { res: ResponseType },
-    @Args('deviceId', { nullable: true }) deviceId?: string
-  ): Promise<boolean> {
-    const result = await this.authService.logout({ currentUser, deviceId });
-    return this.processCookies(ctx, result);
-  }
-
-  /**
-   * Refresh token (for specific device)
-   */
-  @UseGuards(AuthGuard('jwt-refresh'))
-  @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
-  async refreshToken(
-    @GraphQLUser() user: ICoreAuthUser,
-    @Context() ctx: { res: ResponseType },
-    @Args('deviceId', { nullable: true }) deviceId?: string
-  ): Promise<CoreAuthModel> {
-    const result = await this.authService.refreshTokens(user, deviceId);
     return this.processCookies(ctx, result);
   }
 

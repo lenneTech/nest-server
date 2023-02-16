@@ -81,14 +81,16 @@ export * from './core/modules/auth/guards/roles.guard';
 export * from './core/modules/auth/inputs/core-auth-sign-in.input';
 export * from './core/modules/auth/inputs/core-auth-sign-up.input';
 export * from './core/modules/auth/interfaces/core-auth-user.interface';
+export * from './core/modules/auth/interfaces/core-token-data.interface';
 export * from './core/modules/auth/interfaces/jwt-payload.interface';
 export * from './core/modules/auth/services/core-auth.service';
 export * from './core/modules/auth/services/core-auth-user.service';
+export * from './core/modules/auth/strategies/jwt.strategy';
+export * from './core/modules/auth/strategies/jwt-refresh.strategy';
 export * from './core/modules/auth/core-auth.model';
 export * from './core/modules/auth/core-auth.module';
 export * from './core/modules/auth/core-auth.resolver';
-export * from './core/modules/auth/strategies/jwt.strategy';
-export * from './core/modules/auth/strategies/jwt-refresh.strategy';
+export * from './core/modules/auth/tokens.decorator';
 
 // =====================================================================================================================
 // Core - Modules - File

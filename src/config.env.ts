@@ -62,6 +62,7 @@ const config: { [env: string]: IServerOptions } = {
         expiresIn: '15m',
       },
       refresh: {
+        renewal: true,
         secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
@@ -134,6 +135,7 @@ const config: { [env: string]: IServerOptions } = {
         expiresIn: '15m',
       },
       refresh: {
+        renewal: true,
         secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
         signInOptions: {
           expiresIn: '7d',
@@ -206,6 +208,7 @@ const config: { [env: string]: IServerOptions } = {
         expiresIn: '15m',
       },
       refresh: {
+        renewal: true,
         secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
         signInOptions: {
           expiresIn: '7d',

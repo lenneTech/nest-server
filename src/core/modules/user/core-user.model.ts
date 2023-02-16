@@ -3,6 +3,7 @@ import { Prop, raw, Schema as MongooseSchema } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
+import { CoreTokenData } from '../auth/interfaces/core-token-data.interface';
 
 export type CoreUserModelDocument = CoreUserModel & Document;
 
@@ -70,20 +71,13 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   passwordResetToken: string = undefined;
 
   /**
-   * Hashed refresh JWT
-   */
-  @IsOptional()
-  @Prop()
-  refreshToken: string = undefined;
-
-  /**
-   * Refresh tokens for devices
-   * key: deviceID
-   * value: hashed JWT
+   * Refresh tokens (for devices)
+   * key: Token
+   * value: TokenData
    */
   @IsOptional()
   @Prop(raw({}))
-  refreshTokens: Record<string, string> = undefined;
+  refreshTokens: Record<string, CoreTokenData> = undefined;
 
   /**
    * Verification token of the user
