@@ -76,6 +76,9 @@ export * from './core/common/types/string-or-object-id.type';
 // Core - Modules - Auth
 // =====================================================================================================================
 
+export * from './core/modules/auth/exceptions/expired-refresh-token.exception';
+export * from './core/modules/auth/exceptions/expired-token.exception';
+export * from './core/modules/auth/exceptions/invalid-token.exception';
 export * from './core/modules/auth/guards/auth.guard';
 export * from './core/modules/auth/guards/roles.guard';
 export * from './core/modules/auth/inputs/core-auth-sign-in.input';
@@ -87,6 +90,8 @@ export * from './core/modules/auth/services/core-auth.service';
 export * from './core/modules/auth/services/core-auth-user.service';
 export * from './core/modules/auth/strategies/jwt.strategy';
 export * from './core/modules/auth/strategies/jwt-refresh.strategy';
+export * from './core/modules/auth/auth-guard-strategy.enum';
+export * from './core/modules/auth/core-auth.controller';
 export * from './core/modules/auth/core-auth.model';
 export * from './core/modules/auth/core-auth.module';
 export * from './core/modules/auth/core-auth.resolver';

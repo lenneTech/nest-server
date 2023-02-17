@@ -45,13 +45,13 @@ export class CoreAuthService {
     // Check authentication
     const user = serviceOptions.currentUser;
     if (!user || !tokenOrRefreshToken) {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('Invalid token');
     }
 
     // Check authorization
     const deviceId = this.decodeJwt(tokenOrRefreshToken)?.deviceId;
     if (!deviceId || !user.refreshTokens[deviceId]) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Invalid token');
     }
 
     // Logout from all devices
@@ -101,11 +101,11 @@ export class CoreAuthService {
 
     // Get user
     const user = await this.userService.getViaEmail(email, serviceOptionsForUserService);
-    if (
-      !user ||
-      !((await bcrypt.compare(password, user.password)) || (await bcrypt.compare(sha256(password), user.password)))
-    ) {
-      throw new UnauthorizedException();
+    if (!user) {
+      throw new UnauthorizedException('Unknown email');
+    }
+    if (!((await bcrypt.compare(password, user.password)) || (await bcrypt.compare(sha256(password), user.password)))) {
+      throw new UnauthorizedException('Wrong password');
     }
 
     // Return tokens and user
@@ -125,7 +125,7 @@ export class CoreAuthService {
     // Get and check user
     const user = await this.userService.create(input, serviceOptionsForUserService);
     if (!user) {
-      throw new BadRequestException('Email Address already in use');
+      throw new BadRequestException('Email address already in use');
     }
 
     // Set device ID
@@ -233,7 +233,7 @@ export class CoreAuthService {
     if (currentRefreshToken) {
       deviceId = this.decodeJwt(currentRefreshToken)?.deviceId;
       if (!deviceId || !user.refreshTokens?.[deviceId]) {
-        throw new UnauthorizedException('Invalid refresh token');
+        throw new UnauthorizedException('Invalid token');
       }
       if (!this.configService.getFastButReadOnly('jwt.refresh.renewal')) {
         // Return currentToken
@@ -254,7 +254,7 @@ export class CoreAuthService {
     // Set new token
     const payload = this.decodeJwt(newRefreshToken);
     if (!payload) {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('Invalid token');
     }
     if (!deviceId) {
       deviceId = payload.deviceId;

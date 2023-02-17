@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { template } from 'lodash';
 import { ConfigService } from './config.service';
 // eslint-disable-next-line
@@ -86,7 +86,7 @@ export class MailjetService {
         this.configService.getFastButReadOnly('email.mailjet.api_key_public') &&
         this.configService.getFastButReadOnly('email.mailjet.api_key_private')
       ) {
-        throw new Error('Cannot connect to mailjet.');
+        throw new HttpException('Cannot connect to mailjet.', 502);
       }
       console.debug(
         JSON.stringify(

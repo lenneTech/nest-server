@@ -2,6 +2,7 @@ import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/com
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { RoleEnum } from '../../../common/enums/role.enum';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { AuthGuard } from './auth.guard';
 
 /**
@@ -12,7 +13,7 @@ import { AuthGuard } from './auth.guard';
  * If this is not the case, an UnauthorizedException is thrown.
  */
 @Injectable()
-export class RolesGuard extends AuthGuard('jwt') {
+export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
   /**
    * Integrate reflector
    */
@@ -53,7 +54,7 @@ export class RolesGuard extends AuthGuard('jwt') {
       }
 
       // Requester is not authorized
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('Missing role');
     }
 
     // Everything is ok

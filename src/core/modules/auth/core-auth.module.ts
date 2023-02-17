@@ -2,6 +2,7 @@ import { DynamicModule, ForwardReference, Module, Provider, Type } from '@nestjs
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { RolesGuard } from './guards/roles.guard';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -32,7 +33,7 @@ export class CoreAuthModule {
     // Process imports
     let imports: any[] = [
       UserModule,
-      PassportModule.register({ defaultStrategy: ['jwt', 'jwt-refresh'] }),
+      PassportModule.register({ defaultStrategy: [AuthGuardStrategy.JWT, AuthGuardStrategy.JWT_REFRESH] }),
       JwtModule.register(options),
     ];
     if (Array.isArray(options?.imports)) {

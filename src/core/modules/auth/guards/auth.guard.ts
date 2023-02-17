@@ -5,6 +5,10 @@ import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
 import * as jwt from 'jsonwebtoken';
 import * as passport from 'passport';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
+import { ExpiredRefreshTokenException } from '../exceptions/expired-refresh-token.exception';
+import { ExpiredTokenException } from '../exceptions/expired-token.exception';
+import { InvalidTokenException } from '../exceptions/invalid-token.exception';
 
 /**
  * Missing strategy error
@@ -105,13 +109,17 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      */
     handleRequest(err, user, info, context): TUser {
       if (err) {
-        if (err instanceof jwt.JsonWebTokenError) {
-          throw new UnauthorizedException('Invalid token');
-        }
-        throw err;
+        throw new InvalidTokenException();
       }
       if (!user) {
-        throw new UnauthorizedException('Invalid token');
+        if (info?.name === 'TokenExpiredError') {
+          if (type === AuthGuardStrategy.JWT_REFRESH) {
+            throw new ExpiredRefreshTokenException();
+          } else {
+            throw new ExpiredTokenException();
+          }
+        }
+        throw new InvalidTokenException();
       }
       return user;
     }
@@ -124,4 +132,4 @@ function createAuthGuard(type?: string): Type<CanActivate> {
 /**
  * Export AuthGuard
  */
-export const AuthGuard: (type?: string | string[]) => Type<IAuthGuard> = memoize(createAuthGuard);
+export const AuthGuard: (type?: string | string[] | AuthGuardStrategy) => Type<IAuthGuard> = memoize(createAuthGuard);
