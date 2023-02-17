@@ -72,7 +72,7 @@ export abstract class CoreFileService {
       const filterQuery = convertFilterArgsToQuery(filterArgs);
       const cursor = this.files.find(filterQuery[0], filterQuery[1]);
       if (!cursor) {
-        throw new Error('File collection not found');
+        throw new NotFoundException('File collection not found');
       }
       cursor.toArray((error, docs) => {
         error ? reject(error) : resolve(this.prepareOutput(docs, serviceOptions));

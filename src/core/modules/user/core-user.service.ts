@@ -55,9 +55,7 @@ export abstract class CoreUserService<
           await createdUser.save();
         } catch (error) {
           if (error.code === 11000) {
-            throw new UnprocessableEntityException(
-              `User with email address "${(data.input as any).email}" already exists`
-            );
+            throw new BadRequestException('Email address already in use');
           } else {
             throw new UnprocessableEntityException();
           }
@@ -105,7 +103,7 @@ export abstract class CoreUserService<
     }
 
     if (!dbObject.verificationToken) {
-      throw new Error('User has no token');
+      throw new BadRequestException('User has no verification token');
     }
 
     if (dbObject.verified) {
@@ -185,7 +183,7 @@ export abstract class CoreUserService<
 
     // Check roles values
     if (roles.some((role) => typeof role !== 'string')) {
-      throw new BadRequestException('roles contains invalid values');
+      throw new BadRequestException('Roles contains invalid values');
     }
 
     // Update and return user

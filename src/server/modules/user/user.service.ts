@@ -88,7 +88,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     const dbUser = await this.mainDbModel.findOne({ id: user.id }).exec();
     // Check user
     if (!dbUser) {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('User is not allowed to set the avatar');
     }
 
     // Check file

@@ -1,8 +1,9 @@
-import { UseGuards } from '@nestjs/common';
-import { Args, Context, Info, Mutation, Resolver } from '@nestjs/graphql';
+import { Body, Controller, Get, Param, ParseBoolPipe, Post, Res, UseGuards } from '@nestjs/common';
+import { Args, Info } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
-import { GraphQLResolveInfo } from 'graphql';
+import { GraphQLResolveInfo } from 'graphql/index';
 import { GraphQLUser } from '../../common/decorators/graphql-user.decorator';
+import { RESTUser } from '../../common/decorators/rest-user.decorator';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { CoreAuthModel } from './core-auth.model';
@@ -13,75 +14,66 @@ import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
 import { CoreAuthService } from './services/core-auth.service';
 import { Tokens } from './tokens.decorator';
 
-/**
- * Authentication resolver for the sign in
- */
-@Resolver((of) => CoreAuthModel, { isAbstract: true })
-export class CoreAuthResolver {
+@Controller('auth')
+export class CoreAuthController {
   /**
    * Import services
    */
   constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {}
 
-  // ===========================================================================
-  // Mutations
-  // ===========================================================================
-
   /**
    * Logout user (from specific device)
    */
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
-  @Mutation((returns) => Boolean, { description: 'Logout user (from specific device)' })
+  @Get()
   async logout(
-    @GraphQLUser() currentUser: ICoreAuthUser,
-    @Context() ctx: { res: ResponseType },
+    @RESTUser() currentUser: ICoreAuthUser,
     @Tokens('token') token: string,
-    @Args('allDevices', { nullable: true }) allDevices?: boolean
+    @Res() res: ResponseType,
+    @Param('allDevices', ParseBoolPipe) allDevices?: boolean
   ): Promise<boolean> {
     const result = await this.authService.logout(token, { currentUser, allDevices });
-    return this.processCookies(ctx, result);
+    return this.processCookies(res, result);
   }
 
   /**
    * Refresh token (for specific device)
    */
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
-  @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
+  @Get()
   async refreshToken(
     @GraphQLUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
-    @Context() ctx: { res: ResponseType }
+    @Res() res: ResponseType
   ): Promise<CoreAuthModel> {
     const result = await this.authService.refreshTokens(user, refreshToken);
-    return this.processCookies(ctx, result);
+    return this.processCookies(res, result);
   }
 
   /**
    * Sign in user via email and password (on specific device)
    */
-  @Mutation((returns) => CoreAuthModel, {
-    description: 'Sign in user via email and password and get JWT tokens (for specific device)',
-  })
+  @Post()
   async signIn(
     @Info() info: GraphQLResolveInfo,
-    @Context() ctx: { res: ResponseType },
-    @Args('input') input: CoreAuthSignInInput
+    @Res() res: ResponseType,
+    @Body('input') input: CoreAuthSignInInput
   ): Promise<CoreAuthModel> {
-    const result = await this.authService.signIn(input, { fieldSelection: { info, select: 'signIn' } });
-    return this.processCookies(ctx, result);
+    const result = await this.authService.signIn(input);
+    return this.processCookies(res, result);
   }
 
   /**
    * Register a new user account (on specific device)
    */
-  @Mutation((returns) => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
+  @Post()
   async signUp(
     @Info() info: GraphQLResolveInfo,
-    @Context() ctx: { res: ResponseType },
+    @Res() res: ResponseType,
     @Args('input') input: CoreAuthSignUpInput
   ): Promise<CoreAuthModel> {
-    const result = await this.authService.signUp(input, { fieldSelection: { info, select: 'signUp' } });
-    return this.processCookies(ctx, result);
+    const result = await this.authService.signUp(input);
+    return this.processCookies(res, result);
   }
 
   // ===================================================================================================================
@@ -91,17 +83,17 @@ export class CoreAuthResolver {
   /**
    * Process cookies
    */
-  protected processCookies(ctx: { res: ResponseType }, result: any) {
+  protected processCookies(res: ResponseType, result: any) {
     // Check if cookie handling is activated
     if (this.configService.getFastButReadOnly('cookies')) {
       // Set cookies
       if (typeof result !== 'object') {
-        ctx.res.cookie('token', '', { httpOnly: true });
-        ctx.res.cookie('refreshToken', '', { httpOnly: true });
+        res.cookie('token', '', { httpOnly: true });
+        res.cookie('refreshToken', '', { httpOnly: true });
         return result;
       }
-      ctx.res.cookie('token', result?.token || '', { httpOnly: true });
-      ctx.res.cookie('refreshToken', result?.refreshToken || '', { httpOnly: true });
+      res.cookie('token', result?.token || '', { httpOnly: true });
+      res.cookie('refreshToken', result?.refreshToken || '', { httpOnly: true });
 
       // Remove tokens from result
       if (result.token) {

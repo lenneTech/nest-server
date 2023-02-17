@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -41,7 +42,7 @@ export class FileController {
   @Get(':id')
   async getFile(@Param('id') id: string, @Res() res) {
     if (!id) {
-      throw new UnprocessableEntityException();
+      throw new BadRequestException('Missing ID');
     }
 
     let file;
@@ -52,7 +53,7 @@ export class FileController {
     }
 
     if (!file) {
-      throw new NotFoundException();
+      throw new NotFoundException('File not found');
     }
     const filestream = await this.fileService.getFileStream(id);
     res.header('Content-Type', file.contentType);
@@ -75,7 +76,7 @@ export class FileController {
   @Delete(':id')
   async deleteFile(@Param('id') id: string) {
     if (!id) {
-      throw new UnprocessableEntityException();
+      throw new BadRequestException('Missing ID');
     }
 
     return await this.fileService.deleteFile(id);
