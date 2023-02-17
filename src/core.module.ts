@@ -78,7 +78,7 @@ export class CoreModule implements NestModule {
                             return { user: user, headers: connectionParams };
                           }
 
-                          throw new UnauthorizedException();
+                          throw new UnauthorizedException('Missing authentication token');
                         }
                       },
                     },
@@ -98,7 +98,7 @@ export class CoreModule implements NestModule {
                             return extra;
                           }
 
-                          throw new UnauthorizedException();
+                          throw new UnauthorizedException('Missing authentication token');
                         }
                       },
                       context: ({ extra }) => extra,

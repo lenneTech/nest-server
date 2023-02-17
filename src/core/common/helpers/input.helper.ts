@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
@@ -362,7 +362,7 @@ export function deepFreeze(object: any) {
  * Standard error function
  */
 export function errorFunction(caller: (...params) => any, message = 'Required parameter is missing or invalid') {
-  const err = new Error(message);
+  const err = new BadRequestException(message);
   Error.captureStackTrace(err, caller);
   throw err;
 }
