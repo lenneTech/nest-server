@@ -1,9 +1,8 @@
-import { CanActivate, ExecutionContext, Logger, mixin, Optional, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
-import * as jwt from 'jsonwebtoken';
 import * as passport from 'passport';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { ExpiredRefreshTokenException } from '../exceptions/expired-refresh-token.exception';
