@@ -3,6 +3,8 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
+import { ExpiredTokenException } from '../exceptions/expired-token.exception';
+import { InvalidTokenException } from '../exceptions/invalid-token.exception';
 import { AuthGuard } from './auth.guard';
 
 /**
@@ -45,12 +47,20 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // Check user and user roles
     if (!user?.hasRole?.(roles)) {
-      // Get args
-      const args: any = GqlExecutionContext.create(context).getArgs();
-
       // Check special user roles (user is logged in or access is free for any)
       if ((user && roles.includes(RoleEnum.S_USER)) || roles.includes(RoleEnum.S_EVERYONE)) {
         return user;
+      }
+
+      // If user is missing throw token exception
+      if (!user) {
+        if (err) {
+          throw new InvalidTokenException();
+        }
+        if (info?.name === 'TokenExpiredError') {
+          throw new ExpiredTokenException();
+        }
+        throw new UnauthorizedException('Unauthorized');
       }
 
       // Requester is not authorized
