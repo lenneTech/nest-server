@@ -40,12 +40,19 @@ export class CheckSecurityInterceptor implements NestInterceptor {
         }
 
         // Check deep
-        return processDeep(data, (item) => {
-          if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
-            return item;
-          }
-          return item.securityCheck(user, force);
-        });
+        return processDeep(
+          data,
+          (item) => {
+            if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
+              if (Array.isArray(item)) {
+                return item.filter((i) => i !== undefined);
+              }
+              return item;
+            }
+            return item.securityCheck(user, force);
+          },
+          { specialFunctions: ['securityCheck'] }
+        );
       })
     );
   }
