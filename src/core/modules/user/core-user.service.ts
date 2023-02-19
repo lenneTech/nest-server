@@ -20,7 +20,7 @@ export abstract class CoreUserService<
   TUser extends CoreUserModel,
   TUserInput extends CoreUserInput,
   TUserCreateInput extends CoreUserCreateInput
-> extends CrudService<TUser> {
+> extends CrudService<TUser, TUserCreateInput, TUserInput> {
   protected constructor(
     protected override readonly configService: ConfigService,
     protected readonly emailService: EmailService,
