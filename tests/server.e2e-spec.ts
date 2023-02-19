@@ -104,9 +104,9 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Sign up new user
+   * Sign up new user with existing email
    */
-  it('signUp', async () => {
+  it('signUpWithExistingEmail', async () => {
     gPassword = Math.random().toString(36).substring(7);
     gEmail = gPassword + '@testuser.com';
 
@@ -139,8 +139,8 @@ describe('ServerModule (e2e)', () => {
       fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
     });
     expect(res2.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res2.errors[0].extensions.response.statusCode).toEqual(422);
-    expect(res2.errors[0].message).toEqual('Unprocessable Entity');
+    expect(res2.errors[0].extensions.response.statusCode).toEqual(400);
+    expect(res2.errors[0].message).toEqual('Email address already in use');
     expect(res2.data).toBe(null);
   });
 

@@ -54,7 +54,7 @@ export abstract class CoreUserService<
         try {
           await createdUser.save();
         } catch (error) {
-          if (error.code === 11000) {
+          if (error?.errors?.email?.kind === 'unique') {
             throw new BadRequestException('Email address already in use');
           } else {
             throw new UnprocessableEntityException();

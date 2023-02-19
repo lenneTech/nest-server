@@ -129,7 +129,7 @@ export abstract class CoreModel {
   /**
    * Verification of the user's rights to access the properties of this object
    */
-  securityCheck(user: any, force?: boolean): this {
+  public securityCheck(user: any, force?: boolean): this {
     return this;
   }
 }
