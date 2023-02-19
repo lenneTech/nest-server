@@ -654,14 +654,22 @@ export function processDeep(
   data: any,
   func: (data: any) => any,
   options?: {
+    // Remember already processed objects to avoid infinite processes
     processedObjects?: WeakMap<new () => any, boolean>;
+
+    // For objects of special classes or objects with special functions or special properties,
+    // only the objects themselves are processed with func, not the individual properties of the object additionally
     specialClasses?: ((new (args: any[]) => any) | string)[];
+    specialFunctions?: string[];
+    specialProperties?: string[];
   }
 ): any {
   // Set options
-  const { processedObjects, specialClasses } = {
+  const { processedObjects, specialClasses, specialFunctions, specialProperties } = {
     processedObjects: new WeakMap(),
     specialClasses: [],
+    specialFunctions: [],
+    specialProperties: [],
     ...options,
   };
 
@@ -680,11 +688,17 @@ export function processDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return data.map((item) => processDeep(item, func, { processedObjects, specialClasses }));
+    return func(data.map((item) => processDeep(item, func, { processedObjects, specialClasses })));
   }
 
   // Process object
   if (typeof data === 'object') {
+    if (
+      specialFunctions.find((sF) => typeof data[sF] === 'function') ||
+      specialProperties.find((sP) => Object.getOwnPropertyNames(data).includes(sP))
+    ) {
+      return func(data);
+    }
     for (const specialClass of specialClasses) {
       if (
         (typeof specialClass === 'string' && specialClass === data.constructor?.name) ||
@@ -696,7 +710,7 @@ export function processDeep(
     for (const [key, value] of Object.entries(data)) {
       data[key] = processDeep(value, func, { processedObjects, specialClasses });
     }
-    return data;
+    return func(data);
   }
 
   // Process others

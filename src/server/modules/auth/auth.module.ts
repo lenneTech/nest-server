@@ -4,6 +4,7 @@ import { EmailService } from '../../../core/common/services/email.service';
 import { CoreAuthModule } from '../../../core/modules/auth/core-auth.module';
 import { UserModule } from '../user/user.module';
 import { UserService } from '../user/user.service';
+import { AuthController } from './auth.controller';
 import { AuthResolver } from './auth.resolver';
 import { AuthService } from './auth.service';
 
@@ -28,8 +29,8 @@ export class AuthModule {
           },
         }),
       ],
-      providers: [AuthResolver, AuthService, EmailService],
-      exports: [AuthResolver, CoreAuthModule],
+      providers: [AuthController, AuthResolver, AuthService, EmailService],
+      exports: [AuthController, AuthResolver, CoreAuthModule],
     };
   }
 }

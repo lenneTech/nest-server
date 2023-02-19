@@ -6,14 +6,19 @@ import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
+import { PlainObject } from '../types/plain-object.type';
 import { ConfigService } from './config.service';
 import { ModuleService } from './module.service';
 
-export abstract class CrudService<T extends CoreModel = any> extends ModuleService<T> {
+export abstract class CrudService<
+  Model extends CoreModel = any,
+  CreateInput = any,
+  UpdateInput = any
+> extends ModuleService<Model> {
   /**
    * Create item
    */
-  async create(input: any, serviceOptions?: ServiceOptions): Promise<T> {
+  async create(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = prepareServiceOptionsForCreate(serviceOptions);
     return this.process(
       async (data) => {
@@ -28,7 +33,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Create item without checks or restrictions
    * Warning: Disables the handling of rights and restrictions!
    */
-  async createForce(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
+  async createForce(input: PlainObject<CreateInput>, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.create(input, serviceOptions);
@@ -38,7 +43,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Create item without checks, restrictions or preparations
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
-  async createRaw(input: any, serviceOptions: ServiceOptions = {}): Promise<T> {
+  async createRaw(input: PlainObject<CreateInput>, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
@@ -48,7 +53,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   /**
    * Get item by ID
    */
-  async get(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+  async get(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     const dbObject = await this.mainDbModel.findById(id).exec();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
@@ -60,7 +65,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Get item by ID without checks or restrictions
    * Warning: Disables the handling of rights and restrictions!
    */
-  async getForce(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
+  async getForce(id: string, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.get(id, serviceOptions);
@@ -70,7 +75,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Get item by ID without checks, restrictions or preparations
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
-  async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<T> {
+  async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
@@ -83,7 +88,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async find(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
-  ): Promise<T[]> {
+  ): Promise<Model[]> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
     if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
@@ -124,7 +129,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async findForce(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
-  ): Promise<T[]> {
+  ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.find(filter, serviceOptions);
@@ -137,7 +142,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async findRaw(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
-  ): Promise<T[]> {
+  ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
@@ -150,7 +155,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async findAndCount(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions
-  ): Promise<{ items: T[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; totalCount: number }> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
     if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
@@ -229,7 +234,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async findAndCountForce(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
-  ): Promise<{ items: T[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.findAndCount(filter, serviceOptions);
@@ -242,7 +247,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async findAndCountRaw(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {}
-  ): Promise<{ items: T[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
@@ -253,15 +258,15 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Find and update
    */
   async findAndUpdate(
-    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
-    update: any,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    update: PlainObject<UpdateInput>,
     serviceOptions?: ServiceOptions
-  ): Promise<T[]> {
-    const dbItems: T[] = await this.find(filter, serviceOptions);
+  ): Promise<Model[]> {
+    const dbItems: Model[] = await this.find(filter, serviceOptions);
     if (!dbItems?.length) {
       return [];
     }
-    const promises: Promise<T>[] = [];
+    const promises: Promise<Model>[] = [];
     for (const dbItem of dbItems) {
       promises.push(
         new Promise(async (resolve, reject) => {
@@ -282,12 +287,13 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions!
    */
   async findAndUpdateForce(
-    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    update: PlainObject<UpdateInput>,
     serviceOptions: ServiceOptions = {}
-  ): Promise<T[]> {
+  ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
-    return this.findAndUpdate(filter, serviceOptions);
+    return this.findAndUpdate(filter, update, serviceOptions);
   }
 
   /**
@@ -295,19 +301,20 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async findAndUpdateRaw(
-    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    update: PlainObject<UpdateInput>,
     serviceOptions: ServiceOptions = {}
-  ): Promise<T[]> {
+  ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
-    return this.findAndUpdateForce(filter, serviceOptions);
+    return this.findAndUpdateForce(filter, update, serviceOptions);
   }
 
   /**
    * CRUD alias for get
    */
-  async read(id: string, serviceOptions?: ServiceOptions): Promise<T>;
+  async read(id: string, serviceOptions?: ServiceOptions): Promise<Model>;
 
   /**
    * CRUD alias for find
@@ -315,7 +322,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async read(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T[]>;
+  ): Promise<Model[]>;
 
   /**
    * CRUD alias for get or find
@@ -323,7 +330,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async read(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T | T[]> {
+  ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.get(input, serviceOptions);
     } else {
@@ -335,7 +342,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * CRUD alias for getForce
    * Warning: Disables the handling of rights and restrictions!
    */
-  async readForce(id: string, serviceOptions?: ServiceOptions): Promise<T>;
+  async readForce(id: string, serviceOptions?: ServiceOptions): Promise<Model>;
 
   /**
    * CRUD alias for findForce
@@ -344,7 +351,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async readForce(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T[]>;
+  ): Promise<Model[]>;
 
   /**
    * CRUD alias for getForce or findForce
@@ -353,7 +360,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async readForce(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T | T[]> {
+  ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.getForce(input, serviceOptions);
     } else {
@@ -365,7 +372,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * CRUD alias for getRaw
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
-  async readRaw(id: string, serviceOptions?: ServiceOptions): Promise<T>;
+  async readRaw(id: string, serviceOptions?: ServiceOptions): Promise<Model>;
 
   /**
    * CRUD alias for findRaw
@@ -374,7 +381,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async readRaw(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T[]>;
+  ): Promise<Model[]>;
 
   /**
    * CRUD alias for getRaw or findRaw
@@ -383,7 +390,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   async readRaw(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions
-  ): Promise<T | T[]> {
+  ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.getRaw(input, serviceOptions);
     } else {
@@ -394,7 +401,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   /**
    * Update item via ID
    */
-  async update(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+  async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
     const dbObject = await this.mainDbModel.findById(id).lean();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
@@ -413,7 +420,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Update item via ID without checks or restrictions
    * Warning: Disables the handling of rights and restrictions!
    */
-  async updateForce(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+  async updateForce(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.update(id, input, serviceOptions);
@@ -423,7 +430,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Update item via ID without checks, restrictions or preparations
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
-  async updateRaw(id: string, input: any, serviceOptions?: ServiceOptions): Promise<T> {
+  async updateRaw(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
@@ -433,7 +440,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
   /**
    * Delete item via ID
    */
-  async delete(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+  async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     const dbObject = await this.mainDbModel.findById(id).exec();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
@@ -451,7 +458,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Delete item via ID without checks or restrictions
    * Warning: Disables the handling of rights and restrictions!
    */
-  async deleteForce(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+  async deleteForce(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
     return this.delete(id, serviceOptions);
@@ -461,7 +468,7 @@ export abstract class CrudService<T extends CoreModel = any> extends ModuleServi
    * Delete item via ID without checks, restrictions or preparations
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
-  async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<T> {
+  async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;

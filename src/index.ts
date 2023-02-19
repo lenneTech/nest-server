@@ -64,6 +64,7 @@ export * from './core/common/types/core-model-constructor.type';
 export * from './core/common/types/falsy.type';
 export * from './core/common/types/field-selection.type';
 export * from './core/common/types/ids.type';
+export * from './core/common/types/is-one-of.type';
 export * from './core/common/types/maybe-promise.type';
 export * from './core/common/types/plain-input.type';
 export * from './core/common/types/plain-object.type';
