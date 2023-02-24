@@ -99,7 +99,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     };
 
     // Set default for ignoreSelections if not set
-    const ignoreSelections = this.configService?.getFastButReadOnly('ignoreSelectionsForPopulate', false);
+    const ignoreSelections = this.configService?.getFastButReadOnly('ignoreSelectionsForPopulate', true);
     if (ignoreSelections) {
       if (config.processFieldSelection.ignoreSelections === undefined) {
         config.processFieldSelection.ignoreSelections = ignoreSelections;
