@@ -56,6 +56,7 @@ const config: { [env: string]: IServerOptions } = {
       },
       maxComplexity: 20,
     },
+    ignoreSelectionsForPopulate: true,
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
@@ -129,6 +130,7 @@ const config: { [env: string]: IServerOptions } = {
       },
       maxComplexity: 20,
     },
+    ignoreSelectionsForPopulate: true,
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
       signInOptions: {
@@ -202,6 +204,7 @@ const config: { [env: string]: IServerOptions } = {
       },
       maxComplexity: 20,
     },
+    ignoreSelectionsForPopulate: true,
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
       signInOptions: {

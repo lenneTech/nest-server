@@ -173,8 +173,11 @@ export interface IServerOptions {
   /**
    * Ignore selections in fieldSelection
    * [ConfigService must be integrated in ModuleService]
-   * If falsy (default): select and populate information in fieldSelection will be respected
-   * If truly: select fields will be ignored and only populate fields in fieldSelection will be respected
+   * If truly (default): select fields will be ignored and only populate fields in fieldSelection will be respected
+   * If falsy: select and populate information in fieldSelection will be respected
+   *
+   * Hint: falsy may cause problems with CheckSecurityInterceptor
+   * because the checks may miss fields that were not explicitly requested
    */
   ignoreSelectionsForPopulate?: boolean;
 
