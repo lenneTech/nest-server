@@ -36,13 +36,13 @@ export enum RoleEnum {
   // into user.roles!
   // ===================================================================================================================
 
-  // Everyone, including users who are not logged in, can access (see context user, e.g. @GraphQLUser)
+  // Everyone, including users who are not logged in, can access (see context user, e.g. @CurrentUser)
   S_EVERYONE = 's_everyone',
 
   // No one has access, not even administrators
   S_NO_ONE = 's_no_one',
 
-  // User must be logged in (see context user, e.g. @GraphQLUser)
+  // User must be logged in (see context user, e.g. @CurrentUser)
   S_USER = 's_user',
 
   // ===================================================================================================================
