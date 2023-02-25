@@ -1,9 +1,7 @@
 import { Body, Controller, Get, Param, ParseBoolPipe, Post, Res, UseGuards } from '@nestjs/common';
-import { Args, Info } from '@nestjs/graphql';
+import { Args } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
-import { GraphQLResolveInfo } from 'graphql/index';
-import { GraphQLUser } from '../../common/decorators/graphql-user.decorator';
-import { RESTUser } from '../../common/decorators/rest-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { CoreAuthModel } from './core-auth.model';
@@ -27,7 +25,7 @@ export class CoreAuthController {
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   @Get()
   async logout(
-    @RESTUser() currentUser: ICoreAuthUser,
+    @CurrentUser() currentUser: ICoreAuthUser,
     @Tokens('token') token: string,
     @Res() res: ResponseType,
     @Param('allDevices', ParseBoolPipe) allDevices?: boolean
@@ -42,7 +40,7 @@ export class CoreAuthController {
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
   @Get()
   async refreshToken(
-    @GraphQLUser() user: ICoreAuthUser,
+    @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
     @Res() res: ResponseType
   ): Promise<CoreAuthModel> {
@@ -54,11 +52,7 @@ export class CoreAuthController {
    * Sign in user via email and password (on specific device)
    */
   @Post()
-  async signIn(
-    @Info() info: GraphQLResolveInfo,
-    @Res() res: ResponseType,
-    @Body('input') input: CoreAuthSignInInput
-  ): Promise<CoreAuthModel> {
+  async signIn(@Res() res: ResponseType, @Body('input') input: CoreAuthSignInInput): Promise<CoreAuthModel> {
     const result = await this.authService.signIn(input);
     return this.processCookies(res, result);
   }
@@ -67,11 +61,7 @@ export class CoreAuthController {
    * Register a new user account (on specific device)
    */
   @Post()
-  async signUp(
-    @Info() info: GraphQLResolveInfo,
-    @Res() res: ResponseType,
-    @Args('input') input: CoreAuthSignUpInput
-  ): Promise<CoreAuthModel> {
+  async signUp(@Res() res: ResponseType, @Args('input') input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
     const result = await this.authService.signUp(input);
     return this.processCookies(res, result);
   }

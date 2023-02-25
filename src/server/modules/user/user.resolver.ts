@@ -1,11 +1,11 @@
 import { Inject } from '@nestjs/common';
-import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
-import { GraphQLResolveInfo } from 'graphql';
+import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { FilterArgs } from '../../../core/common/args/filter.args';
-import { GraphQLUser } from '../../../core/common/decorators/graphql-user.decorator';
+import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
@@ -32,9 +32,9 @@ export class UserResolver {
    */
   @Roles(RoleEnum.ADMIN)
   @Query(() => [User], { description: 'Find users (via filter)' })
-  async findUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+  async findUsers(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args() args?: FilterArgs) {
     return await this.userService.find(args, {
-      fieldSelection: { info, select: 'findUsers' },
+      ...serviceOptions,
       inputType: FilterArgs,
     });
   }
@@ -44,9 +44,12 @@ export class UserResolver {
    */
   @Roles(RoleEnum.ADMIN)
   @Query(() => FindAndCountUsersResult, { description: 'Find users (via filter)' })
-  async findAndCountUsers(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+  async findAndCountUsers(
+    @GraphQLServiceOptions({ gqlPath: 'findAndCountUsers.items' }) serviceOptions: ServiceOptions,
+    @Args() args?: FilterArgs
+  ) {
     return await this.userService.findAndCount(args, {
-      fieldSelection: { info, select: 'findAndCountUsers' },
+      ...serviceOptions,
       inputType: FilterArgs,
     });
   }
@@ -56,10 +59,9 @@ export class UserResolver {
    */
   @Roles(RoleEnum.S_USER)
   @Query(() => User, { description: 'Get user with specified ID' })
-  async getUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
+  async getUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.get(id, {
-      currentUser: user,
-      fieldSelection: { info, select: 'getUser' },
+      ...serviceOptions,
       roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
@@ -92,13 +94,11 @@ export class UserResolver {
   @Roles(RoleEnum.ADMIN)
   @Mutation(() => User, { description: 'Create a new user' })
   async createUser(
-    @Args('input') input: UserCreateInput,
-    @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: UserCreateInput
   ): Promise<User> {
     return await this.userService.create(input, {
-      currentUser: user,
-      fieldSelection: { info, select: 'createUser' },
+      ...serviceOptions,
       inputType: UserCreateInput,
     });
   }
@@ -108,10 +108,9 @@ export class UserResolver {
    */
   @Roles(RoleEnum.S_USER)
   @Mutation(() => User, { description: 'Delete existing user' })
-  async deleteUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo, @GraphQLUser() user: User): Promise<User> {
+  async deleteUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.delete(id, {
-      currentUser: user,
-      fieldSelection: { info, select: 'deleteUser' },
+      ...serviceOptions,
       roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
@@ -131,15 +130,13 @@ export class UserResolver {
   @Roles(RoleEnum.S_USER)
   @Mutation(() => User, { description: 'Update existing user' })
   async updateUser(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('input') input: UserInput,
-    @Args('id') id: string,
-    @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo
+    @Args('id') id: string
   ): Promise<User> {
     // Update user
     return await this.userService.update(id, input, {
-      currentUser: user,
-      fieldSelection: { info, select: 'updateUser' },
+      ...serviceOptions,
       inputType: UserInput,
       roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
