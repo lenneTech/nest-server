@@ -1,4 +1,5 @@
-import { ArgumentsHost, Catch, ContextType, ExceptionFilter, HttpException } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { GqlContextType } from '@nestjs/graphql';
 import { Response } from 'express';
 
 @Catch(HttpException)
@@ -11,7 +12,7 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
     console.debug(exception.stack);
 
     // GraphQL
-    const type = host.getType() as ContextType | 'graphql';
+    const type = host.getType<GqlContextType>();
     if (type === 'graphql') {
       return exception;
     }

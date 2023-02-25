@@ -1,8 +1,9 @@
 import { UseGuards } from '@nestjs/common';
-import { Args, Context, Info, Mutation, Resolver } from '@nestjs/graphql';
+import { Args, Context, Mutation, Resolver } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
-import { GraphQLResolveInfo } from 'graphql';
-import { GraphQLUser } from '../../common/decorators/graphql-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { GraphQLServiceOptions } from '../../common/decorators/graphql-service-options.decorator';
+import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { CoreAuthModel } from './core-auth.model';
@@ -33,7 +34,7 @@ export class CoreAuthResolver {
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   @Mutation((returns) => Boolean, { description: 'Logout user (from specific device)' })
   async logout(
-    @GraphQLUser() currentUser: ICoreAuthUser,
+    @CurrentUser() currentUser: ICoreAuthUser,
     @Context() ctx: { res: ResponseType },
     @Tokens('token') token: string,
     @Args('allDevices', { nullable: true }) allDevices?: boolean
@@ -48,7 +49,7 @@ export class CoreAuthResolver {
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
   @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   async refreshToken(
-    @GraphQLUser() user: ICoreAuthUser,
+    @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
     @Context() ctx: { res: ResponseType }
   ): Promise<CoreAuthModel> {
@@ -63,11 +64,11 @@ export class CoreAuthResolver {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
   async signIn(
-    @Info() info: GraphQLResolveInfo,
+    @GraphQLServiceOptions({ gqlPath: 'signIn.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
     @Args('input') input: CoreAuthSignInInput
   ): Promise<CoreAuthModel> {
-    const result = await this.authService.signIn(input, { fieldSelection: { info, select: 'signIn' } });
+    const result = await this.authService.signIn(input, serviceOptions);
     return this.processCookies(ctx, result);
   }
 
@@ -76,11 +77,11 @@ export class CoreAuthResolver {
    */
   @Mutation((returns) => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
   async signUp(
-    @Info() info: GraphQLResolveInfo,
+    @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
     @Args('input') input: CoreAuthSignUpInput
   ): Promise<CoreAuthModel> {
-    const result = await this.authService.signUp(input, { fieldSelection: { info, select: 'signUp' } });
+    const result = await this.authService.signUp(input, serviceOptions);
     return this.processCookies(ctx, result);
   }
 
