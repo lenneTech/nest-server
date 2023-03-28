@@ -3,11 +3,11 @@ import { Kind } from 'graphql';
 import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
 
 /**
- * Date scalar to convert string into date
+ * Date-Timestamp-Scalar to convert timestamp to date and vice versa
  */
 @Scalar('Date', (type) => Date)
-export class DateScalar implements CustomScalar<string, Date> {
-  description = 'Date custom scalar type';
+export class DateTimestampScalar implements CustomScalar<number, Date> {
+  description = 'Date (by Timestamp) custom scalar type';
 
   /**
    * Parse value from the client input variables
@@ -19,8 +19,8 @@ export class DateScalar implements CustomScalar<string, Date> {
   /**
    * Serialize value to send to the client
    */
-  serialize(value: Date): string {
-    return value.toISOString(); // value sent to the client
+  serialize(value: Date): number {
+    return value.getTime(); // value sent to the client
   }
 
   /**

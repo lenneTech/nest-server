@@ -22,7 +22,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
-  @Prop({ unique: true })
+  @Prop({ unique: true, lowercase: true, trim: true })
   email: string = undefined;
 
   /**
