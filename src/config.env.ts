@@ -51,7 +51,6 @@ const config: { [env: string]: IServerOptions } = {
     },
     graphQl: {
       driver: {
-        debug: true,
         introspection: true,
       },
       maxComplexity: 20,
@@ -125,7 +124,6 @@ const config: { [env: string]: IServerOptions } = {
     },
     graphQl: {
       driver: {
-        debug: true,
         introspection: true,
       },
       maxComplexity: 20,
@@ -199,7 +197,6 @@ const config: { [env: string]: IServerOptions } = {
     },
     graphQl: {
       driver: {
-        debug: false,
         introspection: true,
       },
       maxComplexity: 20,

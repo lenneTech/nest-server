@@ -4,6 +4,7 @@ import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { ProcessType } from '../../../common/enums/process-type.enum';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CoreInput } from '../../../common/inputs/core-input.input';
+import { toLowerCase } from '../../../common/middlewares/to-lower-case.middleware';
 
 /**
  * User input to update a user
