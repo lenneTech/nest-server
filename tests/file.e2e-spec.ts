@@ -164,7 +164,7 @@ describe('File (e2e)', () => {
         arguments: { file: new VariableType('file') },
         fields: ['id', 'filename'],
       },
-      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token }
+      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token, log, logError }
     );
     expect(res.id.length).toBeGreaterThan(0);
     expect(res.filename).toEqual(filename);

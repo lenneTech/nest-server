@@ -139,7 +139,7 @@ describe('ServerModule (e2e)', () => {
       fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
     });
     expect(res2.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res2.errors[0].extensions.response.statusCode).toEqual(400);
+    expect(res2.errors[0].extensions.originalError.statusCode).toEqual(400);
     expect(res2.errors[0].message).toEqual('Email address already in use');
     expect(res2.data).toBe(null);
   });
@@ -169,7 +169,7 @@ describe('ServerModule (e2e)', () => {
       },
       name: 'requestPasswordResetMail',
     });
-    expect(res.errors[0].extensions.response.statusCode).toEqual(404);
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(404);
     expect(res.errors[0].message).toEqual('No user found with email: ' + 'invalid' + gEmail);
   });
 
@@ -239,7 +239,7 @@ describe('ServerModule (e2e)', () => {
       { token: gToken }
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Invalid token');
     expect(res.data).toBe(null);
   });
@@ -275,7 +275,7 @@ describe('ServerModule (e2e)', () => {
       fields: ['id', 'email'],
     });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Unauthorized');
     expect(res.data).toBe(null);
   });
@@ -292,7 +292,7 @@ describe('ServerModule (e2e)', () => {
       { token: gToken }
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Missing role');
     expect(res.data).toBe(null);
   });
@@ -348,7 +348,7 @@ describe('ServerModule (e2e)', () => {
     );
 
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.response.statusCode).toEqual(401);
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('The current user has no access rights for roles of UserInput');
     expect(res.data).toBe(null);
   });

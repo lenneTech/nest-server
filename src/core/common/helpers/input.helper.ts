@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, UnauthorizedException } from '@nest
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
+import { Kind } from 'graphql/index';
 import * as _ from 'lodash';
 import * as rfdc from 'rfdc';
 import { checkRestricted } from '../decorators/restricted.decorator';
@@ -301,6 +302,25 @@ export async function check(
 }
 
 /**
+ * Check if input is a valid Date format and return a new Date
+ */
+export function checkAndGetDate(input: any): Date {
+  // Create date from value
+  const date = new Date(input);
+
+  // Check value
+  if (date.toString() === 'Invalid Date') {
+    throw new Error('Invalid value for date');
+  }
+
+  // Check if range is valid
+  date.toISOString();
+
+  // Return date if everything is fine
+  return date;
+}
+
+/**
  * Clone object
  * @param object Any object
  * @param options Finetuning of rfdc cloning
@@ -377,6 +397,30 @@ export function filterProperties<T = Record<string, any>>(
   return Object.keys(obj)
     .filter((key) => filterFunction(obj[key], key, obj))
     .reduce((res, key) => Object.assign(res, { [key]: obj[key] }), {});
+}
+
+export function getDateFromGraphQL(input: any): Date {
+  // Check value
+  if (input.value === undefined || input.value === null) {
+    return input.value;
+  }
+
+  // Check nullable
+  if (!input.value) {
+    throw new Error('Invalid value for date');
+  }
+
+  // Check value type
+  if (input.kind !== Kind.INT && input.kind !== Kind.STRING) {
+    throw new Error('Invalid value type for date');
+  }
+
+  // Check format if value is a string
+  if (input.kind === Kind.STRING && isNaN(Date.parse(input.value))) {
+    throw new Error('Invalid ISO 8601 format for date');
+  }
+
+  return checkAndGetDate(input.value);
 }
 
 /**

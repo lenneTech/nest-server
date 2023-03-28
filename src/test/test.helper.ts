@@ -520,6 +520,8 @@ export class TestHelper {
     // Add variables as attachment or field
     mapArray.forEach((variable, i) => {
       if (variable.type === 'attachment') {
+        // See https://stackoverflow.com/questions/74581070/apollo-client-this-operation-has-been-blocked-as-a-potential-cross-site-request
+        request.set('Apollo-Require-Preflight', 'true');
         if (typeof variable.value === 'object' && variable.value.file) {
           request.attach(`${i}`, variable.value.file, variable.value.options);
         } else {
