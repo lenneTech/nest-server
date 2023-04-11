@@ -250,6 +250,8 @@ export async function check(
       (roles.includes(RoleEnum.S_USER) && user?.id) ||
       // check if the user has at least one of the required roles
       user?.hasRole?.(roles) ||
+      // check if the user is herself / himself
+      (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user)) ||
       // check if the user is the creator
       (roles.includes(RoleEnum.S_CREATOR) && equalIds(config.dbObject?.createdBy, user))
     ) {

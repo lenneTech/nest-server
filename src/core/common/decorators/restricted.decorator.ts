@@ -137,6 +137,7 @@ export const checkRestricted = (
         roles.includes(RoleEnum.S_EVERYONE) ||
         user?.hasRole?.(roles) ||
         (user?.id && roles.includes(RoleEnum.S_USER)) ||
+        (roles.includes(RoleEnum.S_SELF) && getIncludedIds(config.dbObject, user)) ||
         (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
       ) {
         valid = true;

@@ -62,7 +62,7 @@ export class UserResolver {
   async getUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.get(id, {
       ...serviceOptions,
-      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF],
     });
   }
 
@@ -111,7 +111,7 @@ export class UserResolver {
   async deleteUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.delete(id, {
       ...serviceOptions,
-      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF],
     });
   }
 
@@ -138,7 +138,7 @@ export class UserResolver {
     return await this.userService.update(id, input, {
       ...serviceOptions,
       inputType: UserInput,
-      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF],
     });
   }
 
