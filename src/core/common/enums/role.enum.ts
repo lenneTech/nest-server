@@ -53,4 +53,7 @@ export enum RoleEnum {
 
   // User must be the creator of the processed object(s) (see createdBy property of object(s))
   S_CREATOR = 's_creator',
+
+  // User must be herself/himself
+  S_SELF = 's_self',
 }
