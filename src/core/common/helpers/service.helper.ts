@@ -1,8 +1,8 @@
 import { UnauthorizedException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
+import bcrypt = require('bcrypt');
 import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
-import * as _ from 'lodash';
+import _ = require('lodash');
 import { Types } from 'mongoose';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';

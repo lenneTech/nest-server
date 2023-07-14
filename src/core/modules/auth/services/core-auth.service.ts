@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import bcrypt = require('bcrypt');
 import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
 import { getStringIds } from '../../../common/helpers/db.helper';

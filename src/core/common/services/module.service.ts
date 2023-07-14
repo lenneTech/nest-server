@@ -1,4 +1,4 @@
-import * as _ from 'lodash';
+import _ = require('lodash');
 import { Document, Model, Types } from 'mongoose';
 import { ProcessType } from '../enums/process-type.enum';
 import { getStringIds, popAndMap } from '../helpers/db.helper';

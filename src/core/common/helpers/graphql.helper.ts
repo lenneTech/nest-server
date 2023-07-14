@@ -12,7 +12,7 @@ import {
   ValueNode,
   VariableNode,
 } from 'graphql';
-import * as _ from 'lodash';
+import _ = require('lodash');
 
 /**
  * Interface for GraphQLFieldsConfig

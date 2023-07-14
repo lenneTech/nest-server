@@ -1,5 +1,5 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
-import * as _ from 'lodash';
+import _ = require('lodash');
 import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { CoreModel } from '../models/core-model.model';

@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import * as fs from 'fs';
+import fs = require('fs');
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';

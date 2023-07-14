@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import * as mongoose from 'mongoose';
+import mongoose = require('mongoose');
 import { Prop } from '@nestjs/mongoose';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
