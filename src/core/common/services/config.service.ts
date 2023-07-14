@@ -1,4 +1,4 @@
-import * as _ from 'lodash';
+import _ = require('lodash');
 import { cloneDeep } from 'lodash';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { filter, map } from 'rxjs/operators';

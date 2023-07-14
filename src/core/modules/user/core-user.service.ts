@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
+import bcrypt = require('bcrypt');
+import crypto = require('crypto');
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';

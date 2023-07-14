@@ -4,7 +4,7 @@ import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-import * as _ from 'lodash';
+import _ = require('lodash');
 
 /**
  * Restricted meta key

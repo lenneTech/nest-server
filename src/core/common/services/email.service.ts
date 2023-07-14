@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
+import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
