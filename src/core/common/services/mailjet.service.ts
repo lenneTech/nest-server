@@ -1,8 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { template } from 'lodash';
 import { ConfigService } from './config.service';
-// eslint-disable-next-line
-const Mailjet = require('node-mailjet');
+import Mailjet from 'node-mailjet';
 
 /**
  * Mailjet service

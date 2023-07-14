@@ -1,7 +1,7 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import * as fs from 'fs';
+import fs = require('fs');
 import { createWriteStream } from 'fs';
-import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';
+import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';

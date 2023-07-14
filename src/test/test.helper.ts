@@ -1,14 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import { Blob } from 'buffer';
-import * as fs from 'fs';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
-import * as LightMyRequest from 'light-my-request';
 import { Types } from 'mongoose';
-import * as superagent from 'superagent';
-import * as supertest from 'supertest';
-import * as util from 'util';
-import * as ws from 'ws';
+import supertest = require('supertest');
+import util = require('util');
+import ws = require('ws');
 import { getStringIds } from '../core/common/helpers/db.helper';
 
 /**
@@ -66,7 +63,7 @@ export interface TestGraphQLConfig {
 }
 
 export interface TestGraphQLAttachment {
-  file: Blob | Buffer | fs.ReadStream | string | boolean | number;
+  file: Blob | Buffer | ReadableStream | string | boolean | number;
   options?: string | { filename?: string | undefined; contentType?: string | undefined };
 }
 
@@ -157,7 +154,7 @@ export class TestHelper {
    * Download file from URL
    * @return Superagent response with additional data field containing the content of the file
    */
-  download(url: string, token?: string): Promise<superagent.Response & { data: string }> {
+  download(url: string, token?: string): Promise<any> {
     return new Promise((resolve, reject) => {
       const request = supertest((this.app as INestApplication).getHttpServer()).get(url);
       if (token) {
@@ -176,9 +173,9 @@ export class TestHelper {
             err ? reject(err) : callback(null, null);
           });
         })
-        .end((err, res: superagent.Response) => {
-          (res as superagent.Response & { data: string }).data = Buffer.from(data, 'binary').toString();
-          err ? reject(err) : resolve(res as superagent.Response & { data: string });
+        .end((err, res: any) => {
+          (res as any & { data: string }).data = Buffer.from(data, 'binary').toString();
+          err ? reject(err) : resolve(res as any);
         });
     });
   }
@@ -269,7 +266,7 @@ export class TestHelper {
     }
 
     // Request configuration
-    const requestConfig: LightMyRequest.InjectOptions = {
+    const requestConfig: any = {
       method: 'POST',
       url: '/graphql',
       payload: { query },
@@ -320,7 +317,7 @@ export class TestHelper {
     const { token, statusCode, log, logError, attachments } = config;
 
     // Request configuration
-    const requestConfig: LightMyRequest.InjectOptions = {
+    const requestConfig: any = {
       method: config.method,
       url,
     };
@@ -427,7 +424,7 @@ export class TestHelper {
    */
   protected async getResponse(
     token: string,
-    requestConfig: LightMyRequest.InjectOptions,
+    requestConfig: any,
     statusCode: number,
     log: boolean,
     logError: boolean,
