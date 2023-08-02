@@ -4,6 +4,7 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
+    "assets": ["assets/**","templates/**","**/*.json"],
     "deleteOutDir": true
   }
 }

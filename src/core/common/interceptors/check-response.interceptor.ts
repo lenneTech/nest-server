@@ -21,7 +21,7 @@ export class CheckResponseInterceptor implements NestInterceptor {
       map((data) => {
         // Prepare response data for current user
         return checkRestricted(data, currentUser, { throwError: false });
-      })
+      }),
     );
   }
 }

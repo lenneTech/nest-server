@@ -33,7 +33,7 @@ export default class ServiceHelper {
       removeUndefined?: boolean;
       sha256?: boolean;
       targetModel?: new (...args: any[]) => T;
-    } = {}
+    } = {},
   ): Promise<T> {
     return prepareInput(input, currentUser, options);
   }
@@ -51,7 +51,7 @@ export default class ServiceHelper {
       removeSecrets?: boolean;
       removeUndefined?: boolean;
       targetModel?: new (...args: any[]) => T;
-    } = {}
+    } = {},
   ): Promise<T | T[] | any> {
     return prepareOutput(output, options);
   }
@@ -75,7 +75,7 @@ export async function prepareInput<T = any>(
     removeUndefined?: boolean;
     sha256?: boolean;
     targetModel?: new (...args: any[]) => T;
-  } = {}
+  } = {},
 ): Promise<T> {
   // Configuration
   const config = {
@@ -127,7 +127,7 @@ export async function prepareInput<T = any>(
         }
         return property;
       },
-      { specialClasses: ['ObjectId'] }
+      { specialClasses: ['ObjectId'] },
     );
   }
 
@@ -153,7 +153,7 @@ export async function prepareInput<T = any>(
       const allowedRoles = _.intersection((input as Record<string, any>).roles, (currentUser as any).roles);
       if (allowedRoles.length !== (input as Record<string, any>).roles.length) {
         const missingRoles = _.difference((input as Record<string, any>).roles, (currentUser as any).roles);
-        throw new UnauthorizedException('Current user not allowed setting roles: ' + missingRoles);
+        throw new UnauthorizedException(`Current user not allowed setting roles: ${missingRoles}`);
       }
       (input as Record<string, any>).roles = allowedRoles;
     }
@@ -190,7 +190,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     removeSecrets?: boolean;
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
-  } = {}
+  } = {},
 ): Promise<T | T[] | any> {
   // Configuration
   const config = {
@@ -289,7 +289,7 @@ export function prepareServiceOptions(
     proto?: boolean;
     prepareInput?: PrepareInputOptions;
     prepareOutput?: PrepareOutputOptions;
-  }
+  },
 ): ServiceOptions {
   // Set default values
   const config = {
@@ -322,7 +322,7 @@ export function prepareServiceOptions(
   // Set subfield selection
   if (config.subFieldSelection) {
     if ((serviceOptions.fieldSelection as ResolveSelector)?.select) {
-      (serviceOptions.fieldSelection as ResolveSelector).select += '.' + config.subFieldSelection;
+      (serviceOptions.fieldSelection as ResolveSelector).select += `.${config.subFieldSelection}`;
     }
   }
 

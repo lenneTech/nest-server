@@ -13,7 +13,7 @@ import { ModuleService } from './module.service';
 export abstract class CrudService<
   Model extends CoreModel = any,
   CreateInput = any,
-  UpdateInput = any
+  UpdateInput = any,
 > extends ModuleService<Model> {
   /**
    * Create item
@@ -25,7 +25,7 @@ export abstract class CrudService<
         const currentUserId = serviceOptions?.currentUser?.id;
         return new this.mainDbModel({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId }).save();
       },
-      { input, serviceOptions }
+      { input, serviceOptions },
     );
   }
 
@@ -87,7 +87,7 @@ export abstract class CrudService<
    */
   async find(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<Model[]> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
@@ -118,7 +118,7 @@ export abstract class CrudService<
         }
         return find.exec();
       },
-      { input: filter, serviceOptions }
+      { input: filter, serviceOptions },
     );
   }
 
@@ -128,7 +128,7 @@ export abstract class CrudService<
    */
   async findForce(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
@@ -141,7 +141,7 @@ export abstract class CrudService<
    */
   async findRaw(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
@@ -154,7 +154,7 @@ export abstract class CrudService<
    */
   async findAndCount(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<{ items: Model[]; totalCount: number }> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
@@ -217,13 +217,13 @@ export abstract class CrudService<
 
         // Find and process db items
         const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
-        const dbResult =
-          (await this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}).exec())[0] || {};
+        const dbResult
+          = (await this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}).exec())[0] || {};
         dbResult.totalCount = dbResult.totalCount?.[0]?.total || 0;
-        dbResult.items = dbResult.items?.map((item) => this.mainDbModel.hydrate(item)) || [];
+        dbResult.items = dbResult.items?.map(item => this.mainDbModel.hydrate(item)) || [];
         return dbResult;
       },
-      { input: filter, outputPath: 'items', serviceOptions }
+      { input: filter, outputPath: 'items', serviceOptions },
     );
   }
 
@@ -233,7 +233,7 @@ export abstract class CrudService<
    */
   async findAndCountForce(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
@@ -246,7 +246,7 @@ export abstract class CrudService<
    */
   async findAndCountRaw(
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
@@ -260,7 +260,7 @@ export abstract class CrudService<
   async findAndUpdate(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<Model[]> {
     const dbItems: Model[] = await this.find(filter, serviceOptions);
     if (!dbItems?.length) {
@@ -276,7 +276,7 @@ export abstract class CrudService<
           } catch (e) {
             reject(e);
           }
-        })
+        }),
       );
     }
     return await Promise.all(promises);
@@ -289,7 +289,7 @@ export abstract class CrudService<
   async findAndUpdateForce(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.force = true;
@@ -303,7 +303,7 @@ export abstract class CrudService<
   async findAndUpdateRaw(
     filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
-    serviceOptions: ServiceOptions = {}
+    serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
     serviceOptions.prepareInput = null;
@@ -329,7 +329,7 @@ export abstract class CrudService<
    */
   async read(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.get(input, serviceOptions);
@@ -359,7 +359,7 @@ export abstract class CrudService<
    */
   async readForce(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.getForce(input, serviceOptions);
@@ -389,7 +389,7 @@ export abstract class CrudService<
    */
   async readRaw(
     input: string | FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
-    serviceOptions?: ServiceOptions
+    serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
       return this.getRaw(input, serviceOptions);
@@ -412,7 +412,7 @@ export abstract class CrudService<
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
         return await this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' }).exec();
       },
-      { dbObject, input, serviceOptions }
+      { dbObject, input, serviceOptions },
     );
   }
 
@@ -450,7 +450,7 @@ export abstract class CrudService<
         await this.mainDbModel.findByIdAndDelete(id).exec();
         return dbObject;
       },
-      { dbObject, serviceOptions }
+      { dbObject, serviceOptions },
     );
   }
 

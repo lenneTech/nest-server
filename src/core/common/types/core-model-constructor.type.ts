@@ -1,6 +1,6 @@
 import { CoreModel } from '../models/core-model.model';
 
-export type CoreModelConstructor<T extends CoreModel> = {
+export interface CoreModelConstructor<T extends CoreModel> {
   new (): T;
   init(this: new (...args: any[]) => T, ...args: any[]): T;
   map(
@@ -27,4 +27,4 @@ export type CoreModelConstructor<T extends CoreModel> = {
       mapId?: boolean;
     }
   ): T;
-};
+}

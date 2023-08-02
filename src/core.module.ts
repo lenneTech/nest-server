@@ -13,6 +13,7 @@ import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { TemplateService } from './core/common/services/template.service';
+import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 
 /**
  * Core module (dynamic)
@@ -36,6 +37,7 @@ export class CoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
   }
+
   /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
@@ -75,7 +77,7 @@ export class CoreModule implements NestModule {
                             const payload = authService.decodeJwt(authToken);
                             const user = await authService.validateUser(payload);
                             // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
-                            return { user: user, headers: connectionParams };
+                            return { user, headers: connectionParams };
                           }
 
                           throw new UnauthorizedException('Missing authentication token');
@@ -105,7 +107,7 @@ export class CoreModule implements NestModule {
                     },
                   },
                 },
-                options?.graphQl?.driver
+                options?.graphQl?.driver,
               ),
           },
           enableSubscriptionAuth: true,
@@ -115,14 +117,13 @@ export class CoreModule implements NestModule {
           uri: 'mongodb://localhost/nest-server-default',
           options: {
             connectionFactory: (connection) => {
-              // eslint-disable-next-line @typescript-eslint/no-var-requires
               connection.plugin(require('./core/common/plugins/mongoose-id.plugin'));
               return connection;
             },
           },
         },
       } as IServerOptions,
-      options
+      options,
     );
 
     // Set providers
@@ -148,15 +149,20 @@ export class CoreModule implements NestModule {
       ComplexityPlugin,
     ];
 
+    const imports: any[] = [
+      MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
+      GraphQLModule.forRootAsync<ApolloDriverConfig>(
+        Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options),
+      ),
+    ];
+    if (config.healthCheck) {
+      imports.push(CoreHealthCheckModule);
+    }
+
     // Return dynamic module
     return {
       module: CoreModule,
-      imports: [
-        MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
-        GraphQLModule.forRootAsync<ApolloDriverConfig>(
-          Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options)
-        ),
-      ],
+      imports,
       providers,
       exports: [ConfigService, EmailService, TemplateService, MailjetService, ComplexityPlugin],
     };

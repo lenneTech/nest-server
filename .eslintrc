@@ -1,0 +1,23 @@
+{
+  "extends": "@lenne.tech/ts",
+  "rules": {
+    "@typescript-eslint/brace-style": ["error", "1tbs", {"allowSingleLine":  false}],
+    "@typescript-eslint/member-delimiter-style": [
+      "error",
+      {
+        "multiline": {
+          "delimiter": "semi",
+          "requireLast": true
+        },
+        "singleline": {
+          "delimiter": "semi",
+          "requireLast": false
+        },
+        "multilineDetection": "brackets"
+      }
+    ],
+    "@typescript-eslint/no-require-imports": "off",
+    "@typescript-eslint/no-var-requires": "off",
+    "curly": ["error", "all"]
+  }
+}

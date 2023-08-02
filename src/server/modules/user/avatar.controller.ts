@@ -28,9 +28,9 @@ export class AvatarController {
     FileInterceptor(
       'file',
       multerOptionsForImageUpload({
-        destination: envConfig.staticAssets.path + '/avatars',
-      })
-    )
+        destination: `${envConfig.staticAssets.path}/avatars`,
+      }),
+    ),
   )
   uploadFile(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: User): Promise<string> {
     return this.usersService.setAvatar(file, user);

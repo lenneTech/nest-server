@@ -106,7 +106,7 @@ export default class GraphQLHelper {
     ast: FieldNode,
     info: GraphQLResolveInfo,
     obj: any = {},
-    config: Partial<GraphQLFieldsConfig> = {}
+    config: Partial<GraphQLFieldsConfig> = {},
   ) {
     return flattenAST(ast, info, obj, config);
   }
@@ -117,7 +117,7 @@ export default class GraphQLHelper {
   public static getFields(
     info: GraphQLResolveInfo,
     obj: Record<string, any> = {},
-    config: Partial<GraphQLFieldsConfig> = {}
+    config: Partial<GraphQLFieldsConfig> = {},
   ) {
     return getFields(info, obj, config);
   }
@@ -190,7 +190,7 @@ export function getArguments(ast: FieldNode) {
     const valueNode = argument.value;
     const argumentValue = !isListValueNode(valueNode)
       ? (valueNode as any).value
-      : (valueNode as any).values.map((value) => value.value);
+      : (valueNode as any).values.map(value => value.value);
 
     return {
       [argument.name.value]: {
@@ -251,7 +251,7 @@ export function flattenAST(
   ast: FieldNode,
   info: GraphQLResolveInfo,
   obj: any = {},
-  config: Partial<GraphQLFieldsConfig> = {}
+  config: Partial<GraphQLFieldsConfig> = {},
 ) {
   // Process configuration
   config = Object.assign(
@@ -259,7 +259,7 @@ export function flattenAST(
       processArguments: false,
       excludedFields: [],
     },
-    config
+    config,
   );
 
   return getASTSelections(ast).reduce((flattened, a) => {
@@ -306,7 +306,7 @@ export function flattenAST(
 export function getFields(
   info: GraphQLResolveInfo,
   obj: Record<string, any> = {},
-  config: Partial<GraphQLFieldsConfig> = {}
+  config: Partial<GraphQLFieldsConfig> = {},
 ) {
   // Check info
   if (!info || (!info.fieldNodes && !(info as any).fieldASTs)) {

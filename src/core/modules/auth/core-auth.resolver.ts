@@ -17,7 +17,7 @@ import { Tokens } from './tokens.decorator';
 /**
  * Authentication resolver for the sign in
  */
-@Resolver((of) => CoreAuthModel, { isAbstract: true })
+@Resolver(of => CoreAuthModel, { isAbstract: true })
 export class CoreAuthResolver {
   /**
    * Import services
@@ -32,12 +32,12 @@ export class CoreAuthResolver {
    * Logout user (from specific device)
    */
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
-  @Mutation((returns) => Boolean, { description: 'Logout user (from specific device)' })
+  @Mutation(returns => Boolean, { description: 'Logout user (from specific device)' })
   async logout(
     @CurrentUser() currentUser: ICoreAuthUser,
     @Context() ctx: { res: ResponseType },
     @Tokens('token') token: string,
-    @Args('allDevices', { nullable: true }) allDevices?: boolean
+    @Args('allDevices', { nullable: true }) allDevices?: boolean,
   ): Promise<boolean> {
     const result = await this.authService.logout(token, { currentUser, allDevices });
     return this.processCookies(ctx, result);
@@ -47,11 +47,11 @@ export class CoreAuthResolver {
    * Refresh token (for specific device)
    */
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
-  @Mutation((returns) => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
+  @Mutation(returns => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   async refreshToken(
     @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
-    @Context() ctx: { res: ResponseType }
+    @Context() ctx: { res: ResponseType },
   ): Promise<CoreAuthModel> {
     const result = await this.authService.refreshTokens(user, refreshToken);
     return this.processCookies(ctx, result);
@@ -60,13 +60,13 @@ export class CoreAuthResolver {
   /**
    * Sign in user via email and password (on specific device)
    */
-  @Mutation((returns) => CoreAuthModel, {
+  @Mutation(returns => CoreAuthModel, {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
   async signIn(
     @GraphQLServiceOptions({ gqlPath: 'signIn.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
-    @Args('input') input: CoreAuthSignInInput
+    @Args('input') input: CoreAuthSignInInput,
   ): Promise<CoreAuthModel> {
     const result = await this.authService.signIn(input, serviceOptions);
     return this.processCookies(ctx, result);
@@ -75,11 +75,11 @@ export class CoreAuthResolver {
   /**
    * Register a new user account (on specific device)
    */
-  @Mutation((returns) => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
+  @Mutation(returns => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
   async signUp(
     @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
-    @Args('input') input: CoreAuthSignUpInput
+    @Args('input') input: CoreAuthSignUpInput,
   ): Promise<CoreAuthModel> {
     const result = await this.authService.signUp(input, serviceOptions);
     return this.processCookies(ctx, result);

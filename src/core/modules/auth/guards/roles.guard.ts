@@ -41,7 +41,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     }
 
     // Check roles
-    if (!roles || !roles.some((value) => !!value)) {
+    if (!roles || !roles.some(value => !!value)) {
       return user;
     }
 

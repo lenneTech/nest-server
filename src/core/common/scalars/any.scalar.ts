@@ -4,7 +4,7 @@ import { Kind, ValueNode } from 'graphql';
 /**
  * Any scalar (is equivalent to the JSON scalar)
  */
-@Scalar('Any', (type) => Any)
+@Scalar('Any', type => Any)
 export class Any implements CustomScalar<string, any> {
   /**
    * Description of the scalar
@@ -45,7 +45,7 @@ export class Any implements CustomScalar<string, any> {
         return value;
       }
       case Kind.LIST:
-        return ast.values.map((n) => this.parseLiteral(n, variables));
+        return ast.values.map(n => this.parseLiteral(n, variables));
       case Kind.NULL:
         return null;
       case Kind.VARIABLE: {

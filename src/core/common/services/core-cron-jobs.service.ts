@@ -31,7 +31,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
   protected constructor(
     protected schedulerRegistry: SchedulerRegistry,
     protected cronJobs: Record<string, CronExpression | string | Date | Falsy | CronJobConfig>,
-    options?: { log?: boolean }
+    options?: { log?: boolean },
   ) {
     this.config = {
       log: true,
@@ -91,7 +91,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
       // check if cron job exists
       if (!this[name]) {
         if (this.config.log) {
-          console.info('Missing cron job function ' + name);
+          console.info(`Missing cron job function ${name}`);
         }
         continue;
       }
@@ -105,8 +105,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
 
           // Check if parallel execution is allowed and if so how many can run in parallel
           if (
-            dates?.length &&
-            (!config.runParallel || (typeof config.runParallel === 'number' && dates.length >= config.runParallel))
+            dates?.length
+            && (!config.runParallel || (typeof config.runParallel === 'number' && dates.length >= config.runParallel))
           ) {
             return;
           }
@@ -123,7 +123,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
             await this[name]();
           } catch (e) {
             // Remove job from running list
-            this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
+            this.runningJobs[name] = this.runningJobs[name].filter(item => item !== date);
             if (config.throwException) {
               throw e;
             } else {
@@ -132,7 +132,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
           }
 
           // Remove job from running list
-          this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
+          this.runningJobs[name] = this.runningJobs[name].filter(item => item !== date);
         },
         null,
         true,
@@ -140,7 +140,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
         config.context,
         config.runOnInit,
         config.utcOffset,
-        config.unrefTimeout
+        config.unrefTimeout,
       );
       this.schedulerRegistry.addCronJob(name, job);
       if (this.config.log && this.schedulerRegistry.getCronJob(name)) {

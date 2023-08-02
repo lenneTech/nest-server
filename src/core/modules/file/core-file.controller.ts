@@ -1,6 +1,4 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CoreUserModel } from '../user/core-user.model';
 import { CoreFileService } from './core-file.service';
 
 /**
@@ -17,7 +15,7 @@ export abstract class CoreFileController {
    * Download file
    */
   @Get(':filename')
-  async getFile(@Param('filename') filename: string, @Res() res, @CurrentUser() user: CoreUserModel) {
+  async getFile(@Param('filename') filename: string, @Res() res) {
     if (!filename) {
       throw new BadRequestException('Missing filename for download');
     }
@@ -28,7 +26,7 @@ export abstract class CoreFileController {
     }
     const filestream = await this.fileService.getFileStream(file.id);
     res.header('Content-Type', file.contentType);
-    res.header('Content-Disposition', 'attachment; filename=' + file.filename);
+    res.header('Content-Disposition', `attachment; filename=${file.filename}`);
     return filestream.pipe(res);
   }
 }

@@ -36,7 +36,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * ID of the persistence object as string
    */
-  @Field((type) => ID, {
+  @Field(type => ID, {
     description: 'ID of the persistence object',
     nullable: true,
   })
@@ -52,7 +52,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Labels of the object
    */
-  @Field((type) => [String], {
+  @Field(type => [String], {
     description: 'Labels of the object',
     nullable: true,
   })
@@ -62,7 +62,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Tags for the object
    */
-  @Field((type) => [String], {
+  @Field(type => [String], {
     description: 'Tags for the object',
     nullable: true,
   })

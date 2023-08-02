@@ -1,6 +1,6 @@
+import { extname } from 'path';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
 
 /**
  * Helper class for inputs
@@ -63,7 +63,7 @@ export function multerFileFilter(fileTypeRegex = /jpeg|jpg|png/) {
     if (mimetype && extName) {
       return cb(null, true);
     }
-    cb('Error: File upload only supports the following filetypes - ' + fileTypeRegex);
+    cb(`Error: File upload only supports the following filetypes - ${fileTypeRegex}`);
   };
 }
 

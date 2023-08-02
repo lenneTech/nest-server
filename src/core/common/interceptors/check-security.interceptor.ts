@@ -1,4 +1,4 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { getContextData } from '../helpers/context.helper';
@@ -33,7 +33,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
 
         // Check if data is writeable (e.g. objects from direct access to json files via http are not writable)
         if (data && typeof data === 'object') {
-          const writeable = !Object.keys(data).find((key) => !Object.getOwnPropertyDescriptor(data, key).writable);
+          const writeable = !Object.keys(data).find(key => !Object.getOwnPropertyDescriptor(data, key).writable);
           if (!writeable) {
             return data;
           }
@@ -45,15 +45,15 @@ export class CheckSecurityInterceptor implements NestInterceptor {
           (item) => {
             if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
               if (Array.isArray(item)) {
-                return item.filter((i) => i !== undefined);
+                return item.filter(i => i !== undefined);
               }
               return item;
             }
             return item.securityCheck(user, force);
           },
-          { specialFunctions: ['securityCheck'] }
+          { specialFunctions: ['securityCheck'] },
         );
-      })
+      }),
     );
   }
 }

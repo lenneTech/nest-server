@@ -1,6 +1,6 @@
+import { exec } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { exec } from 'child_process';
 import compression = require('compression');
 import cookieParser = require('cookie-parser');
 import envConfig from './config.env';
@@ -14,7 +14,7 @@ async function bootstrap() {
   // Create a new server based on express
   const server = await NestFactory.create<NestExpressApplication>(
     // Include server module, with all necessary modules for the project
-    ServerModule
+    ServerModule,
   );
 
   // Log exceptions
