@@ -10,7 +10,7 @@ export class AuthController extends CoreAuthController {
    */
   constructor(
     protected override readonly authService: AuthService,
-    protected override readonly configService: ConfigService
+    protected override readonly configService: ConfigService,
   ) {
     super(authService, configService);
   }

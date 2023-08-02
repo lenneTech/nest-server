@@ -11,8 +11,8 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('ServerModule (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const log = true;
-  const logError = true;
+  const log = true; // eslint-disable-line unused-imports/no-unused-vars
+  const logError = true; // eslint-disable-line unused-imports/no-unused-vars
 
   // Testenvironment properties
   const port = 3030;
@@ -62,12 +62,12 @@ describe('ServerModule (e2e)', () => {
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
-      testHelper = new TestHelper(app, 'ws://127.0.0.1:' + port + '/graphql');
+      testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
       userService = moduleFixture.get(UserService);
       await app.listen(port, '127.0.0.1'); // app.listen is required by subscriptions
 
       // Connection to database
-      console.info('MongoDB: Create connection to ' + envConfig.mongoose.uri);
+      console.info(`MongoDB: Create connection to ${envConfig.mongoose.uri}`);
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
@@ -93,7 +93,7 @@ describe('ServerModule (e2e)', () => {
   it('get index', async () => {
     const res: any = await testHelper.rest('');
     expect(res.includes('Welcome to API')).toBe(true);
-    expect(res.includes(envConfig.env + ' environment')).toBe(true);
+    expect(res.includes(`${envConfig.env} environment`)).toBe(true);
   });
 
   /**
@@ -108,7 +108,7 @@ describe('ServerModule (e2e)', () => {
    */
   it('signUpWithExistingEmail', async () => {
     gPassword = Math.random().toString(36).substring(7);
-    gEmail = gPassword + '@testuser.com';
+    gEmail = `${gPassword}@testuser.com`;
 
     const res: any = await testHelper.graphQl({
       name: 'signUp',
@@ -133,7 +133,7 @@ describe('ServerModule (e2e)', () => {
         input: {
           email: gEmail,
           password: gPassword + 2,
-          firstName: 'Everardo' + 2,
+          firstName: `Everardo${2}`,
         },
       },
       fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
@@ -165,12 +165,12 @@ describe('ServerModule (e2e)', () => {
   it('requestPasswordResetMail with invalid email', async () => {
     const res: any = await testHelper.graphQl({
       arguments: {
-        email: 'invalid' + gEmail,
+        email: `invalid${gEmail}`,
       },
       name: 'requestPasswordResetMail',
     });
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(404);
-    expect(res.errors[0].message).toEqual('No user found with email: ' + 'invalid' + gEmail);
+    expect(res.errors[0].message).toEqual('No user found with email: ' + `invalid${gEmail}`);
   });
 
   /**
@@ -194,13 +194,13 @@ describe('ServerModule (e2e)', () => {
     const res: any = await testHelper.graphQl({
       arguments: {
         token: user.passwordResetToken,
-        password: 'new' + gPassword,
+        password: `new${gPassword}`,
       },
       name: 'resetPassword',
       type: TestGraphQLType.MUTATION,
     });
     expect(res).toEqual(true);
-    gPassword = 'new' + gPassword;
+    gPassword = `new${gPassword}`;
   });
 
   /**
@@ -236,7 +236,7 @@ describe('ServerModule (e2e)', () => {
         type: TestGraphQLType.MUTATION,
         fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
@@ -254,7 +254,7 @@ describe('ServerModule (e2e)', () => {
         type: TestGraphQLType.MUTATION,
         fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
-      { token: gRefreshToken }
+      { token: gRefreshToken },
     );
     expect(res.user.id).toEqual(gId);
     expect(res.user.email).toEqual(gEmail);
@@ -289,7 +289,7 @@ describe('ServerModule (e2e)', () => {
         name: 'findUsers',
         fields: ['id', 'email'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
@@ -320,7 +320,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -344,7 +344,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken }
+      { token: gToken },
     );
 
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
@@ -374,7 +374,7 @@ describe('ServerModule (e2e)', () => {
         name: 'getUser',
         fields: ['id', 'email', 'firstName', 'roles'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -392,7 +392,7 @@ describe('ServerModule (e2e)', () => {
         name: 'findUsers',
         fields: ['id', 'email'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
@@ -407,7 +407,7 @@ describe('ServerModule (e2e)', () => {
         arguments: { samples: 1 },
         fields: ['id', 'email'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.length).toBeGreaterThanOrEqual(1);
   });
@@ -423,18 +423,18 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email'],
         type: TestGraphQLType.SUBSCRIPTION,
       },
-      { token: gToken, countOfSubscriptionMessages: 1 }
+      { token: gToken, countOfSubscriptionMessages: 1 },
     );
 
     // Create user
     const passwd = Math.random().toString(36).substring(7);
-    const email = passwd + '@testuser.com';
+    const email = `${passwd}@testuser.com`;
     const create: any = await testHelper.graphQl({
       name: 'signUp',
       type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
-          email: email,
+          email,
           password: passwd,
         },
       },
@@ -457,7 +457,7 @@ describe('ServerModule (e2e)', () => {
         },
         fields: ['id'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(del.id).toEqual(create.user.id);
   });
@@ -478,7 +478,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email', 'firstName', 'roles'],
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -500,7 +500,7 @@ describe('ServerModule (e2e)', () => {
         },
         fields: ['id'],
       },
-      { token: gToken }
+      { token: gToken },
     );
     expect(res.id).toEqual(gId);
   });
@@ -515,9 +515,9 @@ describe('ServerModule (e2e)', () => {
     for (let i = 0; i < userCount; i++) {
       const input = {
         password: random + i,
-        email: random + i + '@testusers.com',
-        firstName: 'Test' + '0'.repeat((userCount + '').length - (i + '').length) + i + random,
-        lastName: 'User' + i + random,
+        email: `${random + i}@testusers.com`,
+        firstName: `Test${'0'.repeat((`${userCount}`).length - (`${i}`).length)}${i}${random}`,
+        lastName: `User${i}${random}`,
       };
       users.push(await userService.create(input as UserCreateInput));
     }
@@ -525,7 +525,7 @@ describe('ServerModule (e2e)', () => {
 
     const findFilter = {
       filterQuery: {
-        firstName: { $regex: '^.*' + random + '$' },
+        firstName: { $regex: `^.*${random}$` },
       },
       queryOptions: { sort: { firstName: -1 } },
     };

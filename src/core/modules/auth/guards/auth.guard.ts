@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger, Optional, mixin } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
@@ -12,9 +12,9 @@ import { InvalidTokenException } from '../exceptions/invalid-token.exception';
 /**
  * Missing strategy error
  */
-const NO_STRATEGY_ERROR =
-  'In order to use "defaultStrategy", please, ensure to import PassportModule in each ' +
-  "place where AuthGuard() is being used. Otherwise, passport won't work correctly.";
+const NO_STRATEGY_ERROR
+  = 'In order to use "defaultStrategy", please, ensure to import PassportModule in each '
+  + 'place where AuthGuard() is being used. Otherwise, passport won\'t work correctly.';
 
 /**
  * Interface for auth guard
@@ -37,7 +37,7 @@ const createPassportContext = (request, response) => (type, options, callback: (
       } catch (err) {
         reject(err);
       }
-    })(request, response, (err) => (err ? reject(err) : resolve))
+    })(request, response, err => (err ? reject(err) : resolve)),
   );
 
 /**
@@ -73,7 +73,7 @@ function createAuthGuard(type?: string): Type<CanActivate> {
       const request = this.getRequest(context);
       const passportFn = createPassportContext(request, response);
       const user = await passportFn(type || this.options.defaultStrategy, options, (err, currentUser, info) =>
-        this.handleRequest(err, currentUser, info, context)
+        this.handleRequest(err, currentUser, info, context),
       );
       request[options.property || defaultOptions.property] = user;
       return true;
@@ -100,12 +100,13 @@ function createAuthGuard(type?: string): Type<CanActivate> {
      */
     async logIn<TRequest extends { logIn: (...params) => any } = any>(request: TRequest) {
       const user = request[this.options.property || defaultOptions.property];
-      await new Promise<void>((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
+      await new Promise<void>((resolve, reject) => request.logIn(user, err => (err ? reject(err) : resolve())));
     }
 
     /**
      * Process request
      */
+    // eslint-disable-next-line unused-imports/no-unused-vars
     handleRequest(err, user, info, context): TUser {
       if (err) {
         throw new InvalidTokenException();

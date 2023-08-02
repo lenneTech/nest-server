@@ -37,14 +37,14 @@ export class ConfigService {
   /**
    * BehaviorSubject for config
    */
-  protected static _configSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>> =
-    new BehaviorSubject(undefined);
+  protected static _configSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>>
+    = new BehaviorSubject(undefined);
 
   /**
    * BehaviorSubject for frozen config
    */
-  protected static _frozenConfigSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>> =
-    new BehaviorSubject(undefined);
+  protected static _frozenConfigSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>>
+    = new BehaviorSubject(undefined);
 
   /**
    * Singleton instance of ConfigService
@@ -60,7 +60,7 @@ export class ConfigService {
    */
   constructor(
     configObject?: { [key: string]: any } & Partial<IServerOptions>,
-    options?: { reInit?: boolean; warn?: boolean }
+    options?: { reInit?: boolean; warn?: boolean },
   ) {
     const config = {
       reInit: false,
@@ -180,8 +180,8 @@ export class ConfigService {
    */
   static get observable() {
     return ConfigService._configSubject$.asObservable().pipe(
-      filter((config) => !config),
-      map((config) => clone(config, { circles: false }))
+      filter(config => !config),
+      map(config => clone(config, { circles: false })),
     );
   }
 
@@ -196,7 +196,7 @@ export class ConfigService {
    * Get observable for faster but read-only deep-frozen configuration
    */
   static get observableFastButReadOnly() {
-    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter((config) => !config));
+    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter(config => !config));
   }
 
   /**
@@ -243,7 +243,7 @@ export class ConfigService {
    */
   static mergeConfig(
     configData: { [key: string]: any } & Partial<IServerOptions>,
-    options?: { init?: boolean; warn?: boolean }
+    options?: { init?: boolean; warn?: boolean },
   ) {
     const config = {
       init: true,
@@ -266,7 +266,7 @@ export class ConfigService {
 
     // Warn if requested
     if (config.warn) {
-      console.warn('ConfigService ' + activity, JSON.stringify(merged, null, 2));
+      console.warn(`ConfigService ${activity}`, JSON.stringify(merged, null, 2));
     }
 
     // Return configuration
@@ -305,7 +305,7 @@ export class ConfigService {
 
     // Warn if requested
     if (config.warn) {
-      console.warn('ConfigService ' + key + ':', JSON.stringify(current[key], null, 2));
+      console.warn(`ConfigService ${key}:`, JSON.stringify(current[key], null, 2));
     }
 
     // Return configuration
@@ -317,7 +317,7 @@ export class ConfigService {
    */
   setConfig(
     configData: { [key: string]: any } & Partial<IServerOptions>,
-    options?: { reInit?: boolean; warn?: boolean }
+    options?: { reInit?: boolean; warn?: boolean },
   ) {
     return ConfigService.setConfig(configData, options);
   }
@@ -327,7 +327,7 @@ export class ConfigService {
    */
   static setConfig(
     configObject: { [key: string]: any } & Partial<IServerOptions>,
-    options?: { init?: boolean; reInit?: boolean; warn?: boolean }
+    options?: { init?: boolean; reInit?: boolean; warn?: boolean },
   ) {
     const config = {
       init: true,
@@ -342,8 +342,8 @@ export class ConfigService {
     // Check for unintentional overwriting
     if (!firstInitialization && !config.reInit) {
       throw new Error(
-        'Unintentional overwriting of the configuration. ' +
-          'If overwriting is desired, please set `reInit` in setConfig of ConfigService to `true`.'
+        'Unintentional overwriting of the configuration. '
+          + 'If overwriting is desired, please set `reInit` in setConfig of ConfigService to `true`.',
       );
     }
 
@@ -392,7 +392,7 @@ export class ConfigService {
     current[key] = value;
     ConfigService._configSubject$.next(current);
     if (config.warn) {
-      console.warn('ConfigService ' + key + ':', JSON.stringify(value, null, 2));
+      console.warn(`ConfigService ${key}:`, JSON.stringify(value, null, 2));
     }
 
     // Return config

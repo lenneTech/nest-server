@@ -1,8 +1,8 @@
+import fs = require('fs');
+import { join } from 'path';
 import { Injectable } from '@nestjs/common';
 import ejs = require('ejs');
 import { TemplateFunction } from 'ejs';
-import fs = require('fs');
-import { join } from 'path';
 import { ConfigService } from './config.service';
 
 /**
@@ -44,7 +44,7 @@ export class TemplateService {
 
       // Get template file
       fs.readFile(
-        join(this.configService.getFastButReadOnly('templates.path'), filePath) + '.ejs',
+        `${join(this.configService.getFastButReadOnly('templates.path'), filePath)}.ejs`,
         { encoding: 'utf8' },
         (err, data) => {
           if (err) {
@@ -54,7 +54,7 @@ export class TemplateService {
             this.templates[filePath] = ejs.compile(data);
             resolve(this.templates[filePath]);
           }
-        }
+        },
       );
     });
   }

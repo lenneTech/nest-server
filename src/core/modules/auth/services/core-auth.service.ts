@@ -1,7 +1,7 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt = require('bcrypt');
-import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
 import { getStringIds } from '../../../common/helpers/db.helper';
 import { prepareServiceOptions } from '../../../common/helpers/service.helper';
@@ -25,7 +25,7 @@ export class CoreAuthService {
   constructor(
     protected readonly userService: CoreAuthUserService,
     protected readonly jwtService: JwtService,
-    protected readonly configService: ConfigService
+    protected readonly configService: ConfigService,
   ) {}
 
   /**
@@ -40,7 +40,7 @@ export class CoreAuthService {
    */
   async logout(
     tokenOrRefreshToken: string,
-    serviceOptions: ServiceOptions & { allDevices?: boolean }
+    serviceOptions: ServiceOptions & { allDevices?: boolean },
   ): Promise<boolean> {
     // Check authentication
     const user = serviceOptions.currentUser;
@@ -162,7 +162,7 @@ export class CoreAuthService {
   protected async getResult(
     user: ICoreAuthUser,
     data?: { [key: string]: any; deviceId?: string },
-    currentRefreshToken?: string
+    currentRefreshToken?: string,
   ) {
     // Create new tokens
     const tokens = await this.createTokens(user.id, data);
@@ -186,10 +186,10 @@ export class CoreAuthService {
       path += '.refresh';
     }
     return (
-      this.configService.getFastButReadOnly(path + '.signInOptions.secret') ||
-      this.configService.getFastButReadOnly(path + '.signInOptions.secretOrPrivateKey') ||
-      this.configService.getFastButReadOnly(path + '.secret') ||
-      this.configService.getFastButReadOnly(path + '.secretOrPrivateKey')
+      this.configService.getFastButReadOnly(`${path}.signInOptions.secret`)
+      || this.configService.getFastButReadOnly(`${path}.signInOptions.secretOrPrivateKey`)
+      || this.configService.getFastButReadOnly(`${path}.secret`)
+      || this.configService.getFastButReadOnly(`${path}.secretOrPrivateKey`)
     );
   }
 
@@ -226,7 +226,7 @@ export class CoreAuthService {
     user: ICoreAuthUser,
     currentRefreshToken: string,
     newRefreshToken: string,
-    data?: Record<string, any>
+    data?: Record<string, any>,
   ): Promise<string> {
     // Check if the update of the update token is allowed
     let deviceId: string;

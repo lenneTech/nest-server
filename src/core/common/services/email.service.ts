@@ -30,7 +30,7 @@ export class EmailService {
       templateData?: { [key: string]: any };
       text?: string;
       textTemplate?: string;
-    }
+    },
   ): Promise<any> {
     // Process config
     const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {

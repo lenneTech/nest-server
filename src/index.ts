@@ -126,6 +126,16 @@ export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
 
 // =====================================================================================================================
+// Core - Modules - HealthCheck
+// =====================================================================================================================
+
+export * from './core/modules/health-check/core-health-check.controller';
+export * from './core/modules/health-check/core-health-check.module';
+export * from './core/modules/health-check/core-health-check.resolver';
+export * from './core/modules/health-check/core-health-check.service';
+export * from './core/modules/health-check/core-health-check-result.model';
+
+// =====================================================================================================================
 // Tests
 // =====================================================================================================================
 

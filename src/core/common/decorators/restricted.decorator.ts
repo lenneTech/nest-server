@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
+import _ = require('lodash');
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-import _ = require('lodash');
 
 /**
  * Restricted meta key
@@ -68,7 +68,7 @@ export const checkRestricted = (
     removeUndefinedFromResultArray?: boolean;
     throwError?: boolean;
   } = {},
-  processedObjects: any[] = []
+  processedObjects: any[] = [],
 ) => {
   const config = {
     checkObjectItself: false,
@@ -92,9 +92,9 @@ export const checkRestricted = (
   // Array
   if (Array.isArray(data)) {
     // Check array items
-    let result = data.map((item) => checkRestricted(item, user, config, processedObjects));
+    let result = data.map(item => checkRestricted(item, user, config, processedObjects));
     if (!config.throwError && config.removeUndefinedFromResultArray) {
-      result = result.filter((item) => item !== undefined);
+      result = result.filter(item => item !== undefined);
     }
     return result;
   }
@@ -114,8 +114,8 @@ export const checkRestricted = (
       if (typeof item === 'string') {
         roles.push(item);
       } else if (
-        item?.roles?.length &&
-        (config.processType && item.processType ? config.processType === item.processType : true)
+        item?.roles?.length
+        && (config.processType && item.processType ? config.processType === item.processType : true)
       ) {
         if (Array.isArray(item.roles)) {
           roles.push(...item.roles);
@@ -134,11 +134,11 @@ export const checkRestricted = (
 
       // Check access rights
       if (
-        roles.includes(RoleEnum.S_EVERYONE) ||
-        user?.hasRole?.(roles) ||
-        (user?.id && roles.includes(RoleEnum.S_USER)) ||
-        (roles.includes(RoleEnum.S_SELF) && getIncludedIds(config.dbObject, user)) ||
-        (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
+        roles.includes(RoleEnum.S_EVERYONE)
+        || user?.hasRole?.(roles)
+        || (user?.id && roles.includes(RoleEnum.S_USER))
+        || (roles.includes(RoleEnum.S_SELF) && getIncludedIds(config.dbObject, user))
+        || (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
       ) {
         valid = true;
       }
@@ -148,11 +148,11 @@ export const checkRestricted = (
       // Get groups
       const groups = restricted.filter((item) => {
         return (
-          typeof item === 'object' &&
+          typeof item === 'object'
           // Check if object is valid
-          item.memberOf?.length &&
+          && item.memberOf?.length
           // Check if processType is specified and is valid for current process
-          (config.processType && item.processType ? config.processType === item.processType : true)
+          && (config.processType && item.processType ? config.processType === item.processType : true)
         );
       }) as { memberOf: string | string[] }[];
 
@@ -199,7 +199,7 @@ export const checkRestricted = (
     if (!objectIsValid) {
       // Throw error
       if (config.throwError) {
-        throw new UnauthorizedException('The current user has no access rights for ' + data.constructor?.name);
+        throw new UnauthorizedException(`The current user has no access rights for ${data.constructor?.name}`);
       }
       return null;
     }
@@ -225,9 +225,9 @@ export const checkRestricted = (
       // Throw error
       if (config.throwError) {
         throw new UnauthorizedException(
-          'The current user has no access rights for ' +
-            propertyKey +
-            (data.constructor?.name ? ' of ' + data.constructor.name : '')
+          `The current user has no access rights for ${
+            propertyKey
+            }${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
         );
       }
 

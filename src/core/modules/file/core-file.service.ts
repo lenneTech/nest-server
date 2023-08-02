@@ -1,7 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
 import { Connection, Types } from 'mongoose';
-import { createBucket, MongoGridFSOptions, MongooseGridFS } from 'mongoose-gridfs';
+import { MongoGridFSOptions, MongooseGridFS, createBucket } from 'mongoose-gridfs';
 import { FilterArgs } from '../../common/args/filter.args';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
@@ -38,6 +38,7 @@ export abstract class CoreFileService {
       return null;
     }
     return await new Promise(async (resolve, reject) => {
+      // eslint-disable-next-line unused-imports/no-unused-vars
       const { filename, mimetype, encoding, createReadStream } = await file;
       const readStream = createReadStream();
       const options: MongoGridFSOptions = { filename, contentType: mimetype };
@@ -123,7 +124,7 @@ export abstract class CoreFileService {
    */
   async getFileStreamByName(
     filename: string,
-    serviceOptions?: FileServiceOptions
+    serviceOptions?: FileServiceOptions,
   ): Promise<GridFSBucketReadStreamOptions> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
@@ -182,7 +183,7 @@ export abstract class CoreFileService {
     }
     const fileInfo = await this.getFileInfoByName(filename);
     if (!fileInfo) {
-      throw new NotFoundException('File not found with filename ' + filename);
+      throw new NotFoundException(`File not found with filename ${filename}`);
     }
     return await this.deleteFile(fileInfo.id, serviceOptions);
   }
@@ -196,8 +197,8 @@ export abstract class CoreFileService {
    * Can throw an exception if the rights do not fit
    */
   protected checkRights(
-    input: any,
-    options?: FileServiceOptions & { checkInputType: FileInputCheckType }
+    input: any, // eslint-disable-line unused-imports/no-unused-vars
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType }, // eslint-disable-line unused-imports/no-unused-vars
   ): MaybePromise<boolean> {
     return true;
   }

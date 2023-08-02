@@ -8,6 +8,8 @@ import { CronExpression } from '@nestjs/schedule';
 import compression from 'compression';
 import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
+import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health';
+import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfig } from './cron-job-config.interface';
 import { MailjetOptions } from './mailjet-options.interface';
@@ -168,6 +170,35 @@ export interface IServerOptions {
      * Module options (forRootAsync)
      */
     options?: GqlModuleAsyncOptions;
+  };
+
+  /**
+   * Whether to activate health check endpoints
+   */
+  healthCheck?: {
+    enabled?: boolean;
+    configs?: {
+      database?: {
+        disabled?: boolean;
+        key?: string;
+        options?: MongoosePingCheckSettings;
+      };
+      memoryHeap?: {
+        disabled?: boolean;
+        key?: string;
+        heapUsedThreshold?: number;
+      };
+      memoryRss?: {
+        disabled?: boolean;
+        key?: string;
+        rssThreshold?: number;
+      };
+      storage?: {
+        disabled?: boolean;
+        key?: string;
+        options?: DiskHealthIndicatorOptions;
+      };
+    };
   };
 
   /**

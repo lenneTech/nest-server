@@ -11,10 +11,10 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('Project (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const log = true;
-  const logError = true;
+  const log = true; // eslint-disable-line unused-imports/no-unused-vars
+  const logError = true; // eslint-disable-line unused-imports/no-unused-vars
 
-  // Testenvironment properties
+  // Test environment properties
   let app;
   let testHelper: TestHelper;
 
@@ -86,9 +86,9 @@ describe('Project (e2e)', () => {
     for (let i = 0; i < userCount; i++) {
       const input = {
         password: random + i,
-        email: random + i + '@testusers.com',
-        firstName: 'Test' + '0'.repeat((userCount + '').length - (i + '').length) + i + random,
-        lastName: 'User' + i + random,
+        email: `${random + i}@testusers.com`,
+        firstName: `Test${'0'.repeat((`${userCount}`).length - (`${i}`).length)}${i}${random}`,
+        lastName: `User${i}${random}`,
       };
 
       // Sign up user
@@ -142,7 +142,7 @@ describe('Project (e2e)', () => {
    * Find and count users
    */
   it('findAndCountUsers', async () => {
-    const emails = users.map((user) => user.email);
+    const emails = users.map(user => user.email);
     emails.pop();
     const args = {
       filter: {
@@ -163,7 +163,7 @@ describe('Project (e2e)', () => {
         arguments: { ...args },
         fields: [{ items: ['id', 'email', 'firstName', 'lastName'] }, 'totalCount'],
       },
-      { token: users[0].token }
+      { token: users[0].token },
     );
     const min = Math.min(args.limit, emails.length - args.skip);
     expect(res.totalCount).toEqual(emails.length);
@@ -183,7 +183,7 @@ describe('Project (e2e)', () => {
    * Get sample user
    */
   it('getSampleUser', async () => {
-    const emails = users.map((user) => user.email);
+    const emails = users.map(user => user.email);
     const args = {
       filter: {
         singleFilter: {
@@ -203,7 +203,7 @@ describe('Project (e2e)', () => {
         arguments: { ...args },
         fields: ['id', 'email', 'firstName', 'lastName'],
       },
-      { token: users[0].token }
+      { token: users[0].token },
     );
     expect(res.length).toEqual(1);
     expect(emails.includes(res[0].email)).toBe(true);
@@ -217,7 +217,7 @@ describe('Project (e2e)', () => {
           arguments: { ...args },
           fields: ['id', 'email', 'firstName', 'lastName'],
         },
-        { token: users[0].token }
+        { token: users[0].token },
       );
       expect(otherRes.length).toEqual(1);
       expect(emails.includes(otherRes[0].email)).toBe(true);
@@ -257,7 +257,7 @@ describe('Project (e2e)', () => {
           },
           fields: ['id'],
         },
-        { token: users[users.length - 1].token }
+        { token: users[users.length - 1].token },
       );
       expect(res.id).toEqual(user.id);
     }

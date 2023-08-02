@@ -1,5 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';

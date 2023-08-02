@@ -1,4 +1,4 @@
-import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import { ArgumentMetadata, BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { isBasicType } from '../helpers/input.helper';
@@ -24,7 +24,7 @@ export class MapAndValidatePipe implements PipeTransform {
     // Validate
     const errors = await validate(value, { forbidUnknownValues: false });
     if (errors.length > 0) {
-      throw new BadRequestException('Input validation failed:' + errors.join('; '));
+      throw new BadRequestException(`Input validation failed:${errors.join('; ')}`);
     }
 
     return value;

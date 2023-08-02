@@ -17,7 +17,7 @@ export class ModelHelper {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): Partial<T> | Record<string, any> {
     return prepareMap(source, target, options);
   }
@@ -32,7 +32,7 @@ export class ModelHelper {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): T {
     return map(source, target, options);
   }
@@ -43,7 +43,7 @@ export class ModelHelper {
   public static maps<T = Record<string, any>>(
     data: Partial<T> | Partial<T>[] | Record<string, any> | Record<string, any>[],
     targetClass: new (...args: any[]) => T,
-    cloneDeep = true
+    cloneDeep = true,
   ): T[] {
     return maps(data, targetClass, cloneDeep);
   }
@@ -61,7 +61,7 @@ export function prepareMap<T = Record<string, any>>(
     funcAllowed?: boolean;
     mapId?: boolean;
     proto?: boolean;
-  } = {}
+  } = {},
 ): Partial<T> | Record<string, any> {
   // Set config
   const config = {
@@ -79,12 +79,12 @@ export function prepareMap<T = Record<string, any>>(
   // Update properties
   for (const key of Object.keys(target)) {
     if (
-      (!['id', '_id'].includes(key) || config.mapId) &&
-      source[key] !== undefined &&
-      (config.funcAllowed || typeof (source[key] !== 'function'))
+      (!['id', '_id'].includes(key) || config.mapId)
+      && source[key] !== undefined
+      && (config.funcAllowed || typeof (source[key] !== 'function'))
     ) {
-      result[key] =
-        source[key] !== 'function' && config.cloneDeep
+      result[key]
+        = source[key] !== 'function' && config.cloneDeep
           ? clone(source[key], { circles: config.circles, proto: config.proto })
           : source[key];
     } else if (key === 'id' && !config.mapId) {
@@ -107,7 +107,7 @@ export function map<T = Record<string, any>>(
     funcAllowed?: boolean;
     mapId?: boolean;
     proto?: boolean;
-  } = {}
+  } = {},
 ): T {
   // Set config
   const config = {
@@ -140,7 +140,7 @@ export function map<T = Record<string, any>>(
 export function maps<T = Record<string, any>>(
   data: Partial<T> | Partial<T>[] | Record<string, any> | Record<string, any>[],
   targetClass: new (...args: any[]) => T,
-  cloneDeep = true
+  cloneDeep = true,
 ): T[] {
   // Check data
   if (!data || typeof data !== 'object') {
@@ -171,7 +171,7 @@ export function mapClasses<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean },
 ): T {
   // Check params
   if (!target) {
@@ -198,10 +198,9 @@ export function mapClasses<T = Record<string, any>>(
       if (value === null) {
         target[prop] = null;
         continue;
-      }
 
-      // Process array
-      else if (Array.isArray(value)) {
+        // Process array
+      } else if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
           if (item instanceof targetClass) {
@@ -219,15 +218,13 @@ export function mapClasses<T = Record<string, any>>(
           }
         }
         target[prop] = arr as any;
-      }
 
-      // Process ObjectId
-      else if (value instanceof Types.ObjectId) {
+        // Process ObjectId
+      } else if (value instanceof Types.ObjectId) {
         target[prop] = config.objectIdsToString ? value.toHexString() : value;
-      }
 
-      // Process object
-      else if (typeof value === 'object') {
+        // Process object
+      } else if (typeof value === 'object') {
         if (value instanceof targetClass) {
           target[prop] = value as any;
         } else {
@@ -237,10 +234,9 @@ export function mapClasses<T = Record<string, any>>(
             target[prop] = plainToInstance(targetClass, value) as any;
           }
         }
-      }
 
-      // Others
-      else if (!config.removeUndefinedProperties || value !== undefined) {
+        // Others
+      } else if (!config.removeUndefinedProperties || value !== undefined) {
         target[prop] = value;
       }
     }
@@ -262,7 +258,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean },
 ): Promise<T> {
   // Check params
   if (!target) {
@@ -289,10 +285,9 @@ export async function mapClassesAsync<T = Record<string, any>>(
       if (value === null) {
         target[prop] = null;
         continue;
-      }
 
-      // Process array
-      else if (Array.isArray(value)) {
+        // Process array
+      } else if (Array.isArray(value)) {
         const arr = [];
         for (const item of value) {
           if (item instanceof targetClass) {
@@ -310,15 +305,13 @@ export async function mapClassesAsync<T = Record<string, any>>(
           }
         }
         target[prop] = arr as any;
-      }
 
-      // Process ObjectId
-      else if (value instanceof Types.ObjectId) {
+        // Process ObjectId
+      } else if (value instanceof Types.ObjectId) {
         target[prop] = config.objectIdsToString ? value.toHexString() : value;
-      }
 
-      // Process object
-      else if (typeof value === 'object') {
+        // Process object
+      } else if (typeof value === 'object') {
         if (value instanceof targetClass) {
           target[prop] = value as any;
         } else {
@@ -328,10 +321,9 @@ export async function mapClassesAsync<T = Record<string, any>>(
             target[prop] = plainToInstance(targetClass, value) as any;
           }
         }
-      }
 
-      // Others
-      else if (!config.removeUndefinedProperties || value !== undefined) {
+        // Others
+      } else if (!config.removeUndefinedProperties || value !== undefined) {
         target[prop] = value;
       }
     }
@@ -347,14 +339,14 @@ export function mapInputClasses<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean },
 ) {
   // Get config
   const config = {
     removeUndefinedProperties: true,
     ...options,
   };
-  return mapClasses(input, mapping, target, options);
+  return mapClasses(input, mapping, target, config);
 }
 
 /**
@@ -364,12 +356,12 @@ export function mapInputClassesAsync<T = Record<string, any>>(
   input: Record<string, any>,
   mapping: Record<string, new (...args: any[]) => any>,
   target?: T,
-  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean }
+  options?: { objectIdsToString?: boolean; removeUndefinedProperties?: boolean },
 ) {
   // Get config
   const config = {
     removeUndefinedProperties: true,
     ...options,
   };
-  return mapClassesAsync(input, mapping, target, options);
+  return mapClassesAsync(input, mapping, target, config);
 }

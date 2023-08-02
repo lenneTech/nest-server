@@ -8,7 +8,7 @@ export class FilterArgs extends PaginationArgs {
   /**
    * Filtering
    */
-  @Field((type) => FilterInput, {
+  @Field(type => FilterInput, {
     description: 'Input for filtering',
     nullable: true,
   })
@@ -18,7 +18,7 @@ export class FilterArgs extends PaginationArgs {
   /**
    * Get a specific number of random samples from filter results
    */
-  @Field((type) => Number, {
+  @Field(type => Number, {
     description:
       'Request only a specified number of samples from the filter results; if not specified, all results are returned.',
     nullable: true,
@@ -38,11 +38,11 @@ export class FilterArgs extends PaginationArgs {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     super.map(data, options);
     this.filter = data.filter ? FilterInput.map(data.filter, options) : undefined;
-    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
     return this;
   }
 }

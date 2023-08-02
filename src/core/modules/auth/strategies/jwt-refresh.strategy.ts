@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { Request as RequestType, Request } from 'express';
+import { Request, Request as RequestType } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '../../../common/services/config.service';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';

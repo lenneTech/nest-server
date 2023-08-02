@@ -1,5 +1,5 @@
-import { WriteStream } from 'fs-capacitor';
 import { Readable } from 'stream';
+import { WriteStream } from 'fs-capacitor';
 
 /**
  * Interface for file uploads

@@ -32,7 +32,7 @@ export abstract class CoreModel {
       init?: any;
       item?: T;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): T {
     const item = options.item || new this();
     delete options.item;
@@ -57,7 +57,7 @@ export abstract class CoreModel {
       init?: any;
       item?: T;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): T {
     const item = options.item || new this();
     delete options.item;
@@ -68,6 +68,7 @@ export abstract class CoreModel {
    * Initialize instance with default values instead of undefined
    * Should be overwritten in child class to organize the defaults
    */
+  // eslint-disable-next-line unused-imports/no-unused-vars
   public init(...args: any[]): this {
     return this;
   }
@@ -83,7 +84,7 @@ export abstract class CoreModel {
       funcAllowed?: boolean;
       init?: any;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     const config = {
       cloneDeep: false,
@@ -114,7 +115,7 @@ export abstract class CoreModel {
       funcAllowed?: boolean;
       init?: any;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     const config = {
       cloneDeep: true,
@@ -129,6 +130,7 @@ export abstract class CoreModel {
   /**
    * Verification of the user's rights to access the properties of this object
    */
+  // eslint-disable-next-line unused-imports/no-unused-vars
   public securityCheck(user: any, force?: boolean): this {
     return this;
   }
