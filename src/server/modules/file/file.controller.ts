@@ -7,7 +7,6 @@ import {
   Param,
   Post,
   Res,
-  UnprocessableEntityException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -57,7 +56,7 @@ export class FileController {
     }
     const filestream = await this.fileService.getFileStream(id);
     res.header('Content-Type', file.contentType);
-    res.header('Content-Disposition', 'attachment; filename=' + file.filename);
+    res.header('Content-Disposition', `attachment; filename=${file.filename}`);
     res.header('Cache-Control', 'max-age=31536000');
     return filestream.pipe(res);
   }

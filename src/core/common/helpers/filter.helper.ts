@@ -32,7 +32,7 @@ export class Filter {
   /**
    * Generate find options
    */
-  public static generateFindOptions<T = any>(filterArgs: Partial<FilterArgs>): QueryOptions {
+  public static generateFindOptions(filterArgs: Partial<FilterArgs>): QueryOptions {
     return generateFindOptions(filterArgs);
   }
 }
@@ -86,7 +86,7 @@ export function findFilter(options?: {
   }
 
   // Filter falsy values
-  filterOptions[config.type] = filterOptions[config.type].filter((value) => value);
+  filterOptions[config.type] = filterOptions[config.type].filter(value => value);
 
   // Optimizations
   if (!filterOptions[config.type].length) {
@@ -113,7 +113,7 @@ export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs
  */
 export function generateFilterQuery<T = any>(
   filter?: Partial<FilterInput>,
-  options?: { automaticObjectIdFiltering?: boolean }
+  options?: { automaticObjectIdFiltering?: boolean },
 ): FilterQuery<T> | any {
   // Check filter
   if (!filter) {
@@ -156,10 +156,9 @@ export function generateFilterQuery<T = any>(
     // Convert value to object ID(s)
     if (convertToObjectId || isReference) {
       value = getObjectIds(value);
-    }
 
-    // Check if value is a string ID and automatic ObjectID filtering is activated
-    else if (config.automaticObjectIdFiltering && checkStringIds(value)) {
+      // Check if value is a string ID and automatic ObjectID filtering is activated
+    } else if (config.automaticObjectIdFiltering && checkStringIds(value)) {
       // Set both the string filter and the ObjectID filtering in an OR construction
       const alternativeQuery = clone(filter.singleFilter, { circles: false });
       alternativeQuery.value = getObjectIds(value);
@@ -215,9 +214,9 @@ export function generateFilterQuery<T = any>(
 /**
  * Generate find options
  */
-export function generateFindOptions<T = any>(
+export function generateFindOptions(
   filterArgs: Partial<FilterArgs>,
-  options?: { maxLimit?: number }
+  options?: { maxLimit?: number },
 ): QueryOptions {
   // Check filterArgs
   if (!filterArgs) {

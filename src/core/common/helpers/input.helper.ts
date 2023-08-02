@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
@@ -28,7 +28,7 @@ export default class InputHelper {
       processType?: ProcessType;
       roles?: string | string[];
       throwError?: boolean;
-    }
+    },
   ): Promise<any> {
     return check(value, user, options);
   }
@@ -59,7 +59,7 @@ export default class InputHelper {
     parameter: number,
     min: number,
     max: number,
-    falseFunction: (...params) => any = errorFunction
+    falseFunction: (...params) => any = errorFunction,
   ): boolean {
     return isBetween(parameter, min, max, falseFunction);
   }
@@ -105,7 +105,7 @@ export default class InputHelper {
   public static isGreater(
     parameter: number,
     compare: number,
-    falseFunction: (...params) => any = errorFunction
+    falseFunction: (...params) => any = errorFunction,
   ): boolean {
     return isGreater(parameter, compare, falseFunction);
   }
@@ -116,7 +116,7 @@ export default class InputHelper {
   public static isLower(
     parameter: number,
     compare: number,
-    falseFunction: (...params) => any = errorFunction
+    falseFunction: (...params) => any = errorFunction,
   ): boolean {
     return isLower(parameter, compare, falseFunction);
   }
@@ -125,7 +125,7 @@ export default class InputHelper {
    * Check if parameter is a non-empty array
    */
   public static isNonEmptyArray(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-    return isNonEmptyString(parameter, errorFunction);
+    return isNonEmptyString(parameter, falseFunction);
   }
 
   /**
@@ -182,7 +182,7 @@ export default class InputHelper {
    * @deprecated use mapClass function
    */
   public static map<T>(values: Partial<T>, ctor: new () => T, cloneDeep = true): T {
-    return mapClass(values, ctor);
+    return mapClass(values, ctor, { cloneDeep });
   }
 }
 
@@ -194,13 +194,10 @@ export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[
     target,
     ...args.map(
       // Prepare records
-      (item) =>
-        !item
-          ? // Return item if not an object
-            item
-          : // Return cloned record with undefined properties removed
-            filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined)
-    )
+      item =>
+        // Return item if not an object or cloned record with undefined properties removed
+        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
+    ),
   );
 }
 
@@ -217,7 +214,7 @@ export async function check(
     roles?: string | string[];
     throwError?: boolean;
     validatorOptions?: ValidatorOptions;
-  }
+  },
 ): Promise<any> {
   const config = {
     throwError: true,
@@ -245,15 +242,15 @@ export async function check(
     // Check access
     if (
       // check if any user, including users who are not logged in, can access
-      roles.includes(RoleEnum.S_EVERYONE) ||
+      roles.includes(RoleEnum.S_EVERYONE)
       // check if user is logged in
-      (roles.includes(RoleEnum.S_USER) && user?.id) ||
+      || (roles.includes(RoleEnum.S_USER) && user?.id)
       // check if the user has at least one of the required roles
-      user?.hasRole?.(roles) ||
+      || user?.hasRole?.(roles)
       // check if the user is herself / himself
-      (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user)) ||
+      || (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user))
       // check if the user is the creator
-      (roles.includes(RoleEnum.S_CREATOR) && equalIds(config.dbObject?.createdBy, user))
+      || (roles.includes(RoleEnum.S_CREATOR) && equalIds(config.dbObject?.createdBy, user))
     ) {
       valid = true;
     }
@@ -394,10 +391,10 @@ export function errorFunction(caller: (...params) => any, message = 'Required pa
  */
 export function filterProperties<T = Record<string, any>>(
   obj: T,
-  filterFunction: (value?: any, key?: string, obj?: T) => boolean
+  filterFunction: (value?: any, key?: string, obj?: T) => boolean,
 ): Partial<T> {
   return Object.keys(obj)
-    .filter((key) => filterFunction(obj[key], key, obj))
+    .filter(key => filterFunction(obj[key], key, obj))
     .reduce((res, key) => Object.assign(res, { [key]: obj[key] }), {});
 }
 
@@ -454,7 +451,7 @@ export function isBetween(
   parameter: number,
   min: number,
   max: number,
-  falseFunction: (...params) => any = errorFunction
+  falseFunction: (...params) => any = errorFunction,
 ): boolean {
   return typeof parameter === 'number' && parameter > min && parameter < max ? true : falseFunction(isBetween);
 }
@@ -485,12 +482,12 @@ export function isFalse(parameter: any, falseFunction: (...params) => any = erro
  * Check if parameter is a valid file
  */
 export function isFile(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null &&
-    typeof parameter !== 'undefined' &&
-    parameter.name &&
-    parameter.path &&
-    parameter.type &&
-    parameter.size > 0
+  return parameter !== null
+    && typeof parameter !== 'undefined'
+    && parameter.name
+    && parameter.path
+    && parameter.type
+    && parameter.size > 0
     ? true
     : falseFunction(isFile);
 }
@@ -508,7 +505,7 @@ export function isFunction(parameter: (...params) => any, falseFunction: (...par
 export function isGreater(
   parameter: number,
   compare: number,
-  falseFunction: (...params) => any = errorFunction
+  falseFunction: (...params) => any = errorFunction,
 ): boolean {
   return typeof parameter === 'number' && parameter > compare ? true : falseFunction(isGreater);
 }
@@ -519,7 +516,7 @@ export function isGreater(
 export function isLower(
   parameter: number,
   compare: number,
-  falseFunction: (...params) => any = errorFunction
+  falseFunction: (...params) => any = errorFunction,
 ): boolean {
   return typeof parameter === 'number' && parameter < compare ? true : falseFunction(isLower);
 }
@@ -528,10 +525,10 @@ export function isLower(
  * Check if parameter is a non empty array
  */
 export function isNonEmptyArray(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null &&
-    typeof parameter !== 'undefined' &&
-    parameter.constructor === Array &&
-    parameter.length > 0
+  return parameter !== null
+    && typeof parameter !== 'undefined'
+    && parameter.constructor === Array
+    && parameter.length > 0
     ? true
     : falseFunction(isNonEmptyArray);
 }
@@ -540,10 +537,10 @@ export function isNonEmptyArray(parameter: any, falseFunction: (...params) => an
  * Check if parameter is a non empty object
  */
 export function isNonEmptyObject(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null &&
-    typeof parameter !== 'undefined' &&
-    parameter.constructor === Object &&
-    Object.keys(parameter).length !== 0
+  return parameter !== null
+    && typeof parameter !== 'undefined'
+    && parameter.constructor === Object
+    && Object.keys(parameter).length !== 0
     ? true
     : falseFunction(isNonEmptyObject);
 }
@@ -593,13 +590,10 @@ export function mergePlain(target: Record<any, any>, ...args: Record<any, any>[]
     target,
     ...args.map(
       // Prepare records
-      (item) =>
-        !item
-          ? // Return item if not an object
-            item
-          : // Return cloned record with undefined properties removed
-            filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined)
-    )
+      item =>
+        // Return item if not an object or cloned record with undefined properties removed
+        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
+    ),
   );
 }
 
@@ -636,12 +630,13 @@ export function mapClass<T>(
     cloneDeep?: boolean;
     circle?: boolean;
     proto?: boolean;
-  }
+  },
 ): T {
   const config = {
     cloneDeep: true,
     circles: false,
     proto: false,
+    ...options,
   };
   const instance = new ctor();
 
@@ -708,7 +703,7 @@ export function processDeep(
     specialClasses?: ((new (args: any[]) => any) | string)[];
     specialFunctions?: string[];
     specialProperties?: string[];
-  }
+  },
 ): any {
   // Set options
   const { processedObjects, specialClasses, specialFunctions, specialProperties } = {
@@ -722,10 +717,9 @@ export function processDeep(
   // Check for falsifiable values
   if (!data) {
     return func(data);
-  }
 
-  // Prevent circular processing
-  else if (typeof data === 'object') {
+    // Prevent circular processing
+  } else if (typeof data === 'object') {
     if (processedObjects.get(data)) {
       return data;
     }
@@ -734,21 +728,21 @@ export function processDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return func(data.map((item) => processDeep(item, func, { processedObjects, specialClasses })));
+    return func(data.map(item => processDeep(item, func, { processedObjects, specialClasses })));
   }
 
   // Process object
   if (typeof data === 'object') {
     if (
-      specialFunctions.find((sF) => typeof data[sF] === 'function') ||
-      specialProperties.find((sP) => Object.getOwnPropertyNames(data).includes(sP))
+      specialFunctions.find(sF => typeof data[sF] === 'function')
+      || specialProperties.find(sP => Object.getOwnPropertyNames(data).includes(sP))
     ) {
       return func(data);
     }
     for (const specialClass of specialClasses) {
       if (
-        (typeof specialClass === 'string' && specialClass === data.constructor?.name) ||
-        (typeof specialClass !== 'string' && data instanceof specialClass)
+        (typeof specialClass === 'string' && specialClass === data.constructor?.name)
+        || (typeof specialClass !== 'string' && data instanceof specialClass)
       ) {
         return func(data);
       }
@@ -787,7 +781,7 @@ export function removePropertiesDeep(
   properties: string[],
   options?: {
     processedObjects?: WeakMap<new () => any, boolean>;
-  }
+  },
 ): any {
   // Set options
   const { processedObjects } = {
@@ -798,10 +792,9 @@ export function removePropertiesDeep(
   // Check for falsifiable values
   if (!data) {
     return data;
-  }
 
-  // Prevent circular processing
-  else if (typeof data === 'object') {
+    // Prevent circular processing
+  } else if (typeof data === 'object') {
     if (processedObjects.get(data)) {
       return data;
     }
@@ -810,7 +803,7 @@ export function removePropertiesDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return data.map((item) => removePropertiesDeep(item, properties, { processedObjects }));
+    return data.map(item => removePropertiesDeep(item, properties, { processedObjects }));
   }
 
   // Process object

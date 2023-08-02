@@ -1,10 +1,10 @@
-import { INestApplication } from '@nestjs/common';
 import { Blob } from 'buffer';
+import util = require('util');
+import { INestApplication } from '@nestjs/common';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import { Types } from 'mongoose';
 import supertest = require('supertest');
-import util = require('util');
 import ws = require('ws');
 import { getStringIds } from '../core/common/helpers/db.helper';
 
@@ -158,7 +158,7 @@ export class TestHelper {
     return new Promise((resolve, reject) => {
       const request = supertest((this.app as INestApplication).getHttpServer()).get(url);
       if (token) {
-        request.set('Authorization', 'bearer ' + token);
+        request.set('Authorization', `bearer ${token}`);
       }
       let data = '';
       request
@@ -220,7 +220,7 @@ export class TestHelper {
           name: null,
           type: TestGraphQLType.QUERY,
         },
-        graphql
+        graphql,
       ) as TestGraphQLConfig;
 
       // Init request
@@ -256,7 +256,7 @@ export class TestHelper {
     if (config.convertEnums) {
       if (Array.isArray(config.convertEnums)) {
         for (const key of Object.values(config.convertEnums)) {
-          const regExpStr = '(' + key + ': )\\"([_A-Z][_0-9A-Z]*)\\"';
+          const regExpStr = `(${key}: )\\"([_A-Z][_0-9A-Z]*)\\"`;
           const regExp = new RegExp(regExpStr, 'g');
           query = query.replace(regExp, '$1$2');
         }
@@ -362,7 +362,7 @@ export class TestHelper {
     }
     if (Array.isArray(args)) {
       objects.set(args, args);
-      return args.map((item) => this.prepareArguments(item, objects));
+      return args.map(item => this.prepareArguments(item, objects));
     }
     if (typeof args === 'object') {
       objects.set(args, args);
@@ -429,7 +429,7 @@ export class TestHelper {
     log: boolean,
     logError: boolean,
     variables?: Record<string, TestGraphQLVariable>,
-    attachments?: Record<string, string>
+    attachments?: Record<string, string>,
   ): Promise<any> {
     // Token
     if (token) {
@@ -460,7 +460,7 @@ export class TestHelper {
     const method: string = requestConfig.method.toLowerCase();
     let request = supertest((this.app as INestApplication).getHttpServer())[method](requestConfig.url as string);
     if (token) {
-      request.set('Authorization', 'bearer ' + token);
+      request.set('Authorization', `bearer ${token}`);
     }
 
     // Process variables (incl. attachments for GraphQL)
@@ -508,7 +508,7 @@ export class TestHelper {
     }
     const map = {};
     mapArray.forEach((item, index) => {
-      map[index] = ['variables.' + item.key + ('index' in item ? '.' + item.index : '')];
+      map[index] = [`variables.${item.key}${'index' in item ? `.${item.index}` : ''}`];
     });
 
     // Add operations
@@ -565,7 +565,7 @@ export class TestHelper {
   async getSubscription(graphql: TestGraphQLConfig, query: string, options?: TestGraphQLOptions) {
     // Check url
     if (!this.subscriptionUrl) {
-      throw new Error("Missing subscriptionUrl in TestHelper: new TestHelper(app, 'ws://localhost:3030/graphql')");
+      throw new Error('Missing subscriptionUrl in TestHelper: new TestHelper(app, \'ws://localhost:3030/graphql\')');
     }
 
     // Prepare subscription
@@ -599,7 +599,7 @@ export class TestHelper {
           next: onNext,
           error: reject,
           complete: resolve as any,
-        }
+        },
       );
     });
 

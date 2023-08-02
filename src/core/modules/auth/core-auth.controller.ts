@@ -28,7 +28,7 @@ export class CoreAuthController {
     @CurrentUser() currentUser: ICoreAuthUser,
     @Tokens('token') token: string,
     @Res() res: ResponseType,
-    @Param('allDevices', ParseBoolPipe) allDevices?: boolean
+    @Param('allDevices', ParseBoolPipe) allDevices?: boolean,
   ): Promise<boolean> {
     const result = await this.authService.logout(token, { currentUser, allDevices });
     return this.processCookies(res, result);
@@ -42,7 +42,7 @@ export class CoreAuthController {
   async refreshToken(
     @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
-    @Res() res: ResponseType
+    @Res() res: ResponseType,
   ): Promise<CoreAuthModel> {
     const result = await this.authService.refreshTokens(user, refreshToken);
     return this.processCookies(res, result);

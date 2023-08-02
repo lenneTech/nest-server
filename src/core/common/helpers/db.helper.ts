@@ -28,7 +28,7 @@ export function addIds(
   target: any,
   ids: StringOrObjectId | StringOrObjectId[],
   convert: 'string' | 'object' | 'auto' | false = 'auto',
-  options?: { unique?: boolean }
+  options?: { unique?: boolean },
 ): any[] {
   // Set config
   const config = {
@@ -54,17 +54,14 @@ export function addIds(
   if (ids.length) {
     // Add autoconverted ID
     if (
-      result.length &&
-      convert === 'auto' &&
-      ((result[0] instanceof Types.ObjectId && !(ids instanceof Types.ObjectId)) ||
-        (typeof result[0] === 'string' && typeof ids !== 'string'))
+      result.length
+      && convert === 'auto'
+      && ((result[0] instanceof Types.ObjectId && !(ids instanceof Types.ObjectId))
+        || (typeof result[0] === 'string' && typeof ids !== 'string'))
     ) {
       const converted = result[0] instanceof Types.ObjectId ? getObjectIds(ids) : getStringIds(ids);
       result.push(...(converted as any));
-    }
-
-    // Add ID
-    else {
+    } else { // Add ID
       result.push(...ids);
     }
   }
@@ -109,7 +106,7 @@ export function equalIds(...ids: IdsType[]): boolean {
   if (!compare) {
     return false;
   }
-  return ids.every((id) => getStringIds(id) === compare);
+  return ids.every(id => getStringIds(id) === compare);
 }
 
 /**
@@ -124,7 +121,7 @@ export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'objec
 export function getIncludedIds<T = IdsType>(
   includes: IdsType,
   ids: T | IdsType,
-  convert?: 'string' | 'object'
+  convert?: 'string' | 'object',
 ): T[] | null | undefined {
   if (!includes || !ids) {
     return undefined;
@@ -189,7 +186,7 @@ export function getStringIds(elements: any[], options?: { deep?: boolean; unique
 export function getStringIds(elements: any, options?: { deep?: boolean; unique?: boolean }): string;
 export function getStringIds<T extends any | any[]>(
   elements: T,
-  options?: { deep?: boolean; unique?: boolean }
+  options?: { deep?: boolean; unique?: boolean },
 ): string | string[] {
   // Process options
   const { deep, unique } = {
@@ -236,7 +233,7 @@ export function getObjectIds(ids: any[]): Types.ObjectId[];
 export function getObjectIds(ids: any): Types.ObjectId;
 export function getObjectIds<T extends any | any[]>(ids: T): Types.ObjectId | Types.ObjectId[] {
   if (Array.isArray(ids)) {
-    return ids.map((id) => new Types.ObjectId(getStringId(id)));
+    return ids.map(id => new Types.ObjectId(getStringId(id)));
   }
   return new Types.ObjectId(getStringId(ids));
 }
@@ -250,7 +247,7 @@ export function getElementsViaIds<T = any>(
   options: {
     splice?: boolean;
     unique?: boolean;
-  } = {}
+  } = {},
 ): T[] {
   // Config
   const config = {
@@ -283,7 +280,7 @@ export function getElementsViaIds<T = any>(
   // Unique elements
   if (config.unique) {
     return elements.filter((value, index, self) => {
-      return self.findIndex((e) => getStringIds(e)) === index;
+      return self.findIndex(e => getStringIds(e)) === index;
     });
   }
 
@@ -354,10 +351,9 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
         // Subfield is a primitive
         if (!innerNode.selectionSet?.selections?.length) {
           option.select ? option.select.push(innerNode.name.value) : (option.select = [innerNode.name.value]);
-        }
 
-        // Subfield ist an object
-        else {
+          // Subfield ist an object
+        } else {
           const innerPopulate = getPopulatOptionsFromSelections([innerNode]);
           option.populate = option.populate
             ? (option.populate as PopulateOptions[]).concat(innerPopulate)
@@ -399,7 +395,7 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
 
   // Process array
   if (Array.isArray(element)) {
-    return element.map((e) => objectIdsToStrings(e, prepared));
+    return element.map(e => objectIdsToStrings(e, prepared));
   }
 
   // Process object
@@ -425,7 +421,7 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
 export function removeUnresolvedReferences<T = any>(
   populated: T,
   populatedOptions: string | PopulateOptions | PopulateOptions[] | (string | PopulateOptions)[],
-  ignoreFirst = true
+  ignoreFirst = true,
 ): T {
   // Check parameter
   if (!populated || !populatedOptions) {
@@ -434,7 +430,7 @@ export function removeUnresolvedReferences<T = any>(
 
   // Process array
   if (Array.isArray(populated)) {
-    populated.forEach((p) => removeUnresolvedReferences(p, populatedOptions, false));
+    populated.forEach(p => removeUnresolvedReferences(p, populatedOptions, false));
     return populated;
   }
 
@@ -442,8 +438,8 @@ export function removeUnresolvedReferences<T = any>(
   if (typeof populated === 'object') {
     // populatedOptions is an array
     if (Array.isArray(populatedOptions)) {
-      populatedOptions.forEach((po) =>
-        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false)
+      populatedOptions.forEach(po =>
+        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false),
       );
       return populated;
     }
@@ -481,15 +477,15 @@ export async function popAndMap<T extends CoreModel>(
   mongooseModel?: Model<any>,
   options?: {
     ignoreSelections?: boolean;
-  }
+  },
 ): Promise<T | T[]> {
   let result;
   let populateOptions: PopulateOptions[] = [];
   const ignoreSelections = options?.ignoreSelections;
   if (populate) {
     if (
-      Array.isArray(populate) &&
-      (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
+      Array.isArray(populate)
+      && (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
     ) {
       populateOptions = populate as PopulateOptions[];
     } else if (Array.isArray(populate) && typeof (populate as SelectionNode[])[0]?.kind === 'string') {
@@ -509,19 +505,19 @@ export async function popAndMap<T extends CoreModel>(
 
     // Map result
     if (Array.isArray(result)) {
-      result = result.map((item) => (modelClass as any).map(item));
+      result = result.map(item => (modelClass as any).map(item));
     } else {
       result = (modelClass as any).map(result);
     }
-  } else {
+
     // Process documents
+  } else {
     if (Array.isArray(queryOrDocument)) {
       await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
-      result = queryOrDocument.map((item) => (modelClass as any).map(item));
-    }
+      result = queryOrDocument.map(item => (modelClass as any).map(item));
 
-    // Process document
-    else {
+      // Process document
+    } else {
       await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
       result = (modelClass as any).map(queryOrDocument);
     }
@@ -568,7 +564,7 @@ export async function setPopulates<T = Query<any, any> | Document>(
   queryOrDocument: T,
   populateOptions: string[] | PopulateOptions[] | (string | PopulateOptions)[],
   mongooseModel: Model<any>,
-  options?: { ignoreSelections: boolean }
+  options?: { ignoreSelections: boolean },
 ): Promise<T> {
   // Check parameters
   if (!populateOptions?.length || !queryOrDocument) {
@@ -595,11 +591,10 @@ export async function setPopulates<T = Query<any, any> | Document>(
     for (const options of populateOptions) {
       queryOrDocument = (queryOrDocument as any).populate(options);
     }
-  }
 
-  // Document => Non chaining
-  // Array with documents
-  else if (Array.isArray(queryOrDocument)) {
+    // Document => Non chaining
+    // Array with documents
+  } else if (Array.isArray(queryOrDocument)) {
     const promises = [];
     queryOrDocument.forEach((item) => {
       if (item.populate) {
@@ -609,9 +604,9 @@ export async function setPopulates<T = Query<any, any> | Document>(
       }
     });
     await Promise.all(promises);
-  }
-  // Single document
-  else if ((queryOrDocument as any).populate) {
+
+    // Single document
+  } else if ((queryOrDocument as any).populate) {
     await (queryOrDocument as any).populate(populateOptions);
   } else {
     return (await mongooseModel.populate(queryOrDocument as any, populateOptions as any)) as any;

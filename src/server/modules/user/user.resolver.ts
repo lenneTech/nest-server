@@ -46,7 +46,7 @@ export class UserResolver {
   @Query(() => FindAndCountUsersResult, { description: 'Find users (via filter)' })
   async findAndCountUsers(
     @GraphQLServiceOptions({ gqlPath: 'findAndCountUsers.items' }) serviceOptions: ServiceOptions,
-    @Args() args?: FilterArgs
+    @Args() args?: FilterArgs,
   ) {
     return await this.userService.findAndCount(args, {
       ...serviceOptions,
@@ -95,7 +95,7 @@ export class UserResolver {
   @Mutation(() => User, { description: 'Create a new user' })
   async createUser(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('input') input: UserCreateInput
+    @Args('input') input: UserCreateInput,
   ): Promise<User> {
     return await this.userService.create(input, {
       ...serviceOptions,
@@ -132,7 +132,7 @@ export class UserResolver {
   async updateUser(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('input') input: UserInput,
-    @Args('id') id: string
+    @Args('id') id: string,
   ): Promise<User> {
     // Update user
     return await this.userService.update(id, input, {
@@ -162,7 +162,7 @@ export class UserResolver {
     filter(this: UserResolver, payload, variables, context) {
       return context?.user?.hasRole?.(RoleEnum.ADMIN);
     },
-    resolve: (user) => user,
+    resolve: user => user,
   })
   async userCreated() {
     return this.pubSub.asyncIterator('userCreated');

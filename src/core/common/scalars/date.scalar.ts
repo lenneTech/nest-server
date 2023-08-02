@@ -1,11 +1,10 @@
 import { CustomScalar, Scalar } from '@nestjs/graphql';
-import { Kind } from 'graphql';
 import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
 
 /**
  * Date scalar to convert string into date
  */
-@Scalar('Date', (type) => Date)
+@Scalar('Date', type => Date)
 export class DateScalar implements CustomScalar<string, Date> {
   description = 'Date custom scalar type';
 

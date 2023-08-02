@@ -1,5 +1,5 @@
-import { CronExpression } from '@nestjs/schedule';
 import { join } from 'path';
+import { CronExpression } from '@nestjs/schedule';
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
@@ -55,6 +55,9 @@ const config: { [env: string]: IServerOptions } = {
       },
       maxComplexity: 20,
     },
+    healthCheck: {
+      enabled: true,
+    },
     ignoreSelectionsForPopulate: true,
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
@@ -69,7 +72,7 @@ const config: { [env: string]: IServerOptions } = {
         },
       },
     },
-    loadLocalConfig: false,
+    loadLocalConfig: true,
     logExceptions: true,
     mongoose: {
       collation: {
@@ -127,6 +130,9 @@ const config: { [env: string]: IServerOptions } = {
         introspection: true,
       },
       maxComplexity: 20,
+    },
+    healthCheck: {
+      enabled: true,
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -201,6 +207,9 @@ const config: { [env: string]: IServerOptions } = {
       },
       maxComplexity: 20,
     },
+    healthCheck: {
+      enabled: true,
+    },
     ignoreSelectionsForPopulate: true,
     jwt: {
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
@@ -239,32 +248,35 @@ const config: { [env: string]: IServerOptions } = {
 /**
  * Environment specific config
  *
- * default: development
+ * default: local
  */
-const env = process.env['NODE' + '_ENV'] || 'development';
-const envConfig = config[env] || config.development;
-console.info('Configured for: ' + envConfig.env + (env !== envConfig.env ? ' (requested: ' + env + ')' : ''));
-
+const env = process.env['NODE' + '_ENV'] || 'local';
+const envConfig = config[env] || config.local;
+console.info(`Configured for: ${envConfig.env}${env !== envConfig.env ? ` (requested: ${env})` : ''}`);
 // Merge with localConfig (e.g. config.json)
 if (envConfig.loadLocalConfig) {
   let localConfig;
   if (typeof envConfig.loadLocalConfig === 'string') {
-    localConfig = require(envConfig.loadLocalConfig);
-    merge(envConfig, localConfig);
-  } else {
-    try {
-      // get config from src directory
-      localConfig = require(__dirname + '/config.json');
+    import(envConfig.loadLocalConfig).then((loadedConfig) => {
+      localConfig = loadedConfig.default || loadedConfig;
       merge(envConfig, localConfig);
-    } catch {
-      try {
-        // if not found try to find in project directory
-        localConfig = require(__dirname + '/../config.json');
+    }).catch(() => {
+      console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
+    });
+  } else {
+    // get config from src directory
+    import(join(__dirname, 'config.json')).then((loadedConfig) => {
+      localConfig = loadedConfig.default || loadedConfig;
+      merge(envConfig, localConfig);
+    }).catch(() => {
+      // if not found try to find in project directory
+      import(join(__dirname, '..', 'config.json')).then((loadedConfig) => {
+        localConfig = loadedConfig.default || loadedConfig;
         merge(envConfig, localConfig);
-      } catch (e) {
-        // No config.json found => nothing to do
-      }
-    }
+      }).catch(() => {
+        console.info('No local config.json found!');
+      });
+    });
   }
 }
 

@@ -1,6 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { ConfigService } from './config.service';
 import Mailjet from 'node-mailjet';
+import { ConfigService } from './config.service';
 
 /**
  * Mailjet service
@@ -30,7 +30,7 @@ export class MailjetService {
       }[];
       templateData?: { [key: string]: any };
       sandbox?: boolean;
-    }
+    },
   ) {
     // Process config
     const { senderName, senderEmail, templateData, attachments, sandbox } = {
@@ -81,24 +81,24 @@ export class MailjetService {
       });
     } catch (e) {
       if (
-        this.configService.getFastButReadOnly('email.mailjet.api_key_public') &&
-        this.configService.getFastButReadOnly('email.mailjet.api_key_private')
+        this.configService.getFastButReadOnly('email.mailjet.api_key_public')
+        && this.configService.getFastButReadOnly('email.mailjet.api_key_private')
       ) {
         throw new HttpException('Cannot connect to mailjet.', 502);
       }
       console.debug(
         JSON.stringify(
           {
-            info: 'Mailjet credentials are missing',
+            'info': 'Mailjet credentials are missing',
             'email.mailjet.api_key_public':
               this.configService.getFastButReadOnly('email.mailjet.api_key_public') || 'missing',
             'email.mailjet.api_key_private':
               this.configService.getFastButReadOnly('email.mailjet.api_key_private') || 'missing',
-            templateData: templateData,
+            'templateData': templateData,
           },
           null,
-          2
-        )
+          2,
+        ),
       );
       return;
     }

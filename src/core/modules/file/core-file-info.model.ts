@@ -25,8 +25,8 @@ export class CoreFileInfo extends CoreModel {
 
   @Field(() => Number, {
     description:
-      'The size of each chunk in bytes. GridFS divides the document into chunks of size chunkSize, ' +
-      'except for the last, which is only as large as needed. The default size is 255 kilobytes (kB)',
+      'The size of each chunk in bytes. GridFS divides the document into chunks of size chunkSize, '
+      + 'except for the last, which is only as large as needed. The default size is 255 kilobytes (kB)',
     nullable: true,
   })
   @Prop({ type: Number, required: false })

@@ -11,7 +11,7 @@ export class CombinedFilterInput extends CoreInput {
   /**
    * Logical Operator to combine filters
    */
-  @Field((type) => LogicalOperatorEnum, {
+  @Field(type => LogicalOperatorEnum, {
     description: 'Logical Operator to combine filters',
   })
   logicalOperator: LogicalOperatorEnum = undefined;
@@ -19,7 +19,7 @@ export class CombinedFilterInput extends CoreInput {
   /**
    * Filters to combine via logical operator
    */
-  @Field((type) => [FilterInput], {
+  @Field(type => [FilterInput], {
     description: 'Filters to combine via logical operator',
   })
   filters: FilterInput[] = undefined;
@@ -37,11 +37,11 @@ export class CombinedFilterInput extends CoreInput {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     super.map(data, options);
     this.filters = maps(data.filters, FilterInput, options.cloneDeep);
-    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
     return this;
   }
 }

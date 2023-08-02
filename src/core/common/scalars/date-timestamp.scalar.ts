@@ -1,11 +1,10 @@
 import { CustomScalar, Scalar } from '@nestjs/graphql';
-import { Kind } from 'graphql';
 import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
 
 /**
  * Date-Timestamp-Scalar to convert timestamp to date and vice versa
  */
-@Scalar('Date', (type) => Date)
+@Scalar('Date', type => Date)
 export class DateTimestampScalar implements CustomScalar<number, Date> {
   description = 'Date (by Timestamp) custom scalar type';
 

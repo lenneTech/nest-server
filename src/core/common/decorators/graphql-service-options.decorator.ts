@@ -1,4 +1,4 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { ExecutionContext, createParamDecorator } from '@nestjs/common';
 import { currentUserDec, graphqlPopulateDec } from '../helpers/decorator.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 
@@ -25,5 +25,5 @@ export const GraphQLServiceOptions = createParamDecorator(
       currentUser: currentUserDec(null, ctx),
       populate: graphqlPopulateDec(data, ctx),
     };
-  }
+  },
 );

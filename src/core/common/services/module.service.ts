@@ -53,7 +53,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       processType?: ProcessType;
       roles?: string | string[];
       throwError?: boolean;
-    }
+    },
   ): Promise<any> {
     const config = {
       ...options,
@@ -77,7 +77,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       outputPath?: string | string[];
       input?: any;
       serviceOptions?: ServiceOptions;
-    }
+    },
   ) {
     // Configuration with default values
     const config: {
@@ -151,10 +151,9 @@ export abstract class ModuleService<T extends CoreModel = any> {
         opts.metatype = config.inputType;
       }
       config.input = await this.checkRights(config.input, config.currentUser as any, opts);
-    }
 
-    // Check roles before processing the service function if they were not already checked during the input check
-    else if (!config.input && config.checkRights && this.checkRights) {
+      // Check roles before processing the service function if they were not already checked during the input check
+    } else if (!config.input && config.checkRights && this.checkRights) {
       await this.checkRights(undefined, config.currentUser as any, config);
     }
 
@@ -240,7 +239,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       model?: new (...args: any[]) => T;
       dbModel?: Model<T & Document>;
       ignoreSelections?: boolean;
-    } = {}
+    } = {},
   ) {
     const config = {
       model: this.mainModelConstructor,

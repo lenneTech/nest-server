@@ -1,6 +1,6 @@
-import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import fs = require('fs');
 import { createWriteStream } from 'fs';
+import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
@@ -63,6 +63,7 @@ export class FileResolver {
     // Save files in filesystem
     const promises: Promise<any>[] = [];
     for (const file of files) {
+      // eslint-disable-next-line unused-imports/no-unused-vars
       const { filename, mimetype, encoding, createReadStream } = await file;
       await fs.promises.mkdir('./uploads', { recursive: true });
       promises.push(
@@ -70,8 +71,8 @@ export class FileResolver {
           createReadStream()
             .pipe(createWriteStream(`./uploads/${filename}`))
             .on('finish', () => resolve(true))
-            .on('error', (error) => reject(error))
-        )
+            .on('error', error => reject(error)),
+        ),
       );
     }
     await Promise.allSettled(promises);

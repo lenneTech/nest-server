@@ -28,7 +28,7 @@ export function currentUserDec(data, ctx: ExecutionContext) {
  */
 export function graphqlPopulateDec(
   data: { gqlPath?: string; ignoreSelections?: boolean },
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
 ): PopulateOptions[] {
   // Check context type
   if (ctx.getType<GqlContextType>() !== 'graphql') {

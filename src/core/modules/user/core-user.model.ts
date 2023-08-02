@@ -1,5 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop, raw, Schema as MongooseSchema } from '@nestjs/mongoose';
+import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
@@ -50,7 +50,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Roles of the user
    */
-  @Field((type) => [String], { description: 'Roles of the user', nullable: true })
+  @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop()
   roles: string[] = undefined;
@@ -89,7 +89,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification of the user
    */
-  @Field((type) => Boolean, { description: 'Verification state of the user', nullable: true })
+  @Field(type => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
   verified: boolean = undefined;
 
@@ -114,7 +114,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles || roles.length < 1 ? true : this.roles.some((role) => roles.includes(role));
+    return !roles || roles.length < 1 ? true : this.roles.some(role => roles.includes(role));
   }
 
   /**
@@ -127,7 +127,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles ? true : roles.every((role) => this.roles.includes(role));
+    return !roles ? true : roles.every(role => this.roles.includes(role));
   }
 
   /**

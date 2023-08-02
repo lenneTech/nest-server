@@ -1,5 +1,4 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { GqlExecutionContext } from '@nestjs/graphql';
+import { ExecutionContext, createParamDecorator } from '@nestjs/common';
 import { getContextData } from '../../common/helpers/context.helper';
 
 /**
@@ -8,15 +7,15 @@ import { getContextData } from '../../common/helpers/context.helper';
 export const Tokens = createParamDecorator(
   (
     tokenId: 'token' | 'refreshToken' | undefined,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
   ): string | { token: string; refreshToken: string } => {
     // Get prepared context (REST or GraphQL)
     const context = getContextData(ctx);
 
     // Get token from cookie or authorization header
-    const token =
-      context?.request?.cookies?.['token'] ||
-      context?.request
+    const token
+      = context?.request?.cookies?.['token']
+      || context?.request
         ?.get('Authorization')
         ?.replace(/bearer/i, '')
         .trim();
@@ -32,5 +31,5 @@ export const Tokens = createParamDecorator(
       return tokens[tokenId];
     }
     return tokens;
-  }
+  },
 );

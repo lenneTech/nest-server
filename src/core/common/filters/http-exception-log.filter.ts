@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { GqlContextType } from '@nestjs/graphql';
 import { Response } from 'express';
 
@@ -21,8 +21,8 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const status = exception.getStatus();
-    res.status(status).json({
-      ...exception,
-    });
+    res.status(status).json(
+      exception instanceof ServiceUnavailableException ? ({ ...exception } as any).response : { ...exception },
+    );
   }
 }

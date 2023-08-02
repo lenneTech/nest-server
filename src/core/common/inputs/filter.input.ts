@@ -13,7 +13,7 @@ export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */
-  @Field((type) => CombinedFilterInput, {
+  @Field(type => CombinedFilterInput, {
     description: 'Combination of multiple filters via logical operator',
     nullable: true,
   })
@@ -22,7 +22,7 @@ export class FilterInput extends CoreInput {
   /**
    * Filter for a single property
    */
-  @Field((type) => SingleFilterInput, {
+  @Field(type => SingleFilterInput, {
     description: 'Filter for a single property',
     nullable: true,
   })
@@ -41,12 +41,12 @@ export class FilterInput extends CoreInput {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     super.map(data, options);
     this.combinedFilter = data.combinedFilter ? CombinedFilterInput.map(data.combinedFilter, options) : undefined;
     this.singleFilter = data.singleFilter ? SingleFilterInput.map(data.singleFilter, options) : undefined;
-    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
     return this;
   }
 }

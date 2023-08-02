@@ -1,6 +1,6 @@
+import crypto = require('crypto');
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import bcrypt = require('bcrypt');
-import crypto = require('crypto');
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
@@ -19,13 +19,13 @@ import { CoreUserInput } from './inputs/core-user.input';
 export abstract class CoreUserService<
   TUser extends CoreUserModel,
   TUserInput extends CoreUserInput,
-  TUserCreateInput extends CoreUserCreateInput
+  TUserCreateInput extends CoreUserCreateInput,
 > extends CrudService<TUser, TUserCreateInput, TUserInput> {
   protected constructor(
     protected override readonly configService: ConfigService,
     protected readonly emailService: EmailService,
     protected override readonly mainDbModel: Model<TUser & Document>,
-    protected override readonly mainModelConstructor: CoreModelConstructor<TUser>
+    protected override readonly mainModelConstructor: CoreModelConstructor<TUser>,
   ) {
     super();
   }
@@ -64,7 +64,7 @@ export abstract class CoreUserService<
         // Return created user
         return createdUser;
       },
-      { input, serviceOptions }
+      { input, serviceOptions },
     );
   }
 
@@ -82,6 +82,7 @@ export abstract class CoreUserService<
   /**
    * Get verified state of user by token
    */
+  // eslint-disable-next-line unused-imports/no-unused-vars
   async getVerifiedState(token: string, serviceOptions?: ServiceOptions): Promise<boolean> {
     const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
 
@@ -115,7 +116,7 @@ export abstract class CoreUserService<
         // Update and return user
         return await assignPlain(dbObject, { verified: true, verifiedAt: new Date() }).save();
       },
-      { dbObject, serviceOptions }
+      { dbObject, serviceOptions },
     );
   }
 
@@ -143,7 +144,7 @@ export abstract class CoreUserService<
           passwordResetToken: null,
         }).save();
       },
-      { dbObject, serviceOptions }
+      { dbObject, serviceOptions },
     );
   }
 
@@ -168,7 +169,7 @@ export abstract class CoreUserService<
         // Return new user
         return dbObject;
       },
-      { dbObject, serviceOptions }
+      { dbObject, serviceOptions },
     );
   }
 
@@ -182,7 +183,7 @@ export abstract class CoreUserService<
     }
 
     // Check roles values
-    if (roles.some((role) => typeof role !== 'string')) {
+    if (roles.some(role => typeof role !== 'string')) {
       throw new BadRequestException('Roles contains invalid values');
     }
 
@@ -191,7 +192,7 @@ export abstract class CoreUserService<
       async () => {
         return await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
       },
-      { serviceOptions }
+      { serviceOptions },
     );
   }
 }

@@ -21,7 +21,7 @@ export abstract class CoreInput extends CoreModel {
       cloneDeep?: boolean;
       funcAllowed?: boolean;
       mapId?: boolean;
-    } = {}
+    } = {},
   ): this {
     const config = {
       cloneDeep: false,
@@ -30,7 +30,7 @@ export abstract class CoreInput extends CoreModel {
       ...options,
     };
     const coreInput = map(data, this, config);
-    Object.keys(coreInput).forEach((key) => coreInput[key] === undefined && delete coreInput[key]);
+    Object.keys(coreInput).forEach(key => coreInput[key] === undefined && delete coreInput[key]);
     return coreInput;
   }
 }

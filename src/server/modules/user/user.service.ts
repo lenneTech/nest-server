@@ -1,6 +1,6 @@
+import fs = require('fs');
 import { Inject, Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import fs = require('fs');
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
@@ -29,7 +29,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     protected override readonly emailService: EmailService,
     @Inject('USER_CLASS') protected override readonly mainModelConstructor: CoreModelConstructor<User>,
     @InjectModel('User') protected override readonly mainDbModel: Model<UserDocument>,
-    @Inject('PUB_SUB') protected readonly pubSub: PubSub
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
   ) {
     super(configService, emailService, mainDbModel, mainModelConstructor);
   }
@@ -73,7 +73,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
       htmlTemplate: 'password-reset',
       templateData: {
         name: user.username,
-        link: this.configService.configFastButReadOnly.email.passwordResetLink + '/' + user.passwordResetToken,
+        link: `${this.configService.configFastButReadOnly.email.passwordResetLink}/${user.passwordResetToken}`,
       },
     });
 
@@ -98,7 +98,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Remove old avatar image
     if (user.avatar) {
-      fs.unlink(this.configService.configFastButReadOnly.staticAssets.path + '/avatars/' + user.avatar, (err) => {
+      fs.unlink(`${this.configService.configFastButReadOnly.staticAssets.path}/avatars/${user.avatar}`, (err) => {
         if (err) {
           console.error(err);
         }

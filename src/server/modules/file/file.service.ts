@@ -16,7 +16,7 @@ export class FileService extends CoreFileService {
    * Duplicate file by name
    */
   async duplicate(fileName: string, newName: string): Promise<any> {
-    return new Promise(async (resolve, reject) => {
+    return new Promise(async (resolve) => {
       resolve(this.files.openDownloadStreamByName(fileName).pipe(this.files.openUploadStream(newName)));
     });
   }
