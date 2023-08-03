@@ -14,6 +14,7 @@ import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { TemplateService } from './core/common/services/template.service';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
+import { ModelDocService } from './core/common/services/model-doc.service';
 
 /**
  * Core module (dynamic)
@@ -127,14 +128,14 @@ export class CoreModule implements NestModule {
     );
 
     // Set providers
-    const providers = [
+    const providers: any[] = [
       // The ConfigService provides access to the current configuration of the module
       {
         provide: ConfigService,
         useValue: new ConfigService(config),
       },
 
-      // [Global] Map plain objects to metatype and validate
+      // [Global] Map plain objects to meta-type and validate
       {
         provide: APP_PIPE,
         useClass: MapAndValidatePipe,
@@ -148,6 +149,10 @@ export class CoreModule implements NestModule {
       // Plugins
       ComplexityPlugin,
     ];
+
+    if (config.mongoose?.modelDocumentation) {
+      providers.push(ModelDocService);
+    }
 
     const imports: any[] = [
       MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),

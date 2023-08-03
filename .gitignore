@@ -1,6 +1,5 @@
 # General
 dist
-documentation
 typedocs
 uploads
 public
@@ -13,6 +12,11 @@ src/config.json
 
 # Schema
 schema.gql
+
+# Documentation
+documentation
+model-doc-dark.svg
+model-doc-light.svg
 
 # Logs
 logs

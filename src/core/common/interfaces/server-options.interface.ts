@@ -176,26 +176,98 @@ export interface IServerOptions {
    * Whether to activate health check endpoints
    */
   healthCheck?: {
+
+    /**
+     * Whether health check is enabled
+     */
     enabled?: boolean;
+
+    /**
+     * Configuration of single health checks
+     */
     configs?: {
+
+      /**
+       * Configuration for database health check
+       */
       database?: {
+
+        /**
+         * Whether to disable the database health check
+         */
         disabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Database health check options
+         */
         options?: MongoosePingCheckSettings;
       };
+
+      /**
+       * Configuration for memory heap health check
+       */
       memoryHeap?: {
+
+        /**
+         * Whether to disable the memory heap health check
+         */
         disabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Memory limit in bytes
+         */
         heapUsedThreshold?: number;
       };
+
+      /**
+       * Configuration for memory resident set size health check
+       */
       memoryRss?: {
+
+        /**
+         * Whether to disable the memory resident set size health check
+         */
         disabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Memory limit in bytes
+         */
         rssThreshold?: number;
       };
+
+      /**
+       * Configuration for disk space health check
+       */
       storage?: {
+
+        /**
+         * Whether to disable the disk space health check
+         */
         disabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Disk health indicator options
+         */
         options?: DiskHealthIndicatorOptions;
       };
     };
@@ -248,6 +320,12 @@ export interface IServerOptions {
    */
   mongoose?: {
     collation?: CollationOptions;
+
+    /**
+     * Whether to create SVG-Diagrams of mongoose models
+     * @beta
+     */
+    modelDocumentation?: boolean;
 
     /**
      * Mongoose connection string
