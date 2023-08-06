@@ -14,7 +14,7 @@ describe('ServerModule (e2e)', () => {
   const log = true; // eslint-disable-line unused-imports/no-unused-vars
   const logError = true; // eslint-disable-line unused-imports/no-unused-vars
 
-  // Testenvironment properties
+  // Test environment properties
   const port = 3030;
   let app;
   let testHelper: TestHelper;
@@ -86,6 +86,16 @@ describe('ServerModule (e2e)', () => {
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================
+
+  /**
+   * Health check
+   */
+  it('health check', async () => {
+    if (envConfig.healthCheck?.enabled) {
+      const res: any = await testHelper.rest('/health-check');
+      expect(res.status).toBe('ok');
+    }
+  });
 
   /**
    * Get index

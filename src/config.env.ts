@@ -57,6 +57,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -134,6 +139,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -211,6 +221,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {

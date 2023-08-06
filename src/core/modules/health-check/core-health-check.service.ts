@@ -27,26 +27,28 @@ export class CoreHealthCheckService {
 
   healthCheck(): Promise<HealthCheckResult> {
     const healthIndicatorFunctions = [];
-    if (!this.config.get<boolean>('healthCheck.configs.database.disabled')) {
+    if (this.config.get<boolean>('healthCheck.configs.database.enabled')) {
       healthIndicatorFunctions.push(() =>
         this.db.pingCheck(
           this.config.get<string>('healthCheck.configs.database.key') ?? 'database',
           this.config.get<MongoosePingCheckSettings>('healthCheck.configs.database.options') ?? { timeout: 300 },
         ));
     }
-    if (!this.config.get<boolean>('healthCheck.configs.memoryHeap.disabled')) {
+    if (this.config.get<boolean>('healthCheck.configs.memoryHeap.enabled')) {
       healthIndicatorFunctions.push(() => this.memory.checkHeap(
         this.config.get<string>('healthCheck.configs.memoryHeap.key') ?? 'memoryHeap',
-        this.config.get<number>('healthCheck.configs.memoryHeap.heapUsedThreshold') ?? 150 * 1024 * 1024,
+        // memory in bytes (4GB default)
+        this.config.get<number>('healthCheck.configs.memoryHeap.heapUsedThreshold') ?? 4 * 1024 * 1024 * 1024,
       ));
     }
-    if (!this.config.get<boolean>('healthCheck.configs.memoryRss.disabled')) {
+    if (this.config.get<boolean>('healthCheck.configs.memoryRss.enabled')) {
       healthIndicatorFunctions.push(() => this.memory.checkRSS(
         this.config.get<string>('healthCheck.configs.memoryRss.key') ?? 'memoryRss',
-        this.config.get<number>('healthCheck.configs.memoryRss.rssThreshold') ?? 150 * 1024 * 1024,
+        // memory in bytes (4GB default)
+        this.config.get<number>('healthCheck.configs.memoryRss.rssThreshold') ?? 4 * 1024 * 1024 * 1024,
       ));
     }
-    if (!this.config.get<boolean>('healthCheck.configs.storage.disabled')) {
+    if (this.config.get<boolean>('healthCheck.configs.storage.enabled')) {
       healthIndicatorFunctions.push(() => this.disk.checkStorage(
         this.config.get<string>('healthCheck.configs.storage.key') ?? 'storage',
         this.config.get<DiskHealthIndicatorOptions>('healthCheck.configs.storage.options') ?? {

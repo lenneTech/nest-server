@@ -193,9 +193,9 @@ export interface IServerOptions {
       database?: {
 
         /**
-         * Whether to disable the database health check
+         * Whether to enable the database health check
          */
-        disabled?: boolean;
+        enabled?: boolean;
 
         /**
          * Key in result JSON
@@ -214,9 +214,9 @@ export interface IServerOptions {
       memoryHeap?: {
 
         /**
-         * Whether to disable the memory heap health check
+         * Whether to enable the memory heap health check
          */
-        disabled?: boolean;
+        enabled?: boolean;
 
         /**
          * Key in result JSON
@@ -235,9 +235,9 @@ export interface IServerOptions {
       memoryRss?: {
 
         /**
-         * Whether to disable the memory resident set size health check
+         * Whether to enable the memory resident set size health check
          */
-        disabled?: boolean;
+        enabled?: boolean;
 
         /**
          * Key in result JSON
@@ -256,9 +256,9 @@ export interface IServerOptions {
       storage?: {
 
         /**
-         * Whether to disable the disk space health check
+         * Whether to enable the disk space health check
          */
-        disabled?: boolean;
+        enabled?: boolean;
 
         /**
          * Key in result JSON
