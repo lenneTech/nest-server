@@ -52,7 +52,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
-  @Prop()
+  @Prop([String])
   roles: string[] = undefined;
 
   /**

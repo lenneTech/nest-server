@@ -57,6 +57,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -78,6 +83,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
+      modelDocumentation: true,
       uri: 'mongodb://127.0.0.1/nest-server-local',
     },
     port: 3000,
@@ -133,6 +139,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -154,6 +165,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
+      modelDocumentation: false,
       uri: 'mongodb://127.0.0.1/nest-server-dev',
     },
     port: 3000,
@@ -209,6 +221,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     healthCheck: {
       enabled: true,
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
@@ -230,6 +247,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
+      modelDocumentation: false,
       uri: 'mongodb://127.0.0.1/nest-server-prod',
     },
     port: 3000,
