@@ -176,26 +176,98 @@ export interface IServerOptions {
    * Whether to activate health check endpoints
    */
   healthCheck?: {
+
+    /**
+     * Whether health check is enabled
+     */
     enabled?: boolean;
+
+    /**
+     * Configuration of single health checks
+     */
     configs?: {
+
+      /**
+       * Configuration for database health check
+       */
       database?: {
-        disabled?: boolean;
+
+        /**
+         * Whether to enable the database health check
+         */
+        enabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Database health check options
+         */
         options?: MongoosePingCheckSettings;
       };
+
+      /**
+       * Configuration for memory heap health check
+       */
       memoryHeap?: {
-        disabled?: boolean;
+
+        /**
+         * Whether to enable the memory heap health check
+         */
+        enabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Memory limit in bytes
+         */
         heapUsedThreshold?: number;
       };
+
+      /**
+       * Configuration for memory resident set size health check
+       */
       memoryRss?: {
-        disabled?: boolean;
+
+        /**
+         * Whether to enable the memory resident set size health check
+         */
+        enabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Memory limit in bytes
+         */
         rssThreshold?: number;
       };
+
+      /**
+       * Configuration for disk space health check
+       */
       storage?: {
-        disabled?: boolean;
+
+        /**
+         * Whether to enable the disk space health check
+         */
+        enabled?: boolean;
+
+        /**
+         * Key in result JSON
+         */
         key?: string;
+
+        /**
+         * Disk health indicator options
+         */
         options?: DiskHealthIndicatorOptions;
       };
     };
@@ -248,6 +320,12 @@ export interface IServerOptions {
    */
   mongoose?: {
     collation?: CollationOptions;
+
+    /**
+     * Whether to create SVG-Diagrams of mongoose models
+     * @beta
+     */
+    modelDocumentation?: boolean;
 
     /**
      * Mongoose connection string

@@ -64,6 +64,7 @@ export * from './core/common/services/core-cron-jobs.service';
 export * from './core/common/services/crud.service';
 export * from './core/common/services/email.service';
 export * from './core/common/services/mailjet.service';
+export * from './core/common/services/model-doc.service';
 export * from './core/common/services/module.service';
 export * from './core/common/services/template.service';
 export * from './core/common/types/core-model-constructor.type';

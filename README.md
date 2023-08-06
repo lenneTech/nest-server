@@ -66,6 +66,7 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+
 ## Test
 
 ```bash
@@ -77,6 +78,14 @@ $ npm run test:e2e
 
 # test coverage
 $ npm run test:cov
+```
+
+## Documentation
+The API and developer documentation can automatically be generated.
+
+```bash
+# generate and serve documentation
+$ npm run docs
 ```
 
 ## Thanks
