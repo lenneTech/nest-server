@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
-import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
+import { ComparisonOperatorEnum, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { getPlain } from '../src/core/common/helpers/input.helper';
 import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
@@ -405,6 +405,23 @@ describe('ServerModule (e2e)', () => {
       { token: gToken },
     );
     expect(res.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * Find user via ID
+   */
+  it('findUserViaId', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        name: 'findUsers',
+        arguments: { filter: { singleFilter: { field: 'id', operator: ComparisonOperatorEnum.EQ, value: gId } } },
+        fields: ['id', 'email'],
+      },
+      { token: gToken },
+    );
+    expect(res.length).toBe(1);
+    expect(res[0].id).toEqual(gId);
+    expect(res[0].email).toEqual(gEmail);
   });
 
   /**
