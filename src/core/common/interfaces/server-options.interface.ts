@@ -60,7 +60,9 @@ export interface IJwt {
 export interface IServerOptions {
   /**
    * Automatically detect ObjectIds in string values in FilterQueries
-   * and expand them as OR query with string and ObjectId
+   * and expand them as OR query with string and ObjectId.
+   * Fields with the name "id" are renamed to "_id" and the value is converted to ObjectId,
+   * without changing the filter into an OR combined filter.
    * See generateFilterQuery in Filter helper (src/core/common/helpers/filter.helper.ts)
    */
   automaticObjectIdFiltering?: boolean;
@@ -319,6 +321,11 @@ export interface IServerOptions {
    * Configuration for Mongoose
    */
   mongoose?: {
+
+    /**
+     * Collation allows users to specify language-specific rules for string comparison,
+     * such as rules for letter-case and accent marks.
+     */
     collation?: CollationOptions;
 
     /**
@@ -336,6 +343,15 @@ export interface IServerOptions {
      * Mongoose module options
      */
     options?: MongooseModuleOptions;
+
+    /**
+     * Mongoose supports a separate strictQuery option to avoid strict mode for query filters.
+     * This is because empty query filters cause Mongoose to return all documents in the model, which can cause issues.
+     * See: https://github.com/Automattic/mongoose/issues/10763
+     * and: https://mongoosejs.com/docs/guide.html#strictQuery
+     * default: false
+     */
+    strictQuery?: boolean;
   };
 
   /**

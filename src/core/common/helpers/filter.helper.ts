@@ -90,8 +90,10 @@ export function findFilter(options?: {
 
   // Optimizations
   if (!filterOptions[config.type].length) {
+    // If there are no conditions, return an empty object
     filterOptions = {};
   } else if (filterOptions[config.type].length === 1) {
+    // if there is only one condition, integrate it directly into the filter options
     const additionalProperties = filterOptions[config.type][0];
     delete filterOptions[config.type];
     assignPlain(filterOptions, additionalProperties);
@@ -150,22 +152,29 @@ export function generateFilterQuery<T = any>(
   // Process single filter
   if (filter.singleFilter) {
     // Init variables
-    const { not, options, field, convertToObjectId, isReference } = filter.singleFilter;
+    const { not, options, convertToObjectId, isReference } = filter.singleFilter;
+    let field = filter.singleFilter.field;
     let value = filter.singleFilter.value;
 
-    // Convert value to object ID(s)
+    // Convert value to object ID(s), but don't change the name or the filter itself
     if (convertToObjectId || isReference) {
       value = getObjectIds(value);
 
       // Check if value is a string ID and automatic ObjectID filtering is activated
     } else if (config.automaticObjectIdFiltering && checkStringIds(value)) {
-      // Set both the string filter and the ObjectID filtering in an OR construction
-      const alternativeQuery = clone(filter.singleFilter, { circles: false });
-      alternativeQuery.value = getObjectIds(value);
-      const conf = Object.assign({}, config, { automaticObjectIdFiltering: false });
-      return {
-        $or: [generateFilterQuery(filter, conf), generateFilterQuery({ singleFilter: alternativeQuery }, conf)],
-      };
+      if (field === 'id') {
+        // Replace field name id field with _id and convert value to ObjectId
+        field = '_id';
+        value = getObjectIds(value);
+      } else {
+        // For every other fields set both the string filter and the ObjectID filtering in an OR construction
+        const alternativeQuery = clone(filter.singleFilter, { circles: false });
+        alternativeQuery.value = getObjectIds(value);
+        const conf = Object.assign({}, config, { automaticObjectIdFiltering: false });
+        return {
+          $or: [generateFilterQuery(filter, conf), generateFilterQuery({ singleFilter: alternativeQuery }, conf)],
+        };
+      }
     }
 
     // Convert filter

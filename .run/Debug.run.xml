@@ -1,0 +1,5 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Debug" type="NodeJSConfigurationType" node-parameters="node_modules/@nestjs/cli/bin/nest.js start --debug --watch" path-to-js-file="src/main.ts" working-dir="$PROJECT_DIR$">
+    <method v="2" />
+  </configuration>
+</component>

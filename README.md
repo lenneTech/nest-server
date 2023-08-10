@@ -80,6 +80,35 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+Configuration for testing:
+```
+Node interpreter: /user/local/bin/node
+Jest package: FULL_PATH_TO_PROJECT_DIR/node_modules/jest
+Working directory: FULL_PATH_TO_PROJECT_DIR
+Jest options: --config jest-e2e.json --forceExit
+```
+see [E2E-Tests.run.xml](.run/E2E-Tests.run.xml)
+
+## Debugging
+
+Configuration for debugging is:
+```
+Node interpreter: /user/local/bin/node
+Node parameters: node_modules/@nestjs/cli/bin/nest.js start --debug --watch
+Working directory: FULL_PATH_TO_PROJECT_DIR
+JavaScript file: src/main.ts
+```
+see [Debug.run.xml](.run/Debug.run.xml)
+
+### Debugging as package in a project
+Via [yalc](https://github.com/wclr/yalc) the NestJS Server can be linked into the project.
+
+In NestJS Server run `npm run watch` to watch for changes and build yalc package.
+Project use following scripts (via `package.json`):
+
+- `npm run link:nest-server` (for `yalc add @lenne.tech/nest-server && yalc link @lenne.tech/nest-server && npm install`)
+- `npm run unlink:nest-server` (for `yalc remove @lenne.tech/nest-server && npm install`)
+
 ## Documentation
 The API and developer documentation can automatically be generated.
 
