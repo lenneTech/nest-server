@@ -5,6 +5,7 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Context } from 'apollo-server-core';
 import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
+import mongoose from 'mongoose';
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
@@ -153,6 +154,11 @@ export class CoreModule implements NestModule {
     if (config.mongoose?.modelDocumentation) {
       providers.push(ModelDocService);
     }
+
+    // Set strict query to false by default
+    // See: https://github.com/Automattic/mongoose/issues/10763
+    // and: https://mongoosejs.com/docs/guide.html#strictQuery
+    mongoose.set('strictQuery', config.mongoose.strictQuery || false);
 
     const imports: any[] = [
       MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
