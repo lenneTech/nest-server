@@ -116,7 +116,7 @@ export class ModelDocService implements OnApplicationBootstrap {
    * @param yUmlText
    * @protected
    */
-  protected yUmlToSvg(yUmlText: String) {
+  protected yUmlToSvg(yUmlText: string) {
 
     // Create diagrams
     // see https://github.com/jaime-olivares/yuml-diagram
@@ -124,6 +124,13 @@ export class ModelDocService implements OnApplicationBootstrap {
     const yuml = new YumlDiagram();
     const svgLightBg = yuml.processYumlDocument(yUmlText, false);
     const svgDarkBg = yuml.processYumlDocument(yUmlText, true);
+
+    // Save yuml document
+    fs.writeFile('model-doc.yuml', yUmlText, (err) => {
+      if (err) {
+        console.error(err);
+      }
+    });
 
     // Save diagrams
     fs.writeFile('model-doc-light.svg', svgLightBg, (err) => {
