@@ -15,6 +15,7 @@ schema.gql
 
 # Documentation
 documentation
+model-doc.yuml
 model-doc-dark.svg
 model-doc-light.svg
 
