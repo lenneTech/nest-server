@@ -1,3 +1,5 @@
+import * as inspector from 'inspector';
+import * as util from 'util';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -323,9 +325,8 @@ export function checkAndGetDate(input: any): Date {
  * Clone object
  * @param object Any object
  * @param options Finetuning of rfdc cloning
- * @param options.proto Copy prototype properties as well as own properties into the new object.
- *                      It's marginally faster to allow enumerable properties on the prototype to be copied into the
- *                      cloned object (not onto it's prototype, directly onto the object).
+ * @param options.checkResult Whether to compare object and cloned object via JSON.stringify and try alternative cloning
+ *                            methods if they are not equal
  * @param options.circles Keeping track of circular references will slow down performance with an additional 25% overhead.
  *                        Even if an object doesn't have any circular references, the tracking overhead is the cost.
  *                        By default if an object with a circular reference is passed to rfdc, it will throw
@@ -333,26 +334,48 @@ export function checkAndGetDate(input: any): Date {
  *                        circular references in the object. If performance is important, try removing the circular
  *                        reference from the object (set to undefined) and then add it back manually after cloning
  *                        instead of using this option.
+ * @param options.debug Whether to shoe console.debug messages
+ * @param options.proto Copy prototype properties as well as own properties into the new object.
+ *                      It's marginally faster to allow enumerable properties on the prototype to be copied into the
+ *                      cloned object (not onto it's prototype, directly onto the object).
  */
-export function clone(object: any, options?: { proto?: boolean; circles?: boolean }) {
+export function clone(object: any, options?: { checkResult?: boolean; circles?: boolean; proto?: boolean }) {
   const config = {
-    proto: false,
+    checkResult: true,
     circles: true,
+    debug: inspector.url() !== undefined,
+    proto: false,
     ...options,
   };
+
   try {
-    return rfdc(config)(object);
+    const cloned = rfdc(config)(object);
+    if (config.checkResult && !util.isDeepStrictEqual(object, cloned)) {
+      throw new Error('Cloned object differs from original object');
+    }
+    return cloned;
   } catch (e) {
-    console.debug(e, config, object, 'automatic try to use rfdc with circles');
     if (!config.circles) {
+      if (config.debug) {
+        console.debug(e, config, object, 'automatic try to use rfdc with circles');
+      }
       try {
-        return rfdc({ ...config, ...{ circles: true } })(object);
+        const clonedWithCircles = rfdc({ ...config, ...{ circles: true } })(object);
+        if (config.checkResult && !util.isDeepStrictEqual(object, clonedWithCircles)) {
+          throw new Error('Cloned object differs from original object');
+        }
+        return clonedWithCircles;
       } catch (e) {
-        console.debug(e, 'rfcd with circles did not work automatic use of _.clone!');
-        return _.clone(object);
+        if (config.debug) {
+          console.debug(e, 'rfcd with circles did not work => automatic use of _.clone!');
+        }
+        return _.cloneDeep(object);
       }
     } else {
-      return _.clone(object);
+      if (config.debug) {
+        console.debug(e, config, object, 'automatic try to use _.clone instead rfdc');
+      }
+      return _.cloneDeep(object);
     }
   }
 }

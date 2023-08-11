@@ -163,7 +163,7 @@ export function generateFilterQuery<T = any>(
       // Check if value is a string ID and automatic ObjectID filtering is activated
     } else if (config.automaticObjectIdFiltering && checkStringIds(value)) {
       if (field === 'id') {
-        // Replace field name id field with _id and convert value to ObjectId
+        // Replace field name id with _id and convert value to ObjectId
         field = '_id';
         value = getObjectIds(value);
       } else {
