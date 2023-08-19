@@ -19,12 +19,18 @@ export interface CronJobConfig {
   cronTime: CronExpression | string | Date | Falsy;
 
   /**
+   * Whether the cron job is disabled or not.
+   * This option is set to `false` by default
+   */
+  disabled?: boolean;
+
+  /**
    * A function that will fire when the job is complete, when it is stopped.
    */
   onComplete?: CronCommand | null;
 
   /**
-   * This will immediately fire your `onTickfunction` as soon as the requisit initialization has happened.
+   * This will immediately fire the `onTick` function as soon as the requisite initialization has happened.
    * This option is set to `true` by default.
    */
   runOnInit?: boolean;
@@ -58,8 +64,8 @@ export interface CronJobConfig {
   unrefTimeout?: boolean;
 
   /**
-   * This allows you to specify the offset of your timezone rather than using the `timeZoneparam.
-   * Probably don't use both ``timeZone` andutcOffset`` together or weird things may happen.
+   * This allows you to specify the offset of the timezone rather than using the `timeZone` parameter.
+   * Probably don't use both `timeZone` and `utcOffset` together or weird things may happen.
    */
   utcOffset?: string | number;
 }

@@ -128,6 +128,12 @@ export class CoreModule implements NestModule {
       options,
     );
 
+    // Check secrets
+    const jwtConfig = config.jwt;
+    if (jwtConfig?.secret && jwtConfig.secret && jwtConfig.refresh && jwtConfig.refresh.secret === jwtConfig.secret) {
+      console.warn('JWT secret and refresh secret are equal, this can lead to security vulnerabilities!');
+    }
+
     // Set providers
     const providers: any[] = [
       // The ConfigService provides access to the current configuration of the module
