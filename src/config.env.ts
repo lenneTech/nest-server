@@ -18,6 +18,7 @@ const config: { [env: string]: IServerOptions } = {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
         runOnInit: false,
+        disabled: false,
         runParallel: 1,
         timeZone: 'Europe/Berlin',
         throwException: false,
@@ -65,12 +66,20 @@ const config: { [env: string]: IServerOptions } = {
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
+      // Each secret should be unique and not reused in other environments,
+      // also the JWT secret should be different from the Refresh secret!
+      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
         expiresIn: '15m',
       },
       refresh: {
         renewal: true,
+        // Each secret should be unique and not reused in other environments,
+        // also the JWT secret should be different from the Refresh secret!
+        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
@@ -147,12 +156,20 @@ const config: { [env: string]: IServerOptions } = {
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
+      // Each secret should be unique and not reused in other environments,
+      // also the JWT secret should be different from the Refresh secret!
+      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
       signInOptions: {
         expiresIn: '15m',
       },
       refresh: {
         renewal: true,
+        // Each secret should be unique and not reused in other environments,
+        // also the JWT secret should be different from the Refresh secret!
+        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
         signInOptions: {
           expiresIn: '7d',
@@ -229,12 +246,20 @@ const config: { [env: string]: IServerOptions } = {
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
+      // Each secret should be unique and not reused in other environments,
+      // also the JWT secret should be different from the Refresh secret!
+      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
       signInOptions: {
         expiresIn: '15m',
       },
       refresh: {
         renewal: true,
+        // Each secret should be unique and not reused in other environments,
+        // also the JWT secret should be different from the Refresh secret!
+        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
         signInOptions: {
           expiresIn: '7d',
