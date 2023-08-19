@@ -62,15 +62,18 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
     // Init cron jobs
     for (const [name, CronExpressionOrConfig] of Object.entries(this.cronJobs)) {
       // Check config
-      if (!CronExpressionOrConfig) {
+      if (
+        !CronExpressionOrConfig
+        || (typeof CronExpressionOrConfig === 'object' && (CronExpressionOrConfig as CronJobConfig).disabled)
+      ) {
         continue;
       }
 
       // Prepare config
-      let conf: CronExpression | string | Date | Falsy | CronJobConfig = CronExpressionOrConfig;
-      if (typeof conf === 'string' || conf instanceof Date) {
+      let conf: CronJobConfig = (CronExpressionOrConfig as CronJobConfig);
+      if (typeof CronExpressionOrConfig === 'string' || CronExpressionOrConfig instanceof Date) {
         conf = {
-          cronTime: conf,
+          cronTime: CronExpressionOrConfig as string | Date,
         };
       }
 

@@ -80,6 +80,7 @@ export * from './core/common/types/remove-methods.type';
 export * from './core/common/types/require-only-one.type';
 export * from './core/common/types/required-at-least-one.type';
 export * from './core/common/types/string-or-object-id.type';
+export * from './core/common/types/wrapper.type';
 
 // =====================================================================================================================
 // Core - Modules - Auth

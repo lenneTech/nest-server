@@ -30,6 +30,8 @@ export interface IJwt {
 
   /**
    * Secret to encrypt the JWT
+   * Each secret should be unique and not reused in other environments,
+   * also the JWT secret should be different from the Refresh secret!
    */
   secret?: string;
 
@@ -288,10 +290,15 @@ export interface IServerOptions {
 
   /**
    * Configuration of JavaScript Web Token (JWT) module
+   *
+   * Hint: The secrets of the different environments should be different, otherwise a JWT can be used in different
+   * environments, which can lead to security vulnerabilities.
    */
   jwt?: {
     /**
      * Configuration for refresh Token (JWT)
+     * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
+     * requested with the JWT, which can lead to a security vulnerability.
      */
     refresh?: {
       /**
