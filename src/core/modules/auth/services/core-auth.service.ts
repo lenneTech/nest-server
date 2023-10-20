@@ -123,16 +123,23 @@ export class CoreAuthService {
     });
 
     // Get and check user
-    const user = await this.userService.create(input, serviceOptionsForUserService);
-    if (!user) {
-      throw new BadRequestException('Email address already in use');
+    try {
+      const user = await this.userService.create(input, serviceOptionsForUserService);
+      if (!user) {
+        throw new BadRequestException('Email address already in use');
+      }
+
+      // Set device ID
+      const { deviceId, deviceDescription } = input;
+
+      // Return tokens and user
+      return this.getResult(user, { deviceId, deviceDescription });
+    } catch (err) {
+      if (err?.message === 'Unprocessable Entity') {
+        throw new BadRequestException('Email address already in use');
+      }
+      throw err;
     }
-
-    // Set device ID
-    const { deviceId, deviceDescription } = input;
-
-    // Return tokens and user
-    return this.getResult(user, { deviceId, deviceDescription });
   }
 
   /**

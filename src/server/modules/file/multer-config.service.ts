@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MulterModuleOptions, MulterOptionsFactory } from '@nestjs/platform-express';
-import { GridFsStorage } from 'multer-gridfs-storage';
+import { GridFsStorage } from '@lenne.tech/multer-gridfs-storage';
 import envConfig from '../../../config.env';
 
 @Injectable()
