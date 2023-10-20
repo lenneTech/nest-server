@@ -623,9 +623,15 @@ export async function setPopulates<T = Query<any, any> | Document>(
  * Get ID of element as string
  */
 function getStringId(element: any): string {
+
   // Check element
   if (!element) {
     return element;
+  }
+
+  // Buffer handling
+  if (element instanceof Buffer) {
+    return element.toString();
   }
 
   // String handling
@@ -640,6 +646,9 @@ function getStringId(element: any): string {
     }
 
     if (element.id) {
+      if (element.id instanceof Buffer && element.toHexString) {
+        return element.toHexString();
+      }
       return getStringId(element.id);
     } else if (element._id) {
       return getStringId(element._id);
