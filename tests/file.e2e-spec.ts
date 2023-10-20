@@ -286,18 +286,18 @@ describe('File (e2e)', () => {
     expect(res.filename).toEqual(fileInfo.filename);
   });
 
-  it('downloadGraphQLFile', async () => {
+  it('downloadRESTFile', async () => {
     const res = await testHelper.download(`/files/${fileInfo.id}`, users[0].token);
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
-  it('deleteGraphQLFile', async () => {
+  it('deleteRESTFile', async () => {
     const res = await testHelper.rest(`/files/${fileInfo.id}`, { method: 'DELETE', token: users[0].token });
     expect(res.id).toEqual(fileInfo.id);
   });
 
-  it('getGraphQLFileInfo', async () => {
+  it('getRESTFileInfo', async () => {
     const res = await testHelper.rest(`/files/info/${fileInfo.id}`, { token: users[0].token });
     expect(res).toEqual(null);
   });

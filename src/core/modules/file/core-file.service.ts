@@ -1,7 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
 import { Connection, Types } from 'mongoose';
-import { MongoGridFSOptions, MongooseGridFS, createBucket } from 'mongoose-gridfs';
+import { MongoGridFSOptions, MongooseGridFS, createBucket } from '@lenne.tech/mongoose-gridfs';
 import { FilterArgs } from '../../common/args/filter.args';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
