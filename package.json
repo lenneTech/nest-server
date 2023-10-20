@@ -157,6 +157,9 @@
   "overrides": {
     "multer-gridfs-storage": {
       "multer": "$multer"
+    },
+    "@lykmapipo/common": {
+      "flat": "5.0.2"
     }
   },
   "jest": {
