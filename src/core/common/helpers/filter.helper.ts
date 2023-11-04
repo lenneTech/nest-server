@@ -206,11 +206,11 @@ export function generateFilterQuery<T = any>(
       case ComparisonOperatorEnum.REGEX:
         result[field] = not
           ? {
-              $not: {
-                $regex: new RegExp(value),
-                $options: options || '',
-              },
-            }
+            $not: {
+              $regex: new RegExp(value),
+              $options: options || '',
+            },
+          }
           : { $regex: new RegExp(value), $options: options || '' };
         break;
     }
@@ -264,4 +264,33 @@ export function generateFindOptions(
   }
 
   return queryOptions;
+}
+
+/**
+ * Merge FilterArgs and FilterQueries
+ */
+export function filterMerge<T = unknown>(
+  filterArgs: Partial<FilterArgs>,
+  filterQuery: Partial<FilterQuery<T>>,
+  options?: {
+    operator?: '$and' | '$or' | '$nor';
+    queryOptions?: Partial<QueryOptions>;
+    samples?: number;
+  },
+): { filterQuery: FilterQuery<T>; queryOptions?: QueryOptions; samples?: number } {
+  const config = {
+    operator: '$and',
+    ...options,
+  };
+  const converted = convertFilterArgsToQuery(filterArgs);
+  return {
+    filterQuery: (converted[0]
+      ? { [config.operator]: [converted[0], filterQuery || {}] }
+      : filterQuery
+    ) as FilterQuery<T>,
+    queryOptions: converted[1] || config.queryOptions
+      ? { ...converted[1], ...config.queryOptions }
+      : undefined,
+    samples: config.samples,
+  };
 }

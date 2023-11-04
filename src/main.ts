@@ -54,7 +54,8 @@ async function bootstrap() {
   server.enableCors();
 
   // Start server on configured port
-  await server.listen(envConfig.port);
+  await server.listen(envConfig.port, envConfig.hostname);
+  console.debug(`Server startet at ${await server.getUrl()}`);
 
   // Run command after server init
   if (envConfig.execAfterInit) {
