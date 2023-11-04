@@ -278,6 +278,12 @@ export interface IServerOptions {
   };
 
   /**
+   * Hostname of the server
+   * default: localhost
+   */
+  hostname?: string;
+
+  /**
    * Ignore selections in fieldSelection
    * [ConfigService must be integrated in ModuleService]
    * If truly (default): select fields will be ignored and only populate fields in fieldSelection will be respected
