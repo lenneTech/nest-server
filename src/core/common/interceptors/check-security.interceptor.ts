@@ -62,8 +62,8 @@ export class CheckSecurityInterceptor implements NestInterceptor {
             const response = item.securityCheck(user, force);
             new Promise(() => {
               if (itemJson !== JSON.stringify(response)) {
-                const id = getStringIds(data);
-                console.debug('CheckSecurityInterceptor: securityCheck changed item of type', data.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
+                const id = getStringIds(item);
+                console.debug('CheckSecurityInterceptor: securityCheck changed item of type', item.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
               }
             });
             return response;
