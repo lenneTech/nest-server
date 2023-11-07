@@ -2,6 +2,7 @@ import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nes
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { getContextData } from '../helpers/context.helper';
+import { getStringIds } from '../helpers/db.helper';
 import { processDeep } from '../helpers/input.helper';
 
 /**
@@ -28,7 +29,15 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       map((data) => {
         // Check data
         if (data && typeof data === 'object' && typeof data.securityCheck === 'function') {
-          return data.securityCheck(user, force);
+          const dataJson = JSON.stringify(data);
+          const response = data.securityCheck(user, force);
+          new Promise(() => {
+            if (dataJson !== JSON.stringify(response)) {
+              const id = getStringIds(data);
+              console.debug('CheckSecurityInterceptor: securityCheck changed data of type', data.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
+            }
+          });
+          return response;
         }
 
         // Check if data is writeable (e.g. objects from direct access to json files via http are not writable)
@@ -49,7 +58,15 @@ export class CheckSecurityInterceptor implements NestInterceptor {
               }
               return item;
             }
-            return item.securityCheck(user, force);
+            const itemJson = JSON.stringify(item);
+            const response = item.securityCheck(user, force);
+            new Promise(() => {
+              if (itemJson !== JSON.stringify(response)) {
+                const id = getStringIds(item);
+                console.debug('CheckSecurityInterceptor: securityCheck changed item of type', item.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
+              }
+            });
+            return response;
           },
           { specialFunctions: ['securityCheck'] },
         );

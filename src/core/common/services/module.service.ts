@@ -131,7 +131,15 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.inputType) {
         opts.targetModel = config.inputType;
       }
-      config.input = await this.prepareInput(config.input, config);
+      const originalInput = config.input;
+      const inputJSON = JSON.stringify(originalInput);
+      const preparedInput = await this.prepareInput(config.input, config);
+      new Promise(() => {
+        if (inputJSON?.replace(/"password":\s*"[^"]*"/, '') !== JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')) {
+          console.debug('CheckSecurityInterceptor: securityCheck changed input of type', originalInput.constructor.name, 'to type', preparedInput.constructor.name);
+        }
+      });
+      config.input = preparedInput;
     }
 
     // Get DB object

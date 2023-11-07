@@ -64,7 +64,7 @@ const config: { [env: string]: IServerOptions } = {
         },
       },
     },
-    hostname: 'localhost',
+    hostname: '127.0.0.1',
     ignoreSelectionsForPopulate: true,
     jwt: {
       // Each secret should be unique and not reused in other environments,
