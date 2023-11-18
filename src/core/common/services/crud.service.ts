@@ -1,11 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
-import { FilterQuery, PipelineStage, QueryOptions } from 'mongoose';
+import { Document, FilterQuery, Model as MongooseModel, PipelineStage, Query, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
-import { getStringIds } from '../helpers/db.helper';
+import { getStringIds, popAndMap } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
+import { ArrayElement } from '../types/array-element.type';
+import { FieldSelection } from '../types/field-selection.type';
 import { PlainObject } from '../types/plain-object.type';
 import { ConfigService } from './config.service';
 import { ModuleService } from './module.service';
@@ -473,5 +475,41 @@ export abstract class CrudService<
     serviceOptions.prepareInput = null;
     serviceOptions.prepareOutput = null;
     return this.deleteForce(id, serviceOptions);
+  }
+
+  /**
+   * Populate, exec and map Mongoose query or document(s) with serviceOptions
+   * Generic T is the type of the returned object(s)
+   *
+   * @example const user = await this.populateAndProcessQuery<User>(User.findById(id), serviceOptions);
+   * @example const users = await this.populateAndProcessQuery<User[]>(User.find({name: {'$regex': 'ma'}}), serviceOptions);
+   */
+  async populateAndProcessQuery<T extends CoreModel | CoreModel[] = CoreModel>(
+    queryOrDocument: Query<unknown, unknown> | Document | Document[],
+    options?: {
+      fieldSelection?: FieldSelection;
+      ignoreSelections?: boolean;
+      modelClass?: new (...args: any[]) => ArrayElement<T>;
+      populate?: FieldSelection;
+      mongooseModel?: MongooseModel<any>;
+    },
+  ): Promise<T> {
+    const config = {
+      modelClass: this.mainModelConstructor,
+      mongooseModel: this.mainDbModel,
+      ...options,
+    };
+    let result: T;
+    if (config.fieldSelection || config.populate) {
+      result = (await popAndMap<ArrayElement<T>>(
+        queryOrDocument,
+        config.populate || config.fieldSelection,
+        config.modelClass as new (...args: any[]) => ArrayElement<T>,
+        config.mongooseModel)
+      ) as T;
+    } else if (queryOrDocument instanceof Query) {
+      result = (await queryOrDocument.exec()) as T;
+    }
+    return result;
   }
 }

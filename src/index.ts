@@ -67,6 +67,7 @@ export * from './core/common/services/mailjet.service';
 export * from './core/common/services/model-doc.service';
 export * from './core/common/services/module.service';
 export * from './core/common/services/template.service';
+export * from './core/common/types/array-element.type';
 export * from './core/common/types/core-model-constructor.type';
 export * from './core/common/types/falsy.type';
 export * from './core/common/types/field-selection.type';
