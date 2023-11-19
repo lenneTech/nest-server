@@ -92,7 +92,7 @@ export async function prepareInput<T = any>(
   };
 
   // Check input
-  if (typeof input !== 'object') {
+  if (!input || typeof input !== 'object') {
     return input;
   }
 
@@ -206,7 +206,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   };
 
   // Check output
-  if (typeof output !== 'object') {
+  if (!output || typeof output !== 'object') {
     return output;
   }
 

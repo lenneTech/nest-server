@@ -505,8 +505,13 @@ export async function popAndMap<T extends CoreModel>(
 
     // Map result
     if (Array.isArray(result)) {
-      result = result.map(item => (modelClass as any).map(item));
-    } else {
+      result = result.map((item) => {
+        if (item && typeof item === 'object') {
+          return (modelClass as any).map(item);
+        }
+        return item;
+      });
+    } else if (result && typeof result === 'object') {
       result = (modelClass as any).map(result);
     }
 
@@ -514,12 +519,19 @@ export async function popAndMap<T extends CoreModel>(
   } else {
     if (Array.isArray(queryOrDocument)) {
       await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
-      result = queryOrDocument.map(item => (modelClass as any).map(item));
+      result = queryOrDocument.map((item) => {
+        if (item && typeof item === 'object') {
+          return (modelClass as any).map(item);
+        }
+        return item;
+      });
 
       // Process document
     } else {
       await setPopulates(queryOrDocument, populateOptions, mongooseModel, { ignoreSelections });
-      result = (modelClass as any).map(queryOrDocument);
+      if (queryOrDocument && typeof queryOrDocument === 'object') {
+        result = (modelClass as any).map(queryOrDocument);
+      }
     }
   }
 

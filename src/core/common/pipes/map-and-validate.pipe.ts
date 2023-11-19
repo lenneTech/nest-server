@@ -8,7 +8,7 @@ export class MapAndValidatePipe implements PipeTransform {
   async transform(value: any, metadata: ArgumentMetadata) {
     const { metatype } = metadata;
 
-    if (typeof value !== 'object' || !metatype || isBasicType(metatype)) {
+    if (!value || typeof value !== 'object' || !metatype || isBasicType(metatype)) {
       return value;
     }
 
