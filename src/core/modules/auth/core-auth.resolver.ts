@@ -96,7 +96,7 @@ export class CoreAuthResolver {
     // Check if cookie handling is activated
     if (this.configService.getFastButReadOnly('cookies')) {
       // Set cookies
-      if (typeof result !== 'object') {
+      if (!result || typeof result !== 'object') {
         ctx.res.cookie('token', '', { httpOnly: true });
         ctx.res.cookie('refreshToken', '', { httpOnly: true });
         return result;

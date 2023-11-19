@@ -262,7 +262,7 @@ export async function check(
   }
 
   // Return value if it is only a basic type
-  if (typeof value !== 'object') {
+  if (!value || typeof value !== 'object') {
     return value;
   }
 
