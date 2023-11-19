@@ -1,7 +1,8 @@
 import { OnApplicationBootstrap } from '@nestjs/common';
 import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
-import { CronJobConfig } from '../interfaces/cron-job-config.interface';
+import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface';
+import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface';
 import { Falsy } from '../types/falsy.type';
 
 /**
@@ -30,7 +31,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
    */
   protected constructor(
     protected schedulerRegistry: SchedulerRegistry,
-    protected cronJobs: Record<string, CronExpression | string | Date | Falsy | CronJobConfig>,
+    protected cronJobs: Record<string, CronExpression | string | Date | Falsy | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset>,
     options?: { log?: boolean },
   ) {
     this.config = {
@@ -64,13 +65,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
       // Check config
       if (
         !CronExpressionOrConfig
-        || (typeof CronExpressionOrConfig === 'object' && (CronExpressionOrConfig as CronJobConfig).disabled)
+        || (typeof CronExpressionOrConfig === 'object' && (CronExpressionOrConfig as CronJobConfigWithTimeZone).disabled)
       ) {
         continue;
       }
 
       // Prepare config
-      let conf: CronJobConfig = (CronExpressionOrConfig as CronJobConfig);
+      let conf: CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset
+        = CronExpressionOrConfig as CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset;
       if (typeof CronExpressionOrConfig === 'string' || CronExpressionOrConfig instanceof Date) {
         conf = {
           cronTime: CronExpressionOrConfig as string | Date,
@@ -78,13 +80,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
       }
 
       // Set defaults
-      const config: CronJobConfig = {
+      // Declared as CronJobConfigWithTimeZone to avoid type errors, but it can also be CronJobConfigWithUtcOffset
+      const config: CronJobConfigWithTimeZone = {
         runOnInit: true,
         runParallel: true,
         throwException: true,
-        timeZone: 'Europe/Berlin',
+        timeZone: conf.utcOffset ? null : 'Europe/Berlin',
         ...conf,
-      };
+      } as unknown as CronJobConfigWithTimeZone;
 
       // Check if cron job should be activated
       if (!config?.cronTime) {
