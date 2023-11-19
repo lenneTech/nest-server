@@ -1,22 +1,21 @@
-import { CronExpression } from '@nestjs/schedule';
-import { CronCommand } from 'cron';
-import { Falsy } from '../types/falsy.type';
+import { CronJobParams, CronOnCompleteCommand } from 'cron';
 
 /**
  * Interface for cron job configuration
+ * @deprecated Use CronJobConfigWithTimeZone or CronJobConfigWithUtcOffset instead
  */
-export interface CronJobConfig {
+export interface CronJobConfig<OC extends CronOnCompleteCommand | null = null, C = null> {
   /**
    * The context within which to execute the onTick method. This defaults to the cronjob itself allowing you to call
    * `this.stop()`. However, if you change this you'll have access to the functions and values within your context
    * object.
    */
-  context?: any;
+  context?: CronJobParams<OC, C>['context'];
 
   /**
    * The time to fire off your job. This can be in the form of cron syntax or a JS `Date` object.
    */
-  cronTime: CronExpression | string | Date | Falsy;
+  cronTime: CronJobParams<OC, C>['cronTime'];
 
   /**
    * Whether the cron job is disabled or not.
@@ -27,13 +26,13 @@ export interface CronJobConfig {
   /**
    * A function that will fire when the job is complete, when it is stopped.
    */
-  onComplete?: CronCommand | null;
+  onComplete?: CronJobParams<OC, C>['onComplete'];
 
   /**
    * This will immediately fire the `onTick` function as soon as the requisite initialization has happened.
    * This option is set to `true` by default.
    */
-  runOnInit?: boolean;
+  runOnInit?: CronJobParams<OC, C>['runOnInit'];
 
   /**
    * Depending on how long the execution of a job takes, it may happen that several executions take place at the
@@ -53,7 +52,7 @@ export interface CronJobConfig {
    * If the timezone is invalid, an error is thrown. Can be any string accepted by luxon's `DateTime.setZone()`
    * (https://moment.github.io/luxon/api-docs/index.html#datetimesetzone).
    */
-  timeZone?: string;
+  timeZone?: CronJobParams<OC, C>['timeZone'] | null;
 
   /**
    * If you have code that keeps the event loop running and want to stop the node process when that finishes
@@ -61,11 +60,11 @@ export interface CronJobConfig {
    * cron will run as if it needs to control the event loop. For more information take a look at
    * timers#timers_timeout_unref  from the NodeJS docs.
    */
-  unrefTimeout?: boolean;
+  unrefTimeout?: CronJobParams<OC, C>['unrefTimeout'];
 
   /**
    * This allows you to specify the offset of the timezone rather than using the `timeZone` parameter.
    * Probably don't use both `timeZone` and `utcOffset` together or weird things may happen.
    */
-  utcOffset?: string | number;
+  utcOffset?: CronJobParams<OC, C>['unrefTimeout'] | null;
 }

@@ -11,7 +11,8 @@ import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health';
 import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
 import { Falsy } from '../types/falsy.type';
-import { CronJobConfig } from './cron-job-config.interface';
+import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface';
+import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface';
 import { MailjetOptions } from './mailjet-options.interface';
 
 /**
@@ -85,7 +86,7 @@ export interface IServerOptions {
    * Cron jobs configuration object with the name of the cron job function as key
    * and the cron expression or config as value
    */
-  cronJobs?: Record<string, CronExpression | string | Date | Falsy | CronJobConfig>;
+  cronJobs?: Record<string, CronExpression | string | Date | Falsy | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset>;
 
   /**
    * SMTP and template configuration for sending emails

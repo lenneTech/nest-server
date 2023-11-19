@@ -42,6 +42,8 @@ export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interceptors/check-security.interceptor';
 export * from './core/common/interfaces/core-persistence-model.interface';
 export * from './core/common/interfaces/cron-job-config.interface';
+export * from './core/common/interfaces/cron-job-config-with-time-zone.interface';
+export * from './core/common/interfaces/cron-job-config-with-utc-offset.interface';
 export * from './core/common/interfaces/mailjet-options.interface';
 export * from './core/common/interfaces/prepare-input-options.interface';
 export * from './core/common/interfaces/prepare-output-options.interface';
