@@ -74,7 +74,7 @@ export class ConfigService {
     // Init subject handling
     if (!isInitialized) {
       ConfigService._configSubject$.subscribe((config) => {
-        ConfigService._frozenConfigSubject$.next(deepFreeze(config));
+        ConfigService._frozenConfigSubject$.next(deepFreeze(cloneDeep(config)));
       });
     }
 
@@ -370,7 +370,7 @@ export class ConfigService {
    * Set config property in ConfigService
    */
   setProperty(key: string, value: any, options?: { warn?: boolean }) {
-    return ConfigService.setProperty(key, options);
+    return ConfigService.setProperty(key, value, options);
   }
 
   /**
