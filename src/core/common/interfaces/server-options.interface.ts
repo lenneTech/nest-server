@@ -315,6 +315,13 @@ export interface IServerOptions {
        */
       renewal?: boolean;
     } & IJwt;
+
+    /**
+     * Time period in milliseconds
+     * in which the same token ID is used so that all parallel token refresh requests of a device can be generated.
+     * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
+     */
+    sameTokenIdPeriod?: number;
   } & IJwt &
     JwtModuleOptions;
 

@@ -204,11 +204,26 @@ export class CoreAuthService {
    * Get JWT and refresh token
    */
   protected async createTokens(userId: string, data?: { [key: string]: any; deviceId?: string }) {
-    const payload: { [key: string]: any; id: string; deviceId: string } = {
+
+    // Initializations
+    const sameTokenIdPeriod: number = this.configService.getFastButReadOnly('jwt.sameTokenIdPeriod', 0);
+    const deviceId = data?.deviceId || randomUUID();
+
+    // Use last token ID or a new one
+    let tokenId: string = randomUUID();
+    if (sameTokenIdPeriod) {
+      const user: ICoreAuthUser = await this.userService.get(userId, { force: true });
+      const tempToken = user?.tempTokens?.[deviceId];
+      if (tempToken && tempToken.tokenId && tempToken.createdAt >= new Date().getTime() - sameTokenIdPeriod) {
+        tokenId = tempToken.tokenId;
+      }
+    }
+
+    const payload: { [key: string]: any; id: string; deviceId: string; tokenId: string } = {
       ...data,
       id: userId,
-      deviceId: data?.deviceId || randomUUID(),
-      tokenId: randomUUID(),
+      deviceId,
+      tokenId,
     };
     const [token, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -253,6 +268,9 @@ export class CoreAuthService {
     if (!user.refreshTokens) {
       user.refreshTokens = {};
     }
+    if (!user.tempTokens) {
+      user.tempTokens = {};
+    }
     if (deviceId) {
       const oldData = user.refreshTokens[deviceId] || {};
       data = Object.assign(oldData, data);
@@ -267,7 +285,11 @@ export class CoreAuthService {
       deviceId = payload.deviceId;
     }
     user.refreshTokens[deviceId] = { ...data, deviceId, tokenId: payload.tokenId };
-    await this.userService.update(getStringIds(user), { refreshTokens: user.refreshTokens }, { force: true });
+    user.tempTokens[deviceId] = { createdAt: new Date().getTime(), deviceId, tokenId: payload.tokenId };
+    await this.userService.update(getStringIds(user), {
+      refreshTokens: user.refreshTokens,
+      tempTokens: user.tempTokens,
+    }, { force: true });
 
     // Return new token
     return newRefreshToken;

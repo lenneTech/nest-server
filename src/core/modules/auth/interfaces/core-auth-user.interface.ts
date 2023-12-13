@@ -23,4 +23,10 @@ export interface ICoreAuthUser {
    * Refresh tokens for different devices
    */
   refreshTokens?: Record<string, CoreTokenData>;
+
+  /**
+   * Temporary tokens for parallel requests during the token refresh process
+   * See sameTokenIdPeriod in configuration
+   */
+  tempTokens?: Record<string, { createdAt: number; deviceId: string; tokenId: string }>;
 }

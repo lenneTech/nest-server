@@ -606,4 +606,12 @@ export class TestHelper {
     // Return subscribed messages
     return messages;
   }
+
+  /**
+   * Convert JWT into to object
+   * @param token
+   */
+  parseJwt(token) {
+    return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+  }
 }

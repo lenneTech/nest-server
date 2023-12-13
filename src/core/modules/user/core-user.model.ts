@@ -80,6 +80,14 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   refreshTokens: Record<string, CoreTokenData> = undefined;
 
   /**
+   * Temporary token for parallel requests during the token refresh process
+   * See sameTokenIdPeriod in configuration
+   */
+  @IsOptional()
+  @Prop(raw({}))
+  tempTokens: Record<string, { createdAt: number; deviceId: string; tokenId: string }> = undefined;
+
+  /**
    * Verification token of the user
    */
   @IsOptional()
