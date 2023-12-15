@@ -41,6 +41,26 @@ export class CoreModule implements NestModule {
   }
 
   /**
+   * Convert array with key value entries to header object
+   * e.g. ['Sec-WebSocket-Version', '13', 'Sec-WebSocket-Key', 'Yu4Lewa60jLk41YXcVrw0w==']
+   * => {
+   *   'Sec-WebSocket-Version': '13',
+   *   'Sec-WebSocket-Key': 'Yu4Lewa60jLk41YXcVrw0w==',
+   * }
+   */
+  static getHeaderFromArray(array): Record<string, string> {
+    const result: Record<string, string> = {};
+    if (!array.length) {
+      return result;
+    }
+    for (let i = 0; i < array.length; i += 2) {
+      const key = array[i];
+      result[key] = array[i + 1];
+    }
+    return result;
+  }
+
+  /**
    * Dynamic module
    * see https://docs.nestjs.com/modules#dynamic-modules
    */
@@ -78,6 +98,9 @@ export class CoreModule implements NestModule {
                             // verify authToken/getJwtPayLoad
                             const payload = authService.decodeJwt(authToken);
                             const user = await authService.validateUser(payload);
+                            if (!user) {
+                              throw new UnauthorizedException('No user found for token');
+                            }
                             // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
                             return { user, headers: connectionParams };
                           }
@@ -91,14 +114,20 @@ export class CoreModule implements NestModule {
                         const { connectionParams, extra } = context;
                         if (config.graphQl.enableSubscriptionAuth) {
                           // get authToken from authorization header
-                          const authToken: string = connectionParams?.Authorization?.split(' ')[1];
+                          const headers = this.getHeaderFromArray(extra.request?.rawHeaders);
+                          const authToken: string
+                            = connectionParams?.Authorization?.split(' ')[1]
+                            ?? headers.Authorization?.split(' ')[1];
                           if (authToken) {
                             // verify authToken/getJwtPayLoad
                             const payload = authService.decodeJwt(authToken);
                             const user = await authService.validateUser(payload);
+                            if (!user) {
+                              throw new UnauthorizedException('No user found for token');
+                            }
                             // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
                             extra.user = user;
-                            extra.header = connectionParams;
+                            extra.headers = connectionParams ?? headers;
                             return extra;
                           }
 
