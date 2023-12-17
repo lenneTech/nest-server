@@ -312,6 +312,69 @@ export abstract class CrudService<
   }
 
   /**
+   * Find one item via filter
+   */
+  async findOne(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
+    serviceOptions?: ServiceOptions,
+  ): Promise<Model> {
+    // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
+    // and should not be processed as FilterArgs
+    if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
+      serviceOptions = Object.assign({ prepareInput: null }, serviceOptions, { inputType: null });
+    }
+
+    return this.process(
+      async (data) => {
+
+        // Prepare filter query
+        const filterQuery = { filterQuery: data?.input?.filterQuery, queryOptions: data?.input?.queryOptions };
+        if (data?.input instanceof FilterArgs) {
+          const converted = convertFilterArgsToQuery(data.input);
+          filterQuery.filterQuery = converted[0];
+          filterQuery.queryOptions = converted[1];
+        }
+
+        // Find in DB
+        let find = this.mainDbModel.findOne(filterQuery.filterQuery, null, filterQuery.queryOptions);
+        const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
+        if (collation) {
+          find = find.collation(collation);
+        }
+        return find.exec();
+      },
+      { input: filter, serviceOptions },
+    );
+  }
+
+  /**
+   * Find one item via filter without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async findOneForce(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {},
+  ): Promise<Model> {
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
+    return this.findOne(filter, serviceOptions);
+  }
+
+  /**
+   * Find one item via filter without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async findOneRaw(
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
+    serviceOptions: ServiceOptions = {},
+  ): Promise<Model> {
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
+    return this.findOneForce(filter, serviceOptions);
+  }
+
+  /**
    * CRUD alias for get
    */
   async read(id: string, serviceOptions?: ServiceOptions): Promise<Model>;
