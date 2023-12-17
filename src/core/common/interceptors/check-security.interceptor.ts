@@ -12,7 +12,7 @@ import { processDeep } from '../helpers/input.helper';
 export class CheckSecurityInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     // Get current user
-    const user = getContextData(context)?.currentUser;
+    const user = getContextData(context)?.currentUser || null;
 
     // Set force mode for sign in and sign up
     let force = false;
