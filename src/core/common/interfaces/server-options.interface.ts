@@ -71,6 +71,23 @@ export interface IServerOptions {
   automaticObjectIdFiltering?: boolean;
 
   /**
+   * Configuration for Brevo
+   * See: https://developers.brevo.com/
+   */
+  brevo?: {
+    /**
+     * API key for Brevo
+     */
+    apiKey?: string;
+
+    /**
+     * Regular expression for excluding (test) users
+     * e.g. /@testuser.com$/i
+     */
+    exclude?: RegExp;
+  };
+
+  /**
    * Whether to use the compression middleware package to enable gzip compression.
    * See: https://docs.nestjs.com/techniques/compression
    */
