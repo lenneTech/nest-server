@@ -180,8 +180,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Pop and map main model
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
-      const field = config.outputPath ? _.get(result, config.outputPath) : result;
-      await this.processFieldSelection(field, config.fieldSelection, config.processFieldSelection);
+      let temps = result;
+      if (!Array.isArray(result)) {
+        temps = [result];
+      }
+      for (const temp of temps) {
+        const field = config.outputPath ? _.get(temp, config.outputPath) : temp;
+        await this.processFieldSelection(field, config.fieldSelection, config.processFieldSelection);
+      }
     }
 
     // Prepare output
@@ -191,7 +197,13 @@ export abstract class ModuleService<T extends CoreModel = any> {
         opts.targetModel = config.outputType;
       }
       if (config.outputPath) {
-        _.set(result, config.outputPath, await this.prepareOutput(_.get(result, config.outputPath), opts));
+        let temps = result;
+        if (!Array.isArray(result)) {
+          temps = [result];
+        }
+        for (const temp of temps) {
+          _.set(temp, config.outputPath, await this.prepareOutput(_.get(temp, config.outputPath), opts));
+        }
       } else {
         result = await this.prepareOutput(result, config);
       }

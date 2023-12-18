@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { Document, FilterQuery, PipelineStage, Query, QueryOptions } from 'mongoose';
+import { AggregateOptions, Document, FilterQuery, PipelineStage, Query, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
@@ -15,6 +15,51 @@ export abstract class CrudService<
   CreateInput = any,
   UpdateInput = any,
 > extends ModuleService<Model> {
+
+  /**
+   * Aggregate
+   * @param serviceOptions.aggregateOptions Aggregate options, see https://www.mongodb.com/docs/manual/core/aggregation-pipeline/
+   * @param serviceOptions.collation Collation, see https://www.mongodb.com/docs/manual/reference/collation/
+   * @param serviceOptions.outputPath Output path of items which should be prepared, e.g. 'items'
+   */
+  async aggregate<T = any>(
+    pipeline: PipelineStage[],
+    serviceOptions?: ServiceOptions & { aggregateOptions?: AggregateOptions },
+  ): Promise<T> {
+    return this.process(
+      async () => {
+        const aggregateOptions = serviceOptions?.aggregateOptions || {};
+        const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
+        if (collation && !aggregateOptions.collation) {
+          aggregateOptions.collation = collation;
+        }
+        return this.mainDbModel.aggregate(pipeline, aggregateOptions).exec();
+      },
+      { serviceOptions },
+    );
+  }
+
+  /**
+   * Aggregate without checks or restrictions
+   * Warning: Disables the handling of rights and restrictions!
+   */
+  async aggregateForce<T = any>(pipeline: PipelineStage[], serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = serviceOptions || {};
+    serviceOptions.force = true;
+    return this.aggregate(pipeline, serviceOptions);
+  }
+
+  /**
+   * Aggregate without checks, restrictions or preparations
+   * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
+   */
+  async aggregateRaw<T = any>(pipeline: PipelineStage[], serviceOptions: ServiceOptions = {}): Promise<T> {
+    serviceOptions = serviceOptions || {};
+    serviceOptions.prepareInput = null;
+    serviceOptions.prepareOutput = null;
+    return this.aggregateForce(pipeline, serviceOptions);
+  }
+
   /**
    * Create item
    */
