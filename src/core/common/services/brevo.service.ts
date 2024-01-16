@@ -1,23 +1,27 @@
+
 import { Injectable } from '@nestjs/common';
 import brevo = require('@getbrevo/brevo');
 import { ConfigService } from './config.service';
 
+
 @Injectable()
 export class BrevoService {
+  brevoConfig: ConfigService['configFastButReadOnly']['brevo'];
+
   constructor(protected configService: ConfigService) {
     const defaultClient = brevo.ApiClient.instance;
     const apiKey = defaultClient.authentications['api-key'];
-    apiKey.apiKey = configService.configFastButReadOnly.brevo?.apiKey;
-    if (!apiKey.apiKey) {
-      console.warn('Brevo API key not set!');
+    this.brevoConfig = configService.configFastButReadOnly.brevo;
+    if (!this.brevoConfig) {
+      throw new Error('Brevo configuration not set!');
     }
+    apiKey.apiKey = this.brevoConfig.apiKey;
   }
 
   /**
    * Send a transactional email via Brevo
    */
   async sendMail(to: string, templateId: number, params?: object): Promise<unknown> {
-
     // Check input
     if (!to || !templateId) {
       return false;
@@ -34,6 +38,45 @@ export class BrevoService {
     sendSmtpEmail.templateId = templateId;
     sendSmtpEmail.to = [{ email: to }];
     sendSmtpEmail.params = params;
+
+    // Send email
+    try {
+      return await apiInstance.sendTransacEmail(sendSmtpEmail);
+    } catch (error) {
+      console.error(error);
+    }
+
+    // Return null if error
+    return null;
+  }
+
+  /**
+   * Send HTML mail
+   */
+  async sendHtmlMail(
+    to: string,
+    subject: string,
+    html: string,
+    options?: { params?: Record<string, string> },
+  ): Promise<unknown> {
+    // Check input
+    if (!to || !subject || !html) {
+      return false;
+    }
+
+    // Exclude (test) users
+    if (this.brevoConfig.exclude?.test?.(to)) {
+      return 'TEST_USER!';
+    }
+
+    // Prepare data
+    const apiInstance = new brevo.TransactionalEmailsApi();
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    sendSmtpEmail.htmlContent = html;
+    sendSmtpEmail.params = options?.params;
+    sendSmtpEmail.sender = this.brevoConfig.sender;
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.to = [{ email: to }];
 
     // Send email
     try {
