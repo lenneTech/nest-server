@@ -6,6 +6,12 @@ import { PrepareOutputOptions } from './prepare-output-options.interface';
 
 /**
  * General service options
+ *
+ * HINT:
+ * If this interface is extended (ServiceOptions & { ... }), then only properties that are not present in
+ * ServiceOptions may be added in order to avoid unwanted side effects. To ensure this (also for future changes to
+ * ServiceOptions), the properties of the extension should be provided with a prefix, e.g. with an underscore
+ * (ServiceOptions & {_myProperty: any}).
  */
 export interface ServiceOptions {
   // All fields are allowed to be compatible as far as possible
@@ -72,11 +78,19 @@ export interface ServiceOptions {
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;
 
+  // Whether to return raw data without preparation via prepareInput or prepareOutput (prepareInput and prepareOutput will be ignored)
+  // Compare raw functions in CrudService
+  raw?: boolean;
+
+  // Roles (as string) to check
+  roles?: string | string[];
+
+  // Select fields via mongoose select
+  // See https://mongoosejs.com/docs/api.html#query_Query-select
+  select?: string | string[] | Record<string, number | boolean | object>;
+
   // Add updateBy and/or createBy user ID into input after check
   // If falsy: input data will not be changed
   // If truly (default): updatedBy and/or createdBy (when create mode is activated) will be set if current user is available
   setCreateOrUpdateUserId?: boolean;
-
-  // Roles (as string) to check
-  roles?: string | string[];
 }

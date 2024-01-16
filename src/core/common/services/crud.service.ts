@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { AggregateOptions, Document, FilterQuery, PipelineStage, Query, QueryOptions } from 'mongoose';
+import { AggregateOptions, Document, FilterQuery, Model as MongooseModel, PipelineStage, Query, QueryOptions } from 'mongoose';
 import { FilterArgs } from '../args/filter.args';
 import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
@@ -55,8 +55,7 @@ export abstract class CrudService<
    */
   async aggregateRaw<T = any>(pipeline: PipelineStage[], serviceOptions: ServiceOptions = {}): Promise<T> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.aggregateForce(pipeline, serviceOptions);
   }
 
@@ -90,16 +89,26 @@ export abstract class CrudService<
    */
   async createRaw(input: PlainObject<CreateInput>, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.createForce(input, serviceOptions);
+  }
+
+  /**
+   * Get distinct values of a property
+   */
+  distinct(property: string): Promise<string[]> {
+    return this.mainDbModel.distinct(property);
   }
 
   /**
    * Get item by ID
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
-    const dbObject = await this.mainDbModel.findById(id).exec();
+    const query = this.mainDbModel.findById(id);
+    if (serviceOptions?.select) {
+      query.select(serviceOptions.select);
+    }
+    const dbObject = await query.exec();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
@@ -122,8 +131,7 @@ export abstract class CrudService<
    */
   async getRaw(id: string, serviceOptions: ServiceOptions = {}): Promise<Model> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.getForce(id, serviceOptions);
   }
 
@@ -161,6 +169,9 @@ export abstract class CrudService<
         if (collation) {
           find = find.collation(collation);
         }
+        if (serviceOptions?.select) {
+          find = find.select(serviceOptions.select);
+        }
         return find.exec();
       },
       { input: filter, serviceOptions },
@@ -189,8 +200,7 @@ export abstract class CrudService<
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.findForce(filter, serviceOptions);
   }
 
@@ -280,8 +290,7 @@ export abstract class CrudService<
     filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
-    serviceOptions = serviceOptions || {};
-    serviceOptions.force = true;
+    serviceOptions.raw = true;
     return this.findAndCount(filter, serviceOptions);
   }
 
@@ -294,8 +303,7 @@ export abstract class CrudService<
     serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.findAndCountForce(filter, serviceOptions);
   }
 
@@ -351,8 +359,7 @@ export abstract class CrudService<
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.findAndUpdateForce(filter, update, serviceOptions);
   }
 
@@ -386,6 +393,9 @@ export abstract class CrudService<
         if (collation) {
           find = find.collation(collation);
         }
+        if (serviceOptions?.select) {
+          find = find.select(serviceOptions.select);
+        }
         return find.exec();
       },
       { input: filter, serviceOptions },
@@ -414,9 +424,16 @@ export abstract class CrudService<
     serviceOptions: ServiceOptions = {},
   ): Promise<Model> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.findOneForce(filter, serviceOptions);
+  }
+
+  /**
+   * Get service model to process queries directly
+   * See https://mongoosejs.com/docs/api/model.html
+   */
+  getModel(): MongooseModel<Model & Document> {
+    return this.mainDbModel;
   }
 
   /**
@@ -518,7 +535,11 @@ export abstract class CrudService<
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
-        return await this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' }).exec();
+        const query = this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' });
+        if (serviceOptions?.select) {
+          query.select(serviceOptions.select);
+        }
+        return await query.exec();
       },
       { dbObject, input, serviceOptions },
     );
@@ -540,8 +561,7 @@ export abstract class CrudService<
    */
   async updateRaw(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.updateForce(id, input, serviceOptions);
   }
 
@@ -549,7 +569,11 @@ export abstract class CrudService<
    * Delete item via ID
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
-    const dbObject = await this.mainDbModel.findById(id).exec();
+    const query = this.mainDbModel.findById(id);
+    if (serviceOptions?.select) {
+      query.select(serviceOptions.select);
+    }
+    const dbObject = await query.exec();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
@@ -578,8 +602,7 @@ export abstract class CrudService<
    */
   async deleteRaw(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     serviceOptions = serviceOptions || {};
-    serviceOptions.prepareInput = null;
-    serviceOptions.prepareOutput = null;
+    serviceOptions.raw = true;
     return this.deleteForce(id, serviceOptions);
   }
 
@@ -596,6 +619,9 @@ export abstract class CrudService<
   ): Promise<T> {
     return this.process(() => {
       if (queryOrDocument instanceof Query) {
+        if (serviceOptions?.select && queryOrDocument.select && typeof queryOrDocument.select === 'function') {
+          queryOrDocument.select(serviceOptions.select);
+        }
         return queryOrDocument.exec();
       }
       return queryOrDocument;

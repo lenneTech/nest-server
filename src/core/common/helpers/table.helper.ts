@@ -3,30 +3,32 @@ export function htmlTable(
   rows: string[][],
   options?: {
     tableStyle?: string;
+    tbodyStyle?: string;
+    tdStyle?: string;
+    thStyle?: string;
     theadStyle?: string;
     trHeadStyle?: string;
-    thStyle?: string;
-    tbodyStyle?: string;
     trStyle?: string;
-    tdStyle?: string;
   },
 ): string {
   const config = {
     tableStyle: 'width: 100%; border: 1px solid #000; border-collapse: collapse;',
-    trHeadStyle: 'background-color: #f0f0f0;',
+    tdStyle: 'border: 1px solid #000; padding: 10px;',
     thStyle: 'border: 1px solid #000; padding: 10px;',
-    tcStyle: 'border: 1px solid #000; padding: 10px;',
+    trHeadStyle: 'background-color: #f0f0f0;',
     ...options,
   };
-  let table = `<table style="${config.tableStyle}"><thead style="${config.theadStyle}"><tr style="${config.trHeadStyle}">`;
+  let table = `<table${config.tableStyle ? ` style="${config.tableStyle}"` : ''}><thead${
+    config.theadStyle ? ` style="${config.theadStyle}"` : ''
+  }><tr${config.trHeadStyle ? ` style="${config.trHeadStyle}"` : ''}>`;
   for (const head of header) {
-    table += `<th style="${config.thStyle}">${head}</th>`;
+    table += `<th${config.thStyle ? ` style="${config.thStyle}"` : ''}>${head}</th>`;
   }
-  table += '</tr></thead><tbody style="${config.tbodyStyle}">';
+  table += `</tr></thead><tbody${config.tbodyStyle ? ` style="${config.tbodyStyle}"` : ''}>`;
   for (const row of rows) {
-    table += `<tr style="${config.trStyle}">`;
+    table += `<tr${config.trStyle ? ` style="${config.trStyle}"` : ''}>`;
     for (const cell of row) {
-      table += `<td style="${config.tdStyle}">${cell}</td>`;
+      table += `<td${config.tdStyle ? ` style="${config.tdStyle}"` : ''}>${cell}</td>`;
     }
     table += '</tr>';
   }

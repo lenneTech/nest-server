@@ -98,6 +98,12 @@ export abstract class ModuleService<T extends CoreModel = any> {
       ...options?.serviceOptions,
     };
 
+    // Note raw configuration
+    if (config.raw) {
+      config.prepareInput = null;
+      config.prepareOutput = null;
+    }
+
     // Set default for ignoreSelections if not set
     const ignoreSelections = this.configService?.getFastButReadOnly('ignoreSelectionsForPopulate', true);
     if (ignoreSelections) {

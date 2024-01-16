@@ -78,13 +78,21 @@ export interface IServerOptions {
     /**
      * API key for Brevo
      */
-    apiKey?: string;
+    apiKey: string;
 
     /**
      * Regular expression for excluding (test) users
      * e.g. /@testuser.com$/i
      */
     exclude?: RegExp;
+
+    /**
+     * Default sender for Brevo
+     */
+    sender: {
+      email: string;
+      name: string;
+    };
   };
 
   /**
