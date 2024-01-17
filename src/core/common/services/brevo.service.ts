@@ -1,11 +1,12 @@
-
 import { Injectable } from '@nestjs/common';
 
 import { ConfigService } from './config.service';
 
 import brevo = require('@getbrevo/brevo');
 
-
+/**
+ * Brevo service to send transactional emails
+ */
 @Injectable()
 export class BrevoService {
   brevoConfig: ConfigService['configFastButReadOnly']['brevo'];
@@ -24,25 +25,26 @@ export class BrevoService {
    * Send a transactional email via Brevo
    */
   async sendMail(to: string, templateId: number, params?: object): Promise<unknown> {
-    // Check input
-    if (!to || !templateId) {
-      return false;
-    }
-
-    // Exclude (test) users
-    if (this.configService.configFastButReadOnly.brevo?.exclude?.test(to)) {
-      return 'TEST_USER!';
-    }
-
-    // Prepare data
-    const apiInstance = new brevo.TransactionalEmailsApi();
-    const sendSmtpEmail = new brevo.SendSmtpEmail();
-    sendSmtpEmail.templateId = templateId;
-    sendSmtpEmail.to = [{ email: to }];
-    sendSmtpEmail.params = params;
-
-    // Send email
     try {
+      // Check input
+      if (!to || !templateId) {
+        return false;
+      }
+
+      // Exclude (test) users, must be done via config and not via configFastButReadOnly,
+      // otherwise the error TypeError: Cannot assign to read only property 'lastIndex' of object '[object RegExp]' occurs
+      if (this.configService.config?.brevo?.exclude?.test?.(to)) {
+        return 'TEST_USER!';
+      }
+
+      // Prepare data
+      const apiInstance = new brevo.TransactionalEmailsApi();
+      const sendSmtpEmail = new brevo.SendSmtpEmail();
+      sendSmtpEmail.templateId = templateId;
+      sendSmtpEmail.to = [{ email: to }];
+      sendSmtpEmail.params = params;
+
+      // Send email
       return await apiInstance.sendTransacEmail(sendSmtpEmail);
     } catch (error) {
       console.error(error);
@@ -61,27 +63,28 @@ export class BrevoService {
     html: string,
     options?: { params?: Record<string, string> },
   ): Promise<unknown> {
-    // Check input
-    if (!to || !subject || !html) {
-      return false;
-    }
-
-    // Exclude (test) users
-    if (this.brevoConfig.exclude?.test(to)) {
-      return 'TEST_USER!';
-    }
-
-    // Prepare data
-    const apiInstance = new brevo.TransactionalEmailsApi();
-    const sendSmtpEmail = new brevo.SendSmtpEmail();
-    sendSmtpEmail.htmlContent = html;
-    sendSmtpEmail.params = options?.params;
-    sendSmtpEmail.sender = this.brevoConfig.sender;
-    sendSmtpEmail.subject = subject;
-    sendSmtpEmail.to = [{ email: to }];
-
-    // Send email
     try {
+      // Check input
+      if (!to || !subject || !html) {
+        return false;
+      }
+
+      // Exclude (test) users, must be done via config and not via configFastButReadOnly,
+      // otherwise the error TypeError: Cannot assign to read only property 'lastIndex' of object '[object RegExp]' occurs
+      if (this.configService.config?.brevo?.exclude?.test?.(to)) {
+        return 'TEST_USER!';
+      }
+
+      // Prepare data
+      const apiInstance = new brevo.TransactionalEmailsApi();
+      const sendSmtpEmail = new brevo.SendSmtpEmail();
+      sendSmtpEmail.htmlContent = html;
+      sendSmtpEmail.params = options?.params;
+      sendSmtpEmail.sender = this.brevoConfig.sender;
+      sendSmtpEmail.subject = subject;
+      sendSmtpEmail.to = [{ email: to }];
+
+      // Send email
       return await apiInstance.sendTransacEmail(sendSmtpEmail);
     } catch (error) {
       console.error(error);
