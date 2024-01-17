@@ -1,4 +1,5 @@
 import { CustomScalar, Scalar } from '@nestjs/graphql';
+
 import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
 
 /**

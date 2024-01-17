@@ -1,9 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { Test, TestingModule } from '@nestjs/testing';
+import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
+import * as path from 'path';
+
 import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
@@ -90,18 +91,18 @@ describe('File (e2e)', () => {
     for (let i = 0; i < userCount; i++) {
       const random = Math.random().toString(36).substring(7);
       const input = {
-        password: random,
         email: `${random}@testusers.com`,
         firstName: `Test${random}`,
         lastName: `User${random}`,
+        password: random,
       };
 
       // Sign up user
       const res: any = await testHelper.graphQl({
-        name: 'signUp',
-        type: TestGraphQLType.MUTATION,
         arguments: { input },
         fields: [{ user: ['id', 'email', 'firstName', 'lastName'] }],
+        name: 'signUp',
+        type: TestGraphQLType.MUTATION,
       });
       res.user.password = input.password;
       users.push(res.user);
@@ -118,8 +119,6 @@ describe('File (e2e)', () => {
   it('signInUsers', async () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl({
-        name: 'signIn',
-        type: TestGraphQLType.MUTATION,
         arguments: {
           input: {
             email: user.email,
@@ -127,6 +126,8 @@ describe('File (e2e)', () => {
           },
         },
         fields: ['token', { user: ['id', 'email'] }],
+        name: 'signIn',
+        type: TestGraphQLType.MUTATION,
       });
       expect(res.user.id).toEqual(user.id);
       expect(res.user.email).toEqual(user.email);
@@ -158,13 +159,13 @@ describe('File (e2e)', () => {
     await fs.promises.writeFile(local, fileContent);
     const res: any = await testHelper.graphQl(
       {
+        arguments: { file: new VariableType('file') },
+        fields: ['id', 'filename'],
         name: 'uploadFile',
         type: TestGraphQLType.MUTATION,
         variables: { file: 'Upload!' },
-        arguments: { file: new VariableType('file') },
-        fields: ['id', 'filename'],
       },
-      { variables: { file: { type: 'attachment', value: local } }, token: users[0].token, log, logError },
+      { log, logError, token: users[0].token, variables: { file: { type: 'attachment', value: local } } },
     );
     // Remove files
     await fs.promises.unlink(local);
@@ -178,10 +179,10 @@ describe('File (e2e)', () => {
   it('getFileInfoForGraphQLFile', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'getFileInfo',
-        type: TestGraphQLType.QUERY,
         arguments: { filename: fileInfo.filename },
         fields: ['id', 'filename'],
+        name: 'getFileInfo',
+        type: TestGraphQLType.QUERY,
       },
       { token: users[0].token },
     );
@@ -198,10 +199,10 @@ describe('File (e2e)', () => {
   it('deleteGraphQLFile', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'deleteFile',
-        type: TestGraphQLType.MUTATION,
         arguments: { filename: fileInfo.filename },
         fields: ['id'],
+        name: 'deleteFile',
+        type: TestGraphQLType.MUTATION,
       },
       { token: users[0].token },
     );
@@ -211,10 +212,10 @@ describe('File (e2e)', () => {
   it('getGraphQLFileInfo', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'getFileInfo',
-        type: TestGraphQLType.QUERY,
         arguments: { filename: fileInfo.filename },
         fields: ['id', 'filename'],
+        name: 'getFileInfo',
+        type: TestGraphQLType.QUERY,
       },
       { token: users[0].token },
     );
@@ -233,12 +234,12 @@ describe('File (e2e)', () => {
     await fs.promises.writeFile(local2, 'Hello GraphQL 2');
     const res: any = await testHelper.graphQl(
       {
+        arguments: { files: new VariableType('files') },
         name: 'uploadFiles',
         type: TestGraphQLType.MUTATION,
         variables: { files: '[Upload!]!' },
-        arguments: { files: new VariableType('files') },
       },
-      { variables: { files: { type: 'attachment', value: [local1, local2] } }, token: users[0].token },
+      { token: users[0].token, variables: { files: { type: 'attachment', value: [local1, local2] } } },
     );
     // Remove local files
     await fs.promises.unlink(local1);
@@ -271,9 +272,9 @@ describe('File (e2e)', () => {
     // Write and send file
     await fs.promises.writeFile(local, fileContent);
     const res = await testHelper.rest('/files/upload', {
+      attachments: { file: local },
       statusCode: 201,
       token: users[0].token,
-      attachments: { file: local },
     });
     // Remove files
     await fs.promises.unlink(local);
@@ -320,12 +321,12 @@ describe('File (e2e)', () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl(
         {
-          name: 'deleteUser',
-          type: TestGraphQLType.MUTATION,
           arguments: {
             id: user.id,
           },
           fields: ['id'],
+          name: 'deleteUser',
+          type: TestGraphQLType.MUTATION,
         },
         { token: users[users.length - 1].token },
       );

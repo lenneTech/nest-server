@@ -1,6 +1,6 @@
-import { extname } from 'path';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import { diskStorage } from 'multer';
+import { extname } from 'path';
 
 /**
  * Helper class for inputs

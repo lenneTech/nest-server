@@ -1,5 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { JwtModuleOptions } from '@nestjs/jwt';
+
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreAuthModule } from '../../../core/modules/auth/core-auth.module';
 import { UserModule } from '../user/user.module';
@@ -19,7 +20,7 @@ export class AuthModule {
    */
   static forRoot(options: JwtModuleOptions): DynamicModule {
     return {
-      module: AuthModule,
+      exports: [AuthController, AuthResolver, CoreAuthModule],
       imports: [
         CoreAuthModule.forRoot(UserModule, UserService, {
           ...options,
@@ -29,8 +30,8 @@ export class AuthModule {
           },
         }),
       ],
+      module: AuthModule,
       providers: [AuthController, AuthResolver, AuthService, EmailService],
-      exports: [AuthController, AuthResolver, CoreAuthModule],
     };
   }
 }

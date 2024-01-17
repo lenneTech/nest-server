@@ -1,4 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+
 import { CoreModel } from '../../common/models/core-model.model';
 import { CoreUserModel } from '../user/core-user.model';
 

@@ -4,8 +4,8 @@ import { APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Context } from 'apollo-server-core';
-import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
+
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
@@ -13,9 +13,11 @@ import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
+import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
-import { ModelDocService } from './core/common/services/model-doc.service';
+
+import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 
 /**
  * Core module (dynamic)
@@ -88,36 +90,15 @@ export class CoreModule implements NestModule {
                   cors,
                   installSubscriptionHandlers: true,
                   subscriptions: {
-                    'subscriptions-transport-ws': {
-                      onConnect: async (connectionParams) => {
-                        if (config.graphQl.enableSubscriptionAuth) {
-                          // get authToken from authorization header
-                          const authToken: string = connectionParams?.Authorization?.split(' ')[1];
-
-                          if (authToken) {
-                            // verify authToken/getJwtPayLoad
-                            const payload = authService.decodeJwt(authToken);
-                            const user = await authService.validateUser(payload);
-                            if (!user) {
-                              throw new UnauthorizedException('No user found for token');
-                            }
-                            // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
-                            return { user, headers: connectionParams };
-                          }
-
-                          throw new UnauthorizedException('Missing authentication token');
-                        }
-                      },
-                    },
                     'graphql-ws': {
+                      context: ({ extra }) => extra,
                       onConnect: async (context: Context<any>) => {
                         const { connectionParams, extra } = context;
                         if (config.graphQl.enableSubscriptionAuth) {
                           // get authToken from authorization header
                           const headers = this.getHeaderFromArray(extra.request?.rawHeaders);
                           const authToken: string
-                            = connectionParams?.Authorization?.split(' ')[1]
-                            ?? headers.Authorization?.split(' ')[1];
+                            = connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
                           if (authToken) {
                             // verify authToken/getJwtPayLoad
                             const payload = authService.decodeJwt(authToken);
@@ -134,7 +115,27 @@ export class CoreModule implements NestModule {
                           throw new UnauthorizedException('Missing authentication token');
                         }
                       },
-                      context: ({ extra }) => extra,
+                    },
+                    'subscriptions-transport-ws': {
+                      onConnect: async (connectionParams) => {
+                        if (config.graphQl.enableSubscriptionAuth) {
+                          // get authToken from authorization header
+                          const authToken: string = connectionParams?.Authorization?.split(' ')[1];
+
+                          if (authToken) {
+                            // verify authToken/getJwtPayLoad
+                            const payload = authService.decodeJwt(authToken);
+                            const user = await authService.validateUser(payload);
+                            if (!user) {
+                              throw new UnauthorizedException('No user found for token');
+                            }
+                            // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
+                            return { headers: connectionParams, user };
+                          }
+
+                          throw new UnauthorizedException('Missing authentication token');
+                        }
+                      },
                     },
                   },
                 },
@@ -143,16 +144,16 @@ export class CoreModule implements NestModule {
           },
           enableSubscriptionAuth: true,
         },
-        port: 3000,
         mongoose: {
-          uri: 'mongodb://localhost/nest-server-default',
           options: {
             connectionFactory: (connection) => {
               connection.plugin(require('./core/common/plugins/mongoose-id.plugin'));
               return connection;
             },
           },
+          uri: 'mongodb://localhost/nest-server-default',
         },
+        port: 3000,
       } as IServerOptions,
       options,
     );
@@ -207,10 +208,10 @@ export class CoreModule implements NestModule {
 
     // Return dynamic module
     return {
-      module: CoreModule,
-      imports,
-      providers,
       exports: [ConfigService, EmailService, TemplateService, MailjetService, ComplexityPlugin],
+      imports,
+      module: CoreModule,
+      providers,
     };
   }
 }

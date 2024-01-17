@@ -1,6 +1,7 @@
 import { OnApplicationBootstrap } from '@nestjs/common';
 import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
+
 import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface';
 import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface';
 import { Falsy } from '../types/falsy.type';
@@ -31,7 +32,10 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
    */
   protected constructor(
     protected schedulerRegistry: SchedulerRegistry,
-    protected cronJobs: Record<string, CronExpression | string | Date | Falsy | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset>,
+    protected cronJobs: Record<
+      string,
+      CronExpression | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset | Date | Falsy | string
+    >,
     options?: { log?: boolean },
   ) {
     this.config = {
@@ -71,11 +75,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
       }
 
       // Prepare config
-      let conf: CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset
-        = CronExpressionOrConfig as CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset;
+      let conf: CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset = CronExpressionOrConfig as
+        | CronJobConfigWithTimeZone
+        | CronJobConfigWithUtcOffset;
       if (typeof CronExpressionOrConfig === 'string' || CronExpressionOrConfig instanceof Date) {
         conf = {
-          cronTime: CronExpressionOrConfig as string | Date,
+          cronTime: CronExpressionOrConfig as Date | string,
         };
       }
 

@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { Types } from 'mongoose';
+
 import { clone } from './input.helper';
 
 /**
@@ -56,8 +57,8 @@ export function prepareMap<T = Record<string, any>>(
   source: Partial<T> | Record<string, any>,
   target: T,
   options: {
-    cloneDeep?: boolean;
     circles?: boolean;
+    cloneDeep?: boolean;
     funcAllowed?: boolean;
     mapId?: boolean;
     proto?: boolean;
@@ -65,8 +66,8 @@ export function prepareMap<T = Record<string, any>>(
 ): Partial<T> | Record<string, any> {
   // Set config
   const config = {
-    cloneDeep: true,
     circles: true,
+    cloneDeep: true,
     funcAllowed: false,
     mapId: false,
     proto: false,
@@ -79,7 +80,7 @@ export function prepareMap<T = Record<string, any>>(
   // Update properties
   for (const key of Object.keys(target)) {
     if (
-      (!['id', '_id'].includes(key) || config.mapId)
+      (!['_id', 'id'].includes(key) || config.mapId)
       && source[key] !== undefined
       && (config.funcAllowed || typeof (source[key] !== 'function'))
     ) {
@@ -102,8 +103,8 @@ export function map<T = Record<string, any>>(
   source: Partial<T> | Record<string, any>,
   target: T,
   options: {
-    cloneDeep?: boolean;
     circles?: boolean;
+    cloneDeep?: boolean;
     funcAllowed?: boolean;
     mapId?: boolean;
     proto?: boolean;
@@ -111,8 +112,8 @@ export function map<T = Record<string, any>>(
 ): T {
   // Set config
   const config = {
-    cloneDeep: true,
     circles: false,
+    cloneDeep: true,
     funcAllowed: false,
     mapId: false,
     proto: false,

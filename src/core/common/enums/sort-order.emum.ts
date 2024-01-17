@@ -13,6 +13,6 @@ export enum SortOrderEnum {
 
 // Register SortOrderEnum enum in TypeGraphQL
 registerEnumType(SortOrderEnum, {
-  name: 'SortOrderEnum',
   description: 'SortInput order of items',
+  name: 'SortOrderEnum',
 });

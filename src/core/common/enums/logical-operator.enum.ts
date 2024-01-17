@@ -16,6 +16,6 @@ export enum LogicalOperatorEnum {
 
 // Register LogicalOperatorEnum enum in TypeGraphQL
 registerEnumType(LogicalOperatorEnum, {
-  name: 'LogicalOperatorEnum',
   description: 'Logical operators to combine filters',
+  name: 'LogicalOperatorEnum',
 });

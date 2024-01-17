@@ -1,8 +1,8 @@
-import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import bcrypt = require('bcrypt');
+import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
+
 import { getStringIds } from '../../../common/helpers/db.helper';
 import { prepareServiceOptions } from '../../../common/helpers/service.helper';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
@@ -13,6 +13,8 @@ import { CoreAuthSignUpInput } from '../inputs/core-auth-sign-up.input';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthUserService } from './core-auth-user.service';
+
+import bcrypt = require('bcrypt');
 
 /**
  * CoreAuthService to handle user authentication
@@ -72,8 +74,8 @@ export class CoreAuthService {
    */
   async refreshTokens(user: ICoreAuthUser, currentRefreshToken: string) {
     // Create new tokens
-    const { deviceId, deviceDescription } = this.decodeJwt(currentRefreshToken);
-    const tokens = await this.createTokens(user.id, { deviceId, deviceDescription });
+    const { deviceDescription, deviceId } = this.decodeJwt(currentRefreshToken);
+    const tokens = await this.createTokens(user.id, { deviceDescription, deviceId });
     tokens.refreshToken = await this.updateRefreshToken(user, currentRefreshToken, tokens.refreshToken);
 
     // Return
@@ -97,7 +99,7 @@ export class CoreAuthService {
     });
 
     // Inputs
-    const { email, password, deviceId, deviceDescription } = input;
+    const { deviceDescription, deviceId, email, password } = input;
 
     // Get user
     const user = await this.userService.getViaEmail(email, serviceOptionsForUserService);
@@ -109,7 +111,7 @@ export class CoreAuthService {
     }
 
     // Return tokens and user
-    return this.getResult(user, { deviceId, deviceDescription });
+    return this.getResult(user, { deviceDescription, deviceId });
   }
 
   /**
@@ -130,10 +132,10 @@ export class CoreAuthService {
       }
 
       // Set device ID
-      const { deviceId, deviceDescription } = input;
+      const { deviceDescription, deviceId } = input;
 
       // Return tokens and user
-      return this.getResult(user, { deviceId, deviceDescription });
+      return this.getResult(user, { deviceDescription, deviceId });
     } catch (err) {
       if (err?.message === 'Unprocessable Entity') {
         throw new BadRequestException('Email address already in use');
@@ -204,7 +206,6 @@ export class CoreAuthService {
    * Get JWT and refresh token
    */
   protected async createTokens(userId: string, data?: { [key: string]: any; deviceId?: string }) {
-
     // Initializations
     const sameTokenIdPeriod: number = this.configService.getFastButReadOnly('jwt.sameTokenIdPeriod', 0);
     const deviceId = data?.deviceId || randomUUID();
@@ -219,10 +220,10 @@ export class CoreAuthService {
       }
     }
 
-    const payload: { [key: string]: any; id: string; deviceId: string; tokenId: string } = {
+    const payload: { [key: string]: any; deviceId: string; id: string; tokenId: string } = {
       ...data,
-      id: userId,
       deviceId,
+      id: userId,
       tokenId,
     };
     const [token, refreshToken] = await Promise.all([
@@ -236,8 +237,8 @@ export class CoreAuthService {
       }),
     ]);
     return {
-      token,
       refreshToken,
+      token,
     };
   }
 
@@ -286,10 +287,14 @@ export class CoreAuthService {
     }
     user.refreshTokens[deviceId] = { ...data, deviceId, tokenId: payload.tokenId };
     user.tempTokens[deviceId] = { createdAt: new Date().getTime(), deviceId, tokenId: payload.tokenId };
-    await this.userService.update(getStringIds(user), {
-      refreshTokens: user.refreshTokens,
-      tempTokens: user.tempTokens,
-    }, { force: true });
+    await this.userService.update(
+      getStringIds(user),
+      {
+        refreshTokens: user.refreshTokens,
+        tempTokens: user.tempTokens,
+      },
+      { force: true },
+    );
 
     // Return new token
     return newRefreshToken;

@@ -1,7 +1,8 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';
-import { CoreFileInfo } from './core-file-info.model';
+
 import { CoreFileService } from './core-file.service';
+import { CoreFileInfo } from './core-file-info.model';
 import { FileUpload } from './interfaces/file-upload.interface';
 
 /**

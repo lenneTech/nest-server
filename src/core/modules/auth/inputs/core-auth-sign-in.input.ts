@@ -1,4 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
+
 import { CoreInput } from '../../../common/inputs/core-input.input';
 
 /**

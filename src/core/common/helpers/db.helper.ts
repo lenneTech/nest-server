@@ -1,12 +1,14 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
-import _ = require('lodash');
 import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
+
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { IdsType } from '../types/ids.type';
 import { StringOrObjectId } from '../types/string-or-object-id.type';
 import { removePropertiesDeep } from './input.helper';
+
+import _ = require('lodash');
 
 // =====================================================================================================================
 // Export functions
@@ -27,7 +29,7 @@ import { removePropertiesDeep } from './input.helper';
 export function addIds(
   target: any,
   ids: StringOrObjectId | StringOrObjectId[],
-  convert: 'string' | 'object' | 'auto' | false = 'auto',
+  convert: 'auto' | 'object' | 'string' | false = 'auto',
   options?: { unique?: boolean },
 ): any[] {
   // Set config
@@ -61,13 +63,14 @@ export function addIds(
     ) {
       const converted = result[0] instanceof Types.ObjectId ? getObjectIds(ids) : getStringIds(ids);
       result.push(...(converted as any));
-    } else { // Add ID
+    } else {
+      // Add ID
       result.push(...ids);
     }
   }
 
   // Convert array
-  if (['string', 'object'].includes(convert as string)) {
+  if (['object', 'string'].includes(convert as string)) {
     for (let i = 0; i < result.length; i++) {
       result[i] = convert === 'string' ? getStringId(result[i]) : getObjectIds(result[i]);
     }
@@ -120,8 +123,8 @@ export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'strin
 export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'object'): Types.ObjectId[];
 export function getIncludedIds<T = IdsType>(
   includes: IdsType,
-  ids: T | IdsType,
-  convert?: 'string' | 'object',
+  ids: IdsType | T,
+  convert?: 'object' | 'string',
 ): T[] | null | undefined {
   if (!includes || !ids) {
     return undefined;
@@ -420,7 +423,7 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
  */
 export function removeUnresolvedReferences<T = any>(
   populated: T,
-  populatedOptions: string | PopulateOptions | PopulateOptions[] | (string | PopulateOptions)[],
+  populatedOptions: (PopulateOptions | string)[] | PopulateOptions | PopulateOptions[] | string,
   ignoreFirst = true,
 ): T {
   // Check parameter
@@ -446,7 +449,7 @@ export function removeUnresolvedReferences<T = any>(
 
     // populatedOptions is a string
     if (typeof populatedOptions === 'string') {
-      if (!['id', '_id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
+      if (!['_id', 'id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
         populated[populatedOptions] = null;
       }
       return populated;
@@ -455,7 +458,7 @@ export function removeUnresolvedReferences<T = any>(
     // populatedOptions is an PopulateOptions object
     if (populatedOptions.path) {
       const key = populatedOptions.path;
-      if (!['id', '_id'].includes(key) && populated[key] instanceof Types.ObjectId) {
+      if (!['_id', 'id'].includes(key) && populated[key] instanceof Types.ObjectId) {
         populated[key] = null;
       } else if (populatedOptions.populate) {
         removeUnresolvedReferences(populated[key], populatedOptions.populate, false);
@@ -471,7 +474,7 @@ export function removeUnresolvedReferences<T = any>(
  * Set populates, execute and map result
  */
 export async function popAndMap<T extends CoreModel>(
-  queryOrDocument: Query<any, any> | Document | Document[],
+  queryOrDocument: Document | Document[] | Query<any, any>,
   populate: FieldSelection,
   modelClass: new (...args: any[]) => T,
   mongooseModel?: Model<any>,
@@ -572,9 +575,9 @@ export function removeIds(source: any[], ids: StringOrObjectId | StringOrObjectI
 /**
  * Set populates via populates options array
  */
-export async function setPopulates<T = Query<any, any> | Document>(
+export async function setPopulates<T = Document | Query<any, any>>(
   queryOrDocument: T,
-  populateOptions: string[] | PopulateOptions[] | (string | PopulateOptions)[],
+  populateOptions: (PopulateOptions | string)[] | PopulateOptions[] | string[],
   mongooseModel: Model<any>,
   options?: { ignoreSelections: boolean },
 ): Promise<T> {
@@ -585,7 +588,7 @@ export async function setPopulates<T = Query<any, any> | Document>(
 
   // Filter populate options via model schema paths
   if (mongooseModel?.schema?.paths) {
-    populateOptions = populateOptions.filter((option: string | PopulateOptions) => {
+    populateOptions = populateOptions.filter((option: PopulateOptions | string) => {
       let key: string = option as string;
       if ((option as PopulateOptions)?.path) {
         key = (option as PopulateOptions)?.path;
@@ -635,7 +638,6 @@ export async function setPopulates<T = Query<any, any> | Document>(
  * Get ID of element as string
  */
 function getStringId(element: any): string {
-
   // Check element
   if (!element) {
     return element;

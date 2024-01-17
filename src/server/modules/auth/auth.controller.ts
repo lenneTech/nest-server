@@ -1,4 +1,5 @@
 import { Controller } from '@nestjs/common';
+
 import { ConfigService } from '../../../core/common/services/config.service';
 import { CoreAuthController } from '../../../core/modules/auth/core-auth.controller';
 import { AuthService } from './auth.service';

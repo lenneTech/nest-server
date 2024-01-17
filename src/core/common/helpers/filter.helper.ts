@@ -1,4 +1,5 @@
 import { FilterQuery, QueryOptions } from 'mongoose';
+
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
@@ -45,7 +46,7 @@ export function findFilter(options?: {
   filterOptions?: FilterQuery<any>;
   id?: any;
   ids?: any[];
-  type?: '$and' | '$or' | '$nor';
+  type?: '$and' | '$nor' | '$or';
 }): FilterQuery<any> {
   const config = {
     type: '$and',
@@ -152,7 +153,7 @@ export function generateFilterQuery<T = any>(
   // Process single filter
   if (filter.singleFilter) {
     // Init variables
-    const { not, options, convertToObjectId, isReference } = filter.singleFilter;
+    const { convertToObjectId, isReference, not, options } = filter.singleFilter;
     let field = filter.singleFilter.field;
     let value = filter.singleFilter.value;
 
@@ -206,12 +207,12 @@ export function generateFilterQuery<T = any>(
       case ComparisonOperatorEnum.REGEX:
         result[field] = not
           ? {
-            $not: {
-              $regex: new RegExp(value),
-              $options: options || '',
-            },
-          }
-          : { $regex: new RegExp(value), $options: options || '' };
+              $not: {
+                $options: options || '',
+                $regex: new RegExp(value),
+              },
+            }
+          : { $options: options || '', $regex: new RegExp(value) };
         break;
     }
   }
@@ -223,10 +224,7 @@ export function generateFilterQuery<T = any>(
 /**
  * Generate find options
  */
-export function generateFindOptions(
-  filterArgs: Partial<FilterArgs>,
-  options?: { maxLimit?: number },
-): QueryOptions {
+export function generateFindOptions(filterArgs: Partial<FilterArgs>, options?: { maxLimit?: number }): QueryOptions {
   // Check filterArgs
   if (!filterArgs) {
     return {};
@@ -273,7 +271,7 @@ export function filterMerge<T = unknown>(
   filterArgs: Partial<FilterArgs>,
   filterQuery: Partial<FilterQuery<T>>,
   options?: {
-    operator?: '$and' | '$or' | '$nor';
+    operator?: '$and' | '$nor' | '$or';
     queryOptions?: Partial<QueryOptions>;
     samples?: number;
   },
@@ -286,11 +284,8 @@ export function filterMerge<T = unknown>(
   return {
     filterQuery: (converted[0]
       ? { [config.operator]: [converted[0], filterQuery || {}] }
-      : filterQuery
-    ) as FilterQuery<T>,
-    queryOptions: converted[1] || config.queryOptions
-      ? { ...converted[1], ...config.queryOptions }
-      : undefined,
+      : filterQuery) as FilterQuery<T>,
+    queryOptions: converted[1] || config.queryOptions ? { ...converted[1], ...config.queryOptions } : undefined,
     samples: config.samples,
   };
 }

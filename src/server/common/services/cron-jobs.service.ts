@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
+
 import { ConfigService } from '../../../core/common/services/config.service';
 import { CoreCronJobs } from '../../../core/common/services/core-cron-jobs.service';
 
@@ -12,7 +13,10 @@ export class CronJobs extends CoreCronJobs {
   /**
    * Init cron jobs
    */
-  constructor(protected override schedulerRegistry: SchedulerRegistry, protected configService: ConfigService) {
+  constructor(
+    protected override schedulerRegistry: SchedulerRegistry,
+    protected configService: ConfigService,
+  ) {
     super(schedulerRegistry, configService.config.cronJobs, { log: true });
   }
 

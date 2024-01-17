@@ -1,5 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
 import { IsEmail, IsOptional } from 'class-validator';
+
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { ProcessType } from '../../../common/enums/process-type.enum';
 import { RoleEnum } from '../../../common/enums/role.enum';
@@ -39,7 +40,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Roles of the user
    */
-  @Restricted({ roles: RoleEnum.ADMIN, processType: ProcessType.INPUT })
+  @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   roles?: string[] = undefined;

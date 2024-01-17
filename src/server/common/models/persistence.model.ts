@@ -1,9 +1,11 @@
-import { Types } from 'mongoose';
-import mongoose = require('mongoose');
-import { Prop } from '@nestjs/mongoose';
 import { Field, ObjectType } from '@nestjs/graphql';
+import { Prop } from '@nestjs/mongoose';
+import { Types } from 'mongoose';
+
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
 import { User } from '../../modules/user/user.model';
+
+import mongoose = require('mongoose');
 
 /**
  * Metadata for persistent objects
@@ -28,7 +30,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     description: 'ID of the user who created the object',
     nullable: true,
   })
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
+  @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
   createdBy?: Types.ObjectId | string = undefined;
 
   /**
@@ -40,7 +42,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     description: 'ID of the user who updated the object',
     nullable: true,
   })
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
+  @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
   updatedBy?: Types.ObjectId | string = undefined;
 
   // ===================================================================================================================

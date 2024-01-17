@@ -1,6 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+
 import { getContextData } from '../helpers/context.helper';
 import { getStringIds } from '../helpers/db.helper';
 import { processDeep } from '../helpers/input.helper';
@@ -34,7 +35,11 @@ export class CheckSecurityInterceptor implements NestInterceptor {
           new Promise(() => {
             if (dataJson !== JSON.stringify(response)) {
               const id = getStringIds(data);
-              console.debug('CheckSecurityInterceptor: securityCheck changed data of type', data.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
+              console.debug(
+                'CheckSecurityInterceptor: securityCheck changed data of type',
+                data.constructor.name,
+                id && !Array.isArray(id) ? `with ID: ${id}` : '',
+              );
             }
           });
           return response;
@@ -63,7 +68,11 @@ export class CheckSecurityInterceptor implements NestInterceptor {
             new Promise(() => {
               if (itemJson !== JSON.stringify(response)) {
                 const id = getStringIds(item);
-                console.debug('CheckSecurityInterceptor: securityCheck changed item of type', item.constructor.name, id && !Array.isArray(id) ? `with ID: ${id}` : '');
+                console.debug(
+                  'CheckSecurityInterceptor: securityCheck changed item of type',
+                  item.constructor.name,
+                  id && !Array.isArray(id) ? `with ID: ${id}` : '',
+                );
               }
             });
             return response;

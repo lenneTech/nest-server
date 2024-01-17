@@ -1,7 +1,8 @@
 import { CorePersistenceModel } from '../../..';
 
 export interface ICorePersistenceModel<T extends CorePersistenceModel = any> {
-  new (): T;
+  [key: string]: any;
+  init(this: new (...args: any[]) => T, ...args: any[]): any;
   map(
     this: new (...args: any[]) => T,
     data: Partial<T> | Record<string, any>,
@@ -10,8 +11,7 @@ export interface ICorePersistenceModel<T extends CorePersistenceModel = any> {
       funcAllowed?: boolean;
       mapId?: boolean;
       merge?: boolean;
-    }
+    },
   ): any;
-  init(this: new (...args: any[]) => T, ...args: any[]): any;
-  [key: string]: any;
+  new (): T;
 }

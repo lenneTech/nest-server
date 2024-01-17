@@ -1,5 +1,6 @@
 import { CollationOptions } from 'mongodb';
 import { Model, PopulateOptions } from 'mongoose';
+
 import { FieldSelection } from '../types/field-selection.type';
 import { PrepareInputOptions } from './prepare-input-options.interface';
 import { PrepareOutputOptions } from './prepare-output-options.interface';
@@ -51,29 +52,29 @@ export interface ServiceOptions {
   outputType?: new (...params: any[]) => any;
 
   // Alias for fieldSelection (if both are set fieldSelection is overwritten by populate)
-  populate?: string | PopulateOptions | (PopulateOptions | string)[];
+  populate?: (PopulateOptions | string)[] | PopulateOptions | string;
 
   // Process field selection
   // If {} or not set, then the field selection runs with defaults
-  // If falsy, then the field selection will not be automatically executed
-  processFieldSelection?: {
-    model?: new (...args: any[]) => any;
-    dbModel?: Model<any>;
-    // Ignore selections in fieldSelection and populate
-    // If falsy (default, if not set in env.config): select and populate information in fieldSelection and populate will be respected
-    // If truly: select fields will be ignored and only populate fields in fieldSelection and populate will be respected
-    ignoreSelections?: boolean;
-  };
+  // If falsy, then the prepareInput function is not executed
+  prepareInput?: PrepareInputOptions;
 
   // Prepare input configuration:
   // If {} or not set, then the prepareInput function will run with defaults
   // If falsy, then the prepareInput function is not executed
-  prepareInput?: PrepareInputOptions;
+  prepareOutput?: PrepareOutputOptions;
 
   // Prepare output configuration:
   // If {} or not set, then the prepareInput function will run with defaults
-  // If falsy, then the prepareInput function is not executed
-  prepareOutput?: PrepareOutputOptions;
+  // If falsy, then the field selection will not be automatically executed
+  processFieldSelection?: {
+    dbModel?: Model<any>;
+    // If truly: select fields will be ignored and only populate fields in fieldSelection and populate will be respected
+    ignoreSelections?: boolean;
+    // Ignore selections in fieldSelection and populate
+    // If falsy (default, if not set in env.config): select and populate information in fieldSelection and populate will be respected
+    model?: new (...args: any[]) => any;
+  };
 
   // Whether to publish action via GraphQL subscription
   pubSub?: boolean;
@@ -87,7 +88,7 @@ export interface ServiceOptions {
 
   // Select fields via mongoose select
   // See https://mongoosejs.com/docs/api.html#query_Query-select
-  select?: string | string[] | Record<string, number | boolean | object>;
+  select?: Record<string, boolean | number | object> | string | string[];
 
   // Add updateBy and/or createBy user ID into input after check
   // If falsy: input data will not be changed

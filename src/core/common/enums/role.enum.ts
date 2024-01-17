@@ -36,14 +36,14 @@ export enum RoleEnum {
   // into user.roles!
   // ===================================================================================================================
 
+  // User must be the creator of the processed object(s) (see createdBy property of object(s))
+  S_CREATOR = 's_creator',
+
   // Everyone, including users who are not logged in, can access (see context user, e.g. @CurrentUser)
   S_EVERYONE = 's_everyone',
 
   // No one has access, not even administrators
   S_NO_ONE = 's_no_one',
-
-  // User must be logged in (see context user, e.g. @CurrentUser)
-  S_USER = 's_user',
 
   // ===================================================================================================================
   // Special system roles that check rights for DB objects and can be used via @Restricted for Models
@@ -51,9 +51,9 @@ export enum RoleEnum {
   // user.roles!
   // ===================================================================================================================
 
-  // User must be the creator of the processed object(s) (see createdBy property of object(s))
-  S_CREATOR = 's_creator',
-
   // User must be herself/himself
   S_SELF = 's_self',
+
+  // User must be logged in (see context user, e.g. @CurrentUser)
+  S_USER = 's_user',
 }
