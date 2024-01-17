@@ -1,7 +1,9 @@
 
 import { Injectable } from '@nestjs/common';
-import brevo = require('@getbrevo/brevo');
+
 import { ConfigService } from './config.service';
+
+import brevo = require('@getbrevo/brevo');
 
 
 @Injectable()
@@ -28,7 +30,7 @@ export class BrevoService {
     }
 
     // Exclude (test) users
-    if (this.configService.configFastButReadOnly.brevo?.exclude?.test?.(to)) {
+    if (this.configService.configFastButReadOnly.brevo?.exclude?.test(to)) {
       return 'TEST_USER!';
     }
 
@@ -65,7 +67,7 @@ export class BrevoService {
     }
 
     // Exclude (test) users
-    if (this.brevoConfig.exclude?.test?.(to)) {
+    if (this.brevoConfig.exclude?.test(to)) {
       return 'TEST_USER!';
     }
 
