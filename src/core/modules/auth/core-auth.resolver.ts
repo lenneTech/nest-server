@@ -1,6 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Resolver } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
+
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { GraphQLServiceOptions } from '../../common/decorators/graphql-service-options.decorator';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
@@ -22,7 +23,10 @@ export class CoreAuthResolver {
   /**
    * Import services
    */
-  constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {}
+  constructor(
+    protected readonly authService: CoreAuthService,
+    protected readonly configService: ConfigService,
+  ) {}
 
   // ===========================================================================
   // Mutations
@@ -39,7 +43,7 @@ export class CoreAuthResolver {
     @Tokens('token') token: string,
     @Args('allDevices', { nullable: true }) allDevices?: boolean,
   ): Promise<boolean> {
-    const result = await this.authService.logout(token, { currentUser, allDevices });
+    const result = await this.authService.logout(token, { allDevices, currentUser });
     return this.processCookies(ctx, result);
   }
 

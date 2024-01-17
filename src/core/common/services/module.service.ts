@@ -1,5 +1,5 @@
-import _ = require('lodash');
 import { Document, Model, Types } from 'mongoose';
+
 import { ProcessType } from '../enums/process-type.enum';
 import { getStringIds, popAndMap } from '../helpers/db.helper';
 import { check } from '../helpers/input.helper';
@@ -8,6 +8,8 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { ConfigService } from './config.service';
+
+import _ = require('lodash');
 
 /**
  * Module service class to be extended by concrete module services
@@ -46,7 +48,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
    */
   checkRights(
     input: any,
-    currentUser: { id: any; hasRole: (roles: string[]) => boolean },
+    currentUser: { hasRole: (roles: string[]) => boolean; id: any },
     options?: {
       dbObject?: any;
       metatype?: any;
@@ -73,26 +75,26 @@ export abstract class ModuleService<T extends CoreModel = any> {
     serviceFunc: (options?: { [key: string]: any; input?: any; serviceOptions?: ServiceOptions }) => any,
     options?: {
       [key: string]: any;
-      dbObject?: string | Types.ObjectId | any;
-      outputPath?: string | string[];
+      dbObject?: Types.ObjectId | any | string;
       input?: any;
+      outputPath?: string | string[];
       serviceOptions?: ServiceOptions;
     },
   ) {
     // Configuration with default values
     const config: {
-      dbObject: string | Types.ObjectId | any;
-      outputPath: string | string[];
+      dbObject: Types.ObjectId | any | string;
       input: any;
+      outputPath: string | string[];
     } & ServiceOptions = {
       checkRights: true,
       dbObject: options?.dbObject,
-      outputPath: options?.outputPath,
       force: false,
       input: options?.input,
-      processFieldSelection: {},
+      outputPath: options?.outputPath,
       prepareInput: {},
       prepareOutput: {},
+      processFieldSelection: {},
       pubSub: true,
       setCreateOrUpdateUserId: true,
       ...options?.serviceOptions,
@@ -141,8 +143,16 @@ export abstract class ModuleService<T extends CoreModel = any> {
       const inputJSON = JSON.stringify(originalInput);
       const preparedInput = await this.prepareInput(config.input, config);
       new Promise(() => {
-        if (inputJSON?.replace(/"password":\s*"[^"]*"/, '') !== JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')) {
-          console.debug('CheckSecurityInterceptor: securityCheck changed input of type', originalInput.constructor.name, 'to type', preparedInput.constructor.name);
+        if (
+          inputJSON?.replace(/"password":\s*"[^"]*"/, '')
+          !== JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')
+        ) {
+          console.debug(
+            'CheckSecurityInterceptor: securityCheck changed input of type',
+            originalInput.constructor.name,
+            'to type',
+            preparedInput.constructor.name,
+          );
         }
       });
       config.input = preparedInput;
@@ -262,14 +272,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
     data: any,
     fieldsSelection: FieldSelection,
     options: {
-      model?: new (...args: any[]) => T;
       dbModel?: Model<T & Document>;
       ignoreSelections?: boolean;
+      model?: new (...args: any[]) => T;
     } = {},
   ) {
     const config = {
-      model: this.mainModelConstructor,
       dbModel: this.mainDbModel,
+      model: this.mainModelConstructor,
       ...options,
     };
     return popAndMap(data, fieldsSelection, config.model, config.dbModel, {

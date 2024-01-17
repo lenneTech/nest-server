@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
+
 import { HttpExceptionLogFilter, SortOrderEnum, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
@@ -85,18 +86,18 @@ describe('Project (e2e)', () => {
     const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
       const input = {
-        password: random + i,
         email: `${random + i}@testusers.com`,
-        firstName: `Test${'0'.repeat((`${userCount}`).length - (`${i}`).length)}${i}${random}`,
+        firstName: `Test${'0'.repeat(`${userCount}`.length - `${i}`.length)}${i}${random}`,
         lastName: `User${i}${random}`,
+        password: random + i,
       };
 
       // Sign up user
       const res: any = await testHelper.graphQl({
-        name: 'signUp',
-        type: TestGraphQLType.MUTATION,
         arguments: { input },
         fields: [{ user: ['id', 'email', 'firstName', 'lastName'] }],
+        name: 'signUp',
+        type: TestGraphQLType.MUTATION,
       });
       res.user.password = input.password;
       users.push(res.user);
@@ -113,8 +114,6 @@ describe('Project (e2e)', () => {
   it('signInUsers', async () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl({
-        name: 'signIn',
-        type: TestGraphQLType.MUTATION,
         arguments: {
           input: {
             email: user.email,
@@ -122,6 +121,8 @@ describe('Project (e2e)', () => {
           },
         },
         fields: ['token', { user: ['id', 'email'] }],
+        name: 'signIn',
+        type: TestGraphQLType.MUTATION,
       });
       expect(res.user.id).toEqual(user.id);
       expect(res.user.email).toEqual(user.email);
@@ -152,16 +153,16 @@ describe('Project (e2e)', () => {
           value: emails,
         },
       },
-      skip: 1,
       limit: 2,
+      skip: 1,
       sort: [{ field: 'firstName', order: SortOrderEnum.DESC }],
     };
     const res: any = await testHelper.graphQl(
       {
-        name: 'findAndCountUsers',
-        type: TestGraphQLType.QUERY,
         arguments: { ...args },
         fields: [{ items: ['id', 'email', 'firstName', 'lastName'] }, 'totalCount'],
+        name: 'findAndCountUsers',
+        type: TestGraphQLType.QUERY,
       },
       { token: users[0].token },
     );
@@ -193,15 +194,15 @@ describe('Project (e2e)', () => {
         },
       },
       limit: 2,
-      sort: [{ field: 'email', order: SortOrderEnum.DESC }],
       samples: 1,
+      sort: [{ field: 'email', order: SortOrderEnum.DESC }],
     };
     const res: any = await testHelper.graphQl(
       {
-        name: 'findUsers',
-        type: TestGraphQLType.QUERY,
         arguments: { ...args },
         fields: ['id', 'email', 'firstName', 'lastName'],
+        name: 'findUsers',
+        type: TestGraphQLType.QUERY,
       },
       { token: users[0].token },
     );
@@ -212,10 +213,10 @@ describe('Project (e2e)', () => {
     while (email === otherEmail) {
       const otherRes: any = await testHelper.graphQl(
         {
-          name: 'findUsers',
-          type: TestGraphQLType.QUERY,
           arguments: { ...args },
           fields: ['id', 'email', 'firstName', 'lastName'],
+          name: 'findUsers',
+          type: TestGraphQLType.QUERY,
         },
         { token: users[0].token },
       );
@@ -250,12 +251,12 @@ describe('Project (e2e)', () => {
     for (const user of users) {
       const res: any = await testHelper.graphQl(
         {
-          name: 'deleteUser',
-          type: TestGraphQLType.MUTATION,
           arguments: {
             id: user.id,
           },
           fields: ['id'],
+          name: 'deleteUser',
+          type: TestGraphQLType.MUTATION,
         },
         { token: users[users.length - 1].token },
       );

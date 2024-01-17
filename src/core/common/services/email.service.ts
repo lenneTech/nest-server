@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
+
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
+
+import nodemailer = require('nodemailer');
 
 /**
  * Email service
@@ -13,7 +15,10 @@ export class EmailService {
   /**
    * Inject services
    */
-  constructor(protected configService: ConfigService, protected templateService: TemplateService) {}
+  constructor(
+    protected configService: ConfigService,
+    protected templateService: TemplateService,
+  ) {}
 
   /**
    * Send a mail
@@ -33,7 +38,7 @@ export class EmailService {
     },
   ): Promise<any> {
     // Process config
-    const { attachments, htmlTemplate, senderName, senderEmail, templateData, textTemplate } = {
+    const { attachments, htmlTemplate, senderEmail, senderName, templateData, textTemplate } = {
       senderEmail: this.configService.getFastButReadOnly('email.defaultSender.email'),
       senderName: this.configService.getFastButReadOnly('email.defaultSender.name'),
       ...config,
@@ -71,12 +76,12 @@ export class EmailService {
 
     // Send mail
     return transporter.sendMail({
+      attachments,
       from: `"${senderName}" <${senderEmail}>`,
-      to: recipients,
+      html,
       subject,
       text,
-      html,
-      attachments,
+      to: recipients,
     });
   }
 }

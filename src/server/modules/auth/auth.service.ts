@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
@@ -42,8 +43,8 @@ export class AuthService extends CoreAuthService {
     await this.emailService.sendMail(user.email, 'Welcome', {
       htmlTemplate: 'welcome',
       templateData: {
-        name: user.username,
         link: `${this.configService.configFastButReadOnly.email.verificationLink}/${user.verificationToken}`,
+        name: user.username,
       },
     });
 

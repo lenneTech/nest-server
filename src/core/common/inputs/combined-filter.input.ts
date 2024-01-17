@@ -1,4 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
+
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
 import { maps } from '../helpers/model.helper';
 import { CoreInput } from './core-input.input';

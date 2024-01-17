@@ -2,6 +2,7 @@ import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
+
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 import { CoreTokenData } from '../auth/interfaces/core-token-data.interface';
 
@@ -22,7 +23,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
-  @Prop({ unique: true, lowercase: true, trim: true })
+  @Prop({ lowercase: true, trim: true, unique: true })
   email: string = undefined;
 
   /**

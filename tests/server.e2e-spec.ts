@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
+
 import { ComparisonOperatorEnum, ConfigService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { getPlain } from '../src/core/common/helpers/input.helper';
@@ -128,32 +129,32 @@ describe('ServerModule (e2e)', () => {
     gEmail = `${gPassword}@testuser.com`;
 
     const res: any = await testHelper.graphQl({
-      name: 'signUp',
-      type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
           email: gEmail,
-          password: gPassword,
           firstName: 'Everardo',
+          password: gPassword,
         },
       },
       fields: ['token', 'refreshToken', { user: ['id', 'email', 'roles', 'createdBy'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res.user.email).toEqual(gEmail);
     expect(res.user.roles).toEqual([]);
     expect(res.user.createdBy).toEqual(res.user.id);
     gId = res.user.id;
     const res2: any = await testHelper.graphQl({
-      name: 'signUp',
-      type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
           email: gEmail,
-          password: gPassword + 2,
           firstName: `Everardo${2}`,
+          password: gPassword + 2,
         },
       },
       fields: [{ user: ['id', 'email', 'roles', 'createdBy'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res2.errors.length).toBeGreaterThanOrEqual(1);
     expect(res2.errors[0].extensions.originalError.statusCode).toEqual(400);
@@ -210,8 +211,8 @@ describe('ServerModule (e2e)', () => {
     const user = await db.collection('users').findOne({ _id: new ObjectId(gId) });
     const res: any = await testHelper.graphQl({
       arguments: {
-        token: user.passwordResetToken,
         password: `new${gPassword}`,
+        token: user.passwordResetToken,
       },
       name: 'resetPassword',
       type: TestGraphQLType.MUTATION,
@@ -225,8 +226,6 @@ describe('ServerModule (e2e)', () => {
    */
   it('signIn', async () => {
     const res: any = await testHelper.graphQl({
-      name: 'signIn',
-      type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
           email: gEmail,
@@ -234,6 +233,8 @@ describe('ServerModule (e2e)', () => {
         },
       },
       fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
+      name: 'signIn',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res.user.id).toEqual(gId);
     expect(res.user.email).toEqual(gEmail);
@@ -249,9 +250,9 @@ describe('ServerModule (e2e)', () => {
   it('tryToGetRefreshTokenWithToken', async () => {
     const res: any = await testHelper.graphQl(
       {
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
         name: 'refreshToken',
         type: TestGraphQLType.MUTATION,
-        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
       { token: gToken },
     );
@@ -268,9 +269,9 @@ describe('ServerModule (e2e)', () => {
     gLastRefreshRequestTime = Date.now();
     const res: any = await testHelper.graphQl(
       {
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
         name: 'refreshToken',
         type: TestGraphQLType.MUTATION,
-        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
       { token: gRefreshToken },
     );
@@ -290,9 +291,9 @@ describe('ServerModule (e2e)', () => {
   it('getRefreshTokenWithRefreshTokenAgain', async () => {
     const res: any = await testHelper.graphQl(
       {
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
         name: 'refreshToken',
         type: TestGraphQLType.MUTATION,
-        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
       { token: gRefreshToken },
     );
@@ -304,7 +305,9 @@ describe('ServerModule (e2e)', () => {
     expect(res.refreshToken.length).not.toEqual(gRefreshToken);
     if (envConfig.jwt.sameTokenIdPeriod) {
       const timeBetween = Date.now() - gLastRefreshRequestTime;
-      console.debug(`tempToken used | config: ${envConfig.jwt.sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${envConfig.jwt.sameTokenIdPeriod - timeBetween}`);
+      console.debug(
+        `tempToken used | config: ${envConfig.jwt.sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${envConfig.jwt.sameTokenIdPeriod - timeBetween}`,
+      );
       expect(gLastRefreshRequestTime).toBeGreaterThanOrEqual(Date.now() - envConfig.jwt.sameTokenIdPeriod);
       expect(testHelper.parseJwt(res.token).tokenId).toEqual(testHelper.parseJwt(gToken).tokenId);
     } else {
@@ -325,9 +328,9 @@ describe('ServerModule (e2e)', () => {
     expect(configService.getFastButReadOnly('jwt.sameTokenIdPeriod')).not.toEqual(oTempTokenPeriod);
     const res: any = await testHelper.graphQl(
       {
+        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
         name: 'refreshToken',
         type: TestGraphQLType.MUTATION,
-        fields: ['token', 'refreshToken', { user: ['id', 'email'] }],
       },
       { token: gRefreshToken },
     );
@@ -339,7 +342,9 @@ describe('ServerModule (e2e)', () => {
     expect(res.refreshToken.length).not.toEqual(gRefreshToken);
     if (sameTokenIdPeriod) {
       const timeBetween = Date.now() - gLastRefreshRequestTime;
-      console.debug(`tempToken2 used | config: ${sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${sameTokenIdPeriod - timeBetween}`);
+      console.debug(
+        `tempToken2 used | config: ${sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${sameTokenIdPeriod - timeBetween}`,
+      );
       expect(testHelper.parseJwt(res.token).tokenId).toEqual(testHelper.parseJwt(gToken).tokenId);
     } else {
       console.debug('tempToken2 not used');
@@ -355,8 +360,8 @@ describe('ServerModule (e2e)', () => {
    */
   it('findUsers without token', async () => {
     const res: any = await testHelper.graphQl({
-      name: 'findUsers',
       fields: ['id', 'email'],
+      name: 'findUsers',
     });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
@@ -370,8 +375,8 @@ describe('ServerModule (e2e)', () => {
   it('findUsers without rights', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'findUsers',
         fields: ['id', 'email'],
+        name: 'findUsers',
       },
       { token: gToken },
     );
@@ -385,7 +390,7 @@ describe('ServerModule (e2e)', () => {
    * Get config without admin rights should fail
    */
   it('get config without admin rights should fail', async () => {
-    await testHelper.rest('/config', { token: gToken, statusCode: 401 });
+    await testHelper.rest('/config', { statusCode: 401, token: gToken });
   });
 
   /**
@@ -400,8 +405,8 @@ describe('ServerModule (e2e)', () => {
             firstName: 'Jonny',
           },
         },
-        name: 'updateUser',
         fields: ['id', 'email', 'firstName', 'roles'],
+        name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
       { token: gToken },
@@ -424,8 +429,8 @@ describe('ServerModule (e2e)', () => {
             roles: ['member'],
           },
         },
-        name: 'updateUser',
         fields: ['id', 'email', 'firstName', 'roles'],
+        name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
       { token: gToken },
@@ -455,8 +460,8 @@ describe('ServerModule (e2e)', () => {
         arguments: {
           id: gId,
         },
-        name: 'getUser',
         fields: ['id', 'email', 'firstName', 'roles'],
+        name: 'getUser',
       },
       { token: gToken },
     );
@@ -473,8 +478,8 @@ describe('ServerModule (e2e)', () => {
   it('findUsers', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'findUsers',
         fields: ['id', 'email'],
+        name: 'findUsers',
       },
       { token: gToken },
     );
@@ -487,9 +492,9 @@ describe('ServerModule (e2e)', () => {
   it('findUserViaId', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'findUsers',
         arguments: { filter: { singleFilter: { field: 'id', operator: ComparisonOperatorEnum.EQ, value: gId } } },
         fields: ['id', 'email'],
+        name: 'findUsers',
       },
       { token: gToken },
     );
@@ -504,9 +509,9 @@ describe('ServerModule (e2e)', () => {
   it('findSampleUser', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'findUsers',
         arguments: { samples: 1 },
         fields: ['id', 'email'],
+        name: 'findUsers',
       },
       { token: gToken },
     );
@@ -520,19 +525,17 @@ describe('ServerModule (e2e)', () => {
     // Start subscription
     const subscription: any = testHelper.graphQl(
       {
-        name: 'userCreated',
         fields: ['id', 'email'],
+        name: 'userCreated',
         type: TestGraphQLType.SUBSCRIPTION,
       },
-      { token: gToken, countOfSubscriptionMessages: 1 },
+      { countOfSubscriptionMessages: 1, token: gToken },
     );
 
     // Create user
     const passwd = Math.random().toString(36).substring(7);
     const email = `${passwd}@testuser.com`;
     const create: any = await testHelper.graphQl({
-      name: 'signUp',
-      type: TestGraphQLType.MUTATION,
       arguments: {
         input: {
           email,
@@ -540,6 +543,8 @@ describe('ServerModule (e2e)', () => {
         },
       },
       fields: [{ user: ['id', 'email'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
     });
     expect(create.user.email).toEqual(email);
 
@@ -551,12 +556,12 @@ describe('ServerModule (e2e)', () => {
     // Delete user
     const del: any = await testHelper.graphQl(
       {
-        name: 'deleteUser',
-        type: TestGraphQLType.MUTATION,
         arguments: {
           id: create.user.id,
         },
         fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
       },
       { token: gToken },
     );
@@ -575,8 +580,8 @@ describe('ServerModule (e2e)', () => {
             roles: ['member'],
           },
         },
-        name: 'updateUser',
         fields: ['id', 'email', 'firstName', 'roles'],
+        name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
       { token: gToken },
@@ -594,12 +599,12 @@ describe('ServerModule (e2e)', () => {
   it('deleteUser', async () => {
     const res: any = await testHelper.graphQl(
       {
-        name: 'deleteUser',
-        type: TestGraphQLType.MUTATION,
         arguments: {
           id: gId,
         },
         fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
       },
       { token: gToken },
     );
@@ -615,10 +620,10 @@ describe('ServerModule (e2e)', () => {
     const users = [];
     for (let i = 0; i < userCount; i++) {
       const input = {
-        password: random + i,
         email: `${random + i}@testusers.com`,
-        firstName: `Test${'0'.repeat((`${userCount}`).length - (`${i}`).length)}${i}${random}`,
+        firstName: `Test${'0'.repeat(`${userCount}`.length - `${i}`.length)}${i}${random}`,
         lastName: `User${i}${random}`,
+        password: random + i,
       };
       users.push(await userService.create(input as UserCreateInput));
     }

@@ -1,5 +1,5 @@
-import { Readable } from 'stream';
 import { WriteStream } from 'fs-capacitor';
+import { Readable } from 'stream';
 
 /**
  * Interface for file uploads
@@ -15,7 +15,7 @@ export interface FileUpload {
    */
   createReadStream: (options?: {
     /** Specify an encoding for the chunks, default: utf8 */
-    encoding?: 'utf8' | 'utf8' | 'ucs2' | 'utf16le' | 'latin1' | 'ascii' | 'base64' | 'base64url' | 'hex';
+    encoding?: 'ascii' | 'base64' | 'base64url' | 'hex' | 'latin1' | 'ucs2' | 'utf8' | 'utf8' | 'utf16le';
 
     /**  Maximum number of bytes to store in the internal buffer before ceasing to read from the underlying resource, default: 16384 */
     highWaterMark?: number;

@@ -34,7 +34,7 @@ export enum ComparisonOperatorEnum {
 
 // Register LogicalOperatorEnum enum in TypeGraphQL
 registerEnumType(ComparisonOperatorEnum, {
-  name: 'ComparisonOperatorEnum',
   description:
     '[Comparison Operators](https://docs.mongodb.com/manual/reference/operator/query-comparison/) for filters',
+  name: 'ComparisonOperatorEnum',
 });

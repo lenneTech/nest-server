@@ -1,4 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
+
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { JSON } from '../scalars/json.scalar';
 import { CoreInput } from './core-input.input';

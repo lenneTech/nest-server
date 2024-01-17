@@ -1,5 +1,6 @@
-import { join } from 'path';
 import { CronExpression } from '@nestjs/schedule';
+import { join } from 'path';
+
 import { merge } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
@@ -10,132 +11,30 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   // Local environment
   // ===========================================================================
-  local: {
-    automaticObjectIdFiltering: true,
-    compression: true,
-    cookies: false,
-    cronJobs: {
-      sayHello: {
-        cronTime: CronExpression.EVERY_10_SECONDS,
-        runOnInit: false,
-        disabled: false,
-        runParallel: 1,
-        timeZone: 'Europe/Berlin',
-        throwException: false,
-      },
-    },
-    email: {
-      smtp: {
-        auth: {
-          user: 'oren.satterfield@ethereal.email',
-          pass: 'K4DvD8U31VKseT7vQC',
-        },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
-        secure: false,
-      },
-      mailjet: {
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-      },
-      defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Local',
-      },
-      verificationLink: 'http://localhost:4200/user/verification',
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
-    },
-    env: 'local',
-    execAfterInit: 'npm run docs:bootstrap',
-    filter: {
-      maxLimit: null,
-    },
-    graphQl: {
-      driver: {
-        introspection: true,
-      },
-      maxComplexity: 20,
-    },
-    healthCheck: {
-      enabled: true,
-      configs: {
-        database: {
-          enabled: true,
-        },
-      },
-    },
-    hostname: '127.0.0.1',
-    ignoreSelectionsForPopulate: true,
-    jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-      // tslint:disable-next-line:max-line-length
-      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
-      signInOptions: {
-        expiresIn: '15m',
-      },
-      refresh: {
-        renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        // tslint:disable-next-line:max-line-length
-        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
-        signInOptions: {
-          expiresIn: '7d',
-        },
-      },
-      sameTokenIdPeriod: 2000,
-    },
-    loadLocalConfig: true,
-    logExceptions: true,
-    mongoose: {
-      collation: {
-        locale: 'de',
-      },
-      modelDocumentation: true,
-      uri: 'mongodb://127.0.0.1/nest-server-local',
-    },
-    port: 3000,
-    sha256: true,
-    staticAssets: {
-      path: join(__dirname, '..', 'public'),
-      options: { prefix: '' },
-    },
-    templates: {
-      path: join(__dirname, 'templates'),
-      engine: 'ejs',
-    },
-  },
-
-  // ===========================================================================
-  // Development environment
-  // ===========================================================================
   development: {
     automaticObjectIdFiltering: true,
     compression: true,
     cookies: false,
     email: {
+      defaultSender: {
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Development',
+      },
+      mailjet: {
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+      },
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          user: 'oren.satterfield@ethereal.email',
           pass: 'K4DvD8U31VKseT7vQC',
+          user: 'oren.satterfield@ethereal.email',
         },
         host: 'mailhog.lenne.tech',
         port: 1025,
         secure: false,
       },
-      mailjet: {
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-      },
-      defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Development',
-      },
       verificationLink: 'http://localhost:4200/user/verification',
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'development',
     execAfterInit: 'npm run docs:bootstrap',
@@ -149,23 +48,18 @@ const config: { [env: string]: IServerOptions } = {
       maxComplexity: 20,
     },
     healthCheck: {
-      enabled: true,
       configs: {
         database: {
           enabled: true,
         },
       },
+      enabled: true,
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
       // Each secret should be unique and not reused in other environments,
       // also the JWT secret should be different from the Refresh secret!
       // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-      // tslint:disable-next-line:max-line-length
-      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
-      signInOptions: {
-        expiresIn: '15m',
-      },
       refresh: {
         renewal: true,
         // Each secret should be unique and not reused in other environments,
@@ -178,6 +72,11 @@ const config: { [env: string]: IServerOptions } = {
         },
       },
       sameTokenIdPeriod: 2000,
+      // tslint:disable-next-line:max-line-length
+      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      signInOptions: {
+        expiresIn: '15m',
+      },
     },
     loadLocalConfig: false,
     logExceptions: true,
@@ -191,12 +90,114 @@ const config: { [env: string]: IServerOptions } = {
     port: 3000,
     sha256: true,
     staticAssets: {
-      path: join(__dirname, '..', 'public'),
       options: { prefix: '' },
+      path: join(__dirname, '..', 'public'),
     },
     templates: {
-      path: join(__dirname, 'templates'),
       engine: 'ejs',
+      path: join(__dirname, 'templates'),
+    },
+  },
+
+  // ===========================================================================
+  // Development environment
+  // ===========================================================================
+  local: {
+    automaticObjectIdFiltering: true,
+    compression: true,
+    cookies: false,
+    cronJobs: {
+      sayHello: {
+        cronTime: CronExpression.EVERY_10_SECONDS,
+        disabled: false,
+        runOnInit: false,
+        runParallel: 1,
+        throwException: false,
+        timeZone: 'Europe/Berlin',
+      },
+    },
+    email: {
+      defaultSender: {
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Local',
+      },
+      mailjet: {
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+      },
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
+      smtp: {
+        auth: {
+          pass: 'K4DvD8U31VKseT7vQC',
+          user: 'oren.satterfield@ethereal.email',
+        },
+        host: 'mailhog.lenne.tech',
+        port: 1025,
+        secure: false,
+      },
+      verificationLink: 'http://localhost:4200/user/verification',
+    },
+    env: 'local',
+    execAfterInit: 'npm run docs:bootstrap',
+    filter: {
+      maxLimit: null,
+    },
+    graphQl: {
+      driver: {
+        introspection: true,
+      },
+      maxComplexity: 20,
+    },
+    healthCheck: {
+      configs: {
+        database: {
+          enabled: true,
+        },
+      },
+      enabled: true,
+    },
+    hostname: '127.0.0.1',
+    ignoreSelectionsForPopulate: true,
+    jwt: {
+      // Each secret should be unique and not reused in other environments,
+      // also the JWT secret should be different from the Refresh secret!
+      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+      refresh: {
+        renewal: true,
+        // Each secret should be unique and not reused in other environments,
+        // also the JWT secret should be different from the Refresh secret!
+        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
+        // tslint:disable-next-line:max-line-length
+        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        signInOptions: {
+          expiresIn: '7d',
+        },
+      },
+      sameTokenIdPeriod: 2000,
+      // tslint:disable-next-line:max-line-length
+      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      signInOptions: {
+        expiresIn: '15m',
+      },
+    },
+    loadLocalConfig: true,
+    logExceptions: true,
+    mongoose: {
+      collation: {
+        locale: 'de',
+      },
+      modelDocumentation: true,
+      uri: 'mongodb://127.0.0.1/nest-server-local',
+    },
+    port: 3000,
+    sha256: true,
+    staticAssets: {
+      options: { prefix: '' },
+      path: join(__dirname, '..', 'public'),
+    },
+    templates: {
+      engine: 'ejs',
+      path: join(__dirname, 'templates'),
     },
   },
 
@@ -208,25 +209,25 @@ const config: { [env: string]: IServerOptions } = {
     compression: true,
     cookies: false,
     email: {
+      defaultSender: {
+        email: 'oren.satterfield@ethereal.email',
+        name: 'Nest Server Production',
+      },
+      mailjet: {
+        api_key_private: 'MAILJET_API_KEY_PRIVATE',
+        api_key_public: 'MAILJET_API_KEY_PUBLIC',
+      },
+      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          user: 'oren.satterfield@ethereal.email',
           pass: 'K4DvD8U31VKseT7vQC',
+          user: 'oren.satterfield@ethereal.email',
         },
         host: 'mailhog.lenne.tech',
         port: 1025,
         secure: false,
       },
-      mailjet: {
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-      },
-      defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Production',
-      },
       verificationLink: 'http://localhost:4200/user/verification',
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
     },
     env: 'production',
     execAfterInit: 'npm run docs:bootstrap',
@@ -240,23 +241,18 @@ const config: { [env: string]: IServerOptions } = {
       maxComplexity: 20,
     },
     healthCheck: {
-      enabled: true,
       configs: {
         database: {
           enabled: true,
         },
       },
+      enabled: true,
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
       // Each secret should be unique and not reused in other environments,
       // also the JWT secret should be different from the Refresh secret!
       // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-      // tslint:disable-next-line:max-line-length
-      secret: 'SECRET_OR_PRIVATE_KEY_PROD',
-      signInOptions: {
-        expiresIn: '15m',
-      },
       refresh: {
         renewal: true,
         // Each secret should be unique and not reused in other environments,
@@ -269,6 +265,11 @@ const config: { [env: string]: IServerOptions } = {
         },
       },
       sameTokenIdPeriod: 2000,
+      // tslint:disable-next-line:max-line-length
+      secret: 'SECRET_OR_PRIVATE_KEY_PROD',
+      signInOptions: {
+        expiresIn: '15m',
+      },
     },
     loadLocalConfig: false,
     logExceptions: true,
@@ -282,12 +283,12 @@ const config: { [env: string]: IServerOptions } = {
     port: 3000,
     sha256: true,
     staticAssets: {
-      path: join(__dirname, '..', 'public'),
       options: { prefix: '' },
+      path: join(__dirname, '..', 'public'),
     },
     templates: {
-      path: join(__dirname, 'templates'),
       engine: 'ejs',
+      path: join(__dirname, 'templates'),
     },
   },
 };
@@ -304,26 +305,32 @@ console.info(`Configured for: ${envConfig.env}${env !== envConfig.env ? ` (reque
 if (envConfig.loadLocalConfig) {
   let localConfig;
   if (typeof envConfig.loadLocalConfig === 'string') {
-    import(envConfig.loadLocalConfig).then((loadedConfig) => {
-      localConfig = loadedConfig.default || loadedConfig;
-      merge(envConfig, localConfig);
-    }).catch(() => {
-      console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
-    });
-  } else {
-    // get config from src directory
-    import(join(__dirname, 'config.json')).then((loadedConfig) => {
-      localConfig = loadedConfig.default || loadedConfig;
-      merge(envConfig, localConfig);
-    }).catch(() => {
-      // if not found try to find in project directory
-      import(join(__dirname, '..', 'config.json')).then((loadedConfig) => {
+    import(envConfig.loadLocalConfig)
+      .then((loadedConfig) => {
         localConfig = loadedConfig.default || loadedConfig;
         merge(envConfig, localConfig);
-      }).catch(() => {
-        console.info('No local config.json found!');
+      })
+      .catch(() => {
+        console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
       });
-    });
+  } else {
+    // get config from src directory
+    import(join(__dirname, 'config.json'))
+      .then((loadedConfig) => {
+        localConfig = loadedConfig.default || loadedConfig;
+        merge(envConfig, localConfig);
+      })
+      .catch(() => {
+        // if not found try to find in project directory
+        import(join(__dirname, '..', 'config.json'))
+          .then((loadedConfig) => {
+            localConfig = loadedConfig.default || loadedConfig;
+            merge(envConfig, localConfig);
+          })
+          .catch(() => {
+            console.info('No local config.json found!');
+          });
+      });
   }
 }
 

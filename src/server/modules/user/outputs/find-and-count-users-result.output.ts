@@ -1,4 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+
 import { User } from '../user.model';
 
 @ObjectType({ description: 'Result of find and count' })

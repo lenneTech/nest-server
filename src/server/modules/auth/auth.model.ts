@@ -1,4 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+
 import { mapClasses } from '../../../core/common/helpers/model.helper';
 import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model';
 import { User } from '../user/user.model';

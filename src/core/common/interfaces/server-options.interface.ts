@@ -5,11 +5,12 @@ import { JwtSignOptions } from '@nestjs/jwt/dist/interfaces';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
+import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health';
+import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
 import compression from 'compression';
 import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
-import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health';
-import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
+
 import { Falsy } from '../types/falsy.type';
 import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface';
 import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface';
@@ -43,7 +44,7 @@ export interface IJwt {
   secretOrKeyProvider?: (
     request: Record<string, any>,
     rawJwtToken: string,
-    done: (err: any, secret: string) => any
+    done: (err: any, secret: string) => any,
   ) => any;
 
   /**
@@ -111,7 +112,10 @@ export interface IServerOptions {
    * Cron jobs configuration object with the name of the cron job function as key
    * and the cron expression or config as value
    */
-  cronJobs?: Record<string, CronExpression | string | Date | Falsy | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset>;
+  cronJobs?: Record<
+    string,
+    CronExpression | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset | Date | Falsy | string
+  >;
 
   /**
    * SMTP and template configuration for sending emails
@@ -206,22 +210,14 @@ export interface IServerOptions {
    * Whether to activate health check endpoints
    */
   healthCheck?: {
-
-    /**
-     * Whether health check is enabled
-     */
-    enabled?: boolean;
-
     /**
      * Configuration of single health checks
      */
     configs?: {
-
       /**
        * Configuration for database health check
        */
       database?: {
-
         /**
          * Whether to enable the database health check
          */
@@ -242,28 +238,26 @@ export interface IServerOptions {
        * Configuration for memory heap health check
        */
       memoryHeap?: {
-
         /**
          * Whether to enable the memory heap health check
          */
         enabled?: boolean;
 
         /**
-         * Key in result JSON
-         */
-        key?: string;
-
-        /**
          * Memory limit in bytes
          */
         heapUsedThreshold?: number;
+
+        /**
+         * Key in result JSON
+         */
+        key?: string;
       };
 
       /**
        * Configuration for memory resident set size health check
        */
       memoryRss?: {
-
         /**
          * Whether to enable the memory resident set size health check
          */
@@ -284,7 +278,6 @@ export interface IServerOptions {
        * Configuration for disk space health check
        */
       storage?: {
-
         /**
          * Whether to enable the disk space health check
          */
@@ -301,6 +294,11 @@ export interface IServerOptions {
         options?: DiskHealthIndicatorOptions;
       };
     };
+
+    /**
+     * Whether health check is enabled
+     */
+    enabled?: boolean;
   };
 
   /**
@@ -367,7 +365,6 @@ export interface IServerOptions {
    * Configuration for Mongoose
    */
   mongoose?: {
-
     /**
      * Collation allows users to specify language-specific rules for string comparison,
      * such as rules for letter-case and accent marks.
@@ -379,11 +376,6 @@ export interface IServerOptions {
      * @beta
      */
     modelDocumentation?: boolean;
-
-    /**
-     * Mongoose connection string
-     */
-    uri: string;
 
     /**
      * Mongoose module options
@@ -398,6 +390,11 @@ export interface IServerOptions {
      * default: false
      */
     strictQuery?: boolean;
+
+    /**
+     * Mongoose connection string
+     */
+    uri: string;
   };
 
   /**
@@ -405,6 +402,12 @@ export interface IServerOptions {
    * e.g. 8080
    */
   port?: number;
+
+  /**
+   * Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
+   * default = false, sha256 format check: /^[a-f0-9]{64}$/i
+   */
+  sha256?: boolean;
 
   /**
    * Configuration for useStaticAssets
@@ -422,12 +425,6 @@ export interface IServerOptions {
      */
     path?: string;
   };
-
-  /**
-   * Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
-   * default = false, sha256 format check: /^[a-f0-9]{64}$/i
-   */
-  sha256?: boolean;
 
   /**
    * Templates

@@ -1,6 +1,7 @@
+import { GridFsStorage } from '@lenne.tech/multer-gridfs-storage';
 import { Injectable } from '@nestjs/common';
 import { MulterModuleOptions, MulterOptionsFactory } from '@nestjs/platform-express';
-import { GridFsStorage } from '@lenne.tech/multer-gridfs-storage';
+
 import envConfig from '../../../config.env';
 
 @Injectable()
@@ -9,7 +10,6 @@ export class GridFsMulterConfigService implements MulterOptionsFactory {
 
   constructor() {
     this.gridFsStorage = new GridFsStorage({
-      url: envConfig.mongoose.uri,
       file: (req, file) => {
         return new Promise((resolve) => {
           const filename = file.originalname.trim();
@@ -19,6 +19,7 @@ export class GridFsMulterConfigService implements MulterOptionsFactory {
           resolve(fileInfo);
         });
       },
+      url: envConfig.mongoose.uri,
     });
   }
 

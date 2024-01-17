@@ -1,4 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
+
 import { SortOrderEnum } from '../enums/sort-order.emum';
 import { CoreInput } from './core-input.input';
 

@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 
 export type IdsType =
-  | string
+  | ({ _id?: Types.ObjectId | string; id?: Types.ObjectId | string } | Types.ObjectId | string)[]
+  | { _id?: Types.ObjectId | string; id?: Types.ObjectId | string }
   | Types.ObjectId
-  | { id?: string | Types.ObjectId; _id?: string | Types.ObjectId }
-  | (string | Types.ObjectId | { id?: string | Types.ObjectId; _id?: string | Types.ObjectId })[];
+  | string;

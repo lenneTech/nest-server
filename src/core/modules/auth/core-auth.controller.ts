@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseBoolPipe, Post, Res, UseGuards } from '@nestjs/common';
 import { Args } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
+
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
@@ -17,7 +18,10 @@ export class CoreAuthController {
   /**
    * Import services
    */
-  constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {}
+  constructor(
+    protected readonly authService: CoreAuthService,
+    protected readonly configService: ConfigService,
+  ) {}
 
   /**
    * Logout user (from specific device)
@@ -30,7 +34,7 @@ export class CoreAuthController {
     @Res() res: ResponseType,
     @Param('allDevices', ParseBoolPipe) allDevices?: boolean,
   ): Promise<boolean> {
-    const result = await this.authService.logout(token, { currentUser, allDevices });
+    const result = await this.authService.logout(token, { allDevices, currentUser });
     return this.processCookies(res, result);
   }
 

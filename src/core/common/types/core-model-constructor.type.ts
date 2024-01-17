@@ -1,7 +1,6 @@
 import { CoreModel } from '../models/core-model.model';
 
 export interface CoreModelConstructor<T extends CoreModel> {
-  new (): T;
   init(this: new (...args: any[]) => T, ...args: any[]): T;
   map(
     this: new (...args: any[]) => T,
@@ -13,7 +12,7 @@ export interface CoreModelConstructor<T extends CoreModel> {
       init?: any;
       item?: T;
       mapId?: boolean;
-    }
+    },
   ): T;
   mapDeep(
     this: new (...args: any[]) => T,
@@ -25,6 +24,7 @@ export interface CoreModelConstructor<T extends CoreModel> {
       init?: any;
       item?: T;
       mapId?: boolean;
-    }
+    },
   ): T;
+  new (): T;
 }

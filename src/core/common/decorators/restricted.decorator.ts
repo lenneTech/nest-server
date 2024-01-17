@@ -1,10 +1,12 @@
-import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
-import _ = require('lodash');
+import 'reflect-metadata';
+
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
+
+import _ = require('lodash');
 
 /**
  * Restricted meta key
@@ -15,11 +17,11 @@ const restrictedMetaKey = Symbol('restricted');
  * Restricted type
  */
 export type RestrictedType = (
-  | string
   | RequireAtLeastOne<
-      { memberOf?: string | string[]; roles?: string | string[]; processType?: ProcessType },
+      { memberOf?: string | string[]; processType?: ProcessType; roles?: string | string[] },
       'memberOf' | 'roles'
     >
+  | string
 )[];
 
 /**
@@ -59,7 +61,7 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
  */
 export const checkRestricted = (
   data: any,
-  user: { id: any; hasRole: (roles: string[]) => boolean },
+  user: { hasRole: (roles: string[]) => boolean; id: any },
   options: {
     checkObjectItself?: boolean;
     dbObject?: any;
@@ -225,9 +227,7 @@ export const checkRestricted = (
       // Throw error
       if (config.throwError) {
         throw new UnauthorizedException(
-          `The current user has no access rights for ${
-            propertyKey
-            }${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
+          `The current user has no access rights for ${propertyKey}${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
         );
       }
 

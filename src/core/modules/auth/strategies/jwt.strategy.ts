@@ -1,7 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request as RequestType } from 'express';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+
 import { ConfigService } from '../../../common/services/config.service';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
@@ -15,7 +16,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, AuthGuardStrategy.JW
   /**
    * Init JWT strategy
    */
-  constructor(protected readonly authService: CoreAuthService, protected readonly configService: ConfigService) {
+  constructor(
+    protected readonly authService: CoreAuthService,
+    protected readonly configService: ConfigService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         JwtStrategy.extractJWTFromCookie,
@@ -32,7 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, AuthGuardStrategy.JW
   /**
    * Extract JWT from cookie
    */
-  private static extractJWTFromCookie(req: RequestType): string | null {
+  private static extractJWTFromCookie(req: RequestType): null | string {
     return req?.cookies?.token || null;
   }
 

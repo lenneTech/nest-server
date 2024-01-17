@@ -1,19 +1,21 @@
-import { Blob } from 'buffer';
-import util = require('util');
 import { INestApplication } from '@nestjs/common';
+import { Blob } from 'buffer';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import { Types } from 'mongoose';
-import supertest = require('supertest');
-import ws = require('ws');
+
 import { getStringIds } from '../core/common/helpers/db.helper';
+
+import supertest = require('supertest');
+import util = require('util');
+import ws = require('ws');
 
 /**
  * GraphQL request type
  */
 export enum TestGraphQLType {
-  QUERY = 'query',
   MUTATION = 'mutation',
+  QUERY = 'query',
   SUBSCRIPTION = 'subscription',
 }
 
@@ -21,13 +23,13 @@ export enum TestGraphQLType {
  * GraphQL fields
  */
 export interface TestFieldObject {
-  [key: string]: boolean | (string | TestFieldObject)[] | TestFieldObject;
+  [key: string]: (TestFieldObject | string)[] | TestFieldObject | boolean;
 }
 
 /**
  * GraphQL fields
  */
-export type TestFields = string | string[] | TestFieldObject;
+export type TestFields = TestFieldObject | string | string[];
 
 /**
  * GraphQL request config
@@ -63,13 +65,13 @@ export interface TestGraphQLConfig {
 }
 
 export interface TestGraphQLAttachment {
-  file: Blob | Buffer | ReadableStream | string | boolean | number;
-  options?: string | { filename?: string | undefined; contentType?: string | undefined };
+  file: Blob | Buffer | ReadableStream | boolean | number | string;
+  options?: { contentType?: string | undefined; filename?: string | undefined } | string;
 }
 
 export interface TestGraphQLVariable {
-  value: string | string[] | TestGraphQLAttachment | TestGraphQLAttachment[] | any;
-  type: 'field' | 'attachment';
+  type: 'attachment' | 'field';
+  value: TestGraphQLAttachment | TestGraphQLAttachment[] | any | string | string[];
 }
 
 /**
@@ -125,7 +127,7 @@ export interface TestRestOptions {
   attachments?: Record<string, string>;
   log?: boolean;
   logError?: boolean;
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   payload?: any;
   statusCode?: number;
   token?: string;
@@ -183,21 +185,21 @@ export class TestHelper {
   /**
    * GraphQL request
    */
-  async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
+  async graphQl(graphql: TestGraphQLConfig | string, options: TestGraphQLOptions = {}): Promise<any> {
     // Default options
     const config = {
       convertEnums: true,
       countOfSubscriptionMessages: 1,
-      token: null,
-      statusCode: 200,
       log: false,
       logError: false,
       prepareArguments: true,
+      statusCode: 200,
+      token: null,
       ...options,
     };
 
     // Init vars
-    const { token, statusCode, log, logError, variables } = config;
+    const { log, logError, statusCode, token, variables } = config;
 
     // Init
     let query = '';
@@ -268,8 +270,8 @@ export class TestHelper {
     // Request configuration
     const requestConfig: any = {
       method: 'POST',
-      url: '/graphql',
       payload: { query },
+      url: '/graphql',
     };
 
     // Token
@@ -304,17 +306,17 @@ export class TestHelper {
   async rest(url: string, options: TestRestOptions = {}): Promise<any> {
     // Default options
     const config: TestRestOptions = {
-      token: null,
-      statusCode: 200,
       log: false,
       logError: false,
-      payload: null,
       method: options?.attachments ? 'POST' : 'GET',
+      payload: null,
+      statusCode: 200,
+      token: null,
       ...options,
     };
 
     // Init vars
-    const { token, statusCode, log, logError, attachments } = config;
+    const { attachments, log, logError, statusCode, token } = config;
 
     // Request configuration
     const requestConfig: any = {
@@ -486,7 +488,7 @@ export class TestHelper {
   /**
    * Process GraphQL variables
    */
-  processVariables(request: any, variables: Record<string, TestGraphQLVariable>, query: string | object) {
+  processVariables(request: any, variables: Record<string, TestGraphQLVariable>, query: object | string) {
     // Check and optimize parameters
     if (!variables) {
       return request;
@@ -496,11 +498,11 @@ export class TestHelper {
     }
 
     // Create map
-    const mapArray: { key: string; type: 'attachment' | 'field'; value: any; index?: number }[] = [];
+    const mapArray: { index?: number; key: string; type: 'attachment' | 'field'; value: any }[] = [];
     for (const [key, item] of Object.entries(variables)) {
       if (item.type === 'attachment' && Array.isArray(item.value)) {
         item.value.forEach((element, index) => {
-          mapArray.push({ key, type: 'attachment', value: element, index });
+          mapArray.push({ index, key, type: 'attachment', value: element });
         });
       } else {
         mapArray.push({ key, type: item.type, value: item.value });
@@ -578,7 +580,7 @@ export class TestHelper {
     if (options.log) {
       console.info('Subscription query', JSON.stringify(query, null, 2));
     }
-    const client = createClient({ url: this.subscriptionUrl, connectionParams, webSocketImpl: ws });
+    const client = createClient({ connectionParams, url: this.subscriptionUrl, webSocketImpl: ws });
     const messages: any[] = [];
     let unsubscribe: () => void;
     const onNext = (message) => {
@@ -596,9 +598,9 @@ export class TestHelper {
       unsubscribe = client.subscribe(
         { query },
         {
-          next: onNext,
-          error: reject,
           complete: resolve as any,
+          error: reject,
+          next: onNext,
         },
       );
     });

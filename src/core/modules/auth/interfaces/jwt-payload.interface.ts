@@ -3,7 +3,7 @@
  */
 export interface JwtPayload {
   [key: string]: any;
-  id: string;
   deviceId: string;
+  id: string;
   tokenId: string;
 }
