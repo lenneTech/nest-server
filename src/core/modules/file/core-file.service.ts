@@ -1,7 +1,8 @@
+import { MongoGridFSOptions, MongooseGridFS, createBucket } from '@lenne.tech/mongoose-gridfs';
 import { NotFoundException } from '@nestjs/common';
 import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
 import { Connection, Types } from 'mongoose';
-import { MongoGridFSOptions, MongooseGridFS, createBucket } from '@lenne.tech/mongoose-gridfs';
+
 import { FilterArgs } from '../../common/args/filter.args';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
@@ -15,7 +16,7 @@ import { FileUpload } from './interfaces/file-upload.interface';
 /**
  * Type for checking input
  */
-export type FileInputCheckType = 'file' | 'files' | 'filterArgs' | 'id' | 'filename';
+export type FileInputCheckType = 'file' | 'filename' | 'files' | 'filterArgs' | 'id';
 
 /**
  * Abstract core file service
@@ -26,7 +27,10 @@ export abstract class CoreFileService {
   /**
    * Include MongoDB connection and create File bucket
    */
-  protected constructor(protected readonly connection: Connection, bucketName = 'fs') {
+  protected constructor(
+    protected readonly connection: Connection,
+    bucketName = 'fs',
+  ) {
     this.files = createBucket({ bucketName, connection });
   }
 
@@ -39,9 +43,9 @@ export abstract class CoreFileService {
     }
     return await new Promise(async (resolve, reject) => {
       // eslint-disable-next-line unused-imports/no-unused-vars
-      const { filename, mimetype, encoding, createReadStream } = await file;
+      const { createReadStream, encoding, filename, mimetype } = await file;
       const readStream = createReadStream();
-      const options: MongoGridFSOptions = { filename, contentType: mimetype };
+      const options: MongoGridFSOptions = { contentType: mimetype, filename };
       this.files.writeFile(options, readStream, (error, fileInfo) => {
         error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
       });
@@ -84,7 +88,7 @@ export abstract class CoreFileService {
   /**
    * Get info about file via file ID
    */
-  async getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+  async getFileInfo(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -112,7 +116,7 @@ export abstract class CoreFileService {
   /**
    * Get file stream (for big files) via file ID
    */
-  async getFileStream(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions) {
+  async getFileStream(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions) {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -135,7 +139,7 @@ export abstract class CoreFileService {
   /**
    * Get file buffer (for small files) via file ID
    */
-  async getBuffer(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<Buffer> {
+  async getBuffer(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<Buffer> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -163,7 +167,7 @@ export abstract class CoreFileService {
   /**
    * Delete file reference of avatar
    */
-  async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+  async deleteFile(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }

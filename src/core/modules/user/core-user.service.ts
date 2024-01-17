@@ -1,8 +1,7 @@
-import crypto = require('crypto');
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import bcrypt = require('bcrypt');
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
+
 import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -10,8 +9,11 @@ import { CrudService } from '../../common/services/crud.service';
 import { EmailService } from '../../common/services/email.service';
 import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
 import { CoreUserModel } from './core-user.model';
-import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
+import { CoreUserCreateInput } from './inputs/core-user-create.input';
+
+import bcrypt = require('bcrypt');
+import crypto = require('crypto');
 
 /**
  * User service
@@ -45,9 +47,9 @@ export abstract class CoreUserService<
         const currentUserId = serviceOptions?.currentUser?._id;
         const createdUser = new this.mainDbModel({
           ...data.input,
-          verificationToken: crypto.randomBytes(32).toString('hex'),
           createdBy: currentUserId,
           updatedBy: currentUserId,
+          verificationToken: crypto.randomBytes(32).toString('hex'),
         });
 
         // Distinguish between different error messages when saving
@@ -115,8 +117,8 @@ export abstract class CoreUserService<
       async () => {
         // Update and return user
         return await this.mainDbModel
-        .updateOne({ _id: dbObject.id }, { verified: true, verifiedAt: new Date() }, { returnDocument: 'after' })
-        .exec();
+          .updateOne({ _id: dbObject.id }, { verified: true, verifiedAt: new Date() }, { returnDocument: 'after' })
+          .exec();
       },
       { dbObject, serviceOptions },
     );

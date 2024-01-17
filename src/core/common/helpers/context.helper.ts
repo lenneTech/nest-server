@@ -30,7 +30,7 @@ export function getContextData(context: ExecutionContext): {
 } {
   // Check context
   if (!context) {
-    return { currentUser: null, args: null, request: null };
+    return { args: null, currentUser: null, request: null };
   }
 
   // Init data

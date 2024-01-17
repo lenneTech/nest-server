@@ -1,12 +1,14 @@
-import fs = require('fs');
-import { createWriteStream } from 'fs';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
+import { createWriteStream } from 'fs';
+
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
-import { FileInfo } from './file-info.model';
 import { FileService } from './file.service';
+import { FileInfo } from './file-info.model';
+
+import fs = require('fs');
+import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 /**
  * File resolver
@@ -64,7 +66,7 @@ export class FileResolver {
     const promises: Promise<any>[] = [];
     for (const file of files) {
       // eslint-disable-next-line unused-imports/no-unused-vars
-      const { filename, mimetype, encoding, createReadStream } = await file;
+      const { createReadStream, encoding, filename, mimetype } = await file;
       await fs.promises.mkdir('./uploads', { recursive: true });
       promises.push(
         new Promise((resolve, reject) =>

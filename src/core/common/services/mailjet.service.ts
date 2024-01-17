@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import Mailjet from 'node-mailjet';
+
 import { ConfigService } from './config.service';
 
 /**
@@ -20,24 +21,24 @@ export class MailjetService {
     subject: string,
     templateId: number,
     config: {
-      senderEmail?: string;
-      senderName?: string;
       attachments?: {
+        Base64Content: string;
         ContentID?: string;
         ContentType: string;
         Filename: string;
-        Base64Content: string;
       }[];
-      templateData?: { [key: string]: any };
       sandbox?: boolean;
+      senderEmail?: string;
+      senderName?: string;
+      templateData?: { [key: string]: any };
     },
   ) {
     // Process config
-    const { senderName, senderEmail, templateData, attachments, sandbox } = {
+    const { attachments, sandbox, senderEmail, senderName, templateData } = {
+      attachments: null,
+      sandbox: false,
       senderEmail: this.configService.getFastButReadOnly('email.defaultSender.email'),
       senderName: this.configService.getFastButReadOnly('email.defaultSender.name'),
-      sandbox: false,
-      attachments: null,
       templateData: null,
       ...config,
     };
@@ -57,16 +58,16 @@ export class MailjetService {
     const body = {
       Messages: [
         {
+          Attachments: attachments,
           From: {
             Email: senderEmail,
             Name: senderName,
           },
-          To: to,
+          Subject: subject,
           TemplateID: templateId,
           TemplateLanguage: true,
+          To: to,
           Variables: templateData,
-          Subject: subject,
-          Attachments: attachments,
         },
       ],
       SandboxMode: sandbox,
@@ -89,11 +90,11 @@ export class MailjetService {
       console.debug(
         JSON.stringify(
           {
-            'info': 'Mailjet credentials are missing',
-            'email.mailjet.api_key_public':
-              this.configService.getFastButReadOnly('email.mailjet.api_key_public') || 'missing',
             'email.mailjet.api_key_private':
               this.configService.getFastButReadOnly('email.mailjet.api_key_private') || 'missing',
+            'email.mailjet.api_key_public':
+              this.configService.getFastButReadOnly('email.mailjet.api_key_public') || 'missing',
+            'info': 'Mailjet credentials are missing',
             'templateData': templateData,
           },
           null,

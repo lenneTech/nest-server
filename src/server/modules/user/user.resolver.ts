@@ -1,13 +1,14 @@
 import { Inject } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
+
 import { FilterArgs } from '../../../core/common/args/filter.args';
 import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
+import { UserCreateInput } from './inputs/user-create.input';
 import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
 import { User } from './user.model';
 import { UserService } from './user.service';
@@ -21,7 +22,10 @@ export class UserResolver {
   /**
    * Import services
    */
-  constructor(protected readonly userService: UserService, @Inject('PUB_SUB') protected readonly pubSub: PubSub) {}
+  constructor(
+    protected readonly userService: UserService,
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
+  ) {}
 
   // ===========================================================================
   // Queries

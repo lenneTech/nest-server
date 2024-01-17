@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+
 import { CoreAuthSignInInput } from './core-auth-sign-in.input';
 
 /**

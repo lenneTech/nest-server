@@ -12,26 +12,27 @@ import {
   ValueNode,
   VariableNode,
 } from 'graphql';
+
 import _ = require('lodash');
 
 /**
  * Interface for GraphQLFieldsConfig
  */
 export interface GraphQLFieldsConfig {
-  processArguments: boolean;
   excludedFields: string[];
+  processArguments: boolean;
 }
 
 /**
  * Type ValueNodeWithValueField
  */
 export type ValueNodeWithValueField =
-  | VariableNode
-  | IntValueNode
-  | FloatValueNode
-  | StringValueNode
   | BooleanValueNode
-  | EnumValueNode;
+  | EnumValueNode
+  | FloatValueNode
+  | IntValueNode
+  | StringValueNode
+  | VariableNode;
 
 /**
  * GraphQLHelper
@@ -256,8 +257,8 @@ export function flattenAST(
   // Process configuration
   config = Object.assign(
     {
-      processArguments: false,
       excludedFields: [],
+      processArguments: false,
     },
     config,
   );

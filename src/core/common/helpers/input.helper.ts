@@ -1,17 +1,19 @@
-import * as inspector from 'inspector';
-import * as util from 'util';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
 import { Kind } from 'graphql/index';
-import _ = require('lodash');
-import rfdc = require('rfdc');
+import * as inspector from 'inspector';
+import * as util from 'util';
+
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { merge } from './config.helper';
 import { equalIds } from './db.helper';
+
+import _ = require('lodash');
+import rfdc = require('rfdc');
 
 /**
  * Helper class for inputs
@@ -23,7 +25,7 @@ export default class InputHelper {
    */
   public static async check(
     value: any,
-    user: { id: any; hasRole: (roles: string[]) => boolean },
+    user: { hasRole: (roles: string[]) => boolean; id: any },
     options?: {
       dbObject?: any;
       metatype?: any;
@@ -208,7 +210,7 @@ export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[
  */
 export async function check(
   value: any,
-  user: { id: any; hasRole: (roles: string[]) => boolean },
+  user: { hasRole: (roles: string[]) => boolean; id: any },
   options?: {
     dbObject?: any;
     metatype?: any;
@@ -650,14 +652,14 @@ export function mapClass<T>(
   values: Partial<T>,
   ctor: new () => T,
   options?: {
-    cloneDeep?: boolean;
     circle?: boolean;
+    cloneDeep?: boolean;
     proto?: boolean;
   },
 ): T {
   const config = {
-    cloneDeep: true,
     circles: false,
+    cloneDeep: true,
     proto: false,
     ...options,
   };

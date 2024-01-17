@@ -3,12 +3,13 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PubSub } from 'graphql-subscriptions';
+
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { RolesGuard } from './guards/roles.guard';
-import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
-import { JwtStrategy } from './strategies/jwt.strategy';
-import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
+import { CoreAuthUserService } from './services/core-auth-user.service';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 
 /**
  * CoreAuthModule to handle user authentication and enables Roles
@@ -24,9 +25,9 @@ export class CoreAuthModule {
     UserService: Type<CoreAuthUserService>,
     options: JwtModuleOptions & {
       authService?: Type<CoreAuthService>;
-      jwtStrategy?: Type<JwtStrategy>;
+      imports?: Array<DynamicModule | ForwardReference | Promise<DynamicModule> | Type<any>>;
       jwtRefreshStrategy?: Type<JwtRefreshStrategy>;
-      imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
+      jwtStrategy?: Type<JwtStrategy>;
       providers?: Provider[];
     },
   ): DynamicModule {
@@ -74,10 +75,10 @@ export class CoreAuthModule {
 
     // Return CoreAuthModule
     return {
-      module: CoreAuthModule,
-      imports,
-      providers,
       exports: [CoreAuthService, JwtModule, JwtStrategy, JwtRefreshStrategy, PassportModule, UserModule],
+      imports,
+      module: CoreAuthModule,
+      providers,
     };
   }
 }

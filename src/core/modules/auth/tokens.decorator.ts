@@ -1,4 +1,5 @@
 import { ExecutionContext, createParamDecorator } from '@nestjs/common';
+
 import { getContextData } from '../../common/helpers/context.helper';
 
 /**
@@ -6,9 +7,9 @@ import { getContextData } from '../../common/helpers/context.helper';
  */
 export const Tokens = createParamDecorator(
   (
-    tokenId: 'token' | 'refreshToken' | undefined,
+    tokenId: 'refreshToken' | 'token' | undefined,
     ctx: ExecutionContext,
-  ): string | { token: string; refreshToken: string } => {
+  ): { refreshToken: string; token: string } | string => {
     // Get prepared context (REST or GraphQL)
     const context = getContextData(ctx);
 
@@ -24,7 +25,7 @@ export const Tokens = createParamDecorator(
     const refreshToken = context?.request?.cookies?.['refreshToken'] || token;
 
     // Set tokens
-    const tokens = { token, refreshToken };
+    const tokens = { refreshToken, token };
 
     // Return tokens
     if (tokenId?.length) {

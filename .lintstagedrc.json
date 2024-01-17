@@ -1,0 +1,14 @@
+{
+  "*.ts": [
+    "prettier --write --ignore-unknown --log-level error",
+    "eslint --fix"
+  ],
+  "*.js": [
+    "prettier --write --ignore-unknown --log-level error",
+    "eslint --fix"
+  ],
+  "*.html": [
+    "prettier --write --ignore-unknown --log-level error",
+    "eslint --fix"
+  ]
+}

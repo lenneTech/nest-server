@@ -1,5 +1,6 @@
-import { IsOptional } from 'class-validator';
 import { ArgsType, Field } from '@nestjs/graphql';
+import { IsOptional } from 'class-validator';
+
 import { FilterInput } from '../inputs/filter.input';
 import { PaginationArgs } from './pagination.args';
 

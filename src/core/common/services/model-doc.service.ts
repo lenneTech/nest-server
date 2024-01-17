@@ -1,7 +1,8 @@
-import fs = require('fs');
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
+
+import fs = require('fs');
 import YumlDiagram = require('yuml-diagram');
 
 /**
@@ -19,11 +20,7 @@ export interface ModelDocSchemaConfig {
  */
 @Injectable()
 export class ModelDocService implements OnApplicationBootstrap {
-
-  constructor(
-    @InjectConnection() private readonly connection: Connection,
-  ) {
-  }
+  constructor(@InjectConnection() private readonly connection: Connection) {}
 
   /**
    * Lifecycle hook that is called right after the application has started.
@@ -39,7 +36,6 @@ export class ModelDocService implements OnApplicationBootstrap {
    * @protected
    */
   protected getSchemaJson(): Record<string, Record<string, ModelDocSchemaConfig>> {
-
     // Prepare results
     const results: Record<string, Record<string, ModelDocSchemaConfig>> = {};
 
@@ -58,11 +54,16 @@ export class ModelDocService implements OnApplicationBootstrap {
           isArray: path.instance === 'Array',
           name: path.path,
           ref: Array.isArray(obj) ? undefined : obj.ref,
-          type: path.instance === 'Array'
-            ? Array.isArray(obj)
-              ? obj[0]() === '' ? 'String' : obj[0]()
-              : typeof obj.type === 'function' ? obj.type.name : obj.type
-            : path.instance,
+          type:
+            path.instance === 'Array'
+              ? Array.isArray(obj)
+                ? obj[0]() === ''
+                  ? 'String'
+                  : obj[0]()
+                : typeof obj.type === 'function'
+                  ? obj.type.name
+                  : obj.type
+              : path.instance,
         };
         if (results[modelName][key].type === 'Mixed') {
           results[modelName][key].type = 'JSON';
@@ -117,7 +118,6 @@ export class ModelDocService implements OnApplicationBootstrap {
    * @protected
    */
   protected yUmlToSvg(yUmlText: string) {
-
     // Create diagrams
     // see https://github.com/jaime-olivares/yuml-diagram
     // and https://yuml.me/diagram/scruffy/class/samples

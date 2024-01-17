@@ -5,14 +5,14 @@ import { CoreTokenData } from './core-token-data.interface';
  */
 export interface ICoreAuthUser {
   /**
-   * ID of the user
-   */
-  id: string;
-
-  /**
    * Email of the user
    */
   email: string;
+
+  /**
+   * ID of the user
+   */
+  id: string;
 
   /**
    * Password of the user

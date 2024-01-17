@@ -1,9 +1,8 @@
 import { UnauthorizedException } from '@nestjs/common';
-import bcrypt = require('bcrypt');
 import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
-import _ = require('lodash');
 import { Types } from 'mongoose';
+
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -12,6 +11,9 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
 import { ConfigService } from '../services/config.service';
 import { getStringIds } from './db.helper';
 import { clone, processDeep } from './input.helper';
+
+import bcrypt = require('bcrypt');
+import _ = require('lodash');
 
 /**
  * Helper class for services
@@ -27,8 +29,8 @@ export default class ServiceHelper {
     options: {
       [key: string]: any;
       checkRoles?: boolean;
-      create?: boolean;
       clone?: boolean;
+      create?: boolean;
       getNewArray?: boolean;
       removeUndefined?: boolean;
       sha256?: boolean;
@@ -67,9 +69,9 @@ export async function prepareInput<T = any>(
     [key: string]: any;
     checkRoles?: boolean;
     circles?: boolean;
+    clone?: boolean;
     convertObjectIdsToString?: boolean;
     create?: boolean;
-    clone?: boolean;
     getNewArray?: boolean;
     proto?: boolean;
     removeUndefined?: boolean;
@@ -80,8 +82,8 @@ export async function prepareInput<T = any>(
   // Configuration
   const config = {
     checkRoles: false,
-    clone: false,
     circles: false,
+    clone: false,
     convertObjectIdsToString: true,
     create: false,
     getNewArray: false,
@@ -182,8 +184,8 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   output: any,
   options: {
     [key: string]: any;
-    clone?: boolean;
     circles?: boolean;
+    clone?: boolean;
     getNewArray?: boolean;
     objectIdsToStrings?: boolean;
     proto?: boolean;
@@ -194,8 +196,8 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 ): Promise<T | T[] | any> {
   // Configuration
   const config = {
-    clone: false,
     circles: false,
+    clone: false,
     getNewArray: false,
     objectIdsToStrings: true,
     proto: false,
@@ -281,20 +283,20 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 export function prepareServiceOptions(
   serviceOptions: ServiceOptions,
   options?: {
-    clone?: boolean;
     circles?: boolean;
+    clone?: boolean;
     inputType?: any;
     outputType?: any;
-    subFieldSelection?: string;
-    proto?: boolean;
     prepareInput?: PrepareInputOptions;
     prepareOutput?: PrepareOutputOptions;
+    proto?: boolean;
+    subFieldSelection?: string;
   },
 ): ServiceOptions {
   // Set default values
   const config = {
-    clone: false,
     circles: true,
+    clone: false,
     proto: false,
     ...options,
   };

@@ -1,5 +1,6 @@
 import { ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
+
 import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
 
 /**
