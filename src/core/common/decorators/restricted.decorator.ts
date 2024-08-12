@@ -65,6 +65,7 @@ export const checkRestricted = (
   options: {
     checkObjectItself?: boolean;
     dbObject?: any;
+    debug?: boolean;
     ignoreUndefined?: boolean;
     processType?: ProcessType;
     removeUndefinedFromResultArray?: boolean;
@@ -73,7 +74,7 @@ export const checkRestricted = (
   processedObjects: any[] = [],
 ) => {
   const config = {
-    checkObjectItself: false,
+    checkObjectItself: true,
     ignoreUndefined: true,
     removeUndefinedFromResultArray: true,
     throwError: true,
@@ -199,6 +200,9 @@ export const checkRestricted = (
   if (config.checkObjectItself) {
     const objectIsValid = validateRestricted(objectRestrictions);
     if (!objectIsValid) {
+      if (config.debug) {
+        console.debug(`The current user has no access rights for ${data.constructor?.name}`);
+      }
       // Throw error
       if (config.throwError) {
         throw new UnauthorizedException(`The current user has no access rights for ${data.constructor?.name}`);
@@ -216,14 +220,18 @@ export const checkRestricted = (
 
     // Check restricted
     const restricted = getRestricted(data, propertyKey) || [];
-    const concatenatedRestrictions = _.uniq(objectRestrictions.concat(restricted));
-    const valid = validateRestricted(concatenatedRestrictions);
+    const valid = validateRestricted(restricted);
 
     // Check rights
     if (valid) {
       // Check deep
       data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
     } else {
+      if (config.debug) {
+        console.debug(
+          `The current user has no access rights for ${propertyKey}${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
+        );
+      }
       // Throw error
       if (config.throwError) {
         throw new UnauthorizedException(
