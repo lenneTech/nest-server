@@ -23,13 +23,13 @@ export class CoreAuthModule {
   static forRoot(
     UserModule: Type<any>,
     UserService: Type<CoreAuthUserService>,
-    options: JwtModuleOptions & {
+    options: {
       authService?: Type<CoreAuthService>;
       imports?: Array<DynamicModule | ForwardReference | Promise<DynamicModule> | Type<any>>;
       jwtRefreshStrategy?: Type<JwtRefreshStrategy>;
       jwtStrategy?: Type<JwtStrategy>;
       providers?: Provider[];
-    },
+    } & JwtModuleOptions,
   ): DynamicModule {
     // Process imports
     let imports: any[] = [

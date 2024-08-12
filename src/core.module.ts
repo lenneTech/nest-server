@@ -1,12 +1,14 @@
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, UnauthorizedException } from '@nestjs/common';
-import { APP_PIPE } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Context } from 'apollo-server-core';
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
+import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
+import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
@@ -172,12 +174,6 @@ export class CoreModule implements NestModule {
         useValue: new ConfigService(config),
       },
 
-      // [Global] Map plain objects to meta-type and validate
-      {
-        provide: APP_PIPE,
-        useClass: MapAndValidatePipe,
-      },
-
       // Core Services
       EmailService,
       TemplateService,
@@ -186,6 +182,30 @@ export class CoreModule implements NestModule {
       // Plugins
       ComplexityPlugin,
     ];
+
+    if (config.security?.checkResponseInterceptor ?? true) {
+      // Check restrictions for output (models and output objects)
+      providers.push({
+        provide: APP_INTERCEPTOR,
+        useClass: CheckResponseInterceptor,
+      });
+    }
+
+    if (config.security?.checkSecurityInterceptor ?? true) {
+      // Process securityCheck() methode of Object before response
+      providers.push({
+        provide: APP_INTERCEPTOR,
+        useClass: CheckSecurityInterceptor,
+      });
+    }
+
+    if (config.security?.mapAndValidatePipe ?? true) {
+      // [Global] Map plain objects to meta-type and validate
+      providers.push({
+        provide: APP_PIPE,
+        useClass: MapAndValidatePipe,
+      });
+    }
 
     if (config.mongoose?.modelDocumentation) {
       providers.push(ModelDocService);

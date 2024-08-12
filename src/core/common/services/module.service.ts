@@ -28,14 +28,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
   /**
    * Main DB model of the service, will be used as default for populate and mapping
    */
-  protected mainDbModel: Model<T & Document>;
+  protected mainDbModel: Model<Document & T>;
 
   /**
    * Set main properties
    */
   protected constructor(options?: {
     configService?: ConfigService;
-    mainDbModel?: Model<T & Document>;
+    mainDbModel?: Model<Document & T>;
     mainModelConstructor?: new (...args: any[]) => T;
   }) {
     this.configService = options?.configService;
@@ -272,7 +272,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     data: any,
     fieldsSelection: FieldSelection,
     options: {
-      dbModel?: Model<T & Document>;
+      dbModel?: Model<Document & T>;
       ignoreSelections?: boolean;
       model?: new (...args: any[]) => T;
     } = {},

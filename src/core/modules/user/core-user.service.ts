@@ -26,7 +26,7 @@ export abstract class CoreUserService<
   protected constructor(
     protected override readonly configService: ConfigService,
     protected readonly emailService: EmailService,
-    protected override readonly mainDbModel: Model<TUser & Document>,
+    protected override readonly mainDbModel: Model<Document & TUser>,
     protected override readonly mainModelConstructor: CoreModelConstructor<TUser>,
   ) {
     super();

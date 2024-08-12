@@ -21,9 +21,9 @@ const NO_STRATEGY_ERROR
 /**
  * Interface for auth guard
  */
-export type IAuthGuard = CanActivate & {
+export type IAuthGuard = {
   handleRequest<TUser = any>(err, user, info, context): TUser;
-};
+} & CanActivate;
 
 /**
  * Create passport context

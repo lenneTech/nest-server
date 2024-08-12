@@ -25,7 +25,7 @@ describe('Project (e2e)', () => {
 
   // Global vars
   let userService: UserService;
-  const users: Partial<User & { token: string }>[] = [];
+  const users: Partial<{ token: string } & User>[] = [];
 
   // ===================================================================================================================
   // Preparations
