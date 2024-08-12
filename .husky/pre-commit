@@ -1,4 +1,1 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
-
 ts-node extras/sync-version.ts && npx lint-staged && echo "Husky pre-commit passed" || exit 1
