@@ -176,7 +176,7 @@ export class TestHelper {
           });
         })
         .end((err, res: any) => {
-          (res as any & { data: string }).data = Buffer.from(data, 'binary').toString();
+          (res as { data: string } & any).data = Buffer.from(data, 'binary').toString();
           err ? reject(err) : resolve(res as any);
         });
     });

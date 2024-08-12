@@ -32,7 +32,7 @@ export abstract class CrudService<
    */
   async aggregate<T = any>(
     pipeline: PipelineStage[],
-    serviceOptions?: ServiceOptions & { aggregateOptions?: AggregateOptions },
+    serviceOptions?: { aggregateOptions?: AggregateOptions } & ServiceOptions,
   ): Promise<T> {
     return this.process(
       async () => {
@@ -439,7 +439,7 @@ export abstract class CrudService<
    * Get service model to process queries directly
    * See https://mongoosejs.com/docs/api/model.html
    */
-  getModel(): MongooseModel<Model & Document> {
+  getModel(): MongooseModel<Document & Model> {
     return this.mainDbModel;
   }
 

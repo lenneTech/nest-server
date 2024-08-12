@@ -91,6 +91,11 @@ export * from './core/common/types/wrapper.type';
 // Core - Modules - Auth
 // =====================================================================================================================
 
+export * from './core/modules/auth/auth-guard-strategy.enum';
+export * from './core/modules/auth/core-auth.controller';
+export * from './core/modules/auth/core-auth.model';
+export * from './core/modules/auth/core-auth.module';
+export * from './core/modules/auth/core-auth.resolver';
 export * from './core/modules/auth/exceptions/expired-refresh-token.exception';
 export * from './core/modules/auth/exceptions/expired-token.exception';
 export * from './core/modules/auth/exceptions/invalid-token.exception';
@@ -105,42 +110,37 @@ export * from './core/modules/auth/services/core-auth.service';
 export * from './core/modules/auth/services/core-auth-user.service';
 export * from './core/modules/auth/strategies/jwt.strategy';
 export * from './core/modules/auth/strategies/jwt-refresh.strategy';
-export * from './core/modules/auth/auth-guard-strategy.enum';
-export * from './core/modules/auth/core-auth.controller';
-export * from './core/modules/auth/core-auth.model';
-export * from './core/modules/auth/core-auth.module';
-export * from './core/modules/auth/core-auth.resolver';
 export * from './core/modules/auth/tokens.decorator';
 
 // =====================================================================================================================
 // Core - Modules - File
 // =====================================================================================================================
 
-export * from './core/modules/file/interfaces/file-service-options.interface';
-export * from './core/modules/file/interfaces/file-upload.interface';
 export * from './core/modules/file/core-file.controller';
 export * from './core/modules/file/core-file.resolver';
 export * from './core/modules/file/core-file.service';
 export * from './core/modules/file/core-file-info.model';
+export * from './core/modules/file/interfaces/file-service-options.interface';
+export * from './core/modules/file/interfaces/file-upload.interface';
 
 // =====================================================================================================================
 // Core - Modules - User
-// =====================================================================================================================
-
-export * from './core/modules/user/inputs/core-user.input';
-export * from './core/modules/user/inputs/core-user-create.input';
-export * from './core/modules/user/core-user.model';
-export * from './core/modules/user/core-user.service';
-
-// =====================================================================================================================
-// Core - Modules - HealthCheck
 // =====================================================================================================================
 
 export * from './core/modules/health-check/core-health-check.controller';
 export * from './core/modules/health-check/core-health-check.module';
 export * from './core/modules/health-check/core-health-check.resolver';
 export * from './core/modules/health-check/core-health-check.service';
+
+// =====================================================================================================================
+// Core - Modules - HealthCheck
+// =====================================================================================================================
+
 export * from './core/modules/health-check/core-health-check-result.model';
+export * from './core/modules/user/core-user.model';
+export * from './core/modules/user/core-user.service';
+export * from './core/modules/user/inputs/core-user.input';
+export * from './core/modules/user/inputs/core-user-create.input';
 
 // =====================================================================================================================
 // Tests

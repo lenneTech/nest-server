@@ -6,7 +6,7 @@ import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
 
-export type UserDocument = User & Document;
+export type UserDocument = Document & User;
 
 /**
  * User model

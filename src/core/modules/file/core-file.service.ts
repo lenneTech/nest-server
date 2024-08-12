@@ -202,7 +202,7 @@ export abstract class CoreFileService {
    */
   protected checkRights(
     input: any, // eslint-disable-line unused-imports/no-unused-vars
-    options?: FileServiceOptions & { checkInputType: FileInputCheckType }, // eslint-disable-line unused-imports/no-unused-vars
+    options?: { checkInputType: FileInputCheckType } & FileServiceOptions, // eslint-disable-line unused-imports/no-unused-vars
   ): MaybePromise<boolean> {
     return true;
   }
