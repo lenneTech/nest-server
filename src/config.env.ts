@@ -88,6 +88,11 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://127.0.0.1/nest-server-dev',
     },
     port: 3000,
+    security: {
+      checkResponseInterceptor: true,
+      checkSecurityInterceptor: true,
+      mapAndValidatePipe: true,
+    },
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
@@ -190,6 +195,11 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://127.0.0.1/nest-server-local',
     },
     port: 3000,
+    security: {
+      checkResponseInterceptor: true,
+      checkSecurityInterceptor: true,
+      mapAndValidatePipe: true,
+    },
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
@@ -281,6 +291,11 @@ const config: { [env: string]: IServerOptions } = {
       uri: 'mongodb://127.0.0.1/nest-server-prod',
     },
     port: 3000,
+    security: {
+      checkResponseInterceptor: true,
+      checkSecurityInterceptor: true,
+      mapAndValidatePipe: true,
+    },
     sha256: true,
     staticAssets: {
       options: { prefix: '' },

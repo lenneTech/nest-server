@@ -17,6 +17,6 @@ export class ServerController {
   @Get('config')
   @Roles(RoleEnum.ADMIN)
   config() {
-    return this.configService.configFastButReadOnly;
+    return JSON.parse(JSON.stringify(this.configService.configFastButReadOnly));
   }
 }

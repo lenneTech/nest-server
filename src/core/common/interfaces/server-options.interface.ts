@@ -404,6 +404,32 @@ export interface IServerOptions {
   port?: number;
 
   /**
+   * Configuration for security pipes and interceptors
+   */
+  security?: {
+    /**
+     * Check restrictions for output (models and output objects)
+     * See @lenne.tech/nest-server/src/core/common/interceptors/check-response.interceptor.ts
+     * default = true
+     */
+    checkResponseInterceptor?: boolean;
+
+    /**
+     * Process securityCheck() methode of Object before response
+     * See @lenne.tech/nest-server/src/core/common/interceptors/check-security.interceptor.ts
+     * default = true
+     */
+    checkSecurityInterceptor?: boolean;
+
+    /**
+     * Map incoming plain objects to meta-type and validate
+     * See @lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts
+     * default = true
+     */
+    mapAndValidatePipe?: boolean;
+  };
+
+  /**
    * Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
    * default = false, sha256 format check: /^[a-f0-9]{64}$/i
    */
