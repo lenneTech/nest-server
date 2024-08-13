@@ -2,10 +2,12 @@ import { Controller, Get, Render } from '@nestjs/common';
 
 import { ConfigService, RoleEnum, Roles } from '..';
 
+@Roles(RoleEnum.ADMIN)
 @Controller()
 export class ServerController {
   constructor(protected configService: ConfigService) {}
 
+  @Roles(RoleEnum.S_EVERYONE)
   @Get()
   @Render('index')
   root() {

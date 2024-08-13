@@ -3,6 +3,8 @@ import { Args } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { CoreAuthModel } from './core-auth.model';
@@ -13,6 +15,7 @@ import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
 import { CoreAuthService } from './services/core-auth.service';
 import { Tokens } from './tokens.decorator';
 
+@Roles(RoleEnum.ADMIN)
 @Controller('auth')
 export class CoreAuthController {
   /**
@@ -26,6 +29,7 @@ export class CoreAuthController {
   /**
    * Logout user (from specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   @Get()
   async logout(
@@ -41,6 +45,7 @@ export class CoreAuthController {
   /**
    * Refresh token (for specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
   @Get()
   async refreshToken(
@@ -55,6 +60,7 @@ export class CoreAuthController {
   /**
    * Sign in user via email and password (on specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Post()
   async signIn(@Res() res: ResponseType, @Body('input') input: CoreAuthSignInInput): Promise<CoreAuthModel> {
     const result = await this.authService.signIn(input);
@@ -64,6 +70,7 @@ export class CoreAuthController {
   /**
    * Register a new user account (on specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Post()
   async signUp(@Res() res: ResponseType, @Args('input') input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
     const result = await this.authService.signUp(input);

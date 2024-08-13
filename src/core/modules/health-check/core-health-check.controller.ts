@@ -1,11 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { CoreHealthCheckService } from './core-health-check.service';
 
 /**
  * The HealthController class checks the health of various components including the database, memory, and disk.
  * Inspired by https://mobileappcircular.com/marketplace-backend-creating-a-health-check-endpoint-in-nestjs-app-using-terminus-25727e96c7d2
  */
+@Roles(RoleEnum.ADMIN)
 @Controller()
 export class CoreHealthCheckController {
   constructor(protected readonly healthCheckService: CoreHealthCheckService) {}
@@ -18,6 +21,7 @@ export class CoreHealthCheckController {
    * storage. The `healthCheck()` method will return a Promise that resolves with an array of objects
    * representing the results of each check
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Get('health-check')
   async healthCheck() {
     return this.healthCheckService.healthCheck();

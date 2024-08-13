@@ -1,11 +1,14 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 
+import { Restricted } from '../../common/decorators/restricted.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { CoreModel } from '../../common/models/core-model.model';
 import { CoreUserModel } from '../user/core-user.model';
 
 /**
  * CoreAuth model for the response after the sign in
  */
+@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({ description: 'CoreAuth', isAbstract: true })
 export class CoreAuthModel extends CoreModel {
   // ===================================================================================================================
@@ -15,18 +18,21 @@ export class CoreAuthModel extends CoreModel {
   /**
    * JavaScript Web Token (JWT)
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'JavaScript Web Token (JWT)', nullable: true })
   token?: string = undefined;
 
   /**
    * Refresh token
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Refresh token', nullable: true })
   refreshToken?: string = undefined;
 
   /**
    * Current user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Current user' })
   user: CoreUserModel = undefined;
 
