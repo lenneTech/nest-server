@@ -89,7 +89,14 @@ const config: { [env: string]: IServerOptions } = {
     },
     port: 3000,
     security: {
-      checkResponseInterceptor: true,
+      checkResponseInterceptor: {
+        checkObjectItself: false,
+        debug: false,
+        ignoreUndefined: true,
+        mergeRoles: true,
+        removeUndefinedFromResultArray: true,
+        throwError: false,
+      },
       checkSecurityInterceptor: true,
       mapAndValidatePipe: true,
     },
@@ -196,7 +203,14 @@ const config: { [env: string]: IServerOptions } = {
     },
     port: 3000,
     security: {
-      checkResponseInterceptor: true,
+      checkResponseInterceptor: {
+        checkObjectItself: false,
+        debug: false,
+        ignoreUndefined: true,
+        mergeRoles: true,
+        removeUndefinedFromResultArray: true,
+        throwError: false,
+      },
       checkSecurityInterceptor: true,
       mapAndValidatePipe: true,
     },
@@ -292,7 +306,14 @@ const config: { [env: string]: IServerOptions } = {
     },
     port: 3000,
     security: {
-      checkResponseInterceptor: true,
+      checkResponseInterceptor: {
+        checkObjectItself: false,
+        debug: false,
+        ignoreUndefined: true,
+        mergeRoles: true,
+        removeUndefinedFromResultArray: true,
+        throwError: false,
+      },
       checkSecurityInterceptor: true,
       mapAndValidatePipe: true,
     },
