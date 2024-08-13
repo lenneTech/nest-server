@@ -13,11 +13,13 @@ import { CoreInput } from '../../../common/inputs/core-input.input';
  * otherwise the property will not be recognized via Object.keys (this is necessary for mapping) or will be initialized
  * with a default value that may overwrite an existing value in the DB.
  */
+@Restricted(RoleEnum.S_EVERYONE)
 @InputType({ description: 'User input', isAbstract: true })
 export abstract class CoreUserInput extends CoreInput {
   /**
    * Email of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Email of the user', nullable: true })
   @IsOptional()
   @IsEmail()
@@ -26,6 +28,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * First name of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
   firstName?: string = undefined;
@@ -33,6 +36,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Last name of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
   lastName?: string = undefined;
@@ -48,6 +52,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Username / alias of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Username / alias of the user', nullable: true })
   @IsOptional()
   username?: string = undefined;
@@ -55,6 +60,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Password of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Password of the user', nullable: true })
   @IsOptional()
   password?: string = undefined;

@@ -1,7 +1,9 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { IsOptional } from 'class-validator';
 import { Document, Schema } from 'mongoose';
 
+import { Restricted } from '../../../core/common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
@@ -11,6 +13,7 @@ export type UserDocument = Document & User;
 /**
  * User model
  */
+@Restricted(RoleEnum.ADMIN)
 @ObjectType({ description: 'User' })
 @MongooseSchema({ timestamps: true })
 export class User extends CoreUserModel implements PersistenceModel {
@@ -21,6 +24,7 @@ export class User extends CoreUserModel implements PersistenceModel {
   /**
    * URL to avatar file of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'URL to avatar file of the user', nullable: true })
   @Prop()
   avatar: string = undefined;
@@ -30,6 +34,7 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when created by system
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(() => String, {
     description: 'ID of the user who created the object',
     nullable: true,
@@ -38,10 +43,20 @@ export class User extends CoreUserModel implements PersistenceModel {
   createdBy: string = undefined;
 
   /**
+   * Roles of the user
+   */
+  @Restricted(RoleEnum.S_EVERYONE)
+  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @IsOptional()
+  @Prop([String])
+  override roles: string[] = undefined;
+
+  /**
    * ID of the user who updated the object
    *
    * Not set when updated by system
    */
+  @Restricted(RoleEnum.S_USER)
   @Field(() => String, {
     description: 'ID of the user who last updated the object',
     nullable: true,

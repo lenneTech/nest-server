@@ -1,10 +1,13 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
 
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { CoreFileService } from './core-file.service';
 
 /**
  * File controller
  */
+@Roles(RoleEnum.ADMIN)
 @Controller('files')
 export abstract class CoreFileController {
   /**
@@ -15,6 +18,7 @@ export abstract class CoreFileController {
   /**
    * Download file
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Get(':filename')
   async getFile(@Param('filename') filename: string, @Res() res) {
     if (!filename) {

@@ -3,6 +3,8 @@ import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
 import { IsEmail, IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 
+import { Restricted } from '../../common/decorators/restricted.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 import { CoreTokenData } from '../auth/interfaces/core-token-data.interface';
 
@@ -11,6 +13,7 @@ export type CoreUserModelDocument = CoreUserModel & Document;
 /**
  * User model
  */
+@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({ description: 'User', isAbstract: true })
 @MongooseSchema({ timestamps: true })
 export abstract class CoreUserModel extends CorePersistenceModel {
@@ -21,6 +24,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * E-Mail address of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
   @Prop({ lowercase: true, trim: true, unique: true })
@@ -29,6 +33,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * First name of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
   @Prop()
@@ -37,6 +42,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Last name of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
   @Prop()
@@ -45,12 +51,14 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Password of the user
    */
+  @Restricted(RoleEnum.S_NO_ONE)
   @Prop()
   password: string = undefined;
 
   /**
    * Roles of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
@@ -59,6 +67,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Username of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Username of the user', nullable: true })
   @IsOptional()
   @Prop()
@@ -67,6 +76,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Password reset token of the user
    */
+  @Restricted(RoleEnum.S_NO_ONE)
   @IsOptional()
   @Prop()
   passwordResetToken: string = undefined;
@@ -76,6 +86,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * key: Token
    * value: TokenData
    */
+  @Restricted(RoleEnum.S_NO_ONE)
   @IsOptional()
   @Prop(raw({}))
   refreshTokens: Record<string, CoreTokenData> = undefined;
@@ -84,6 +95,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Temporary token for parallel requests during the token refresh process
    * See sameTokenIdPeriod in configuration
    */
+  @Restricted(RoleEnum.S_NO_ONE)
   @IsOptional()
   @Prop(raw({}))
   tempTokens: Record<string, { createdAt: number; deviceId: string; tokenId: string }> = undefined;
@@ -91,6 +103,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification token of the user
    */
+  @Restricted(RoleEnum.S_NO_ONE)
   @IsOptional()
   @Prop()
   verificationToken: string = undefined;
@@ -98,6 +111,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification of the user
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
   verified: boolean = undefined;
@@ -105,6 +119,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification date
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Verified date', nullable: true })
   @Prop()
   verifiedAt: Date = undefined;
