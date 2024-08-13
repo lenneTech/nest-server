@@ -410,9 +410,47 @@ export interface IServerOptions {
     /**
      * Check restrictions for output (models and output objects)
      * See @lenne.tech/nest-server/src/core/common/interceptors/check-response.interceptor.ts
-     * default = true
      */
-    checkResponseInterceptor?: boolean;
+    checkResponseInterceptor?:
+      | {
+          /**
+           * Check the object itself for restrictions
+           * (the class restriction is not only default for properties but object itself)
+           * default = false (to act like Roles)
+           */
+          checkObjectItself?: boolean;
+
+          /**
+           * Whether to log if a restricted field is found
+           * default = false
+           */
+          debug?: boolean;
+
+          /**
+           * Whether to ignore fields with undefined values
+           * default = true
+           */
+          ignoreUndefined?: boolean;
+
+          /**
+           * Merge roles of object and properties
+           * default = true (to act like Roles)
+           */
+          mergeRoles?: boolean;
+
+          /**
+           * Remove undefined values from result array
+           * default = true
+           */
+          removeUndefinedFromResultArray?: boolean;
+
+          /**
+           * Whether to throw an error if a restricted field is found
+           * default = false (for output objects)
+           */
+          throwError?: boolean;
+        }
+      | boolean;
 
     /**
      * Process securityCheck() methode of Object before response
