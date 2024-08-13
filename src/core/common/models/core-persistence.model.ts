@@ -2,6 +2,8 @@ import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
+import { Restricted } from '../decorators/restricted.decorator';
+import { RoleEnum } from '../enums/role.enum';
 import { CoreModel } from './core-model.model';
 
 /**
@@ -26,6 +28,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   // Getter
   // ===========================================================================
 
+  @Restricted(RoleEnum.S_EVERYONE)
   get _id() {
     return new Types.ObjectId(this.id);
   }
@@ -37,6 +40,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * ID of the persistence object as string
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => ID, {
     description: 'ID of the persistence object',
     nullable: true,
@@ -46,6 +50,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Created date, is set automatically by mongoose
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Created date', nullable: true })
   @Prop({ onCreate: () => new Date() })
   createdAt: Date = undefined;
@@ -53,6 +58,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Labels of the object
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => [String], {
     description: 'Labels of the object',
     nullable: true,
@@ -63,6 +69,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Tags for the object
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => [String], {
     description: 'Tags for the object',
     nullable: true,
@@ -73,6 +80,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Updated date is set automatically by mongoose
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
   updatedAt: Date = undefined;

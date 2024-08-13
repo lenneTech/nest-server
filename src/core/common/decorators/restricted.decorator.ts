@@ -67,15 +67,20 @@ export const checkRestricted = (
     dbObject?: any;
     debug?: boolean;
     ignoreUndefined?: boolean;
+    mergeRoles?: boolean;
     processType?: ProcessType;
     removeUndefinedFromResultArray?: boolean;
     throwError?: boolean;
   } = {},
   processedObjects: any[] = [],
 ) => {
+  // Act like Roles handling: checkObjectItself = false & mergeRoles = true
+  // For Input: throwError = true
+  // For Output: throwError = false
   const config = {
-    checkObjectItself: true,
+    checkObjectItself: false,
     ignoreUndefined: true,
+    mergeRoles: true,
     removeUndefinedFromResultArray: true,
     throwError: true,
     ...options,
@@ -220,7 +225,8 @@ export const checkRestricted = (
 
     // Check restricted
     const restricted = getRestricted(data, propertyKey) || [];
-    const valid = validateRestricted(restricted);
+    const concatenatedRestrictions = config.mergeRoles ? _.uniq(objectRestrictions.concat(restricted)) : restricted;
+    const valid = validateRestricted(concatenatedRestrictions);
 
     // Check rights
     if (valid) {
