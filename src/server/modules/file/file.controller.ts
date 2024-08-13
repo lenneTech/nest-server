@@ -30,6 +30,7 @@ export class FileController {
   /**
    * Upload file
    */
+  @Roles(RoleEnum.ADMIN)
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   uploadFile(@UploadedFile() file: Express.Multer.File): any {
@@ -39,6 +40,7 @@ export class FileController {
   /**
    * Download file
    */
+  @Roles(RoleEnum.ADMIN)
   @Get(':id')
   async getFile(@Param('id') id: string, @Res() res) {
     if (!id) {
@@ -65,6 +67,7 @@ export class FileController {
   /**
    * Get file information
    */
+  @Roles(RoleEnum.ADMIN)
   @Get('info/:id')
   async getFileInfo(@Param('id') id: string) {
     return await this.fileService.getFileInfo(id);
@@ -73,6 +76,7 @@ export class FileController {
   /**
    * Delete file
    */
+  @Roles(RoleEnum.ADMIN)
   @Delete(':id')
   async deleteFile(@Param('id') id: string) {
     if (!id) {

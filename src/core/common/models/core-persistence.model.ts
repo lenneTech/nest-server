@@ -18,6 +18,7 @@ import { CoreModel } from './core-model.model';
  * with undefined if possible. If necessary and useful, the init method can then be used deliberately:
  * const corePersistenceModel = item ? CorePersistenceModel.map(item).init() : CorePersistenceModel.init();
  */
+@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,

@@ -4,6 +4,8 @@ import { Response as ResponseType } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { GraphQLServiceOptions } from '../../common/decorators/graphql-service-options.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RoleEnum } from '../../common/enums/role.enum';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
@@ -18,6 +20,7 @@ import { Tokens } from './tokens.decorator';
 /**
  * Authentication resolver for the sign in
  */
+@Roles(RoleEnum.ADMIN)
 @Resolver(of => CoreAuthModel, { isAbstract: true })
 export class CoreAuthResolver {
   /**
@@ -35,6 +38,7 @@ export class CoreAuthResolver {
   /**
    * Logout user (from specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   @Mutation(returns => Boolean, { description: 'Logout user (from specific device)' })
   async logout(
@@ -50,6 +54,7 @@ export class CoreAuthResolver {
   /**
    * Refresh token (for specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
   @Mutation(returns => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   async refreshToken(
@@ -64,6 +69,7 @@ export class CoreAuthResolver {
   /**
    * Sign in user via email and password (on specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(returns => CoreAuthModel, {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
@@ -79,6 +85,7 @@ export class CoreAuthResolver {
   /**
    * Register a new user account (on specific device)
    */
+  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(returns => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
   async signUp(
     @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,
