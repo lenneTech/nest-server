@@ -4,6 +4,7 @@ import { Types } from 'mongoose';
 
 import { Restricted } from '../decorators/restricted.decorator';
 import { RoleEnum } from '../enums/role.enum';
+import { getStringIds } from '../helpers/db.helper';
 import { CoreModel } from './core-model.model';
 
 /**
@@ -99,6 +100,17 @@ export abstract class CorePersistenceModel extends CoreModel {
     this.labels = this.labels === undefined ? [] : this.labels;
     this.tags = this.tags === undefined ? [] : this.tags;
     this.updatedAt = this.tags === undefined ? this.createdAt : this.updatedAt;
+    return this;
+  }
+
+  /**
+   * Map input
+   */
+  override map(input) {
+    super.map(input);
+    if (input._id) {
+      this.id = getStringIds(input);
+    }
     return this;
   }
 }

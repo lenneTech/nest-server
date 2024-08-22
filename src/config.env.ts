@@ -45,7 +45,7 @@ const config: { [env: string]: IServerOptions } = {
       driver: {
         introspection: true,
       },
-      maxComplexity: 20,
+      maxComplexity: 1000,
     },
     healthCheck: {
       configs: {
@@ -158,7 +158,7 @@ const config: { [env: string]: IServerOptions } = {
       driver: {
         introspection: true,
       },
-      maxComplexity: 20,
+      maxComplexity: 1000,
     },
     healthCheck: {
       configs: {
@@ -262,7 +262,7 @@ const config: { [env: string]: IServerOptions } = {
       driver: {
         introspection: true,
       },
-      maxComplexity: 20,
+      maxComplexity: 1000,
     },
     healthCheck: {
       configs: {
