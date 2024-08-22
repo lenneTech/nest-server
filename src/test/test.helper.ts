@@ -125,6 +125,7 @@ export interface TestGraphQLOptions {
  */
 export interface TestRestOptions {
   attachments?: Record<string, string>;
+  headers?: Record<string, string>;
   log?: boolean;
   logError?: boolean;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
@@ -320,6 +321,7 @@ export class TestHelper {
 
     // Request configuration
     const requestConfig: any = {
+      headers: config.headers,
       method: config.method,
       url,
     };
@@ -435,7 +437,7 @@ export class TestHelper {
   ): Promise<any> {
     // Token
     if (token) {
-      requestConfig.headers = { authorization: `Bearer ${token}` };
+      requestConfig.headers = { authorization: `Bearer ${token}`, ...(requestConfig.headers || {}) };
     }
 
     // Init response
@@ -463,6 +465,13 @@ export class TestHelper {
     let request = supertest((this.app as INestApplication).getHttpServer())[method](requestConfig.url as string);
     if (token) {
       request.set('Authorization', `bearer ${token}`);
+    }
+
+    // Headers
+    if (requestConfig.headers) {
+      for (const [key, value] of Object.entries(requestConfig.headers)) {
+        request.set(key, value);
+      }
     }
 
     // Process variables (incl. attachments for GraphQL)
