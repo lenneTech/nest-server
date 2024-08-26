@@ -62,7 +62,7 @@ export class ModelDocService implements OnApplicationBootstrap {
                   : obj[0]()
                 : typeof obj.type === 'function'
                   ? obj.type.name
-                  : obj.type
+                  : 'unknown'
               : path.instance,
         };
         if (results[modelName][key].type === 'Mixed') {
