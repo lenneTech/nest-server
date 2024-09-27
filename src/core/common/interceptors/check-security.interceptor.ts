@@ -25,61 +25,54 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       }
     }
 
-    // Check response
-    return next.handle().pipe(
-      map((data) => {
-        // Check data
-        if (data && typeof data === 'object' && typeof data.securityCheck === 'function') {
-          const dataJson = JSON.stringify(data);
-          const response = data.securityCheck(user, force);
-          new Promise(() => {
-            if (dataJson !== JSON.stringify(response)) {
-              const id = getStringIds(data);
-              console.debug(
-                'CheckSecurityInterceptor: securityCheck changed data of type',
-                data.constructor.name,
-                id && !Array.isArray(id) ? `with ID: ${id}` : '',
-              );
-            }
-          });
-          return response;
-        }
-
-        // Check if data is writeable (e.g. objects from direct access to json files via http are not writable)
-        if (data && typeof data === 'object') {
-          const writeable = !Object.keys(data).find(key => !Object.getOwnPropertyDescriptor(data, key).writable);
-          if (!writeable) {
-            return data;
+    const check = (data) => {
+      // Check data
+      if (data && typeof data === 'object' && typeof data.securityCheck === 'function') {
+        const dataJson = JSON.stringify(data);
+        const response = data.securityCheck(user, force);
+        new Promise(() => {
+          if (dataJson !== JSON.stringify(response)) {
+            const id = getStringIds(data);
+            console.debug(
+              'CheckSecurityInterceptor: securityCheck changed data of type',
+              data.constructor.name,
+              id && !Array.isArray(id) ? `with ID: ${id}` : '',
+            );
+          }
+        });
+        if (response && !data._doNotCheckSecurityDeep) {
+          for (const key of Object.keys(response)) {
+            response[key] = check(response[key]);
           }
         }
+        return response;
+      }
 
-        // Check deep
-        return processDeep(
-          data,
-          (item) => {
-            if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
-              if (Array.isArray(item)) {
-                return item.filter(i => i !== undefined);
-              }
-              return item;
+      // Check if data is writeable (e.g. objects from direct access to json files via http are not writable)
+      if (data && typeof data === 'object') {
+        const writeable = !Object.keys(data).find(key => !Object.getOwnPropertyDescriptor(data, key).writable);
+        if (!writeable) {
+          return data;
+        }
+      }
+
+      // Check deep
+      return processDeep(
+        data,
+        (item) => {
+          if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
+            if (Array.isArray(item)) {
+              return item.filter(i => i !== undefined);
             }
-            const itemJson = JSON.stringify(item);
-            const response = item.securityCheck(user, force);
-            new Promise(() => {
-              if (itemJson !== JSON.stringify(response)) {
-                const id = getStringIds(item);
-                console.debug(
-                  'CheckSecurityInterceptor: securityCheck changed item of type',
-                  item.constructor.name,
-                  id && !Array.isArray(id) ? `with ID: ${id}` : '',
-                );
-              }
-            });
-            return response;
-          },
-          { specialFunctions: ['securityCheck'] },
-        );
-      }),
-    );
+            return item;
+          }
+          return check(item);
+        },
+        { specialFunctions: ['securityCheck'] },
+      );
+    };
+
+    // Check response
+    return next.handle().pipe(map(check));
   }
 }

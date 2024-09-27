@@ -97,7 +97,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       processFieldSelection: {},
       pubSub: true,
       setCreateOrUpdateUserId: true,
-      ...options?.serviceOptions,
+      ...(options?.serviceOptions || {}),
     };
 
     // Note raw configuration
