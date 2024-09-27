@@ -793,7 +793,7 @@ export function prepareServiceOptionsForCreate(serviceOptions: any) {
     serviceOptions.prepareInput = {};
   }
   if (serviceOptions.prepareInput.create === undefined) {
-    serviceOptions.prepareInput.create;
+    serviceOptions.prepareInput.create = true;
   }
   return serviceOptions;
 }
