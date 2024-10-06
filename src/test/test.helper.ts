@@ -310,9 +310,8 @@ export class TestHelper {
     if (response.body) {
       if (response.body.data) {
         return name ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body.data;
-      } else {
-        return response.body;
       }
+      return response.body;
     }
     if (response.text) {
       if (JSON.parse(response.text).data) {
@@ -320,7 +319,7 @@ export class TestHelper {
           ? JSON.parse(response.text).data[(graphql as TestGraphQLConfig).name]
           : JSON.parse(response.text).data;
       }
-      JSON.parse(response.text);
+      return JSON.parse(response.text);
     }
     return undefined;
   }
