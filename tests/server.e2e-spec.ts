@@ -202,6 +202,7 @@ describe('ServerModule (e2e)', () => {
         email: `invalid${gEmail}`,
       },
       name: 'requestPasswordResetMail',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(404);
     expect(res.errors[0].message).toEqual('No user found with email: ' + `invalid${gEmail}`);
@@ -216,6 +217,7 @@ describe('ServerModule (e2e)', () => {
         email: gEmail,
       },
       name: 'requestPasswordResetMail',
+      type: TestGraphQLType.MUTATION,
     });
     expect(res).toEqual(true);
   });

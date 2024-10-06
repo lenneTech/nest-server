@@ -79,15 +79,6 @@ export class UserResolver {
     return await this.userService.getVerifiedState(token);
   }
 
-  /**
-   * Request new password for user with email
-   */
-  @Roles(RoleEnum.S_EVERYONE)
-  @Query(() => Boolean, { description: 'Request new password for user with email' })
-  async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
-    return !!(await this.userService.sendPasswordResetMail(email));
-  }
-
   // ===========================================================================
   // Mutations
   // ===========================================================================
@@ -126,6 +117,15 @@ export class UserResolver {
   @Mutation(() => Boolean, { description: 'Set new password for user with token' })
   async resetPassword(@Args('token') token: string, @Args('password') password: string): Promise<boolean> {
     return !!(await this.userService.resetPassword(token, password));
+  }
+
+  /**
+   * Request new password for user with email
+   */
+  @Roles(RoleEnum.S_EVERYONE)
+  @Mutation(() => Boolean, { description: 'Request new password for user with email' })
+  async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
+    return !!(await this.userService.sendPasswordResetMail(email));
   }
 
   /**
