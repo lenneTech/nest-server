@@ -204,15 +204,19 @@ export class TestHelper {
 
     // Init
     let query = '';
+    let name: string = undefined;
 
     // Convert string to TestGraphQLConfig
-    if ((typeof graphql === 'string' || graphql instanceof String) && /^[a-zA-Z]+$/.test(graphql as string)) {
+    if (
+      (typeof graphql === 'string' || graphql instanceof String)
+      && /^(?![a-zA-Z]+$).*$/.test((graphql as string).trim())
+    ) {
       // Use input as query
-      query = graphql as string;
+      query = (graphql as string).trim();
     } else {
       // Use input as name
       if (typeof graphql === 'string' || graphql instanceof String) {
-        graphql = { name: graphql } as any;
+        graphql = { name: (graphql as string).trim() } as any;
       }
 
       // Prepare config
@@ -225,6 +229,7 @@ export class TestHelper {
         },
         graphql,
       ) as TestGraphQLConfig;
+      name = graphql.name;
 
       // Init request
       const queryObj = {};
@@ -248,7 +253,11 @@ export class TestHelper {
       }
 
       // Create request payload query
-      query = jsonToGraphQLQuery(queryObj, { pretty: true });
+      if (!graphql.fields?.length && !graphql.arguments) {
+        query = `${graphql.type} { ${graphql.name} }`;
+      } else {
+        query = jsonToGraphQLQuery(queryObj, { pretty: true });
+      }
     }
 
     if ((graphql as TestGraphQLConfig).type === TestGraphQLType.SUBSCRIPTION) {
@@ -298,7 +307,22 @@ export class TestHelper {
     expect(response.headers['content-type']).toMatch('application/json');
 
     // return data
-    return response.body.data ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body;
+    if (response.body) {
+      if (response.body.data) {
+        return name ? response.body.data[(graphql as TestGraphQLConfig).name] : response.body.data;
+      } else {
+        return response.body;
+      }
+    }
+    if (response.text) {
+      if (JSON.parse(response.text).data) {
+        return name
+          ? JSON.parse(response.text).data[(graphql as TestGraphQLConfig).name]
+          : JSON.parse(response.text).data;
+      }
+      JSON.parse(response.text);
+    }
+    return undefined;
   }
 
   /**
