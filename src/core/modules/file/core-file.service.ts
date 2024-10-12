@@ -1,7 +1,7 @@
 import { MongoGridFSOptions, MongooseGridFS, createBucket } from '@lenne.tech/mongoose-gridfs';
 import { NotFoundException } from '@nestjs/common';
 import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
-import { Connection, Types } from 'mongoose';
+import mongoose, { Connection, Types } from 'mongoose';
 
 import { FilterArgs } from '../../common/args/filter.args';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
@@ -64,6 +64,45 @@ export abstract class CoreFileService {
       promises.push(this.createFile(file, serviceOptions));
     }
     return await Promise.all(promises);
+  }
+
+  /**
+   * Duplicate file by name
+   */
+  async duplicateByName(name: string, newName: string): Promise<any> {
+    return new Promise(async (resolve) => {
+      resolve(this.files.openDownloadStreamByName(name).pipe(this.files.openUploadStream(newName)));
+    });
+  }
+
+  /**
+   * Duplicate file by ID
+   */
+  async duplicateById(id: string): Promise<string> {
+    const objectId = getObjectIds(id);
+    const file = await this.getFileInfo(objectId);
+    return new Promise((resolve, reject) => {
+      const downloadStream = this.files.openDownloadStream(objectId);
+
+      const newFileId = new mongoose.Types.ObjectId();
+      const uploadStream = this.files.openUploadStreamWithId(newFileId, file.filename, {
+        contentType: file.contentType,
+      });
+
+      downloadStream.pipe(uploadStream);
+
+      uploadStream.on('finish', () => {
+        resolve(getStringIds(newFileId));
+      });
+
+      uploadStream.on('error', (err: { message: any }) => {
+        reject(new Error(`File duplication failed: ${err.message}`));
+      });
+
+      downloadStream.on('error', (err: { message: any }) => {
+        reject(new Error(`File download failed: ${err.message}`));
+      });
+    });
   }
 
   /**
