@@ -509,6 +509,13 @@ export class TestHelper {
       }
     }
 
+    // Process REST payload
+    if (attachments && requestConfig.payload) {
+      for (const [key, value] of Object.entries(requestConfig.payload)) {
+        request.field(key, value);
+      }
+    }
+
     // Response
     if (log) {
       console.info(requestConfig);
@@ -580,8 +587,14 @@ export class TestHelper {
     if (logError && response.statusCode !== statusCode && response.statusCode >= 400) {
       if (response && response.error && response.error.text) {
         const errors = JSON.parse(response.error.text).errors;
-        for (const error of errors) {
-          console.error(util.inspect(error, false, null, true));
+        if (!errors) {
+          console.error(util.inspect(response.error.text, false, null, true));
+        } else if (Array.isArray(errors)) {
+          for (const error of errors) {
+            console.error(util.inspect(error, false, null, true));
+          }
+        } else {
+          console.error(util.inspect(errors, false, null, true));
         }
       }
     }

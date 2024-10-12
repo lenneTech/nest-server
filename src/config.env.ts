@@ -9,7 +9,7 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
  */
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
-  // Local environment
+  // Development environment
   // ===========================================================================
   development: {
     automaticObjectIdFiltering: true,
