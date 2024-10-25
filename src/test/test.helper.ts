@@ -155,6 +155,7 @@ export class TestHelper {
 
   /**
    * Download file from URL
+   * To compare content data via string comparison
    * @return Superagent response with additional data field containing the content of the file
    */
   download(url: string, token?: string): Promise<any> {
@@ -179,6 +180,40 @@ export class TestHelper {
         .end((err, res: any) => {
           (res as { data: string } & any).data = Buffer.from(data, 'binary').toString();
           err ? reject(err) : resolve(res as any);
+        });
+    });
+  }
+
+  /**
+   * Download file from URL and get buffer
+   * To compare content data via buffer comparison and with the possibility to save the file
+   */
+  downloadBuffer(url: string, token?: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const request = supertest(this.app.getHttpServer()).get(url);
+      if (token) {
+        request.set('Authorization', `bearer ${token}`);
+      }
+
+      // Array to store the data chunks
+      const chunks: any[] = [];
+
+      request
+        .buffer()
+        .parse((res: any, callback) => {
+          res.on('data', (chunk) => {
+            chunks.push(chunk);
+          });
+          res.on('error', reject);
+          res.on('end', (err) => {
+            err ? reject(err) : callback(null, Buffer.concat(chunks));
+          });
+        })
+        .end((err, res: any) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve(res.body); // res.body should be a Buffer
         });
     });
   }
