@@ -165,7 +165,7 @@ describe('File (e2e)', () => {
         type: TestGraphQLType.MUTATION,
         variables: { file: 'Upload!' },
       },
-      { log, logError, token: users[0].token, variables: { file: { type: 'attachment', value: local } } },
+      { token: users[0].token, variables: { file: { type: 'attachment', value: local } } },
     );
     // Remove files
     await fs.promises.unlink(local);
