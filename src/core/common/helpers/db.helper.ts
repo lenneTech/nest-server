@@ -670,5 +670,9 @@ function getStringId(element: any): string {
   }
 
   // Other types
-  return element.toString();
+  if (typeof element.toString === 'function') {
+    return element.toString();
+  }
+
+  return undefined;
 }

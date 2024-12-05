@@ -212,7 +212,9 @@ export async function check(
   value: any,
   user: { hasRole: (roles: string[]) => boolean; id: any },
   options?: {
+    allowCreatorOfParent?: boolean;
     dbObject?: any;
+    isCreatorOfParent?: boolean;
     metatype?: any;
     processType?: ProcessType;
     roles?: string | string[];
@@ -221,6 +223,8 @@ export async function check(
   },
 ): Promise<any> {
   const config = {
+    allowCreatorOfParent: true,
+    isCreatorOfParent: false,
     throwError: true,
     ...options,
     validatorOptions: {
@@ -254,7 +258,12 @@ export async function check(
       // check if the user is herself / himself
       || (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user))
       // check if the user is the creator
-      || (roles.includes(RoleEnum.S_CREATOR) && equalIds(config.dbObject?.createdBy, user))
+      || (roles.includes(RoleEnum.S_CREATOR)
+        && ((config.dbObject && 'createdBy' in config.dbObject && equalIds(config.dbObject.createdBy, user))
+          || (config.allowCreatorOfParent
+            && config.dbObject
+            && !('createdBy' in config.dbObject)
+            && config.isCreatorOfParent)))
     ) {
       valid = true;
     }
@@ -262,6 +271,9 @@ export async function check(
       throw new UnauthorizedException('Missing rights');
     }
   }
+
+  // Object check is done
+  delete config.roles;
 
   // Return value if it is only a basic type
   if (!value || typeof value !== 'object') {
@@ -278,12 +290,12 @@ export async function check(
 
   const metatype = config.metatype;
   if (metatype) {
-    // Check metatype
+    // If metatype is a basic type, additional checks are not possible
     if (isBasicType(metatype)) {
       return value;
     }
 
-    // Convert to metatype
+    // Convert to metatype, validate rights
     if (!(value instanceof metatype)) {
       if ((metatype as any)?.map) {
         value = (metatype as any)?.map(value);
@@ -293,7 +305,7 @@ export async function check(
     }
   }
 
-  // Validate
+  // Validate values (like isEmail, isNumber, etc.)
   const errors = await validate(value, config.validatorOptions);
   if (errors.length > 0 && config.throwError) {
     throw new BadRequestException('Validation failed');

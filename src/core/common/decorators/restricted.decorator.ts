@@ -3,7 +3,7 @@ import 'reflect-metadata';
 
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
-import { getIncludedIds } from '../helpers/db.helper';
+import { equalIds, getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
 
 import _ = require('lodash');
@@ -22,6 +22,7 @@ export type RestrictedType = (
       'memberOf' | 'roles'
     >
   | string
+  | string[]
 )[];
 
 /**
@@ -63,11 +64,15 @@ export const checkRestricted = (
   data: any,
   user: { hasRole: (roles: string[]) => boolean; id: any },
   options: {
+    allowCreatorOfParent?: boolean;
     checkObjectItself?: boolean;
     dbObject?: any;
     debug?: boolean;
+    ignoreFunctions?: boolean;
     ignoreUndefined?: boolean;
+    isCreatorOfParent?: boolean;
     mergeRoles?: boolean;
+    noteCheckedObjects?: boolean;
     processType?: ProcessType;
     removeUndefinedFromResultArray?: boolean;
     throwError?: boolean;
@@ -78,16 +83,20 @@ export const checkRestricted = (
   // For Input: throwError = true
   // For Output: throwError = false
   const config = {
+    allowCreatorOfParent: true,
     checkObjectItself: false,
+    ignoreFunctions: true,
     ignoreUndefined: true,
+    isCreatorOfParent: false,
     mergeRoles: true,
+    noteCheckedObjects: true,
     removeUndefinedFromResultArray: true,
     throwError: true,
     ...options,
   };
 
   // Primitives
-  if (!data || typeof data !== 'object') {
+  if (!data || typeof data !== 'object' || (config.noteCheckedObjects && data._objectAlreadyCheckedForRestrictions)) {
     return data;
   }
 
@@ -109,6 +118,10 @@ export const checkRestricted = (
 
   // Check function
   const validateRestricted = (restricted) => {
+    if (config.noteCheckedObjects && data?._objectAlreadyCheckedForRestrictions) {
+      return true;
+    }
+
     // Check restrictions
     if (!restricted?.length) {
       return true;
@@ -116,7 +129,7 @@ export const checkRestricted = (
 
     let valid = false;
 
-    // Get roles
+    // Get roles restricted element
     const roles: string[] = [];
     restricted.forEach((item) => {
       if (typeof item === 'string') {
@@ -130,6 +143,8 @@ export const checkRestricted = (
         } else {
           roles.push(item.roles);
         }
+      } else if (Array.isArray(item)) {
+        roles.push(...item);
       }
     });
 
@@ -145,8 +160,10 @@ export const checkRestricted = (
         roles.includes(RoleEnum.S_EVERYONE)
         || user?.hasRole?.(roles)
         || (user?.id && roles.includes(RoleEnum.S_USER))
-        || (roles.includes(RoleEnum.S_SELF) && getIncludedIds(config.dbObject, user))
-        || (roles.includes(RoleEnum.S_CREATOR) && getIncludedIds(config.dbObject?.createdBy, user))
+        || (roles.includes(RoleEnum.S_SELF) && equalIds(data, user))
+        || (roles.includes(RoleEnum.S_CREATOR)
+          && (('createdBy' in data && equalIds(data.createdBy, user))
+            || (config.allowCreatorOfParent && !('createdBy' in data) && config.isCreatorOfParent)))
       ) {
         valid = true;
       }
@@ -200,7 +217,7 @@ export const checkRestricted = (
     return valid;
   };
 
-  // Check object
+  // Check data object
   const objectRestrictions = getRestricted(data.constructor) || [];
   if (config.checkObjectItself) {
     const objectIsValid = validateRestricted(objectRestrictions);
@@ -218,6 +235,11 @@ export const checkRestricted = (
 
   // Check properties of object
   for (const propertyKey of Object.keys(data)) {
+    // Ignore functions
+    if (typeof data[propertyKey] === 'function' && config.ignoreFunctions) {
+      continue;
+    }
+
     // Check undefined
     if (data[propertyKey] === undefined && config.ignoreUndefined) {
       continue;
@@ -230,6 +252,10 @@ export const checkRestricted = (
 
     // Check rights
     if (valid) {
+      // Check if data is user or user is creator of data (for nested plain objects)
+      config.isCreatorOfParent
+        = equalIds(data, user) || ('createdBy' in data ? equalIds(data.createdBy, user) : config.isCreatorOfParent);
+
       // Check deep
       data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
     } else {

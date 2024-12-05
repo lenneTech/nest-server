@@ -1,6 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
-import { IsOptional } from 'class-validator';
+import { IsEmail, IsOptional } from 'class-validator';
 import { Document, Schema } from 'mongoose';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
@@ -41,6 +41,15 @@ export class User extends CoreUserModel implements PersistenceModel {
   })
   @Prop({ ref: 'User', type: Schema.Types.ObjectId })
   createdBy: string = undefined;
+
+  /**
+   * E-Mail address of the user
+   */
+  @Restricted(RoleEnum.S_EVERYONE)
+  @Field({ description: 'Email of the user', nullable: true })
+  @IsEmail()
+  @Prop({ lowercase: true, trim: true, unique: true })
+  override email: string = undefined;
 
   /**
    * Roles of the user
@@ -105,8 +114,6 @@ export class User extends CoreUserModel implements PersistenceModel {
       // PersistenceModel and CorePersistenceModel
       this.createdAt = null;
       this.createdBy = null;
-      this.labels = null;
-      this.tags = null;
       this.updatedAt = null;
       this.updatedBy = null;
     }

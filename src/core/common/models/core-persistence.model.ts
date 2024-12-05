@@ -58,28 +58,6 @@ export abstract class CorePersistenceModel extends CoreModel {
   createdAt: Date = undefined;
 
   /**
-   * Labels of the object
-   */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => [String], {
-    description: 'Labels of the object',
-    nullable: true,
-  })
-  @Prop([String])
-  labels: string[] = undefined;
-
-  /**
-   * Tags for the object
-   */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => [String], {
-    description: 'Tags for the object',
-    nullable: true,
-  })
-  @Prop([String])
-  tags: string[] = undefined;
-
-  /**
    * Updated date is set automatically by mongoose
    */
   @Restricted(RoleEnum.S_EVERYONE)
@@ -97,9 +75,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   override init() {
     super.init();
     this.createdAt = this.createdAt === undefined ? new Date() : this.createdAt;
-    this.labels = this.labels === undefined ? [] : this.labels;
-    this.tags = this.tags === undefined ? [] : this.tags;
-    this.updatedAt = this.tags === undefined ? this.createdAt : this.updatedAt;
+    this.updatedAt = this.updatedAt === undefined ? this.createdAt : this.updatedAt;
     return this;
   }
 

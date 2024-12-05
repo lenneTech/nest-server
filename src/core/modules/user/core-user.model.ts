@@ -1,6 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
-import { IsEmail, IsOptional } from 'class-validator';
+import { IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 
 import { Restricted } from '../../common/decorators/restricted.decorator';
@@ -26,8 +26,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Email of the user', nullable: true })
-  @IsEmail()
-  @Prop({ lowercase: true, trim: true, unique: true })
+  @Prop({ index: true, lowercase: true, trim: true })
   email: string = undefined;
 
   /**

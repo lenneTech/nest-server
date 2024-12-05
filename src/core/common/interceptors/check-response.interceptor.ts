@@ -16,6 +16,7 @@ export class CheckResponseInterceptor implements NestInterceptor {
     debug: false,
     ignoreUndefined: true,
     mergeRoles: true,
+    noteCheckedObjects: true,
     removeUndefinedFromResultArray: true,
     throwError: false,
   };
@@ -38,7 +39,18 @@ export class CheckResponseInterceptor implements NestInterceptor {
     return next.handle().pipe(
       map((data) => {
         // Prepare response data for current user
-        return checkRestricted(data, currentUser, this.config);
+        const start = Date.now();
+        const result = checkRestricted(data, currentUser, this.config);
+        if (
+          this.config.debug
+          && Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)
+        ) {
+          console.warn(
+            `Duration for CheckResponseInterceptor is too long: ${Date.now() - start}ms`,
+            Array.isArray(data) ? `${data[0].constructor.name}[]: ${data.length}` : data?.constructor?.name,
+          );
+        }
+        return result;
       }),
     );
   }
