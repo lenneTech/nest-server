@@ -5,13 +5,29 @@ import { map } from 'rxjs/operators';
 import { getContextData } from '../helpers/context.helper';
 import { getStringIds } from '../helpers/db.helper';
 import { processDeep } from '../helpers/input.helper';
+import { ConfigService } from '../services/config.service';
 
 /**
  * Verification of all outgoing data via securityCheck
  */
 @Injectable()
 export class CheckSecurityInterceptor implements NestInterceptor {
+  config = {
+    debug: false,
+    noteCheckedObjects: true,
+  };
+
+  constructor(private readonly configService: ConfigService) {
+    const configuration = this.configService.getFastButReadOnly('security.checkSecurityInterceptor');
+    if (typeof configuration === 'object') {
+      this.config = { ...this.config, ...configuration };
+    }
+  }
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    // Start time
+    const start = Date.now();
+
     // Get current user
     const user = getContextData(context)?.currentUser || null;
 
@@ -25,7 +41,17 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       }
     }
 
-    const check = (data) => {
+    // Data from next for check
+    let objectData: any;
+
+    const check = (data: any) => {
+      objectData = data;
+
+      // Check if data already checked
+      if (this.config.noteCheckedObjects && data?._objectAlreadyCheckedForRestrictions) {
+        return data;
+      }
+
       // Check data
       if (data && typeof data === 'object' && typeof data.securityCheck === 'function') {
         const dataJson = JSON.stringify(data);
@@ -73,6 +99,15 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     };
 
     // Check response
-    return next.handle().pipe(map(check));
+    const result = next.handle().pipe(map(check));
+    if (this.config.debug && Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)) {
+      console.warn(
+        `Duration for CheckResponseInterceptor is too long: ${Date.now() - start}ms`,
+        Array.isArray(objectData)
+          ? `${objectData[0].constructor.name}[]: ${objectData.length}`
+          : objectData?.constructor?.name,
+      );
+    }
+    return result;
   }
 }

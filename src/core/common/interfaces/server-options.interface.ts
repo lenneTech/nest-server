@@ -421,10 +421,11 @@ export interface IServerOptions {
           checkObjectItself?: boolean;
 
           /**
-           * Whether to log if a restricted field is found
+           * Whether to log if a restricted field is found or process is slow
+           * boolean or number (time in ms)
            * default = false
            */
-          debug?: boolean;
+          debug?: boolean | number;
 
           /**
            * Whether to ignore fields with undefined values
@@ -437,6 +438,13 @@ export interface IServerOptions {
            * default = true (to act like Roles)
            */
           mergeRoles?: boolean;
+
+          /**
+           * Whether objects that have already been checked should be ignored
+           * Objects with truly property `_objectAlreadyCheckedForRestrictions` will be ignored
+           * default = true
+           */
+          noteCheckedObjects?: boolean;
 
           /**
            * Remove undefined values from result array
@@ -457,7 +465,22 @@ export interface IServerOptions {
      * See @lenne.tech/nest-server/src/core/common/interceptors/check-security.interceptor.ts
      * default = true
      */
-    checkSecurityInterceptor?: boolean;
+    checkSecurityInterceptor?:
+      | {
+          /**
+           * Whether to log if a process is slow
+           * boolean or number (time in ms)
+           * default = false
+           */
+          debug?: boolean | number;
+
+          /**
+           * Whether objects with truly property `_objectAlreadyCheckedForRestrictions` will be ignored
+           * default = true
+           */
+          noteCheckedObjects?: boolean;
+        }
+      | boolean;
 
     /**
      * Map incoming plain objects to meta-type and validate
