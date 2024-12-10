@@ -91,7 +91,7 @@ export interface ServiceOptions {
   select?: Record<string, boolean | number | object> | string | string[];
 
   // Add updateBy and/or createBy user ID into input after check
-  // If falsy: input data will not be changed
-  // If truly (default): updatedBy and/or createdBy (when create mode is activated) will be set if current user is available
+  // If falsy (default): input data will not be changed
+  // If truly: updatedBy and/or createdBy (when create mode is activated) will be set if current user is available
   setCreateOrUpdateUserId?: boolean;
 }
