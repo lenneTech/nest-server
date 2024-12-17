@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+import { join } from 'path';
+
 import _ = require('lodash');
 
 /**
@@ -45,4 +48,129 @@ export function merge(obj: Record<string, any>, ...sources: any[]): any {
       return srcValue;
     }
   });
+}
+
+/**
+ * Get environment configuration (deeply merged into config object set via options)
+ *
+ * The configuration is extended via deep merge in the following order:
+ * 1. config[env] (if set)
+ * 2.
+ *
+ * @param options options for processing
+ * @param options.config config object with different environments as main keys (see config.env.ts) to merge environment configurations into (default: {})
+ * @param options.defaultEnv default environment to use if no NODE_ENV is set (default: 'local')
+ */
+export function getEnvironmentConfig(options: { config?: Record<string, any>; defaultEnv?: string }) {
+  const { config, defaultEnv } = {
+    config: {},
+    defaultEnv: 'local',
+    ...options,
+  };
+
+  dotenv.config();
+  const env = process.env['NODE' + '_ENV'] || defaultEnv;
+  const envConfig = config[env] || config.local || {};
+
+  // Merge with localConfig (e.g. config.json)
+  if (envConfig.loadLocalConfig) {
+    let localConfig: Record<string, any>;
+    if (typeof envConfig.loadLocalConfig === 'string') {
+      import(envConfig.loadLocalConfig)
+        .then((loadedConfig) => {
+          localConfig = loadedConfig.default || loadedConfig;
+          merge(envConfig, localConfig);
+        })
+        .catch(() => {
+          console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
+        });
+    } else {
+      // get config from src directory
+      import(join(__dirname, 'config.json'))
+        .then((loadedConfig) => {
+          localConfig = loadedConfig.default || loadedConfig;
+          merge(envConfig, localConfig);
+        })
+        .catch(() => {
+          // if not found try to find in project directory
+          import(join(__dirname, '..', 'config.json'))
+            .then((loadedConfig) => {
+              localConfig = loadedConfig.default || loadedConfig;
+              merge(envConfig, localConfig);
+            })
+            .catch(() => {
+              console.info('No local config.json found!');
+            });
+        });
+    }
+  }
+
+  // .env handling via dotenv
+  if (process.env['NEST_SERVER_CONFIG']) {
+    try {
+      const dotEnvConfig = JSON.parse(process.env['NEST_SERVER_CONFIG']);
+      if (dotEnvConfig && Object.keys(dotEnvConfig).length > 0) {
+        merge(envConfig, dotEnvConfig);
+        console.info('NEST_SERVER_CONFIG used from .env');
+      }
+    } catch (e) {
+      console.error('Error parsing NEST_SERVER_CONFIG from .env: ', e);
+      console.error(
+        'Maybe the JSON is invalid? Please check the value of NEST_SERVER_CONFIG in .env file (e.g. via https://jsonlint.com/)',
+      );
+    }
+  }
+
+  // Merge with environment variables
+  const environmentObject = getEnvironmentObject();
+  const environmentObjectKeyCount = Object.keys(environmentObject).length;
+  if (environmentObjectKeyCount > 0) {
+    merge(envConfig, environmentObject);
+    console.info(
+      `Environment object from the environment integrated into the configuration with ${environmentObjectKeyCount} keys`,
+    );
+  }
+
+  console.info(`Configured for: ${envConfig.env}${env !== envConfig.env ? ` (requested: ${env})` : ''}`);
+  return envConfig;
+}
+
+/**
+ * Get environment object from environment variables
+ */
+export function getEnvironmentObject(options?: { prefix?: string; processEnv?: Record<string, number | string> }) {
+  const config = {
+    prefix: 'NSC__',
+    processEnv: process.env,
+    ...options,
+  };
+  const output = {};
+
+  Object.entries(config.processEnv)
+    .filter(([key]) => key.startsWith(config.prefix))
+    .forEach(([key, value]) => {
+      // Remove prefix from key
+      const adjustedKey = key.slice(config.prefix?.length || 0);
+
+      // Convert key to path
+      const path = adjustedKey.split('__').map(part =>
+        part
+          .split('_')
+          .map((s, i) => (i === 0 ? s.toLowerCase() : s[0].toUpperCase() + s.slice(1).toLowerCase()))
+          .join(''),
+      );
+
+      // Set value in output object
+      let current = output;
+      for (let i = 0; i < path.length; i++) {
+        const segment = path[i];
+        if (i === path.length - 1) {
+          current[segment] = value;
+        } else {
+          current = current[segment] = current[segment] || {};
+        }
+      }
+    });
+
+  return output;
 }

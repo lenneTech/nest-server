@@ -1,12 +1,14 @@
 import { CronExpression } from '@nestjs/schedule';
+import * as dotenv from 'dotenv';
 import { join } from 'path';
 
-import { merge } from './core/common/helpers/config.helper';
+import { getEnvironmentConfig } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
 /**
  * Configuration for the different environments
  */
+dotenv.config();
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   // Development environment
@@ -330,47 +332,6 @@ const config: { [env: string]: IServerOptions } = {
 };
 
 /**
- * Environment specific config
- *
- * default: local
+ * Export config merged with other configs and environment variables as default
  */
-const env = process.env['NODE' + '_ENV'] || 'local';
-const envConfig = config[env] || config.local;
-console.info(`Configured for: ${envConfig.env}${env !== envConfig.env ? ` (requested: ${env})` : ''}`);
-// Merge with localConfig (e.g. config.json)
-if (envConfig.loadLocalConfig) {
-  let localConfig;
-  if (typeof envConfig.loadLocalConfig === 'string') {
-    import(envConfig.loadLocalConfig)
-      .then((loadedConfig) => {
-        localConfig = loadedConfig.default || loadedConfig;
-        merge(envConfig, localConfig);
-      })
-      .catch(() => {
-        console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
-      });
-  } else {
-    // get config from src directory
-    import(join(__dirname, 'config.json'))
-      .then((loadedConfig) => {
-        localConfig = loadedConfig.default || loadedConfig;
-        merge(envConfig, localConfig);
-      })
-      .catch(() => {
-        // if not found try to find in project directory
-        import(join(__dirname, '..', 'config.json'))
-          .then((loadedConfig) => {
-            localConfig = loadedConfig.default || loadedConfig;
-            merge(envConfig, localConfig);
-          })
-          .catch(() => {
-            console.info('No local config.json found!');
-          });
-      });
-  }
-}
-
-/**
- * Export envConfig as default
- */
-export default envConfig;
+export default getEnvironmentConfig({ config });

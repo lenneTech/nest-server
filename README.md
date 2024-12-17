@@ -109,6 +109,46 @@ Project use following scripts (via `package.json`):
 - `npm run link:nest-server` (for `yalc add @lenne.tech/nest-server && yalc link @lenne.tech/nest-server && npm install`)
 - `npm run unlink:nest-server` (for `yalc remove @lenne.tech/nest-server && npm install`)
 
+## Configuration
+
+The configuration of the server is done via the `src/config.env.ts` file. This file is a TypeScript file that exports 
+an object with the configuration values. It is automatically integrated into the `ConfigService` 
+(see src/core/common/services/config.service.ts).
+
+### Environment variables
+
+To protect sensitive data and to avoid committing them to the repository the `.env` file can be used.
+An example `.env` file is provided in the `.env.example` file.
+
+There are multiple ways to manipulate or extend the configuration via environment variables:
+1. Via "normal" integration of the environment variables into the `src/config.env.ts`
+2. Via JSON in the `NEST_SERVER_CONFIG` environment variable
+3. Via single environment variables with the prefix `NSC__` (Nest Server Config)
+
+#### Normal environment variables
+Using `dotenv` (see https://www.dotenv.org/) environment variables can directly integrated into the 
+`src/config.env.ts` via `process.env`. E.g.:
+```typescript
+export const config = {
+  development: {
+    port: process.env.PORT || 3000,
+  },
+};
+```
+
+#### JSON
+The `NEST_SERVER_CONFIG` is the environment variable for the server configuration. 
+The value of `NEST_SERVER_CONFIG` must be a (multiline) JSON string that will be parsed by the server 
+(see config.env.ts). The keys will override the other configuration values via deep merge
+(see https://lodash.com/docs/4.17.15#merge, without array merging).
+
+#### Single config variables
+The prefix `NSC__` (**N**est **S**erver **C**onfig) can be used to set single configuration values via environment 
+variables. The key is the name of the configuration value in uppercase and with double underscores (`__`) instead of 
+dots. Single underscores are used to separate compound terms like `DEFAULT_SENDER` for `defaultSender`.
+For example, the configuration value `email.defaultSender.name` can be set via the environment variable 
+`NSC__EMAIL_DEFAULT_SENDER_NAME`.
+
 ## Documentation
 The API and developer documentation can automatically be generated.
 
