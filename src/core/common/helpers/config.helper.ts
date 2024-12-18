@@ -1,4 +1,6 @@
 import * as dotenv from 'dotenv';
+import * as path from 'node:path';
+import * as process from 'node:process';
 import { join } from 'path';
 
 import _ = require('lodash');
@@ -61,14 +63,14 @@ export function merge(obj: Record<string, any>, ...sources: any[]): any {
  * @param options.config config object with different environments as main keys (see config.env.ts) to merge environment configurations into (default: {})
  * @param options.defaultEnv default environment to use if no NODE_ENV is set (default: 'local')
  */
-export function getEnvironmentConfig(options: { config?: Record<string, any>; defaultEnv?: string }) {
+export function getEnvironmentConfig(options: { config?: Record<string, any>; defaultEnv?: string; envPath?: string }) {
   const { config, defaultEnv } = {
     config: {},
     defaultEnv: 'local',
     ...options,
   };
 
-  dotenv.config();
+  dotenv.config({ path: options.envPath || path.resolve(process.cwd(), '.env') });
   const env = process.env['NODE' + '_ENV'] || defaultEnv;
   const envConfig = config[env] || config.local || {};
 
