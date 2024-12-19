@@ -1,5 +1,4 @@
 import * as dotenv from 'dotenv';
-import * as path from 'node:path';
 import * as process from 'node:process';
 import { join } from 'path';
 
@@ -62,15 +61,21 @@ export function merge(obj: Record<string, any>, ...sources: any[]): any {
  * @param options options for processing
  * @param options.config config object with different environments as main keys (see config.env.ts) to merge environment configurations into (default: {})
  * @param options.defaultEnv default environment to use if no NODE_ENV is set (default: 'local')
+ * @param options.envPath path to .env file (default: undefined => default of dotenv)
  */
 export function getEnvironmentConfig(options: { config?: Record<string, any>; defaultEnv?: string; envPath?: string }) {
-  const { config, defaultEnv } = {
+  const { config, defaultEnv, envPath } = {
     config: {},
     defaultEnv: 'local',
     ...options,
   };
 
-  dotenv.config({ path: options.envPath || path.resolve(process.cwd(), '.env') });
+  if (envPath) {
+    dotenv.config({ path: envPath });
+  } else {
+    dotenv.config();
+  }
+
   const env = process.env['NODE' + '_ENV'] || defaultEnv;
   const envConfig = config[env] || config.local || {};
 
@@ -140,7 +145,10 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
 /**
  * Get environment object from environment variables
  */
-export function getEnvironmentObject(options?: { prefix?: string; processEnv?: Record<string, number | string> }) {
+export function getEnvironmentObject(options?: {
+  prefix?: string;
+  processEnv?: Record<string, boolean | number | string>;
+}) {
   const config = {
     prefix: 'NSC__',
     processEnv: process.env,
@@ -167,6 +175,15 @@ export function getEnvironmentObject(options?: { prefix?: string; processEnv?: R
       for (let i = 0; i < path.length; i++) {
         const segment = path[i];
         if (i === path.length - 1) {
+          // value preparation
+          if (value === 'true') {
+            value = true;
+          } else if (value === 'false') {
+            value = false;
+          } else if (!isNaN(Number(value))) {
+            value = Number(value);
+          }
+
           current[segment] = value;
         } else {
           current = current[segment] = current[segment] || {};
