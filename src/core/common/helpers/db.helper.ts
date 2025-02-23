@@ -333,6 +333,21 @@ export function getPopulateOptions(info: GraphQLResolveInfo, dotSeparatedSelect?
 }
 
 /**
+ * Get next field nodes
+ */
+export function getNextFieldNodes(nodes: readonly SelectionNode[]): FieldNode[] {
+  const result = [];
+  for (const node of nodes as FieldNode[]) {
+    if (node.name?.value) {
+      result.push(node);
+    } else if (node.selectionSet?.selections) {
+      result.push(...getNextFieldNodes(node.selectionSet.selections));
+    }
+  }
+  return result;
+}
+
+/**
  * Get populate options from selections
  */
 export function getPopulatOptionsFromSelections(selectionNodes: readonly SelectionNode[]): PopulateOptions[] {
@@ -342,10 +357,19 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
     return populateOptions;
   }
 
+  const nodes: FieldNode[] = [];
   for (const node of selectionNodes as FieldNode[]) {
+    if (node.name?.value) {
+      nodes.push(node);
+    } else if (node.selectionSet?.selections) {
+      nodes.push(...getNextFieldNodes(node.selectionSet.selections));
+    }
+  }
+
+  for (const node of nodes) {
     // Set main path
     const option: PopulateOptions = {
-      path: node.name.value,
+      path: node.name?.value || '',
     };
 
     // Check for subfields
