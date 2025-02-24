@@ -1,5 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
+import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 
@@ -24,60 +25,67 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * E-Mail address of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Email of the user', nullable: true })
   @Prop({ index: true, lowercase: true, trim: true })
+  @Restricted(RoleEnum.S_EVERYONE)
   email: string = undefined;
 
   /**
    * First name of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
   @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
   firstName: string = undefined;
 
   /**
    * Last name of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
   @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
   lastName: string = undefined;
 
   /**
    * Password of the user
    */
-  @Restricted(RoleEnum.S_NO_ONE)
+  @ApiProperty()
   @Prop()
+  @Restricted(RoleEnum.S_NO_ONE)
   password: string = undefined;
 
   /**
    * Roles of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
+  @Restricted(RoleEnum.S_EVERYONE)
   roles: string[] = undefined;
 
   /**
    * Username of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Username of the user', nullable: true })
   @IsOptional()
   @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
   username: string = undefined;
 
   /**
    * Password reset token of the user
    */
-  @Restricted(RoleEnum.S_NO_ONE)
+  @ApiProperty()
   @IsOptional()
   @Prop()
+  @Restricted(RoleEnum.S_NO_ONE)
   passwordResetToken: string = undefined;
 
   /**
@@ -85,42 +93,47 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * key: Token
    * value: TokenData
    */
-  @Restricted(RoleEnum.S_NO_ONE)
+  @ApiProperty({ isArray: true })
   @IsOptional()
   @Prop(raw({}))
+  @Restricted(RoleEnum.S_NO_ONE)
   refreshTokens: Record<string, CoreTokenData> = undefined;
 
   /**
    * Temporary token for parallel requests during the token refresh process
    * See sameTokenIdPeriod in configuration
    */
-  @Restricted(RoleEnum.S_NO_ONE)
+  @ApiProperty()
   @IsOptional()
   @Prop(raw({}))
+  @Restricted(RoleEnum.S_NO_ONE)
   tempTokens: Record<string, { createdAt: number; deviceId: string; tokenId: string }> = undefined;
 
   /**
    * Verification token of the user
    */
-  @Restricted(RoleEnum.S_NO_ONE)
+  @ApiProperty()
   @IsOptional()
   @Prop()
+  @Restricted(RoleEnum.S_NO_ONE)
   verificationToken: string = undefined;
 
   /**
    * Verification of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field(type => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
+  @Restricted(RoleEnum.S_EVERYONE)
   verified: boolean = undefined;
 
   /**
    * Verification date
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Verified date', nullable: true })
   @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
   verifiedAt: Date = undefined;
 
   // ===================================================================================================================
