@@ -30,7 +30,7 @@ export class CoreAuthController {
    * Logout user (from specific device)
    */
   @ApiOperation({ description: 'Logs a user out from a specific device' })
-  @Post('logout')
+  @Get('logout')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async logout(

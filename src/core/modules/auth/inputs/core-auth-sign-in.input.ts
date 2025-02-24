@@ -34,7 +34,6 @@ export class CoreAuthSignInInput extends CoreInput {
   @Field({ description: 'Email', nullable: false })
   @IsEmail()
   @IsNotEmpty()
-  @IsString()
   @Restricted(RoleEnum.S_EVERYONE)
   email: string = undefined;
 
