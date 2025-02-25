@@ -1,4 +1,6 @@
 import { Field, InputType } from '@nestjs/graphql';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
@@ -14,19 +16,31 @@ export class CoreAuthSignInInput extends CoreInput {
   // Properties
   // ===================================================================================================================
 
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Device ID (is created automatically if it is not set)', nullable: true })
+  @IsOptional()
+  @IsString()
+  @Restricted(RoleEnum.S_EVERYONE)
   deviceId?: string = undefined;
 
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Device description', nullable: true })
+  @IsOptional()
+  @IsString()
+  @Restricted(RoleEnum.S_EVERYONE)
   deviceDescription?: string = undefined;
 
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Email', nullable: false })
+  @IsEmail()
+  @IsNotEmpty()
+  @Restricted(RoleEnum.S_EVERYONE)
   email: string = undefined;
 
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty()
   @Field({ description: 'Password', nullable: false })
+  @IsNotEmpty()
+  @IsString()
+  @Restricted(RoleEnum.S_EVERYONE)
   password: string = undefined;
 }

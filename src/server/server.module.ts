@@ -8,6 +8,7 @@ import { DateScalar } from '../core/common/scalars/date.scalar';
 import { JSON } from '../core/common/scalars/json.scalar';
 import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 import { CronJobs } from './common/services/cron-jobs.service';
+import { AuthController } from './modules/auth/auth.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { FileModule } from './modules/file/file.module';
 import { ServerController } from './server.controller';
@@ -20,7 +21,7 @@ import { ServerController } from './server.controller';
  */
 @Module({
   // Include REST controllers
-  controllers: [ServerController],
+  controllers: [ServerController, AuthController],
 
   // Export modules for reuse in other modules
   exports: [CoreModule, AuthModule, FileModule],

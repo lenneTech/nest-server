@@ -20,7 +20,8 @@ export class AuthModule {
    */
   static forRoot(options: JwtModuleOptions): DynamicModule {
     return {
-      exports: [AuthController, AuthResolver, CoreAuthModule],
+      controllers: [AuthController],
+      exports: [AuthController, AuthResolver, CoreAuthModule, AuthService],
       imports: [
         CoreAuthModule.forRoot(UserModule, UserService, {
           ...options,
