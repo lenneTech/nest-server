@@ -616,6 +616,14 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * Logout as user
+   */
+  it('logout as user', async () => {
+    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { log, token: gToken });
+    expect(res).toBe(true);
+  });
+
+  /**
    * Delete user
    */
   it('deleteUser', async () => {

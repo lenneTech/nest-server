@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, ParseBoolPipe, Post, Res, UseGuards } from '@nestjs/common';
-import { Args } from '@nestjs/graphql';
+import { Body, Controller, Get, ParseBoolPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response as ResponseType } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,14 +29,15 @@ export class CoreAuthController {
   /**
    * Logout user (from specific device)
    */
+  @ApiOperation({ description: 'Logs a user out from a specific device' })
+  @Get('logout')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
-  @Get()
   async logout(
     @CurrentUser() currentUser: ICoreAuthUser,
     @Tokens('token') token: string,
-    @Res() res: ResponseType,
-    @Param('allDevices', ParseBoolPipe) allDevices?: boolean,
+    @Res({ passthrough: true }) res: ResponseType,
+    @Query('allDevices', ParseBoolPipe) allDevices?: boolean,
   ): Promise<boolean> {
     const result = await this.authService.logout(token, { allDevices, currentUser });
     return this.processCookies(res, result);
@@ -45,13 +46,14 @@ export class CoreAuthController {
   /**
    * Refresh token (for specific device)
    */
+  @ApiResponse({ type: CoreAuthModel })
+  @Get('refresh-token')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
-  @Get()
   async refreshToken(
     @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
-    @Res() res: ResponseType,
+    @Res({ passthrough: true }) res: ResponseType,
   ): Promise<CoreAuthModel> {
     const result = await this.authService.refreshTokens(user, refreshToken);
     return this.processCookies(res, result);
@@ -60,9 +62,10 @@ export class CoreAuthController {
   /**
    * Sign in user via email and password (on specific device)
    */
+  @ApiOperation({ description: 'Sign in via email and password' })
+  @Post('signin')
   @Roles(RoleEnum.S_EVERYONE)
-  @Post()
-  async signIn(@Res() res: ResponseType, @Body('input') input: CoreAuthSignInInput): Promise<CoreAuthModel> {
+  async signIn(@Res({ passthrough: true }) res: ResponseType, @Body() input: CoreAuthSignInInput): Promise<CoreAuthModel> {
     const result = await this.authService.signIn(input);
     return this.processCookies(res, result);
   }
@@ -70,9 +73,11 @@ export class CoreAuthController {
   /**
    * Register a new user account (on specific device)
    */
+  @ApiBody({ type: CoreAuthSignUpInput })
+  @ApiOperation({ description: 'Sign up via email and password' })
+  @Post('signup')
   @Roles(RoleEnum.S_EVERYONE)
-  @Post()
-  async signUp(@Res() res: ResponseType, @Args('input') input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
+  async signUp(@Res() res: ResponseType, @Body() input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
     const result = await this.authService.signUp(input);
     return this.processCookies(res, result);
   }
