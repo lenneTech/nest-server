@@ -17,13 +17,13 @@ export class CoreAuthModel extends CoreModel {
   // ===================================================================================================================
 
   /**
-   * JavaScript Web Token (JWT)
+   * JSON Web Token(JWT)
    */
   @ApiProperty({
-    description: 'JavaScript Web Token (JWT) used for auth',
+    description: 'JSON Web Token(JWT) used for auth',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
-  @Field({ description: 'JavaScript Web Token (JWT)', nullable: true })
+  @Field({ description: 'JSON Web Token(JWT)', nullable: true })
   @Restricted(RoleEnum.S_EVERYONE)
   token?: string = undefined;
 
@@ -31,7 +31,7 @@ export class CoreAuthModel extends CoreModel {
    * Refresh token
    */
   @ApiProperty({
-    description: 'Refresh JavaScript Web Token (JWT) used for auth',
+    description: 'Refresh JSON Web Token(JWT) used for auth',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   @Field({ description: 'Refresh token', nullable: true })
