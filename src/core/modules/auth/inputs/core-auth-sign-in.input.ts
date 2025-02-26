@@ -1,5 +1,5 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
@@ -16,14 +16,14 @@ export class CoreAuthSignInInput extends CoreInput {
   // Properties
   // ===================================================================================================================
 
-  @ApiProperty()
+  @ApiPropertyOptional({ description: 'Device ID (is created automatically if it is not set)' })
   @Field({ description: 'Device ID (is created automatically if it is not set)', nullable: true })
   @IsOptional()
   @IsString()
   @Restricted(RoleEnum.S_EVERYONE)
   deviceId?: string = undefined;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ description: 'Device description' })
   @Field({ description: 'Device description', nullable: true })
   @IsOptional()
   @IsString()
