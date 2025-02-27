@@ -1,5 +1,13 @@
-import { Body, Controller, Get, HttpStatus, ParseBoolPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { Body, Controller, Get, ParseBoolPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBody, ApiCreatedResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { Response as ResponseType } from 'express';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -31,8 +39,8 @@ export class CoreAuthController {
    */
   @ApiOperation({ description: 'Logs a user out from a specific device' })
   @ApiQuery({ description: 'If all devices should be logged out,', name: 'allDevices', required: false, type: Boolean })
-  @ApiResponse({ status: HttpStatus.OK, type: Boolean })
-  @ApiResponse({
+  @ApiOkResponse({ type: Boolean })
+  @ApiUnauthorizedResponse({
     schema: {
       properties: {
         message: { type: 'string' },
@@ -50,7 +58,6 @@ export class CoreAuthController {
       },
       type: 'object',
     },
-    status: HttpStatus.UNAUTHORIZED,
   })
   @Get('logout')
   @Roles(RoleEnum.S_EVERYONE)
@@ -69,8 +76,8 @@ export class CoreAuthController {
    * Refresh token (for specific device)
    */
   @ApiOperation({ description: 'Refresh token (for specific device)' })
-  @ApiResponse({ status: HttpStatus.OK, type: CoreAuthModel })
-  @ApiResponse({
+  @ApiOkResponse({ type: CoreAuthModel })
+  @ApiUnauthorizedResponse({
     schema: {
       properties: {
         message: { type: 'string' },
@@ -88,7 +95,6 @@ export class CoreAuthController {
       },
       type: 'object',
     },
-    status: HttpStatus.UNAUTHORIZED,
   })
   @Get('refresh-token')
   @Roles(RoleEnum.S_EVERYONE)
@@ -106,7 +112,7 @@ export class CoreAuthController {
    * Sign in user via email and password (on specific device)
    */
   @ApiOperation({ description: 'Sign in via email and password' })
-  @ApiResponse({
+  @ApiNotFoundResponse({
     description: 'User not found',
     schema: {
       properties: {
@@ -125,9 +131,8 @@ export class CoreAuthController {
       },
       type: 'object',
     },
-    status: HttpStatus.NOT_FOUND,
   })
-  @ApiResponse({ description: 'Signed in successfully', status: HttpStatus.CREATED, type: CoreAuthModel })
+  @ApiCreatedResponse({ description: 'Signed in successfully', type: CoreAuthModel })
   @Post('signin')
   @Roles(RoleEnum.S_EVERYONE)
   async signIn(@Res({ passthrough: true }) res: ResponseType, @Body() input: CoreAuthSignInInput): Promise<CoreAuthModel> {
@@ -140,8 +145,8 @@ export class CoreAuthController {
    */
   @ApiBody({ type: CoreAuthSignUpInput })
   @ApiOperation({ description: 'Sign up via email and password' })
-  @ApiResponse({ status: HttpStatus.CREATED, type: CoreAuthSignUpInput })
-  @ApiResponse({ schema: {
+  @ApiCreatedResponse({ type: CoreAuthSignUpInput })
+  @ApiBadRequestResponse({ schema: {
       properties: {
         message: { type: 'string' },
         name: { type: 'string' },
@@ -157,7 +162,7 @@ export class CoreAuthController {
         status: { type: 'number' },
       },
       type: 'object',
-    }, status: HttpStatus.BAD_REQUEST,
+    },
   })
   @Post('signup')
   @Roles(RoleEnum.S_EVERYONE)
