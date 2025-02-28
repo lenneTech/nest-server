@@ -616,12 +616,21 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Logout as user
+   * Logout as user on a specific device
    */
-  it('logout as user', async () => {
-    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { log, token: gToken });
+  it('logout as user on one device', async () => {
+    const res: any = await testHelper.rest('/auth/logout', { token: gToken });
     expect(res).toBe(true);
   });
+
+  /**
+   * Logout as user on all devices
+   */
+  it('logout as user on all devices', async () => {
+    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: gToken });
+    expect(res).toBe(true);
+  });
+
 
   /**
    * Delete user

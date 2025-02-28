@@ -1,5 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop } from '@nestjs/mongoose';
+import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
 import { Types } from 'mongoose';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
@@ -19,6 +20,7 @@ import mongoose = require('mongoose');
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
+@ApiExtraModels(CorePersistenceModel)
 export abstract class PersistenceModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -35,6 +37,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
+  @ApiProperty({ type: String })
   createdBy?: Types.ObjectId | string = undefined;
 
   /**
@@ -48,6 +51,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
     nullable: true,
   })
   @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
+  @ApiProperty({ type: User })
   updatedBy?: Types.ObjectId | string = undefined;
 
   // ===================================================================================================================
