@@ -1,15 +1,13 @@
 import { Body, Controller, Get, ParseBoolPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiBody, ApiCreatedResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Response as ResponseType } from 'express';
 
+import { ApiCommonErrorResponses } from '../../common/decorators/common-error.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
@@ -25,6 +23,7 @@ import { Tokens } from './tokens.decorator';
 
 @Roles(RoleEnum.ADMIN)
 @Controller('auth')
+@ApiCommonErrorResponses()
 export class CoreAuthController {
   /**
    * Import services
@@ -40,25 +39,6 @@ export class CoreAuthController {
   @ApiOperation({ description: 'Logs a user out from a specific device' })
   @ApiQuery({ description: 'If all devices should be logged out,', name: 'allDevices', required: false, type: Boolean })
   @ApiOkResponse({ type: Boolean })
-  @ApiUnauthorizedResponse({
-    schema: {
-      properties: {
-        message: { type: 'string' },
-        name: { type: 'string' },
-        options: { type: 'object' },
-        response: {
-          properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
-            statusCode: { type: 'number' },
-          },
-          type: 'object',
-        },
-        status: { type: 'number' },
-      },
-      type: 'object',
-    },
-  })
   @Get('logout')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
@@ -77,25 +57,6 @@ export class CoreAuthController {
    */
   @ApiOperation({ description: 'Refresh token (for specific device)' })
   @ApiOkResponse({ type: CoreAuthModel })
-  @ApiUnauthorizedResponse({
-    schema: {
-      properties: {
-        message: { type: 'string' },
-        name: { type: 'string' },
-        options: { type: 'object' },
-        response: {
-          properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
-            statusCode: { type: 'number' },
-          },
-          type: 'object',
-        },
-        status: { type: 'number' },
-      },
-      type: 'object',
-    },
-  })
   @Get('refresh-token')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
@@ -112,26 +73,6 @@ export class CoreAuthController {
    * Sign in user via email and password (on specific device)
    */
   @ApiOperation({ description: 'Sign in via email and password' })
-  @ApiNotFoundResponse({
-    description: 'User not found',
-    schema: {
-      properties: {
-        message: { type: 'string' },
-        name: { type: 'string' },
-        options: { type: 'object' },
-        response: {
-          properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
-            statusCode: { type: 'number' },
-          },
-          type: 'object',
-        },
-        status: { type: 'number' },
-      },
-      type: 'object',
-    },
-  })
   @ApiCreatedResponse({ description: 'Signed in successfully', type: CoreAuthModel })
   @Post('signin')
   @Roles(RoleEnum.S_EVERYONE)
@@ -146,24 +87,6 @@ export class CoreAuthController {
   @ApiBody({ type: CoreAuthSignUpInput })
   @ApiOperation({ description: 'Sign up via email and password' })
   @ApiCreatedResponse({ type: CoreAuthSignUpInput })
-  @ApiBadRequestResponse({ schema: {
-      properties: {
-        message: { type: 'string' },
-        name: { type: 'string' },
-        options: { type: 'object' },
-        response: {
-          properties: {
-            error: { type: 'string' },
-            message: { type: 'string' },
-            statusCode: { type: 'number' },
-          },
-          type: 'object',
-        },
-        status: { type: 'number' },
-      },
-      type: 'object',
-    },
-  })
   @Post('signup')
   @Roles(RoleEnum.S_EVERYONE)
   async signUp(@Res({ passthrough: true }) res: ResponseType, @Body() input: CoreAuthSignUpInput): Promise<CoreAuthModel> {
