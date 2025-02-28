@@ -1,6 +1,6 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
 import { IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 
@@ -17,6 +17,7 @@ export type CoreUserModelDocument = CoreUserModel & Document;
 @Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({ description: 'User', isAbstract: true })
 @MongooseSchema({ timestamps: true })
+@ApiExtraModels(CorePersistenceModel)
 export abstract class CoreUserModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties

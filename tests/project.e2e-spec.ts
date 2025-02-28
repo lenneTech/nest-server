@@ -226,6 +226,47 @@ describe('Project (e2e)', () => {
     }
   });
 
+  /**
+   * Test if swagger error-structure mirrors the actual error structure
+   */
+  it('Validates common-error structure', async () => {
+    const res: any = await testHelper.rest('/auth/signin', { method: 'POST', statusCode: 400 });
+
+
+    // Test for generic object equality
+    expect(res).toMatchObject({
+      message: expect.any(String),
+      name: expect.any(String),
+      options: expect.any(Object),
+      response: {
+        error: expect.any(String),
+        message: expect.any(String),
+        statusCode: expect.any(Number),
+      },
+      status: expect.any(Number),
+    });
+
+    // Test for concrete values
+    expect(res).toMatchObject({
+      message: 'Input validation failed:An instance of CoreAuthSignInInput has failed the validation:\n'
+        + ' - property email has failed the following constraints: isNotEmpty, isEmail \n'
+        + '; An instance of CoreAuthSignInInput has failed the validation:\n'
+        + ' - property password has failed the following constraints: isString, isNotEmpty \n',
+      name: 'BadRequestException',
+      options: {},
+      response: {
+        error: 'Bad Request',
+        message: 'Input validation failed:An instance of CoreAuthSignInInput has failed the validation:\n'
+          + ' - property email has failed the following constraints: isNotEmpty, isEmail \n'
+          + '; An instance of CoreAuthSignInInput has failed the validation:\n'
+          + ' - property password has failed the following constraints: isString, isNotEmpty \n',
+        statusCode: 400,
+      },
+      status: 400,
+    });
+
+  });
+
   // ===================================================================================================================
   // Tests
   // ===================================================================================================================

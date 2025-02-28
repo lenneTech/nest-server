@@ -9,6 +9,7 @@ export * from './core.module';
 // =====================================================================================================================
 export * from './core/common/args/filter.args';
 export * from './core/common/args/pagination.args';
+export * from './core/common/decorators/common-error.decorator';
 export * from './core/common/decorators/current-user.decorator';
 export * from './core/common/decorators/graphql-populate.decorator';
 export * from './core/common/decorators/graphql-service-options.decorator';

@@ -1,5 +1,6 @@
 import { Field, ID, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema } from '@nestjs/mongoose';
+import { ApiProperty } from '@nestjs/swagger';
 import { Types } from 'mongoose';
 
 import { Restricted } from '../decorators/restricted.decorator';
@@ -47,6 +48,7 @@ export abstract class CorePersistenceModel extends CoreModel {
     description: 'ID of the persistence object',
     nullable: true,
   })
+  @ApiProperty({ type: String })
   id: string = undefined;
 
   /**
@@ -55,6 +57,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Created date', nullable: true })
   @Prop({ onCreate: () => new Date() })
+  @ApiProperty({ example: 1740037703939, format: 'int64', type: Date })
   createdAt: Date = undefined;
 
   /**
@@ -63,6 +66,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
+  @ApiProperty({ example: 1740037703939, format: 'int64', type: String })
   updatedAt: Date = undefined;
 
   // ===========================================================================
