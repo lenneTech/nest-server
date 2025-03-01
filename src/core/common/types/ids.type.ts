@@ -1,7 +1,3 @@
-import { Types } from 'mongoose';
+import { IdType } from './id.type';
 
-export type IdsType =
-  | ({ _id?: Types.ObjectId | string; id?: Types.ObjectId | string } | Types.ObjectId | string)[]
-  | { _id?: Types.ObjectId | string; id?: Types.ObjectId | string }
-  | Types.ObjectId
-  | string;
+export type IdsType = IdType | IdType[];
