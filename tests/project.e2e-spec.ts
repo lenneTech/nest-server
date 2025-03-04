@@ -239,28 +239,32 @@ describe('Project (e2e)', () => {
       name: expect.any(String),
       options: expect.any(Object),
       response: {
-        error: expect.any(String),
-        message: expect.any(String),
-        statusCode: expect.any(Number),
+        email: {
+          isEmail: expect.any(String),
+          isNotEmpty: expect.any(String),
+        },
+        password: {
+          isNotEmpty: expect.any(String),
+          isString: expect.any(String),
+        },
       },
       status: expect.any(Number),
     });
 
     // Test for concrete values
     expect(res).toMatchObject({
-      message: 'Input validation failed:An instance of CoreAuthSignInInput has failed the validation:\n'
-        + ' - property email has failed the following constraints: isNotEmpty, isEmail \n'
-        + '; An instance of CoreAuthSignInInput has failed the validation:\n'
-        + ' - property password has failed the following constraints: isString, isNotEmpty \n',
+      message: 'Bad Request Exception',
       name: 'BadRequestException',
       options: {},
       response: {
-        error: 'Bad Request',
-        message: 'Input validation failed:An instance of CoreAuthSignInInput has failed the validation:\n'
-          + ' - property email has failed the following constraints: isNotEmpty, isEmail \n'
-          + '; An instance of CoreAuthSignInInput has failed the validation:\n'
-          + ' - property password has failed the following constraints: isString, isNotEmpty \n',
-        statusCode: 400,
+        email: {
+          isEmail: 'email must be an email',
+          isNotEmpty: 'email should not be empty',
+        },
+        password: {
+          isNotEmpty: 'password should not be empty',
+          isString: 'password must be a string',
+        },
       },
       status: 400,
     });

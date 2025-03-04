@@ -25,7 +25,11 @@ export class MapAndValidatePipe implements PipeTransform {
     // Validate
     const errors = await validate(value, { forbidUnknownValues: false });
     if (errors.length > 0) {
-      throw new BadRequestException(`Input validation failed:${errors.join('; ')}`);
+      const result = {};
+      errors.forEach((e) => {
+        result[e.property] = e.constraints;
+      });
+      throw new BadRequestException(result);
     }
 
     return value;
