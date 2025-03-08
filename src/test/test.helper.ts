@@ -303,12 +303,27 @@ export class TestHelper {
     if (config.convertEnums) {
       if (Array.isArray(config.convertEnums)) {
         for (const key of Object.values(config.convertEnums)) {
-          const regExpStr = `(${key}: )\\"([_A-Z][_0-9A-Z]*)\\"`;
+          const regExpStr = `(?<=${key}:\\s*)"([A-Z0-9_]+)"(?=\\s*[,\\]}])`;
           const regExp = new RegExp(regExpStr, 'g');
-          query = query.replace(regExp, '$1$2');
+          query = query.replace(regExp, (match, group1) => {
+            // If group1 consists exclusively of digits, return original string
+            if (/^\d+$/.test(group1)) {
+              return match;
+            }
+            // Otherwise remove quotation marks
+            return group1;
+          });
         }
       } else {
-        query = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
+        const before = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
+        query = query.replace(/(?<=[:\[,]\s*)"([A-Z0-9_]+)"(?=\s*[,\]\}])/g, (match, group1) => {
+          // If group1 only contains digits, the original string is returned
+          if (/^\d+$/.test(group1)) {
+            return match;
+          }
+          // Otherwise the quotation marks are removed
+          return group1;
+        });
       }
     }
 
