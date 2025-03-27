@@ -51,52 +51,6 @@ export class ModelHelper {
 }
 
 /**
- * Remove all properties from source which are not in target
- */
-export function prepareMap<T = Record<string, any>>(
-  source: Partial<T> | Record<string, any>,
-  target: T,
-  options: {
-    circles?: boolean;
-    cloneDeep?: boolean;
-    funcAllowed?: boolean;
-    mapId?: boolean;
-    proto?: boolean;
-  } = {},
-): Partial<T> | Record<string, any> {
-  // Set config
-  const config = {
-    circles: true,
-    cloneDeep: true,
-    funcAllowed: false,
-    mapId: false,
-    proto: false,
-    ...options,
-  };
-
-  // Initializations
-  const result = {};
-
-  // Update properties
-  for (const key of Object.keys(target)) {
-    if (
-      (!['_id', 'id'].includes(key) || config.mapId)
-      && source[key] !== undefined
-      && (config.funcAllowed || typeof (source[key] !== 'function'))
-    ) {
-      result[key]
-        = source[key] !== 'function' && config.cloneDeep
-          ? clone(source[key], { circles: config.circles, proto: config.proto })
-          : source[key];
-    } else if (key === 'id' && !config.mapId) {
-      result['id'] = source[key];
-    }
-  }
-
-  return result;
-}
-
-/**
  * Simple map function
  */
 export function map<T = Record<string, any>>(
@@ -133,30 +87,6 @@ export function map<T = Record<string, any>>(
 
   // Return target
   return target;
-}
-
-/**
- * Create Object or Objects of specified type with specified data
- */
-export function maps<T = Record<string, any>>(
-  data: Partial<T> | Partial<T>[] | Record<string, any> | Record<string, any>[],
-  targetClass: new (...args: any[]) => T,
-  cloneDeep = true,
-): T[] {
-  // Check data
-  if (!data || typeof data !== 'object') {
-    return undefined;
-  }
-
-  // Check array
-  if (!Array.isArray(data)) {
-    data = [data];
-  }
-
-  // Map
-  return (data as any[]).map((item) => {
-    return (targetClass as any).map(item, { cloneDeep });
-  });
 }
 
 /**
@@ -365,4 +295,74 @@ export function mapInputClassesAsync<T = Record<string, any>>(
     ...options,
   };
   return mapClassesAsync(input, mapping, target, config);
+}
+
+/**
+ * Create Object or Objects of specified type with specified data
+ */
+export function maps<T = Record<string, any>>(
+  data: Partial<T> | Partial<T>[] | Record<string, any> | Record<string, any>[],
+  targetClass: new (...args: any[]) => T,
+  cloneDeep = true,
+): T[] {
+  // Check data
+  if (!data || typeof data !== 'object') {
+    return undefined;
+  }
+
+  // Check array
+  if (!Array.isArray(data)) {
+    data = [data];
+  }
+
+  // Map
+  return (data as any[]).map((item) => {
+    return (targetClass as any).map(item, { cloneDeep });
+  });
+}
+
+/**
+ * Remove all properties from source which are not in target
+ */
+export function prepareMap<T = Record<string, any>>(
+  source: Partial<T> | Record<string, any>,
+  target: T,
+  options: {
+    circles?: boolean;
+    cloneDeep?: boolean;
+    funcAllowed?: boolean;
+    mapId?: boolean;
+    proto?: boolean;
+  } = {},
+): Partial<T> | Record<string, any> {
+  // Set config
+  const config = {
+    circles: true,
+    cloneDeep: true,
+    funcAllowed: false,
+    mapId: false,
+    proto: false,
+    ...options,
+  };
+
+  // Initializations
+  const result = {};
+
+  // Update properties
+  for (const key of Object.keys(target)) {
+    if (
+      (!['_id', 'id'].includes(key) || config.mapId)
+      && source[key] !== undefined
+      && (config.funcAllowed || typeof (source[key] !== 'function'))
+    ) {
+      result[key]
+        = source[key] !== 'function' && config.cloneDeep
+          ? clone(source[key], { circles: config.circles, proto: config.proto })
+          : source[key];
+    } else if (key === 'id' && !config.mapId) {
+      result['id'] = source[key];
+    }
+  }
+
+  return result;
 }

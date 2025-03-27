@@ -20,8 +20,8 @@ import { Tokens } from './tokens.decorator';
 /**
  * Authentication resolver for the sign in
  */
-@Roles(RoleEnum.ADMIN)
 @Resolver(of => CoreAuthModel, { isAbstract: true })
+@Roles(RoleEnum.ADMIN)
 export class CoreAuthResolver {
   /**
    * Import services
@@ -38,9 +38,9 @@ export class CoreAuthResolver {
   /**
    * Logout user (from specific device)
    */
+  @Mutation(returns => Boolean, { description: 'Logout user (from specific device)' })
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
-  @Mutation(returns => Boolean, { description: 'Logout user (from specific device)' })
   async logout(
     @CurrentUser() currentUser: ICoreAuthUser,
     @Context() ctx: { res: ResponseType },
@@ -54,9 +54,9 @@ export class CoreAuthResolver {
   /**
    * Refresh token (for specific device)
    */
+  @Mutation(returns => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
-  @Mutation(returns => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   async refreshToken(
     @CurrentUser() user: ICoreAuthUser,
     @Tokens('refreshToken') refreshToken: string,
@@ -69,10 +69,10 @@ export class CoreAuthResolver {
   /**
    * Sign in user via email and password (on specific device)
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(returns => CoreAuthModel, {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
+  @Roles(RoleEnum.S_EVERYONE)
   async signIn(
     @GraphQLServiceOptions({ gqlPath: 'signIn.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
@@ -85,8 +85,8 @@ export class CoreAuthResolver {
   /**
    * Register a new user account (on specific device)
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(returns => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
+  @Roles(RoleEnum.S_EVERYONE)
   async signUp(
     @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },

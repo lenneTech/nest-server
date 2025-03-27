@@ -9,8 +9,8 @@ import { CoreInput } from '../../../common/inputs/core-input.input';
 /**
  * SignIn input
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @InputType({ description: 'Sign-in input' })
+@Restricted(RoleEnum.S_EVERYONE)
 export class CoreAuthSignInInput extends CoreInput {
   // ===================================================================================================================
   // Properties

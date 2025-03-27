@@ -8,9 +8,9 @@ import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
 /**
  * File info model
  */
-@Restricted(RoleEnum.ADMIN)
-@ObjectType({ description: 'Information about file' })
 @MongooseSchema({ collection: 'fs.files' })
+@ObjectType({ description: 'Information about file' })
+@Restricted(RoleEnum.ADMIN)
 export class FileInfo extends CoreFileInfo {}
 
 /**

@@ -15,12 +15,12 @@ import mongoose = require('mongoose');
  *
  * The models are a combination of MikroORM Entities and TypeGraphQL Types
  */
-@Restricted(RoleEnum.ADMIN)
+@ApiExtraModels(CorePersistenceModel)
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
-@ApiExtraModels(CorePersistenceModel)
+@Restricted(RoleEnum.ADMIN)
 export abstract class PersistenceModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -31,28 +31,28 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    *
    * Not set when created by system
    */
-  @Restricted(RoleEnum.ADMIN)
+  @ApiProperty({ type: String })
   @Field(() => User, {
     description: 'ID of the user who created the object',
     nullable: true,
   })
   @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
-  @ApiProperty({ type: String })
-  createdBy?: Types.ObjectId | string = undefined;
+  @Restricted(RoleEnum.ADMIN)
+  createdBy?: string | Types.ObjectId = undefined;
 
   /**
    * ID of the user who updated the object
    *
    * Not set when updated by system
    */
-  @Restricted(RoleEnum.ADMIN)
+  @ApiProperty({ type: User })
   @Field(() => User, {
     description: 'ID of the user who updated the object',
     nullable: true,
   })
   @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
-  @ApiProperty({ type: User })
-  updatedBy?: Types.ObjectId | string = undefined;
+  @Restricted(RoleEnum.ADMIN)
+  updatedBy?: string | Types.ObjectId = undefined;
 
   // ===================================================================================================================
   // Methods

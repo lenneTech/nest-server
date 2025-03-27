@@ -7,27 +7,27 @@ import { maps } from '../helpers/model.helper';
 import { CoreInput } from './core-input.input';
 import { FilterInput } from './filter.input';
 
-@Restricted(RoleEnum.S_EVERYONE)
 @InputType({
   description: 'Combination of multiple filters via logical operator',
 })
+@Restricted(RoleEnum.S_EVERYONE)
 export class CombinedFilterInput extends CoreInput {
   /**
    * Logical Operator to combine filters
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => LogicalOperatorEnum, {
     description: 'Logical Operator to combine filters',
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   logicalOperator: LogicalOperatorEnum = undefined;
 
   /**
    * Filters to combine via logical operator
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => [FilterInput], {
     description: 'Filters to combine via logical operator',
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   filters: FilterInput[] = undefined;
 
   // ===================================================================================================================

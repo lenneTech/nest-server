@@ -13,9 +13,9 @@ export type UserDocument = Document & User;
 /**
  * User model
  */
-@Restricted(RoleEnum.ADMIN)
-@ObjectType({ description: 'User' })
 @MongooseSchema({ timestamps: true })
+@ObjectType({ description: 'User' })
+@Restricted(RoleEnum.ADMIN)
 export class User extends CoreUserModel implements PersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -24,9 +24,9 @@ export class User extends CoreUserModel implements PersistenceModel {
   /**
    * URL to avatar file of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'URL to avatar file of the user', nullable: true })
   @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
   avatar: string = undefined;
 
   /**
@@ -34,30 +34,30 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when created by system
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(() => String, {
     description: 'ID of the user who created the object',
     nullable: true,
   })
   @Prop({ ref: 'User', type: Schema.Types.ObjectId })
+  @Restricted(RoleEnum.S_EVERYONE)
   createdBy: string = undefined;
 
   /**
    * E-Mail address of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Email of the user', nullable: true })
   @IsEmail()
   @Prop({ lowercase: true, trim: true, unique: true })
+  @Restricted(RoleEnum.S_EVERYONE)
   override email: string = undefined;
 
   /**
    * Roles of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
+  @Restricted(RoleEnum.S_EVERYONE)
   override roles: string[] = undefined;
 
   /**
@@ -65,12 +65,12 @@ export class User extends CoreUserModel implements PersistenceModel {
    *
    * Not set when updated by system
    */
-  @Restricted(RoleEnum.S_USER)
   @Field(() => String, {
     description: 'ID of the user who last updated the object',
     nullable: true,
   })
   @Prop({ ref: 'User', type: Schema.Types.ObjectId })
+  @Restricted(RoleEnum.S_USER)
   updatedBy: string = undefined;
 
   // ===================================================================================================================

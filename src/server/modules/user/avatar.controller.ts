@@ -13,8 +13,8 @@ import { UserService } from './user.service';
 /**
  * Controller for avatar
  */
-@Roles(RoleEnum.ADMIN)
 @Controller('avatar')
+@Roles(RoleEnum.ADMIN)
 export class AvatarController {
   /**
    * Import services
@@ -24,8 +24,8 @@ export class AvatarController {
   /**
    * Upload files
    */
-  @Roles(RoleEnum.S_USER)
   @Post('upload')
+  @Roles(RoleEnum.S_USER)
   @UseInterceptors(
     FileInterceptor(
       'file',

@@ -7,8 +7,8 @@ import { CoreUserInput } from '../../../../core/modules/user/inputs/core-user.in
 /**
  * User input to update a user
  */
-@Restricted(RoleEnum.ADMIN)
 @InputType({ description: 'User input' })
+@Restricted(RoleEnum.ADMIN)
 export class UserInput extends CoreUserInput {
   // Extend UserInput here
 }

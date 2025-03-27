@@ -9,29 +9,29 @@ import { SingleFilterInput } from './single-filter.input';
 /**
  * Input for filtering. The `singleFilter` will be ignored if the `combinedFilter` is set.
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @InputType({
   description: 'Input for filtering. The `singleFilter` will be ignored if the `combinedFilter` is set.',
 })
+@Restricted(RoleEnum.S_EVERYONE)
 export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => CombinedFilterInput, {
     description: 'Combination of multiple filters via logical operator',
     nullable: true,
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   combinedFilter?: CombinedFilterInput = undefined;
 
   /**
    * Filter for a single property
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field(type => SingleFilterInput, {
     description: 'Filter for a single property',
     nullable: true,
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   singleFilter?: SingleFilterInput = undefined;
 
   // ===================================================================================================================

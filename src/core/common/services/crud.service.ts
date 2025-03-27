@@ -32,7 +32,7 @@ export abstract class CrudService<
    */
   async aggregate<T = any>(
     pipeline: PipelineStage[],
-    serviceOptions?: { aggregateOptions?: AggregateOptions } & ServiceOptions,
+    serviceOptions?: ServiceOptions & { aggregateOptions?: AggregateOptions },
   ): Promise<T> {
     return this.process(
       async () => {
@@ -147,7 +147,7 @@ export abstract class CrudService<
    * Get items via filter
    */
   async find(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions,
   ): Promise<Model[]> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
@@ -191,7 +191,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async findForce(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
@@ -204,7 +204,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async findRaw(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
     serviceOptions = serviceOptions || {};
@@ -216,7 +216,7 @@ export abstract class CrudService<
    * Get items and total count via filter
    */
   async findAndCount(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions,
   ): Promise<{ items: Model[]; totalCount: number }> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
@@ -295,7 +295,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async findAndCountForce(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions.raw = true;
@@ -307,7 +307,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async findAndCountRaw(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; totalCount: number }> {
     serviceOptions = serviceOptions || {};
@@ -319,7 +319,7 @@ export abstract class CrudService<
    * Find and update
    */
   async findAndUpdate(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
     serviceOptions?: ServiceOptions,
   ): Promise<Model[]> {
@@ -348,7 +348,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async findAndUpdateForce(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
@@ -362,7 +362,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async findAndUpdateRaw(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     update: PlainObject<UpdateInput>,
     serviceOptions: ServiceOptions = {},
   ): Promise<Model[]> {
@@ -375,7 +375,7 @@ export abstract class CrudService<
    * Find one item via filter
    */
   async findOne(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
@@ -414,7 +414,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async findOneForce(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<Model> {
     serviceOptions = serviceOptions || {};
@@ -427,7 +427,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async findOneRaw(
-    filter?: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number } | FilterArgs,
+    filter?: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<Model> {
     serviceOptions = serviceOptions || {};
@@ -452,7 +452,7 @@ export abstract class CrudService<
    * CRUD alias for find
    */
   async read(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model[]>;
 
@@ -460,7 +460,7 @@ export abstract class CrudService<
    * CRUD alias for get or find
    */
   async read(
-    input: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs | string,
+    input: FilterArgs | string | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
@@ -481,7 +481,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async readForce(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model[]>;
 
@@ -490,7 +490,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions!
    */
   async readForce(
-    input: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs | string,
+    input: FilterArgs | string | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {
@@ -511,7 +511,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async readRaw(
-    filter: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs,
+    filter: FilterArgs | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model[]>;
 
@@ -520,7 +520,7 @@ export abstract class CrudService<
    * Warning: Disables the handling of rights and restrictions! The raw data may contain secrets (such as passwords).
    */
   async readRaw(
-    input: { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions } | FilterArgs | string,
+    input: FilterArgs | string | { filterQuery?: FilterQuery<any>; queryOptions?: QueryOptions },
     serviceOptions?: ServiceOptions,
   ): Promise<Model | Model[]> {
     if (typeof input === 'string') {

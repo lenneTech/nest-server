@@ -5,8 +5,8 @@ export function htmlTable(
     tableStyle?: string;
     tbodyStyle?: string;
     tdStyle?: string;
-    thStyle?: string;
     theadStyle?: string;
+    thStyle?: string;
     trHeadStyle?: string;
     trStyle?: string;
   },

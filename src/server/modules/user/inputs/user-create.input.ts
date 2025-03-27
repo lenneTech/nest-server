@@ -7,8 +7,8 @@ import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-u
 /**
  * User input to create a new user
  */
-@Restricted(RoleEnum.ADMIN)
 @InputType({ description: 'User input to create a new user' })
+@Restricted(RoleEnum.ADMIN)
 export class UserCreateInput extends CoreUserCreateInput {
   // Extend UserCreateInput here
 }

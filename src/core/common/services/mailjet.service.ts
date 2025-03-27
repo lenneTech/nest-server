@@ -1,8 +1,8 @@
 import { HttpException, Injectable } from '@nestjs/common';
+const Mailjet = require('node-mailjet');
 
 import { ConfigService } from './config.service';
 
-const Mailjet = require('node-mailjet');
 
 /**
  * Mailjet service

@@ -7,8 +7,8 @@ import { CoreAuthSignInInput } from '../../../../core/modules/auth/inputs/core-a
 /**
  * SignIn input
  */
-@Restricted(RoleEnum.ADMIN)
 @InputType({ description: 'Sign-in input' })
+@Restricted(RoleEnum.ADMIN)
 export class AuthSignInInput extends CoreAuthSignInInput {
   // Extend UserInput here
 }

@@ -324,20 +324,21 @@ export interface IServerOptions {
    * Hint: The secrets of the different environments should be different, otherwise a JWT can be used in different
    * environments, which can lead to security vulnerabilities.
    */
-  jwt?: {
+  jwt?: IJwt & JwtModuleOptions &
+    {
     /**
      * Configuration for refresh Token (JWT)
      * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
      * requested with the JWT, which can lead to a security vulnerability.
      */
-    refresh?: {
+    refresh?: IJwt & {
       /**
        * Whether renewal of the refresh token is permitted
        * If falsy (default): during refresh only a new token, the refresh token retains its original term
        * If true: during refresh not only a new token but also a new refresh token is created
        */
       renewal?: boolean;
-    } & IJwt;
+    };
 
     /**
      * Time period in milliseconds
@@ -345,8 +346,7 @@ export interface IServerOptions {
      * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
      */
     sameTokenIdPeriod?: number;
-  } & IJwt &
-    JwtModuleOptions;
+  };
 
   /**
    * Load local configuration
@@ -412,6 +412,7 @@ export interface IServerOptions {
      * See @lenne.tech/nest-server/src/core/common/interceptors/check-response.interceptor.ts
      */
     checkResponseInterceptor?:
+      | boolean
       | {
           /**
            * Check the object itself for restrictions
@@ -457,8 +458,7 @@ export interface IServerOptions {
            * default = false (for output objects)
            */
           throwError?: boolean;
-        }
-      | boolean;
+        };
 
     /**
      * Process securityCheck() methode of Object before response
@@ -466,6 +466,7 @@ export interface IServerOptions {
      * default = true
      */
     checkSecurityInterceptor?:
+      | boolean
       | {
           /**
            * Whether to log if a process is slow
@@ -479,8 +480,7 @@ export interface IServerOptions {
            * default = true
            */
           noteCheckedObjects?: boolean;
-        }
-      | boolean;
+        };
 
     /**
      * Map incoming plain objects to meta-type and validate

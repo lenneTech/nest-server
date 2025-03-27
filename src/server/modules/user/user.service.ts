@@ -8,8 +8,8 @@ import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreModelConstructor } from '../../../core/common/types/core-model-constructor.type';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
-import { UserInput } from './inputs/user.input';
 import { UserCreateInput } from './inputs/user-create.input';
+import { UserInput } from './inputs/user.input';
 import { User, UserDocument } from './user.model';
 
 import fs = require('fs');
