@@ -4,7 +4,7 @@ import { Kind, ValueNode } from 'graphql';
 /**
  * Any scalar (is equivalent to the JSON scalar)
  */
-@Scalar('Any', type => Any)
+@Scalar('Any', () => Any)
 export class Any implements CustomScalar<string, any> {
   /**
    * Description of the scalar

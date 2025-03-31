@@ -64,7 +64,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Roles of the user
    */
   @ApiProperty()
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field(() => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
   @Restricted(RoleEnum.S_EVERYONE)
@@ -171,7 +171,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Verification of the user
    */
   @ApiProperty()
-  @Field(type => Boolean, { description: 'Verification state of the user', nullable: true })
+  @Field(() => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
   @Restricted(RoleEnum.S_EVERYONE)
   verified: boolean = undefined;

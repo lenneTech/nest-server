@@ -20,7 +20,7 @@ import { Tokens } from './tokens.decorator';
 /**
  * Authentication resolver for the sign in
  */
-@Resolver(of => CoreAuthModel, { isAbstract: true })
+@Resolver(() => CoreAuthModel, { isAbstract: true })
 @Roles(RoleEnum.ADMIN)
 export class CoreAuthResolver {
   /**
@@ -38,7 +38,7 @@ export class CoreAuthResolver {
   /**
    * Logout user (from specific device)
    */
-  @Mutation(returns => Boolean, { description: 'Logout user (from specific device)' })
+  @Mutation(() => Boolean, { description: 'Logout user (from specific device)' })
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async logout(
@@ -54,7 +54,7 @@ export class CoreAuthResolver {
   /**
    * Refresh token (for specific device)
    */
-  @Mutation(returns => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
+  @Mutation(() => CoreAuthModel, { description: 'Refresh tokens (for specific device)' })
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
   async refreshToken(
@@ -69,7 +69,7 @@ export class CoreAuthResolver {
   /**
    * Sign in user via email and password (on specific device)
    */
-  @Mutation(returns => CoreAuthModel, {
+  @Mutation(() => CoreAuthModel, {
     description: 'Sign in user via email and password and get JWT tokens (for specific device)',
   })
   @Roles(RoleEnum.S_EVERYONE)
@@ -85,7 +85,7 @@ export class CoreAuthResolver {
   /**
    * Register a new user account (on specific device)
    */
-  @Mutation(returns => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
+  @Mutation(() => CoreAuthModel, { description: 'Register a new user account (on specific device)' })
   @Roles(RoleEnum.S_EVERYONE)
   async signUp(
     @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,

@@ -54,7 +54,7 @@ export class User extends CoreUserModel implements PersistenceModel {
   /**
    * Roles of the user
    */
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field(() => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
   @Restricted(RoleEnum.S_EVERYONE)

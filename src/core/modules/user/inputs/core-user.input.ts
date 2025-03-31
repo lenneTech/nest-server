@@ -44,7 +44,7 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Roles of the user
    */
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field(() => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
   roles?: string[] = undefined;

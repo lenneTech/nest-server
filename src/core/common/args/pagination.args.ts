@@ -10,7 +10,7 @@ export class PaginationArgs extends CoreInput {
   /**
    * Limit for pagination
    */
-  @Field(type => Int, {
+  @Field(() => Int, {
     description: 'Limit specifies the maximum number of elements found that are to be returned',
     nullable: true,
   })
@@ -20,7 +20,7 @@ export class PaginationArgs extends CoreInput {
   /**
    * Alias for skip
    */
-  @Field(type => Int, {
+  @Field(() => Int, {
     description: 'Alias for skip',
     nullable: true,
   })
@@ -30,7 +30,7 @@ export class PaginationArgs extends CoreInput {
   /**
    * Skip for pagination
    */
-  @Field(type => Int, {
+  @Field(() => Int, {
     description: 'Skip specifies how many found elements should be skipped on return',
     nullable: true,
   })
@@ -40,7 +40,7 @@ export class PaginationArgs extends CoreInput {
   /**
    * Sorting for pagination
    */
-  @Field(type => [SortInput], {
+  @Field(() => [SortInput], {
     description: 'Sorting the returned elements',
     nullable: true,
   })
@@ -50,7 +50,7 @@ export class PaginationArgs extends CoreInput {
   /**
    * Alias for limit
    */
-  @Field(type => Int, {
+  @Field(() => Int, {
     description: 'Alias for limit',
     nullable: true,
   })

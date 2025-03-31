@@ -44,7 +44,7 @@ export abstract class CorePersistenceModel extends CoreModel {
    * ID of the persistence object as string
    */
   @ApiProperty({ type: String })
-  @Field(type => ID, {
+  @Field(() => ID, {
     description: 'ID of the persistence object',
     nullable: true,
   })

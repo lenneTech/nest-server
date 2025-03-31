@@ -25,7 +25,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
   /**
    * The info object contains information of each health indicator which is of status “up”
    */
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The info object contains information of each health indicator which is of status “up”',
     nullable: true,
   })
@@ -35,7 +35,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
   /**
    * The error object contains information of each health indicator which is of status “down”
    */
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The error object contains information of each health indicator which is of status “down”',
     nullable: true,
   })
@@ -45,7 +45,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
   /**
    * The details object contains information of every health indicator
    */
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The details object contains information of every health indicator',
     nullable: false,
   })

@@ -52,7 +52,7 @@ export class SingleFilterInput extends CoreInput {
   /**
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
-  @Field(type => ComparisonOperatorEnum, {
+  @Field(() => ComparisonOperatorEnum, {
     description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
   })
   @Restricted(RoleEnum.S_EVERYONE)
@@ -71,7 +71,7 @@ export class SingleFilterInput extends CoreInput {
   @Restricted(RoleEnum.S_EVERYONE)
   options?: string = undefined;
 
-  @Field(type => JSON, { description: 'Value of the property' })
+  @Field(() => JSON, { description: 'Value of the property' })
   @Restricted(RoleEnum.S_EVERYONE)
   value: any = undefined;
 }

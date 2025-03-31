@@ -315,7 +315,6 @@ export class TestHelper {
           });
         }
       } else {
-        const before = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
         query = query.replace(/(?<=[:\[,]\s*)"([A-Z0-9_]+)"(?=\s*[,\]\}])/g, (match, group1) => {
           // If group1 only contains digits, the original string is returned
           if (/^\d+$/.test(group1)) {

@@ -17,7 +17,7 @@ export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */
-  @Field(type => CombinedFilterInput, {
+  @Field(() => CombinedFilterInput, {
     description: 'Combination of multiple filters via logical operator',
     nullable: true,
   })
@@ -27,7 +27,7 @@ export class FilterInput extends CoreInput {
   /**
    * Filter for a single property
    */
-  @Field(type => SingleFilterInput, {
+  @Field(() => SingleFilterInput, {
     description: 'Filter for a single property',
     nullable: true,
   })

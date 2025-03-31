@@ -21,7 +21,7 @@ export class SortInput extends CoreInput {
   /**
    * SortInput order of the field
    */
-  @Field(type => SortOrderEnum, { description: 'SortInput order of the field' })
+  @Field(() => SortOrderEnum, { description: 'SortInput order of the field' })
   @Restricted(RoleEnum.S_EVERYONE)
   order: SortOrderEnum = undefined;
 }
