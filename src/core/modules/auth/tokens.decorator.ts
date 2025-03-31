@@ -1,4 +1,4 @@
-import { ExecutionContext, createParamDecorator } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
 import { getContextData } from '../../common/helpers/context.helper';
 
@@ -9,7 +9,7 @@ export const Tokens = createParamDecorator(
   (
     tokenId: 'refreshToken' | 'token' | undefined,
     ctx: ExecutionContext,
-  ): { refreshToken: string; token: string } | string => {
+  ): string | { refreshToken: string; token: string } => {
     // Get prepared context (REST or GraphQL)
     const context = getContextData(ctx);
 

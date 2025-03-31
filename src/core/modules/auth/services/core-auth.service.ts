@@ -42,7 +42,7 @@ export class CoreAuthService {
    */
   async logout(
     tokenOrRefreshToken: string,
-    serviceOptions: { allDevices?: boolean } & ServiceOptions,
+    serviceOptions: ServiceOptions & { allDevices?: boolean },
   ): Promise<boolean> {
     // Check authentication
     const user = serviceOptions.currentUser;

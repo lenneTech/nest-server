@@ -20,11 +20,11 @@ import { CoreModel } from './core-model.model';
  * with undefined if possible. If necessary and useful, the init method can then be used deliberately:
  * const corePersistenceModel = item ? CorePersistenceModel.map(item).init() : CorePersistenceModel.init();
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({
   description: 'Persistence model which will be saved in DB',
   isAbstract: true,
 })
+@Restricted(RoleEnum.S_EVERYONE)
 @Schema({ timestamps: true })
 export abstract class CorePersistenceModel extends CoreModel {
   // ===========================================================================
@@ -43,30 +43,30 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * ID of the persistence object as string
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => ID, {
+  @ApiProperty({ type: String })
+  @Field(() => ID, {
     description: 'ID of the persistence object',
     nullable: true,
   })
-  @ApiProperty({ type: String })
+  @Restricted(RoleEnum.S_EVERYONE)
   id: string = undefined;
 
   /**
    * Created date, is set automatically by mongoose
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty({ example: 1740037703939, format: 'int64', type: Date })
   @Field({ description: 'Created date', nullable: true })
   @Prop({ onCreate: () => new Date() })
-  @ApiProperty({ example: 1740037703939, format: 'int64', type: Date })
+  @Restricted(RoleEnum.S_EVERYONE)
   createdAt: Date = undefined;
 
   /**
    * Updated date is set automatically by mongoose
    */
-  @Restricted(RoleEnum.S_EVERYONE)
+  @ApiProperty({ example: 1740037703939, format: 'int64', type: String })
   @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
-  @ApiProperty({ example: 1740037703939, format: 'int64', type: String })
+  @Restricted(RoleEnum.S_EVERYONE)
   updatedAt: Date = undefined;
 
   // ===========================================================================

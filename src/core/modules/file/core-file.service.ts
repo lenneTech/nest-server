@@ -1,4 +1,4 @@
-import { MongoGridFSOptions, MongooseGridFS, createBucket } from '@lenne.tech/mongoose-gridfs';
+import { createBucket, MongoGridFSOptions, MongooseGridFS } from '@lenne.tech/mongoose-gridfs';
 import { NotFoundException } from '@nestjs/common';
 import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
 import mongoose, { Connection, Types } from 'mongoose';
@@ -127,7 +127,7 @@ export abstract class CoreFileService {
   /**
    * Get info about file via file ID
    */
-  async getFileInfo(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+  async getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -155,7 +155,7 @@ export abstract class CoreFileService {
   /**
    * Get file stream (for big files) via file ID
    */
-  async getFileStream(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions) {
+  async getFileStream(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions) {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -178,7 +178,7 @@ export abstract class CoreFileService {
   /**
    * Get file buffer (for small files) via file ID
    */
-  async getBuffer(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<Buffer> {
+  async getBuffer(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<Buffer> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -206,7 +206,7 @@ export abstract class CoreFileService {
   /**
    * Delete file reference of avatar
    */
-  async deleteFile(id: Types.ObjectId | string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+  async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -241,7 +241,7 @@ export abstract class CoreFileService {
    */
   protected checkRights(
     input: any, // eslint-disable-line unused-imports/no-unused-vars
-    options?: { checkInputType: FileInputCheckType } & FileServiceOptions, // eslint-disable-line unused-imports/no-unused-vars
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType }, // eslint-disable-line unused-imports/no-unused-vars
   ): MaybePromise<boolean> {
     return true;
   }

@@ -7,18 +7,18 @@ import { CoreAuthSignUpInput } from '../../../../core/modules/auth/inputs/core-a
 /**
  * SignUp input
  */
-@Restricted(RoleEnum.ADMIN)
 @InputType({ description: 'Sign-up input' })
+@Restricted(RoleEnum.ADMIN)
 export class AuthSignUpInput extends CoreAuthSignUpInput {
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
 
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'firstName', nullable: true })
+  @Restricted(RoleEnum.S_EVERYONE)
   firstName: string = undefined;
 
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'lastName', nullable: true })
+  @Restricted(RoleEnum.S_EVERYONE)
   lastName: string = undefined;
 }

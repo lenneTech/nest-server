@@ -14,10 +14,10 @@ export type CoreUserModelDocument = CoreUserModel & Document;
 /**
  * User model
  */
-@Restricted(RoleEnum.S_EVERYONE)
-@ObjectType({ description: 'User', isAbstract: true })
-@MongooseSchema({ timestamps: true })
 @ApiExtraModels(CorePersistenceModel)
+@MongooseSchema({ timestamps: true })
+@ObjectType({ description: 'User', isAbstract: true })
+@Restricted(RoleEnum.S_EVERYONE)
 export abstract class CoreUserModel extends CorePersistenceModel {
   // ===================================================================================================================
   // Properties
@@ -64,7 +64,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Roles of the user
    */
   @ApiProperty()
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field(() => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
   @Prop([String])
   @Restricted(RoleEnum.S_EVERYONE)
@@ -95,9 +95,6 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * value: TokenData
    */
   @ApiProperty({ isArray: true })
-  @IsOptional()
-  @Prop(raw({}))
-  @Restricted(RoleEnum.S_NO_ONE)
   @ApiProperty({
       additionalProperties: {
       properties: {
@@ -122,6 +119,9 @@ export abstract class CoreUserModel extends CorePersistenceModel {
       },
     type: 'object',
   })
+  @IsOptional()
+  @Prop(raw({}))
+  @Restricted(RoleEnum.S_NO_ONE)
   refreshTokens: Record<string, CoreTokenData> = undefined;
 
   /**
@@ -129,9 +129,6 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * See sameTokenIdPeriod in configuration
    */
   @ApiProperty()
-  @IsOptional()
-  @Prop(raw({}))
-  @Restricted(RoleEnum.S_NO_ONE)
   @ApiProperty({
       additionalProperties: {
       properties: {
@@ -156,6 +153,9 @@ export abstract class CoreUserModel extends CorePersistenceModel {
       },
     type: 'object',
   })
+  @IsOptional()
+  @Prop(raw({}))
+  @Restricted(RoleEnum.S_NO_ONE)
   tempTokens: Record<string, { createdAt: number; deviceId: string; tokenId: string }> = undefined;
 
   /**
@@ -171,7 +171,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Verification of the user
    */
   @ApiProperty()
-  @Field(type => Boolean, { description: 'Verification state of the user', nullable: true })
+  @Field(() => Boolean, { description: 'Verification state of the user', nullable: true })
   @Prop({ type: Boolean })
   @Restricted(RoleEnum.S_EVERYONE)
   verified: boolean = undefined;

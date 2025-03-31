@@ -5,7 +5,7 @@ import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
 /**
  * Date scalar to convert string into date
  */
-@Scalar('Date', type => Date)
+@Scalar('Date', () => Date)
 export class DateScalar implements CustomScalar<string, Date> {
   description = 'Date custom scalar type';
 

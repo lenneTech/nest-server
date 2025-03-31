@@ -467,6 +467,29 @@ export function getPlain(object: any) {
 }
 
 /**
+ * Get instance of array items (via first item)
+ */
+export function instanceofArray(arr: any[], strict = false): string {
+  let constructor: string = undefined;
+  if (!arr?.length) {
+    return constructor;
+  }
+  try {
+    constructor = arr[0].constructor;
+    if (strict) {
+      for (const item of arr) {
+        if (item.constructor !== constructor) {
+          return undefined;
+        }
+      }
+    }
+  } catch (e) {
+    return undefined;
+  }
+  return constructor;
+}
+
+/**
  * Check if parameter is an array
  */
 export function isArray(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
@@ -606,13 +629,6 @@ export function isObject(parameter: any, falseFunction: (...params) => any = err
 }
 
 /**
- * Check whether the parameter can be converted to true
- */
-export function isTrue(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return !!parameter ? true : falseFunction(isTrue);
-}
-
-/**
  * Check if parameter is a string
  */
 export function isString(parameter: string, falseFunction: (...params) => any = errorFunction): boolean {
@@ -620,41 +636,10 @@ export function isString(parameter: string, falseFunction: (...params) => any = 
 }
 
 /**
- * Merge plain objects deep into target object and ignores undefined
+ * Check whether the parameter can be converted to true
  */
-export function mergePlain(target: Record<any, any>, ...args: Record<any, any>[]): any {
-  return merge(
-    target,
-    ...args.map(
-      // Prepare records
-      item =>
-        // Return item if not an object or cloned record with undefined properties removed
-        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
-    ),
-  );
-}
-
-/**
- * Alternative for errorFunction
- */
-export function returnFalse(): boolean {
-  return false;
-}
-
-/**
- * Match function to use instead of switch case
- * Inspired by https://yusfuu.medium.com/dont-use-switch-or-if-else-in-javascript-instead-try-this-82f32616c269
- *
- * Example:
- * const matched = match(expr, {
- *   Oranges: 'Oranges are $0.59 a pound.',
- *   Mangoes: 'Mangoes and papayas are $2.79 a pound.',
- *   Papayas: 'Mangoes and papayas are $2.79 a pound.',
- *   default: `Sorry, we are out of ${expr}.`,
- * });
- */
-export function match(expression: any, cases: Record<any, any>): any {
-  return cases[expression] || cases?.default;
+export function isTrue(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
+  return !!parameter ? true : falseFunction(isTrue);
 }
 
 /**
@@ -684,45 +669,50 @@ export function mapClass<T>(
 }
 
 /**
- * Get type of array (via first item)
+ * Match function to use instead of switch case
+ * Inspired by https://yusfuu.medium.com/dont-use-switch-or-if-else-in-javascript-instead-try-this-82f32616c269
+ *
+ * Example:
+ * const matched = match(expr, {
+ *   Oranges: 'Oranges are $0.59 a pound.',
+ *   Mangoes: 'Mangoes and papayas are $2.79 a pound.',
+ *   Papayas: 'Mangoes and papayas are $2.79 a pound.',
+ *   default: `Sorry, we are out of ${expr}.`,
+ * });
  */
-export function typeofArray(arr: any[], strict = false): string {
-  let type: string = undefined;
-  if (!arr?.length) {
-    return type;
-  }
-  type = typeof arr[0];
-  if (strict) {
-    for (const item of arr) {
-      if (typeof item !== type) {
-        return undefined;
-      }
-    }
-  }
-  return type;
+export function match(expression: any, cases: Record<any, any>): any {
+  return cases[expression] || cases?.default;
 }
 
 /**
- * Get instance of array items (via first item)
+ * Merge plain objects deep into target object and ignores undefined
  */
-export function instanceofArray(arr: any[], strict = false): string {
-  let constructor: string = undefined;
-  if (!arr?.length) {
-    return constructor;
+export function mergePlain(target: Record<any, any>, ...args: Record<any, any>[]): any {
+  return merge(
+    target,
+    ...args.map(
+      // Prepare records
+      item =>
+        // Return item if not an object or cloned record with undefined properties removed
+        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
+    ),
+  );
+}
+
+/**
+ * Helper to avoid very slow merge of serviceOptions
+ */
+export function prepareServiceOptionsForCreate(serviceOptions: any) {
+  if (!serviceOptions) {
+    serviceOptions = {};
   }
-  try {
-    constructor = arr[0].constructor;
-    if (strict) {
-      for (const item of arr) {
-        if (item.constructor !== constructor) {
-          return undefined;
-        }
-      }
-    }
-  } catch (e) {
-    return undefined;
+  if (!serviceOptions.prepareInput) {
+    serviceOptions.prepareInput = {};
   }
-  return constructor;
+  if (serviceOptions.prepareInput.create === undefined) {
+    serviceOptions.prepareInput.create = true;
+  }
+  return serviceOptions;
 }
 
 /**
@@ -795,22 +785,6 @@ export function processDeep(
 }
 
 /**
- * Helper to avoid very slow merge of serviceOptions
- */
-export function prepareServiceOptionsForCreate(serviceOptions: any) {
-  if (!serviceOptions) {
-    serviceOptions = {};
-  }
-  if (!serviceOptions.prepareInput) {
-    serviceOptions.prepareInput = {};
-  }
-  if (serviceOptions.prepareInput.create === undefined) {
-    serviceOptions.prepareInput.create = true;
-  }
-  return serviceOptions;
-}
-
-/**
  * Remove properties deep
  */
 export function removePropertiesDeep(
@@ -856,4 +830,30 @@ export function removePropertiesDeep(
 
   // Process others
   return data;
+}
+
+/**
+ * Alternative for errorFunction
+ */
+export function returnFalse(): boolean {
+  return false;
+}
+
+/**
+ * Get type of array (via first item)
+ */
+export function typeofArray(arr: any[], strict = false): string {
+  let type: string = undefined;
+  if (!arr?.length) {
+    return type;
+  }
+  type = typeof arr[0];
+  if (strict) {
+    for (const item of arr) {
+      if (typeof item !== type) {
+        return undefined;
+      }
+    }
+  }
+  return type;
 }

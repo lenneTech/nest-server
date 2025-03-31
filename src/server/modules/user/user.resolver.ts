@@ -7,8 +7,8 @@ import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-s
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { UserInput } from './inputs/user.input';
 import { UserCreateInput } from './inputs/user-create.input';
+import { UserInput } from './inputs/user.input';
 import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
 import { User } from './user.model';
 import { UserService } from './user.service';
@@ -34,8 +34,8 @@ export class UserResolver {
   /**
    * Get users (via filter)
    */
-  @Roles(RoleEnum.ADMIN)
   @Query(() => [User], { description: 'Find users (via filter)' })
+  @Roles(RoleEnum.ADMIN)
   async findUsers(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args() args?: FilterArgs) {
     return await this.userService.find(args, {
       ...serviceOptions,
@@ -46,8 +46,8 @@ export class UserResolver {
   /**
    * Get users and total count (via filter)
    */
-  @Roles(RoleEnum.ADMIN)
   @Query(() => FindAndCountUsersResult, { description: 'Find users (via filter)' })
+  @Roles(RoleEnum.ADMIN)
   async findAndCountUsers(
     @GraphQLServiceOptions({ gqlPath: 'findAndCountUsers.items' }) serviceOptions: ServiceOptions,
     @Args() args?: FilterArgs,
@@ -61,8 +61,8 @@ export class UserResolver {
   /**
    * Get user via ID
    */
-  @Roles(RoleEnum.S_USER)
   @Query(() => User, { description: 'Get user with specified ID' })
+  @Roles(RoleEnum.S_USER)
   async getUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.get(id, {
       ...serviceOptions,
@@ -73,8 +73,8 @@ export class UserResolver {
   /**
    * Get verified state of user with token
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Query(() => Boolean, { description: 'Get verified state of user with token' })
+  @Roles(RoleEnum.S_EVERYONE)
   async getVerifiedState(@Args('token') token: string) {
     return await this.userService.getVerifiedState(token);
   }
@@ -86,8 +86,8 @@ export class UserResolver {
   /**
    * Create new user
    */
-  @Roles(RoleEnum.ADMIN)
   @Mutation(() => User, { description: 'Create a new user' })
+  @Roles(RoleEnum.ADMIN)
   async createUser(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('input') input: UserCreateInput,
@@ -101,8 +101,8 @@ export class UserResolver {
   /**
    * Delete existing user
    */
-  @Roles(RoleEnum.S_USER)
   @Mutation(() => User, { description: 'Delete existing user' })
+  @Roles(RoleEnum.S_USER)
   async deleteUser(@GraphQLServiceOptions() serviceOptions: ServiceOptions, @Args('id') id: string): Promise<User> {
     return await this.userService.delete(id, {
       ...serviceOptions,
@@ -113,8 +113,8 @@ export class UserResolver {
   /**
    * Set new password for user with token
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Boolean, { description: 'Set new password for user with token' })
+  @Roles(RoleEnum.S_EVERYONE)
   async resetPassword(@Args('token') token: string, @Args('password') password: string): Promise<boolean> {
     return !!(await this.userService.resetPassword(token, password));
   }
@@ -122,8 +122,8 @@ export class UserResolver {
   /**
    * Request new password for user with email
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Boolean, { description: 'Request new password for user with email' })
+  @Roles(RoleEnum.S_EVERYONE)
   async requestPasswordResetMail(@Args('email') email: string): Promise<boolean> {
     return !!(await this.userService.sendPasswordResetMail(email));
   }
@@ -131,8 +131,8 @@ export class UserResolver {
   /**
    * Update existing user
    */
-  @Roles(RoleEnum.S_USER)
   @Mutation(() => User, { description: 'Update existing user' })
+  @Roles(RoleEnum.S_USER)
   async updateUser(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('input') input: UserInput,
@@ -149,8 +149,8 @@ export class UserResolver {
   /**
    * Verify user with email
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Boolean, { description: 'Verify user with email' })
+  @Roles(RoleEnum.S_EVERYONE)
   async verifyUser(@Args('token') token: string): Promise<boolean> {
     return !!(await this.userService.verify(token));
   }

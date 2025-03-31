@@ -23,13 +23,18 @@ export enum TestGraphQLType {
  * GraphQL fields
  */
 export interface TestFieldObject {
-  [key: string]: (TestFieldObject | string)[] | TestFieldObject | boolean;
+  [key: string]: (string | TestFieldObject)[] | boolean | TestFieldObject;
 }
 
 /**
  * GraphQL fields
  */
-export type TestFields = TestFieldObject | string | string[];
+export type TestFields = string | string[] | TestFieldObject;
+
+export interface TestGraphQLAttachment {
+  file: Blob | boolean | Buffer | number | ReadableStream | string;
+  options?: string | { contentType?: string | undefined; filename?: string | undefined };
+}
 
 /**
  * GraphQL request config
@@ -62,16 +67,6 @@ export interface TestGraphQLConfig {
    * GraphQL variables with variable name as key and Type as value
    */
   variables?: Record<string, string>;
-}
-
-export interface TestGraphQLAttachment {
-  file: Blob | Buffer | ReadableStream | boolean | number | string;
-  options?: { contentType?: string | undefined; filename?: string | undefined } | string;
-}
-
-export interface TestGraphQLVariable {
-  type: 'attachment' | 'field';
-  value: TestGraphQLAttachment | TestGraphQLAttachment[] | any | string | string[];
 }
 
 /**
@@ -118,6 +113,11 @@ export interface TestGraphQLOptions {
    * GraphQL variables
    */
   variables?: Record<string, TestGraphQLVariable>;
+}
+
+export interface TestGraphQLVariable {
+  type: 'attachment' | 'field';
+  value: any | string | string[] | TestGraphQLAttachment | TestGraphQLAttachment[];
 }
 
 /**
@@ -178,7 +178,7 @@ export class TestHelper {
           });
         })
         .end((err, res: any) => {
-          (res as { data: string } & any).data = Buffer.from(data, 'binary').toString();
+          (res as any & { data: string }).data = Buffer.from(data, 'binary').toString();
           err ? reject(err) : resolve(res as any);
         });
     });
@@ -221,7 +221,7 @@ export class TestHelper {
   /**
    * GraphQL request
    */
-  async graphQl(graphql: TestGraphQLConfig | string, options: TestGraphQLOptions = {}): Promise<any> {
+  async graphQl(graphql: string | TestGraphQLConfig, options: TestGraphQLOptions = {}): Promise<any> {
     // Default options
     const config = {
       convertEnums: true,
@@ -315,7 +315,6 @@ export class TestHelper {
           });
         }
       } else {
-        const before = query.replace(/([_A-Za-z][_0-9A-Za-z]*:\s)\"([_A-Z][_0-9A-Z]*)\"/g, '$1$2');
         query = query.replace(/(?<=[:\[,]\s*)"([A-Z0-9_]+)"(?=\s*[,\]\}])/g, (match, group1) => {
           // If group1 only contains digits, the original string is returned
           if (/^\d+$/.test(group1)) {

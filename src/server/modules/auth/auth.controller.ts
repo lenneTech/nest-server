@@ -6,8 +6,8 @@ import { ConfigService } from '../../../core/common/services/config.service';
 import { CoreAuthController } from '../../../core/modules/auth/core-auth.controller';
 import { AuthService } from './auth.service';
 
-@Roles(RoleEnum.ADMIN)
 @Controller('auth')
+@Roles(RoleEnum.ADMIN)
 export class AuthController extends CoreAuthController {
   /**
    * Import project services

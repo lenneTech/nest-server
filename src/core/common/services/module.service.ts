@@ -75,18 +75,18 @@ export abstract class ModuleService<T extends CoreModel = any> {
     serviceFunc: (options?: { [key: string]: any; input?: any; serviceOptions?: ServiceOptions }) => any,
     options?: {
       [key: string]: any;
-      dbObject?: Types.ObjectId | any | string;
+      dbObject?: any | string | Types.ObjectId;
       input?: any;
       outputPath?: string | string[];
       serviceOptions?: ServiceOptions;
     },
   ) {
     // Configuration with default values
-    const config: {
-      dbObject: Types.ObjectId | any | string;
+    const config: ServiceOptions & {
+      dbObject: any | string | Types.ObjectId;
       input: any;
       outputPath: string | string[];
-    } & ServiceOptions = {
+    } = {
       checkRights: true,
       dbObject: options?.dbObject,
       force: false,
