@@ -113,6 +113,55 @@ export function equalIds(...ids: IdsType[]): boolean {
 }
 
 /**
+ * Get (and remove) elements with specific IDs from array
+ */
+export function getElementsViaIds<T = any>(
+  ids: any | any[],
+  array: T[],
+  options: {
+    splice?: boolean;
+    unique?: boolean;
+  } = {},
+): T[] {
+  // Config
+  const config = {
+    // Remove found elements from array
+    splice: false,
+
+    // Return unique elements
+    unique: false,
+
+    // Overwrite with options from parameters
+    ...options,
+  };
+
+  // Get and check indexes
+  const indexes = getIndexesViaIds(ids, array);
+  if (!indexes?.length) {
+    return [];
+  }
+
+  // Get elements
+  const elements = [];
+  indexes.forEach((index) => {
+    if (config.splice) {
+      elements.push(array.splice(index, 1)[0]);
+    } else {
+      elements.push(array[index]);
+    }
+  });
+
+  // Unique elements
+  if (config.unique) {
+    return elements.filter((value, index, self) => {
+      return self.findIndex(e => getStringIds(e)) === index;
+    });
+  }
+
+  // Return elements
+  return elements;
+}
+/**
  * Get included ids
  * @param includes IdsType, which should be checked if it contains the ID
  * @param ids IdsType, which should be included
@@ -121,11 +170,12 @@ export function equalIds(...ids: IdsType[]): boolean {
  */
 export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'string'): string[];
 export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'object'): Types.ObjectId[];
+
 export function getIncludedIds<T = IdsType>(
   includes: IdsType,
   ids: IdsType | T,
   convert?: 'object' | 'string',
-): T[] | null | undefined {
+): null | T[] | undefined {
   if (!includes || !ids) {
     return undefined;
   }
@@ -181,52 +231,26 @@ export function getIndexesViaIds(ids: IdsType, array: IdsType): number[] {
   // Return indexes
   return indexes;
 }
-
 /**
- * Get IDs from string of ObjectId array in a flat string array
+ * Get simple clone of object via JSON.stringify and JSON.parse
+ * @param obj
  */
-export function getStringIds(elements: any[], options?: { deep?: boolean; unique?: boolean }): string[];
-export function getStringIds(elements: any, options?: { deep?: boolean; unique?: boolean }): string;
-export function getStringIds<T extends any | any[]>(
-  elements: T,
-  options?: { deep?: boolean; unique?: boolean },
-): string | string[] {
-  // Process options
-  const { deep, unique } = {
-    deep: false,
-    unique: false,
-    ...options,
-  };
-
-  // Check elements
-  if (!elements) {
-    return elements as any;
-  }
-
-  // Init ids
-  let ids = [];
-
-  // Process non array
-  if (!Array.isArray(elements)) {
-    return getStringId(elements);
-  }
-
-  // Process array
-  for (const element of elements) {
-    if (Array.isArray(element)) {
-      if (deep) {
-        ids = ids.concat(getStringIds(element, { deep }));
-      }
-    } else {
-      const id = getStringId(element);
-      if (id) {
-        ids.push(id);
-      }
+export function getJSONClone<T = any>(obj: T): Partial<T> {
+  return JSON.parse(JSON.stringify(obj));
+}
+/**
+ * Get next field nodes
+ */
+export function getNextFieldNodes(nodes: readonly SelectionNode[]): FieldNode[] {
+  const result = [];
+  for (const node of nodes as FieldNode[]) {
+    if (node.name?.value) {
+      result.push(node);
+    } else if (node.selectionSet?.selections) {
+      result.push(...getNextFieldNodes(node.selectionSet.selections));
     }
   }
-
-  // Return (unique) ID array
-  return unique ? _.uniq(ids) : ids;
+  return result;
 }
 
 /**
@@ -239,56 +263,6 @@ export function getObjectIds<T extends any | any[]>(ids: T): Types.ObjectId | Ty
     return ids.map(id => new Types.ObjectId(getStringId(id)));
   }
   return new Types.ObjectId(getStringId(ids));
-}
-
-/**
- * Get (and remove) elements with specific IDs from array
- */
-export function getElementsViaIds<T = any>(
-  ids: any | any[],
-  array: T[],
-  options: {
-    splice?: boolean;
-    unique?: boolean;
-  } = {},
-): T[] {
-  // Config
-  const config = {
-    // Remove found elements from array
-    splice: false,
-
-    // Return unique elements
-    unique: false,
-
-    // Overwrite with options from parameters
-    ...options,
-  };
-
-  // Get and check indexes
-  const indexes = getIndexesViaIds(ids, array);
-  if (!indexes?.length) {
-    return [];
-  }
-
-  // Get elements
-  const elements = [];
-  indexes.forEach((index) => {
-    if (config.splice) {
-      elements.push(array.splice(index, 1)[0]);
-    } else {
-      elements.push(array[index]);
-    }
-  });
-
-  // Unique elements
-  if (config.unique) {
-    return elements.filter((value, index, self) => {
-      return self.findIndex(e => getStringIds(e)) === index;
-    });
-  }
-
-  // Return elements
-  return elements;
 }
 
 /**
@@ -327,21 +301,6 @@ export function getPopulateOptions(info: GraphQLResolveInfo, dotSeparatedSelect?
           } while (selects.length);
         }
       }
-    }
-  }
-  return result;
-}
-
-/**
- * Get next field nodes
- */
-export function getNextFieldNodes(nodes: readonly SelectionNode[]): FieldNode[] {
-  const result = [];
-  for (const node of nodes as FieldNode[]) {
-    if (node.name?.value) {
-      result.push(node);
-    } else if (node.selectionSet?.selections) {
-      result.push(...getNextFieldNodes(node.selectionSet.selections));
     }
   }
   return result;
@@ -399,11 +358,52 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
 }
 
 /**
- * Get simple clone of object via JSON.stringify and JSON.parse
- * @param obj
+ * Get IDs from string of ObjectId array in a flat string array
  */
-export function getJSONClone<T = any>(obj: T): Partial<T> {
-  return JSON.parse(JSON.stringify(obj));
+export function getStringIds(elements: any[], options?: { deep?: boolean; unique?: boolean }): string[];
+
+export function getStringIds(elements: any, options?: { deep?: boolean; unique?: boolean }): string;
+
+export function getStringIds<T extends any | any[]>(
+  elements: T,
+  options?: { deep?: boolean; unique?: boolean },
+): string | string[] {
+  // Process options
+  const { deep, unique } = {
+    deep: false,
+    unique: false,
+    ...options,
+  };
+
+  // Check elements
+  if (!elements) {
+    return elements as any;
+  }
+
+  // Init ids
+  let ids = [];
+
+  // Process non array
+  if (!Array.isArray(elements)) {
+    return getStringId(elements);
+  }
+
+  // Process array
+  for (const element of elements) {
+    if (Array.isArray(element)) {
+      if (deep) {
+        ids = ids.concat(getStringIds(element, { deep }));
+      }
+    } else {
+      const id = getStringId(element);
+      if (id) {
+        ids.push(id);
+      }
+    }
+  }
+
+  // Return (unique) ID array
+  return unique ? _.uniq(ids) : ids;
 }
 
 /**
@@ -440,58 +440,6 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
 
   // Process others
   return element;
-}
-
-/**
- * Remove unresolved references: ObjectId => null
- */
-export function removeUnresolvedReferences<T = any>(
-  populated: T,
-  populatedOptions: (PopulateOptions | string)[] | PopulateOptions | PopulateOptions[] | string,
-  ignoreFirst = true,
-): T {
-  // Check parameter
-  if (!populated || !populatedOptions) {
-    return populated;
-  }
-
-  // Process array
-  if (Array.isArray(populated)) {
-    populated.forEach(p => removeUnresolvedReferences(p, populatedOptions, false));
-    return populated;
-  }
-
-  // Process object
-  if (typeof populated === 'object') {
-    // populatedOptions is an array
-    if (Array.isArray(populatedOptions)) {
-      populatedOptions.forEach(po =>
-        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false),
-      );
-      return populated;
-    }
-
-    // populatedOptions is a string
-    if (typeof populatedOptions === 'string') {
-      if (!['_id', 'id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
-        populated[populatedOptions] = null;
-      }
-      return populated;
-    }
-
-    // populatedOptions is an PopulateOptions object
-    if (populatedOptions.path) {
-      const key = populatedOptions.path;
-      if (!['_id', 'id'].includes(key) && populated[key] instanceof Types.ObjectId) {
-        populated[key] = null;
-      } else if (populatedOptions.populate) {
-        removeUnresolvedReferences(populated[key], populatedOptions.populate, false);
-      }
-    }
-  }
-
-  // Process others
-  return populated;
 }
 
 /**
@@ -594,6 +542,58 @@ export function removeIds(source: any[], ids: StringOrObjectId | StringOrObjectI
 
   // Return array
   return source;
+}
+
+/**
+ * Remove unresolved references: ObjectId => null
+ */
+export function removeUnresolvedReferences<T = any>(
+  populated: T,
+  populatedOptions: (PopulateOptions | string)[] | PopulateOptions | PopulateOptions[] | string,
+  ignoreFirst = true,
+): T {
+  // Check parameter
+  if (!populated || !populatedOptions) {
+    return populated;
+  }
+
+  // Process array
+  if (Array.isArray(populated)) {
+    populated.forEach(p => removeUnresolvedReferences(p, populatedOptions, false));
+    return populated;
+  }
+
+  // Process object
+  if (typeof populated === 'object') {
+    // populatedOptions is an array
+    if (Array.isArray(populatedOptions)) {
+      populatedOptions.forEach(po =>
+        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false),
+      );
+      return populated;
+    }
+
+    // populatedOptions is a string
+    if (typeof populatedOptions === 'string') {
+      if (!['_id', 'id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
+        populated[populatedOptions] = null;
+      }
+      return populated;
+    }
+
+    // populatedOptions is an PopulateOptions object
+    if (populatedOptions.path) {
+      const key = populatedOptions.path;
+      if (!['_id', 'id'].includes(key) && populated[key] instanceof Types.ObjectId) {
+        populated[key] = null;
+      } else if (populatedOptions.populate) {
+        removeUnresolvedReferences(populated[key], populatedOptions.populate, false);
+      }
+    }
+  }
+
+  // Process others
+  return populated;
 }
 
 /**

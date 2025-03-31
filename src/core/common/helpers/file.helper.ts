@@ -35,24 +35,6 @@ export default class FileHelper {
 }
 
 /**
- * Get function to generate a random file name for multer with a certain
- * number of digits
- */
-export function multerRandomFileName(numberOfDigits = 32) {
-  return (req, file, cb) => {
-    // Generating a random string
-    const randomName = Array(numberOfDigits)
-      .fill(null)
-      .map(() => Math.round(Math.random() * 16).toString(16))
-      .join('');
-
-    // Calling the callback passing the random name generated with the
-    // original extension name
-    cb(null, `${randomName}${extname(file.originalname)}`);
-  };
-}
-
-/**
  * Get function to filter files for multer with a certain mimetype & extname
  */
 export function multerFileFilter(fileTypeRegex = /jpeg|jpg|png/) {
@@ -103,5 +85,23 @@ export function multerOptionsForImageUpload(options: {
       // Generated random file name
       filename: multerRandomFileName(),
     }),
+  };
+}
+
+/**
+ * Get function to generate a random file name for multer with a certain
+ * number of digits
+ */
+export function multerRandomFileName(numberOfDigits = 32) {
+  return (req, file, cb) => {
+    // Generating a random string
+    const randomName = Array(numberOfDigits)
+      .fill(null)
+      .map(() => Math.round(Math.random() * 16).toString(16))
+      .join('');
+
+    // Calling the callback passing the random name generated with the
+    // original extension name
+    cb(null, `${randomName}${extname(file.originalname)}`);
   };
 }

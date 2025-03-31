@@ -6,10 +6,10 @@ import { PubSub } from 'graphql-subscriptions';
 
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { RolesGuard } from './guards/roles.guard';
-import { CoreAuthService } from './services/core-auth.service';
 import { CoreAuthUserService } from './services/core-auth-user.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { CoreAuthService } from './services/core-auth.service';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { JwtStrategy } from './strategies/jwt.strategy';
 
 /**
  * CoreAuthModule to handle user authentication and enables Roles
@@ -23,13 +23,13 @@ export class CoreAuthModule {
   static forRoot(
     UserModule: Type<any>,
     UserService: Type<CoreAuthUserService>,
-    options: {
+    options: JwtModuleOptions & {
       authService?: Type<CoreAuthService>;
       imports?: Array<DynamicModule | ForwardReference | Promise<DynamicModule> | Type<any>>;
       jwtRefreshStrategy?: Type<JwtRefreshStrategy>;
       jwtStrategy?: Type<JwtStrategy>;
       providers?: Provider[];
-    } & JwtModuleOptions,
+    },
   ): DynamicModule {
     // Process imports
     let imports: any[] = [

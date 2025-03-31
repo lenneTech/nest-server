@@ -54,7 +54,7 @@ export default class ServiceHelper {
       removeUndefined?: boolean;
       targetModel?: new (...args: any[]) => T;
     } = {},
-  ): Promise<T | T[] | any> {
+  ): Promise<any | T | T[]> {
     return prepareOutput(output, options);
   }
 }
@@ -100,7 +100,7 @@ export async function prepareInput<T = any>(
 
   // Process array
   if (Array.isArray(input)) {
-    const processedArray = config.getNewArray ? ([] as T & any[]) : input;
+    const processedArray = config.getNewArray ? ([] as any[] & T) : input;
     for (let i = 0; i <= input.length - 1; i++) {
       processedArray[i] = await prepareInput(input[i], currentUser, options);
       if (processedArray[i] === undefined && config.removeUndefined) {
@@ -193,7 +193,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     removeUndefined?: boolean;
     targetModel?: new (...args: any[]) => T;
   } = {},
-): Promise<T | T[] | any> {
+): Promise<any | T | T[]> {
   // Configuration
   const config = {
     circles: false,

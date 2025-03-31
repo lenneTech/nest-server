@@ -39,13 +39,13 @@ export class ConfigService {
   /**
    * BehaviorSubject for config
    */
-  protected static _configSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>>
+  protected static _configSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }>
     = new BehaviorSubject(undefined);
 
   /**
    * BehaviorSubject for frozen config
    */
-  protected static _frozenConfigSubject$: BehaviorSubject<{ [key: string]: any } & Partial<IServerOptions>>
+  protected static _frozenConfigSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }>
     = new BehaviorSubject(undefined);
 
   /**
@@ -61,7 +61,7 @@ export class ConfigService {
    * Create config service or return singleton instance if exists
    */
   constructor(
-    configObject?: { [key: string]: any } & Partial<IServerOptions>,
+    configObject?: Partial<IServerOptions> & { [key: string]: any },
     options?: { reInit?: boolean; warn?: boolean },
   ) {
     const config = {
@@ -236,7 +236,7 @@ export class ConfigService {
   /**
    * Merge config and set in ConfigService
    */
-  mergeConfig(configData: { [key: string]: any } & Partial<IServerOptions>, options?: { warn?: boolean }) {
+  mergeConfig(configData: Partial<IServerOptions> & { [key: string]: any }, options?: { warn?: boolean }) {
     return ConfigService.mergeConfig(configData, options);
   }
 
@@ -244,7 +244,7 @@ export class ConfigService {
    * Merge config and set in ConfigService
    */
   static mergeConfig(
-    configData: { [key: string]: any } & Partial<IServerOptions>,
+    configData: Partial<IServerOptions> & { [key: string]: any },
     options?: { init?: boolean; warn?: boolean },
   ) {
     const config = {
@@ -318,7 +318,7 @@ export class ConfigService {
    * Set config in ConfigService
    */
   setConfig(
-    configData: { [key: string]: any } & Partial<IServerOptions>,
+    configData: Partial<IServerOptions> & { [key: string]: any },
     options?: { reInit?: boolean; warn?: boolean },
   ) {
     return ConfigService.setConfig(configData, options);
@@ -328,7 +328,7 @@ export class ConfigService {
    * Set config in ConfigService
    */
   static setConfig(
-    configObject: { [key: string]: any } & Partial<IServerOptions>,
+    configObject: Partial<IServerOptions> & { [key: string]: any },
     options?: { init?: boolean; reInit?: boolean; warn?: boolean },
   ) {
     const config = {

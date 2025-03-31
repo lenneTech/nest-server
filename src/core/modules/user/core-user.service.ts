@@ -9,8 +9,8 @@ import { CrudService } from '../../common/services/crud.service';
 import { EmailService } from '../../common/services/email.service';
 import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
 import { CoreUserModel } from './core-user.model';
-import { CoreUserInput } from './inputs/core-user.input';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
+import { CoreUserInput } from './inputs/core-user.input';
 
 import bcrypt = require('bcrypt');
 import crypto = require('crypto');
@@ -98,7 +98,7 @@ export abstract class CoreUserService<
   /**
    * Verify user with token
    */
-  async verify(token: string, serviceOptions?: ServiceOptions): Promise<TUser | string> {
+  async verify(token: string, serviceOptions?: ServiceOptions): Promise<string | TUser> {
     // Get user
     const dbObject = await this.mainDbModel.findOne({ verificationToken: token }).exec();
     if (!dbObject) {

@@ -139,113 +139,6 @@ export default class GraphQLHelper {
 }
 
 /**
- * Check if AST is a Field
- * @param ast
- */
-export function isFieldNode(ast: SelectionNode): ast is FieldNode {
-  return ast.kind === 'Field';
-}
-
-/**
- * Check if ValueNode has a value field
- */
-export function isValueNodeWithValueField(value: ValueNode): value is ValueNodeWithValueField {
-  return value.kind !== 'NullValue' && value.kind !== 'ListValue' && value.kind !== 'ObjectValue';
-}
-
-/**
- * Check ValueNode is a ListValue
- * @param value
- */
-export function isListValueNode(value: ValueNode): value is ListValueNode {
-  return value.kind === 'ListValue';
-}
-
-/**
- * Get selections of AST
- */
-export function getASTSelections(ast: FieldNode) {
-  if (ast && ast.selectionSet && ast.selectionSet.selections && ast.selectionSet.selections.length) {
-    return ast.selectionSet.selections;
-  }
-
-  return [];
-}
-
-/**
- * Get AST
- */
-export function getAST(ast, info) {
-  if (ast.kind === 'FragmentSpread') {
-    const fragmentName = ast.name.value;
-    return info.fragments[fragmentName];
-  }
-  return ast;
-}
-
-/**
- * Get arguments of AST
- */
-export function getArguments(ast: FieldNode) {
-  return ast.arguments?.map((argument) => {
-    const valueNode = argument.value;
-    const argumentValue = !isListValueNode(valueNode)
-      ? (valueNode as any).value
-      : (valueNode as any).values.map(value => value.value);
-
-    return {
-      [argument.name.value]: {
-        kind: argument.value.kind,
-        value: argumentValue,
-      },
-    };
-  });
-}
-
-/**
- * Get directive value from DirectiveNode for GraphQLResolveInfo
- */
-export function getDirectiveValue(directive: DirectiveNode, info: GraphQLResolveInfo) {
-  const arg = directive.arguments?.[0]; // only arg on an include or skip directive is "if"
-  if (!arg) {
-    return;
-  }
-  if (arg.value.kind !== 'Variable') {
-    const valueNode = arg.value;
-    return isValueNodeWithValueField(valueNode) ? !!valueNode.value : false;
-  }
-  return info.variableValues[arg.value.name.value];
-}
-
-/**
- * Get directive results from SelectionNode for GraphQLResolveInfo
- * @param ast
- * @param info
- */
-export function getDirectiveResults(ast: SelectionNode, info: GraphQLResolveInfo) {
-  const directiveResult = {
-    shouldInclude: true,
-    shouldSkip: false,
-  };
-  return ast.directives?.reduce((result, directive) => {
-    switch (directive.name.value) {
-      case 'include':
-        return {
-          ...result,
-          shouldInclude: getDirectiveValue(directive, info),
-        };
-      case 'skip':
-        return {
-          ...result,
-          shouldSkip: getDirectiveValue(directive, info),
-        };
-      default:
-        return result;
-    }
-  }, directiveResult);
-}
-
-/**
  * Create flatten AST from FieldNode for GraphQLResolveInfo
  */
 export function flattenAST(
@@ -302,6 +195,90 @@ export function flattenAST(
 }
 
 /**
+ * Get arguments of AST
+ */
+export function getArguments(ast: FieldNode) {
+  return ast.arguments?.map((argument) => {
+    const valueNode = argument.value;
+    const argumentValue = !isListValueNode(valueNode)
+      ? (valueNode as any).value
+      : (valueNode as any).values.map(value => value.value);
+
+    return {
+      [argument.name.value]: {
+        kind: argument.value.kind,
+        value: argumentValue,
+      },
+    };
+  });
+}
+
+/**
+ * Get AST
+ */
+export function getAST(ast, info) {
+  if (ast.kind === 'FragmentSpread') {
+    const fragmentName = ast.name.value;
+    return info.fragments[fragmentName];
+  }
+  return ast;
+}
+
+/**
+ * Get selections of AST
+ */
+export function getASTSelections(ast: FieldNode) {
+  if (ast && ast.selectionSet && ast.selectionSet.selections && ast.selectionSet.selections.length) {
+    return ast.selectionSet.selections;
+  }
+
+  return [];
+}
+
+/**
+ * Get directive results from SelectionNode for GraphQLResolveInfo
+ * @param ast
+ * @param info
+ */
+export function getDirectiveResults(ast: SelectionNode, info: GraphQLResolveInfo) {
+  const directiveResult = {
+    shouldInclude: true,
+    shouldSkip: false,
+  };
+  return ast.directives?.reduce((result, directive) => {
+    switch (directive.name.value) {
+      case 'include':
+        return {
+          ...result,
+          shouldInclude: getDirectiveValue(directive, info),
+        };
+      case 'skip':
+        return {
+          ...result,
+          shouldSkip: getDirectiveValue(directive, info),
+        };
+      default:
+        return result;
+    }
+  }, directiveResult);
+}
+
+/**
+ * Get directive value from DirectiveNode for GraphQLResolveInfo
+ */
+export function getDirectiveValue(directive: DirectiveNode, info: GraphQLResolveInfo) {
+  const arg = directive.arguments?.[0]; // only arg on an include or skip directive is "if"
+  if (!arg) {
+    return;
+  }
+  if (arg.value.kind !== 'Variable') {
+    const valueNode = arg.value;
+    return isValueNodeWithValueField(valueNode) ? !!valueNode.value : false;
+  }
+  return info.variableValues[arg.value.name.value];
+}
+
+/**
  * Get requested fields from GraphQLResolveInfo
  */
 export function getFields(
@@ -326,10 +303,11 @@ export function getFields(
 }
 
 /**
- * Check if field is in GraphQLResolveInfo
+ * Check if AST is a Field
+ * @param ast
  */
-export function isInGraphQLResolveInfo(path: any, info: GraphQLResolveInfo, config: Partial<GraphQLFieldsConfig> = {}) {
-  return _.has(getFields(info, config), path);
+export function isFieldNode(ast: SelectionNode): ast is FieldNode {
+  return ast.kind === 'Field';
 }
 
 /**
@@ -337,4 +315,26 @@ export function isInGraphQLResolveInfo(path: any, info: GraphQLResolveInfo, conf
  */
 export function isInFields(path: any, fields: any) {
   return _.has(fields, path);
+}
+
+/**
+ * Check if field is in GraphQLResolveInfo
+ */
+export function isInGraphQLResolveInfo(path: any, info: GraphQLResolveInfo, config: Partial<GraphQLFieldsConfig> = {}) {
+  return _.has(getFields(info, config), path);
+}
+
+/**
+ * Check ValueNode is a ListValue
+ * @param value
+ */
+export function isListValueNode(value: ValueNode): value is ListValueNode {
+  return value.kind === 'ListValue';
+}
+
+/**
+ * Check if ValueNode has a value field
+ */
+export function isValueNodeWithValueField(value: ValueNode): value is ValueNodeWithValueField {
+  return value.kind !== 'NullValue' && value.kind !== 'ListValue' && value.kind !== 'ObjectValue';
 }

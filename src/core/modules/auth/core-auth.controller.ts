@@ -21,9 +21,9 @@ import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
 import { CoreAuthService } from './services/core-auth.service';
 import { Tokens } from './tokens.decorator';
 
-@Roles(RoleEnum.ADMIN)
-@Controller('auth')
 @ApiCommonErrorResponses()
+@Controller('auth')
+@Roles(RoleEnum.ADMIN)
 export class CoreAuthController {
   /**
    * Import services
@@ -36,9 +36,9 @@ export class CoreAuthController {
   /**
    * Logout user (from specific device)
    */
+  @ApiOkResponse({ type: Boolean })
   @ApiOperation({ description: 'Logs a user out from a specific device' })
   @ApiQuery({ description: 'If all devices should be logged out,', name: 'allDevices', required: false, type: Boolean })
-  @ApiOkResponse({ type: Boolean })
   @Get('logout')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
@@ -55,8 +55,8 @@ export class CoreAuthController {
   /**
    * Refresh token (for specific device)
    */
-  @ApiOperation({ description: 'Refresh token (for specific device)' })
   @ApiOkResponse({ type: CoreAuthModel })
+  @ApiOperation({ description: 'Refresh token (for specific device)' })
   @Get('refresh-token')
   @Roles(RoleEnum.S_EVERYONE)
   @UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))
@@ -72,8 +72,8 @@ export class CoreAuthController {
   /**
    * Sign in user via email and password (on specific device)
    */
-  @ApiOperation({ description: 'Sign in via email and password' })
   @ApiCreatedResponse({ description: 'Signed in successfully', type: CoreAuthModel })
+  @ApiOperation({ description: 'Sign in via email and password' })
   @Post('signin')
   @Roles(RoleEnum.S_EVERYONE)
   async signIn(@Res({ passthrough: true }) res: ResponseType, @Body() input: CoreAuthSignInInput): Promise<CoreAuthModel> {
@@ -85,8 +85,8 @@ export class CoreAuthController {
    * Register a new user account (on specific device)
    */
   @ApiBody({ type: CoreAuthSignUpInput })
-  @ApiOperation({ description: 'Sign up via email and password' })
   @ApiCreatedResponse({ type: CoreAuthSignUpInput })
+  @ApiOperation({ description: 'Sign up via email and password' })
   @Post('signup')
   @Roles(RoleEnum.S_EVERYONE)
   async signUp(@Res({ passthrough: true }) res: ResponseType, @Body() input: CoreAuthSignUpInput): Promise<CoreAuthModel> {

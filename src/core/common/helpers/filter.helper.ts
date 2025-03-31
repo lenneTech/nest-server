@@ -26,7 +26,7 @@ export class Filter {
   /**
    * Generate filter query
    */
-  public static generateFilterQuery<T = any>(filter?: Partial<FilterInput>): FilterQuery<T> | any {
+  public static generateFilterQuery<T = any>(filter?: Partial<FilterInput>): any | FilterQuery<T> {
     return generateFilterQuery(filter);
   }
 
@@ -36,6 +36,39 @@ export class Filter {
   public static generateFindOptions(filterArgs: Partial<FilterArgs>): QueryOptions {
     return generateFindOptions(filterArgs);
   }
+}
+
+/**
+ * Convert filter arguments to a query array
+ */
+export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
+  return [generateFilterQuery(filterArgs?.filter), generateFindOptions(filterArgs)];
+}
+
+/**
+ * Merge FilterArgs and FilterQueries
+ */
+export function filterMerge<T = unknown>(
+  filterArgs: Partial<FilterArgs>,
+  filterQuery: Partial<FilterQuery<T>>,
+  options?: {
+    operator?: '$and' | '$nor' | '$or';
+    queryOptions?: Partial<QueryOptions>;
+    samples?: number;
+  },
+): { filterQuery: FilterQuery<T>; queryOptions?: QueryOptions; samples?: number } {
+  const config = {
+    operator: '$and',
+    ...options,
+  };
+  const converted = convertFilterArgsToQuery(filterArgs);
+  return {
+    filterQuery: (converted[0]
+      ? { [config.operator]: [converted[0], filterQuery || {}] }
+      : filterQuery) as FilterQuery<T>,
+    queryOptions: converted[1] || config.queryOptions ? { ...converted[1], ...config.queryOptions } : undefined,
+    samples: config.samples,
+  };
 }
 
 /**
@@ -105,19 +138,12 @@ export function findFilter(options?: {
 }
 
 /**
- * Convert filter arguments to a query array
- */
-export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
-  return [generateFilterQuery(filterArgs?.filter), generateFindOptions(filterArgs)];
-}
-
-/**
  * Generate filter query
  */
 export function generateFilterQuery<T = any>(
   filter?: Partial<FilterInput>,
   options?: { automaticObjectIdFiltering?: boolean },
-): FilterQuery<T> | any {
+): any | FilterQuery<T> {
   // Check filter
   if (!filter) {
     return undefined;
@@ -262,30 +288,4 @@ export function generateFindOptions(filterArgs: Partial<FilterArgs>, options?: {
   }
 
   return queryOptions;
-}
-
-/**
- * Merge FilterArgs and FilterQueries
- */
-export function filterMerge<T = unknown>(
-  filterArgs: Partial<FilterArgs>,
-  filterQuery: Partial<FilterQuery<T>>,
-  options?: {
-    operator?: '$and' | '$nor' | '$or';
-    queryOptions?: Partial<QueryOptions>;
-    samples?: number;
-  },
-): { filterQuery: FilterQuery<T>; queryOptions?: QueryOptions; samples?: number } {
-  const config = {
-    operator: '$and',
-    ...options,
-  };
-  const converted = convertFilterArgsToQuery(filterArgs);
-  return {
-    filterQuery: (converted[0]
-      ? { [config.operator]: [converted[0], filterQuery || {}] }
-      : filterQuery) as FilterQuery<T>,
-    queryOptions: converted[1] || config.queryOptions ? { ...converted[1], ...config.queryOptions } : undefined,
-    samples: config.samples,
-  };
 }

@@ -7,6 +7,6 @@ import { CoreAuthSignInInput } from './core-auth-sign-in.input';
 /**
  * SignUp input
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @InputType({ description: 'Sign-up input' })
+@Restricted(RoleEnum.S_EVERYONE)
 export class CoreAuthSignUpInput extends CoreAuthSignInInput {}

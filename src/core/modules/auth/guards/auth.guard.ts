@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Logger, Optional, mixin } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import { defaultOptions } from '@nestjs/passport/dist/options';
@@ -21,9 +21,9 @@ const NO_STRATEGY_ERROR
 /**
  * Interface for auth guard
  */
-export type IAuthGuard = {
+export type IAuthGuard = CanActivate & {
   handleRequest<TUser = any>(err, user, info, context): TUser;
-} & CanActivate;
+};
 
 /**
  * Create passport context

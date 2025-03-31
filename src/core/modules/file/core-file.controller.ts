@@ -7,8 +7,8 @@ import { CoreFileService } from './core-file.service';
 /**
  * File controller
  */
-@Roles(RoleEnum.ADMIN)
 @Controller('files')
+@Roles(RoleEnum.ADMIN)
 export abstract class CoreFileController {
   /**
    * Include services
@@ -18,8 +18,8 @@ export abstract class CoreFileController {
   /**
    * Download file
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Get(':filename')
+  @Roles(RoleEnum.S_EVERYONE)
   async getFile(@Param('filename') filename: string, @Res() res) {
     if (!filename) {
       throw new BadRequestException('Missing filename for download');

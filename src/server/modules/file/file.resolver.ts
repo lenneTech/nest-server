@@ -4,8 +4,8 @@ import { createWriteStream } from 'fs';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
-import { FileService } from './file.service';
 import { FileInfo } from './file-info.model';
+import { FileService } from './file.service';
 
 import fs = require('fs');
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
@@ -28,8 +28,8 @@ export class FileResolver {
   /**
    * Get file info
    */
-  @Roles(RoleEnum.ADMIN)
   @Query(() => FileInfo, { nullable: true })
+  @Roles(RoleEnum.ADMIN)
   async getFileInfo(@Args({ name: 'filename', type: () => String }) filename: string) {
     return await this.fileService.getFileInfoByName(filename);
   }
@@ -41,8 +41,8 @@ export class FileResolver {
   /**
    * Delete file
    */
-  @Roles(RoleEnum.ADMIN)
   @Mutation(() => FileInfo)
+  @Roles(RoleEnum.ADMIN)
   async deleteFile(@Args({ name: 'filename', type: () => String }) filename: string) {
     return await this.fileService.deleteFileByName(filename);
   }
@@ -50,8 +50,8 @@ export class FileResolver {
   /**
    * Upload file
    */
-  @Roles(RoleEnum.ADMIN)
   @Mutation(() => FileInfo)
+  @Roles(RoleEnum.ADMIN)
   async uploadFile(@Args({ name: 'file', type: () => GraphQLUpload }) file: FileUpload) {
     return await this.fileService.createFile(file);
   }
@@ -59,8 +59,8 @@ export class FileResolver {
   /**
    * Upload files
    */
-  @Roles(RoleEnum.ADMIN)
   @Mutation(() => Boolean)
+  @Roles(RoleEnum.ADMIN)
   async uploadFiles(@Args({ name: 'files', type: () => [GraphQLUpload] }) files: FileUpload[]) {
     // Save files in filesystem
     const promises: Promise<any>[] = [];

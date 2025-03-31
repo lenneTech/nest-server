@@ -15,8 +15,8 @@ import { AuthSignUpInput } from './inputs/auth-sign-up.input';
 /**
  * Authentication resolver for the sign in
  */
-@Roles(RoleEnum.ADMIN)
 @Resolver(() => Auth)
+@Roles(RoleEnum.ADMIN)
 export class AuthResolver extends CoreAuthResolver {
   /**
    * Integrate services
@@ -31,8 +31,8 @@ export class AuthResolver extends CoreAuthResolver {
   /**
    * SignIn for User
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Auth, { description: 'Sign in and get JWT token' })
+  @Roles(RoleEnum.S_EVERYONE)
   override async signIn(
     @GraphQLServiceOptions({ gqlPath: 'signIn.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },
@@ -48,10 +48,10 @@ export class AuthResolver extends CoreAuthResolver {
   /**
    * Sign up for user
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Mutation(() => Auth, {
     description: 'Sign up user and get JWT token',
   })
+  @Roles(RoleEnum.S_EVERYONE)
   override async signUp(
     @GraphQLServiceOptions({ gqlPath: 'signUp.user' }) serviceOptions: ServiceOptions,
     @Context() ctx: { res: ResponseType },

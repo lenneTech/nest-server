@@ -8,8 +8,8 @@ import { JSON } from '../../common/scalars/json.scalar';
 /**
  * User model
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({ description: 'Health check result' })
+@Restricted(RoleEnum.S_EVERYONE)
 export abstract class CoreHealthCheckResult extends CoreModel {
   // ===================================================================================================================
   // Properties
@@ -18,37 +18,37 @@ export abstract class CoreHealthCheckResult extends CoreModel {
   /**
    * The overall status of the Health Check
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'The overall status of the Health Check', nullable: false })
+  @Restricted(RoleEnum.S_EVERYONE)
   status: 'error' | 'ok' | 'shutting_down' = undefined;
 
   /**
    * The info object contains information of each health indicator which is of status “up”
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The info object contains information of each health indicator which is of status “up”',
     nullable: true,
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   info: JSON = undefined;
 
   /**
    * The error object contains information of each health indicator which is of status “down”
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The error object contains information of each health indicator which is of status “down”',
     nullable: true,
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   error: JSON = undefined;
 
   /**
    * The details object contains information of every health indicator
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(type => JSON, {
+  @Field(() => JSON, {
     description: 'The details object contains information of every health indicator',
     nullable: false,
   })
+  @Restricted(RoleEnum.S_EVERYONE)
   details: JSON = undefined;
 }

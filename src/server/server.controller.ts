@@ -2,14 +2,14 @@ import { Controller, Get, Render } from '@nestjs/common';
 
 import { ConfigService, RoleEnum, Roles } from '..';
 
-@Roles(RoleEnum.ADMIN)
 @Controller()
+@Roles(RoleEnum.ADMIN)
 export class ServerController {
   constructor(protected configService: ConfigService) {}
 
-  @Roles(RoleEnum.S_EVERYONE)
   @Get()
   @Render('index')
+  @Roles(RoleEnum.S_EVERYONE)
   root() {
     return {
       env: this.configService.getFastButReadOnly('env'),

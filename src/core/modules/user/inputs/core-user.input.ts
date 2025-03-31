@@ -13,55 +13,55 @@ import { CoreInput } from '../../../common/inputs/core-input.input';
  * otherwise the property will not be recognized via Object.keys (this is necessary for mapping) or will be initialized
  * with a default value that may overwrite an existing value in the DB.
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @InputType({ description: 'User input', isAbstract: true })
+@Restricted(RoleEnum.S_EVERYONE)
 export abstract class CoreUserInput extends CoreInput {
   /**
    * Email of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Email of the user', nullable: true })
-  @IsOptional()
   @IsEmail()
+  @IsOptional()
+  @Restricted(RoleEnum.S_EVERYONE)
   email?: string = undefined;
 
   /**
    * First name of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'First name of the user', nullable: true })
   @IsOptional()
+  @Restricted(RoleEnum.S_EVERYONE)
   firstName?: string = undefined;
 
   /**
    * Last name of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Last name of the user', nullable: true })
   @IsOptional()
+  @Restricted(RoleEnum.S_EVERYONE)
   lastName?: string = undefined;
 
   /**
    * Roles of the user
    */
-  @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
-  @Field(type => [String], { description: 'Roles of the user', nullable: true })
+  @Field(() => [String], { description: 'Roles of the user', nullable: true })
   @IsOptional()
+  @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
   roles?: string[] = undefined;
 
   /**
    * Username / alias of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Username / alias of the user', nullable: true })
   @IsOptional()
+  @Restricted(RoleEnum.S_EVERYONE)
   username?: string = undefined;
 
   /**
    * Password of the user
    */
-  @Restricted(RoleEnum.S_EVERYONE)
   @Field({ description: 'Password of the user', nullable: true })
   @IsOptional()
+  @Restricted(RoleEnum.S_EVERYONE)
   password?: string = undefined;
 }

@@ -4,7 +4,7 @@ import { Kind, ValueNode } from 'graphql';
 /**
  * Any scalar (is equivalent to the JSON scalar)
  */
-@Scalar('Any', type => Any)
+@Scalar('Any', () => Any)
 export class Any implements CustomScalar<string, any> {
   /**
    * Description of the scalar
@@ -30,13 +30,17 @@ export class Any implements CustomScalar<string, any> {
    */
   parseLiteral(ast: ValueNode, variables?: Record<string, any>) {
     switch (ast.kind) {
-      case Kind.STRING:
-      case Kind.ENUM:
       case Kind.BOOLEAN:
+      case Kind.ENUM:
+      case Kind.STRING:
         return ast.value;
-      case Kind.INT:
       case Kind.FLOAT:
+      case Kind.INT:
         return parseFloat(ast.value);
+      case Kind.LIST:
+        return ast.values.map(n => this.parseLiteral(n, variables));
+      case Kind.NULL:
+        return null;
       case Kind.OBJECT: {
         const value = Object.create(null);
         ast.fields.forEach((field) => {
@@ -44,10 +48,6 @@ export class Any implements CustomScalar<string, any> {
         });
         return value;
       }
-      case Kind.LIST:
-        return ast.values.map(n => this.parseLiteral(n, variables));
-      case Kind.NULL:
-        return null;
       case Kind.VARIABLE: {
         const name = ast.name.value;
         return variables ? variables[name] : undefined;

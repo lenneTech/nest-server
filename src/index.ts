@@ -43,9 +43,9 @@ export * from './core/common/inputs/sort.input';
 export * from './core/common/interceptors/check-response.interceptor';
 export * from './core/common/interceptors/check-security.interceptor';
 export * from './core/common/interfaces/core-persistence-model.interface';
-export * from './core/common/interfaces/cron-job-config.interface';
 export * from './core/common/interfaces/cron-job-config-with-time-zone.interface';
 export * from './core/common/interfaces/cron-job-config-with-utc-offset.interface';
+export * from './core/common/interfaces/cron-job-config.interface';
 export * from './core/common/interfaces/mailjet-options.interface';
 export * from './core/common/interfaces/prepare-input-options.interface';
 export * from './core/common/interfaces/prepare-output-options.interface';
@@ -60,8 +60,8 @@ export * from './core/common/pipes/map-and-validate.pipe';
 export * from './core/common/plugins/complexity.plugin';
 export * from './core/common/plugins/mongoose-id.plugin';
 export * from './core/common/scalars/any.scalar';
-export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/date-timestamp.scalar';
+export * from './core/common/scalars/date.scalar';
 export * from './core/common/scalars/json.scalar';
 export * from './core/common/services/brevo.service';
 export * from './core/common/services/config.service';
@@ -81,8 +81,8 @@ export * from './core/common/types/ids.type';
 export * from './core/common/types/is-one-of.type';
 export * from './core/common/types/maybe-promise.type';
 export * from './core/common/types/plain-input.type';
-export * from './core/common/types/plain-object.type';
 export * from './core/common/types/plain-object-deep.type';
+export * from './core/common/types/plain-object.type';
 export * from './core/common/types/populate-config.type';
 export * from './core/common/types/remove-methods.type';
 export * from './core/common/types/require-only-one.type';
@@ -109,20 +109,20 @@ export * from './core/modules/auth/inputs/core-auth-sign-up.input';
 export * from './core/modules/auth/interfaces/core-auth-user.interface';
 export * from './core/modules/auth/interfaces/core-token-data.interface';
 export * from './core/modules/auth/interfaces/jwt-payload.interface';
-export * from './core/modules/auth/services/core-auth.service';
 export * from './core/modules/auth/services/core-auth-user.service';
-export * from './core/modules/auth/strategies/jwt.strategy';
+export * from './core/modules/auth/services/core-auth.service';
 export * from './core/modules/auth/strategies/jwt-refresh.strategy';
+export * from './core/modules/auth/strategies/jwt.strategy';
 export * from './core/modules/auth/tokens.decorator';
 
 // =====================================================================================================================
 // Core - Modules - File
 // =====================================================================================================================
 
+export * from './core/modules/file/core-file-info.model';
 export * from './core/modules/file/core-file.controller';
 export * from './core/modules/file/core-file.resolver';
 export * from './core/modules/file/core-file.service';
-export * from './core/modules/file/core-file-info.model';
 export * from './core/modules/file/interfaces/file-service-options.interface';
 export * from './core/modules/file/interfaces/file-upload.interface';
 
@@ -130,20 +130,20 @@ export * from './core/modules/file/interfaces/file-upload.interface';
 // Core - Modules - User
 // =====================================================================================================================
 
+export * from './core/modules/health-check/core-health-check-result.model';
 export * from './core/modules/health-check/core-health-check.controller';
 export * from './core/modules/health-check/core-health-check.module';
 export * from './core/modules/health-check/core-health-check.resolver';
-export * from './core/modules/health-check/core-health-check.service';
 
 // =====================================================================================================================
 // Core - Modules - HealthCheck
 // =====================================================================================================================
 
-export * from './core/modules/health-check/core-health-check-result.model';
+export * from './core/modules/health-check/core-health-check.service';
 export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
-export * from './core/modules/user/inputs/core-user.input';
 export * from './core/modules/user/inputs/core-user-create.input';
+export * from './core/modules/user/inputs/core-user.input';
 
 // =====================================================================================================================
 // Tests

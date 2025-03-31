@@ -2,8 +2,8 @@ import { Query, Resolver } from '@nestjs/graphql';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { CoreHealthCheckService } from './core-health-check.service';
 import { CoreHealthCheckResult } from './core-health-check-result.model';
+import { CoreHealthCheckService } from './core-health-check.service';
 
 /**
  * Resolver to process with user data
@@ -23,8 +23,8 @@ export class CoreHealthCheckResolver {
   /**
    * Get heath check result
    */
-  @Roles(RoleEnum.S_EVERYONE)
   @Query(() => CoreHealthCheckResult, { description: 'Get health check result' })
+  @Roles(RoleEnum.S_EVERYONE)
   async healthCheck() {
     return this.healthCheckService.healthCheck();
   }

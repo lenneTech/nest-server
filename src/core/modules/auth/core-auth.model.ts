@@ -9,8 +9,8 @@ import { CoreUserModel } from '../user/core-user.model';
 /**
  * CoreAuth model for the response after the sign in
  */
-@Restricted(RoleEnum.S_EVERYONE)
 @ObjectType({ description: 'CoreAuth', isAbstract: true })
+@Restricted(RoleEnum.S_EVERYONE)
 export class CoreAuthModel extends CoreModel {
   // ===================================================================================================================
   // Properties
