@@ -89,6 +89,11 @@ export class CoreAuthService {
    * User sign in via email
    */
   async signIn(input: CoreAuthSignInInput, serviceOptions?: ServiceOptions): Promise<CoreAuthModel> {
+    // Check input
+    if (!input) {
+      throw new BadRequestException('Missing input');
+    }
+
     // Prepare service options
     const serviceOptionsForUserService = prepareServiceOptions(serviceOptions, {
       // We need password, so we can't use prepare output handling and have to deactivate it
