@@ -49,7 +49,7 @@ const createPassportContext = (request, response) => (type, options, callback: (
  * Can be removed when pull request is merged:
  * https://github.com/nestjs/passport/pull/66
  */
-function createAuthGuard(type?: string): Type<CanActivate> {
+function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAuthGuard> {
   class MixinAuthGuard<TUser = any> {
     /**
      * Integrate options
@@ -127,7 +127,7 @@ function createAuthGuard(type?: string): Type<CanActivate> {
     }
   }
 
-  const guard = mixin(MixinAuthGuard);
+  const guard = mixin<MixinAuthGuard>(MixinAuthGuard);
   return guard;
 }
 

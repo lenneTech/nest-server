@@ -25,7 +25,7 @@ describe('Project (e2e)', () => {
 
   // Global vars
   let userService: UserService;
-  const users: Partial<{ token: string } & User>[] = [];
+  const users: Partial<User & { token: string }>[] = [];
 
   // ===================================================================================================================
   // Preparations
@@ -229,9 +229,25 @@ describe('Project (e2e)', () => {
   /**
    * Test if swagger error-structure mirrors the actual error structure
    */
-  it('Validates common-error structure', async () => {
+  it('Try sign in without input', async () => {
     const res: any = await testHelper.rest('/auth/signin', { method: 'POST', statusCode: 400 });
+    expect(res).toMatchObject({
+      message: 'Missing input',
+      name: 'BadRequestException',
+      response: {
+        error: 'Bad Request',
+        message: 'Missing input',
+        statusCode: 400,
+      },
+      status: 400,
+    });
+  });
 
+  /**
+   * Test if swagger error-structure mirrors the actual error structure
+   */
+  it('Validates common-error structure', async () => {
+    const res: any = await testHelper.rest('/auth/signin', { method: 'POST', payload: {}, statusCode: 400 });
 
     // Test for generic object equality
     expect(res).toMatchObject({
@@ -268,18 +284,6 @@ describe('Project (e2e)', () => {
       },
       status: 400,
     });
-
-  });
-
-  // ===================================================================================================================
-  // Tests
-  // ===================================================================================================================
-
-  /**
-   * Test
-   */
-  it('test', async () => {
-    console.info('Implement test here');
   });
 
   // ===================================================================================================================
