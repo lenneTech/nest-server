@@ -173,7 +173,8 @@ export function UnifiedField(options?: UnifiedFieldOptions): PropertyDecorator {
 
     if (mergedOptions.validator) {
       const validators = mergedOptions.validator(mergedOptions.validationOptions);
-      validators.forEach((validator) => validator(target, propertyKey));
+      // prettier-ignore
+      validators.forEach(validator => validator(target, propertyKey));
     }
 
     // Only validate if the return value from validateIf is true
