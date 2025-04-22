@@ -2,10 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
-import { HttpExceptionLogFilter, SortOrderEnum, TestGraphQLType, TestHelper } from '../src';
+import {
+  ComparisonOperatorEnum,
+  HttpExceptionLogFilter,
+  RoleEnum,
+  SortOrderEnum,
+  TestGraphQLType,
+  TestHelper,
+} from '../src';
 import envConfig from '../src/config.env';
-import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
-import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
@@ -149,7 +154,7 @@ describe('Project (e2e)', () => {
       filter: {
         singleFilter: {
           field: 'email',
-          operator: ComparisonOperatorEnum.IN,
+          operator: 'IN',
           value: emails,
         },
       },
@@ -164,7 +169,7 @@ describe('Project (e2e)', () => {
         name: 'findAndCountUsers',
         type: TestGraphQLType.QUERY,
       },
-      { token: users[0].token },
+      { logError: true, token: users[0].token },
     );
     const min = Math.min(args.limit, emails.length - args.skip);
     expect(res.totalCount).toEqual(emails.length);

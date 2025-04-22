@@ -19,220 +19,179 @@ import {
   ValidationOptions,
 } from 'class-validator';
 import 'reflect-metadata';
+import { GraphQLScalarType } from 'graphql';
 
 import { RoleEnum } from '../enums/role.enum';
-import { Restricted } from './restricted.decorator';
+import { Restricted, RestrictedType } from './restricted.decorator';
 
-class EmailType {}
-
-class PhoneNumberType {}
-class URLType {}
-export class UnifiedFieldOptions {
-  /** General desc. */
+export interface UnifiedFieldOptions {
+  array?: boolean;
   description?: string;
-  /** Gql options */
-  gqlOptions?: FieldOptions = undefined;
-  /** If the property is optional */
-  isOptional?: boolean;
-  /** Role access */
-  roles?: RoleEnum | RoleEnum[];
-  /** Swagger options */
-  swaggerApiOptions?: ApiPropertyOptions = {};
-  /** If the property is an Array */
-  array?: boolean = false;
-  /** Validation config */
-  validationOptions?: ValidationOptions = undefined;
-  /** Enum validation */
   enum?: { enum: object; options?: ValidationOptions };
-  /** Validator function if the built-ins don't cover the use case */
-  validator?: (opts: ValidationOptions) => PropertyDecorator[];
-  /** Example value for doc purposes */
   example?: any;
-  /** Condition for when the property should be validated */
-  validateIf?: (object: any, value: any) => boolean;
-  /** Manual type if the auto-inferred type does not fit */
-  type?: new (...args: any[]) => any;
+  gqlOptions?: FieldOptions;
+  isOptional?: boolean;
+  roles?: RestrictedType | RoleEnum | RoleEnum[];
+  swaggerApiOptions?: ApiPropertyOptions;
+  type?:
+    | (() => any)
+    | GraphQLScalarType
+    | (new (...args: any[]) => any)
+    | Record<number | string, number | string>; // Enums;
+  validateIf?: (obj: any, val: any) => boolean;
+  validationOptions?: ValidationOptions;
+  validator?: (opts: ValidationOptions) => PropertyDecorator[];
 }
+// Marker classes for specialized validators
+class EmailType {}
+class PhoneNumberType {}
 
-/** All-In-One Decorator for Swagger, class-validator, gql */
-export function UnifiedField(options?: UnifiedFieldOptions): PropertyDecorator {
-  return (target: object, propertyKey: string | symbol) => {
-    const mergedOptions = { ...options };
-    let type = Reflect.getMetadata('design:type', target, propertyKey);
+class URLType {}
 
-    if (!isValidConstructor(type)) {
-      throw new Error(
-        `Invalid type provided for property '${String(propertyKey)}'. The type function must return a valid class constructor.`,
-      );
-    }
+export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator {
+  return (target: any, propertyKey: string | symbol) => {
+    const metadataType = Reflect.getMetadata('design:type', target, propertyKey);
+    const userType = opts.type;
+    const isArrayField = opts.array === true || metadataType === Array;
 
-    mergedOptions.gqlOptions = mergedOptions.gqlOptions || {};
-    mergedOptions.swaggerApiOptions = mergedOptions.swaggerApiOptions || {};
-    mergedOptions.validationOptions = mergedOptions.validationOptions || {};
-
-    if (type.name === 'Array') {
-      if (!mergedOptions.type) {
-        throw new Error(
-          `Missing 'type' for array field '${String(propertyKey)}'. Please provide a type function via 'type: () => YourType'.`,
-        );
-      }
-      mergedOptions.array = true;
-      type = mergedOptions.type;
-    }
-
-    // Merge optional properties
-    if (mergedOptions.isOptional) {
-      mergedOptions.gqlOptions = {
-        ...mergedOptions.gqlOptions,
-        nullable: mergedOptions.gqlOptions?.nullable ?? mergedOptions.isOptional,
-      };
-
-      mergedOptions.swaggerApiOptions = {
-        ...mergedOptions.swaggerApiOptions,
-        nullable: mergedOptions.swaggerApiOptions?.nullable ?? mergedOptions.isOptional,
-      };
-    }
-
-    // Merge examples
-    if (mergedOptions.example !== undefined) {
-      mergedOptions.swaggerApiOptions = {
-        ...mergedOptions.swaggerApiOptions,
-        example: mergedOptions.swaggerApiOptions?.example ?? mergedOptions.example,
-      };
-    }
-
-    if (mergedOptions.array) {
-      mergedOptions.swaggerApiOptions = {
-        ...mergedOptions.swaggerApiOptions,
-        type: mergedOptions.array ? [type] : type,
-      };
-    }
-
-    // Set default description
-    if (!mergedOptions.description) {
-      const className = target.constructor.name;
-      mergedOptions.description = `${String(propertyKey)} of ${className}`;
-    }
-
-    // Merge descriptions
-    if (mergedOptions.description) {
-      mergedOptions.gqlOptions = {
-        ...mergedOptions.gqlOptions,
-        description: mergedOptions.gqlOptions?.description ?? mergedOptions.description,
-      };
-
-      mergedOptions.swaggerApiOptions = {
-        ...mergedOptions.swaggerApiOptions,
-        description: mergedOptions.swaggerApiOptions?.description ?? mergedOptions.description,
-      };
-    }
-
-    if (mergedOptions.array) {
-      IsArray()(target, propertyKey);
-      mergedOptions.swaggerApiOptions.isArray = true;
-      mergedOptions.swaggerApiOptions.type = mergedOptions.array ? [type] : type;
-      mergedOptions.validationOptions.each = true;
-    }
-
-    // GraphQL decorator
-    const gqlType = () => (mergedOptions.array ? [type] : type);
-    Field(gqlType, mergedOptions.gqlOptions)(target, propertyKey);
-
-    // Swagger decorator
-    if (mergedOptions.isOptional) {
-      ApiPropertyOptional(mergedOptions.swaggerApiOptions)(target, propertyKey);
-    } else {
-      ApiProperty(mergedOptions.swaggerApiOptions)(target, propertyKey);
-    }
-
-    // class-transformer decorator
-    if (!mergedOptions.validator) {
-      const validator = getClassValidator(type, mergedOptions.validationOptions);
-      if (validator) {
-        validator(target, propertyKey); // Applying Validator from getClassValidator
-      }
-
-      if (
-        // prettier-ignore
-        typeof type === 'function'
-        && type.prototype
-        && type !== String
-        && type !== Number
-        && type !== Boolean
-        && type !== Date
-      ) {
-        Type(() => type)(target, propertyKey);
-
-        if (mergedOptions.array) {
-          ValidateNested({ each: true })(target, propertyKey);
-        } else {
-          ValidateNested()(target, propertyKey);
+    const resolvedTypeFn = (): any => {
+      if (userType) {
+        if (userType instanceof GraphQLScalarType) { // Case if it's a scalar
+          return userType;
+        }
+        if (
+          typeof userType === 'function'
+          && userType.prototype
+          && userType.prototype.constructor === userType
+        ) { // Case if it's a function
+          return userType;
+        }
+        try { // case if its a factory
+          return (userType as () => any)();
+        } catch {
+          return userType;
         }
       }
+      return metadataType;
+    };
+
+    // Prepare merged options
+    const gqlOpts: FieldOptions = { ...opts.gqlOptions };
+    const swaggerOpts: ApiPropertyOptions = { ...opts.swaggerApiOptions };
+    const valOpts: ValidationOptions = { ...opts.validationOptions };
+
+    // Optionality
+    if (opts.isOptional) {
+      gqlOpts.nullable = gqlOpts.nullable ?? true;
+      swaggerOpts.nullable = swaggerOpts.nullable ?? true;
     }
 
-    if (mergedOptions.validator) {
-      const validators = mergedOptions.validator(mergedOptions.validationOptions);
-      // prettier-ignore
-      validators.forEach(validator => validator(target, propertyKey));
+    // Description
+    const defaultDesc = opts.description ?? `${String(propertyKey)} of ${target.constructor.name}`;
+    gqlOpts.description = gqlOpts.description ?? defaultDesc;
+    swaggerOpts.description = swaggerOpts.description ?? defaultDesc;
+
+    // Swagger example
+    if (opts.example !== undefined) {
+      swaggerOpts.example = swaggerOpts.example ?? opts.example;
     }
 
-    // Only validate if the return value from validateIf is true
-    if (mergedOptions.validateIf) {
-      ValidateIf(mergedOptions.validateIf)(target, propertyKey);
+    // Array handling
+    if (isArrayField) {
+      swaggerOpts.isArray = true;
+      swaggerOpts.type = () => [resolvedTypeFn()];
+      IsArray(valOpts)(target, propertyKey);
+      valOpts.each = true;
+    } else {
+      swaggerOpts.type = resolvedTypeFn();
+    }
+    // Type function for gql
+    const gqlTypeFn = () =>
+      isArrayField
+        ? [resolvedTypeFn()]
+        : resolvedTypeFn();
+
+    // Gql decorator
+    Field(gqlTypeFn, gqlOpts)(target, propertyKey);
+
+    // Swagger decorator
+    const ApiDec = opts.isOptional ? ApiPropertyOptional : ApiProperty;
+    ApiDec(swaggerOpts)(target, propertyKey);
+
+    // Conditional validation
+    if (opts.validateIf) {
+      ValidateIf(opts.validateIf)(target, propertyKey);
     }
 
-    // validation decorators
-    if (mergedOptions.isOptional) {
+    // isOptional validation
+    if (opts.isOptional) {
       IsOptional()(target, propertyKey);
     } else {
       IsNotEmpty()(target, propertyKey);
     }
 
-    // enum validation
-    if (mergedOptions.enum && typeof mergedOptions.enum.enum === 'object') {
-      IsEnum(mergedOptions.enum.enum, mergedOptions.enum.options)(target, propertyKey);
+    // Custom or builtin validator
+    if (opts.validator) {
+      opts.validator(valOpts).forEach(d => d(target, propertyKey));
+    } else {
+      const baseType = resolvedTypeFn();
+      const validator = getBuiltInValidator(baseType, valOpts, isArrayField, target);
+      if (validator) {
+        validator(target, propertyKey);
+      }
     }
 
-    if (mergedOptions.roles) {
-      Restricted(mergedOptions.roles)(target, propertyKey);
+    // Enum validation
+    if (opts.enum) {
+      IsEnum(opts.enum.enum, opts.enum.options)(target, propertyKey);
+    }
+
+    // Check if it's a primitive, if not apply transform
+    const baseType = resolvedTypeFn();
+    if (!isPrimitive(baseType) && baseType !== Date) {
+      Type(() => baseType)(target, propertyKey);
+      if (isArrayField) {
+        ValidateNested({ each: true })(target, propertyKey);
+      } else {
+        ValidateNested()(target, propertyKey);
+      }
+    }
+
+
+    // Roles
+    if (opts.roles) {
+      const rolesArr = Array.isArray(opts.roles) ? opts.roles : [opts.roles];
+      Restricted(...rolesArr)(target, propertyKey);
     }
   };
 }
 
-function getClassValidator(type: new (...args: any[]) => any, opts: ValidationOptions) {
-  const resolvedType = type;
-
-  const typeValidatorMap = new Map<new (...args: any[]) => any, () => PropertyDecorator>([
-    /* eslint-disable perfectionist/sort-maps */
-    // Primitive types
-    [String, () => IsString(opts)],
-    [Number, () => IsNumber({}, opts)],
-    [Boolean, () => IsBoolean(opts)],
-    [Date, () => IsDate(opts)],
-    [Object, () => IsObject(opts)],
-
-    // Custom types for more specific validations
-    [EmailType, () => IsEmail({}, opts)],
-    [PhoneNumberType, () => IsPhoneNumber(null, opts)],
-    [URLType, () => IsUrl({}, opts)],
-    /* eslint-enable perfectionist/sort-maps */
+function getBuiltInValidator(
+  type: any,
+  opts: ValidationOptions,
+  each: boolean,
+  target: any,
+): ((t: any, k: string | symbol) => void) | null {
+  const map = new Map<any, PropertyDecorator>([
+    [Boolean, IsBoolean(opts)],
+    [Date, IsDate(opts)],
+    [EmailType, IsEmail({}, opts)],
+    [Number, IsNumber({}, opts)],
+    [Object, IsObject(opts)],
+    [PhoneNumberType, IsPhoneNumber(null, opts)],
+    [String, IsString(opts)],
+    [URLType, IsUrl({}, opts)],
   ]);
-
-  const validatorFactory = typeValidatorMap.get(resolvedType);
-  return validatorFactory?.();
+  const decorator = map.get(type);
+  if (!decorator) {
+return null;
+}
+  if (each) {
+    return (t, k) => decorator(target, k);
+  }
+  return decorator;
 }
 
-function isValidConstructor(value: any): boolean {
-  return (
-    // prettier-ignore
-    typeof value === 'function'
-    && (value === String
-      || value === Number
-      || value === Boolean
-      || value === Date
-      || value === Object
-      || value === Array
-      || value.prototype !== undefined)
-  );
+function isPrimitive(fn: any): boolean {
+  return [Boolean, Date, Number, String].includes(fn);
 }

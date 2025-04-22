@@ -44,7 +44,7 @@ export class CoreAuthModel extends CoreModel {
   @ApiProperty({
     description: 'User who signed in',
     required: true,
-    type: () => CoreUserModel,
+    type: CoreUserModel,
   })
   @Field({ description: 'Current user' })
   @Restricted(RoleEnum.S_EVERYONE)

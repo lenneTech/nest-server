@@ -1,6 +1,7 @@
 import { ArgsType, Field, Int } from '@nestjs/graphql';
 import { IsOptional } from 'class-validator';
 
+import { UnifiedField } from '../decorators/unified-field.decorator';
 import { maps } from '../helpers/model.helper';
 import { CoreInput } from '../inputs/core-input.input';
 import { SortInput } from '../inputs/sort.input';
@@ -10,41 +11,42 @@ export class PaginationArgs extends CoreInput {
   /**
    * Limit for pagination
    */
-  @Field(() => Int, {
+  @UnifiedField({
     description: 'Limit specifies the maximum number of elements found that are to be returned',
-    nullable: true,
+    isOptional: true,
+    type: Int,
   })
-  @IsOptional()
   limit?: number = undefined;
 
   /**
    * Alias for skip
    */
-  @Field(() => Int, {
+  @UnifiedField({
     description: 'Alias for skip',
-    nullable: true,
+    isOptional: true,
+    type: Int,
   })
-  @IsOptional()
   offset?: number = undefined;
 
   /**
    * Skip for pagination
    */
-  @Field(() => Int, {
-    description: 'Skip specifies how many found elements should be skipped on return',
-    nullable: true,
-  })
   @IsOptional()
+  @UnifiedField({
+    description: 'Skip specifies how many found elements should be skipped on return',
+    isOptional: true,
+    type: Int,
+  })
   skip?: number = undefined;
 
   /**
    * Sorting for pagination
    */
-  @Field(() => [SortInput], {
+  @UnifiedField({
     description: 'Sorting the returned elements',
-    nullable: true,
+    isOptional: true,
+    type: SortInput,
   })
-  @IsOptional()
   sort?: SortInput[] = undefined;
 
   /**

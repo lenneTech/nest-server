@@ -12,8 +12,8 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('ServerModule (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const log = true; // eslint-disable-line unused-imports/no-unused-vars
-  const logError = true; // eslint-disable-line unused-imports/no-unused-vars
+  const log = true;
+  const logError = true;
 
   // Test environment properties
   const port = 3030;
@@ -381,10 +381,15 @@ describe('ServerModule (e2e)', () => {
    * Find users without token
    */
   it('findUsers without token', async () => {
-    const res: any = await testHelper.graphQl({
-      fields: ['id', 'email'],
-      name: 'findUsers',
-    });
+    const res: any = await testHelper.graphQl(
+      {
+        fields: ['id', 'email'],
+        name: 'findUsers',
+      },
+      {
+        logError: true,
+      },
+    );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Unauthorized');
@@ -431,7 +436,7 @@ describe('ServerModule (e2e)', () => {
         name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
-      { token: gToken },
+      { logError: true, token: gToken },
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -518,7 +523,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email'],
         name: 'findUsers',
       },
-      { token: gToken },
+      { log, logError, token: gToken },
     );
     expect(res.length).toBe(1);
     expect(res[0].id).toEqual(gId);
@@ -630,7 +635,6 @@ describe('ServerModule (e2e)', () => {
     const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: gToken });
     expect(res).toBe(true);
   });
-
 
   /**
    * Delete user

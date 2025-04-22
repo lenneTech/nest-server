@@ -1,6 +1,7 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../decorators/restricted.decorator';
+import { UnifiedField } from '../decorators/unified-field.decorator';
 import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { maps } from '../helpers/model.helper';
@@ -15,19 +16,24 @@ export class CombinedFilterInput extends CoreInput {
   /**
    * Logical Operator to combine filters
    */
-  @Field(() => LogicalOperatorEnum, {
+  @UnifiedField({
     description: 'Logical Operator to combine filters',
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   logicalOperator: LogicalOperatorEnum = undefined;
 
   /**
    * Filters to combine via logical operator
    */
-  @Field(() => [FilterInput], {
+  // @Field(() => [FilterInput], {
+  //   description: 'Filters to combine via logical operator',
+  // })
+  // @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
     description: 'Filters to combine via logical operator',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    type: () => FilterInput,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   filters: FilterInput[] = undefined;
 
   // ===================================================================================================================
