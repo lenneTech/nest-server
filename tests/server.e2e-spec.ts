@@ -18,8 +18,8 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('ServerModule (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const log = true;
-  const logError = true;
+  const log = true; // eslint-disable-line unused-imports/no-unused-vars
+  const logError = true; // eslint-disable-line unused-imports/no-unused-vars
 
   // Test environment properties
   const port = 3030;
@@ -391,11 +391,7 @@ describe('ServerModule (e2e)', () => {
       {
         fields: ['id', 'email'],
         name: 'findUsers',
-      },
-      {
-        logError: true,
-      },
-    );
+      });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Unauthorized');
@@ -442,7 +438,7 @@ describe('ServerModule (e2e)', () => {
         name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
-      { logError: true, token: gToken },
+      { token: gToken },
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
@@ -529,7 +525,7 @@ describe('ServerModule (e2e)', () => {
         fields: ['id', 'email'],
         name: 'findUsers',
       },
-      { log, logError, token: gToken },
+      { token: gToken },
     );
     expect(res.length).toBe(1);
     expect(res[0].id).toEqual(gId);

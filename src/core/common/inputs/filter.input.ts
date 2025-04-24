@@ -19,10 +19,11 @@ export class FilterInput extends CoreInput {
    * Combination of multiple filters via logical operator
    */
    @UnifiedField({
-        isOptional: true,
-        roles: RoleEnum.S_EVERYONE,
-        type: CombinedFilterInput,
-      })
+      description: 'Filter for a single property',
+      isOptional: true,
+      roles: RoleEnum.S_EVERYONE,
+      type: CombinedFilterInput,
+    })
   combinedFilter?: CombinedFilterInput = undefined;
 
   /**
