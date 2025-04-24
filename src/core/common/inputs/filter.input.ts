@@ -1,4 +1,4 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../decorators/restricted.decorator';
 import { UnifiedField } from '../decorators/unified-field.decorator';
@@ -18,25 +18,16 @@ export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */
-  //  @UnifiedField({
-    //     isOptional: true,
-    //     roles: RoleEnum.S_EVERYONE,
-    //     type: CombinedFilterInput,
-    //   })
-  @Field(() => CombinedFilterInput, {
-    description: 'Combination of multiple filters via logical operator',
-    nullable: true,
-  })
+   @UnifiedField({
+        isOptional: true,
+        roles: RoleEnum.S_EVERYONE,
+        type: CombinedFilterInput,
+      })
   combinedFilter?: CombinedFilterInput = undefined;
 
   /**
    * Filter for a single property
    */
-  // @Field(() => SingleFilterInput, {
-  //   description: 'Filter for a single property',
-  //   nullable: true,
-  // })
-  // @Restricted(RoleEnum.S_EVERYONE)
     @UnifiedField({
       description: 'Filter for a single property',
       isOptional: true,

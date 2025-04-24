@@ -1,4 +1,4 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../decorators/restricted.decorator';
 import { UnifiedField } from '../decorators/unified-field.decorator';
@@ -27,8 +27,10 @@ export class SingleFilterInput extends CoreInput {
   /**
    * Name of the property to be used for the filter
    */
-  @Field({ description: 'Name of the property to be used for the filter' })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Name of the property to be used for the filter',
+    roles: RoleEnum.S_EVERYONE,
+  })
   field: string = undefined;
 
   /**
@@ -54,15 +56,10 @@ export class SingleFilterInput extends CoreInput {
   /**
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
-  // @Field(() => ComparisonOperatorEnum, {
-  //   description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
-  // })
-  // @Restricted(RoleEnum.S_EVERYONE)
   @UnifiedField({
     description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
     enum: { enum: ComparisonOperatorEnum },
     roles: RoleEnum.S_EVERYONE,
-    type: () => ComparisonOperatorEnum,
   })
   operator: ComparisonOperatorEnum = undefined;
 
@@ -70,13 +67,6 @@ export class SingleFilterInput extends CoreInput {
    * [Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for
    * [REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator
    */
-  // @Field({
-  //   description:
-  //     '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
-  //     '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
-  //   nullable: true,
-  // })
-  // @Restricted(RoleEnum.S_EVERYONE)
   @UnifiedField({
     description:
       '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for '
@@ -86,7 +76,11 @@ export class SingleFilterInput extends CoreInput {
   })
   options?: string = undefined;
 
-  @Field(() => JSON, { description: 'Value of the property' })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Value of the property',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    type: () => JSON,
+  })
   value: any = undefined;
 }

@@ -1,8 +1,8 @@
-import { Field, InputType } from '@nestjs/graphql';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { InputType } from '@nestjs/graphql';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CoreInput } from '../../../common/inputs/core-input.input';
 
@@ -16,31 +16,32 @@ export class CoreAuthSignInInput extends CoreInput {
   // Properties
   // ===================================================================================================================
 
-  @ApiPropertyOptional({ description: 'Device ID (is created automatically if it is not set)' })
-  @Field({ description: 'Device ID (is created automatically if it is not set)', nullable: true })
-  @IsOptional()
-  @IsString()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Device ID (is created automatically if it is not set)',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   deviceId?: string = undefined;
 
-  @ApiPropertyOptional({ description: 'Device description' })
-  @Field({ description: 'Device description', nullable: true })
-  @IsOptional()
-  @IsString()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Device description',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   deviceDescription?: string = undefined;
 
-  @ApiProperty()
-  @Field({ description: 'Email', nullable: false })
-  @IsEmail()
-  @IsNotEmpty()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Email',
+    isOptional: false,
+    roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsEmail(), IsString(), IsNotEmpty()],
+  })
   email: string = undefined;
 
-  @ApiProperty()
-  @Field({ description: 'Password', nullable: false })
-  @IsNotEmpty()
-  @IsString()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Password',
+    isOptional: false,
+    roles: RoleEnum.S_EVERYONE,
+  })
   password: string = undefined;
 }

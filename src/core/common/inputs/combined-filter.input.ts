@@ -24,10 +24,6 @@ export class CombinedFilterInput extends CoreInput {
   /**
    * Filters to combine via logical operator
    */
-  // @Field(() => [FilterInput], {
-  //   description: 'Filters to combine via logical operator',
-  // })
-  // @Restricted(RoleEnum.S_EVERYONE)
   @UnifiedField({
     description: 'Filters to combine via logical operator',
     isOptional: true,

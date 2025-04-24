@@ -2,9 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
-import { ComparisonOperatorEnum, ConfigService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
+import {
+  ComparisonOperatorEnum,
+  ConfigService,
+  getPlain,
+  HttpExceptionLogFilter,
+  TestGraphQLType,
+  TestHelper,
+} from '../src';
 import envConfig from '../src/config.env';
-import { getPlain } from '../src/core/common/helpers/input.helper';
 import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
