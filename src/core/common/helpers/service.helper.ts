@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
 import { Types } from 'mongoose';
 
+import { getTranslatablePropertyKeys } from '../decorators/translatable.decorator';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -187,6 +188,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     circles?: boolean;
     clone?: boolean;
     getNewArray?: boolean;
+    language?: string;
     objectIdsToStrings?: boolean;
     proto?: boolean;
     removeSecrets?: boolean;
@@ -269,6 +271,20 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     for (const [key, value] of Object.entries(output)) {
       if (value instanceof Types.ObjectId) {
         output[key] = value.toHexString();
+      }
+    }
+  }
+
+  // Add translated values of current selected language if _translations object exists
+  if (config.targetModel && config.language && typeof output === 'object' && '_translations' in output) {
+    const translation = output._translations?.[options.language];
+
+    if (typeof translation === 'object') {
+      const keys = getTranslatablePropertyKeys(config.targetModel);
+      for (const key of keys) {
+        if (translation[key] != null) {
+          output[key] = translation[key];
+        }
       }
     }
   }

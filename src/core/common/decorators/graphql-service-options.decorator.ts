@@ -1,4 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { currentUserDec, graphqlPopulateDec } from '../helpers/decorator.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
@@ -8,6 +9,7 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
  *
  * Includes following properties of ServiceOptions:
  *  - currentUser
+ *  - language
  *  - populate
  *
  * Configuration via Decorator data:
@@ -22,8 +24,14 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
  */
 export const GraphQLServiceOptions = createParamDecorator(
   (data: { gqlPath?: string; ignoreSelections?: boolean }, ctx: ExecutionContext): ServiceOptions => {
+    const gqlContext = GqlExecutionContext.create(ctx);
+    const request = gqlContext.getContext().req;
+
+    const language = request?.headers?.['accept-language'];
+
     return {
       currentUser: currentUserDec(null, ctx),
+      language,
       populate: graphqlPopulateDec(data, ctx),
     };
   },
