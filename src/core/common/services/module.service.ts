@@ -258,6 +258,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
    */
   async prepareOutput(output: any, options: ServiceOptions = {}) {
     const config = {
+      language: options?.language,
       targetModel: this.mainModelConstructor,
       ...options?.prepareOutput,
     };

@@ -11,7 +11,7 @@ servers:
 info:
   title: lT Nest Server
   description: Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).
-  version: 11.0.0
+  version: 11.0.1
   contact:
     name: lenne.Tech GmbH
     url: https://lenne.tech
