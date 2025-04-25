@@ -276,10 +276,10 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   }
 
   // Add translated values of current selected language if _translations object exists
-  if (config.language && typeof output === 'object' && '_translations' in output) {
+  if (config.targetModel && config.language && typeof output === 'object' && '_translations' in output) {
     const translation = output._translations?.[options.language];
 
-    if (translation && typeof translation === 'object') {
+    if (typeof translation === 'object') {
       const keys = getTranslatablePropertyKeys(config.targetModel);
       for (const key of keys) {
         if (translation[key] != null) {

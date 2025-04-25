@@ -14,6 +14,7 @@ export * from './core/common/decorators/current-user.decorator';
 export * from './core/common/decorators/graphql-populate.decorator';
 export * from './core/common/decorators/graphql-service-options.decorator';
 export * from './core/common/decorators/graphql-user.decorator';
+export * from './core/common/decorators/rest-service-options.decorator';
 export * from './core/common/decorators/rest-user.decorator';
 export * from './core/common/decorators/restricted.decorator';
 export * from './core/common/decorators/roles.decorator';
