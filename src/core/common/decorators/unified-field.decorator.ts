@@ -1,5 +1,6 @@
 import { Field, FieldOptions } from '@nestjs/graphql';
 import { ApiProperty, ApiPropertyOptional, ApiPropertyOptions } from '@nestjs/swagger';
+import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -15,7 +16,6 @@ import {
   ValidateNested,
   ValidationOptions,
 } from 'class-validator';
-import 'reflect-metadata';
 import { GraphQLScalarType } from 'graphql';
 
 import { RoleEnum } from '../enums/role.enum';
@@ -33,13 +33,15 @@ export interface UnifiedFieldOptions {
    * When in doubt, explicitly set this property to ensure correct behavior.
    */
   array?: boolean;
+  /** Description used for both Swagger & Gql */
   description?: string;
   /** Enum for class-validator */
-  enum?: { enum: object; options?: ValidationOptions };
+  enum?: { enum: EnumAllowedTypes; options?: ValidationOptions };
   /** Example value for swagger api documentation */
   example?: any;
   /** Options for graphql */
   gqlOptions?: FieldOptions;
+  /** Default: false */
   isOptional?: boolean;
   /** Restricted roles */
   roles?: RestrictedType | RoleEnum | RoleEnum[];
@@ -49,17 +51,14 @@ export interface UnifiedFieldOptions {
    *
    * Required if the field is an array (inferred automatically or via the array flag).
    *
+   * Enums should be defined via the enum option.
+   *
    * Supports:
    * - A factory function that returns the type: `() => MyType`
    * - A GraphQL scalar: `GraphQLScalarType`
    * - A class constructor: `MyClass`
-   * - An Enum object
    * */
-  type?:
-    | (() => any)
-    | GraphQLScalarType
-    | (new (...args: any[]) => any)
-    | Record<number | string, number | string>; // Enums;
+  type?: (() => any) | GraphQLScalarType | (new (...args: any[]) => any) | Record<number | string, number | string>; // Enums;
   /** Condition for validation */
   validateIf?: (obj: any, val: any) => boolean;
   /** Validation options for class-validator */
@@ -76,7 +75,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Throwing because metatype only returns the generic array, but not the type of the array items
     if (metadataType === Array && !userType) {
-      throw new Error('Array fields must have a type specified via \'type: () => MyType\' or \'type: MyType\'');
+      throw new Error(`Array field '${String(propertyKey)}' of '${String(target)}' must have an explicit type`);
     }
 
     const resolvedTypeFn = (): any => {
@@ -103,17 +102,20 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       return metadataType;
     };
 
-    const resolvedType = resolvedTypeFn();
+    const baseType = resolvedTypeFn();
 
-        // Prepare merged options
+    // Prepare merged options
     const gqlOpts: FieldOptions = { ...opts.gqlOptions };
     const swaggerOpts: ApiPropertyOptions = { ...opts.swaggerApiOptions };
     const valOpts: ValidationOptions = { ...opts.validationOptions };
 
     // Optionality
     if (opts.isOptional) {
-      gqlOpts.nullable = gqlOpts.nullable ?? true;
-      swaggerOpts.nullable = swaggerOpts.nullable ?? true;
+      gqlOpts.nullable = true;
+      swaggerOpts.nullable = true;
+    } else {
+      gqlOpts.nullable = false;
+      swaggerOpts.nullable = false;
     }
 
     // Description
@@ -126,29 +128,41 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       swaggerOpts.example = swaggerOpts.example ?? opts.example;
     }
 
+    if (opts.enum && opts.enum.enum) {
+      swaggerOpts.enum = opts.enum.enum;
+    }
     // Array handling
     if (isArrayField) {
       swaggerOpts.isArray = true;
-      swaggerOpts.type = () => resolvedType;
       IsArray(valOpts)(target, propertyKey);
       valOpts.each = true;
-    } else {
-      // As thunk to avoid circular dependency
-      swaggerOpts.type = () => resolvedType;
+    }
+
+    if (opts.isOptional) {
+      IsOptional(valOpts)(target, propertyKey);
     }
 
     // Type function for gql
-    const gqlTypeFn
-      = isArrayField
-        ? () => [opts.enum?.enum || resolvedTypeFn()]
-        : () => opts.enum?.enum || resolvedTypeFn();
+    const gqlTypeFn = isArrayField
+      ? () => [opts.enum?.enum || resolvedTypeFn()]
+      : () => opts.enum?.enum || resolvedTypeFn();
 
     // Gql decorator
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
 
-    // Swagger decorator
     const ApiDec = opts.isOptional ? ApiPropertyOptional : ApiProperty;
-    ApiDec(swaggerOpts)(target, propertyKey);
+
+    ApiDec({
+      deprecated: swaggerOpts.deprecated,
+      description: swaggerOpts.description,
+      enum: swaggerOpts.enum,
+      example: swaggerOpts.example,
+      examples: swaggerOpts.examples,
+      isArray: swaggerOpts.isArray,
+      nullable: swaggerOpts.nullable,
+      pattern: swaggerOpts.pattern,
+      type: () => resolvedTypeFn(),
+    })(target, propertyKey);
 
     // Conditional validation
     if (opts.validateIf) {
@@ -166,7 +180,6 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     if (opts.validator) {
       opts.validator(valOpts).forEach(d => d(target, propertyKey));
     } else {
-      const baseType = resolvedTypeFn();
       const validator = getBuiltInValidator(baseType, valOpts, isArrayField, target);
       if (validator) {
         validator(target, propertyKey);
@@ -179,14 +192,9 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     }
 
     // Check if it's a primitive, if not apply transform
-    const baseType = resolvedTypeFn();
-    if (!isPrimitive(baseType) && baseType !== Date && !opts.enum && !isGraphQLScalar(baseType)) {
+    if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
       Type(() => baseType)(target, propertyKey);
-      if (isArrayField) {
-        ValidateNested({ each: true })(target, propertyKey);
-      } else {
-        ValidateNested()(target, propertyKey);
-      }
+      ValidateNested({ each: isArrayField })(target, propertyKey);
     }
 
     // Roles
@@ -212,8 +220,8 @@ function getBuiltInValidator(
   ]);
   const decorator = map.get(type);
   if (!decorator) {
-return null;
-}
+    return null;
+  }
   if (each) {
     return (t, k) => decorator(target, k);
   }

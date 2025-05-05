@@ -1,9 +1,11 @@
+import { DECORATORS } from '@nestjs/swagger/dist/constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
 import {
   ComparisonOperatorEnum,
+  CoreAuthSignInInput,
   HttpExceptionLogFilter,
   RoleEnum,
   SortOrderEnum,
@@ -289,6 +291,14 @@ describe('Project (e2e)', () => {
       },
       status: 400,
     });
+  });
+
+  it('Check unified-field decorator metadata', () => {
+    const gqlMetaData = Reflect.getMetadata('graphql:class_type', CoreAuthSignInInput);
+    const swaggerKeys = Reflect.getMetadata(DECORATORS.API_MODEL_PROPERTIES_ARRAY, CoreAuthSignInInput.prototype);
+
+    expect(gqlMetaData).toBeDefined();
+    expect(swaggerKeys.length).toBeGreaterThan(0);
   });
 
   // ===================================================================================================================
