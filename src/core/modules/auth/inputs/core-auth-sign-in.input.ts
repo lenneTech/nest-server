@@ -20,6 +20,7 @@ export class CoreAuthSignInInput extends CoreInput {
     description: 'Device ID (is created automatically if it is not set)',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsString()],
   })
   deviceId?: string = undefined;
 
@@ -27,6 +28,7 @@ export class CoreAuthSignInInput extends CoreInput {
     description: 'Device description',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsString()],
   })
   deviceDescription?: string = undefined;
 
@@ -42,6 +44,7 @@ export class CoreAuthSignInInput extends CoreInput {
     description: 'Password',
     isOptional: false,
     roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsString(), IsNotEmpty()],
   })
   password: string = undefined;
 }

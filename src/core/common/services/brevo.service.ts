@@ -1,8 +1,7 @@
+import brevo = require('@getbrevo/brevo');
 import { Injectable } from '@nestjs/common';
 
 import { ConfigService } from './config.service';
-
-import brevo = require('@getbrevo/brevo');
 
 /**
  * Brevo service to send transactional emails

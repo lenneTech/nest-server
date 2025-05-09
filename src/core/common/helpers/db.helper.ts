@@ -1,4 +1,5 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
+import _ = require('lodash');
 import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
@@ -7,8 +8,6 @@ import { FieldSelection } from '../types/field-selection.type';
 import { IdsType } from '../types/ids.type';
 import { StringOrObjectId } from '../types/string-or-object-id.type';
 import { removePropertiesDeep } from './input.helper';
-
-import _ = require('lodash');
 
 // =====================================================================================================================
 // Export functions

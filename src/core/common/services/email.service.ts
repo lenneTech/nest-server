@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
-
-import nodemailer = require('nodemailer');
 
 /**
  * Email service

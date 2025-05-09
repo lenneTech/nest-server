@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import bcrypt = require('bcrypt');
 import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
 
@@ -13,8 +14,6 @@ import { CoreAuthSignUpInput } from '../inputs/core-auth-sign-up.input';
 import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthUserService } from './core-auth-user.service';
-
-import bcrypt = require('bcrypt');
 
 /**
  * CoreAuthService to handle user authentication

@@ -16,7 +16,7 @@ export class SortInput extends CoreInput {
    * Field that is to be used for sorting
    */
   @UnifiedField({
-    description: 'Field that is not to be used for sorting',
+    description: 'Field that is to be used for sorting',
     roles: RoleEnum.S_EVERYONE,
   })
   field: string = undefined;

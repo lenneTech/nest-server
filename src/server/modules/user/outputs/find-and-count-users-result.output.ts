@@ -9,12 +9,13 @@ import { User } from '../user.model';
 @Restricted(RoleEnum.ADMIN)
 export class FindAndCountUsersResult {
   @UnifiedField({
+    array: true,
     description: 'Found users',
     isOptional: true,
     type: () => User,
   })
   items: User[];
-  
+
   @UnifiedField({
     description: 'Total count (skip/offset and limit/take are ignored in the count)',
     isOptional: false,

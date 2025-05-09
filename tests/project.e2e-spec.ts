@@ -156,7 +156,7 @@ describe('Project (e2e)', () => {
       filter: {
         singleFilter: {
           field: 'email',
-          operator: 'IN',
+          operator: ComparisonOperatorEnum.IN,
           value: emails,
         },
       },
@@ -171,7 +171,7 @@ describe('Project (e2e)', () => {
         name: 'findAndCountUsers',
         type: TestGraphQLType.QUERY,
       },
-      { logError: true, token: users[0].token },
+      { token: users[0].token },
     );
     const min = Math.min(args.limit, emails.length - args.skip);
     expect(res.totalCount).toEqual(emails.length);
