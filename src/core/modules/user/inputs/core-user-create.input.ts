@@ -1,7 +1,8 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 import { IsEmail } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CoreUserInput } from './core-user.input';
 
@@ -15,8 +16,10 @@ import { CoreUserInput } from './core-user.input';
 @InputType({ description: 'User input to create a new user', isAbstract: true })
 @Restricted(RoleEnum.S_EVERYONE)
 export abstract class CoreUserCreateInput extends CoreUserInput {
-  @Field({ description: 'Email of the user', nullable: false })
-  @IsEmail()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Email of the user',
+    roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsEmail()],
+  })
   override email: string = undefined;
 }

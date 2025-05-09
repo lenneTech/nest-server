@@ -2,9 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
-import { ComparisonOperatorEnum, ConfigService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
+import {
+  ComparisonOperatorEnum,
+  ConfigService,
+  getPlain,
+  HttpExceptionLogFilter,
+  TestGraphQLType,
+  TestHelper,
+} from '../src';
 import envConfig from '../src/config.env';
-import { getPlain } from '../src/core/common/helpers/input.helper';
 import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.input';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
@@ -381,10 +387,11 @@ describe('ServerModule (e2e)', () => {
    * Find users without token
    */
   it('findUsers without token', async () => {
-    const res: any = await testHelper.graphQl({
-      fields: ['id', 'email'],
-      name: 'findUsers',
-    });
+    const res: any = await testHelper.graphQl(
+      {
+        fields: ['id', 'email'],
+        name: 'findUsers',
+      });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
     expect(res.errors[0].message).toEqual('Unauthorized');
@@ -630,7 +637,6 @@ describe('ServerModule (e2e)', () => {
     const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: gToken });
     expect(res).toBe(true);
   });
-
 
   /**
    * Delete user

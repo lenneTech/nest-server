@@ -1,6 +1,7 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../decorators/restricted.decorator';
+import { UnifiedField } from '../decorators/unified-field.decorator';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { JSON } from '../scalars/json.scalar';
@@ -15,63 +16,71 @@ export class SingleFilterInput extends CoreInput {
   /**
    * Convert value to ObjectId
    */
-  @Field({
+
+  @UnifiedField({
     description: 'Convert value to ObjectId',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   convertToObjectId?: boolean = undefined;
 
   /**
    * Name of the property to be used for the filter
    */
-  @Field({ description: 'Name of the property to be used for the filter' })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Name of the property to be used for the filter',
+    roles: RoleEnum.S_EVERYONE,
+  })
   field: string = undefined;
 
   /**
    * Process value as reference
    */
-  @Field({
+  @UnifiedField({
     description: 'Process value as reference',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   isReference?: boolean = undefined;
 
   /**
    * [Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)
    */
-  @Field({
+  @UnifiedField({
     description: '[Negate operator](https://docs.mongodb.com/manual/reference/operator/query/not/)',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   not?: boolean = undefined;
 
   /**
    * [Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)
    */
-  @Field(() => ComparisonOperatorEnum, {
+  @UnifiedField({
     description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
+    enum: { enum: ComparisonOperatorEnum },
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   operator: ComparisonOperatorEnum = undefined;
 
   /**
    * [Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for
    * [REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator
    */
-  @Field({
+  @UnifiedField({
     description:
       '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for '
       + '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   options?: string = undefined;
 
-  @Field(() => JSON, { description: 'Value of the property' })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Value of the property',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    type: () => JSON,
+  })
   value: any = undefined;
 }

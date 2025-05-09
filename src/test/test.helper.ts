@@ -3,12 +3,11 @@ import { Blob } from 'buffer';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import { Types } from 'mongoose';
-
-import { getStringIds } from '../core/common/helpers/db.helper';
-
 import supertest = require('supertest');
 import util = require('util');
 import ws = require('ws');
+
+import { getStringIds } from '../core/common/helpers/db.helper';
 
 /**
  * GraphQL request type

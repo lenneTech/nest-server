@@ -2,13 +2,12 @@ import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop } from '@nestjs/mongoose';
 import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
 import { Types } from 'mongoose';
+import mongoose = require('mongoose');
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
 import { User } from '../../modules/user/user.model';
-
-import mongoose = require('mongoose');
 
 /**
  * Metadata for persistent objects

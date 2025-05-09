@@ -1,13 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { exec } from 'child_process';
+import compression = require('compression');
+import cookieParser = require('cookie-parser');
 
 import envConfig from './config.env';
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
 import { ServerModule } from './server/server.module';
-
-import compression = require('compression');
-import cookieParser = require('cookie-parser');
 
 /**
  * Preparations for server start

@@ -1,6 +1,6 @@
-import { ArgsType, Field } from '@nestjs/graphql';
-import { IsOptional } from 'class-validator';
+import { ArgsType } from '@nestjs/graphql';
 
+import { UnifiedField } from '../decorators/unified-field.decorator';
 import { FilterInput } from '../inputs/filter.input';
 import { PaginationArgs } from './pagination.args';
 
@@ -9,20 +9,17 @@ export class FilterArgs extends PaginationArgs {
   /**
    * Filtering
    */
-  @Field(() => FilterInput, {
-    description: 'Input for filtering',
-    nullable: true,
+  @UnifiedField({
+    isOptional: true,
+    type: FilterInput,
   })
-  @IsOptional()
   filter?: FilterInput = undefined;
 
   /**
    * Get a specific number of random samples from filter results
    */
-  @Field(() => Number, {
-    description:
-      'Request only a specified number of samples from the filter results; if not specified, all results are returned.',
-    nullable: true,
+  @UnifiedField({
+    isOptional: true,
   })
   samples?: number = undefined;
 

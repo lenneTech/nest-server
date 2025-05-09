@@ -1,3 +1,4 @@
+import _ = require('lodash');
 import { Document, Model, Types } from 'mongoose';
 
 import { ProcessType } from '../enums/process-type.enum';
@@ -8,8 +9,6 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { ConfigService } from './config.service';
-
-import _ = require('lodash');
 
 /**
  * Module service class to be extended by concrete module services

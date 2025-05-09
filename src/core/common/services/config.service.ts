@@ -1,12 +1,11 @@
 import { cloneDeep } from 'lodash';
+import _ = require('lodash');
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 
 import { merge } from '../helpers/config.helper';
 import { clone, deepFreeze } from '../helpers/input.helper';
 import { IServerOptions } from '../interfaces/server-options.interface';
-
-import _ = require('lodash');
 
 /**
  * Config service can be used as provider (after initialization in CoreModule.forRoot)

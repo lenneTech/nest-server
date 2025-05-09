@@ -1,7 +1,8 @@
-import { Field, InputType } from '@nestjs/graphql';
-import { IsEmail, IsOptional } from 'class-validator';
+import { InputType } from '@nestjs/graphql';
+import { IsEmail } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
 import { ProcessType } from '../../../common/enums/process-type.enum';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CoreInput } from '../../../common/inputs/core-input.input';
@@ -19,49 +20,62 @@ export abstract class CoreUserInput extends CoreInput {
   /**
    * Email of the user
    */
-  @Field({ description: 'Email of the user', nullable: true })
-  @IsEmail()
-  @IsOptional()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Email of the user',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    validator: () => [IsEmail()],
+  })
   email?: string = undefined;
 
   /**
    * First name of the user
    */
-  @Field({ description: 'First name of the user', nullable: true })
-  @IsOptional()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Last name of the user',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   firstName?: string = undefined;
 
   /**
    * Last name of the user
    */
-  @Field({ description: 'Last name of the user', nullable: true })
-  @IsOptional()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Last name of the user',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   lastName?: string = undefined;
 
   /**
    * Roles of the user
    */
-  @Field(() => [String], { description: 'Roles of the user', nullable: true })
-  @IsOptional()
   @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
+  @UnifiedField({
+    array: true,
+    isOptional: true,
+    type: String,
+  })
   roles?: string[] = undefined;
 
   /**
    * Username / alias of the user
    */
-  @Field({ description: 'Username / alias of the user', nullable: true })
-  @IsOptional()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Username / alias of the user',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   username?: string = undefined;
 
   /**
    * Password of the user
    */
-  @Field({ description: 'Password of the user', nullable: true })
-  @IsOptional()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Password of the user',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   password?: string = undefined;
 }
