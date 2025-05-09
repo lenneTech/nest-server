@@ -4,6 +4,8 @@ import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
 import { Kind } from 'graphql/index';
 import * as inspector from 'inspector';
+import _ = require('lodash');
+import rfdc = require('rfdc');
 import * as util from 'util';
 
 import { checkRestricted } from '../decorators/restricted.decorator';
@@ -11,9 +13,6 @@ import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { merge } from './config.helper';
 import { equalIds } from './db.helper';
-
-import _ = require('lodash');
-import rfdc = require('rfdc');
 
 /**
  * Helper class for inputs

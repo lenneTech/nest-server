@@ -1,7 +1,7 @@
-import { Field, ObjectType } from '@nestjs/graphql';
-import { ApiProperty } from '@nestjs/swagger';
+import { ObjectType } from '@nestjs/graphql';
 
 import { Restricted } from '../../common/decorators/restricted.decorator';
+import { UnifiedField } from '../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { CoreModel } from '../../common/models/core-model.model';
 import { CoreUserModel } from '../user/core-user.model';
@@ -19,35 +19,34 @@ export class CoreAuthModel extends CoreModel {
   /**
    * JSON Web Token(JWT)
    */
-  @ApiProperty({
+  @UnifiedField({
     description: 'JSON Web Token(JWT) used for auth',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Field({ description: 'JSON Web Token(JWT)', nullable: true })
-  @Restricted(RoleEnum.S_EVERYONE)
   token?: string = undefined;
 
   /**
    * Refresh token
    */
-  @ApiProperty({
+  @UnifiedField({
     description: 'Refresh JSON Web Token(JWT) used for auth',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Field({ description: 'Refresh token', nullable: true })
-  @Restricted(RoleEnum.S_EVERYONE)
   refreshToken?: string = undefined;
 
   /**
    * Current user
    */
-  @ApiProperty({
+  @UnifiedField({
     description: 'User who signed in',
-    required: true,
+    isOptional: false,
+    roles: RoleEnum.S_EVERYONE,
     type: () => CoreUserModel,
   })
-  @Field({ description: 'Current user' })
-  @Restricted(RoleEnum.S_EVERYONE)
   user: CoreUserModel = undefined;
 
   // ===================================================================================================================

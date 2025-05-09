@@ -4,6 +4,7 @@ import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Context } from 'apollo-server-core';
+import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
@@ -18,8 +19,6 @@ import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
-
-import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 
 /**
  * Core module (dynamic)

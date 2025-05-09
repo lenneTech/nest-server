@@ -1,6 +1,7 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../../core/common/enums/role.enum';
 import { CoreAuthSignUpInput } from '../../../../core/modules/auth/inputs/core-auth-sign-up.input';
 
@@ -14,11 +15,17 @@ export class AuthSignUpInput extends CoreAuthSignUpInput {
   // Properties
   // ===================================================================================================================
 
-  @Field({ description: 'firstName', nullable: true })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'firstName',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   firstName: string = undefined;
 
-  @Field({ description: 'lastName', nullable: true })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'lastName',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   lastName: string = undefined;
 }

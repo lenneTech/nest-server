@@ -1,8 +1,7 @@
 import * as dotenv from 'dotenv';
+import _ = require('lodash');
 import * as process from 'node:process';
 import { join } from 'path';
-
-import _ = require('lodash');
 
 /**
  * Helper class for configurations
@@ -27,8 +26,6 @@ export default class Config {
     return merge(obj, sources);
   }
 }
-
-
 
 /**
  * Get environment configuration (deeply merged into config object set via options)

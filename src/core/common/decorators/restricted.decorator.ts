@@ -1,12 +1,11 @@
 import { UnauthorizedException } from '@nestjs/common';
 import 'reflect-metadata';
+import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { equalIds, getIncludedIds } from '../helpers/db.helper';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-
-import _ = require('lodash');
 
 /**
  * Restricted meta key

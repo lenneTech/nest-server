@@ -1,9 +1,9 @@
-import { Field, ID, ObjectType } from '@nestjs/graphql';
+import { ObjectType } from '@nestjs/graphql';
 import { Prop, Schema } from '@nestjs/mongoose';
-import { ApiProperty } from '@nestjs/swagger';
 import { Types } from 'mongoose';
 
 import { Restricted } from '../decorators/restricted.decorator';
+import { UnifiedField } from '../decorators/unified-field.decorator';
 import { RoleEnum } from '../enums/role.enum';
 import { getStringIds } from '../helpers/db.helper';
 import { CoreModel } from './core-model.model';
@@ -43,30 +43,37 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * ID of the persistence object as string
    */
-  @ApiProperty({ type: String })
-  @Field(() => ID, {
+  @UnifiedField({
     description: 'ID of the persistence object',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
   })
-  @Restricted(RoleEnum.S_EVERYONE)
   id: string = undefined;
 
   /**
    * Created date, is set automatically by mongoose
    */
-  @ApiProperty({ example: 1740037703939, format: 'int64', type: Date })
-  @Field({ description: 'Created date', nullable: true })
   @Prop({ onCreate: () => new Date() })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Created date',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
+    type: Date,
+  })
   createdAt: Date = undefined;
 
   /**
    * Updated date is set automatically by mongoose
    */
-  @ApiProperty({ example: 1740037703939, format: 'int64', type: String })
-  @Field({ description: 'Updated date', nullable: true })
   @Prop({ onUpdate: () => new Date() })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Updated date',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
+    type: Date,
+  })
   updatedAt: Date = undefined;
 
   // ===========================================================================

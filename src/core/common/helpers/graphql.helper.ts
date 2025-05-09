@@ -12,7 +12,6 @@ import {
   ValueNode,
   VariableNode,
 } from 'graphql';
-
 import _ = require('lodash');
 
 /**

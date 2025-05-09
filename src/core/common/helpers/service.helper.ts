@@ -1,6 +1,8 @@
 import { UnauthorizedException } from '@nestjs/common';
+import bcrypt = require('bcrypt');
 import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
+import _ = require('lodash');
 import { Types } from 'mongoose';
 
 import { getTranslatablePropertyKeys } from '../decorators/translatable.decorator';
@@ -12,9 +14,6 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
 import { ConfigService } from '../services/config.service';
 import { getStringIds } from './db.helper';
 import { clone, processDeep } from './input.helper';
-
-import bcrypt = require('bcrypt');
-import _ = require('lodash');
 
 /**
  * Helper class for services

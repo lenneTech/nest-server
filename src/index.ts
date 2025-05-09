@@ -19,6 +19,7 @@ export * from './core/common/decorators/rest-user.decorator';
 export * from './core/common/decorators/restricted.decorator';
 export * from './core/common/decorators/roles.decorator';
 export * from './core/common/decorators/translatable.decorator';
+export * from './core/common/decorators/unified-field.decorator';
 export * from './core/common/enums/comparison-operator.enum';
 export * from './core/common/enums/logical-operator.enum';
 export * from './core/common/enums/process-type.enum';

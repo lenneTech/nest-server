@@ -1,4 +1,6 @@
 import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import bcrypt = require('bcrypt');
+import crypto = require('crypto');
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
@@ -11,9 +13,6 @@ import { CoreModelConstructor } from '../../common/types/core-model-constructor.
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
-
-import bcrypt = require('bcrypt');
-import crypto = require('crypto');
 
 /**
  * User service
