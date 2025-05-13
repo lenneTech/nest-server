@@ -1,15 +1,12 @@
 import { UnauthorizedException } from '@nestjs/common';
-import { sha256 } from 'js-sha256';
+import { Types } from 'mongoose';
 // eslint-disable-next-line perfectionist/sort-imports
-import { plainToInstance } from 'class-transformer';
+import { sha256 } from 'js-sha256';
 
 import { RoleEnum } from '../enums/role.enum';
 
 // eslint-disable-next-line perfectionist/sort-imports
-import _ = require('lodash');
-
-// eslint-disable-next-line perfectionist/sort-imports
-import { Types } from 'mongoose';
+import { plainToInstance } from 'class-transformer';
 
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -20,6 +17,7 @@ import { getStringIds } from './db.helper';
 import { clone, processDeep } from './input.helper';
 
 import bcrypt = require('bcrypt');
+import _ = require('lodash');
 
 /**
  * Helper class for services
