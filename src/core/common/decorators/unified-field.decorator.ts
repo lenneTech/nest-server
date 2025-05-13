@@ -155,20 +155,27 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
 
     // Trims keys with 'undefined' properties.
-    function trimUndefined<T extends object>(obj: T): Partial<T> {
-      return Object.entries(obj).reduce((acc, [key, value]) => {
-        if (value !== undefined) {
-          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            const trimmed = trimUndefined(value as object);
-            if (Object.keys(trimmed).length > 0) {
-              (acc as any)[key] = trimmed;
+    function trimUndefined<T>(obj: T): Partial<T> {
+      if (typeof obj !== 'object' || obj === null) {
+        return obj;
+      }
+      const result: any = Array.isArray(obj) ? [] : {};
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          const value = (obj as any)[key];
+
+          if (typeof value === 'object' && value !== null) {
+            const cleaned = trimUndefined(value);
+            if (Array.isArray(cleaned) ? cleaned.length > 0 : Object.keys(cleaned).length > 0) {
+              result[key] = cleaned;
             }
-          } else {
-            (acc as any)[key] = value;
+          } else if (value !== undefined) {
+            result[key] = value;
           }
         }
-        return acc;
-      }, {} as Partial<T>);
+      }
+
+      return result;
     }
 
     ApiProperty(trimUndefined({
