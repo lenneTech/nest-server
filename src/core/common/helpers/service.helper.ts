@@ -1,8 +1,8 @@
 import { UnauthorizedException } from '@nestjs/common';
-import bcrypt = require('bcrypt'); // eslint-disable-line perfectionist/sort-imports
-import { plainToInstance } from 'class-transformer'; // eslint-disable-line perfectionist/sort-imports
-import _ = require('lodash'); // eslint-disable-line perfectionist/sort-imports
-import { sha256 } from 'js-sha256'; // eslint-disable-line perfectionist/sort-imports
+import bcrypt = require('bcrypt');
+import { plainToInstance } from 'class-transformer';
+import { sha256 } from 'js-sha256';
+import _ = require('lodash');
 import { Types } from 'mongoose';
 
 import { RoleEnum } from '../enums/role.enum';
