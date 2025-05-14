@@ -5,7 +5,6 @@ import { sha256 } from 'js-sha256';
 import _ = require('lodash');
 import { Types } from 'mongoose';
 
-import { getTranslatablePropertyKeys } from '../decorators/translatable.decorator';
 import { RoleEnum } from '../enums/role.enum';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
@@ -276,16 +275,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Add translated values of current selected language if _translations object exists
   if (config.targetModel && config.language && typeof output === 'object' && '_translations' in output) {
-    const translation = output._translations?.[options.language];
-
-    if (typeof translation === 'object') {
-      const keys = getTranslatablePropertyKeys(config.targetModel);
-      for (const key of keys) {
-        if (translation[key] != null) {
-          output[key] = translation[key];
-        }
-      }
-    }
+    applyTranslationsRecursively(output, config.language);
   }
 
   // Return prepared output
@@ -345,4 +335,40 @@ export function prepareServiceOptions(
 
   // Return (cloned and) prepared service options
   return serviceOptions;
+}
+
+function applyTranslationsRecursively(obj: any, language: string, visited: WeakSet<object> = new WeakSet()) {
+  if (typeof obj !== 'object' || obj === null) {
+    return;
+  }
+  if (visited.has(obj)) {
+    return;
+  } // Cycle detected -> cancel
+
+  visited.add(obj);
+
+  // If _translations exists
+  if ('_translations' in obj && typeof obj._translations === 'object') {
+    const translation = obj._translations?.[language];
+    if (typeof translation === 'object') {
+      for (const key in translation) {
+        if (translation[key] != null) {
+          obj[key] = translation[key];
+        }
+      }
+    }
+  }
+
+  // Recursive over all properties
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        applyTranslationsRecursively(item, language, visited);
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      applyTranslationsRecursively(value, language, visited);
+    }
+  }
 }

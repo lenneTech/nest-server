@@ -1,5 +1,5 @@
 import { Field, FieldOptions } from '@nestjs/graphql';
-import { ApiProperty, ApiPropertyOptional, ApiPropertyOptions } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
 import { Type } from 'class-transformer';
 import {
@@ -78,6 +78,10 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       throw new Error(`Array field '${String(propertyKey)}' of '${String(target)}' must have an explicit type`);
     }
 
+    if (opts.enum && userType) {
+      throw new Error(`Can't set both enum and type of ${String(propertyKey)} in ${target.constructor.name}`);
+    }
+
     const resolvedTypeFn = (): any => {
         if (opts.enum?.enum) {
           return opts.enum.enum; // Ensure enums are handled directly
@@ -150,9 +154,31 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     // Gql decorator
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
 
-    const ApiDec = opts.isOptional ? ApiPropertyOptional : ApiProperty;
+    // Trims keys with 'undefined' properties.
+    function trimUndefined<T>(obj: T): Partial<T> {
+      if (typeof obj !== 'object' || obj === null) {
+        return obj;
+      }
+      const result: any = Array.isArray(obj) ? [] : {};
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          const value = (obj as any)[key];
 
-    ApiDec({
+          if (typeof value === 'object' && value !== null) {
+            const cleaned = trimUndefined(value);
+            if (Array.isArray(cleaned) ? cleaned.length > 0 : Object.keys(cleaned).length > 0) {
+              result[key] = cleaned;
+            }
+          } else if (value !== undefined) {
+            result[key] = value;
+          }
+        }
+      }
+
+      return result;
+    }
+
+    ApiProperty(trimUndefined({
       deprecated: swaggerOpts.deprecated,
       description: swaggerOpts.description,
       enum: swaggerOpts.enum,
@@ -162,7 +188,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       nullable: swaggerOpts.nullable,
       pattern: swaggerOpts.pattern,
       type: () => resolvedTypeFn(),
-    })(target, propertyKey);
+    }))(target, propertyKey);
 
     // Conditional validation
     if (opts.validateIf) {

@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.1.0",
+  "version": "11.1.1",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -22,8 +22,8 @@
     "docs:ci": "ts-node ./scripts/init-server.ts && npm run docs:bootstrap && compodoc -p tsconfig.json",
     "format": "prettier --write 'src/**/*.ts'",
     "format:staged": "pretty-quick --staged",
-    "lint": "eslint '{src,apps,libs,test}/**/*.{ts,js}' --cache",
-    "lint:fix": "eslint '{src,apps,libs,test}/**/*.{ts,js}' --fix --cache",
+    "lint": "eslint '{src,apps,libs,tests}/**/*.{ts,js}' --cache",
+    "lint:fix": "eslint '{src,apps,libs,tests}/**/*.{ts,js}' --fix --cache",
     "prestart:prod": "npm run build",
     "reinit": "rimraf package-lock.json && rimraf node_modules && npm i && npm run lint && npm run test:e2e && npm run test:ci && npm run build",
     "reinit:clean": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test:e2e && npm run build",
