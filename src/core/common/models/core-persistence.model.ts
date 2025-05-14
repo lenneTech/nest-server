@@ -36,6 +36,38 @@ export abstract class CorePersistenceModel extends CoreModel {
     return new Types.ObjectId(this.id);
   }
 
+  /**
+   * Getter for created date as Unix timestamp
+   */
+  @UnifiedField({
+    description: 'Created date (Unix timestamp)',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Number },
+  })
+  get createdTs(): number {
+    if (this.createdAt instanceof Date) {
+      return this.createdAt.getTime();
+    }
+    return this.createdAt;
+  }
+
+  /**
+   * Getter for updated date as Unix timestamp
+   */
+  @UnifiedField({
+    description: 'Updated date (Unix timestamp)',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
+  })
+  get updatedTs(): number {
+    if (this.updatedAt instanceof Date) {
+      return this.updatedAt.getTime();
+    }
+    return this.updatedAt;
+  }
+
   // ===========================================================================
   // Properties
   // ===========================================================================
@@ -53,7 +85,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Created date, is set automatically by mongoose
    */
-  @Prop({ onCreate: () => new Date() })
+  @Prop()
   @UnifiedField({
     description: 'Created date',
     isOptional: true,
@@ -63,19 +95,10 @@ export abstract class CorePersistenceModel extends CoreModel {
   })
   createdAt: Date = undefined;
 
-  @Prop({ onCreate: () => Date.now() })
-  @UnifiedField({
-    description: 'Created date (Unix timestamp)',
-    isOptional: true,
-    roles: RoleEnum.S_EVERYONE,
-    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
-  })
-  createdTs: number = undefined;
-
   /**
    * Updated date is set automatically by mongoose
    */
-  @Prop({ onUpdate: () => new Date() })
+  @Prop()
   @UnifiedField({
     description: 'Updated date',
     isOptional: true,
@@ -84,15 +107,6 @@ export abstract class CorePersistenceModel extends CoreModel {
     type: Date,
   })
   updatedAt: Date = undefined;
-
-  @Prop({ onUpdate: () => Date.now() })
-  @UnifiedField({
-    description: 'Updated date (Unix timestamp)',
-    isOptional: true,
-    roles: RoleEnum.S_EVERYONE,
-    swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
-  })
-  updatedTs: number = undefined;
 
   // ===========================================================================
   // Methods
@@ -105,9 +119,6 @@ export abstract class CorePersistenceModel extends CoreModel {
     super.init();
     this.createdAt = this.createdAt === undefined ? new Date() : this.createdAt;
     this.updatedAt = this.updatedAt === undefined ? this.createdAt : this.updatedAt;
-
-    this.createdTs = this.createdTs === undefined ? Date.now() : this.createdTs;
-    this.updatedTs = this.updatedTs === undefined ? this.createdTs : this.updatedTs;
     return this;
   }
 
