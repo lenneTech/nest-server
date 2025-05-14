@@ -66,6 +66,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Prop({ onCreate: () => Date.now() })
   @UnifiedField({
     description: 'Created date (Unix timestamp)',
+    isOptional: true,
     roles: RoleEnum.S_EVERYONE,
     swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
   })
@@ -87,6 +88,7 @@ export abstract class CorePersistenceModel extends CoreModel {
   @Prop({ onUpdate: () => Date.now() })
   @UnifiedField({
     description: 'Updated date (Unix timestamp)',
+    isOptional: true,
     roles: RoleEnum.S_EVERYONE,
     swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
   })
