@@ -12,8 +12,9 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Limit specifies the maximum number of elements found that are to be returned',
+    gqlType: Int,
     isOptional: true,
-    type: Int,
+    type: Number,
   })
   limit?: number = undefined;
 
@@ -22,8 +23,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Alias for skip',
+    gqlType: Int,
     isOptional: true,
-    type: Int,
   })
   offset?: number = undefined;
 
@@ -32,8 +33,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Skip specifies how many found elements should be skipped on return',
+    gqlType: Int,
     isOptional: true,
-    type: Int,
   })
   skip?: number = undefined;
 
@@ -52,8 +53,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Alias for limit',
+    gqlType: Int,
     isOptional: true,
-    type: () => Int,
   })
   take?: number = undefined;
 

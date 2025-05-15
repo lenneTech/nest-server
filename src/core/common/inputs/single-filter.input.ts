@@ -78,9 +78,10 @@ export class SingleFilterInput extends CoreInput {
 
   @UnifiedField({
     description: 'Value of the property',
+    gqlType: JSON,
+    isAny: true,
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
-    type: () => JSON,
   })
   value: any = undefined;
 }

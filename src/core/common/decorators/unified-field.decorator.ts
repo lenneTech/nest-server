@@ -41,6 +41,10 @@ export interface UnifiedFieldOptions {
   example?: any;
   /** Options for graphql */
   gqlOptions?: FieldOptions;
+  /** Type if Swagger & Gql types arent compatible */
+  gqlType?: GraphQLScalarType | (new (...args: any[]) => any) | Record<number | string, number | string>;
+  /** If the property is Any (skips all Validation) */
+  isAny?: boolean;
   /** Default: false */
   isOptional?: boolean;
   /** Restricted roles */
@@ -148,8 +152,8 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Type function for gql
     const gqlTypeFn = isArrayField
-      ? () => [opts.enum?.enum || resolvedTypeFn()]
-      : () => opts.enum?.enum || resolvedTypeFn();
+      ? () => [opts.enum?.enum || opts.gqlType || resolvedTypeFn()]
+      : () => opts.enum?.enum || opts.gqlType || resolvedTypeFn();
 
     // Gql decorator
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
@@ -202,10 +206,10 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       IsNotEmpty()(target, propertyKey);
     }
 
-    // Custom or builtin validator
+    // Completely skip validation if its any
     if (opts.validator) {
       opts.validator(valOpts).forEach(d => d(target, propertyKey));
-    } else {
+    } else if (!opts.isAny) {
       const validator = getBuiltInValidator(baseType, valOpts, isArrayField, target);
       if (validator) {
         validator(target, propertyKey);
@@ -217,10 +221,12 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       IsEnum(opts.enum.enum, opts.enum.options)(target, propertyKey);
     }
 
+    if (!opts.isAny) {
     // Check if it's a primitive, if not apply transform
-    if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
-      Type(() => baseType)(target, propertyKey);
-      ValidateNested({ each: isArrayField })(target, propertyKey);
+      if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
+        Type(() => baseType)(target, propertyKey);
+        ValidateNested({ each: isArrayField })(target, propertyKey);
+      }
     }
 
     // Roles
