@@ -116,8 +116,6 @@ export class User extends CoreUserModel implements PersistenceModel {
       this.createdBy = null;
       this.updatedAt = null;
       this.updatedBy = null;
-      this.createdTs = null;
-      this.updatedAt = null;
     }
 
     // Return prepared user
