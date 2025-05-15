@@ -4,7 +4,6 @@ import { Restricted } from '../decorators/restricted.decorator';
 import { UnifiedField } from '../decorators/unified-field.decorator';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
 import { RoleEnum } from '../enums/role.enum';
-import { JSON } from '../scalars/json.scalar';
 import { CoreInput } from './core-input.input';
 
 /**
@@ -80,7 +79,7 @@ export class SingleFilterInput extends CoreInput {
     description: 'Value of the property',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
-    type: () => JSON,
+    type: () => Object,
   })
   value: any = undefined;
 }

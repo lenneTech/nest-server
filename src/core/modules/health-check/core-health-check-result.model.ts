@@ -33,7 +33,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
     description: 'The info object contains information of each health indicator which is of status “up”',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
-    type: () => JSON,
+    type: () => Object,
   })
   info: JSON = undefined;
 
@@ -44,7 +44,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
     description: 'The error object contains information of each health indicator which is of status “down”',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
-    type: () => JSON,
+    type: () => Object,
   })
   error: JSON = undefined;
 
@@ -55,7 +55,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
     description: 'The details object contains information of every health indicator',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
-    type: () => JSON,
+    type: () => Object,
   })
   details: JSON = undefined;
 }
