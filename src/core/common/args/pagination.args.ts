@@ -1,5 +1,4 @@
-import { ArgsType } from '@nestjs/graphql';
-import { IsInt } from 'class-validator';
+import { ArgsType, Int } from '@nestjs/graphql';
 
 import { UnifiedField } from '../decorators/unified-field.decorator';
 import { maps } from '../helpers/model.helper';
@@ -13,9 +12,9 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Limit specifies the maximum number of elements found that are to be returned',
+    gqlType: Int,
     isOptional: true,
     type: Number,
-    validator: () => [IsInt],
   })
   limit?: number = undefined;
 
@@ -24,8 +23,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Alias for skip',
+    gqlType: Int,
     isOptional: true,
-    validator: () => [IsInt],
   })
   offset?: number = undefined;
 
@@ -34,8 +33,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Skip specifies how many found elements should be skipped on return',
+    gqlType: Int,
     isOptional: true,
-    validator: () => [IsInt],
   })
   skip?: number = undefined;
 
@@ -54,8 +53,8 @@ export class PaginationArgs extends CoreInput {
    */
   @UnifiedField({
     description: 'Alias for limit',
+    gqlType: Int,
     isOptional: true,
-    validator: () => [IsInt],
   })
   take?: number = undefined;
 

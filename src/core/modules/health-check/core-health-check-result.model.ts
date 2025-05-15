@@ -31,6 +31,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
    */
   @UnifiedField({
     description: 'The info object contains information of each health indicator which is of status “up”',
+    gqlType: JSON,
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
     type: () => Object,
@@ -42,6 +43,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
    */
   @UnifiedField({
     description: 'The error object contains information of each health indicator which is of status “down”',
+    gqlType: JSON,
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
     type: () => Object,
@@ -53,6 +55,7 @@ export abstract class CoreHealthCheckResult extends CoreModel {
    */
   @UnifiedField({
     description: 'The details object contains information of every health indicator',
+    gqlType: JSON,
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
     type: () => Object,
