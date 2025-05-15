@@ -319,6 +319,11 @@ export async function check(
  * Check if input is a valid Date format and return a new Date
  */
 export function checkAndGetDate(input: any): Date {
+  // Get timestamp from string
+  if (typeof input === 'string' && /^\d+$/.test(input)) {
+    input = parseInt(input, 10);
+  }
+
   // Create date from value
   const date = new Date(input);
 
