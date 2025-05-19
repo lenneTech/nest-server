@@ -10,13 +10,22 @@ import { ServiceOptions } from '../interfaces/service-options.interface';
  *  - currentUser
  *  - language
  */
-export const RESTServiceOptions = createParamDecorator((ctx: ExecutionContext): ServiceOptions => {
-  const request = ctx.switchToHttp().getRequest();
+export const RESTServiceOptions = createParamDecorator((data: unknown, ctx: ExecutionContext): ServiceOptions => {
+  if (ctx.getType() !== 'http') {
+    console.warn('[RESTServiceOptions] Not an HTTP context:', ctx.getType());
+    return { currentUser: null };
+  }
 
-  const language = request?.headers?.['accept-language'];
+  try {
+    const request = ctx.switchToHttp().getRequest();
+    const language = request?.headers?.['accept-language'];
 
-  return {
-    currentUser: currentUserDec(null, ctx),
-    language,
-  };
+    return {
+      currentUser: currentUserDec(null, ctx),
+      language,
+    };
+  } catch (e) {
+    console.warn('[RESTServiceOptions] Error accessing request', e);
+    return { currentUser: null };
+  }
 });
