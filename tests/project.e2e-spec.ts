@@ -146,6 +146,97 @@ describe('Project (e2e)', () => {
       .findOneAndUpdate({ _id: new ObjectId(users[0].id) }, { $set: { roles: [RoleEnum.ADMIN] } });
   });
 
+  it('updateUser', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: users[0].id,
+          input: {
+            jobTitle: 'Test',
+          },
+        },
+        fields: ['id', 'jobTitle'],
+        name: 'updateUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { language: 'de', token: users[0].token },
+    );
+
+    expect(res.id).toEqual(users[0].id);
+    expect(res.jobTitle).toEqual('Test');
+  });
+
+  it('set translation of jobTitle', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: users[0].id,
+          input: {
+            jobTitle: 'Test EN',
+          },
+        },
+        fields: ['id', 'jobTitle'],
+        name: 'updateUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { language: 'en', log: true, token: users[0].token },
+    );
+
+    expect(res.id).toEqual(users[0].id);
+    expect(res.jobTitle).toEqual('Test EN');
+  });
+
+  it('get default of jobTitle', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: users[0].id,
+        },
+        fields: ['id', 'jobTitle'],
+        name: 'getUser',
+        type: TestGraphQLType.QUERY,
+      },
+      { language: 'de', token: users[0].token },
+    );
+
+    expect(res.id).toEqual(users[0].id);
+    expect(res.jobTitle).toEqual('Test');
+  });
+
+  it('get translation of jobTitle', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: users[0].id,
+        },
+        fields: ['id', 'jobTitle'],
+        name: 'getUser',
+        type: TestGraphQLType.QUERY,
+      },
+      { language: 'en', token: users[0].token },
+    );
+
+    expect(res.id).toEqual(users[0].id);
+    expect(res.jobTitle).toEqual('Test EN');
+  });
+
+  it('get fallback for jobTitle if there is no translation', async () => {
+    const res: any = await testHelper.graphQl(
+      {
+        arguments: {
+          id: users[0].id,
+        },
+        fields: ['id', 'jobTitle'],
+        name: 'getUser',
+        type: TestGraphQLType.QUERY,
+      },
+      { language: 'fr', token: users[0].token },
+    );
+
+    expect(res.id).toEqual(users[0].id);
+    expect(res.jobTitle).toEqual('Test');
+  });
+
   /**
    * Find and count users
    */
