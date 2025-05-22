@@ -152,7 +152,7 @@ describe('Project (e2e)', () => {
         arguments: {
           id: users[0].id,
           input: {
-            jobTitle: 'Test',
+            jobTitle: 'Entwickler',
           },
         },
         fields: ['id', 'jobTitle'],
@@ -163,7 +163,7 @@ describe('Project (e2e)', () => {
     );
 
     expect(res.id).toEqual(users[0].id);
-    expect(res.jobTitle).toEqual('Test');
+    expect(res.jobTitle).toEqual('Entwickler');
   });
 
   it('set translation of jobTitle', async () => {
@@ -172,7 +172,7 @@ describe('Project (e2e)', () => {
         arguments: {
           id: users[0].id,
           input: {
-            jobTitle: 'Test EN',
+            jobTitle: 'Developer',
           },
         },
         fields: ['id', 'jobTitle'],
@@ -183,7 +183,7 @@ describe('Project (e2e)', () => {
     );
 
     expect(res.id).toEqual(users[0].id);
-    expect(res.jobTitle).toEqual('Test EN');
+    expect(res.jobTitle).toEqual('Developer');
   });
 
   it('get default of jobTitle', async () => {
@@ -200,7 +200,7 @@ describe('Project (e2e)', () => {
     );
 
     expect(res.id).toEqual(users[0].id);
-    expect(res.jobTitle).toEqual('Test');
+    expect(res.jobTitle).toEqual('Entwickler');
   });
 
   it('get translation of jobTitle', async () => {
@@ -217,7 +217,7 @@ describe('Project (e2e)', () => {
     );
 
     expect(res.id).toEqual(users[0].id);
-    expect(res.jobTitle).toEqual('Test EN');
+    expect(res.jobTitle).toEqual('Developer');
   });
 
   it('get fallback for jobTitle if there is no translation', async () => {
@@ -234,7 +234,7 @@ describe('Project (e2e)', () => {
     );
 
     expect(res.id).toEqual(users[0].id);
-    expect(res.jobTitle).toEqual('Test');
+    expect(res.jobTitle).toEqual('Entwickler');
   });
 
   /**
