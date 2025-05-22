@@ -4,6 +4,7 @@ import { IsEmail, IsOptional } from 'class-validator';
 import { Document, Schema } from 'mongoose';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
+import { Translatable } from '../../../core/common/decorators/translatable.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
@@ -60,6 +61,15 @@ export class User extends CoreUserModel implements PersistenceModel {
   @Restricted(RoleEnum.S_EVERYONE)
   override roles: string[] = undefined;
 
+  @Field(() => String, {
+    description: 'Job title of user',
+    nullable: true,
+  })
+  @Prop()
+  @Restricted(RoleEnum.S_EVERYONE)
+  @Translatable()
+  jobTitle?: string = undefined;
+
   /**
    * ID of the user who updated the object
    *
@@ -72,6 +82,10 @@ export class User extends CoreUserModel implements PersistenceModel {
   @Prop({ ref: 'User', type: Schema.Types.ObjectId })
   @Restricted(RoleEnum.S_USER)
   updatedBy: string = undefined;
+
+  @Prop({ default: {}, type: Schema.Types.Mixed })
+  @Restricted(RoleEnum.S_EVERYONE)
+  _translations?: Record<string, Partial<User>> = undefined;
 
   // ===================================================================================================================
   // Methods

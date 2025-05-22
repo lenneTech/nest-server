@@ -22,3 +22,28 @@ export function Translatable(): PropertyDecorator {
     Reflect.defineMetadata(TRANSLATABLE_KEY, [...existingProperties, propertyKey], target.constructor);
   };
 }
+
+export function updateLanguage<T extends Record<string, any>, K extends readonly (keyof T)[]>(
+  language: string,
+  input: any,
+  oldValue: T,
+  translatableFields: string[],
+): T {
+  const changedFields: Partial<Pick<T, K[number]>> = {};
+
+  for (const key of translatableFields) {
+    const k = key as keyof T;
+
+    if (input[k] !== oldValue[k] && input[k] !== undefined) {
+      changedFields[k] = input[k];
+      input[k] = oldValue[k] as T[typeof k];
+    }
+  }
+
+  input._translations = input._translations ?? {};
+  input._translations[language] = {
+    ...(input._translations[language] ?? {}),
+    ...changedFields,
+  };
+  return input;
+}

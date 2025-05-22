@@ -4,6 +4,7 @@ import fs = require('fs');
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
 
+import { getTranslatablePropertyKeys, updateLanguage } from '../../../core/common/decorators/translatable.decorator';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
@@ -60,6 +61,14 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
     // Return created user
     return user;
+  }
+
+  override async update(id: string, input: UserInput, serviceOptions?: ServiceOptions): Promise<User> {
+    const dbObject = await super.get(id, serviceOptions);
+    if (serviceOptions.language && serviceOptions.language !== 'de') {
+      input = updateLanguage(serviceOptions.language, input, dbObject as UserInput, getTranslatablePropertyKeys(User));
+    }
+    return super.update(id, input, serviceOptions);
   }
 
   /**
