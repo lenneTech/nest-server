@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.1.4",
+  "version": "11.1.5",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -39,7 +39,7 @@
     "start:dev:swc": "nest start -b swc -w --type-check",
     "start:local": "NODE_ENV=local nodemon",
     "start:local:swc": "NODE_ENV=local nest start -b swc -w --type-check",
-    "test": "NODE_ENV=local jest",
+    "test": "npm run test:e2e",
     "test:cov": "NODE_ENV=local jest --coverage",
     "test:debug": "NODE_ENV=local node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "NODE_ENV=local jest --config jest-e2e.json --forceExit",
