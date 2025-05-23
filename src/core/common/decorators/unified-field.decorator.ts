@@ -109,7 +109,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Prepare merged options
     const gqlOpts: FieldOptions = { ...opts.gqlOptions };
-    const swaggerOpts: ApiPropertyOptions = { ...opts.swaggerApiOptions };
+    const swaggerOpts: ApiPropertyOptions & { enumName?: string } = { ...opts.swaggerApiOptions };
     const valOpts: ValidationOptions = { ...opts.validationOptions };
 
     // Optionality
