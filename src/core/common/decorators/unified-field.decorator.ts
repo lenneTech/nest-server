@@ -36,7 +36,7 @@ export interface UnifiedFieldOptions {
   /** Description used for both Swagger & Gql */
   description?: string;
   /** Enum for class-validator */
-  enum?: { enum: EnumAllowedTypes; options?: ValidationOptions };
+  enum?: { enum: EnumAllowedTypes; enumName?: string; options?: ValidationOptions };
   /** Example value for swagger api documentation */
   example?: any;
   /** Options for graphql */
@@ -82,31 +82,26 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       throw new Error(`Array field '${String(propertyKey)}' of '${String(target)}' must have an explicit type`);
     }
 
-    if (opts.enum && userType) {
-      throw new Error(`Can't set both enum and type of ${String(propertyKey)} in ${target.constructor.name}`);
-    }
-
     const resolvedTypeFn = (): any => {
-        if (opts.enum?.enum) {
-          return opts.enum.enum; // Ensure enums are handled directly
-        }
       if (userType) {
-        if (userType instanceof GraphQLScalarType) { // Case if it's a scalar
+        if (userType instanceof GraphQLScalarType) {
+          // Case if it's a scalar
           return userType;
         }
-        if (
-          typeof userType === 'function'
-          && userType.prototype
-          && userType.prototype.constructor === userType
-        ) { // Case if it's a function
+
+        if (typeof userType === 'function' && userType.prototype && userType.prototype.constructor === userType) {
+          // Case if it's a function
           return userType;
         }
-        try { // case if its a factory
+
+        try {
+          // case if its a factory
           return (userType as () => any)();
         } catch {
           return userType;
         }
       }
+
       return metadataType;
     };
 
@@ -114,16 +109,24 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Prepare merged options
     const gqlOpts: FieldOptions = { ...opts.gqlOptions };
-    const swaggerOpts: ApiPropertyOptions = { ...opts.swaggerApiOptions };
+    const swaggerOpts: ApiPropertyOptions & { enumName?: string } = { ...opts.swaggerApiOptions };
     const valOpts: ValidationOptions = { ...opts.validationOptions };
 
     // Optionality
     if (opts.isOptional) {
+      IsOptional(valOpts)(target, propertyKey);
+
       gqlOpts.nullable = true;
+
       swaggerOpts.nullable = true;
+      swaggerOpts.required = false;
     } else {
+      IsNotEmpty()(target, propertyKey);
+
       gqlOpts.nullable = false;
+
       swaggerOpts.nullable = false;
+      swaggerOpts.required = true;
     }
 
     // Description
@@ -136,18 +139,25 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       swaggerOpts.example = swaggerOpts.example ?? opts.example;
     }
 
+    // Set enum options
     if (opts.enum && opts.enum.enum) {
       swaggerOpts.enum = opts.enum.enum;
+
+      if (opts.enum.enumName) {
+        swaggerOpts.enumName = opts.enum.enumName;
+      }
+
+      IsEnum(opts.enum.enum, opts.enum.options)(target, propertyKey);
     }
+
     // Array handling
     if (isArrayField) {
       swaggerOpts.isArray = true;
       IsArray(valOpts)(target, propertyKey);
       valOpts.each = true;
-    }
-
-    if (opts.isOptional) {
-      IsOptional(valOpts)(target, propertyKey);
+    } else {
+      swaggerOpts.isArray = false;
+      valOpts.each = false;
     }
 
     // Type function for gql
@@ -158,52 +168,12 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     // Gql decorator
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
 
-    // Trims keys with 'undefined' properties.
-    function trimUndefined<T>(obj: T): Partial<T> {
-      if (typeof obj !== 'object' || obj === null) {
-        return obj;
-      }
-      const result: any = Array.isArray(obj) ? [] : {};
-      for (const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          const value = (obj as any)[key];
-
-          if (typeof value === 'object' && value !== null) {
-            const cleaned = trimUndefined(value);
-            if (Array.isArray(cleaned) ? cleaned.length > 0 : Object.keys(cleaned).length > 0) {
-              result[key] = cleaned;
-            }
-          } else if (value !== undefined) {
-            result[key] = value;
-          }
-        }
-      }
-
-      return result;
-    }
-
-    ApiProperty(trimUndefined({
-      deprecated: swaggerOpts.deprecated,
-      description: swaggerOpts.description,
-      enum: swaggerOpts.enum,
-      example: swaggerOpts.example,
-      examples: swaggerOpts.examples,
-      isArray: swaggerOpts.isArray,
-      nullable: swaggerOpts.nullable,
-      pattern: swaggerOpts.pattern,
-      type: () => resolvedTypeFn(),
-    }))(target, propertyKey);
+    // Swagger decorator
+    ApiProperty(swaggerOpts)(target, propertyKey);
 
     // Conditional validation
     if (opts.validateIf) {
       ValidateIf(opts.validateIf)(target, propertyKey);
-    }
-
-    // isOptional validation
-    if (opts.isOptional) {
-      IsOptional()(target, propertyKey);
-    } else {
-      IsNotEmpty()(target, propertyKey);
     }
 
     // Completely skip validation if its any
@@ -216,13 +186,8 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       }
     }
 
-    // Enum validation
-    if (opts.enum) {
-      IsEnum(opts.enum.enum, opts.enum.options)(target, propertyKey);
-    }
-
     if (!opts.isAny) {
-    // Check if it's a primitive, if not apply transform
+      // Check if it's a primitive, if not apply transform
       if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
         Type(() => baseType)(target, propertyKey);
         ValidateNested({ each: isArrayField })(target, propertyKey);
@@ -262,12 +227,14 @@ function getBuiltInValidator(
 
 function isGraphQLScalar(type: any): boolean {
   // CustomScalar check (The CustomScalar interface implements these functions below)
-  return type
-    && typeof type === 'function'
-    && typeof type.prototype?.serialize === 'function'
-    && typeof type.prototype?.parseValue === 'function'
-    && typeof type.prototype?.parseLiteral === 'function'
-    || type instanceof GraphQLScalarType;
+  return (
+    (type
+      && typeof type === 'function'
+      && typeof type.prototype?.serialize === 'function'
+      && typeof type.prototype?.parseValue === 'function'
+      && typeof type.prototype?.parseLiteral === 'function')
+    || type instanceof GraphQLScalarType
+  );
 }
 
 function isPrimitive(fn: any): boolean {
