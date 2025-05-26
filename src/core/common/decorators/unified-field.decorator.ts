@@ -22,17 +22,6 @@ import { RoleEnum } from '../enums/role.enum';
 import { Restricted, RestrictedType } from './restricted.decorator';
 
 export interface UnifiedFieldOptions {
-  /**
-   * Indicates whether the property is an array.
-   *
-   * This value is typically determined automatically based on the property type or metadata.
-   *
-   * However, cases involving complex or dynamic type definitions (e.g., union types, generics, or factory functions)
-   * may result in inaccurate detection.
-   *
-   * When in doubt, explicitly set this property to ensure correct behavior.
-   */
-  array?: boolean;
   /** Description used for both Swagger & Gql */
   description?: string;
   /** Enum for class-validator */
@@ -41,10 +30,12 @@ export interface UnifiedFieldOptions {
   example?: any;
   /** Options for graphql */
   gqlOptions?: FieldOptions;
-  /** Type if Swagger & Gql types arent compatible */
+  /** Type if Swagger & Gql types aren't compatible */
   gqlType?: GraphQLScalarType | (new (...args: any[]) => any) | Record<number | string, number | string>;
   /** If the property is Any (skips all Validation) */
   isAny?: boolean;
+  /** Indicates whether the property is an array. */
+  isArray?: boolean;
   /** Default: false */
   isOptional?: boolean;
   /** Restricted roles */
@@ -75,9 +66,9 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
   return (target: any, propertyKey: string | symbol) => {
     const metadataType = Reflect.getMetadata('design:type', target, propertyKey);
     const userType = opts.type;
-    const isArrayField = opts.array === true || metadataType === Array;
+    const isArrayField = opts.isArray === true || metadataType === Array;
 
-    // Throwing because metatype only returns the generic array, but not the type of the array items
+    // Throwing because meta type only returns the generic array, but not the type of the array items
     if (metadataType === Array && !userType) {
       throw new Error(`Array field '${String(propertyKey)}' of '${String(target)}' must have an explicit type`);
     }
@@ -129,12 +120,21 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       swaggerOpts.required = true;
     }
 
-    // Description
+    // Set type for swagger
+    if (baseType) {
+      if (opts.enum) {
+        swaggerOpts.type = () => String;
+      } else {
+        swaggerOpts.type = () => resolvedTypeFn();
+      }
+    }
+
+    // Set description
     const defaultDesc = opts.description ?? `${String(propertyKey)} of ${target.constructor.name}`;
     gqlOpts.description = gqlOpts.description ?? defaultDesc;
     swaggerOpts.description = swaggerOpts.description ?? defaultDesc;
 
-    // Swagger example
+    // Set swagger example
     if (opts.example !== undefined) {
       swaggerOpts.example = swaggerOpts.example ?? opts.example;
     }
