@@ -53,7 +53,7 @@ export abstract class CoreUserInput extends CoreInput {
    */
   @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
   @UnifiedField({
-    array: true,
+    isArray: true,
     isOptional: true,
     type: String,
   })
