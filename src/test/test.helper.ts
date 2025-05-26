@@ -84,6 +84,11 @@ export interface TestGraphQLOptions {
   countOfSubscriptionMessages?: number;
 
   /**
+   * Language selected by user
+   */
+  language?: string;
+
+  /**
    * Output information in the console
    */
   log?: boolean;
@@ -225,6 +230,7 @@ export class TestHelper {
     const config = {
       convertEnums: true,
       countOfSubscriptionMessages: 1,
+      language: null,
       log: false,
       logError: false,
       prepareArguments: true,
@@ -234,7 +240,7 @@ export class TestHelper {
     };
 
     // Init vars
-    const { log, logError, statusCode, token, variables } = config;
+    const { language, log, logError, statusCode, token, variables } = config;
 
     // Init
     let query = '';
@@ -335,6 +341,10 @@ export class TestHelper {
     // Token
     if (token) {
       requestConfig.headers = { authorization: `Bearer ${token}` };
+    }
+
+    if (language) {
+      requestConfig.headers = { ...requestConfig.headers, 'accept-language': language };
     }
 
     // Get response
