@@ -125,7 +125,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       if (opts.enum) {
         swaggerOpts.type = () => String;
       } else {
-        swaggerOpts.type = () => resolvedTypeFn();
+        swaggerOpts.type = baseType;
       }
     }
 
