@@ -1,7 +1,8 @@
+import type SMTPPool = require('nodemailer/lib/smtp-pool');
+
 import { Injectable } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
-import SMTPPool = require('nodemailer/lib/smtp-pool');
 
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
