@@ -32,7 +32,7 @@ export class EmailService {
       htmlTemplate?: string;
       senderEmail?: string;
       senderName?: string;
-      smtp: SMTPPool | SMTPPool.Options;
+      smtp?: SMTPPool | SMTPPool.Options;
       templateData?: { [key: string]: any };
       text?: string;
       textTemplate?: string;
