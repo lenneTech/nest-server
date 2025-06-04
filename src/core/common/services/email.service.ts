@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
+import SMTPPool = require('nodemailer/lib/smtp-pool');
 
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { ConfigService } from './config.service';
@@ -31,15 +32,17 @@ export class EmailService {
       htmlTemplate?: string;
       senderEmail?: string;
       senderName?: string;
+      smtp: SMTPPool | SMTPPool.Options;
       templateData?: { [key: string]: any };
       text?: string;
       textTemplate?: string;
     },
   ): Promise<any> {
     // Process config
-    const { attachments, htmlTemplate, senderEmail, senderName, templateData, textTemplate } = {
+    const { attachments, htmlTemplate, senderEmail, senderName, smtp, templateData, textTemplate } = {
       senderEmail: this.configService.getFastButReadOnly('email.defaultSender.email'),
       senderName: this.configService.getFastButReadOnly('email.defaultSender.name'),
+      smtp: config.smtp || this.configService.get('email.smtp'),
       ...config,
     };
 
@@ -71,7 +74,7 @@ export class EmailService {
     }
 
     // Init transporter
-    const transporter = nodemailer.createTransport(this.configService.get('email.smtp'));
+    const transporter = nodemailer.createTransport(smtp);
 
     // Send mail
     return transporter.sendMail({
