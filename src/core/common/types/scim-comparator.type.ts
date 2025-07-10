@@ -1,2 +1,2 @@
 /** Supported SCIM comparison operators */
-export type Comparator = 'co' | 'eq' | 'ge' | 'gt' | 'le' | 'lt' | 'pr' | 'sw' | 'ew' | 'aco';
+export type Comparator = 'aco' | 'co' | 'eq' | 'ew' | 'ge' | 'gt' | 'le' | 'lt' | 'pr' | 'sw';

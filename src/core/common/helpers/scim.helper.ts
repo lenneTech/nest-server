@@ -1,6 +1,7 @@
-import type { Comparator } from "../types/scim-comparator.type";
-import type { LogicalOperator } from "../types/scim-logical-operator.type";
-import { ScimNode } from "../types/scim-node.type";
+import type { Comparator } from '../types/scim-comparator.type';
+import type { LogicalOperator } from '../types/scim-logical-operator.type';
+
+import { ScimNode } from '../types/scim-node.type';
 
 
 export function scimToMongo(scim: string): any {
@@ -57,7 +58,7 @@ function parseTokens(tokens: string[]): ScimNode {
   function parseCondition(): ScimNode {
     const attr = tokens[pos++]; // First token is the attribute
     const op: Comparator = tokens[pos++].toLowerCase() as Comparator; // Second token is the operator
-    if (!['co', 'eq', 'ge', 'gt', 'le', 'lt', 'pr', 'sw', 'ew', 'aco'].includes(op)) {
+    if (!['aco', 'co', 'eq', 'ew', 'ge', 'gt', 'le', 'lt', 'pr', 'sw'].includes(op)) {
       throw new Error(`Unsupported comparator: ${op}`);
     }    
 
@@ -86,10 +87,10 @@ function parseTokens(tokens: string[]): ScimNode {
    */
 function tokenize(input: string): string[] {
   return input
-    .replace(/([()[\]])/g, ' $1 ')                                  // Space out brackets (e.g. "emails[type" → "emails [ type")
-    .replace(/\s+/g, ' ')                                           // Normalise whitespaces
+    .replace(/([()[\]])/g, ' $1 ') // Space out brackets (e.g. "emails[type" → "emails [ type")
+    .replace(/\s+/g, ' ') // Normalise whitespaces
     .trim()
-    .match(/\[|\]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || [];  // Match tokens: brackets, identifiers, quoted strings
+    .match(/\[|\]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || []; // Match tokens: brackets, identifiers, quoted strings
 }
 
 /** Converts the parsed SCIM AST to an equivalent MongoDB query object */
@@ -117,10 +118,14 @@ function transformAstToMongo(node: ScimNode): any {
 
   const { attributePath, comparator, value } = node;
   switch (comparator) {
+    case 'aco': // ARRAY-CONTAINS (Not case sensitive)
+      return { [attributePath]: value };
     case 'co': // CONTAINS
       return { [attributePath]: { $options: 'i', $regex: escapeRegex(value) } };
     case 'eq': // EQUALS
       return { [attributePath]: { $eq: value } };
+    case 'ew': // ENDSWITH
+      return { [attributePath]: { $options: 'i', $regex: `${escapeRegex(value)}$` } };
     case 'ge': // GREATER THAN OR EQUAL
       return { [attributePath]: { $gte: value } };
     case 'gt': // GREATER THAN
@@ -133,10 +138,6 @@ function transformAstToMongo(node: ScimNode): any {
       return { [attributePath]: { $exists: true } };
     case 'sw': // STARTSWITH
       return { [attributePath]: { $options: 'i', $regex: `^${escapeRegex(value)}` } };
-    case 'ew': // ENDSWITH
-      return { [attributePath]: { $regex: `${escapeRegex(value)}$`, $options: 'i' } };
-    case 'aco': // ARRAY-CONTAINS (Not case sensitive)
-      return { [attributePath]: value };
     default:
       throw new Error(`Unsupported comparator: ${comparator}`);
   }
