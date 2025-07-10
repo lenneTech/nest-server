@@ -5,5 +5,5 @@ export interface ConditionNode {
   attributePath: string;
   comparator: Comparator;
   type: 'condition';
-  value?: boolean | number | string;
+  value?: string;
 }
