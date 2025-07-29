@@ -289,7 +289,12 @@ export class CoreAuthService {
     if (!deviceId) {
       deviceId = payload.deviceId;
     }
-    user.refreshTokens[deviceId] = { ...data, deviceId, tokenId: payload.tokenId };
+    user.refreshTokens[deviceId] = {
+      ...data,
+      deviceDescription: payload.deviceDescription || data.deviceDescription,
+      deviceId,
+      tokenId: payload.tokenId,
+    };
     user.tempTokens[deviceId] = { createdAt: new Date().getTime(), deviceId, tokenId: payload.tokenId };
     await this.userService.update(
       getStringIds(user),
