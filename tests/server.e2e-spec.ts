@@ -7,6 +7,7 @@ import {
   ConfigService,
   getPlain,
   HttpExceptionLogFilter,
+  scimToMongo,
   TestGraphQLType,
   TestHelper,
 } from '../src';
@@ -718,5 +719,285 @@ describe('ServerModule (e2e)', () => {
     const found = await userService.find(findFilter);
     expect(Array.isArray(found)).toEqual(true);
     expect(found.length).toEqual(0);
+  });
+
+  // ===================================================================================================================
+  // SCIM Helper Tests
+  // ===================================================================================================================
+
+  describe('SCIM Helper', () => {
+    describe('scimToMongo', () => {
+      // Basic condition tests
+      describe('Basic conditions', () => {
+        it('should handle equals (eq) condition', () => {
+          const result = scimToMongo('userName eq "Joe"');
+          expect(result).toEqual({ userName: { $eq: 'Joe' } });
+        });
+
+        it('should handle contains (co) condition', () => {
+          const result = scimToMongo('userName co "test"');
+          expect(result).toEqual({ userName: { $options: 'i', $regex: 'test' } });
+        });
+
+        it('should handle starts with (sw) condition', () => {
+          const result = scimToMongo('userName sw "John"');
+          expect(result).toEqual({ userName: { $options: 'i', $regex: '^John' } });
+        });
+
+        it('should handle ends with (ew) condition', () => {
+          const result = scimToMongo('userName ew "Smith"');
+          expect(result).toEqual({ userName: { $options: 'i', $regex: 'Smith$' } });
+        });
+
+        it('should handle greater than (gt) condition', () => {
+          const result = scimToMongo('age gt "25"');
+          expect(result).toEqual({ age: { $gt: '25' } });
+        });
+
+        it('should handle greater than or equal (ge) condition', () => {
+          const result = scimToMongo('age ge "18"');
+          expect(result).toEqual({ age: { $gte: '18' } });
+        });
+
+        it('should handle less than (lt) condition', () => {
+          const result = scimToMongo('age lt "65"');
+          expect(result).toEqual({ age: { $lt: '65' } });
+        });
+
+        it('should handle less than or equal (le) condition', () => {
+          const result = scimToMongo('age le "30"');
+          expect(result).toEqual({ age: { $lte: '30' } });
+        });
+
+        it('should handle present (pr) condition', () => {
+          const result = scimToMongo('userName pr');
+          expect(result).toEqual({ userName: { $exists: true } });
+        });
+
+        it('should handle array contains (aco) condition', () => {
+          const result = scimToMongo('roles aco "admin"');
+          expect(result).toEqual({ roles: 'admin' });
+        });
+      });
+
+      // Logical operator tests
+      describe('Logical operators', () => {
+        it('should handle AND operator', () => {
+          const result = scimToMongo('userName eq "Joe" and age gt "25"');
+          expect(result).toEqual({
+            $and: [
+              { userName: { $eq: 'Joe' } },
+              { age: { $gt: '25' } },
+            ],
+          });
+        });
+
+        it('should handle OR operator', () => {
+          const result = scimToMongo('userName eq "Joe" or userName eq "Jane"');
+          expect(result).toEqual({
+            $or: [
+              { userName: { $eq: 'Joe' } },
+              { userName: { $eq: 'Jane' } },
+            ],
+          });
+        });
+
+        it('should handle complex logical combinations', () => {
+          const result = scimToMongo('userName eq "Joe" and age gt "25" or department eq "IT"');
+          expect(result).toEqual({
+            $or: [
+              {
+                $and: [
+                  { userName: { $eq: 'Joe' } },
+                  { age: { $gt: '25' } },
+                ],
+              },
+              { department: { $eq: 'IT' } },
+            ],
+          });
+        });
+
+        it('should handle case insensitive logical operators', () => {
+          const result = scimToMongo('userName eq "Joe" AND age gt "25"');
+          expect(result).toEqual({
+            $and: [
+              { userName: { $eq: 'Joe' } },
+              { age: { $gt: '25' } },
+            ],
+          });
+        });
+      });
+
+      // Parentheses and grouping tests
+      describe('Parentheses and grouping', () => {
+        it('should handle parentheses for grouping', () => {
+          const result = scimToMongo('(userName eq "Joe" or userName eq "Jane") and age gt "25"');
+          expect(result).toEqual({
+            $and: [
+              {
+                $or: [
+                  { userName: { $eq: 'Joe' } },
+                  { userName: { $eq: 'Jane' } },
+                ],
+              },
+              { age: { $gt: '25' } },
+            ],
+          });
+        });
+
+        it('should handle nested parentheses', () => {
+          const result = scimToMongo('((userName eq "Joe" or userName eq "Jane") and age gt "25") or department eq "IT"');
+          expect(result).toEqual({
+            $or: [
+              {
+                $and: [
+                  {
+                    $or: [
+                      { userName: { $eq: 'Joe' } },
+                      { userName: { $eq: 'Jane' } },
+                    ],
+                  },
+                  { age: { $gt: '25' } },
+                ],
+              },
+              { department: { $eq: 'IT' } },
+            ],
+          });
+        });
+      });
+
+      // Array filter tests
+      describe('Array filters', () => {
+        it('should handle simple array filter', () => {
+          const result = scimToMongo('emails[type eq "work"]');
+          expect(result).toEqual({
+            emails: {
+              $elemMatch: { type: { $eq: 'work' } },
+            },
+          });
+        });
+
+        it('should handle array filter with logical operators', () => {
+          const result = scimToMongo('emails[type eq "work" and primary eq "true"]');
+          expect(result).toEqual({
+            emails: {
+              $elemMatch: {
+                $and: [
+                  { type: { $eq: 'work' } },
+                  { primary: { $eq: 'true' } },
+                ],
+              },
+            },
+          });
+        });
+
+        it('should handle array filter combined with other conditions', () => {
+          const result = scimToMongo('emails[type eq "work"] and userName eq "Joe"');
+          expect(result).toEqual({
+            $and: [
+              {
+                emails: {
+                  $elemMatch: { type: { $eq: 'work' } },
+                },
+              },
+              { userName: { $eq: 'Joe' } },
+            ],
+          });
+        });
+      });
+
+      // Special character handling
+      describe('Special character handling', () => {
+        it('should escape regex characters in contains operations', () => {
+          const result = scimToMongo('userName co "test.user+regex"');
+          expect(result).toEqual({
+            userName: {
+              $options: 'i',
+              $regex: 'test\\.user\\+regex',
+            },
+          });
+        });
+
+        it('should escape regex characters in starts with operations', () => {
+          const result = scimToMongo('userName sw "user[0-9]"');
+          expect(result).toEqual({
+            userName: {
+              $options: 'i',
+              $regex: '^user\\[0-9\\]',
+            },
+          });
+        });
+
+        it('should escape regex characters in ends with operations', () => {
+          const result = scimToMongo('userName ew "user*"');
+          expect(result).toEqual({
+            userName: {
+              $options: 'i',
+              $regex: 'user\\*$',
+            },
+          });
+        });
+      });
+
+      // Edge cases and error handling
+      describe('Edge cases and error handling', () => {
+        it('should handle quoted values correctly', () => {
+          const result = scimToMongo('userName eq "John Doe"');
+          expect(result).toEqual({ userName: { $eq: 'John Doe' } });
+        });
+
+        it('should handle unquoted values', () => {
+          const result = scimToMongo('active eq true');
+          expect(result).toEqual({ active: { $eq: 'true' } });
+        });
+
+        it('should throw error for unsupported comparator', () => {
+          expect(() => scimToMongo('userName xx "test"')).toThrow('Unsupported comparator: xx');
+        });
+
+        it('should throw error for mismatched parentheses', () => {
+          expect(() => scimToMongo('(userName eq "test"')).toThrow('Expected \')\' at position');
+        });
+
+        it('should throw error for mismatched brackets', () => {
+          expect(() => scimToMongo('emails[type eq "work"')).toThrow('Expected \']\' at position');
+        });
+
+        it('should handle empty input', () => {
+          const result = scimToMongo('');
+          expect(result).toEqual({});
+        });
+      });
+
+      // Complex real-world scenarios
+      describe('Complex real-world scenarios', () => {
+        it('should handle complex user filtering scenario', () => {
+          const result = scimToMongo('userName sw "john" and (emails[type eq "work"] or emails[type eq "personal"]) and active eq "true"');
+
+          expect(result).toEqual({
+            $and: [
+              { userName: { $options: 'i', $regex: '^john' } },
+              {
+                $or: [
+                  { emails: { $elemMatch: { type: { $eq: 'work' } } } },
+                  { emails: { $elemMatch: { type: { $eq: 'personal' } } } },
+                ],
+              },
+              { active: { $eq: 'true' } },
+            ],
+          });
+        });
+
+        it('should handle dotted attribute paths', () => {
+          const result = scimToMongo('name.givenName eq "John"');
+          expect(result).toEqual({ 'name.givenName': { $eq: 'John' } });
+        });
+
+        it('should handle numeric-like strings in attribute paths', () => {
+          const result = scimToMongo('user123.name eq "test"');
+          expect(result).toEqual({ 'user123.name': { $eq: 'test' } });
+        });
+      });
+    });
   });
 });

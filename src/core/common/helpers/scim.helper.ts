@@ -5,9 +5,12 @@ import { ScimNode } from '../types/scim-node.type';
 
 
 export function scimToMongo(scim: string): any {
-  const tokens = tokenize(scim); 
-  const ast = parseTokens(tokens); 
-  return transformAstToMongo(ast); 
+  if (!scim) {
+    return {};
+  }
+  const tokens = tokenize(scim);
+  const ast = parseTokens(tokens);
+  return transformAstToMongo(ast);
 }
 
 /** Escapes Regex Chars */
@@ -15,17 +18,34 @@ function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Parses tokenized SCIM filter into an Abstract Syntax Tree (AST) */
+/** Flattens consecutive logical operators of the same type to avoid nested structures */
+function flattenLogicalOperator(node: ScimNode, targetOperator: LogicalOperator): ScimNode[] {
+  if (!('operator' in node)) {
+    return [node];
+  }
+
+  if (node.operator !== targetOperator) {
+    return [node];
+  }
+
+  const leftConditions = flattenLogicalOperator(node.left, targetOperator);
+  const rightConditions = flattenLogicalOperator(node.right, targetOperator);
+
+  return [...leftConditions, ...rightConditions];
+}
+
+
+  /** Parses tokenized SCIM filter into an Abstract Syntax Tree (AST) */
 function parseTokens(tokens: string[]): ScimNode {
   let pos = 0;
 
   /** Parses a full logical expression (e.g., A and B or C) */
   function parseExpression(): ScimNode {
     let left = parseTerm();
-    while (tokens[pos] && /^(and|or)$/i.test(tokens[pos])) { 
-      const op: LogicalOperator = tokens[pos++].toLowerCase() as LogicalOperator; 
-      const right = parseTerm(); 
-      left = { left, operator: op, right }; 
+    while (tokens[pos] && /^(and|or)$/i.test(tokens[pos])) {
+      const op: LogicalOperator = tokens[pos++].toLowerCase() as LogicalOperator;
+      const right = parseTerm();
+      left = { left, operator: op, right };
     }
     return left;
   }
@@ -37,17 +57,17 @@ function parseTokens(tokens: string[]): ScimNode {
       const expr = parseExpression();
       if (tokens[pos] !== ')') {
         throw new Error(`Expected ')' at position ${pos}`);
-      } 
+      }
       pos++; // skip ')'
       return expr;
     }
     if (tokens[pos + 1] === '[') { // Start of an array Filter
-      const path = tokens[pos++]; 
+      const path = tokens[pos++];
       pos++; // skip '['
-      const expr = parseExpression(); 
+      const expr = parseExpression();
       if (tokens[pos] !== ']') {
         throw new Error(`Expected ']' at position ${pos}`);
-      } 
+      }
       pos++; // skip ']'
       return { expr, path, type: 'array' };
     }
@@ -60,7 +80,7 @@ function parseTokens(tokens: string[]): ScimNode {
     const op: Comparator = tokens[pos++].toLowerCase() as Comparator; // Second token is the operator
     if (!['aco', 'co', 'eq', 'ew', 'ge', 'gt', 'le', 'lt', 'pr', 'sw'].includes(op)) {
       throw new Error(`Unsupported comparator: ${op}`);
-    }    
+    }
 
     let value: null | string;
 
@@ -68,10 +88,10 @@ function parseTokens(tokens: string[]): ScimNode {
       value = tokens[pos++]; // Third token is the value
       if (!attr || !op || value === undefined) {
         throw new Error(`Invalid condition syntax at token ${pos}`);
-      } 
+      }
       if (value?.startsWith('"')) {
         value = value.slice(1, -1);
-      } 
+      }
     }
 
     return { attributePath: attr, comparator: op, type: 'condition', value };
@@ -80,35 +100,50 @@ function parseTokens(tokens: string[]): ScimNode {
   return parseExpression();
 }
 
-
-  /**
+/**
    * Tokenizes a SCIM filter string into meaningful parts.
    * e.g., 'userName eq "john"' → ['userName', 'eq', '"john"']
    */
 function tokenize(input: string): string[] {
-  return input
-    .replace(/([()[\]])/g, ' $1 ') // Space out brackets (e.g. "emails[type" → "emails [ type")
+  // Space out brackets, but not inside quoted strings
+  let result = '';
+  let insideQuotes = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+
+    if (char === '"' && (i === 0 || input[i - 1] !== '\\')) {
+      insideQuotes = !insideQuotes;
+      result += char;
+    } else if (!insideQuotes && /[()[\]]/.test(char)) {
+      result += ` ${char} `;
+    } else {
+      result += char;
+    }
+  }
+
+  return result
     .replace(/\s+/g, ' ') // Normalise whitespaces
     .trim()
-    .match(/\[|\]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || []; // Match tokens: brackets, identifiers, quoted strings
+    .match(/\[|]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || []; // Match tokens: brackets, identifiers, quoted strings
 }
 
 /** Converts the parsed SCIM AST to an equivalent MongoDB query object */
 function transformAstToMongo(node: ScimNode): any {
   if (!node) {
     return {};
-  } 
+  }
 
   if ('operator' in node) {
+    const operator = node.operator;
+    const conditions = flattenLogicalOperator(node, operator);
+
     return {
-      [`$${node.operator}`]: [
-        transformAstToMongo(node.left),
-        transformAstToMongo(node.right),
-      ],
+      [`$${operator}`]: conditions.map(transformAstToMongo),
     };
   }
 
-  if (node.type === 'array') { 
+  if (node.type === 'array') {
     return {
       [node.path]: {
         $elemMatch: transformAstToMongo(node.expr),
