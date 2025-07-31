@@ -34,8 +34,7 @@ function flattenLogicalOperator(node: ScimNode, targetOperator: LogicalOperator)
   return [...leftConditions, ...rightConditions];
 }
 
-
-  /** Parses tokenized SCIM filter into an Abstract Syntax Tree (AST) */
+/** Parses tokenized SCIM filter into an Abstract Syntax Tree (AST) */
 function parseTokens(tokens: string[]): ScimNode {
   let pos = 0;
 
@@ -82,15 +81,22 @@ function parseTokens(tokens: string[]): ScimNode {
       throw new Error(`Unsupported comparator: ${op}`);
     }
 
-    let value: null | string;
+    let value: any = null;
 
     if (op !== 'pr') { // "Is Present" doesnt require a value
-      value = tokens[pos++]; // Third token is the value
-      if (!attr || !op || value === undefined) {
+      let rawValue = tokens[pos++]; // Third token is the value
+      if (!attr || !op || rawValue === undefined) {
         throw new Error(`Invalid condition syntax at token ${pos}`);
       }
-      if (value?.startsWith('"')) {
-        value = value.slice(1, -1);
+
+      // Handle quoted strings
+      if (rawValue?.startsWith('"')) {
+        rawValue = rawValue.slice(1, -1);
+        // For quoted strings, keep as string (don't parse to number/boolean)
+        value = rawValue;
+      } else {
+        // For unquoted values, parse to appropriate type (number, boolean, or string)
+        value = parseValue(rawValue);
       }
     }
 
@@ -98,6 +104,31 @@ function parseTokens(tokens: string[]): ScimNode {
   }
 
   return parseExpression();
+}
+
+
+  /** Converts string values to appropriate types (number, boolean, or string) */
+function parseValue(value: string): any {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  // Check if it's a number (integer or float)
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    const numValue = Number(value);
+    return isNaN(numValue) ? value : numValue;
+  }
+
+  // Check if it's a boolean
+  if (value.toLowerCase() === 'true') {
+    return true;
+  }
+  if (value.toLowerCase() === 'false') {
+    return false;
+  }
+
+  // Return as string for everything else
+  return value;
 }
 
 /**

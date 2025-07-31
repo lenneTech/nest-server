@@ -734,6 +734,16 @@ describe('ServerModule (e2e)', () => {
           expect(result).toEqual({ userName: { $eq: 'Joe' } });
         });
 
+        it('should properly parse number values', () => {
+          const result = scimToMongo('age gt 25');
+          expect(result).toEqual({ age: { $gt: 25 } });
+        });
+
+        it('should properly parse bool values', () => {
+          const result = scimToMongo('bald eq true');
+          expect(result).toEqual({ bald: { $eq: true } });
+        });
+
         it('should handle contains (co) condition', () => {
           const result = scimToMongo('userName co "test"');
           expect(result).toEqual({ userName: { $options: 'i', $regex: 'test' } });
@@ -948,7 +958,7 @@ describe('ServerModule (e2e)', () => {
 
         it('should handle unquoted values', () => {
           const result = scimToMongo('active eq true');
-          expect(result).toEqual({ active: { $eq: 'true' } });
+          expect(result).toEqual({ active: { $eq: true } });
         });
 
         it('should throw error for unsupported comparator', () => {
