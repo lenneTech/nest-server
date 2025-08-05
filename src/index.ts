@@ -36,6 +36,7 @@ export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/graphql.helper';
 export * from './core/common/helpers/input.helper';
 export * from './core/common/helpers/model.helper';
+export * from './core/common/helpers/scim.helper';
 export * from './core/common/helpers/service.helper';
 export * from './core/common/helpers/table.helper';
 export * from './core/common/inputs/combined-filter.input';
