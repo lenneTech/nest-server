@@ -23,23 +23,31 @@ export function Translatable(): PropertyDecorator {
   };
 }
 
-export function updateLanguage<T extends Record<string, any>, K extends readonly (keyof T)[]>(
-  language: string,
-  input: any,
-  oldValue: T,
-  translatableFields: string[],
-): T {
-  const changedFields: Partial<Pick<T, K[number]>> = {};
-
+export function updateLanguage(language, input, oldValue, translatableFields) {
+  const changedFields = {};
   for (const key of translatableFields) {
-    const k = key as keyof T;
+    const k = key;
 
-    if (input[k] !== oldValue[k] && input[k] !== undefined) {
+    // For languages other than 'de', compare with existing translation value instead of main value
+    let compareValue;
+    if (language !== 'de' && oldValue._translations?.[language]?.[k] !== undefined) {
+      compareValue = oldValue._translations[language][k];
+    } else {
+      compareValue = oldValue[k];
+    }
+
+    if (input[k] !== compareValue && input[k] !== undefined) {
       changedFields[k] = input[k];
-      input[k] = oldValue[k] as T[typeof k];
+      // Only reset if the current field isn't in german
+      if (language !== 'de') {
+        input[k] = oldValue[k];
+      }
+    } else if (language !== 'de' && input[k] !== undefined) {
+      // If no change detected but we have input for this field, reset to original value
+      // to prevent overwriting the default with translation values
+      input[k] = oldValue[k];
     }
   }
-
   input._translations = input._translations ?? {};
   input._translations[language] = {
     ...(input._translations[language] ?? {}),
