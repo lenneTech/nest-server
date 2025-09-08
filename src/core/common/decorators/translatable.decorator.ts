@@ -23,8 +23,13 @@ export function Translatable(): PropertyDecorator {
   };
 }
 
-export function updateLanguage(language, input, oldValue, translatableFields) {
-  const changedFields = {};
+export function updateLanguage<T extends Record<string, any>, K extends readonly (keyof T)[]>(
+  language: string,
+  input: any,
+  oldValue: T,
+  translatableFields: string[],
+): T {
+  const changedFields: Partial<Pick<T, K[number]>> = {};
   for (const key of translatableFields) {
     const k = key;
 

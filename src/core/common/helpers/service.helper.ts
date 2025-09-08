@@ -353,19 +353,7 @@ function applyTranslationsRecursively(obj: any, language: string, visited: WeakS
     if (typeof translation === 'object') {
       for (const key in translation) {
         if (translation[key] != null) {
-          // Check if original value is a populated object and translation is justan ID
-          const isPopulatedObject
-            = obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key]) && obj[key]._id;
-          const isTranslationJustId
-            = typeof translation[key] === 'string' && translation[key].match(/^[0-9a-fA-F]{24}$/);
-
-          if (isPopulatedObject && isTranslationJustId) {
-            // Instead of trying to modify the existing populated object,
-            // replace it with just the translated ID string
-            obj[key] = translation[key];
-          } else {
-            obj[key] = translation[key];
-          }
+          obj[key] = translation[key];
         }
       }
     }
