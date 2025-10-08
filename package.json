@@ -67,8 +67,6 @@
   "dependencies": {
     "@apollo/gateway": "2.11.2",
     "@getbrevo/brevo": "1.0.1",
-    "@lenne.tech/mongoose-gridfs": "1.4.2",
-    "@lenne.tech/multer-gridfs-storage": "5.0.8",
     "@nestjs/apollo": "13.1.0",
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
@@ -160,9 +158,6 @@
     "yalc": "1.0.0-pre.53"
   },
   "overrides": {
-    "multer-gridfs-storage": {
-      "multer": "$multer"
-    },
     "@lykmapipo/common": {
       "flat": "5.0.2",
       "mime": "2.6.0"

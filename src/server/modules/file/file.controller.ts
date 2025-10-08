@@ -11,13 +11,15 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Readable } from 'stream';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
 import { FileService } from './file.service';
 
 /**
- * File controller for
+ * File controller
  */
 @Controller('files')
 @Roles(RoleEnum.ADMIN)
@@ -28,13 +30,27 @@ export class FileController {
   constructor(private readonly fileService: FileService) {}
 
   /**
-   * Upload file
+   * Upload file via HTTP
    */
   @Post('upload')
   @Roles(RoleEnum.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
-  uploadFile(@UploadedFile() file: Express.Multer.File): any {
-    return file;
+  async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<any> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    // Convert Multer file to FileUpload interface
+    const fileUpload: FileUpload = {
+      capacitor: null, // Not used when creating from buffer
+      createReadStream: () => Readable.from(file.buffer),
+      encoding: file.encoding,
+      filename: file.originalname,
+      mimetype: file.mimetype,
+    };
+
+    // Save to GridFS using FileService
+    return await this.fileService.createFile(fileUpload);
   }
 
   /**
