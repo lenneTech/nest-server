@@ -115,9 +115,9 @@ export abstract class CoreUserService<
     return this.process(
       async () => {
         // Update and return user
-        return await this.mainDbModel
-          .updateOne({ _id: dbObject.id }, { verified: true, verifiedAt: new Date() }, { returnDocument: 'after' })
-          .exec();
+        await this.mainDbModel.updateOne({ _id: dbObject.id }, { verified: true, verifiedAt: new Date() }).exec();
+        // Return the updated user
+        return await this.mainDbModel.findById(dbObject.id).exec();
       },
       { dbObject, serviceOptions },
     );
