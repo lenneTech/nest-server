@@ -21,7 +21,7 @@ export type FileInputCheckType = 'file' | 'filename' | 'files' | 'filterArgs' | 
  * Abstract core file service
  */
 export abstract class CoreFileService {
-  // Use Mongoose's MongoDB types to avoid BSON version conflicts
+  // Use the native MongoDB driver's types (accessed via Mongoose's exports) to avoid BSON version conflicts
   files: mongo.GridFSBucket;
 
   /**
