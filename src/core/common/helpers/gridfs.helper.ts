@@ -3,8 +3,10 @@ import { Readable } from 'stream';
 
 // Use Mongoose's MongoDB types to avoid BSON version conflicts
 const ObjectId = Types.ObjectId;
+
 /**
  * GridFS File Info interface matching the structure from GridFS
+ * This is the normalized structure with contentType at root level
  */
 export interface GridFSFileInfo {
   _id: Types.ObjectId;
@@ -19,6 +21,7 @@ export interface GridFSFileInfo {
   metadata?: Record<string, any> & { contentType?: string };
   uploadDate: Date;
 }
+
 /**
  * Options for reading files from GridFS
  */
@@ -26,7 +29,6 @@ export interface GridFSReadOptions {
   _id?: string | Types.ObjectId;
   filename?: string;
 }
-
 /**
  * Options for writing files to GridFS
  */
@@ -41,6 +43,19 @@ type GridFSBucket = mongo.GridFSBucket;
 type GridFSBucketReadStream = mongo.GridFSBucketReadStream;
 
 /**
+ * Raw GridFS file structure as returned by MongoDB
+ * This is the internal structure before normalization
+ */
+interface RawGridFSFile {
+  _id: Types.ObjectId;
+  chunkSize: number;
+  filename: string;
+  length: number;
+  metadata?: Record<string, any> & { contentType?: string };
+  uploadDate: Date;
+}
+
+/**
  * Helper class for GridFS operations using native MongoDB driver
  * Provides Promise-based API for all GridFS operations
  */
@@ -49,13 +64,11 @@ export class GridFSHelper {
    * Normalize file info to ensure contentType is accessible at root level
    * MongoDB stores contentType in metadata, but our API expects it at root
    */
-  private static normalizeFileInfo(fileInfo: any): GridFSFileInfo {
-    const normalized = fileInfo as GridFSFileInfo;
-    // Copy contentType from metadata to root for API compatibility
-    if (!normalized.contentType && normalized.metadata?.contentType) {
-      normalized.contentType = normalized.metadata.contentType;
-    }
-    return normalized;
+  private static normalizeFileInfo(fileInfo: RawGridFSFile): GridFSFileInfo {
+    return {
+      ...fileInfo,
+      contentType: fileInfo.metadata?.contentType,
+    };
   }
 
   /**
