@@ -182,7 +182,11 @@ export class GridFSHelper {
   /**
    * Open upload stream
    */
-  static openUploadStream(bucket: GridFSBucket, filename: string, options?: { contentType?: string }): any {
+  static openUploadStream(
+    bucket: GridFSBucket,
+    filename: string,
+    options?: { contentType?: string },
+  ): mongo.GridFSBucketWriteStream {
     // Store contentType in metadata to avoid deprecation warning
     if (options?.contentType) {
       const metadata = { contentType: options.contentType };
@@ -199,7 +203,7 @@ export class GridFSHelper {
     id: Types.ObjectId,
     filename: string,
     options?: { contentType?: string },
-  ): any {
+  ): mongo.GridFSBucketWriteStream {
     // Store contentType in metadata to avoid deprecation warning
     if (options?.contentType) {
       const metadata = { contentType: options.contentType };
