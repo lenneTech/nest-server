@@ -64,7 +64,7 @@ export class FileResolver {
     // Save files in filesystem
     const promises: Promise<any>[] = [];
     for (const file of files) {
-      const { createReadStream, filename } = file;
+      const { createReadStream, filename } = await file;
       await fs.promises.mkdir('./uploads', { recursive: true });
       promises.push(
         new Promise((resolve, reject) =>
