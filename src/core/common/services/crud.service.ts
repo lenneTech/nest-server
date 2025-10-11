@@ -105,7 +105,7 @@ export abstract class CrudService<
    * Get distinct values of a property
    */
   distinct(property: string): Promise<string[]> {
-    return this.mainDbModel.distinct(property);
+    return this.mainDbModel.distinct(property).exec() as Promise<string[]>;
   }
 
   /**
@@ -178,7 +178,7 @@ export abstract class CrudService<
           find = find.collation(collation);
         }
         if (serviceOptions?.select) {
-          find = find.select(serviceOptions.select);
+          find = find.select(serviceOptions.select) as any;
         }
         return find.exec();
       },
@@ -401,7 +401,7 @@ export abstract class CrudService<
           find = find.collation(collation);
         }
         if (serviceOptions?.select) {
-          find = find.select(serviceOptions.select);
+          find = find.select(serviceOptions.select) as any;
         }
         return find.exec();
       },

@@ -1,31 +1,16 @@
-import { GridFsStorage } from '@lenne.tech/multer-gridfs-storage';
 import { Injectable } from '@nestjs/common';
 import { MulterModuleOptions, MulterOptionsFactory } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 
-import envConfig from '../../../config.env';
-
+/**
+ * Multer configuration service using MemoryStorage
+ * Files are stored in memory as Buffer objects and then manually saved to GridFS
+ */
 @Injectable()
 export class GridFsMulterConfigService implements MulterOptionsFactory {
-  gridFsStorage: any;
-
-  constructor() {
-    this.gridFsStorage = new GridFsStorage({
-      file: (req, file) => {
-        return new Promise((resolve) => {
-          const filename = file.originalname.trim();
-          const fileInfo = {
-            filename,
-          };
-          resolve(fileInfo);
-        });
-      },
-      url: envConfig.mongoose.uri,
-    });
-  }
-
   createMulterOptions(): MulterModuleOptions {
     return {
-      storage: this.gridFsStorage,
+      storage: memoryStorage(),
     };
   }
 }

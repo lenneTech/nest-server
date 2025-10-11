@@ -1,4 +1,4 @@
-import brevo = require('@getbrevo/brevo');
+import { SendSmtpEmail, TransactionalEmailsApi, TransactionalEmailsApiApiKeys } from '@getbrevo/brevo';
 import { Injectable } from '@nestjs/common';
 
 import { ConfigService } from './config.service';
@@ -9,15 +9,15 @@ import { ConfigService } from './config.service';
 @Injectable()
 export class BrevoService {
   brevoConfig: ConfigService['configFastButReadOnly']['brevo'];
+  private apiInstance: TransactionalEmailsApi;
 
   constructor(protected configService: ConfigService) {
-    const defaultClient = brevo.ApiClient.instance;
-    const apiKey = defaultClient.authentications['api-key'];
     this.brevoConfig = configService.configFastButReadOnly.brevo;
     if (!this.brevoConfig) {
       throw new Error('Brevo configuration not set!');
     }
-    apiKey.apiKey = this.brevoConfig.apiKey;
+    this.apiInstance = new TransactionalEmailsApi();
+    this.apiInstance.setApiKey(TransactionalEmailsApiApiKeys.apiKey, this.brevoConfig.apiKey);
   }
 
   /**
@@ -37,14 +37,15 @@ export class BrevoService {
       }
 
       // Prepare data
-      const apiInstance = new brevo.TransactionalEmailsApi();
-      const sendSmtpEmail = new brevo.SendSmtpEmail();
-      sendSmtpEmail.templateId = templateId;
-      sendSmtpEmail.to = [{ email: to }];
-      sendSmtpEmail.params = params;
+      const sendSmtpEmail: SendSmtpEmail = {
+        params,
+        templateId,
+        to: [{ email: to }],
+      };
 
       // Send email
-      return await apiInstance.sendTransacEmail(sendSmtpEmail);
+      const result = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      return result.body;
     } catch (error) {
       console.error(error);
     }
@@ -75,16 +76,17 @@ export class BrevoService {
       }
 
       // Prepare data
-      const apiInstance = new brevo.TransactionalEmailsApi();
-      const sendSmtpEmail = new brevo.SendSmtpEmail();
-      sendSmtpEmail.htmlContent = html;
-      sendSmtpEmail.params = options?.params;
-      sendSmtpEmail.sender = this.brevoConfig.sender;
-      sendSmtpEmail.subject = subject;
-      sendSmtpEmail.to = [{ email: to }];
+      const sendSmtpEmail: SendSmtpEmail = {
+        htmlContent: html,
+        params: options?.params,
+        sender: this.brevoConfig.sender,
+        subject,
+        to: [{ email: to }],
+      };
 
       // Send email
-      return await apiInstance.sendTransacEmail(sendSmtpEmail);
+      const result = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      return result.body;
     } catch (error) {
       console.error(error);
     }
