@@ -17,15 +17,12 @@ import { FileUpload } from './interfaces/file-upload.interface';
  */
 export type FileInputCheckType = 'file' | 'filename' | 'files' | 'filterArgs' | 'id';
 
-// Use Mongoose's MongoDB types to avoid BSON version conflicts
-type GridFSBucket = mongo.GridFSBucket;
-type GridFSBucketReadStream = mongo.GridFSBucketReadStream;
-
 /**
  * Abstract core file service
  */
 export abstract class CoreFileService {
-  files: GridFSBucket;
+  // Use Mongoose's MongoDB types to avoid BSON version conflicts
+  files: mongo.GridFSBucket;
 
   /**
    * Include MongoDB connection and create File bucket
@@ -152,13 +149,16 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as GridFSBucketReadStream;
+    return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream;
   }
 
   /**
    * Get file stream (for big files) via filename
    */
-  async getFileStreamByName(filename: string, serviceOptions?: FileServiceOptions): Promise<GridFSBucketReadStream> {
+  async getFileStreamByName(
+    filename: string,
+    serviceOptions?: FileServiceOptions,
+  ): Promise<mongo.GridFSBucketReadStream> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
