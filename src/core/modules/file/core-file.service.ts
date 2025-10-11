@@ -51,7 +51,7 @@ export abstract class CoreFileService {
       contentType: mimetype,
       filename,
     });
-    return this.prepareOutput(fileInfo as any, serviceOptions);
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -120,7 +120,7 @@ export abstract class CoreFileService {
     }
     const filterQuery = convertFilterArgsToQuery(filterArgs);
     const docs = await GridFSHelper.findFiles(this.files, filterQuery[0], filterQuery[1]);
-    return this.prepareOutput(docs as any, serviceOptions);
+    return this.prepareOutput(docs as unknown as CoreFileInfo[], serviceOptions);
   }
 
   /**
@@ -131,7 +131,7 @@ export abstract class CoreFileService {
       return null;
     }
     const fileInfo = await GridFSHelper.findFileById(this.files, getObjectIds(id));
-    return this.prepareOutput(fileInfo as any, serviceOptions);
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -142,7 +142,7 @@ export abstract class CoreFileService {
       return null;
     }
     const fileInfo = await GridFSHelper.findFileByName(this.files, filename);
-    return this.prepareOutput(fileInfo as any, serviceOptions);
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -228,15 +228,23 @@ export abstract class CoreFileService {
   }
 
   /**
-   * Prepare output before return
+   * Prepare output before return - single file
+   * Accepts both GridFSFileInfo (from GridFS operations) and CoreFileInfo
+   * They are structurally compatible (duck typing), so we use type assertion
    */
-  protected async prepareOutput(fileInfo: CoreFileInfo | CoreFileInfo[], options?: FileServiceOptions) {
+  protected async prepareOutput(fileInfo: CoreFileInfo, options?: FileServiceOptions): Promise<CoreFileInfo>;
+  protected async prepareOutput(fileInfo: null, options?: FileServiceOptions): Promise<null>;
+  protected async prepareOutput(fileInfo: CoreFileInfo[], options?: FileServiceOptions): Promise<CoreFileInfo[]>;
+  protected async prepareOutput(
+    fileInfo: CoreFileInfo | CoreFileInfo[] | null,
+    options?: FileServiceOptions,
+  ): Promise<CoreFileInfo | CoreFileInfo[] | null> {
     if (!fileInfo) {
       return fileInfo;
     }
     this.setId(fileInfo);
-    fileInfo = await prepareOutput(fileInfo, { targetModel: CoreFileInfo });
-    return check(fileInfo, options?.currentUser, { roles: options?.roles });
+    const prepared = await prepareOutput(fileInfo, { targetModel: CoreFileInfo });
+    return check(prepared, options?.currentUser, { roles: options?.roles });
   }
 
   /**
