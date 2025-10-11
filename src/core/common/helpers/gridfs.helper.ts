@@ -9,10 +9,14 @@ const ObjectId = Types.ObjectId;
 export interface GridFSFileInfo {
   _id: Types.ObjectId;
   chunkSize: number;
+  /**
+   * Content type of the file
+   * Note: Stored in metadata.contentType in MongoDB, normalized to root level by helper
+   */
   contentType?: string;
   filename: string;
   length: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, any> & { contentType?: string };
   uploadDate: Date;
 }
 /**
@@ -42,6 +46,19 @@ type GridFSBucketReadStream = mongo.GridFSBucketReadStream;
  */
 export class GridFSHelper {
   /**
+   * Normalize file info to ensure contentType is accessible at root level
+   * MongoDB stores contentType in metadata, but our API expects it at root
+   */
+  private static normalizeFileInfo(fileInfo: any): GridFSFileInfo {
+    const normalized = fileInfo as GridFSFileInfo;
+    // Copy contentType from metadata to root for API compatibility
+    if (!normalized.contentType && normalized.metadata?.contentType) {
+      normalized.contentType = normalized.metadata.contentType;
+    }
+    return normalized;
+  }
+
+  /**
    * Write a file to GridFS from a stream
    */
   static writeFileFromStream(
@@ -50,9 +67,14 @@ export class GridFSHelper {
     options: GridFSWriteOptions,
   ): Promise<GridFSFileInfo> {
     return new Promise((resolve, reject) => {
+      // Store contentType in metadata to avoid deprecation warning
+      const metadata = { ...options.metadata };
+      if (options.contentType) {
+        metadata.contentType = options.contentType;
+      }
+
       const uploadStream = bucket.openUploadStream(options.filename, {
-        contentType: options.contentType,
-        metadata: options.metadata,
+        metadata,
       });
 
       uploadStream.on('error', (error) => {
@@ -66,7 +88,7 @@ export class GridFSHelper {
           .toArray()
           .then((files) => {
             if (files && files.length > 0) {
-              resolve(files[0] as GridFSFileInfo);
+              resolve(GridFSHelper.normalizeFileInfo(files[0]));
             } else {
               reject(new Error('File uploaded but metadata not found'));
             }
@@ -115,7 +137,7 @@ export class GridFSHelper {
   static async findFileById(bucket: GridFSBucket, id: string | Types.ObjectId): Promise<GridFSFileInfo | null> {
     const objectId = typeof id === 'string' ? new ObjectId(id) : id;
     const files = await bucket.find({ _id: objectId }).toArray();
-    return files.length > 0 ? (files[0] as GridFSFileInfo) : null;
+    return files.length > 0 ? GridFSHelper.normalizeFileInfo(files[0]) : null;
   }
 
   /**
@@ -123,7 +145,7 @@ export class GridFSHelper {
    */
   static async findFileByName(bucket: GridFSBucket, filename: string): Promise<GridFSFileInfo | null> {
     const files = await bucket.find({ filename }).toArray();
-    return files.length > 0 ? (files[0] as GridFSFileInfo) : null;
+    return files.length > 0 ? GridFSHelper.normalizeFileInfo(files[0]) : null;
   }
 
   /**
@@ -131,7 +153,7 @@ export class GridFSHelper {
    */
   static async findFiles(bucket: GridFSBucket, filter: any = {}, options: any = {}): Promise<GridFSFileInfo[]> {
     const files = await bucket.find(filter, options).toArray();
-    return files as GridFSFileInfo[];
+    return files.map(file => GridFSHelper.normalizeFileInfo(file));
   }
 
   /**
@@ -161,6 +183,11 @@ export class GridFSHelper {
    * Open upload stream
    */
   static openUploadStream(bucket: GridFSBucket, filename: string, options?: { contentType?: string }): any {
+    // Store contentType in metadata to avoid deprecation warning
+    if (options?.contentType) {
+      const metadata = { contentType: options.contentType };
+      return bucket.openUploadStream(filename, { metadata });
+    }
     return bucket.openUploadStream(filename, options);
   }
 
@@ -173,6 +200,11 @@ export class GridFSHelper {
     filename: string,
     options?: { contentType?: string },
   ): any {
+    // Store contentType in metadata to avoid deprecation warning
+    if (options?.contentType) {
+      const metadata = { contentType: options.contentType };
+      return bucket.openUploadStreamWithId(id, filename, { metadata });
+    }
     return bucket.openUploadStreamWithId(id, filename, options);
   }
 }

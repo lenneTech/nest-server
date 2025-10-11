@@ -11,10 +11,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { Readable } from 'stream';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
 import { FileService } from './file.service';
 
@@ -44,7 +46,6 @@ export class FileController {
     const fileUpload: FileUpload = {
       capacitor: null, // Not used when creating from buffer
       createReadStream: () => Readable.from(file.buffer),
-      encoding: file.encoding,
       filename: file.originalname,
       mimetype: file.mimetype,
     };
@@ -58,23 +59,24 @@ export class FileController {
    */
   @Get(':id')
   @Roles(RoleEnum.ADMIN)
-  async getFile(@Param('id') id: string, @Res() res) {
+  async getFile(@Param('id') id: string, @Res() res: Response) {
     if (!id) {
       throw new BadRequestException('Missing ID');
     }
 
-    let file;
+    let file: CoreFileInfo | null;
     try {
       file = await this.fileService.getFileInfo(id);
     } catch (e) {
       console.error(e);
+      file = null;
     }
 
     if (!file) {
       throw new NotFoundException('File not found');
     }
     const filestream = await this.fileService.getFileStream(id);
-    res.header('Content-Type', file.contentType);
+    res.header('Content-Type', file.contentType || 'application/octet-stream');
     res.header('Content-Disposition', `attachment; filename=${file.filename}`);
     res.header('Cache-Control', 'max-age=31536000');
     return filestream.pipe(res);

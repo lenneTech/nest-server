@@ -64,8 +64,7 @@ export class FileResolver {
     // Save files in filesystem
     const promises: Promise<any>[] = [];
     for (const file of files) {
-      // eslint-disable-next-line unused-imports/no-unused-vars
-      const { createReadStream, encoding, filename, mimetype } = await file;
+      const { createReadStream, filename } = file;
       await fs.promises.mkdir('./uploads', { recursive: true });
       promises.push(
         new Promise((resolve, reject) =>

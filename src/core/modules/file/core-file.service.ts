@@ -45,8 +45,7 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(file, { ...serviceOptions, checkInputType: 'file' }))) {
       return null;
     }
-    // eslint-disable-next-line unused-imports/no-unused-vars
-    const { createReadStream, encoding, filename, mimetype } = await file;
+    const { createReadStream, filename, mimetype } = await file;
     const readStream = createReadStream();
     const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
       contentType: mimetype,

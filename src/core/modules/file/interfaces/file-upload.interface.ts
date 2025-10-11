@@ -22,11 +22,6 @@ export interface FileUpload {
   }) => Readable;
 
   /**
-   * Stream transfer encoding of the file
-   */
-  encoding: string;
-
-  /**
    * Name of the file
    */
   filename: string;
