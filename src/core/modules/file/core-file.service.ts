@@ -31,7 +31,7 @@ export abstract class CoreFileService {
     protected readonly connection: Connection,
     bucketName = 'fs',
   ) {
-    // Use Mongoose's GridFSBucket to avoid BSON version conflicts
+    // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
     this.files = new mongo.GridFSBucket(connection.db, { bucketName });
   }
 
