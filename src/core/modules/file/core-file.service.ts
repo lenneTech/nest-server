@@ -1,11 +1,10 @@
-import { createBucket, MongoGridFSOptions, MongooseGridFS } from '@lenne.tech/mongoose-gridfs';
 import { NotFoundException } from '@nestjs/common';
-import { GridFSBucket, GridFSBucketReadStream, GridFSBucketReadStreamOptions } from 'mongodb';
-import mongoose, { Connection, Types } from 'mongoose';
+import mongoose, { Connection, mongo, Types } from 'mongoose';
 
 import { FilterArgs } from '../../common/args/filter.args';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
+import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
@@ -22,7 +21,8 @@ export type FileInputCheckType = 'file' | 'filename' | 'files' | 'filterArgs' | 
  * Abstract core file service
  */
 export abstract class CoreFileService {
-  files: GridFSBucket & MongooseGridFS;
+  // Use the native MongoDB driver's types (accessed via Mongoose's exports) to avoid BSON version conflicts
+  files: mongo.GridFSBucket;
 
   /**
    * Include MongoDB connection and create File bucket
@@ -31,7 +31,8 @@ export abstract class CoreFileService {
     protected readonly connection: Connection,
     bucketName = 'fs',
   ) {
-    this.files = createBucket({ bucketName, connection });
+    // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
+    this.files = new mongo.GridFSBucket(connection.db, { bucketName });
   }
 
   /**
@@ -41,15 +42,13 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(file, { ...serviceOptions, checkInputType: 'file' }))) {
       return null;
     }
-    return await new Promise(async (resolve, reject) => {
-      // eslint-disable-next-line unused-imports/no-unused-vars
-      const { createReadStream, encoding, filename, mimetype } = await file;
-      const readStream = createReadStream();
-      const options: MongoGridFSOptions = { contentType: mimetype, filename };
-      this.files.writeFile(options, readStream, (error, fileInfo) => {
-        error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
-      });
+    const { createReadStream, filename, mimetype } = await file;
+    const readStream = createReadStream();
+    const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
+      contentType: mimetype,
+      filename,
     });
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -71,7 +70,11 @@ export abstract class CoreFileService {
    */
   async duplicateByName(name: string, newName: string): Promise<any> {
     return new Promise(async (resolve) => {
-      resolve(this.files.openDownloadStreamByName(name).pipe(this.files.openUploadStream(newName)));
+      resolve(
+        GridFSHelper.openDownloadStreamByName(this.files, name).pipe(
+          GridFSHelper.openUploadStream(this.files, newName),
+        ),
+      );
     });
   }
 
@@ -82,10 +85,10 @@ export abstract class CoreFileService {
     const objectId = getObjectIds(id);
     const file = await this.getFileInfo(objectId);
     return new Promise((resolve, reject) => {
-      const downloadStream = this.files.openDownloadStream(objectId);
+      const downloadStream = GridFSHelper.openDownloadStream(this.files, objectId);
 
       const newFileId = new mongoose.Types.ObjectId();
-      const uploadStream = this.files.openUploadStreamWithId(newFileId, file.filename, {
+      const uploadStream = GridFSHelper.openUploadStreamWithId(this.files, newFileId, file.filename, {
         contentType: file.contentType,
       });
 
@@ -112,16 +115,9 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(filterArgs, { ...serviceOptions, checkInputType: 'filterArgs' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      const filterQuery = convertFilterArgsToQuery(filterArgs);
-      const cursor = this.files.find(filterQuery[0], filterQuery[1]);
-      if (!cursor) {
-        throw new NotFoundException('File collection not found');
-      }
-      cursor.toArray((error, docs) => {
-        error ? reject(error) : resolve(this.prepareOutput(docs, serviceOptions));
-      });
-    });
+    const filterQuery = convertFilterArgsToQuery(filterArgs);
+    const docs = await GridFSHelper.findFiles(this.files, filterQuery[0], filterQuery[1]);
+    return this.prepareOutput(docs as unknown as CoreFileInfo[], serviceOptions);
   }
 
   /**
@@ -131,11 +127,8 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      this.files.findById(getObjectIds(id), (error, fileInfo) => {
-        error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
-      });
-    });
+    const fileInfo = await GridFSHelper.findFileById(this.files, getObjectIds(id));
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -145,11 +138,8 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      this.files.findOne({ filename }, (error, fileInfo) => {
-        error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
-      });
-    });
+    const fileInfo = await GridFSHelper.findFileByName(this.files, filename);
+    return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
   /**
@@ -159,7 +149,7 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return this.files.openDownloadStream(getObjectIds(id)) as GridFSBucketReadStream;
+    return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream;
   }
 
   /**
@@ -168,11 +158,11 @@ export abstract class CoreFileService {
   async getFileStreamByName(
     filename: string,
     serviceOptions?: FileServiceOptions,
-  ): Promise<GridFSBucketReadStreamOptions> {
+  ): Promise<mongo.GridFSBucketReadStream> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
-    return this.files.readFile({ filename });
+    return GridFSHelper.openDownloadStreamByName(this.files, filename);
   }
 
   /**
@@ -182,39 +172,30 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      this.files.readFile({ _id: getObjectIds(id) }, (error, buffer) => {
-        error ? reject(error) : resolve(buffer);
-      });
-    });
+    return await GridFSHelper.readFileToBuffer(this.files, { _id: getObjectIds(id) });
   }
 
   /**
-   * Get file buffer (for small files) via file ID
+   * Get file buffer (for small files) via filename
    */
   async getBufferByName(filename: string, serviceOptions?: FileServiceOptions): Promise<Buffer> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      this.files.readFile({ filename }, (error, buffer) => {
-        error ? reject(error) : resolve(buffer);
-      });
-    });
+    return await GridFSHelper.readFileToBuffer(this.files, { filename });
   }
 
   /**
-   * Delete file reference of avatar
+   * Delete file
    */
   async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    return await new Promise((resolve, reject) => {
-      return this.files.unlink(getObjectIds(id), (error, fileInfo) => {
-        error ? reject(error) : resolve(this.prepareOutput(fileInfo, serviceOptions));
-      });
-    });
+    const objectId = getObjectIds(id);
+    const fileInfo = await this.getFileInfo(objectId, serviceOptions);
+    await GridFSHelper.deleteFile(this.files, objectId);
+    return fileInfo;
   }
 
   /**
@@ -247,15 +228,23 @@ export abstract class CoreFileService {
   }
 
   /**
-   * Prepare output before return
+   * Prepare output before return - single file
+   * Accepts both GridFSFileInfo (from GridFS operations) and CoreFileInfo
+   * They are structurally compatible (duck typing), so we use type assertion
    */
-  protected async prepareOutput(fileInfo: CoreFileInfo | CoreFileInfo[], options?: FileServiceOptions) {
+  protected async prepareOutput(fileInfo: CoreFileInfo, options?: FileServiceOptions): Promise<CoreFileInfo>;
+  protected async prepareOutput(fileInfo: null, options?: FileServiceOptions): Promise<null>;
+  protected async prepareOutput(fileInfo: CoreFileInfo[], options?: FileServiceOptions): Promise<CoreFileInfo[]>;
+  protected async prepareOutput(
+    fileInfo: CoreFileInfo | CoreFileInfo[] | null,
+    options?: FileServiceOptions,
+  ): Promise<CoreFileInfo | CoreFileInfo[] | null> {
     if (!fileInfo) {
       return fileInfo;
     }
     this.setId(fileInfo);
-    fileInfo = await prepareOutput(fileInfo, { targetModel: CoreFileInfo });
-    return check(fileInfo, options?.currentUser, { roles: options?.roles });
+    const prepared = await prepareOutput(fileInfo, { targetModel: CoreFileInfo });
+    return check(prepared, options?.currentUser, { roles: options?.roles });
   }
 
   /**

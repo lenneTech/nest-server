@@ -34,6 +34,7 @@ export * from './core/common/helpers/decorator.helper';
 export * from './core/common/helpers/file.helper';
 export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/graphql.helper';
+export * from './core/common/helpers/gridfs.helper';
 export * from './core/common/helpers/input.helper';
 export * from './core/common/helpers/model.helper';
 export * from './core/common/helpers/scim.helper';

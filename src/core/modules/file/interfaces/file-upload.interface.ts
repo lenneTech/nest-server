@@ -23,8 +23,9 @@ export interface FileUpload {
 
   /**
    * Stream transfer encoding of the file
+   * @deprecated This property is deprecated and may be removed in future versions
    */
-  encoding: string;
+  encoding?: string;
 
   /**
    * Name of the file
