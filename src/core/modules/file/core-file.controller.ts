@@ -1,4 +1,5 @@
 import { BadRequestException, Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import { Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
@@ -20,7 +21,7 @@ export abstract class CoreFileController {
    */
   @Get(':filename')
   @Roles(RoleEnum.S_EVERYONE)
-  async getFile(@Param('filename') filename: string, @Res() res) {
+  async getFile(@Param('filename') filename: string, @Res() res: Response) {
     if (!filename) {
       throw new BadRequestException('Missing filename for download');
     }
@@ -30,7 +31,7 @@ export abstract class CoreFileController {
       throw new NotFoundException('File not found');
     }
     const filestream = await this.fileService.getFileStream(file.id);
-    res.header('Content-Type', file.contentType);
+    res.header('Content-Type', file.contentType || 'application/octet-stream');
     res.header('Content-Disposition', `attachment; filename=${file.filename}`);
     return filestream.pipe(res);
   }
