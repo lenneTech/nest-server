@@ -1,11 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { exec } from 'child_process';
 import compression = require('compression');
 import cookieParser = require('cookie-parser');
 
 import envConfig from './config.env';
+import { FilterArgs } from './core/common/args/filter.args';
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
+import { CorePersistenceModel } from './core/common/models/core-persistence.model';
+import { CoreAuthModel } from './core/modules/auth/core-auth.model';
+import { CoreUserModel } from './core/modules/user/core-user.model';
+import { PersistenceModel } from './server/common/models/persistence.model';
+import { Auth } from './server/modules/auth/auth.model';
+import { User } from './server/modules/user/user.model';
 import { ServerModule } from './server/server.module';
 
 /**
@@ -53,6 +61,23 @@ async function bootstrap() {
 
   // Enable cors to allow requests from other domains
   server.enableCors();
+
+  // Swagger documentation
+  const config = new DocumentBuilder()
+    .setTitle('Nest Server API')
+    .setDescription('API lenne.Tech Nest Server')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
+  const documentFactory = () =>
+    SwaggerModule.createDocument(server, config, {
+      autoTagControllers: true,
+      deepScanRoutes: true,
+      extraModels: [CoreUserModel, CoreAuthModel, Auth, User, PersistenceModel, CorePersistenceModel, FilterArgs],
+    });
+  SwaggerModule.setup('swagger', server, documentFactory, {
+    jsonDocumentUrl: '/api-docs-json',
+  });
 
   // Start server on configured port
   await server.listen(envConfig.port, envConfig.hostname);

@@ -1,10 +1,10 @@
-import { Field, ObjectType } from '@nestjs/graphql';
+import { ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
 import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
-import { IsOptional } from 'class-validator';
 import { Document } from 'mongoose';
 
 import { Restricted } from '../../common/decorators/restricted.decorator';
+import { UnifiedField } from '../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 import { CoreTokenData } from '../auth/interfaces/core-token-data.interface';
@@ -26,67 +26,78 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * E-Mail address of the user
    */
-  @ApiProperty()
-  @Field({ description: 'Email of the user', nullable: true })
-  @Prop({ index: true, lowercase: true, trim: true })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Email of the user',
+    isOptional: true,
+    mongoose: { index: true, lowercase: true, trim: true },
+    roles: RoleEnum.S_EVERYONE,
+  })
   email: string = undefined;
 
   /**
    * First name of the user
    */
-  @ApiProperty()
-  @Field({ description: 'First name of the user', nullable: true })
-  @IsOptional()
-  @Prop()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'First name of the user',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   firstName: string = undefined;
 
   /**
    * Last name of the user
    */
-  @ApiProperty()
-  @Field({ description: 'Last name of the user', nullable: true })
-  @IsOptional()
-  @Prop()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Last name of the user',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   lastName: string = undefined;
 
   /**
    * Password of the user
    */
-  @ApiProperty()
-  @Prop()
-  @Restricted(RoleEnum.S_NO_ONE)
+  @UnifiedField({
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_NO_ONE,
+  })
   password: string = undefined;
 
   /**
    * Roles of the user
    */
-  @ApiProperty()
-  @Field(() => [String], { description: 'Roles of the user', nullable: true })
-  @IsOptional()
-  @Prop([String])
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Roles of the user',
+    isArray: true,
+    isOptional: true,
+    mongoose: [String],
+    roles: RoleEnum.S_EVERYONE,
+    type: () => String,
+  })
   roles: string[] = undefined;
 
   /**
    * Username of the user
    */
-  @ApiProperty()
-  @Field({ description: 'Username of the user', nullable: true })
-  @IsOptional()
-  @Prop()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Username of the user',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   username: string = undefined;
 
   /**
    * Password reset token of the user
    */
-  @ApiProperty()
-  @IsOptional()
-  @Prop()
-  @Restricted(RoleEnum.S_NO_ONE)
+  @UnifiedField({
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_NO_ONE,
+  })
   passwordResetToken: string = undefined;
 
   /**
@@ -96,30 +107,41 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @ApiProperty({ isArray: true })
   @ApiProperty({
-      additionalProperties: {
+    additionalProperties: {
       properties: {
-        deviceDescription: { description: 'Description of the device from which the token was generated', nullable: true, type: 'string' },
-        deviceId: { description: 'ID of the device from which the token was generated', nullable: true, type: 'string' },
-        tokenId: { description: 'Token ID to make sure that there is only one RefreshToken for each device', nullable: false, type: 'string' },
+        deviceDescription: {
+          description: 'Description of the device from which the token was generated',
+          nullable: true,
+          type: 'string',
+        },
+        deviceId: {
+          description: 'ID of the device from which the token was generated',
+          nullable: true,
+          type: 'string',
+        },
+        tokenId: {
+          description: 'Token ID to make sure that there is only one RefreshToken for each device',
+          nullable: false,
+          type: 'string',
+        },
       },
       type: 'object',
     },
     description: 'Refresh tokens for devices (key: Token, value: TokenData)',
     example: {
-        '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb': {
-          deviceDescription: null,
-          deviceId: '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb',
-          tokenId: '50937407-4282-480e-8679-14ecc113f9c7',
-        },
-        'e9e60a3e-2004-479f-8e79-13a0d1981d76': {
-          deviceDescription: null,
-          deviceId: 'e9e60a3e-2004-479f-8e79-13a0d1981d76',
-          tokenId: '0604aa59-4fc8-4848-9fe7-c12d9cdf6ec0',
-        },
+      '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb': {
+        deviceDescription: null,
+        deviceId: '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb',
+        tokenId: '50937407-4282-480e-8679-14ecc113f9c7',
       },
+      'e9e60a3e-2004-479f-8e79-13a0d1981d76': {
+        deviceDescription: null,
+        deviceId: 'e9e60a3e-2004-479f-8e79-13a0d1981d76',
+        tokenId: '0604aa59-4fc8-4848-9fe7-c12d9cdf6ec0',
+      },
+    },
     type: 'object',
   })
-  @IsOptional()
   @Prop(raw({}))
   @Restricted(RoleEnum.S_NO_ONE)
   refreshTokens: Record<string, CoreTokenData> = undefined;
@@ -130,30 +152,44 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @ApiProperty()
   @ApiProperty({
-      additionalProperties: {
+    additionalProperties: {
       properties: {
-        createdAt: { description: 'Token Created At', example: 1740037703939, format: 'int64', nullable: true, type: 'number' },
-        deviceId: { description: 'ID of the device from which the token was generated', nullable: true, type: 'string' },
-        tokenId: { description: 'Token ID to make sure that there is only one RefreshToken for each device', nullable: false, type: 'string' },
+        createdAt: {
+          description: 'Token Created At',
+          example: 1740037703939,
+          format: 'int64',
+          nullable: true,
+          type: 'number',
+        },
+        deviceId: {
+          description: 'ID of the device from which the token was generated',
+          nullable: true,
+          type: 'string',
+        },
+        tokenId: {
+          description: 'Token ID to make sure that there is only one RefreshToken for each device',
+          nullable: false,
+          type: 'string',
+        },
       },
       type: 'object',
     },
     description: 'Temporary token for parallel requests during the token refresh process',
-    example: { // 👈 Add explicit example keys
-        '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb': {
-          createdAt: 1740037703939,
-          deviceId: '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb',
-          tokenId: '50937407-4282-480e-8679-14ecc113f9c7',
-        },
-        'f83ae5f6-90bf-4b4e-b318-651e0eaa67ae': {
-          createdAt: 1740037703940,
-          deviceId: 'f83ae5f6-90bf-4b4e-b318-651e0eaa67ae',
-          tokenId: '4f0dc3c5-e74e-41f4-9bd9-642869462c1e',
-        },
+    example: {
+      // 👈 Add explicit example keys
+      '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb': {
+        createdAt: 1740037703939,
+        deviceId: '49b5c7d6-94ae-4efe-b377-9b50d1a9c2cb',
+        tokenId: '50937407-4282-480e-8679-14ecc113f9c7',
       },
+      'f83ae5f6-90bf-4b4e-b318-651e0eaa67ae': {
+        createdAt: 1740037703940,
+        deviceId: 'f83ae5f6-90bf-4b4e-b318-651e0eaa67ae',
+        tokenId: '4f0dc3c5-e74e-41f4-9bd9-642869462c1e',
+      },
+    },
     type: 'object',
   })
-  @IsOptional()
   @Prop(raw({}))
   @Restricted(RoleEnum.S_NO_ONE)
   tempTokens: Record<string, { createdAt: number; deviceId: string; tokenId: string }> = undefined;
@@ -161,28 +197,34 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   /**
    * Verification token of the user
    */
-  @ApiProperty()
-  @IsOptional()
-  @Prop()
-  @Restricted(RoleEnum.S_NO_ONE)
+  @UnifiedField({
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_NO_ONE,
+  })
   verificationToken: string = undefined;
 
   /**
    * Verification of the user
    */
-  @ApiProperty()
-  @Field(() => Boolean, { description: 'Verification state of the user', nullable: true })
-  @Prop({ type: Boolean })
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Verification state of the user',
+    isOptional: true,
+    mongoose: { type: Boolean },
+    roles: RoleEnum.S_EVERYONE,
+    type: () => Boolean,
+  })
   verified: boolean = undefined;
 
   /**
    * Verification date
    */
-  @ApiProperty()
-  @Field({ description: 'Verified date', nullable: true })
-  @Prop()
-  @Restricted(RoleEnum.S_EVERYONE)
+  @UnifiedField({
+    description: 'Verified date',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_EVERYONE,
+  })
   verifiedAt: Date = undefined;
 
   // ===================================================================================================================
@@ -199,7 +241,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles || roles.length < 1 ? true : this.roles.some(role => roles.includes(role));
+    return !roles || roles.length < 1 ? true : this.roles.some((role) => roles.includes(role));
   }
 
   /**
@@ -212,7 +254,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
     if (!this.roles || this.roles.length < 1) {
       return false;
     }
-    return !roles ? true : roles.every(role => this.roles.includes(role));
+    return !roles ? true : roles.every((role) => this.roles.includes(role));
   }
 
   /**
