@@ -1,5 +1,5 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Prop, Schema } from '@nestjs/mongoose';
+import { Schema } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
 import { Restricted } from '../decorators/restricted.decorator';
@@ -85,10 +85,10 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Created date, is set automatically by mongoose
    */
-  @Prop()
   @UnifiedField({
     description: 'Created date',
     isOptional: true,
+    mongoose: true,
     roles: RoleEnum.S_EVERYONE,
     swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
     type: Date,
@@ -98,10 +98,10 @@ export abstract class CorePersistenceModel extends CoreModel {
   /**
    * Updated date is set automatically by mongoose
    */
-  @Prop()
   @UnifiedField({
     description: 'Updated date',
     isOptional: true,
+    mongoose: true,
     roles: RoleEnum.S_EVERYONE,
     swaggerApiOptions: { example: 1740037703939, format: 'int64', type: Date },
     type: Date,

@@ -611,6 +611,416 @@ describe('ServerModule (e2e)', () => {
     expect(del.id).toEqual(create.user.id);
   });
 
+  // ===========================================================================
+  // REST API Controller Tests
+  // ===========================================================================
+
+  /**
+   * REST: Get users without token should fail
+   */
+  it('REST: findUsers without token should fail', async () => {
+    await testHelper.rest('/users', { statusCode: 401 });
+  });
+
+  /**
+   * REST: Get users without admin rights should fail
+   */
+  it('REST: findUsers without admin rights should fail', async () => {
+    // First create a new non-admin user for this test
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@resttest.com`;
+    const signUpRes: any = await testHelper.graphQl({
+      arguments: {
+        input: {
+          email,
+          password: passwd,
+        },
+      },
+      fields: ['token', { user: ['id'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+    });
+    await testHelper.rest('/users', { statusCode: 401, token: signUpRes.token });
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: signUpRes.user.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Get users with admin rights
+   */
+  it('REST: findUsers with admin rights', async () => {
+    const res: any = await testHelper.rest('/users', { token: gToken });
+    expect(Array.isArray(res)).toBe(true);
+    expect(res.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * REST: Get users with count
+   */
+  it('REST: findAndCountUsers with admin rights', async () => {
+    const res: any = await testHelper.rest('/users/count', { token: gToken });
+    expect(res.items).toBeDefined();
+    expect(Array.isArray(res.items)).toBe(true);
+    expect(res.totalCount).toBeDefined();
+    expect(typeof res.totalCount).toBe('number');
+    expect(res.totalCount).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * REST: Get user by ID
+   */
+  it('REST: getUser by ID', async () => {
+    const res: any = await testHelper.rest(`/users/${gId}`, { token: gToken });
+    expect(res.id).toEqual(gId);
+    expect(res.email).toEqual(gEmail);
+  });
+
+  /**
+   * REST: Get user by ID without token should fail
+   */
+  it('REST: getUser by ID without token should fail', async () => {
+    await testHelper.rest(`/users/${gId}`, { statusCode: 401 });
+  });
+
+  /**
+   * REST: Create user
+   */
+  it('REST: createUser', async () => {
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@restcreate.com`;
+    const res: any = await testHelper.rest('/users', {
+      method: 'POST',
+      payload: {
+        email,
+        firstName: 'RestTest',
+        password: passwd,
+      },
+      statusCode: 201,
+      token: gToken,
+    });
+    expect(res.email).toEqual(email);
+    expect(res.firstName).toEqual('RestTest');
+    expect(res.id).toBeDefined();
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: res.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Create user without admin rights should fail
+   */
+  it('REST: createUser without admin rights should fail', async () => {
+    // First create a non-admin user
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@resttest2.com`;
+    const signUpRes: any = await testHelper.graphQl({
+      arguments: {
+        input: {
+          email,
+          password: passwd,
+        },
+      },
+      fields: ['token', { user: ['id'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+    });
+
+    const passwd2 = Math.random().toString(36).substring(7);
+    const email2 = `${passwd2}@restcreate2.com`;
+    await testHelper.rest('/users', {
+      method: 'POST',
+      payload: {
+        email: email2,
+        password: passwd2,
+      },
+      statusCode: 401,
+      token: signUpRes.token,
+    });
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: signUpRes.user.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Update user
+   */
+  it('REST: updateUser', async () => {
+    const res: any = await testHelper.rest(`/users/${gId}`, {
+      method: 'PATCH',
+      payload: {
+        firstName: 'RestUpdated',
+      },
+      token: gToken,
+    });
+    expect(res.id).toEqual(gId);
+    expect(res.firstName).toEqual('RestUpdated');
+  });
+
+  /**
+   * REST: Update user without token should fail
+   */
+  it('REST: updateUser without token should fail', async () => {
+    await testHelper.rest(`/users/${gId}`, {
+      method: 'PATCH',
+      payload: {
+        firstName: 'ShouldFail',
+      },
+      statusCode: 401,
+    });
+  });
+
+  /**
+   * REST: Delete user
+   */
+  it('REST: deleteUser', async () => {
+    // Create user for deletion
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@restdelete.com`;
+    const createRes: any = await testHelper.rest('/users', {
+      method: 'POST',
+      payload: {
+        email,
+        password: passwd,
+      },
+      statusCode: 201,
+      token: gToken,
+    });
+
+    // Delete user
+    const res: any = await testHelper.rest(`/users/${createRes.id}`, {
+      method: 'DELETE',
+      token: gToken,
+    });
+    expect(res.id).toEqual(createRes.id);
+  });
+
+  /**
+   * REST: Delete user without token should fail
+   */
+  it('REST: deleteUser without token should fail', async () => {
+    await testHelper.rest(`/users/${gId}`, {
+      method: 'DELETE',
+      statusCode: 401,
+    });
+  });
+
+  /**
+   * REST: Request password reset mail
+   */
+  it('REST: requestPasswordResetMail', async () => {
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@resettest.com`;
+
+    // Create user
+    const createRes: any = await testHelper.rest('/users', {
+      method: 'POST',
+      payload: {
+        email,
+        password: passwd,
+      },
+      statusCode: 201,
+      token: gToken,
+    });
+
+    // Request password reset
+    const res: any = await testHelper.rest('/users/password/reset-request', {
+      method: 'POST',
+      payload: {
+        email,
+      },
+      statusCode: 201,
+    });
+    expect(res).toBe(true);
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: createRes.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Reset password with token
+   */
+  it('REST: resetPassword', async () => {
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@resetpw.com`;
+
+    // Create user
+    const createRes: any = await testHelper.graphQl({
+      arguments: {
+        input: {
+          email,
+          password: passwd,
+        },
+      },
+      fields: [{ user: ['id', 'email'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+    });
+
+    // Request password reset
+    await testHelper.rest('/users/password/reset-request', {
+      method: 'POST',
+      payload: {
+        email,
+      },
+      statusCode: 201,
+    });
+
+    // Get token from database
+    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+
+    // Reset password
+    const res: any = await testHelper.rest('/users/password/reset', {
+      method: 'POST',
+      payload: {
+        password: `new${passwd}`,
+        token: user.passwordResetToken,
+      },
+      statusCode: 201,
+    });
+    expect(res).toBe(true);
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: createRes.user.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Verify user
+   */
+  it('REST: verifyUser', async () => {
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@verifytest.com`;
+
+    // Create user
+    const createRes: any = await testHelper.graphQl({
+      arguments: {
+        input: {
+          email,
+          password: passwd,
+        },
+      },
+      fields: [{ user: ['id', 'email'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+    });
+
+    // Get token from database
+    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+
+    // Verify user
+    const res: any = await testHelper.rest('/users/verify', {
+      method: 'POST',
+      payload: {
+        token: user.verificationToken,
+      },
+      statusCode: 201,
+    });
+    expect(res).toBe(true);
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: createRes.user.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
+  /**
+   * REST: Get verified state
+   */
+  it('REST: getVerifiedState', async () => {
+    const passwd = Math.random().toString(36).substring(7);
+    const email = `${passwd}@verifiedstate.com`;
+
+    // Create user
+    const createRes: any = await testHelper.graphQl({
+      arguments: {
+        input: {
+          email,
+          password: passwd,
+        },
+      },
+      fields: [{ user: ['id', 'email'] }],
+      name: 'signUp',
+      type: TestGraphQLType.MUTATION,
+    });
+
+    // Get token from database
+    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+
+    // Get verified state (should be null or false before verification)
+    const resBefore: any = await testHelper.rest(`/users/verified-state?token=${user.verificationToken}`);
+    expect(resBefore).toBeFalsy();
+
+    // Verify user
+    await testHelper.graphQl({
+      arguments: {
+        token: user.verificationToken,
+      },
+      name: 'verifyUser',
+      type: TestGraphQLType.MUTATION,
+    });
+
+    // Get verified state (should be true after verification)
+    const resAfter: any = await testHelper.rest(`/users/verified-state?token=${user.verificationToken}`);
+    expect(resAfter).toBe(true);
+
+    // Clean up
+    await testHelper.graphQl(
+      {
+        arguments: { id: createRes.user.id },
+        fields: ['id'],
+        name: 'deleteUser',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: gToken },
+    );
+  });
+
   /**
    * Update roles as admin
    */
@@ -631,7 +1041,7 @@ describe('ServerModule (e2e)', () => {
     );
     expect(res.id).toEqual(gId);
     expect(res.email).toEqual(gEmail);
-    expect(res.firstName).toEqual('Jonny');
+    expect(res.firstName).toEqual('RestUpdated');
     expect(res.roles[0]).toEqual('member');
     expect(res.roles.length).toEqual(1);
   });
@@ -795,20 +1205,14 @@ describe('ServerModule (e2e)', () => {
         it('should handle AND operator', () => {
           const result = scimToMongo('userName eq "Joe" and age gt "25"');
           expect(result).toEqual({
-            $and: [
-              { userName: { $eq: 'Joe' } },
-              { age: { $gt: '25' } },
-            ],
+            $and: [{ userName: { $eq: 'Joe' } }, { age: { $gt: '25' } }],
           });
         });
 
         it('should handle OR operator', () => {
           const result = scimToMongo('userName eq "Joe" or userName eq "Jane"');
           expect(result).toEqual({
-            $or: [
-              { userName: { $eq: 'Joe' } },
-              { userName: { $eq: 'Jane' } },
-            ],
+            $or: [{ userName: { $eq: 'Joe' } }, { userName: { $eq: 'Jane' } }],
           });
         });
 
@@ -817,10 +1221,7 @@ describe('ServerModule (e2e)', () => {
           expect(result).toEqual({
             $or: [
               {
-                $and: [
-                  { userName: { $eq: 'Joe' } },
-                  { age: { $gt: '25' } },
-                ],
+                $and: [{ userName: { $eq: 'Joe' } }, { age: { $gt: '25' } }],
               },
               { department: { $eq: 'IT' } },
             ],
@@ -830,10 +1231,7 @@ describe('ServerModule (e2e)', () => {
         it('should handle case insensitive logical operators', () => {
           const result = scimToMongo('userName eq "Joe" AND age gt "25"');
           expect(result).toEqual({
-            $and: [
-              { userName: { $eq: 'Joe' } },
-              { age: { $gt: '25' } },
-            ],
+            $and: [{ userName: { $eq: 'Joe' } }, { age: { $gt: '25' } }],
           });
         });
       });
@@ -845,10 +1243,7 @@ describe('ServerModule (e2e)', () => {
           expect(result).toEqual({
             $and: [
               {
-                $or: [
-                  { userName: { $eq: 'Joe' } },
-                  { userName: { $eq: 'Jane' } },
-                ],
+                $or: [{ userName: { $eq: 'Joe' } }, { userName: { $eq: 'Jane' } }],
               },
               { age: { $gt: '25' } },
             ],
@@ -856,16 +1251,15 @@ describe('ServerModule (e2e)', () => {
         });
 
         it('should handle nested parentheses', () => {
-          const result = scimToMongo('((userName eq "Joe" or userName eq "Jane") and age gt "25") or department eq "IT"');
+          const result = scimToMongo(
+            '((userName eq "Joe" or userName eq "Jane") and age gt "25") or department eq "IT"',
+          );
           expect(result).toEqual({
             $or: [
               {
                 $and: [
                   {
-                    $or: [
-                      { userName: { $eq: 'Joe' } },
-                      { userName: { $eq: 'Jane' } },
-                    ],
+                    $or: [{ userName: { $eq: 'Joe' } }, { userName: { $eq: 'Jane' } }],
                   },
                   { age: { $gt: '25' } },
                 ],
@@ -892,10 +1286,7 @@ describe('ServerModule (e2e)', () => {
           expect(result).toEqual({
             emails: {
               $elemMatch: {
-                $and: [
-                  { type: { $eq: 'work' } },
-                  { primary: { $eq: 'true' } },
-                ],
+                $and: [{ type: { $eq: 'work' } }, { primary: { $eq: 'true' } }],
               },
             },
           });
@@ -966,11 +1357,11 @@ describe('ServerModule (e2e)', () => {
         });
 
         it('should throw error for mismatched parentheses', () => {
-          expect(() => scimToMongo('(userName eq "test"')).toThrow('Expected \')\' at position');
+          expect(() => scimToMongo('(userName eq "test"')).toThrow("Expected ')' at position");
         });
 
         it('should throw error for mismatched brackets', () => {
-          expect(() => scimToMongo('emails[type eq "work"')).toThrow('Expected \']\' at position');
+          expect(() => scimToMongo('emails[type eq "work"')).toThrow("Expected ']' at position");
         });
 
         it('should handle empty input', () => {
@@ -982,7 +1373,9 @@ describe('ServerModule (e2e)', () => {
       // Complex real-world scenarios
       describe('Complex real-world scenarios', () => {
         it('should handle complex user filtering scenario', () => {
-          const result = scimToMongo('userName sw "john" and (emails[type eq "work"] or emails[type eq "personal"]) and active eq "true"');
+          const result = scimToMongo(
+            'userName sw "john" and (emails[type eq "work"] or emails[type eq "personal"]) and active eq "true"',
+          );
 
           expect(result).toEqual({
             $and: [

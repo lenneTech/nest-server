@@ -1,10 +1,10 @@
-import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop } from '@nestjs/mongoose';
-import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
+import { ObjectType } from '@nestjs/graphql';
+import { ApiExtraModels } from '@nestjs/swagger';
 import { Types } from 'mongoose';
 import mongoose = require('mongoose');
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model';
 import { User } from '../../modules/user/user.model';
@@ -30,13 +30,14 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    *
    * Not set when created by system
    */
-  @ApiProperty({ type: String })
-  @Field(() => User, {
+  @UnifiedField({
     description: 'ID of the user who created the object',
-    nullable: true,
+    isOptional: true,
+    mongoose: { ref: 'User', type: mongoose.Schema.Types.ObjectId },
+    roles: RoleEnum.ADMIN,
+    swaggerApiOptions: { type: String },
+    type: () => User,
   })
-  @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
-  @Restricted(RoleEnum.ADMIN)
   createdBy?: string | Types.ObjectId = undefined;
 
   /**
@@ -44,13 +45,14 @@ export abstract class PersistenceModel extends CorePersistenceModel {
    *
    * Not set when updated by system
    */
-  @ApiProperty({ type: User })
-  @Field(() => User, {
+  @UnifiedField({
     description: 'ID of the user who updated the object',
-    nullable: true,
+    isOptional: true,
+    mongoose: { ref: 'User', type: mongoose.Schema.Types.ObjectId },
+    roles: RoleEnum.ADMIN,
+    swaggerApiOptions: { type: User },
+    type: () => User,
   })
-  @Prop({ ref: 'User', type: mongoose.Schema.Types.ObjectId })
-  @Restricted(RoleEnum.ADMIN)
   updatedBy?: string | Types.ObjectId = undefined;
 
   // ===================================================================================================================

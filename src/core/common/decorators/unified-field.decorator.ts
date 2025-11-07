@@ -1,4 +1,5 @@
 import { Field, FieldOptions } from '@nestjs/graphql';
+import { Prop, PropOptions } from '@nestjs/mongoose';
 import { ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
 import { Type } from 'class-transformer';
@@ -38,6 +39,8 @@ export interface UnifiedFieldOptions {
   isArray?: boolean;
   /** Default: false */
   isOptional?: boolean;
+  /** Whether to apply Mongoose @Prop decorator. Optional, used for database models. Default: false */
+  mongoose?: boolean | PropOptions;
   /** Restricted roles */
   roles?: RestrictedType | RoleEnum | RoleEnum[];
   /** Options for swagger api documentation */
@@ -48,8 +51,12 @@ export interface UnifiedFieldOptions {
    *
    * Enums should be defined via the enum option.
    *
+   * For array fields, you can use either:
+   * - `type: () => ItemType` (recommended, decorator adds array wrapping automatically)
+   * - `type: () => [ItemType]` (also supported, decorator extracts ItemType to avoid double-nesting)
+   *
    * Supports:
-   * - A factory function that returns the type: `() => MyType`
+   * - A factory function that returns the type: `() => MyType` or `() => [MyType]`
    * - A GraphQL scalar: `GraphQLScalarType`
    * - A class constructor: `MyClass`
    * */
@@ -96,7 +103,16 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       return metadataType;
     };
 
-    const baseType = resolvedTypeFn();
+    // Resolve the type and extract item type if user provided array syntax
+    const resolvedType = resolvedTypeFn();
+
+    // If this is an array field and the user provided type: () => [ItemType],
+    // extract the ItemType to avoid double-nesting (e.g., [[ItemType]])
+    // We check: isArrayField (should be array) && Array.isArray (is actually an array) && length === 1 (GraphQL array syntax)
+    const baseType =
+      isArrayField && Array.isArray(resolvedType) && resolvedType.length === 1
+        ? resolvedType[0] // Extract item type from [ItemType]
+        : resolvedType; // Use as-is
 
     // Prepare merged options
     const gqlOpts: FieldOptions = { ...opts.gqlOptions };
@@ -161,8 +177,14 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     }
 
     // Type function for gql
+    // We need to keep the factory pattern (calling resolvedTypeFn inside the arrow function)
+    // to support circular references. But we also need to extract array item types to avoid double-nesting.
     const gqlTypeFn = isArrayField
-      ? () => [opts.enum?.enum || opts.gqlType || resolvedTypeFn()]
+      ? () => {
+          const resolved = opts.enum?.enum || opts.gqlType || resolvedTypeFn();
+          // Extract item type if user provided [ItemType] syntax to avoid [[ItemType]]
+          return [Array.isArray(resolved) && resolved.length === 1 ? resolved[0] : resolved];
+        }
       : () => opts.enum?.enum || opts.gqlType || resolvedTypeFn();
 
     // Gql decorator
@@ -178,7 +200,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Completely skip validation if its any
     if (opts.validator) {
-      opts.validator(valOpts).forEach(d => d(target, propertyKey));
+      opts.validator(valOpts).forEach((d) => d(target, propertyKey));
     } else if (!opts.isAny) {
       const validator = getBuiltInValidator(baseType, valOpts, isArrayField, target);
       if (validator) {
@@ -198,6 +220,23 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     if (opts.roles) {
       const rolesArr = Array.isArray(opts.roles) ? opts.roles : [opts.roles];
       Restricted(...rolesArr)(target, propertyKey);
+    }
+
+    // Mongoose @Prop decorator (optional)
+    if (opts.mongoose) {
+      const propOptions: any = typeof opts.mongoose === 'object' ? opts.mongoose : {};
+
+      // Set type for Prop if not already defined in propOptions
+      if (typeof propOptions === 'object' && !Array.isArray(propOptions) && !propOptions.type && baseType) {
+        propOptions.type = baseType;
+      }
+
+      // Apply array type if needed
+      if (typeof propOptions === 'object' && !Array.isArray(propOptions) && isArrayField && !propOptions.type) {
+        propOptions.type = [baseType];
+      }
+
+      Prop(propOptions)(target, propertyKey);
     }
   };
 }
@@ -228,12 +267,12 @@ function getBuiltInValidator(
 function isGraphQLScalar(type: any): boolean {
   // CustomScalar check (The CustomScalar interface implements these functions below)
   return (
-    (type
-      && typeof type === 'function'
-      && typeof type.prototype?.serialize === 'function'
-      && typeof type.prototype?.parseValue === 'function'
-      && typeof type.prototype?.parseLiteral === 'function')
-    || type instanceof GraphQLScalarType
+    (type &&
+      typeof type === 'function' &&
+      typeof type.prototype?.serialize === 'function' &&
+      typeof type.prototype?.parseValue === 'function' &&
+      typeof type.prototype?.parseLiteral === 'function') ||
+    type instanceof GraphQLScalarType
   );
 }
 
