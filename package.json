@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.4.0",
+  "version": "11.4.1",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -14,8 +14,9 @@
   "homepage": "https://github.com/lenneTech/nest-server",
   "license": "MIT",
   "scripts": {
-    "build": "rimraf dist && nest build && npm run build:copy-types && npm run build:add-type-references",
+    "build": "rimraf dist && nest build && npm run build:copy-types && npm run build:copy-templates && npm run build:add-type-references",
     "build:copy-types": "mkdir -p dist/types && cp src/types/*.d.ts dist/types/",
+    "build:copy-templates": "mkdir -p dist/core/modules/migrate/templates && cp src/core/modules/migrate/templates/migration-project.template.ts dist/core/modules/migrate/templates/",
     "build:add-type-references": "node scripts/add-type-references.js",
     "build:pack": "npm pack && echo 'use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package'",
     "build:dev": "npm run build && yalc push --private",

@@ -389,10 +389,11 @@ const fileId = await uploadFileToGridFS(
 
 ### Migration Templates
 
-Pre-built templates for creating new migrations:
+Ready-to-use template for nest-server projects:
 
-1. **Basic Template**: `dist/core/modules/migrate/templates/migration.template.js`
-2. **With Helper Template**: `dist/core/modules/migrate/templates/migration-with-helper.template.js`
+**Project Template**: `dist/core/modules/migrate/templates/migration-project.template.ts`
+
+This template automatically imports `getDb()` and `uploadFileToGridFS()` from nest-server, along with your project's config. It's ready to use with zero configuration.
 
 ### TypeScript Compiler
 
@@ -404,7 +405,7 @@ migrate --compiler="ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/
 
 ## Complete Setup Guide
 
-For a complete step-by-step guide on setting up migrations in your project, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
+For a complete step-by-step guide on migrating from @nodepit/migrate-state-store-mongodb, see [MIGRATION_FROM_NODEPIT.md](./MIGRATION_FROM_NODEPIT.md).
 
 ### Quick Setup (No External Dependencies!) 🚀
 
@@ -419,16 +420,16 @@ For a complete step-by-step guide on setting up migrations in your project, see 
 ```json
 {
   "scripts": {
-    "migrate:create": "migrate create --template-file ./migrations-utils/template.ts --migrations-dir=\"./migrations\" --compiler=\"ts:./migrations-utils/ts-compiler.js\"",
-    "migrate:up": "migrate --store=./migrations-utils/migrate.js --migrations-dir=\"./migrations\" --compiler=\"ts:./migrations-utils/ts-compiler.js\" up",
-    "migrate:down": "migrate --store=./migrations-utils/migrate.js --migrations-dir=\"./migrations\" --compiler=\"ts:./migrations-utils/ts-compiler.js\" down"
+    "migrate:create": "migrate create --template-file ./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/templates/migration-project.template.ts --migrations-dir ./migrations --compiler ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js",
+    "migrate:up": "migrate up --store ./migrations-utils/migrate.js --migrations-dir ./migrations --compiler ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js",
+    "migrate:down": "migrate down --store ./migrations-utils/migrate.js --migrations-dir ./migrations --compiler ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js"
   }
 }
 ```
 
 The `migrate` command comes from `@lenne.tech/nest-server` - no external package needed!
 
-See the [Migration Guide](./MIGRATION_GUIDE.md) for detailed instructions.
+See the [Migration Guide](./MIGRATION_FROM_NODEPIT.md) for detailed migration instructions from @nodepit.
 
 ## Project Integration
 
