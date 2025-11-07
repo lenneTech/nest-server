@@ -1,5 +1,10 @@
 import baseConfig from '@lenne.tech/eslint-config-ts';
 
+// Ignore templates - they contain placeholder code
+const ignores = {
+  ignores: ['src/core/modules/migrate/templates/migration-project.template.ts']
+};
+
 // Patch rules
 const patched = baseConfig.map(config => {
   if (config.rules?.['unused-imports/no-unused-vars']) {
@@ -22,5 +27,5 @@ const customRules = patched.map(config => {
   return config;
 });
 
-// Export the modified config
-export default customRules;
+// Export the modified config with ignores at the beginning
+export default [ignores, ...customRules];
