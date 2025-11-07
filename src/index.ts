@@ -132,19 +132,25 @@ export * from './core/modules/file/interfaces/file-service-options.interface';
 export * from './core/modules/file/interfaces/file-upload.interface';
 
 // =====================================================================================================================
-// Core - Modules - User
+// Core - Modules - HealthCheck
 // =====================================================================================================================
 
 export * from './core/modules/health-check/core-health-check-result.model';
 export * from './core/modules/health-check/core-health-check.controller';
 export * from './core/modules/health-check/core-health-check.module';
 export * from './core/modules/health-check/core-health-check.resolver';
-
-// =====================================================================================================================
-// Core - Modules - HealthCheck
-// =====================================================================================================================
-
 export * from './core/modules/health-check/core-health-check.service';
+
+// =====================================================================================================================
+// Core - Modules - Migrate
+// =====================================================================================================================
+
+export * from './core/modules/migrate';
+
+// =====================================================================================================================
+// Core - Modules - User
+// =====================================================================================================================
+
 export * from './core/modules/user/core-user.model';
 export * from './core/modules/user/core-user.service';
 export * from './core/modules/user/inputs/core-user-create.input';

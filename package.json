@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.3.0",
+  "version": "11.4.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -182,9 +182,14 @@
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "nest-migrate": "./bin/migrate.js",
+    "migrate": "./bin/migrate.js"
+  },
   "files": [
     "dist/**/*",
-    "src/**/*"
+    "src/**/*",
+    "bin/**/*"
   ],
   "watch": {
     "build:dev": "src"
