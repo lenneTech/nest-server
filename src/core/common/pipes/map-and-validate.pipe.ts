@@ -1,6 +1,7 @@
 import { ArgumentMetadata, BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
+import { inspect } from 'util';
 
 import { isBasicType } from '../helpers/input.helper';
 
@@ -20,7 +21,7 @@ export class MapAndValidatePipe implements PipeTransform {
         type: metadata.type,
       });
       console.debug('Input value type:', typeof value);
-      console.debug('Input value:', JSON.stringify(value, null, 2));
+      console.debug('Input value:', inspect(value, { colors: true, depth: 3 }));
     }
 
     if (!value || typeof value !== 'object' || !metatype || isBasicType(metatype)) {
@@ -44,7 +45,7 @@ export class MapAndValidatePipe implements PipeTransform {
         }
         value = plainToInstance(metatype, value);
         if (DEBUG_VALIDATION) {
-          console.debug('Transformed value:', JSON.stringify(value, null, 2));
+          console.debug('Transformed value:', inspect(value, { colors: true, depth: 3 }));
           console.debug('Transformed value instance of:', value?.constructor?.name);
         }
       }
@@ -80,6 +81,7 @@ export class MapAndValidatePipe implements PipeTransform {
       }
 
       const result = {};
+      const errorSummary: string[] = [];
 
       const processErrors = (errorList: ValidationError[], parentKey = '') => {
         errorList.forEach((e) => {
@@ -89,6 +91,11 @@ export class MapAndValidatePipe implements PipeTransform {
             processErrors(e.children, key);
           } else {
             result[key] = e.constraints;
+            // Build error summary without exposing values
+            if (e.constraints) {
+              const constraintTypes = Object.keys(e.constraints).join(', ');
+              errorSummary.push(`${key} (${constraintTypes})`);
+            }
           }
         });
       };
@@ -97,12 +104,30 @@ export class MapAndValidatePipe implements PipeTransform {
 
       if (DEBUG_VALIDATION) {
         console.debug('\nProcessed validation result:');
-        console.debug(JSON.stringify(result, null, 2));
+        console.debug(inspect(result, { colors: true, depth: 5 }));
         console.debug('Result is empty:', Object.keys(result).length === 0);
+        console.debug('Error summary:', errorSummary);
         console.debug('=== End Debug ===\n');
       }
 
-      throw new BadRequestException(result);
+      // Create meaningful error message without exposing sensitive values
+      let errorMessage = 'Validation failed';
+      if (errorSummary.length > 0) {
+        const fieldCount = errorSummary.length;
+        const fieldWord = fieldCount === 1 ? 'field' : 'fields';
+        errorMessage = `Validation failed for ${fieldCount} ${fieldWord}: ${errorSummary.join('; ')}`;
+      } else if (errors.length > 0) {
+        // Handle case where there are validation errors but no constraints (nested errors only)
+        const topLevelProperties = errors.map((e) => e.property).join(', ');
+        errorMessage = `Validation failed for properties: ${topLevelProperties} (nested validation errors)`;
+      }
+
+      // Throw with message and validation errors (backward compatible structure)
+      // Add message property to result object for better error messages
+      throw new BadRequestException({
+        message: errorMessage,
+        ...result,
+      });
     }
 
     if (DEBUG_VALIDATION) {

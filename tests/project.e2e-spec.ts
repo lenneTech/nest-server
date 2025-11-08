@@ -241,7 +241,7 @@ describe('Project (e2e)', () => {
    * Find and count users
    */
   it('findAndCountUsers', async () => {
-    const emails = users.map(user => user.email);
+    const emails = users.map((user) => user.email);
     emails.pop();
     const args = {
       filter: {
@@ -282,7 +282,7 @@ describe('Project (e2e)', () => {
    * Get sample user
    */
   it('getSampleUser', async () => {
-    const emails = users.map(user => user.email);
+    const emails = users.map((user) => user.email);
     const args = {
       filter: {
         singleFilter: {
@@ -367,7 +367,7 @@ describe('Project (e2e)', () => {
 
     // Test for concrete values
     expect(res).toMatchObject({
-      message: 'Bad Request Exception',
+      message: expect.stringContaining('Validation failed'),
       name: 'BadRequestException',
       options: {},
       response: {
@@ -375,6 +375,7 @@ describe('Project (e2e)', () => {
           isEmail: 'email must be an email',
           isNotEmpty: 'email should not be empty',
         },
+        message: expect.stringContaining('Validation failed'),
         password: {
           isNotEmpty: 'password should not be empty',
           isString: 'password must be a string',
