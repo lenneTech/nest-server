@@ -1,9 +1,8 @@
 import { ArgumentMetadata, BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
-import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
 import { inspect } from 'util';
 
-import { isBasicType } from '../helpers/input.helper';
+import { isBasicType, plainToInstanceClean } from '../helpers/input.helper';
 
 // Debug mode can be enabled via environment variable: DEBUG_VALIDATION=true
 const DEBUG_VALIDATION = process.env.DEBUG_VALIDATION === 'true';
@@ -41,9 +40,9 @@ export class MapAndValidatePipe implements PipeTransform {
         value = (metatype as any)?.map(value);
       } else {
         if (DEBUG_VALIDATION) {
-          console.debug('Using plainToInstance to transform to:', metatype.name);
+          console.debug('Using plainToInstanceClean to transform to:', metatype.name);
         }
-        value = plainToInstance(metatype, value);
+        value = plainToInstanceClean(metatype, value);
         if (DEBUG_VALIDATION) {
           console.debug('Transformed value:', inspect(value, { colors: true, depth: 3 }));
           console.debug('Transformed value instance of:', value?.constructor?.name);
