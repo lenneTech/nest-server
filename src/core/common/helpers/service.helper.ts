@@ -1,6 +1,5 @@
 import { UnauthorizedException } from '@nestjs/common';
 import bcrypt = require('bcrypt');
-import { plainToInstance } from 'class-transformer';
 import { sha256 } from 'js-sha256';
 import _ = require('lodash');
 import { Types } from 'mongoose';
@@ -12,7 +11,7 @@ import { ResolveSelector } from '../interfaces/resolve-selector.interface';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { ConfigService } from '../services/config.service';
 import { getStringIds } from './db.helper';
-import { clone, processDeep } from './input.helper';
+import { clone, plainToInstanceClean, processDeep } from './input.helper';
 
 /**
  * Helper class for services
@@ -137,7 +136,7 @@ export async function prepareInput<T = any>(
     if ((config.targetModel as any)?.map) {
       input = await (config.targetModel as any).map(input);
     } else {
-      input = plainToInstance(config.targetModel, input);
+      input = plainToInstanceClean(config.targetModel, input);
     }
   }
 
@@ -238,7 +237,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     if ((config.targetModel as any)?.map) {
       output = await (config.targetModel as any).map(output);
     } else {
-      output = plainToInstance(config.targetModel, output);
+      output = plainToInstanceClean(config.targetModel, output);
     }
   }
 

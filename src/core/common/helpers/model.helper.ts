@@ -1,7 +1,6 @@
-import { plainToInstance } from 'class-transformer';
 import { Types } from 'mongoose';
 
-import { clone } from './input.helper';
+import { clone, plainToInstanceClean } from './input.helper';
 
 /**
  * Helper class for models
@@ -142,7 +141,7 @@ export function mapClasses<T = Record<string, any>>(
             if (targetClass.map) {
               arr.push(targetClass.map(item));
             } else {
-              arr.push(plainToInstance(targetClass, item));
+              arr.push(plainToInstanceClean(targetClass, item));
             }
           } else {
             arr.push(item);
@@ -162,7 +161,7 @@ export function mapClasses<T = Record<string, any>>(
           if (targetClass.map) {
             target[prop] = targetClass.map(value);
           } else {
-            target[prop] = plainToInstance(targetClass, value) as any;
+            target[prop] = plainToInstanceClean(targetClass, value) as any;
           }
         }
 
@@ -229,7 +228,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
             if (targetClass.map) {
               arr.push(await targetClass.map(item));
             } else {
-              arr.push(plainToInstance(targetClass, item));
+              arr.push(plainToInstanceClean(targetClass, item));
             }
           } else {
             arr.push(item);
@@ -249,7 +248,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
           if (targetClass.map) {
             target[prop] = await targetClass.map(value);
           } else {
-            target[prop] = plainToInstance(targetClass, value) as any;
+            target[prop] = plainToInstanceClean(targetClass, value) as any;
           }
         }
 
@@ -351,12 +350,12 @@ export function prepareMap<T = Record<string, any>>(
   // Update properties
   for (const key of Object.keys(target)) {
     if (
-      (!['_id', 'id'].includes(key) || config.mapId)
-      && source[key] !== undefined
-      && (config.funcAllowed || typeof (source[key] !== 'function'))
+      (!['_id', 'id'].includes(key) || config.mapId) &&
+      source[key] !== undefined &&
+      (config.funcAllowed || typeof (source[key] !== 'function'))
     ) {
-      result[key]
-        = source[key] !== 'function' && config.cloneDeep
+      result[key] =
+        source[key] !== 'function' && config.cloneDeep
           ? clone(source[key], { circles: config.circles, proto: config.proto })
           : source[key];
     } else if (key === 'id' && !config.mapId) {

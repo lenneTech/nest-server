@@ -197,9 +197,9 @@ export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[
     target,
     ...args.map(
       // Prepare records
-      item =>
+      (item) =>
         // Return item if not an object or cloned record with undefined properties removed
-        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
+        !item ? item : filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined),
     ),
   );
 }
@@ -249,20 +249,20 @@ export async function check(
     // Check access
     if (
       // check if any user, including users who are not logged in, can access
-      roles.includes(RoleEnum.S_EVERYONE)
+      roles.includes(RoleEnum.S_EVERYONE) ||
       // check if user is logged in
-      || (roles.includes(RoleEnum.S_USER) && user?.id)
+      (roles.includes(RoleEnum.S_USER) && user?.id) ||
       // check if the user has at least one of the required roles
-      || user?.hasRole?.(roles)
+      user?.hasRole?.(roles) ||
       // check if the user is herself / himself
-      || (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user))
+      (roles.includes(RoleEnum.S_SELF) && equalIds(config.dbObject, user)) ||
       // check if the user is the creator
-      || (roles.includes(RoleEnum.S_CREATOR)
-        && ((config.dbObject && 'createdBy' in config.dbObject && equalIds(config.dbObject.createdBy, user))
-          || (config.allowCreatorOfParent
-            && config.dbObject
-            && !('createdBy' in config.dbObject)
-            && config.isCreatorOfParent)))
+      (roles.includes(RoleEnum.S_CREATOR) &&
+        ((config.dbObject && 'createdBy' in config.dbObject && equalIds(config.dbObject.createdBy, user)) ||
+          (config.allowCreatorOfParent &&
+            config.dbObject &&
+            !('createdBy' in config.dbObject) &&
+            config.isCreatorOfParent)))
     ) {
       valid = true;
     }
@@ -299,7 +299,7 @@ export async function check(
       if ((metatype as any)?.map) {
         value = (metatype as any)?.map(value);
       } else {
-        value = plainToInstance(metatype, value);
+        value = plainToInstanceClean(metatype, value);
       }
     }
   }
@@ -435,7 +435,7 @@ export function filterProperties<T = Record<string, any>>(
   filterFunction: (value?: any, key?: string, obj?: T) => boolean,
 ): Partial<T> {
   return Object.keys(obj)
-    .filter(key => filterFunction(obj[key], key, obj))
+    .filter((key) => filterFunction(obj[key], key, obj))
     .reduce((res, key) => Object.assign(res, { [key]: obj[key] }), {});
 }
 
@@ -546,12 +546,12 @@ export function isFalse(parameter: any, falseFunction: (...params) => any = erro
  * Check if parameter is a valid file
  */
 export function isFile(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null
-    && typeof parameter !== 'undefined'
-    && parameter.name
-    && parameter.path
-    && parameter.type
-    && parameter.size > 0
+  return parameter !== null &&
+    typeof parameter !== 'undefined' &&
+    parameter.name &&
+    parameter.path &&
+    parameter.type &&
+    parameter.size > 0
     ? true
     : falseFunction(isFile);
 }
@@ -589,10 +589,10 @@ export function isLower(
  * Check if parameter is a non empty array
  */
 export function isNonEmptyArray(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null
-    && typeof parameter !== 'undefined'
-    && parameter.constructor === Array
-    && parameter.length > 0
+  return parameter !== null &&
+    typeof parameter !== 'undefined' &&
+    parameter.constructor === Array &&
+    parameter.length > 0
     ? true
     : falseFunction(isNonEmptyArray);
 }
@@ -601,10 +601,10 @@ export function isNonEmptyArray(parameter: any, falseFunction: (...params) => an
  * Check if parameter is a non empty object
  */
 export function isNonEmptyObject(parameter: any, falseFunction: (...params) => any = errorFunction): boolean {
-  return parameter !== null
-    && typeof parameter !== 'undefined'
-    && parameter.constructor === Object
-    && Object.keys(parameter).length !== 0
+  return parameter !== null &&
+    typeof parameter !== 'undefined' &&
+    parameter.constructor === Object &&
+    Object.keys(parameter).length !== 0
     ? true
     : falseFunction(isNonEmptyObject);
 }
@@ -696,11 +696,49 @@ export function mergePlain(target: Record<any, any>, ...args: Record<any, any>[]
     target,
     ...args.map(
       // Prepare records
-      item =>
+      (item) =>
         // Return item if not an object or cloned record with undefined properties removed
-        !item ? item : filterProperties(clone(item, { circles: false }), prop => prop !== undefined),
+        !item ? item : filterProperties(clone(item, { circles: false }), (prop) => prop !== undefined),
     ),
   );
+}
+
+/**
+ * Transforms a plain object to an instance of the specified class and removes properties
+ * that did not exist in the source and have undefined as class default value.
+ *
+ * This function handles the special case where:
+ * - Property does not exist in source AND class default is undefined → property is deleted
+ * - Property exists in source (even with undefined value) → property is kept
+ * - Property has non-undefined class default → property is kept
+ *
+ * @param cls The class to instantiate
+ * @param plain The plain object to transform
+ * @returns Instance of cls with cleaned properties
+ */
+export function plainToInstanceClean<T>(cls: new (...args: any[]) => T, plain: any): T {
+  if (!plain || typeof plain !== 'object' || Array.isArray(plain)) {
+    return plain;
+  }
+
+  // Transform to instance
+  const instance = plainToInstance(cls, plain);
+
+  // Get class defaults to check which properties have undefined as initial value
+  const classDefaults = new cls();
+
+  // Remove properties that did not exist in source and have undefined as class default
+  for (const key in instance) {
+    if (
+      Object.prototype.hasOwnProperty.call(instance, key) &&
+      !Object.prototype.hasOwnProperty.call(plain, key) &&
+      classDefaults[key] === undefined
+    ) {
+      delete instance[key];
+    }
+  }
+
+  return instance;
 }
 
 /**
@@ -759,21 +797,21 @@ export function processDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return func(data.map(item => processDeep(item, func, { processedObjects, specialClasses })));
+    return func(data.map((item) => processDeep(item, func, { processedObjects, specialClasses })));
   }
 
   // Process object
   if (typeof data === 'object') {
     if (
-      specialFunctions.find(sF => typeof data[sF] === 'function')
-      || specialProperties.find(sP => Object.getOwnPropertyNames(data).includes(sP))
+      specialFunctions.find((sF) => typeof data[sF] === 'function') ||
+      specialProperties.find((sP) => Object.getOwnPropertyNames(data).includes(sP))
     ) {
       return func(data);
     }
     for (const specialClass of specialClasses) {
       if (
-        (typeof specialClass === 'string' && specialClass === data.constructor?.name)
-        || (typeof specialClass !== 'string' && data instanceof specialClass)
+        (typeof specialClass === 'string' && specialClass === data.constructor?.name) ||
+        (typeof specialClass !== 'string' && data instanceof specialClass)
       ) {
         return func(data);
       }
@@ -818,7 +856,7 @@ export function removePropertiesDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return data.map(item => removePropertiesDeep(item, properties, { processedObjects }));
+    return data.map((item) => removePropertiesDeep(item, properties, { processedObjects }));
   }
 
   // Process object
