@@ -7,6 +7,7 @@ import {
   IsArray,
   IsBoolean,
   IsDate,
+  IsDefined,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -21,6 +22,10 @@ import { GraphQLScalarType } from 'graphql';
 
 import { RoleEnum } from '../enums/role.enum';
 import { Restricted, RestrictedType } from './restricted.decorator';
+
+// Registry to store nested type information for validation
+// Key: `${className}.${propertyName}`, Value: nested type constructor
+export const nestedTypeRegistry = new Map<string, any>();
 
 export interface UnifiedFieldOptions {
   /** Description used for both Swagger & Gql */
@@ -128,6 +133,8 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       swaggerOpts.nullable = true;
       swaggerOpts.required = false;
     } else {
+      // Use IsDefined to ensure field is present, then IsNotEmpty to ensure it's not empty
+      IsDefined()(target, propertyKey);
       IsNotEmpty()(target, propertyKey);
 
       gqlOpts.nullable = false;
@@ -209,10 +216,20 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     }
 
     if (!opts.isAny) {
+      // Special handling for Date: needs @Type transformation even though it's "primitive"
+      // This allows ISO date strings to be transformed to Date objects before validation
+      if (baseType === Date) {
+        Type(() => Date)(target, propertyKey);
+      }
       // Check if it's a primitive, if not apply transform
-      if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
+      else if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
         Type(() => baseType)(target, propertyKey);
         ValidateNested({ each: isArrayField })(target, propertyKey);
+
+        // Store nested type info in registry for use in MapAndValidatePipe
+        const className = target.constructor.name;
+        const registryKey = `${className}.${String(propertyKey)}`;
+        nestedTypeRegistry.set(registryKey, baseType);
       }
     }
 
