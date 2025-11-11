@@ -1,4 +1,5 @@
 import { Field, FieldOptions } from '@nestjs/graphql';
+import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage';
 import { Prop, PropOptions } from '@nestjs/mongoose';
 import { ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
@@ -18,7 +19,7 @@ import {
   ValidateNested,
   ValidationOptions,
 } from 'class-validator';
-import { GraphQLScalarType } from 'graphql';
+import { GraphQLScalarType, isEnumType } from 'graphql';
 
 import { RoleEnum } from '../enums/role.enum';
 import { Restricted, RestrictedType } from './restricted.decorator';
@@ -26,6 +27,12 @@ import { Restricted, RestrictedType } from './restricted.decorator';
 // Registry to store nested type information for validation
 // Key: `${className}.${propertyName}`, Value: nested type constructor
 export const nestedTypeRegistry = new Map<string, any>();
+
+/**
+ * Registry to map enum objects to their names.
+ * This is populated when registerEnumType is called or can be manually populated.
+ */
+export const enumNameRegistry = new Map<any, string>();
 
 export interface UnifiedFieldOptions {
   /** Description used for both Swagger & Gql */
@@ -166,7 +173,18 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     if (opts.enum && opts.enum.enum) {
       swaggerOpts.enum = opts.enum.enum;
 
-      if (opts.enum.enumName) {
+      // Set enumName with auto-detection:
+      // - If enumName property doesn't exist at all, auto-detect the name
+      // - If enumName is explicitly set (even to null/undefined), use that value
+      // This allows explicit opts.enum.enumName = undefined to disable auto-detection
+      if (!('enumName' in opts.enum)) {
+        // Property doesn't exist, try auto-detection
+        const autoDetectedName = getEnumName(opts.enum.enum);
+        if (autoDetectedName) {
+          swaggerOpts.enumName = autoDetectedName;
+        }
+      } else {
+        // Property exists (even if undefined/null), use its value
         swaggerOpts.enumName = opts.enum.enumName;
       }
 
@@ -276,9 +294,58 @@ function getBuiltInValidator(
     return null;
   }
   if (each) {
-    return (t, k) => decorator(target, k);
+    return (_t, k) => decorator(target, k);
   }
   return decorator;
+}
+
+/**
+ * Helper function to extract enum name from an enum object
+ * Attempts multiple strategies to find a meaningful name
+ */
+function getEnumName(enumObj: any): string | undefined {
+  // Check if the enum was registered in our custom registry
+  if (enumNameRegistry.has(enumObj)) {
+    return enumNameRegistry.get(enumObj);
+  }
+
+  // Check if it's registered in GraphQL TypeMetadataStorage (most common case with registerEnumType)
+  try {
+    const enumsMetadata = TypeMetadataStorage.getEnumsMetadata();
+    const matchingEnum = enumsMetadata.find((metadata) => metadata.ref === enumObj);
+    if (matchingEnum && matchingEnum.name) {
+      return matchingEnum.name;
+    }
+  } catch (error) {
+    // TypeMetadataStorage might not be initialized yet during bootstrap
+    // This is not an error, we just continue with other strategies
+  }
+
+  // Check if it's a GraphQL enum type
+  if (isEnumType(enumObj)) {
+    return enumObj.name;
+  }
+
+  // Check if the enum object has a name property (some custom implementations)
+  if (enumObj && typeof enumObj === 'object' && 'name' in enumObj && typeof enumObj.name === 'string') {
+    return enumObj.name;
+  }
+
+  // Check if it's a constructor function with a name
+  if (typeof enumObj === 'function' && enumObj.name && enumObj.name !== 'Object') {
+    return enumObj.name;
+  }
+
+  // For regular TypeScript enums, try to find the global variable name
+  // This is a heuristic approach - not guaranteed to work in all cases
+  if (enumObj && typeof enumObj === 'object') {
+    // Check constructor name (though this usually returns 'Object' for enums)
+    if (enumObj.constructor && enumObj.constructor.name && enumObj.constructor.name !== 'Object') {
+      return enumObj.constructor.name;
+    }
+  }
+
+  return undefined;
 }
 
 function isGraphQLScalar(type: any): boolean {
