@@ -6,20 +6,64 @@ import * as path from 'path';
  * Migration helper functions for database operations
  */
 
+// Store active connections for auto-cleanup
+const activeConnections = new Set<MongoClient>();
+
+// Track if we're in a migration context
+let inMigrationContext = false;
+
+/**
+ * Mark the start of a migration
+ * @internal Used by migration runner
+ */
+export const _startMigration = () => {
+  inMigrationContext = true;
+};
+
+/**
+ * Mark the end of a migration and close all connections
+ * @internal Used by migration runner
+ */
+export const _endMigration = async () => {
+  inMigrationContext = false;
+  // Close all active connections
+  const promises = Array.from(activeConnections).map((client) => client.close());
+  activeConnections.clear();
+  await Promise.all(promises);
+};
+
 /**
  * Get database connection
+ *
+ * When used in migrations, connections are automatically closed after the migration completes.
+ * For manual usage outside migrations, you must close the connection manually.
  *
  * @param mongoUrl - MongoDB connection URI
  * @returns Promise with database instance
  *
  * @example
  * ```typescript
+ * // In migrations - connection auto-closes after migration
  * const db = await getDb('mongodb://localhost/mydb');
  * await db.collection('users').updateMany(...);
+ *
+ * // Outside migrations - must close manually
+ * const db = await getDb('mongodb://localhost/mydb');
+ * try {
+ *   await db.collection('users').updateMany(...);
+ * } finally {
+ *   await db.client.close();
+ * }
  * ```
  */
 export const getDb = async (mongoUrl: string): Promise<Db> => {
   const client: MongoClient = await MongoClient.connect(mongoUrl);
+
+  // Track connection for auto-cleanup in migrations
+  if (inMigrationContext) {
+    activeConnections.add(client);
+  }
+
   return client.db();
 };
 
