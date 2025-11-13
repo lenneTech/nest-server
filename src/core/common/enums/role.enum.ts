@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-enums */
 /**
  * Enums for Resolver @Role and Model @Restricted decorator and for roles property in ServiceOptions
  *
@@ -42,8 +43,11 @@ export enum RoleEnum {
   // Everyone, including users who are not logged in, can access (see context user, e.g. @CurrentUser)
   S_EVERYONE = 's_everyone',
 
-  // No one has access, not even administrators
+  // No one has access, not even administrators (regardless of which roles are still set, access will always be denied)
   S_NO_ONE = 's_no_one',
+
+  // User must be verified (see verified or verifiedAt property of user)
+  S_VERIFIED = 's_verified',
 
   // ===================================================================================================================
   // Special system roles that check rights for DB objects and can be used via @Restricted for Models
