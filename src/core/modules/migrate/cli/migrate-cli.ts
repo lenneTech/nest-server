@@ -91,7 +91,7 @@ async function listMigrations(options: CliOptions) {
   const stateStore = loadStateStore(options.store);
 
   const runner = new MigrationRunner({
-    migrationsDirectory: options.migrationsDir,
+    migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
   });
 
@@ -255,7 +255,7 @@ async function runDown(options: CliOptions) {
   const stateStore = loadStateStore(options.store);
 
   const runner = new MigrationRunner({
-    migrationsDirectory: options.migrationsDir,
+    migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
   });
 
@@ -270,7 +270,7 @@ async function runUp(options: CliOptions) {
   const stateStore = loadStateStore(options.store);
 
   const runner = new MigrationRunner({
-    migrationsDirectory: options.migrationsDir,
+    migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
   });
 

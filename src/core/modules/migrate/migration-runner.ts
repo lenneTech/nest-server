@@ -106,6 +106,8 @@ export class MigrationRunner {
    * Run all pending migrations (up)
    */
   async up(): Promise<void> {
+    const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
+
     const allMigrations = await this.loadMigrationFiles();
     const state = await this.options.stateStore.loadAsync();
     const completedMigrations = (state.migrations || []).map((m) => m.title);
@@ -121,23 +123,32 @@ export class MigrationRunner {
 
     for (const migration of pendingMigrations) {
       console.log(`Running migration: ${migration.title}`);
-      await migration.up();
 
-      // Update state
-      const newState = await this.options.stateStore.loadAsync();
-      const migrations = newState.migrations || [];
-      migrations.push({
-        timestamp: migration.timestamp,
-        title: migration.title,
-      });
+      // Mark start of migration for auto-cleanup
+      _startMigration();
 
-      await this.options.stateStore.saveAsync({
-        lastRun: migration.title,
-        migrations,
-        up: () => {},
-      } as any);
+      try {
+        await migration.up();
 
-      console.log(`✓ Migration completed: ${migration.title}`);
+        // Update state
+        const newState = await this.options.stateStore.loadAsync();
+        const migrations = newState.migrations || [];
+        migrations.push({
+          timestamp: migration.timestamp,
+          title: migration.title,
+        });
+
+        await this.options.stateStore.saveAsync({
+          lastRun: migration.title,
+          migrations,
+          up: () => {},
+        } as any);
+
+        console.log(`✓ Migration completed: ${migration.title}`);
+      } finally {
+        // Always close connections, even on error
+        await _endMigration();
+      }
     }
 
     console.log('All migrations completed successfully');
@@ -147,6 +158,8 @@ export class MigrationRunner {
    * Rollback the last migration (down)
    */
   async down(): Promise<void> {
+    const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
+
     const state = await this.options.stateStore.loadAsync();
     const completedMigrations = state.migrations || [];
 
@@ -168,17 +181,26 @@ export class MigrationRunner {
     }
 
     console.log(`Rolling back migration: ${migrationToRollback.title}`);
-    await migrationToRollback.down();
 
-    // Update state
-    const newMigrations = completedMigrations.slice(0, -1);
-    await this.options.stateStore.saveAsync({
-      lastRun: newMigrations.length > 0 ? newMigrations[newMigrations.length - 1].title : undefined,
-      migrations: newMigrations,
-      up: () => {},
-    } as any);
+    // Mark start of migration for auto-cleanup
+    _startMigration();
 
-    console.log(`✓ Migration rolled back: ${migrationToRollback.title}`);
+    try {
+      await migrationToRollback.down();
+
+      // Update state
+      const newMigrations = completedMigrations.slice(0, -1);
+      await this.options.stateStore.saveAsync({
+        lastRun: newMigrations.length > 0 ? newMigrations[newMigrations.length - 1].title : undefined,
+        migrations: newMigrations,
+        up: () => {},
+      } as any);
+
+      console.log(`✓ Migration rolled back: ${migrationToRollback.title}`);
+    } finally {
+      // Always close connections, even on error
+      await _endMigration();
+    }
   }
 
   /**
