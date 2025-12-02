@@ -110,7 +110,7 @@
     "mongoose": "8.19.3",
     "multer": "2.0.2",
     "node-mailjet": "6.0.11",
-    "nodemailer": "7.0.10",
+    "nodemailer": "7.0.11",
     "passport": "0.7.0",
     "passport-jwt": "4.0.1",
     "reflect-metadata": "0.2.2",
