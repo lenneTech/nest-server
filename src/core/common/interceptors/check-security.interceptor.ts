@@ -31,12 +31,13 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     // Get current user
     const user = getContextData(context)?.currentUser || null;
 
-    // Set force mode for sign in and sign up
+    // Set force mode for sign in and sign up (both GraphQL and REST)
     let force = false;
     if (!user) {
       // Here the name is used and not the class itself, because the concrete class is located in the respective project.
-      // In case of an override it is better to use the concrete class directly (context.getClass() instead of context.getClasss()?.name).
-      if (context.getClass()?.name === 'AuthResolver') {
+      // In case of an override it is better to use the concrete class directly (context.getClass() instead of context.getClass()?.name).
+      const className = context.getClass()?.name;
+      if (className === 'AuthResolver' || className === 'AuthController') {
         force = true;
       }
     }
@@ -76,7 +77,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
 
       // Check if data is writeable (e.g. objects from direct access to json files via http are not writable)
       if (data && typeof data === 'object') {
-        const writeable = !Object.keys(data).find(key => !Object.getOwnPropertyDescriptor(data, key).writable);
+        const writeable = !Object.keys(data).find((key) => !Object.getOwnPropertyDescriptor(data, key).writable);
         if (!writeable) {
           return data;
         }
@@ -88,7 +89,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
         (item) => {
           if (!item || typeof item !== 'object' || typeof item.securityCheck !== 'function') {
             if (Array.isArray(item)) {
-              return item.filter(i => i !== undefined);
+              return item.filter((i) => i !== undefined);
             }
             return item;
           }
