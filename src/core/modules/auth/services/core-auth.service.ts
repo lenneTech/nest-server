@@ -16,6 +16,18 @@ import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { CoreAuthUserService } from './core-auth-user.service';
 
 /**
+ * Options for getResult method
+ */
+export interface GetResultOptions {
+  /** Current refresh token (for renewal) */
+  currentRefreshToken?: string;
+  /** Additional data (deviceId, deviceDescription, etc.) */
+  data?: { [key: string]: any; deviceId?: string };
+  /** Service options including currentUser for securityCheck */
+  serviceOptions?: ServiceOptions;
+}
+
+/**
  * CoreAuthService to handle user authentication
  */
 @Injectable()
@@ -71,16 +83,17 @@ export class CoreAuthService {
   /**
    * Refresh tokens
    */
-  async refreshTokens(user: ICoreAuthUser, currentRefreshToken: string) {
+  async refreshTokens(user: ICoreAuthUser, currentRefreshToken: string, serviceOptions?: ServiceOptions) {
     // Create new tokens
     const { deviceDescription, deviceId } = this.decodeJwt(currentRefreshToken);
     const tokens = await this.createTokens(user.id, { deviceDescription, deviceId });
     tokens.refreshToken = await this.updateRefreshToken(user, currentRefreshToken, tokens.refreshToken);
 
-    // Return
-    return CoreAuthModel.map({
-      ...tokens,
-      user: await this.userService.prepareOutput(user),
+    // Return with currentUser set so securityCheck knows user is requesting own data
+    return this.getResult(user, {
+      currentRefreshToken,
+      data: { deviceDescription, deviceId },
+      serviceOptions: { ...serviceOptions, currentUser: user },
     });
   }
 
@@ -114,8 +127,11 @@ export class CoreAuthService {
       throw new UnauthorizedException('Wrong password');
     }
 
-    // Return tokens and user
-    return this.getResult(user, { deviceDescription, deviceId });
+    // Return tokens and user with currentUser set so securityCheck knows user is requesting own data
+    return this.getResult(user, {
+      data: { deviceDescription, deviceId },
+      serviceOptions: { ...serviceOptions, currentUser: user },
+    });
   }
 
   /**
@@ -138,8 +154,11 @@ export class CoreAuthService {
       // Set device ID
       const { deviceDescription, deviceId } = input;
 
-      // Return tokens and user
-      return this.getResult(user, { deviceDescription, deviceId });
+      // Return tokens and user with currentUser set so securityCheck knows user is requesting own data
+      return this.getResult(user, {
+        data: { deviceDescription, deviceId },
+        serviceOptions: { ...serviceOptions, currentUser: user },
+      });
     } catch (err) {
       if (err?.message === 'Unprocessable Entity') {
         throw new BadRequestException('Email address already in use');
@@ -171,12 +190,16 @@ export class CoreAuthService {
 
   /**
    * Rest result with user and tokens
+   *
+   * @param user - The authenticated user
+   * @param options - Optional configuration for result generation
+   * @param options.data - Additional data (deviceId, deviceDescription, etc.)
+   * @param options.currentRefreshToken - Current refresh token (for renewal)
+   * @param options.serviceOptions - Service options including currentUser for securityCheck
    */
-  protected async getResult(
-    user: ICoreAuthUser,
-    data?: { [key: string]: any; deviceId?: string },
-    currentRefreshToken?: string,
-  ) {
+  protected async getResult(user: ICoreAuthUser, options?: GetResultOptions) {
+    const { currentRefreshToken, data, serviceOptions } = options || {};
+
     // Create new tokens
     const tokens = await this.createTokens(user.id, data);
 
@@ -184,9 +207,10 @@ export class CoreAuthService {
     tokens.refreshToken = await this.updateRefreshToken(user, currentRefreshToken, tokens.refreshToken, data);
 
     // Return tokens and user
+    // Pass serviceOptions to prepareOutput so currentUser is available for securityCheck
     return CoreAuthModel.map({
       ...tokens,
-      user: await this.userService.prepareOutput(user),
+      user: await this.userService.prepareOutput(user, serviceOptions),
     });
   }
 
@@ -199,10 +223,10 @@ export class CoreAuthService {
       path += '.refresh';
     }
     return (
-      this.configService.getFastButReadOnly(`${path}.signInOptions.secret`)
-      || this.configService.getFastButReadOnly(`${path}.signInOptions.secretOrPrivateKey`)
-      || this.configService.getFastButReadOnly(`${path}.secret`)
-      || this.configService.getFastButReadOnly(`${path}.secretOrPrivateKey`)
+      this.configService.getFastButReadOnly(`${path}.signInOptions.secret`) ||
+      this.configService.getFastButReadOnly(`${path}.signInOptions.secretOrPrivateKey`) ||
+      this.configService.getFastButReadOnly(`${path}.secret`) ||
+      this.configService.getFastButReadOnly(`${path}.secretOrPrivateKey`)
     );
   }
 
