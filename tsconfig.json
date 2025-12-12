@@ -15,7 +15,8 @@
     "baseUrl": "./",
     "incremental": true,
     "noImplicitOverride": true,
-    "skipLibCheck": false
+    "skipLibCheck": true,
+    "types": ["vitest/globals", "node"]
   },
   "exclude": ["node_modules", "dist"]
 }

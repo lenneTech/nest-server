@@ -13,6 +13,7 @@ import { CheckSecurityInterceptor } from './core/common/interceptors/check-secur
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
+import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
@@ -98,8 +99,8 @@ export class CoreModule implements NestModule {
                         if (config.graphQl.enableSubscriptionAuth) {
                           // get authToken from authorization header
                           const headers = this.getHeaderFromArray(extra.request?.rawHeaders);
-                          const authToken: string
-                            = connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
+                          const authToken: string =
+                            connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
                           if (authToken) {
                             // verify authToken/getJwtPayLoad
                             const payload = authService.decodeJwt(authToken);
@@ -148,7 +149,7 @@ export class CoreModule implements NestModule {
         mongoose: {
           options: {
             connectionFactory: (connection) => {
-              connection.plugin(require('./core/common/plugins/mongoose-id.plugin'));
+              connection.plugin(mongooseIdPlugin);
               return connection;
             },
           },
@@ -177,10 +178,12 @@ export class CoreModule implements NestModule {
       EmailService,
       TemplateService,
       MailjetService,
-
-      // Plugins
-      ComplexityPlugin,
     ];
+
+    // Add ComplexityPlugin only if not in Vitest (Vitest has dual GraphQL loading issue)
+    if (!process.env.VITEST) {
+      providers.push(ComplexityPlugin);
+    }
 
     if (config.security?.checkResponseInterceptor ?? true) {
       // Check restrictions for output (models and output objects)
@@ -225,9 +228,15 @@ export class CoreModule implements NestModule {
       imports.push(CoreHealthCheckModule);
     }
 
+    // Set exports
+    const exports: any[] = [ConfigService, EmailService, TemplateService, MailjetService];
+    if (!process.env.VITEST) {
+      exports.push(ComplexityPlugin);
+    }
+
     // Return dynamic module
     return {
-      exports: [ConfigService, EmailService, TemplateService, MailjetService, ComplexityPlugin],
+      exports,
       imports,
       module: CoreModule,
       providers,

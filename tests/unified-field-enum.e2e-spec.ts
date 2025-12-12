@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { registerEnumType } from '@nestjs/graphql';
 
 import { enumNameRegistry, UnifiedField } from '../src/core/common/decorators/unified-field.decorator';
+import { registerEnum } from '../src/core/common/helpers/register-enum.helper';
 
 describe('UnifiedField Enum Auto-Detection (e2e)', () => {
   // Clean up registries before each test
@@ -44,7 +45,6 @@ describe('UnifiedField Enum Auto-Detection (e2e)', () => {
   describe('Auto-Detection via registerEnum', () => {
     beforeEach(() => {
       // Register enum using registerEnum helper
-      const { registerEnum } = require('../src/core/common/helpers/register-enum.helper');
       registerEnum(StatusEnum, {
         description: 'Status options',
         name: 'StatusEnum',
@@ -69,7 +69,6 @@ describe('UnifiedField Enum Auto-Detection (e2e)', () => {
     });
 
     it('should auto-detect enum name for multiple fields', () => {
-      const { registerEnum } = require('../src/core/common/helpers/register-enum.helper');
       registerEnum(PriorityEnum, {
         name: 'PriorityEnum',
       });
@@ -130,7 +129,6 @@ describe('UnifiedField Enum Auto-Detection (e2e)', () => {
     });
 
     it('should work with numeric enum', () => {
-      const { registerEnum } = require('../src/core/common/helpers/register-enum.helper');
       registerEnum(NumericEnum, {
         name: 'NumericEnum',
       });
@@ -406,7 +404,6 @@ describe('UnifiedField Enum Auto-Detection (e2e)', () => {
     });
 
     it('should handle enum registered via registerEnum with description', () => {
-      const { registerEnum } = require('../src/core/common/helpers/register-enum.helper');
       registerEnum(StatusEnum, {
         description: 'User status options',
         name: 'StatusEnum',
@@ -475,7 +472,6 @@ describe('UnifiedField Enum Auto-Detection (e2e)', () => {
 
   describe('GraphQL Integration', () => {
     it('should work with GraphQL Field decorator and registerEnum', () => {
-      const { registerEnum } = require('../src/core/common/helpers/register-enum.helper');
       registerEnum(StatusEnum, {
         name: 'StatusEnum',
       });

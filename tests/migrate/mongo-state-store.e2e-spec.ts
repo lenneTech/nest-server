@@ -166,19 +166,17 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       expect(result).toEqual({});
     });
 
-    it('should return migrations document using callback API', (done) => {
-      client
+    it('should return migrations document using callback API', async () => {
+      await client
         .db()
         .collection(defaultCollectionName)
-        .insertOne({ ...migrationDoc })
-        .then(() => {
-          const stateStore = new MongoStateStore(mongoUrl);
-          stateStore.load((err, result) => {
-            expect(err).toBeUndefined();
-            expect(result).toMatchObject(migrationDoc);
-            done();
-          });
-        });
+        .insertOne({ ...migrationDoc });
+
+      const stateStore = new MongoStateStore(mongoUrl);
+      const loadPromise = promisify(stateStore.load.bind(stateStore));
+      const result = await loadPromise();
+
+      expect(result).toMatchObject(migrationDoc);
     });
 
     it('should return migrations document using async API', async () => {
@@ -228,21 +226,15 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       expect(docs[0]).toMatchObject(migrationDoc);
     });
 
-    it('should save using callback API', (done) => {
+    it('should save using callback API', async () => {
       const stateStore = new MongoStateStore(mongoUrl);
-      stateStore.save(migrationDoc as any, (err) => {
-        expect(err).toBeUndefined();
-        client
-          .db()
-          .collection(defaultCollectionName)
-          .find({})
-          .toArray()
-          .then((docs) => {
-            expect(docs).toHaveLength(1);
-            expect(docs[0]).toMatchObject(migrationDoc);
-            done();
-          });
-      });
+      const savePromise = promisify(stateStore.save.bind(stateStore));
+      await savePromise(migrationDoc as any);
+
+      const docs = await client.db().collection(defaultCollectionName).find({}).toArray();
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0]).toMatchObject(migrationDoc);
     });
 
     it('should insert new document into custom migrations collection', async () => {
