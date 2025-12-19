@@ -17,6 +17,204 @@ import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.in
 import { MailjetOptions } from './mailjet-options.interface';
 
 /**
+ * Interface for better-auth configuration
+ */
+export interface IBetterAuth {
+  /**
+   * Base path for better-auth endpoints
+   * default: '/iam'
+   */
+  basePath?: string;
+
+  /**
+   * Base URL of the application
+   * e.g. 'http://localhost:3000'
+   */
+  baseUrl?: string;
+
+  /**
+   * Whether better-auth is enabled
+   * default: false
+   */
+  enabled?: boolean;
+
+  /**
+   * JWT plugin configuration for API clients
+   */
+  jwt?: {
+    /**
+     * Whether JWT plugin is enabled
+     * default: false
+     */
+    enabled?: boolean;
+
+    /**
+     * JWT expiration time
+     * default: '15m'
+     */
+    expiresIn?: string;
+  };
+
+  /**
+   * Legacy password handling configuration
+   * Used during migration from old auth system
+   */
+  legacyPassword?: {
+    /**
+     * Whether legacy password handling is enabled
+     * default: false
+     */
+    enabled?: boolean;
+  };
+
+  /**
+   * Passkey/WebAuthn configuration
+   */
+  passkey?: {
+    /**
+     * Whether passkey authentication is enabled
+     * default: false
+     */
+    enabled?: boolean;
+
+    /**
+     * Origin URL for WebAuthn
+     * e.g. 'http://localhost:3000'
+     */
+    origin?: string;
+
+    /**
+     * Relying Party ID (usually the domain)
+     * e.g. 'localhost' or 'example.com'
+     */
+    rpId?: string;
+
+    /**
+     * Relying Party Name (displayed to users)
+     * e.g. 'My Application'
+     */
+    rpName?: string;
+  };
+
+  /**
+   * Rate limiting configuration for Better-Auth endpoints
+   * Protects against brute-force attacks
+   */
+  rateLimit?: IBetterAuthRateLimit;
+
+  /**
+   * Secret for better-auth (min 32 characters)
+   * Used for session encryption
+   */
+  secret?: string;
+
+  /**
+   * Social login providers configuration
+   */
+  socialProviders?: {
+    /**
+     * Apple OAuth configuration
+     */
+    apple?: IBetterAuthSocialProvider;
+
+    /**
+     * GitHub OAuth configuration
+     */
+    github?: IBetterAuthSocialProvider;
+
+    /**
+     * Google OAuth configuration
+     */
+    google?: IBetterAuthSocialProvider;
+  };
+
+  /**
+   * Trusted origins for CORS and OAuth callbacks
+   * If not specified, defaults to [baseUrl]
+   * e.g. ['https://example.com', 'https://app.example.com']
+   */
+  trustedOrigins?: string[];
+
+  /**
+   * Two-factor authentication configuration
+   */
+  twoFactor?: {
+    /**
+     * App name shown in authenticator apps
+     * e.g. 'My Application'
+     */
+    appName?: string;
+
+    /**
+     * Whether 2FA is enabled
+     * default: false
+     */
+    enabled?: boolean;
+  };
+}
+
+/**
+ * Interface for Better-Auth rate limiting configuration
+ */
+export interface IBetterAuthRateLimit {
+  /**
+   * Whether rate limiting is enabled
+   * default: false
+   */
+  enabled?: boolean;
+
+  /**
+   * Maximum number of requests within the time window
+   * default: 10
+   */
+  max?: number;
+
+  /**
+   * Custom message when rate limit is exceeded
+   * default: 'Too many requests, please try again later.'
+   */
+  message?: string;
+
+  /**
+   * Endpoints to skip rate limiting entirely
+   * e.g., ['/iam/session'] for session checks
+   */
+  skipEndpoints?: string[];
+
+  /**
+   * Endpoints to apply stricter rate limiting (e.g., sign-in, sign-up)
+   * These endpoints will have half the max requests
+   */
+  strictEndpoints?: string[];
+
+  /**
+   * Time window in seconds
+   * default: 60 (1 minute)
+   */
+  windowSeconds?: number;
+}
+
+/**
+ * Interface for better-auth social provider configuration
+ */
+export interface IBetterAuthSocialProvider {
+  /**
+   * OAuth client ID
+   */
+  clientId: string;
+
+  /**
+   * OAuth client secret
+   */
+  clientSecret: string;
+
+  /**
+   * Whether this provider is enabled
+   */
+  enabled?: boolean;
+}
+
+/**
  * Interface for JWT configuration (main and refresh)
  */
 export interface IJwt {
@@ -70,6 +268,12 @@ export interface IServerOptions {
    * See generateFilterQuery in Filter helper (src/core/common/helpers/filter.helper.ts)
    */
   automaticObjectIdFiltering?: boolean;
+
+  /**
+   * Configuration for better-auth authentication framework
+   * See: https://better-auth.com
+   */
+  betterAuth?: IBetterAuth;
 
   /**
    * Configuration for Brevo
@@ -324,29 +528,29 @@ export interface IServerOptions {
    * Hint: The secrets of the different environments should be different, otherwise a JWT can be used in different
    * environments, which can lead to security vulnerabilities.
    */
-  jwt?: IJwt & JwtModuleOptions &
-    {
-    /**
-     * Configuration for refresh Token (JWT)
-     * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
-     * requested with the JWT, which can lead to a security vulnerability.
-     */
-    refresh?: IJwt & {
+  jwt?: IJwt &
+    JwtModuleOptions & {
       /**
-       * Whether renewal of the refresh token is permitted
-       * If falsy (default): during refresh only a new token, the refresh token retains its original term
-       * If true: during refresh not only a new token but also a new refresh token is created
+       * Configuration for refresh Token (JWT)
+       * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
+       * requested with the JWT, which can lead to a security vulnerability.
        */
-      renewal?: boolean;
-    };
+      refresh?: IJwt & {
+        /**
+         * Whether renewal of the refresh token is permitted
+         * If falsy (default): during refresh only a new token, the refresh token retains its original term
+         * If true: during refresh not only a new token but also a new refresh token is created
+         */
+        renewal?: boolean;
+      };
 
-    /**
-     * Time period in milliseconds
-     * in which the same token ID is used so that all parallel token refresh requests of a device can be generated.
-     * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
-     */
-    sameTokenIdPeriod?: number;
-  };
+      /**
+       * Time period in milliseconds
+       * in which the same token ID is used so that all parallel token refresh requests of a device can be generated.
+       * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
+       */
+      sameTokenIdPeriod?: number;
+    };
 
   /**
    * Load local configuration
