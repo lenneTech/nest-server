@@ -228,6 +228,35 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   verifiedAt: Date = undefined;
 
   // ===================================================================================================================
+  // IAM Integration Fields (optional, used when Better-Auth or other IAM providers are enabled)
+  // ===================================================================================================================
+
+  /**
+   * IAM (Identity and Access Management) provider user ID
+   * Links this user to their identity in the IAM system (e.g., Better-Auth)
+   */
+  @UnifiedField({
+    description: 'IAM provider user ID (used for Better-Auth or other IAM integration)',
+    isOptional: true,
+    mongoose: { index: true, sparse: true },
+    roles: RoleEnum.S_NO_ONE,
+  })
+  iamId: string = undefined;
+
+  /**
+   * Whether 2FA is enabled for this user
+   * Managed by Better-Auth's twoFactor plugin - read-only from our perspective
+   */
+  @UnifiedField({
+    description: 'Whether Two-Factor Authentication is enabled',
+    isOptional: true,
+    mongoose: { type: Boolean },
+    roles: RoleEnum.S_EVERYONE,
+    type: () => Boolean,
+  })
+  twoFactorEnabled: boolean = undefined;
+
+  // ===================================================================================================================
   // Methods
   // ===================================================================================================================
 

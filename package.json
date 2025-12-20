@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.6.1",
+  "version": "11.6.2",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -77,6 +77,8 @@
     "node": ">= 20"
   },
   "dependencies": {
+    "@apollo/server": "4.12.2",
+    "@better-auth/passkey": "1.4.7",
     "@getbrevo/brevo": "3.0.1",
     "@nestjs/apollo": "13.1.0",
     "@nestjs/common": "11.1.9",
@@ -89,8 +91,11 @@
     "@nestjs/schedule": "6.1.0",
     "@nestjs/swagger": "11.2.3",
     "@nestjs/terminus": "11.0.0",
+    "@nestjs/websockets": "11.1.9",
+    "@thallesp/nestjs-better-auth": "2.2.0",
     "apollo-server-core": "3.13.0",
     "bcrypt": "6.0.0",
+    "better-auth": "1.4.7",
     "class-transformer": "0.5.1",
     "class-validator": "0.14.3",
     "compression": "1.8.1",
@@ -173,6 +178,9 @@
     "@lykmapipo/common": {
       "flat": "5.0.2",
       "mime": "2.6.0"
+    },
+    "better-auth": {
+      "mongodb": "7.0.0"
     },
     "ts-morph": "27.0.2"
   },

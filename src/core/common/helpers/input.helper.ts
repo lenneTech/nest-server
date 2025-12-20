@@ -209,7 +209,7 @@ export function assignPlain(target: Record<any, any>, ...args: Record<any, any>[
  */
 export async function check(
   value: any,
-  user: { hasRole: (roles: string[]) => boolean; id: any; verified?: any; verifiedAt?: any },
+  user: { emailVerified?: any; hasRole: (roles: string[]) => boolean; id: any; verified?: any; verifiedAt?: any },
   options?: {
     allowCreatorOfParent?: boolean;
     dbObject?: any;
@@ -264,7 +264,7 @@ export async function check(
             !('createdBy' in config.dbObject) &&
             config.isCreatorOfParent))) ||
       // check if the is verified
-      (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt))
+      (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified))
     ) {
       valid = true;
     }

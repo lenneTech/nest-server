@@ -61,7 +61,7 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
  */
 export const checkRestricted = (
   data: any,
-  user: { hasRole: (roles: string[]) => boolean; id: any; verified?: any; verifiedAt?: any },
+  user: { emailVerified?: any; hasRole: (roles: string[]) => boolean; id: any; verified?: any; verifiedAt?: any },
   options: {
     allowCreatorOfParent?: boolean;
     checkObjectItself?: boolean;
@@ -163,7 +163,7 @@ export const checkRestricted = (
         (roles.includes(RoleEnum.S_CREATOR) &&
           (('createdBy' in data && equalIds(data.createdBy, user)) ||
             (config.allowCreatorOfParent && !('createdBy' in data) && config.isCreatorOfParent))) ||
-        (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt))
+        (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified))
       ) {
         valid = true;
       }

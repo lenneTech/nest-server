@@ -15,6 +15,54 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   development: {
     automaticObjectIdFiltering: true,
+    betterAuth: {
+      basePath: '/iam',
+      baseUrl: 'http://localhost:3000',
+      // enabled: true by default - set false to explicitly disable
+      jwt: {
+        enabled: true,
+        expiresIn: '15m',
+      },
+      legacyPassword: {
+        enabled: true,
+      },
+      passkey: {
+        enabled: false,
+        origin: 'http://localhost:3000',
+        rpId: 'localhost',
+        rpName: 'Nest Server Development',
+      },
+      rateLimit: {
+        enabled: true,
+        max: 20,
+        message: 'Too many requests, please try again later.',
+        skipEndpoints: ['/session', '/callback'],
+        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
+        windowSeconds: 60,
+      },
+      secret: 'BETTER_AUTH_SECRET_DEV_32_CHARS_MIN',
+      socialProviders: {
+        apple: {
+          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
+          enabled: false,
+        },
+        github: {
+          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
+          enabled: false,
+        },
+        google: {
+          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
+          enabled: false,
+        },
+      },
+      twoFactor: {
+        appName: 'Nest Server Development',
+        enabled: false,
+      },
+    },
     compression: true,
     cookies: false,
     email: {
@@ -114,10 +162,58 @@ const config: { [env: string]: IServerOptions } = {
   },
 
   // ===========================================================================
-  // Development environment
+  // Local environment
   // ===========================================================================
   local: {
     automaticObjectIdFiltering: true,
+    betterAuth: {
+      basePath: '/iam',
+      baseUrl: 'http://localhost:3000',
+      // enabled: true by default - set false to explicitly disable
+      jwt: {
+        enabled: true,
+        expiresIn: '15m',
+      },
+      legacyPassword: {
+        enabled: true,
+      },
+      passkey: {
+        enabled: false,
+        origin: 'http://localhost:3000',
+        rpId: 'localhost',
+        rpName: 'Nest Server Local',
+      },
+      rateLimit: {
+        enabled: true,
+        max: 20,
+        message: 'Too many requests, please try again later.',
+        skipEndpoints: ['/session', '/callback'],
+        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
+        windowSeconds: 60,
+      },
+      secret: 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
+      socialProviders: {
+        apple: {
+          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
+          enabled: false,
+        },
+        github: {
+          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
+          enabled: false,
+        },
+        google: {
+          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
+          enabled: false,
+        },
+      },
+      twoFactor: {
+        appName: 'Nest Server Local',
+        enabled: false,
+      },
+    },
     compression: true,
     cookies: false,
     cronJobs: {
@@ -232,6 +328,57 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   production: {
     automaticObjectIdFiltering: true,
+    betterAuth: {
+      basePath: '/iam',
+      baseUrl: process.env.BETTER_AUTH_URL || 'https://example.com',
+      // enabled: true by default - set false to explicitly disable
+      jwt: {
+        enabled: true,
+        expiresIn: '15m',
+      },
+      legacyPassword: {
+        enabled: true,
+      },
+      passkey: {
+        enabled: false,
+        origin: process.env.BETTER_AUTH_URL || 'https://example.com',
+        rpId: process.env.PASSKEY_RP_ID || 'example.com',
+        rpName: process.env.PASSKEY_RP_NAME || 'Nest Server Production',
+      },
+      rateLimit: {
+        enabled: process.env.RATE_LIMIT_ENABLED !== 'false',
+        max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10),
+        message: process.env.RATE_LIMIT_MESSAGE || 'Too many requests, please try again later.',
+        skipEndpoints: ['/session', '/callback'],
+        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
+        windowSeconds: parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS || '60', 10),
+      },
+      // IMPORTANT: Set BETTER_AUTH_SECRET in production!
+      // Without it, an insecure default is used which allows session forgery.
+      // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      secret: process.env.BETTER_AUTH_SECRET,
+      socialProviders: {
+        apple: {
+          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
+          enabled: !!process.env.SOCIAL_APPLE_CLIENT_ID,
+        },
+        github: {
+          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
+          enabled: !!process.env.SOCIAL_GITHUB_CLIENT_ID,
+        },
+        google: {
+          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
+          enabled: !!process.env.SOCIAL_GOOGLE_CLIENT_ID,
+        },
+      },
+      twoFactor: {
+        appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server',
+        enabled: process.env.TWO_FACTOR_ENABLED === 'true',
+      },
+    },
     compression: true,
     cookies: false,
     email: {

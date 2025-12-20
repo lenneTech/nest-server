@@ -17,6 +17,324 @@ import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.in
 import { MailjetOptions } from './mailjet-options.interface';
 
 /**
+ * Better-Auth field type definition
+ * Matches the DBFieldType from better-auth
+ */
+export type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
+
+/**
+ * Interface for better-auth configuration
+ */
+export interface IBetterAuth {
+  /**
+   * Additional user fields beyond the core fields (firstName, lastName, etc.)
+   * These fields will be merged with the default user fields.
+   * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
+   * @example
+   * ```typescript
+   * additionalUserFields: {
+   *   phoneNumber: { type: 'string', defaultValue: null },
+   *   department: { type: 'string', required: true },
+   *   preferences: { type: 'string', defaultValue: '{}' },
+   * }
+   * ```
+   */
+  additionalUserFields?: Record<string, IBetterAuthUserField>;
+
+  /**
+   * Base path for better-auth endpoints
+   * default: '/iam'
+   */
+  basePath?: string;
+
+  /**
+   * Base URL of the application
+   * e.g. 'http://localhost:3000'
+   */
+  baseUrl?: string;
+
+  /**
+   * Whether better-auth is enabled.
+   * BetterAuth is enabled by default (zero-config philosophy).
+   * Set to false to explicitly disable it.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * JWT plugin configuration for API clients.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
+   */
+  jwt?: {
+    /**
+     * Whether JWT plugin is enabled.
+     * @default true (when jwt config block is present)
+     */
+    enabled?: boolean;
+
+    /**
+     * JWT expiration time
+     * @default '15m'
+     */
+    expiresIn?: string;
+  };
+
+  /**
+   * Legacy password handling configuration.
+   * Used during migration from old auth system.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
+   */
+  legacyPassword?: {
+    /**
+     * Whether legacy password handling is enabled.
+     * @default true (when legacyPassword config block is present)
+     */
+    enabled?: boolean;
+  };
+
+  /**
+   * Advanced Better-Auth options passthrough.
+   * These options are passed directly to Better-Auth, allowing full customization.
+   * Use this for any Better-Auth options not explicitly defined in this interface.
+   * @see https://www.better-auth.com/docs/reference/options
+   * @example
+   * ```typescript
+   * options: {
+   *   emailAndPassword: {
+   *     enabled: true,
+   *     requireEmailVerification: true,
+   *     sendResetPassword: async ({ user, url }) => { ... },
+   *   },
+   *   account: {
+   *     accountLinking: { enabled: true },
+   *   },
+   *   session: {
+   *     expiresIn: 60 * 60 * 24 * 7, // 7 days
+   *     updateAge: 60 * 60 * 24, // 1 day
+   *   },
+   *   advanced: {
+   *     cookiePrefix: 'my-app',
+   *     useSecureCookies: true,
+   *   },
+   * }
+   * ```
+   */
+  options?: Record<string, unknown>;
+
+  /**
+   * Passkey/WebAuthn configuration.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
+   */
+  passkey?: {
+    /**
+     * Whether passkey authentication is enabled.
+     * @default true (when passkey config block is present)
+     */
+    enabled?: boolean;
+
+    /**
+     * Origin URL for WebAuthn
+     * e.g. 'http://localhost:3000'
+     */
+    origin?: string;
+
+    /**
+     * Relying Party ID (usually the domain)
+     * e.g. 'localhost' or 'example.com'
+     */
+    rpId?: string;
+
+    /**
+     * Relying Party Name (displayed to users)
+     * e.g. 'My Application'
+     */
+    rpName?: string;
+  };
+
+  /**
+   * Additional Better-Auth plugins to include.
+   * These will be merged with the built-in plugins (jwt, twoFactor, passkey).
+   * @see https://www.better-auth.com/docs/plugins
+   * @example
+   * ```typescript
+   * import { organization } from 'better-auth/plugins';
+   * import { magicLink } from 'better-auth/plugins';
+   *
+   * plugins: [
+   *   organization({ ... }),
+   *   magicLink({ ... }),
+   * ]
+   * ```
+   */
+  plugins?: unknown[];
+
+  /**
+   * Rate limiting configuration for Better-Auth endpoints
+   * Protects against brute-force attacks
+   */
+  rateLimit?: IBetterAuthRateLimit;
+
+  /**
+   * Secret for better-auth (min 32 characters)
+   * Used for session encryption
+   */
+  secret?: string;
+
+  /**
+   * Social login providers configuration
+   * Supports all Better-Auth providers dynamically (google, github, apple, discord, etc.)
+   *
+   * **Enabled by default:** Providers are automatically enabled when credentials
+   * are configured. Set `enabled: false` to explicitly disable a provider.
+   *
+   * @see https://www.better-auth.com/docs/authentication/social-sign-in
+   * @example
+   * ```typescript
+   * socialProviders: {
+   *   // These providers are enabled (no need for enabled: true)
+   *   google: { clientId: '...', clientSecret: '...' },
+   *   github: { clientId: '...', clientSecret: '...' },
+   *   // This provider is explicitly disabled
+   *   discord: { clientId: '...', clientSecret: '...', enabled: false },
+   * }
+   * ```
+   */
+  socialProviders?: Record<string, IBetterAuthSocialProvider>;
+
+  /**
+   * Trusted origins for CORS and OAuth callbacks
+   * If not specified, defaults to [baseUrl]
+   * e.g. ['https://example.com', 'https://app.example.com']
+   */
+  trustedOrigins?: string[];
+
+  /**
+   * Two-factor authentication configuration.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
+   */
+  twoFactor?: {
+    /**
+     * App name shown in authenticator apps
+     * e.g. 'My Application'
+     */
+    appName?: string;
+
+    /**
+     * Whether 2FA is enabled.
+     * @default true (when twoFactor config block is present)
+     */
+    enabled?: boolean;
+  };
+}
+
+/**
+ * Interface for Better-Auth rate limiting configuration
+ */
+export interface IBetterAuthRateLimit {
+  /**
+   * Whether rate limiting is enabled
+   * default: false
+   */
+  enabled?: boolean;
+
+  /**
+   * Maximum number of requests within the time window
+   * default: 10
+   */
+  max?: number;
+
+  /**
+   * Custom message when rate limit is exceeded
+   * default: 'Too many requests, please try again later.'
+   */
+  message?: string;
+
+  /**
+   * Endpoints to skip rate limiting entirely
+   * e.g., ['/iam/session'] for session checks
+   */
+  skipEndpoints?: string[];
+
+  /**
+   * Endpoints to apply stricter rate limiting (e.g., sign-in, sign-up)
+   * These endpoints will have half the max requests
+   */
+  strictEndpoints?: string[];
+
+  /**
+   * Time window in seconds
+   * default: 60 (1 minute)
+   */
+  windowSeconds?: number;
+}
+
+/**
+ * Interface for better-auth social provider configuration
+ *
+ * **Enabled by default:** A social provider is automatically enabled when
+ * both `clientId` and `clientSecret` are provided. You only need to set
+ * `enabled: false` to explicitly disable a configured provider.
+ *
+ * @example
+ * ```typescript
+ * // Provider is enabled (has credentials, no explicit enabled flag needed)
+ * google: { clientId: '...', clientSecret: '...' }
+ *
+ * // Provider is explicitly disabled despite having credentials
+ * github: { clientId: '...', clientSecret: '...', enabled: false }
+ * ```
+ */
+export interface IBetterAuthSocialProvider {
+  /**
+   * OAuth client ID
+   */
+  clientId: string;
+
+  /**
+   * OAuth client secret
+   */
+  clientSecret: string;
+
+  /**
+   * Whether this provider is enabled.
+   * Defaults to true when clientId and clientSecret are provided.
+   * Set to false to explicitly disable this provider.
+   * @default true (when credentials are configured)
+   */
+  enabled?: boolean;
+}
+
+/**
+ * Interface for additional user fields in Better-Auth
+ * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
+ */
+export interface IBetterAuthUserField {
+  /**
+   * Default value for the field
+   */
+  defaultValue?: unknown;
+
+  /**
+   * Database field name (if different from key)
+   */
+  fieldName?: string;
+
+  /**
+   * Whether this field is required
+   */
+  required?: boolean;
+
+  /**
+   * Field type
+   */
+  type: BetterAuthFieldType;
+}
+
+/**
  * Interface for JWT configuration (main and refresh)
  */
 export interface IJwt {
@@ -70,6 +388,12 @@ export interface IServerOptions {
    * See generateFilterQuery in Filter helper (src/core/common/helpers/filter.helper.ts)
    */
   automaticObjectIdFiltering?: boolean;
+
+  /**
+   * Configuration for better-auth authentication framework
+   * See: https://better-auth.com
+   */
+  betterAuth?: IBetterAuth;
 
   /**
    * Configuration for Brevo
@@ -324,29 +648,29 @@ export interface IServerOptions {
    * Hint: The secrets of the different environments should be different, otherwise a JWT can be used in different
    * environments, which can lead to security vulnerabilities.
    */
-  jwt?: IJwt & JwtModuleOptions &
-    {
-    /**
-     * Configuration for refresh Token (JWT)
-     * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
-     * requested with the JWT, which can lead to a security vulnerability.
-     */
-    refresh?: IJwt & {
+  jwt?: IJwt &
+    JwtModuleOptions & {
       /**
-       * Whether renewal of the refresh token is permitted
-       * If falsy (default): during refresh only a new token, the refresh token retains its original term
-       * If true: during refresh not only a new token but also a new refresh token is created
+       * Configuration for refresh Token (JWT)
+       * Hint: The secret of the JWT and the Refresh Token should be different, otherwise a new RefreshToken can also be
+       * requested with the JWT, which can lead to a security vulnerability.
        */
-      renewal?: boolean;
-    };
+      refresh?: IJwt & {
+        /**
+         * Whether renewal of the refresh token is permitted
+         * If falsy (default): during refresh only a new token, the refresh token retains its original term
+         * If true: during refresh not only a new token but also a new refresh token is created
+         */
+        renewal?: boolean;
+      };
 
-    /**
-     * Time period in milliseconds
-     * in which the same token ID is used so that all parallel token refresh requests of a device can be generated.
-     * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
-     */
-    sameTokenIdPeriod?: number;
-  };
+      /**
+       * Time period in milliseconds
+       * in which the same token ID is used so that all parallel token refresh requests of a device can be generated.
+       * default: 0 (every token includes a new token ID, all parallel token refresh requests must be prevented by the client or processed accordingly)
+       */
+      sameTokenIdPeriod?: number;
+    };
 
   /**
    * Load local configuration
