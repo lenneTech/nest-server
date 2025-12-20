@@ -13,9 +13,9 @@ import { InvalidTokenException } from '../exceptions/invalid-token.exception';
 /**
  * Missing strategy error
  */
-const NO_STRATEGY_ERROR
-  = 'In order to use "defaultStrategy", please, ensure to import PassportModule in each '
-  + 'place where AuthGuard() is being used. Otherwise, passport won\'t work correctly.';
+const NO_STRATEGY_ERROR =
+  'In order to use "defaultStrategy", please, ensure to import PassportModule in each ' +
+  "place where AuthGuard() is being used. Otherwise, passport won't work correctly.";
 
 /**
  * Interface for auth guard
@@ -38,7 +38,7 @@ const createPassportContext = (request, response) => (type, options, callback: (
       } catch (err) {
         reject(err);
       }
-    })(request, response, err => (err ? reject(err) : resolve)),
+    })(request, response, (err) => (err ? reject(err) : resolve)),
   );
 
 /**
@@ -70,8 +70,22 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
       }
 
       const options = { ...defaultOptions, ...this.options };
-      const response = context?.switchToHttp()?.getResponse();
       const request = this.getRequest(context);
+
+      // Check if user is already authenticated via Better-Auth middleware
+      // Only skip Passport for Better-Auth users (marked with _authenticatedViaBetterAuth)
+      // This ensures JWT_REFRESH guard still validates refresh tokens properly
+      const existingUser = request?.[options.property || defaultOptions.property];
+      if (existingUser && existingUser._authenticatedViaBetterAuth === true) {
+        // User is authenticated via Better-Auth - skip Passport authentication
+        // Validate through handleRequest to ensure role checks work
+        const validatedUser = this.handleRequest(null, existingUser, null, context);
+        request[options.property || defaultOptions.property] = validatedUser;
+        return true;
+      }
+
+      // Proceed with Passport authentication
+      const response = context?.switchToHttp()?.getResponse();
       const passportFn = createPassportContext(request, response);
       const user = await passportFn(type || this.options.defaultStrategy, options, (err, currentUser, info) =>
         this.handleRequest(err, currentUser, info, context),
@@ -101,7 +115,7 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
      */
     async logIn<TRequest extends { logIn: (...params) => any } = any>(request: TRequest) {
       const user = request[this.options.property || defaultOptions.property];
-      await new Promise<void>((resolve, reject) => request.logIn(user, err => (err ? reject(err) : resolve())));
+      await new Promise<void>((resolve, reject) => request.logIn(user, (err) => (err ? reject(err) : resolve())));
     }
 
     /**

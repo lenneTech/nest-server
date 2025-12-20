@@ -19,6 +19,7 @@ import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
+import { BetterAuthModule } from './core/modules/better-auth/better-auth.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 
 /**
@@ -226,6 +227,17 @@ export class CoreModule implements NestModule {
     ];
     if (config.healthCheck) {
       imports.push(CoreHealthCheckModule);
+    }
+
+    // Add BetterAuthModule - enabled by default unless explicitly disabled
+    if (config.betterAuth?.enabled !== false) {
+      imports.push(
+        BetterAuthModule.forRoot({
+          config: config.betterAuth || {},
+          // Pass JWT secrets for backwards compatibility fallback
+          fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
+        }),
+      );
     }
 
     // Set exports
