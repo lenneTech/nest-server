@@ -515,7 +515,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
             },
             $setOnInsert: {
               createdAt: new Date(),
-              roles: [RoleEnum.S_USER],
+              roles: [], // S_ roles are system checks, not stored in user.roles
             },
           },
           { upsert: true },
@@ -524,7 +524,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         // Verify user was created with default role
         dbUser = await db.collection('users').findOne({ email });
         expect(dbUser).toBeDefined();
-        expect(dbUser.roles).toContain(RoleEnum.S_USER);
+        expect(dbUser.roles).toEqual([]); // S_ roles are system checks, not stored in user.roles
         expect(dbUser.iamId).toBe(iamId);
       });
 

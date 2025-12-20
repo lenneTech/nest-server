@@ -17,9 +17,30 @@ import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.in
 import { MailjetOptions } from './mailjet-options.interface';
 
 /**
+ * Better-Auth field type definition
+ * Matches the DBFieldType from better-auth
+ */
+export type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
+
+/**
  * Interface for better-auth configuration
  */
 export interface IBetterAuth {
+  /**
+   * Additional user fields beyond the core fields (firstName, lastName, etc.)
+   * These fields will be merged with the default user fields.
+   * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
+   * @example
+   * ```typescript
+   * additionalUserFields: {
+   *   phoneNumber: { type: 'string', defaultValue: null },
+   *   department: { type: 'string', required: true },
+   *   preferences: { type: 'string', defaultValue: '{}' },
+   * }
+   * ```
+   */
+  additionalUserFields?: Record<string, IBetterAuthUserField>;
+
   /**
    * Base path for better-auth endpoints
    * default: '/iam'
@@ -33,47 +54,84 @@ export interface IBetterAuth {
   baseUrl?: string;
 
   /**
-   * Whether better-auth is enabled
-   * default: false
+   * Whether better-auth is enabled.
+   * BetterAuth is enabled by default (zero-config philosophy).
+   * Set to false to explicitly disable it.
+   * @default true
    */
   enabled?: boolean;
 
   /**
-   * JWT plugin configuration for API clients
+   * JWT plugin configuration for API clients.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
    */
   jwt?: {
     /**
-     * Whether JWT plugin is enabled
-     * default: false
+     * Whether JWT plugin is enabled.
+     * @default true (when jwt config block is present)
      */
     enabled?: boolean;
 
     /**
      * JWT expiration time
-     * default: '15m'
+     * @default '15m'
      */
     expiresIn?: string;
   };
 
   /**
-   * Legacy password handling configuration
-   * Used during migration from old auth system
+   * Legacy password handling configuration.
+   * Used during migration from old auth system.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
    */
   legacyPassword?: {
     /**
-     * Whether legacy password handling is enabled
-     * default: false
+     * Whether legacy password handling is enabled.
+     * @default true (when legacyPassword config block is present)
      */
     enabled?: boolean;
   };
 
   /**
-   * Passkey/WebAuthn configuration
+   * Advanced Better-Auth options passthrough.
+   * These options are passed directly to Better-Auth, allowing full customization.
+   * Use this for any Better-Auth options not explicitly defined in this interface.
+   * @see https://www.better-auth.com/docs/reference/options
+   * @example
+   * ```typescript
+   * options: {
+   *   emailAndPassword: {
+   *     enabled: true,
+   *     requireEmailVerification: true,
+   *     sendResetPassword: async ({ user, url }) => { ... },
+   *   },
+   *   account: {
+   *     accountLinking: { enabled: true },
+   *   },
+   *   session: {
+   *     expiresIn: 60 * 60 * 24 * 7, // 7 days
+   *     updateAge: 60 * 60 * 24, // 1 day
+   *   },
+   *   advanced: {
+   *     cookiePrefix: 'my-app',
+   *     useSecureCookies: true,
+   *   },
+   * }
+   * ```
+   */
+  options?: Record<string, unknown>;
+
+  /**
+   * Passkey/WebAuthn configuration.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
    */
   passkey?: {
     /**
-     * Whether passkey authentication is enabled
-     * default: false
+     * Whether passkey authentication is enabled.
+     * @default true (when passkey config block is present)
      */
     enabled?: boolean;
 
@@ -97,6 +155,23 @@ export interface IBetterAuth {
   };
 
   /**
+   * Additional Better-Auth plugins to include.
+   * These will be merged with the built-in plugins (jwt, twoFactor, passkey).
+   * @see https://www.better-auth.com/docs/plugins
+   * @example
+   * ```typescript
+   * import { organization } from 'better-auth/plugins';
+   * import { magicLink } from 'better-auth/plugins';
+   *
+   * plugins: [
+   *   organization({ ... }),
+   *   magicLink({ ... }),
+   * ]
+   * ```
+   */
+  plugins?: unknown[];
+
+  /**
    * Rate limiting configuration for Better-Auth endpoints
    * Protects against brute-force attacks
    */
@@ -110,23 +185,24 @@ export interface IBetterAuth {
 
   /**
    * Social login providers configuration
+   * Supports all Better-Auth providers dynamically (google, github, apple, discord, etc.)
+   *
+   * **Enabled by default:** Providers are automatically enabled when credentials
+   * are configured. Set `enabled: false` to explicitly disable a provider.
+   *
+   * @see https://www.better-auth.com/docs/authentication/social-sign-in
+   * @example
+   * ```typescript
+   * socialProviders: {
+   *   // These providers are enabled (no need for enabled: true)
+   *   google: { clientId: '...', clientSecret: '...' },
+   *   github: { clientId: '...', clientSecret: '...' },
+   *   // This provider is explicitly disabled
+   *   discord: { clientId: '...', clientSecret: '...', enabled: false },
+   * }
+   * ```
    */
-  socialProviders?: {
-    /**
-     * Apple OAuth configuration
-     */
-    apple?: IBetterAuthSocialProvider;
-
-    /**
-     * GitHub OAuth configuration
-     */
-    github?: IBetterAuthSocialProvider;
-
-    /**
-     * Google OAuth configuration
-     */
-    google?: IBetterAuthSocialProvider;
-  };
+  socialProviders?: Record<string, IBetterAuthSocialProvider>;
 
   /**
    * Trusted origins for CORS and OAuth callbacks
@@ -136,7 +212,9 @@ export interface IBetterAuth {
   trustedOrigins?: string[];
 
   /**
-   * Two-factor authentication configuration
+   * Two-factor authentication configuration.
+   * Enabled by default when this config block is present.
+   * Set `enabled: false` to explicitly disable.
    */
   twoFactor?: {
     /**
@@ -146,8 +224,8 @@ export interface IBetterAuth {
     appName?: string;
 
     /**
-     * Whether 2FA is enabled
-     * default: false
+     * Whether 2FA is enabled.
+     * @default true (when twoFactor config block is present)
      */
     enabled?: boolean;
   };
@@ -196,6 +274,19 @@ export interface IBetterAuthRateLimit {
 
 /**
  * Interface for better-auth social provider configuration
+ *
+ * **Enabled by default:** A social provider is automatically enabled when
+ * both `clientId` and `clientSecret` are provided. You only need to set
+ * `enabled: false` to explicitly disable a configured provider.
+ *
+ * @example
+ * ```typescript
+ * // Provider is enabled (has credentials, no explicit enabled flag needed)
+ * google: { clientId: '...', clientSecret: '...' }
+ *
+ * // Provider is explicitly disabled despite having credentials
+ * github: { clientId: '...', clientSecret: '...', enabled: false }
+ * ```
  */
 export interface IBetterAuthSocialProvider {
   /**
@@ -209,9 +300,38 @@ export interface IBetterAuthSocialProvider {
   clientSecret: string;
 
   /**
-   * Whether this provider is enabled
+   * Whether this provider is enabled.
+   * Defaults to true when clientId and clientSecret are provided.
+   * Set to false to explicitly disable this provider.
+   * @default true (when credentials are configured)
    */
   enabled?: boolean;
+}
+
+/**
+ * Interface for additional user fields in Better-Auth
+ * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
+ */
+export interface IBetterAuthUserField {
+  /**
+   * Default value for the field
+   */
+  defaultValue?: unknown;
+
+  /**
+   * Database field name (if different from key)
+   */
+  fieldName?: string;
+
+  /**
+   * Whether this field is required
+   */
+  required?: boolean;
+
+  /**
+   * Field type
+   */
+  type: BetterAuthFieldType;
 }
 
 /**

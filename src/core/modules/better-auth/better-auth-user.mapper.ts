@@ -96,7 +96,7 @@ export class BetterAuthUserMapper {
         id: sessionUser.id,
         image: sessionUser.image,
         name: sessionUser.name,
-        roles: [RoleEnum.S_USER],
+        roles: [],
         verified: sessionUser.emailVerified, // Use Better-Auth emailVerified status
       });
     }
@@ -139,7 +139,7 @@ export class BetterAuthUserMapper {
         id: sessionUser.id, // Use Better-Auth ID as fallback
         image: sessionUser.image,
         name: sessionUser.name,
-        roles: [RoleEnum.S_USER], // Default role for authenticated users
+        roles: [], // No default roles - S_ roles are system checks, not actual roles
         verified: sessionUser.emailVerified, // Use Better-Auth emailVerified status
       });
     } catch (error) {
@@ -245,7 +245,7 @@ export class BetterAuthUserMapper {
       if (!existingUser) {
         updateQuery.$setOnInsert = {
           createdAt: new Date(),
-          roles: [RoleEnum.S_USER],
+          roles: [],
         };
       }
 

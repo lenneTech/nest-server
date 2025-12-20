@@ -52,14 +52,25 @@ export class BetterAuthService {
     @Optional() @Inject(BETTER_AUTH_INSTANCE) private readonly authInstance: BetterAuthInstance | null,
     @Optional() private readonly configService?: ConfigService,
   ) {
-    this.config = this.configService?.get<IBetterAuth>('betterAuth') || { enabled: false };
+    // Better-Auth is enabled by default (zero-config) - only disabled if explicitly set to false
+    this.config = this.configService?.get<IBetterAuth>('betterAuth') || {};
   }
 
   /**
    * Checks if better-auth is enabled and initialized
+   * Returns true only if:
+   * 1. The better-auth instance was successfully created (not null/undefined)
+   * 2. Better-Auth was not explicitly disabled (enabled !== false)
+   *
+   * Better-Auth is enabled by default unless explicitly set to enabled: false
    */
   isEnabled(): boolean {
-    return this.config?.enabled === true && this.authInstance !== null;
+    // First check: authInstance must exist (not null or undefined)
+    if (!this.authInstance) {
+      return false;
+    }
+    // Second check: must not be explicitly disabled
+    return this.config?.enabled !== false;
   }
 
   /**
@@ -86,35 +97,50 @@ export class BetterAuthService {
   }
 
   /**
-   * Checks if JWT plugin is enabled
+   * Checks if JWT plugin is enabled.
+   * JWT is enabled by default when the jwt config block is present,
+   * unless explicitly disabled with enabled: false.
    */
   isJwtEnabled(): boolean {
-    return this.isEnabled() && this.config.jwt?.enabled === true;
+    return this.isEnabled() && !!this.config.jwt && this.config.jwt.enabled !== false;
   }
 
   /**
-   * Checks if 2FA is enabled
+   * Checks if 2FA is enabled.
+   * 2FA is enabled by default when the twoFactor config block is present,
+   * unless explicitly disabled with enabled: false.
    */
   isTwoFactorEnabled(): boolean {
-    return this.isEnabled() && this.config.twoFactor?.enabled === true;
+    return this.isEnabled() && !!this.config.twoFactor && this.config.twoFactor.enabled !== false;
   }
 
   /**
-   * Checks if Passkey/WebAuthn is enabled
+   * Checks if Passkey/WebAuthn is enabled.
+   * Passkey is enabled by default when the passkey config block is present,
+   * unless explicitly disabled with enabled: false.
    */
   isPasskeyEnabled(): boolean {
-    return this.isEnabled() && this.config.passkey?.enabled === true;
+    return this.isEnabled() && !!this.config.passkey && this.config.passkey.enabled !== false;
   }
 
   /**
-   * Checks if legacy password handling is enabled
+   * Checks if legacy password handling is enabled.
+   * Legacy password is enabled by default when the legacyPassword config block is present,
+   * unless explicitly disabled with enabled: false.
    */
   isLegacyPasswordEnabled(): boolean {
-    return this.isEnabled() && this.config.legacyPassword?.enabled === true;
+    return this.isEnabled() && !!this.config.legacyPassword && this.config.legacyPassword.enabled !== false;
   }
 
   /**
    * Gets the list of enabled social providers
+   * Dynamically iterates over all configured providers.
+   *
+   * A provider is considered enabled if:
+   * - It has clientId and clientSecret configured
+   * - It is NOT explicitly disabled (enabled !== false)
+   *
+   * This follows the same "enabled by default" pattern as Better-Auth itself.
    */
   getEnabledSocialProviders(): string[] {
     if (!this.isEnabled()) {
@@ -122,14 +148,15 @@ export class BetterAuthService {
     }
 
     const providers: string[] = [];
-    if (this.config.socialProviders?.google?.enabled) {
-      providers.push('google');
-    }
-    if (this.config.socialProviders?.github?.enabled) {
-      providers.push('github');
-    }
-    if (this.config.socialProviders?.apple?.enabled) {
-      providers.push('apple');
+
+    // Dynamically iterate over all configured social providers
+    if (this.config.socialProviders) {
+      for (const [name, provider] of Object.entries(this.config.socialProviders)) {
+        // Provider is enabled if: has credentials AND not explicitly disabled
+        if (provider?.clientId && provider?.clientSecret && provider?.enabled !== false) {
+          providers.push(name);
+        }
+      }
     }
 
     return providers;

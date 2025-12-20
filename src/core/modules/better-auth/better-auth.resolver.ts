@@ -7,7 +7,14 @@ import { RoleEnum } from '../../common/enums/role.enum';
 import { AuthGuardStrategy } from '../auth/auth-guard-strategy.enum';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { BetterAuthAuthModel } from './better-auth-auth.model';
-import { BetterAuthFeaturesModel, BetterAuthSessionModel, BetterAuthUserModel } from './better-auth-models';
+import {
+  BetterAuth2FASetupModel,
+  BetterAuthFeaturesModel,
+  BetterAuthPasskeyChallengeModel,
+  BetterAuthPasskeyModel,
+  BetterAuthSessionModel,
+  BetterAuthUserModel,
+} from './better-auth-models';
 import { BetterAuthSessionUser, BetterAuthUserMapper, MappedUser } from './better-auth-user.mapper';
 import { BetterAuthService } from './better-auth.service';
 import {
@@ -316,6 +323,300 @@ export class BetterAuthResolver {
   }
 
   // ===========================================================================
+  // 2FA Management Mutations
+  // ===========================================================================
+
+  /**
+   * Enable 2FA for the current user
+   * Returns TOTP URI for QR code generation and backup codes
+   */
+  @Mutation(() => BetterAuth2FASetupModel, {
+    description: 'Enable 2FA for the current user',
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthEnable2FA(
+    @Args('password') password: string,
+    @Context() ctx: { req: Request },
+  ): Promise<BetterAuth2FASetupModel> {
+    this.ensureEnabled();
+
+    if (!this.betterAuthService.isTwoFactorEnabled()) {
+      return { error: 'Two-factor authentication is not enabled on this server', success: false };
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return { error: 'Better-Auth API not available', success: false };
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const twoFactorApi = (api as Record<string, unknown>).twoFactor as
+        | undefined
+        | {
+            enable?: (params: { body: { password: string }; headers: Headers }) => Promise<{
+              backupCodes?: string[];
+              totpURI?: string;
+            }>;
+          };
+
+      if (!twoFactorApi?.enable) {
+        return { error: '2FA enable method not available', success: false };
+      }
+
+      const response = await twoFactorApi.enable({
+        body: { password },
+        headers,
+      });
+
+      return {
+        backupCodes: response.backupCodes,
+        success: true,
+        totpUri: response.totpURI,
+      };
+    } catch (error) {
+      this.logger.debug(`2FA enable error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { error: error instanceof Error ? error.message : 'Failed to enable 2FA', success: false };
+    }
+  }
+
+  /**
+   * Disable 2FA for the current user
+   */
+  @Mutation(() => Boolean, {
+    description: 'Disable 2FA for the current user',
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthDisable2FA(@Args('password') password: string, @Context() ctx: { req: Request }): Promise<boolean> {
+    this.ensureEnabled();
+
+    if (!this.betterAuthService.isTwoFactorEnabled()) {
+      throw new BadRequestException('Two-factor authentication is not enabled on this server');
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return false;
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const twoFactorApi = (api as Record<string, unknown>).twoFactor as
+        | undefined
+        | {
+            disable?: (params: { body: { password: string }; headers: Headers }) => Promise<{ status: boolean }>;
+          };
+
+      if (!twoFactorApi?.disable) {
+        throw new BadRequestException('2FA disable method not available');
+      }
+
+      const response = await twoFactorApi.disable({
+        body: { password },
+        headers,
+      });
+
+      return response?.status === true;
+    } catch (error) {
+      this.logger.debug(`2FA disable error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  /**
+   * Generate new backup codes for 2FA
+   */
+  @Mutation(() => [String], {
+    description: 'Generate new backup codes for 2FA',
+    nullable: true,
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthGenerateBackupCodes(@Context() ctx: { req: Request }): Promise<null | string[]> {
+    this.ensureEnabled();
+
+    if (!this.betterAuthService.isTwoFactorEnabled()) {
+      throw new BadRequestException('Two-factor authentication is not enabled on this server');
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return null;
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const twoFactorApi = (api as Record<string, unknown>).twoFactor as
+        | undefined
+        | {
+            generateBackupCodes?: (params: { headers: Headers }) => Promise<{ backupCodes?: string[] }>;
+          };
+
+      if (!twoFactorApi?.generateBackupCodes) {
+        throw new BadRequestException('Generate backup codes method not available');
+      }
+
+      const response = await twoFactorApi.generateBackupCodes({ headers });
+
+      return response?.backupCodes || null;
+    } catch (error) {
+      this.logger.debug(`Generate backup codes error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  // ===========================================================================
+  // Passkey Management Mutations
+  // ===========================================================================
+
+  /**
+   * Get passkey registration challenge
+   * Returns the challenge data needed for WebAuthn registration
+   */
+  @Mutation(() => BetterAuthPasskeyChallengeModel, {
+    description: 'Get passkey registration challenge for WebAuthn',
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthGetPasskeyChallenge(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyChallengeModel> {
+    this.ensureEnabled();
+
+    if (!this.betterAuthService.isPasskeyEnabled()) {
+      return { error: 'Passkey authentication is not enabled on this server', success: false };
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return { error: 'Better-Auth API not available', success: false };
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const passkeyApi = (api as Record<string, unknown>).passkey as
+        | undefined
+        | {
+            generateRegisterOptions?: (params: { headers: Headers }) => Promise<unknown>;
+          };
+
+      if (!passkeyApi?.generateRegisterOptions) {
+        return { error: 'Passkey registration method not available', success: false };
+      }
+
+      const challenge = await passkeyApi.generateRegisterOptions({ headers });
+
+      return {
+        challenge: JSON.stringify(challenge),
+        success: true,
+      };
+    } catch (error) {
+      this.logger.debug(`Passkey challenge error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { error: error instanceof Error ? error.message : 'Failed to get passkey challenge', success: false };
+    }
+  }
+
+  /**
+   * List passkeys for the current user
+   */
+  @Query(() => [BetterAuthPasskeyModel], {
+    description: 'List passkeys for the current user',
+    nullable: true,
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyModel[] | null> {
+    if (!this.betterAuthService.isEnabled() || !this.betterAuthService.isPasskeyEnabled()) {
+      return null;
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return null;
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const passkeyApi = (api as Record<string, unknown>).passkey as
+        | undefined
+        | {
+            listUserPasskeys?: (params: {
+              headers: Headers;
+            }) => Promise<{ createdAt: Date; credentialID: string; id: string; name?: string }[]>;
+          };
+
+      if (!passkeyApi?.listUserPasskeys) {
+        return null;
+      }
+
+      const passkeys = await passkeyApi.listUserPasskeys({ headers });
+
+      return passkeys.map((pk) => ({
+        createdAt: pk.createdAt,
+        credentialId: pk.credentialID,
+        id: pk.id,
+        name: pk.name,
+      }));
+    } catch (error) {
+      this.logger.debug(`List passkeys error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a passkey
+   */
+  @Mutation(() => Boolean, {
+    description: 'Delete a passkey by ID',
+  })
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  async betterAuthDeletePasskey(
+    @Args('passkeyId') passkeyId: string,
+    @Context() ctx: { req: Request },
+  ): Promise<boolean> {
+    this.ensureEnabled();
+
+    if (!this.betterAuthService.isPasskeyEnabled()) {
+      throw new BadRequestException('Passkey authentication is not enabled on this server');
+    }
+
+    const api = this.betterAuthService.getApi();
+    if (!api) {
+      return false;
+    }
+
+    try {
+      const headers = this.convertHeaders(ctx.req.headers);
+
+      const passkeyApi = (api as Record<string, unknown>).passkey as
+        | undefined
+        | {
+            deletePasskey?: (params: { body: { id: string }; headers: Headers }) => Promise<{ status: boolean }>;
+          };
+
+      if (!passkeyApi?.deletePasskey) {
+        throw new BadRequestException('Delete passkey method not available');
+      }
+
+      const response = await passkeyApi.deletePasskey({
+        body: { id: passkeyId },
+        headers,
+      });
+
+      return response?.status === true;
+    } catch (error) {
+      this.logger.debug(`Delete passkey error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  // ===========================================================================
   // Helper Methods
   // ===========================================================================
 
@@ -325,7 +626,7 @@ export class BetterAuthResolver {
   private ensureEnabled(): void {
     if (!this.betterAuthService.isEnabled()) {
       throw new BadRequestException(
-        'Better-Auth is not enabled. Configure betterAuth.enabled: true in your environment.',
+        'Better-Auth is not enabled. Check that betterAuth.enabled is not set to false in your environment.',
       );
     }
   }

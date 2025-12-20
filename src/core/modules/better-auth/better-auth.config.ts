@@ -5,7 +5,7 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { jwt, twoFactor } from 'better-auth/plugins';
 import * as crypto from 'crypto';
 
-import { IBetterAuth, IBetterAuthSocialProvider } from '../../common/interfaces/server-options.interface';
+import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 
 /**
  * Type for better-auth instance with plugins
@@ -65,6 +65,12 @@ export interface CreateBetterAuthOptions {
 }
 
 /**
+ * Better-Auth field type definition
+ * Matches the DBFieldType from better-auth
+ */
+type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
+
+/**
  * Social provider configuration for better-auth
  */
 interface SocialProviderConfig {
@@ -73,9 +79,15 @@ interface SocialProviderConfig {
 }
 
 /**
- * Social provider names supported by the configuration
+ * User field configuration type for Better-Auth
+ * Matches the DBFieldAttribute structure from better-auth
  */
-type SocialProviderName = 'apple' | 'github' | 'google';
+interface UserFieldConfig {
+  defaultValue?: unknown;
+  fieldName?: string;
+  required?: boolean;
+  type: BetterAuthFieldType;
+}
 
 /**
  * Validation result for configuration
@@ -120,10 +132,10 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
   const plugins = buildPlugins(config);
   const socialProviders = buildSocialProviders(config);
   const trustedOrigins = buildTrustedOrigins(config);
+  const additionalFields = buildUserFields(config);
 
-  // Create and return the better-auth instance
-  // Using user configuration to integrate with existing users collection
-  return betterAuth({
+  // Build the base Better-Auth configuration
+  const betterAuthConfig = {
     basePath: config.basePath || '/iam',
     baseURL: config.baseUrl || 'http://localhost:3000',
     database: mongodbAdapter(db),
@@ -132,53 +144,34 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     socialProviders,
     trustedOrigins,
     user: {
-      // Map Better-Auth fields to our User model fields
-      // Note: twoFactorSecret is managed by Better-Auth's twoFactor plugin in separate table
-      additionalFields: {
-        firstName: {
-          defaultValue: null,
-          fieldName: 'firstName',
-          type: 'string',
-        },
-        iamId: {
-          defaultValue: null,
-          fieldName: 'iamId',
-          type: 'string',
-        },
-        lastName: {
-          defaultValue: null,
-          fieldName: 'lastName',
-          type: 'string',
-        },
-        roles: {
-          defaultValue: [],
-          fieldName: 'roles',
-          type: 'string[]',
-        },
-        twoFactorEnabled: {
-          defaultValue: false,
-          fieldName: 'twoFactorEnabled',
-          type: 'boolean',
-        },
-        verified: {
-          defaultValue: false,
-          fieldName: 'verified',
-          type: 'boolean',
-        },
-      },
+      additionalFields,
       modelName: 'users',
     },
-  });
+  };
+
+  // Merge with custom options passthrough
+  // This allows projects to configure any Better-Auth option not explicitly defined
+  const finalConfig = config.options ? { ...betterAuthConfig, ...config.options } : betterAuthConfig;
+
+  // Create and return the better-auth instance
+  // Type assertion needed for maximum flexibility - allows projects to use any Better-Auth option
+
+  return betterAuth(finalConfig as any);
 }
 
 /**
- * Builds the plugins array based on configuration
+ * Builds the plugins array based on configuration.
+ * Merges built-in plugins (jwt, twoFactor, passkey) with custom plugins from config.
+ *
+ * Plugins are enabled by default when their configuration block is present.
+ * Set `enabled: false` to explicitly disable a configured plugin.
  */
 function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   const plugins: BetterAuthPlugin[] = [];
 
   // JWT Plugin for API client compatibility
-  if (config.jwt?.enabled) {
+  // Enabled by default when jwt config is present, unless explicitly disabled
+  if (config.jwt && config.jwt.enabled !== false) {
     plugins.push(
       jwt({
         jwt: {
@@ -189,7 +182,8 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   }
 
   // Two-Factor Authentication Plugin
-  if (config.twoFactor?.enabled) {
+  // Enabled by default when twoFactor config is present, unless explicitly disabled
+  if (config.twoFactor && config.twoFactor.enabled !== false) {
     plugins.push(
       twoFactor({
         issuer: config.twoFactor.appName || 'Nest Server',
@@ -198,7 +192,8 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   }
 
   // Passkey/WebAuthn Plugin
-  if (config.passkey?.enabled) {
+  // Enabled by default when passkey config is present, unless explicitly disabled
+  if (config.passkey && config.passkey.enabled !== false) {
     plugins.push(
       passkey({
         origin: config.passkey.origin || 'http://localhost:3000',
@@ -208,23 +203,34 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
     );
   }
 
+  // Merge custom plugins from configuration
+  // This allows projects to add any Better-Auth plugin without modifying this package
+  if (config.plugins?.length) {
+    plugins.push(...(config.plugins as BetterAuthPlugin[]));
+  }
+
   return plugins;
 }
 
 /**
- * Builds the social providers configuration object
+ * Builds the social providers configuration object dynamically.
+ * Iterates over all configured providers and includes those that are enabled
+ * with valid clientId and clientSecret.
  */
-function buildSocialProviders(config: IBetterAuth): Partial<Record<SocialProviderName, SocialProviderConfig>> {
-  const socialProvidersConfig: Partial<Record<SocialProviderName, SocialProviderConfig>> = {};
-  const providerNames: SocialProviderName[] = ['apple', 'github', 'google'];
+function buildSocialProviders(config: IBetterAuth): Record<string, SocialProviderConfig> {
+  const socialProvidersConfig: Record<string, SocialProviderConfig> = {};
 
-  for (const name of providerNames) {
-    const provider: IBetterAuthSocialProvider | undefined = config.socialProviders?.[name];
-    if (provider?.enabled && provider.clientId && provider.clientSecret) {
-      socialProvidersConfig[name] = {
-        clientId: provider.clientId,
-        clientSecret: provider.clientSecret,
-      };
+  // Iterate over all configured social providers dynamically
+  // A provider is enabled by default if it has credentials configured
+  // It can be explicitly disabled by setting enabled: false
+  if (config.socialProviders) {
+    for (const [name, provider] of Object.entries(config.socialProviders)) {
+      if (provider?.clientId && provider?.clientSecret && provider?.enabled !== false) {
+        socialProvidersConfig[name] = {
+          clientId: provider.clientId,
+          clientSecret: provider.clientSecret,
+        };
+      }
     }
   }
 
@@ -242,6 +248,62 @@ function buildTrustedOrigins(config: IBetterAuth): string[] {
     return [config.baseUrl];
   }
   return ['http://localhost:3000'];
+}
+
+/**
+ * Builds the user additional fields configuration.
+ * Merges core fields (firstName, lastName, etc.) with custom fields from config.
+ * Custom fields override core fields if they have the same key.
+ */
+function buildUserFields(config: IBetterAuth): Record<string, UserFieldConfig> {
+  // Core fields required for nest-server functionality
+  const coreFields: Record<string, UserFieldConfig> = {
+    firstName: {
+      defaultValue: null,
+      fieldName: 'firstName',
+      type: 'string',
+    },
+    iamId: {
+      defaultValue: null,
+      fieldName: 'iamId',
+      type: 'string',
+    },
+    lastName: {
+      defaultValue: null,
+      fieldName: 'lastName',
+      type: 'string',
+    },
+    roles: {
+      defaultValue: [],
+      fieldName: 'roles',
+      type: 'string[]',
+    },
+    twoFactorEnabled: {
+      defaultValue: false,
+      fieldName: 'twoFactorEnabled',
+      type: 'boolean',
+    },
+    verified: {
+      defaultValue: false,
+      fieldName: 'verified',
+      type: 'boolean',
+    },
+  };
+
+  // Merge with custom additional fields from configuration
+  // Custom fields can override core fields or add new ones
+  if (config.additionalUserFields) {
+    for (const [key, field] of Object.entries(config.additionalUserFields)) {
+      coreFields[key] = {
+        defaultValue: field.defaultValue,
+        fieldName: field.fieldName || key,
+        required: field.required,
+        type: field.type,
+      };
+    }
+  }
+
+  return coreFields;
 }
 
 /**
@@ -353,16 +415,36 @@ function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefin
     errors.push(`Invalid passkey origin format: ${config.passkey.origin}`);
   }
 
-  // Validate social providers
-  const providerNames: SocialProviderName[] = ['google', 'github', 'apple'];
-  for (const name of providerNames) {
-    const provider = config.socialProviders?.[name];
-    if (provider?.enabled) {
-      if (!provider.clientId) {
-        errors.push(`Social provider '${name}' is enabled but missing clientId`);
-      }
-      if (!provider.clientSecret) {
-        errors.push(`Social provider '${name}' is enabled but missing clientSecret`);
+  // Validate social providers dynamically
+  // Providers are enabled by default unless explicitly disabled (enabled: false)
+  // We only validate credentials for providers that are not explicitly disabled
+  if (config.socialProviders) {
+    for (const [name, provider] of Object.entries(config.socialProviders)) {
+      // Provider is considered active if: configured AND not explicitly disabled
+      if (provider && provider.enabled !== false) {
+        // Validate that credentials are provided for active providers
+        const hasClientId = !!provider.clientId;
+        const hasClientSecret = !!provider.clientSecret;
+
+        if (hasClientId && hasClientSecret) {
+          // Both credentials present - provider is fully configured
+          continue;
+        } else if (hasClientId || hasClientSecret) {
+          // Only one credential provided - this is an error
+          if (!hasClientId) {
+            errors.push(`Social provider '${name}' is missing clientId`);
+          }
+          if (!hasClientSecret) {
+            errors.push(`Social provider '${name}' is missing clientSecret`);
+          }
+        } else {
+          // No credentials provided but provider is configured and not disabled
+          // This is likely a configuration mistake - warn the user
+          warnings.push(
+            `Social provider '${name}' is configured but missing both clientId and clientSecret. ` +
+              `Set 'enabled: false' to disable it explicitly, or provide credentials to enable it.`,
+          );
+        }
       }
     }
   }

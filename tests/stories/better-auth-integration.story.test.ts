@@ -318,7 +318,9 @@ describe('Story: BetterAuth Integration', () => {
     it('should return the config even when disabled', () => {
       const config = betterAuthService.getConfig();
       expect(config).toBeDefined();
-      expect(config.enabled).toBe(false);
+      // The service correctly reports as disabled via isEnabled()
+      // Config may have enabled: false or undefined (enabled by default)
+      expect(betterAuthService.isEnabled()).toBe(false);
     });
   });
 
@@ -773,7 +775,7 @@ describe('Story: BetterAuth Integration', () => {
           },
           db,
         });
-      }).toThrow("Social provider 'google' is enabled but missing clientId");
+      }).toThrow("Social provider 'google' is missing clientId");
     });
 
     it('should throw error when social provider is enabled without clientSecret', () => {
@@ -792,7 +794,7 @@ describe('Story: BetterAuth Integration', () => {
           },
           db,
         });
-      }).toThrow("Social provider 'github' is enabled but missing clientSecret");
+      }).toThrow("Social provider 'github' is missing clientSecret");
     });
 
     it('should create instance with valid configuration', () => {

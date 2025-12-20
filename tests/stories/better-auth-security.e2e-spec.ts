@@ -92,7 +92,7 @@ describe('Story: BetterAuth Security Integration', () => {
         expect(result).not.toBeNull();
         expect(result!.iamId).toBe(sessionUser.id);
         expect(result!.email).toBe(sessionUser.email);
-        expect(result!.roles).toContain(RoleEnum.S_USER);
+        expect(result!.roles).toEqual([]); // S_ roles are system checks, not stored in user.roles
         expect(result!._authenticatedViaBetterAuth).toBe(true);
         expect(typeof result!.hasRole).toBe('function');
       });
@@ -274,7 +274,7 @@ describe('Story: BetterAuth Security Integration', () => {
           expect(result).not.toBeNull();
           expect(result.email).toBe(testEmail);
           expect(result.iamId).toBe(sessionUser.id);
-          expect(result.roles).toContain(RoleEnum.S_USER);
+          expect(result.roles).toEqual([]); // S_ roles are system checks, not stored in user.roles
         } finally {
           await db.collection('users').deleteOne({ email: testEmail });
         }

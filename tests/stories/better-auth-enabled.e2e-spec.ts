@@ -528,7 +528,7 @@ describe('Story: BetterAuth Enabled Integration', () => {
               },
               $setOnInsert: {
                 createdAt: new Date(),
-                roles: [RoleEnum.S_USER],
+                roles: [], // S_ roles are system checks, not stored in user.roles
               },
             },
             { upsert: true },
@@ -537,7 +537,7 @@ describe('Story: BetterAuth Enabled Integration', () => {
           // Verify user was created with default role
           const user = await db.collection('users').findOne({ email: testEmail });
           expect(user).toBeDefined();
-          expect(user.roles).toContain(RoleEnum.S_USER);
+          expect(user.roles).toEqual([]); // S_ roles are system checks, not stored in user.roles
           expect(user.iamId).toBe(iamId);
         } finally {
           await db.collection('users').deleteOne({ email: testEmail });

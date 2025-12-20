@@ -55,7 +55,7 @@ export interface BetterAuthModuleOptions {
  * - Creates and configures a better-auth instance based on server configuration
  * - Integrates with @thallesp/nestjs-better-auth for NestJS support
  * - Supports JWT, 2FA, Passkey, and Social Login based on configuration
- * - Only activates when betterAuth.enabled is true in configuration
+ * - Enabled by default (zero-config) - set `enabled: false` to disable explicitly
  * - Uses the global mongoose connection for MongoDB access
  *
  * @example
@@ -199,7 +199,6 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    * Creates an async dynamic module for BetterAuth
    * This is the preferred method as it properly waits for mongoose connection.
    *
-   * @param configService - ConfigService instance (optional, can use inject pattern)
    * @returns Dynamic module configuration
    */
   static forRootAsync(): DynamicModule {
@@ -384,39 +383,45 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
-   * Logs which features are enabled
+   * Logs which features are enabled.
+   * Features are enabled by default when their config block is present,
+   * unless explicitly disabled with enabled: false.
    */
   private static logEnabledFeatures(config: IBetterAuth): void {
     const features: string[] = [];
 
-    if (config.jwt?.enabled) {
+    // Plugins are enabled by default when config block is present
+    if (config.jwt && config.jwt.enabled !== false) {
       features.push('JWT');
     }
-    if (config.twoFactor?.enabled) {
+    if (config.twoFactor && config.twoFactor.enabled !== false) {
       features.push('2FA/TOTP');
     }
-    if (config.passkey?.enabled) {
+    if (config.passkey && config.passkey.enabled !== false) {
       features.push('Passkey/WebAuthn');
     }
-    if (config.legacyPassword?.enabled) {
+    if (config.legacyPassword && config.legacyPassword.enabled !== false) {
       features.push('Legacy Password Handling');
     }
 
+    // Dynamically collect enabled social providers
+    // Providers are enabled by default if they have credentials configured
+    // Only disabled when explicitly set to enabled: false
     const socialProviders: string[] = [];
-    if (config.socialProviders?.google?.enabled) {
-      socialProviders.push('Google');
-    }
-    if (config.socialProviders?.github?.enabled) {
-      socialProviders.push('GitHub');
-    }
-    if (config.socialProviders?.apple?.enabled) {
-      socialProviders.push('Apple');
+    if (config.socialProviders) {
+      for (const [name, provider] of Object.entries(config.socialProviders)) {
+        if (provider?.clientId && provider?.clientSecret && provider?.enabled !== false) {
+          // Capitalize first letter for display
+          socialProviders.push(name.charAt(0).toUpperCase() + name.slice(1));
+        }
+      }
     }
 
     if (socialProviders.length > 0) {
       features.push(`Social Login (${socialProviders.join(', ')})`);
     }
 
+    // Rate limiting still requires explicit enabled: true
     if (config.rateLimit?.enabled) {
       features.push(`Rate Limiting (${config.rateLimit.max || 10}/${config.rateLimit.windowSeconds || 60}s)`);
     }

@@ -64,6 +64,60 @@ export class BetterAuthSessionInfoModel {
 }
 
 /**
+ * Better-Auth 2FA Setup Model (returned when enabling 2FA)
+ */
+@ObjectType({ description: 'Better-Auth 2FA setup data' })
+@Restricted(RoleEnum.S_USER)
+export class BetterAuth2FASetupModel {
+  @Field(() => Boolean, { description: 'Whether the operation was successful' })
+  success: boolean;
+
+  @Field(() => String, { description: 'TOTP URI for QR code generation', nullable: true })
+  totpUri?: string;
+
+  @Field(() => [String], { description: 'Backup codes for account recovery', nullable: true })
+  backupCodes?: string[];
+
+  @Field(() => String, { description: 'Error message if failed', nullable: true })
+  error?: string;
+}
+
+/**
+ * Better-Auth Passkey Model
+ */
+@ObjectType({ description: 'Better-Auth Passkey' })
+@Restricted(RoleEnum.S_USER)
+export class BetterAuthPasskeyModel {
+  @Field(() => String, { description: 'Passkey ID' })
+  id: string;
+
+  @Field(() => String, { description: 'Passkey name', nullable: true })
+  name?: string;
+
+  @Field(() => String, { description: 'Credential ID' })
+  credentialId: string;
+
+  @Field(() => Date, { description: 'Creation date' })
+  createdAt: Date;
+}
+
+/**
+ * Better-Auth Passkey Registration Challenge
+ */
+@ObjectType({ description: 'Better-Auth Passkey registration challenge' })
+@Restricted(RoleEnum.S_USER)
+export class BetterAuthPasskeyChallengeModel {
+  @Field(() => Boolean, { description: 'Whether the operation was successful' })
+  success: boolean;
+
+  @Field(() => String, { description: 'Challenge data (JSON)', nullable: true })
+  challenge?: string;
+
+  @Field(() => String, { description: 'Error message if failed', nullable: true })
+  error?: string;
+}
+
+/**
  * Better-Auth features status
  */
 @ObjectType({ description: 'Better-Auth features status' })
