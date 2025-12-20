@@ -1,4 +1,4 @@
-import { FilterQuery, QueryOptions } from 'mongoose';
+import { QueryFilter, QueryOptions } from 'mongoose';
 
 import { FilterArgs } from '../args/filter.args';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
@@ -19,14 +19,14 @@ export class Filter {
    * Convert filter arguments to a query array
    * @param filterArgs
    */
-  public static convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
-    return convertFilterArgsToQuery(filterArgs);
+  public static convertFilterArgsToQuery<T = Record<string, any>>(filterArgs: Partial<FilterArgs>): [T, QueryOptions] {
+    return convertFilterArgsToQuery<T>(filterArgs);
   }
 
   /**
    * Generate filter query
    */
-  public static generateFilterQuery<T = any>(filter?: Partial<FilterInput>): any | FilterQuery<T> {
+  public static generateFilterQuery<T = any>(filter?: Partial<FilterInput>): any | QueryFilter<T> {
     return generateFilterQuery(filter);
   }
 
@@ -41,31 +41,29 @@ export class Filter {
 /**
  * Convert filter arguments to a query array
  */
-export function convertFilterArgsToQuery<T = any>(filterArgs: Partial<FilterArgs>): [FilterQuery<T>, QueryOptions] {
-  return [generateFilterQuery(filterArgs?.filter), generateFindOptions(filterArgs)];
+export function convertFilterArgsToQuery<T = Record<string, any>>(filterArgs: Partial<FilterArgs>): [T, QueryOptions] {
+  return [generateFilterQuery(filterArgs?.filter) as T, generateFindOptions(filterArgs)];
 }
 
 /**
  * Merge FilterArgs and FilterQueries
  */
-export function filterMerge<T = unknown>(
+export function filterMerge<T = Record<string, any>>(
   filterArgs: Partial<FilterArgs>,
-  filterQuery: Partial<FilterQuery<T>>,
+  filterQuery: Partial<T>,
   options?: {
     operator?: '$and' | '$nor' | '$or';
     queryOptions?: Partial<QueryOptions>;
     samples?: number;
   },
-): { filterQuery: FilterQuery<T>; queryOptions?: QueryOptions; samples?: number } {
+): { filterQuery: T; queryOptions?: QueryOptions; samples?: number } {
   const config = {
     operator: '$and',
     ...options,
   };
   const converted = convertFilterArgsToQuery(filterArgs);
   return {
-    filterQuery: (converted[0]
-      ? { [config.operator]: [converted[0], filterQuery || {}] }
-      : filterQuery) as FilterQuery<T>,
+    filterQuery: (converted[0] ? { [config.operator]: [converted[0], filterQuery || {}] } : filterQuery) as T,
     queryOptions: converted[1] || config.queryOptions ? { ...converted[1], ...config.queryOptions } : undefined,
     samples: config.samples,
   };
@@ -76,18 +74,18 @@ export function filterMerge<T = unknown>(
  */
 export function findFilter(options?: {
   conditions?: Record<string, any>[];
-  filterOptions?: FilterQuery<any>;
+  filterOptions?: QueryFilter<any>;
   id?: any;
   ids?: any[];
   type?: '$and' | '$nor' | '$or';
-}): FilterQuery<any> {
+}): QueryFilter<any> {
   const config = {
     type: '$and',
     ...options,
   };
 
   // Init filter Option
-  let filterOptions: FilterQuery<any> = config?.filterOptions;
+  let filterOptions: QueryFilter<any> = config?.filterOptions;
 
   // Check where condition
   if (!filterOptions) {
@@ -120,7 +118,7 @@ export function findFilter(options?: {
   }
 
   // Filter falsy values
-  filterOptions[config.type] = filterOptions[config.type].filter(value => value);
+  filterOptions[config.type] = filterOptions[config.type].filter((value) => value);
 
   // Optimizations
   if (!filterOptions[config.type].length) {
@@ -143,7 +141,7 @@ export function findFilter(options?: {
 export function generateFilterQuery<T = any>(
   filter?: Partial<FilterInput>,
   options?: { automaticObjectIdFiltering?: boolean },
-): any | FilterQuery<T> {
+): any | QueryFilter<T> {
   // Check filter
   if (!filter) {
     return undefined;

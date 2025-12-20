@@ -166,7 +166,7 @@ export class GridFSHelper {
    */
   static async findFiles(bucket: GridFSBucket, filter: any = {}, options: any = {}): Promise<GridFSFileInfo[]> {
     const files = await bucket.find(filter, options).toArray();
-    return files.map(file => GridFSHelper.normalizeFileInfo(file));
+    return files.map((file) => GridFSHelper.normalizeFileInfo(file));
   }
 
   /**
@@ -200,12 +200,12 @@ export class GridFSHelper {
     filename: string,
     options?: { contentType?: string },
   ): mongo.GridFSBucketWriteStream {
-    // Store contentType in metadata to avoid deprecation warning
+    // Store contentType in metadata (mongodb 7.x no longer has contentType option)
     if (options?.contentType) {
       const metadata = { contentType: options.contentType };
       return bucket.openUploadStream(filename, { metadata });
     }
-    return bucket.openUploadStream(filename, options);
+    return bucket.openUploadStream(filename);
   }
 
   /**
@@ -217,11 +217,11 @@ export class GridFSHelper {
     filename: string,
     options?: { contentType?: string },
   ): mongo.GridFSBucketWriteStream {
-    // Store contentType in metadata to avoid deprecation warning
+    // Store contentType in metadata (mongodb 7.x no longer has contentType option)
     if (options?.contentType) {
       const metadata = { contentType: options.contentType };
       return bucket.openUploadStreamWithId(id, filename, { metadata });
     }
-    return bucket.openUploadStreamWithId(id, filename, options);
+    return bucket.openUploadStreamWithId(id, filename);
   }
 }

@@ -9,7 +9,6 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 - **JWT Tokens** - For API clients and stateless authentication
 - **Two-Factor Authentication (2FA)** - TOTP-based second factor
 - **Passkey/WebAuthn** - Passwordless authentication
-- **Legacy Password Handling** - Migration support for existing users
 
 ### Core Features
 
@@ -26,16 +25,46 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 
 ## Quick Start
 
-**True Zero-Config: Better-Auth is enabled by default!** No configuration block is required - it works out of the box.
+Better-Auth is **enabled by default** and uses sensible defaults. Integration follows the same pattern as Legacy Auth - via an extended module in your project.
+
+### 1. Create Extended Module (Recommended)
 
 ```typescript
-// Works automatically - no betterAuth config needed!
-// Better-Auth will use sensible defaults and fallback secrets
+// src/server/modules/better-auth/better-auth.module.ts
+import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
 
-// To customize behavior (optional):
+@Module({})
+export class BetterAuthModule {
+  static forRoot(options) {
+    return {
+      module: BetterAuthModule,
+      imports: [CoreBetterAuthModule.forRoot(options)],
+    };
+  }
+}
+```
+
+### 2. Import in ServerModule
+
+```typescript
+// src/server/server.module.ts
+import { BetterAuthModule } from './modules/better-auth/better-auth.module';
+
+@Module({
+  imports: [
+    CoreModule.forRoot(environment),
+    BetterAuthModule.forRoot({ config: environment.betterAuth }),
+  ],
+})
+export class ServerModule {}
+```
+
+### 3. Configure (Optional)
+
+```typescript
+// config.env.ts - customize behavior (optional):
 const config = {
   betterAuth: {
-    // Only add this block if you need to override defaults
     // baseUrl: 'https://your-domain.com',
     // basePath: '/iam',
   },
@@ -51,12 +80,12 @@ const config = {
 - **Passkey rpId**: `localhost`
 - **Passkey rpName**: `Nest Server`
 
-To **explicitly disable** Better-Auth (the only way to turn it off):
+To **explicitly disable** Better-Auth:
 
 ```typescript
 const config = {
   betterAuth: {
-    enabled: false, // Only way to disable Better-Auth
+    enabled: false,
   },
 };
 ```
@@ -262,10 +291,6 @@ export default {
       },
     },
 
-    // Legacy Password Handling (enabled by default when config block is present)
-    // Set enabled: false to explicitly disable
-    legacyPassword: {},
-
     // Trusted Origins for CORS
     trustedOrigins: ['http://localhost:3000', 'https://your-app.com'],
 
@@ -281,6 +306,127 @@ export default {
   },
 };
 ```
+
+## Advanced Configuration
+
+### Email/Password Authentication
+
+Email/password authentication is enabled by default. You can disable it if you only want social login:
+
+```typescript
+const config = {
+  betterAuth: {
+    emailAndPassword: {
+      enabled: false, // Disable email/password, only allow social login
+    },
+  },
+};
+```
+
+### Additional User Fields
+
+Add custom fields to the Better-Auth user schema:
+
+```typescript
+const config = {
+  betterAuth: {
+    additionalUserFields: {
+      phoneNumber: { type: 'string', defaultValue: null },
+      department: { type: 'string', required: true },
+      preferences: { type: 'string', defaultValue: '{}' },
+      isActive: { type: 'boolean', defaultValue: true },
+    },
+  },
+};
+```
+
+**Available field types:** `'string'`, `'number'`, `'boolean'`, `'date'`, `'json'`, `'string[]'`, `'number[]'`
+
+### Module Integration (Recommended Pattern)
+
+By default (`autoRegister: false`), projects integrate BetterAuth via an **extended module** in their project. This follows the same pattern as Legacy Auth and allows for custom resolvers, controllers, and project-specific authentication logic.
+
+```typescript
+// src/server/modules/better-auth/better-auth.module.ts
+import { Module, DynamicModule } from '@nestjs/common';
+import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+
+@Module({})
+export class BetterAuthModule {
+  static forRoot(options): DynamicModule {
+    return {
+      module: BetterAuthModule,
+      imports: [CoreBetterAuthModule.forRoot(options)],
+      // Add custom providers, resolvers, etc.
+    };
+  }
+}
+
+// src/server/server.module.ts
+import { BetterAuthModule } from './modules/better-auth/better-auth.module';
+
+@Module({
+  imports: [
+    CoreModule.forRoot(environment),
+    BetterAuthModule.forRoot({
+      config: environment.betterAuth,
+      resolver: CustomBetterAuthResolver, // Optional custom resolver
+    }),
+  ],
+})
+export class ServerModule {}
+```
+
+### Auto-Registration (Simple Projects)
+
+For simple projects that don't need customization, you can enable auto-registration:
+
+```typescript
+// In config.env.ts
+const config = {
+  betterAuth: {
+    autoRegister: true, // Enable auto-registration in CoreModule
+  },
+};
+
+// No manual import needed - CoreModule handles everything
+@Module({
+  imports: [CoreModule.forRoot(environment)],
+})
+export class ServerModule {}
+```
+
+### Options Passthrough
+
+For full Better-Auth customization, use the `options` passthrough. These options are passed directly to Better-Auth:
+
+```typescript
+const config = {
+  betterAuth: {
+    options: {
+      emailAndPassword: {
+        requireEmailVerification: true,
+        sendResetPassword: async ({ user, url }) => {
+          // Custom password reset email logic
+        },
+      },
+      account: {
+        accountLinking: { enabled: true },
+      },
+      session: {
+        expiresIn: 60 * 60 * 24 * 7, // 7 days
+        updateAge: 60 * 60 * 24, // 1 day
+      },
+      advanced: {
+        cookiePrefix: 'my-app',
+        useSecureCookies: true,
+      },
+    },
+  },
+};
+```
+
+See [Better-Auth Options Reference](https://www.better-auth.com/docs/reference/options) for all available options.
 
 ## Plugins and Extensions
 
@@ -298,7 +444,6 @@ These plugins are enabled by default when their config block is present. **All p
 | **JWT**            | `jwt: {}`            | `expiresIn: '15m'`                                                                |
 | **Two-Factor**     | `twoFactor: {}`      | `appName: 'Nest Server'`                                                          |
 | **Passkey**        | `passkey: {}`        | `origin: 'http://localhost:3000'`, `rpId: 'localhost'`, `rpName: 'Nest Server'`   |
-| **Legacy Password**| `legacyPassword: {}` | No config needed                                                                  |
 
 #### Minimal Syntax (Recommended for Development)
 
@@ -309,7 +454,6 @@ const config = {
     jwt: {},
     twoFactor: {},
     passkey: {},
-    legacyPassword: {},
   },
 };
 ```
@@ -326,7 +470,6 @@ const config = {
       rpName: 'My App',
       origin: 'https://example.com',
     },
-    legacyPassword: {},
   },
 };
 ```
@@ -472,50 +615,80 @@ const config = {
 
 ## Module Setup
 
-The Better-Auth module is **automatically enabled by default** - no configuration required (true zero-config). It will only be disabled if you explicitly set `enabled: false`.
+Better-Auth is **enabled by default** but requires explicit module integration (`autoRegister: false` by default). This follows the same pattern as Legacy Auth, giving projects full control over customization.
 
-### Using with CoreModule
+### Recommended: Extended Module Pattern
+
+Projects typically integrate Better-Auth via an extended module:
 
 ```typescript
-// In your ServerModule
+// src/server/modules/better-auth/better-auth.module.ts
+import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+
+@Module({})
+export class BetterAuthModule {
+  static forRoot(options): DynamicModule {
+    return {
+      module: BetterAuthModule,
+      imports: [CoreBetterAuthModule.forRoot(options)],
+    };
+  }
+}
+
+// src/server/server.module.ts
 @Module({
   imports: [
     CoreModule.forRoot(environment),
-    // BetterAuthModule is automatically included and configured
-    // No betterAuth config block needed - works out of the box!
+    BetterAuthModule.forRoot({ config: environment.betterAuth }),
   ],
 })
 export class ServerModule {}
 ```
 
-### Standalone Usage
+### Simple: Auto-Registration
+
+For simple projects without customization needs:
 
 ```typescript
-import { BetterAuthModule } from '@lenne.tech/nest-server';
+// In config.env.ts
+const config = {
+  betterAuth: {
+    autoRegister: true, // Let CoreModule handle registration
+  },
+};
 
+// In server.module.ts - no manual import needed
 @Module({
-  imports: [
-    BetterAuthModule.forRoot({
-      config: environment.betterAuth,
-    }),
-  ],
+  imports: [CoreModule.forRoot(environment)],
 })
-export class AppModule {}
+export class ServerModule {}
+```
+
+### Disable Better-Auth
+
+To explicitly disable Better-Auth:
+
+```typescript
+const config = {
+  betterAuth: {
+    enabled: false,
+  },
+};
 ```
 
 ## REST API Endpoints
 
 When enabled, Better-Auth exposes the following endpoints at the configured `basePath` (default: `/iam`):
 
-| Endpoint              | Method | Description                  |
-| --------------------- | ------ | ---------------------------- |
-| `/iam/sign-up`        | POST   | Register new user            |
-| `/iam/sign-in`        | POST   | Sign in with email/password  |
-| `/iam/sign-out`       | POST   | Sign out (invalidate session)|
-| `/iam/session`        | GET    | Get current session          |
-| `/iam/forgot-password`| POST   | Request password reset       |
-| `/iam/reset-password` | POST   | Reset password with token    |
-| `/iam/verify-email`   | POST   | Verify email address         |
+| Endpoint                    | Method | Description                  |
+| --------------------------- | ------ | ---------------------------- |
+| `/iam/sign-up/email`        | POST   | Register new user            |
+| `/iam/sign-in/email`        | POST   | Sign in with email/password  |
+| `/iam/sign-out`             | GET    | Sign out (invalidate session)|
+| `/iam/session`              | GET    | Get current session          |
+| `/iam/forgot-password`      | POST   | Request password reset       |
+| `/iam/reset-password`       | POST   | Reset password with token    |
+| `/iam/verify-email`         | POST   | Verify email address         |
 
 ### Social Login Endpoints
 
@@ -601,7 +774,6 @@ type BetterAuthFeaturesModel {
   jwt: Boolean!
   twoFactor: Boolean!
   passkey: Boolean!
-  legacyPassword: Boolean!
   socialProviders: [String!]!
 }
 ```
@@ -799,7 +971,6 @@ export class MyService {
 | `isJwtEnabled()`                    | Check if JWT plugin is enabled               |
 | `isTwoFactorEnabled()`              | Check if 2FA is enabled                      |
 | `isPasskeyEnabled()`                | Check if Passkey is enabled                  |
-| `isLegacyPasswordEnabled()`         | Check if legacy password handling is enabled |
 | `getEnabledSocialProviders()`       | Get list of enabled social providers         |
 | `getBasePath()`                     | Get the base path for endpoints              |
 | `getBaseUrl()`                      | Get the base URL                             |
@@ -1094,3 +1265,158 @@ const config = {
 
 4. **Monitor rate limit events** - The service logs warnings when limits are exceeded
 5. **Consider Redis** - For multi-instance deployments, implement Redis-based rate limiting
+
+## Extending Better-Auth (Custom Resolver)
+
+Better-Auth uses the same extension pattern as Legacy Auth. You can extend `CoreBetterAuthResolver` to add custom logic before/after authentication operations.
+
+### Creating a Custom Resolver
+
+```typescript
+// src/server/modules/better-auth/better-auth.resolver.ts
+import { Resolver } from '@nestjs/graphql';
+import { Roles } from '@lenne.tech/nest-server';
+import {
+  BetterAuthAuthModel,
+  BetterAuthService,
+  BetterAuthUserMapper,
+  CoreBetterAuthResolver,
+  RoleEnum,
+} from '@lenne.tech/nest-server';
+import { EmailService } from '../email/email.service';
+
+@Resolver(() => BetterAuthAuthModel)
+@Roles(RoleEnum.ADMIN)
+export class BetterAuthResolver extends CoreBetterAuthResolver {
+  constructor(
+    betterAuthService: BetterAuthService,
+    userMapper: BetterAuthUserMapper,
+    private readonly emailService: EmailService,
+  ) {
+    super(betterAuthService, userMapper);
+  }
+
+  /**
+   * Override signUp to send welcome email after registration
+   */
+  override async betterAuthSignUp(
+    email: string,
+    password: string,
+    name?: string,
+  ): Promise<BetterAuthAuthModel> {
+    // Call original implementation
+    const result = await super.betterAuthSignUp(email, password, name);
+
+    // Add custom logic after successful sign-up
+    if (result.success && result.user) {
+      await this.emailService.sendWelcomeEmail(result.user.email, result.user.name);
+      await this.analyticsService.trackSignUp(result.user.id);
+    }
+
+    return result;
+  }
+
+  /**
+   * Override signIn to add custom tracking
+   */
+  override async betterAuthSignIn(
+    email: string,
+    password: string,
+    ctx: { req: Request; res: Response },
+  ): Promise<BetterAuthAuthModel> {
+    // Add pre-login logic
+    this.logger.log(`Login attempt for ${email}`);
+
+    const result = await super.betterAuthSignIn(email, password, ctx);
+
+    // Add post-login logic
+    if (result.success && result.user) {
+      await this.analyticsService.trackLogin(result.user.id);
+    }
+
+    return result;
+  }
+}
+```
+
+### Registering the Custom Resolver
+
+**Option 1: Via BetterAuthModule options**
+
+```typescript
+// src/server/server.module.ts
+import { BetterAuthModule } from '@lenne.tech/nest-server';
+import { BetterAuthResolver } from './modules/better-auth/better-auth.resolver';
+
+@Module({
+  imports: [
+    CoreModule.forRoot(environment),
+    BetterAuthModule.forRoot({
+      config: environment.betterAuth,
+      resolver: BetterAuthResolver,  // Your custom resolver
+    }),
+  ],
+})
+export class ServerModule {}
+```
+
+**Option 2: Create your own module (like Legacy Auth)**
+
+```typescript
+// src/server/modules/better-auth/better-auth.module.ts
+import { Module } from '@nestjs/common';
+import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+import { BetterAuthResolver } from './better-auth.resolver';
+import { EmailModule } from '../email/email.module';
+
+@Module({
+  imports: [
+    CoreBetterAuthModule.forRoot({
+      config: environment.betterAuth,
+      resolver: BetterAuthResolver,
+    }),
+    EmailModule,
+  ],
+  providers: [BetterAuthResolver],
+  exports: [BetterAuthResolver],
+})
+export class BetterAuthModule {}
+```
+
+### Available Override Methods
+
+All methods in `CoreBetterAuthResolver` can be overridden:
+
+| Method | Description |
+| ------ | ----------- |
+| `betterAuthSignIn(email, password, ctx)` | Sign in with email/password |
+| `betterAuthSignUp(email, password, name?)` | Register new user |
+| `betterAuthSignOut(ctx)` | Sign out current session |
+| `betterAuthVerify2FA(code, ctx)` | Verify 2FA code |
+| `betterAuthEnable2FA(password, ctx)` | Enable 2FA for user |
+| `betterAuthDisable2FA(password, ctx)` | Disable 2FA for user |
+| `betterAuthGenerateBackupCodes(ctx)` | Generate new backup codes |
+| `betterAuthGetPasskeyChallenge(ctx)` | Get WebAuthn challenge |
+| `betterAuthListPasskeys(ctx)` | List user's passkeys |
+| `betterAuthDeletePasskey(passkeyId, ctx)` | Delete a passkey |
+| `betterAuthSession(ctx)` | Get current session |
+| `betterAuthEnabled()` | Check if Better-Auth is enabled |
+| `betterAuthFeatures()` | Get enabled features |
+
+### Helper Methods (Protected)
+
+These protected methods are available for use in your custom resolver:
+
+```typescript
+// Check if Better-Auth is enabled (throws if not)
+this.ensureEnabled();
+
+// Convert Express headers to Web API Headers
+const headers = this.convertHeaders(ctx.req.headers);
+
+// Map session info
+const sessionInfo = this.mapSessionInfo(response.session);
+
+// Map user to model
+const userModel = this.mapToUserModel(mappedUser);
+```

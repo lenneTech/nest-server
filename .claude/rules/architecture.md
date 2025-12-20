@@ -1,0 +1,69 @@
+# Code Architecture
+
+## Framework Stack
+
+- **NestJS** - Server framework
+- **GraphQL** - API layer (Apollo Server)
+- **MongoDB** - Database (Mongoose ODM)
+
+## Two-Layer Structure
+
+1. **Core Layer** (`src/core/`) - Reusable framework components (exported to consumers)
+2. **Server Layer** (`src/server/`) - Internal test/demo implementation (not exported)
+
+## Core Module (`src/core.module.ts`)
+
+- Dynamic module providing base functionality
+- Configures GraphQL with Apollo Server, MongoDB with Mongoose
+- Provides global services: ConfigService, EmailService, TemplateService
+- Sets up security interceptors, validation pipes, complexity plugins
+- Handles GraphQL subscriptions with authentication
+
+## Configuration System (`src/config.env.ts`)
+
+Environment-based configuration (development, local, production) with multiple sources:
+
+- Direct environment variables in config file
+- `NEST_SERVER_CONFIG` JSON environment variable
+- `NSC__*` prefixed single environment variables
+
+Key areas: JWT, MongoDB, GraphQL, email, security, static assets
+
+## Core Common Components (`src/core/common/`)
+
+| Type | Components |
+|------|------------|
+| **Decorators** | `@Restricted()`, `@Roles()`, `@CurrentUser()`, `@UnifiedField()` |
+| **Helpers** | Database, GraphQL, filtering, validation utilities |
+| **Security** | Response/security interceptors, input validation pipes |
+| **Scalars** | Custom GraphQL scalars (Date, JSON, Any) |
+| **Services** | CRUD operations, email (Mailjet/SMTP), template rendering |
+
+## Core Modules (`src/core/modules/`)
+
+| Module | Purpose |
+|--------|---------|
+| **Auth** | JWT authentication, refresh tokens, role-based access |
+| **BetterAuth** | Modern auth integration (2FA, Passkey, Social) |
+| **File** | File upload/download with GridFS storage |
+| **User** | Core user management functionality |
+| **HealthCheck** | Application health monitoring |
+
+## Security Implementation
+
+- `@Restricted()` - Field-level access control
+- `@Roles()` - Method-level authorization
+- `CheckResponseInterceptor` - Filters restricted fields
+- `CheckSecurityInterceptor` - Processes `securityCheck()` methods
+
+## Model Inheritance
+
+- `CorePersistenceModel` - Base for database entities
+- `CoreModel` - Base for GraphQL types
+- Automatic ID handling with custom Mongoose plugin
+
+## Input Validation
+
+- `MapAndValidatePipe` - Automatic validation
+- class-validator decorators on input classes
+- Core args classes for filtering/pagination

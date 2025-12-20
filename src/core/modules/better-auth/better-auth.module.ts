@@ -7,9 +7,9 @@ import {
   NestModule,
   OnModuleInit,
   Optional,
+  Type,
 } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
-import { AuthModule, AuthService } from '@thallesp/nestjs-better-auth';
 import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
@@ -21,6 +21,8 @@ import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.conf
 import { BetterAuthMiddleware } from './better-auth.middleware';
 import { BetterAuthResolver } from './better-auth.resolver';
 import { BetterAuthService } from './better-auth.service';
+import { CoreBetterAuthController } from './core-better-auth.controller';
+import { CoreBetterAuthResolver } from './core-better-auth.resolver';
 
 /**
  * Token for injecting the better-auth instance
@@ -37,6 +39,31 @@ export interface BetterAuthModuleOptions {
   config: IBetterAuth;
 
   /**
+   * Custom controller class to use instead of the default CoreBetterAuthController.
+   * The class must extend CoreBetterAuthController.
+   *
+   * @example
+   * ```typescript
+   * // Your custom controller
+   * @Controller('iam')
+   * export class MyBetterAuthController extends CoreBetterAuthController {
+   *   override async signUp(res: Response, input: BetterAuthSignUpInput) {
+   *     const result = await super.signUp(res, input);
+   *     await this.emailService.sendWelcomeEmail(result.user?.email);
+   *     return result;
+   *   }
+   * }
+   *
+   * // In your module
+   * BetterAuthModule.forRoot({
+   *   config: environment.betterAuth,
+   *   controller: MyBetterAuthController,
+   * })
+   * ```
+   */
+  controller?: Type<CoreBetterAuthController>;
+
+  /**
    * Fallback secrets to try if no betterAuth.secret is configured.
    * The array is iterated and the first valid secret (≥32 chars) is used.
    *
@@ -46,6 +73,31 @@ export interface BetterAuthModuleOptions {
    * ```
    */
   fallbackSecrets?: (string | undefined)[];
+
+  /**
+   * Custom resolver class to use instead of the default BetterAuthResolver.
+   * The class must extend CoreBetterAuthResolver.
+   *
+   * @example
+   * ```typescript
+   * // Your custom resolver
+   * @Resolver(() => BetterAuthAuthModel)
+   * export class MyBetterAuthResolver extends CoreBetterAuthResolver {
+   *   override async betterAuthSignUp(...) {
+   *     const result = await super.betterAuthSignUp(...);
+   *     await this.sendWelcomeEmail(result.user);
+   *     return result;
+   *   }
+   * }
+   *
+   * // In your module
+   * BetterAuthModule.forRoot({
+   *   config: environment.betterAuth,
+   *   resolver: MyBetterAuthResolver,
+   * })
+   * ```
+   */
+  resolver?: Type<CoreBetterAuthResolver>;
 }
 
 /**
@@ -53,7 +105,7 @@ export interface BetterAuthModuleOptions {
  *
  * This module:
  * - Creates and configures a better-auth instance based on server configuration
- * - Integrates with @thallesp/nestjs-better-auth for NestJS support
+ * - Provides REST controller (CoreBetterAuthController) and GraphQL resolver (CoreBetterAuthResolver)
  * - Supports JWT, 2FA, Passkey, and Social Login based on configuration
  * - Enabled by default (zero-config) - set `enabled: false` to disable explicitly
  * - Uses the global mongoose connection for MongoDB access
@@ -76,8 +128,25 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   private static logger = new Logger(BetterAuthModule.name);
   private static authInstance: BetterAuthInstance | null = null;
   private static initialized = false;
+  private static initLogged = false;
   private static betterAuthEnabled = false;
   private static currentConfig: IBetterAuth | null = null;
+  private static customController: null | Type<CoreBetterAuthController> = null;
+  private static customResolver: null | Type<CoreBetterAuthResolver> = null;
+
+  /**
+   * Gets the controller class to use (custom or default)
+   */
+  private static getControllerClass(): Type<CoreBetterAuthController> {
+    return this.customController || CoreBetterAuthController;
+  }
+
+  /**
+   * Gets the resolver class to use (custom or default)
+   */
+  private static getResolverClass(): Type<CoreBetterAuthResolver> {
+    return this.customResolver || BetterAuthResolver;
+  }
 
   constructor(
     @Optional() private readonly betterAuthService?: BetterAuthService,
@@ -108,13 +177,13 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
 
       // Apply rate limiting to Better-Auth endpoints only
       if (BetterAuthModule.currentConfig?.rateLimit?.enabled) {
-        consumer.apply(BetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*`);
-        BetterAuthModule.logger.debug(`Rate limiting enabled for ${basePath}/* endpoints`);
+        consumer.apply(BetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*path`);
+        BetterAuthModule.logger.log(`Rate limiting enabled for ${basePath}/*path endpoints`);
       }
 
       // Apply session middleware to all routes
-      consumer.apply(BetterAuthMiddleware).forRoutes('*');
-      BetterAuthModule.logger.debug('BetterAuthMiddleware registered for all routes');
+      consumer.apply(BetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
+      BetterAuthModule.logger.log('BetterAuthMiddleware registered for all routes');
     }
   }
 
@@ -155,10 +224,14 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: BetterAuthModuleOptions): DynamicModule {
-    const { config, fallbackSecrets } = options;
+    const { config, controller, fallbackSecrets, resolver } = options;
 
     // Store config for middleware configuration
     this.currentConfig = config;
+    // Store custom controller if provided
+    this.customController = controller || null;
+    // Store custom resolver if provided
+    this.customResolver = resolver || null;
 
     // If better-auth is explicitly disabled, return minimal module
     // Note: We don't provide middleware classes when disabled because they depend on BetterAuthService
@@ -203,6 +276,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    */
   static forRootAsync(): DynamicModule {
     return {
+      controllers: [this.getControllerClass()],
       exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
       imports: [],
       module: BetterAuthModule,
@@ -249,13 +323,20 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
-        // Note: ConfigService is provided globally by CoreModule
-        BetterAuthService,
+        // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
+        // to ensure proper initialization order
+        {
+          inject: [BETTER_AUTH_INSTANCE, ConfigService],
+          provide: BetterAuthService,
+          useFactory: (authInstance: BetterAuthInstance | null, configService: ConfigService) => {
+            return new BetterAuthService(authInstance, configService);
+          },
+        },
         BetterAuthUserMapper,
         BetterAuthMiddleware,
         BetterAuthRateLimiter,
         BetterAuthRateLimitMiddleware,
-        BetterAuthResolver,
+        this.getResolverClass(),
       ],
     };
   }
@@ -282,57 +363,11 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   static reset(): void {
     this.authInstance = null;
     this.initialized = false;
+    this.initLogged = false;
     this.betterAuthEnabled = false;
     this.currentConfig = null;
-    this.logger.debug('BetterAuthModule state reset');
-  }
-
-  /**
-   * Creates the actual module with better-auth
-   */
-  private static createModule(config: IBetterAuth, db: any, fallbackSecrets?: (string | undefined)[]): DynamicModule {
-    // Create the better-auth instance
-    this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
-
-    if (!this.authInstance) {
-      throw new Error('Failed to create better-auth instance');
-    }
-
-    this.logger.log('BetterAuth initialized successfully');
-    this.logEnabledFeatures(config);
-
-    // Use @thallesp/nestjs-better-auth's AuthModule
-    const authModule = AuthModule.forRoot({
-      auth: this.authInstance,
-      disableControllers: false, // Enable REST endpoints
-      disableGlobalAuthGuard: true, // We use our own RolesGuard
-    });
-
-    return {
-      exports: [
-        BETTER_AUTH_INSTANCE,
-        AuthModule,
-        AuthService,
-        BetterAuthService,
-        BetterAuthUserMapper,
-        BetterAuthRateLimiter,
-      ],
-      imports: [authModule],
-      module: BetterAuthModule,
-      providers: [
-        {
-          provide: BETTER_AUTH_INSTANCE,
-          useValue: this.authInstance,
-        },
-        // Note: ConfigService is provided globally by CoreModule
-        BetterAuthService,
-        BetterAuthUserMapper,
-        BetterAuthMiddleware,
-        BetterAuthRateLimiter,
-        BetterAuthRateLimitMiddleware,
-        BetterAuthResolver,
-      ],
-    };
+    this.customController = null;
+    this.customResolver = null;
   }
 
   /**
@@ -341,6 +376,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    */
   private static createDeferredModule(config: IBetterAuth, fallbackSecrets?: (string | undefined)[]): DynamicModule {
     return {
+      controllers: [this.getControllerClass()],
       exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
       module: BetterAuthModule,
       providers: [
@@ -363,7 +399,8 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
               this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
             }
 
-            if (this.authInstance) {
+            if (this.authInstance && !this.initLogged) {
+              this.initLogged = true;
               this.logger.log('BetterAuth initialized');
               this.logEnabledFeatures(config);
             }
@@ -371,13 +408,20 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
-        // Note: ConfigService is provided globally by CoreModule
-        BetterAuthService,
+        // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
+        // to ensure proper initialization order
+        {
+          inject: [BETTER_AUTH_INSTANCE, ConfigService],
+          provide: BetterAuthService,
+          useFactory: (authInstance: BetterAuthInstance | null, configService: ConfigService) => {
+            return new BetterAuthService(authInstance, configService);
+          },
+        },
         BetterAuthUserMapper,
         BetterAuthMiddleware,
         BetterAuthRateLimiter,
         BetterAuthRateLimitMiddleware,
-        BetterAuthResolver,
+        this.getResolverClass(),
       ],
     };
   }
@@ -399,9 +443,6 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
     }
     if (config.passkey && config.passkey.enabled !== false) {
       features.push('Passkey/WebAuthn');
-    }
-    if (config.legacyPassword && config.legacyPassword.enabled !== false) {
-      features.push('Legacy Password Handling');
     }
 
     // Dynamically collect enabled social providers

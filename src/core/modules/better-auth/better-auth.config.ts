@@ -139,6 +139,11 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     basePath: config.basePath || '/iam',
     baseURL: config.baseUrl || 'http://localhost:3000',
     database: mongodbAdapter(db),
+    // Enable email/password authentication by default (required by Better-Auth 1.x)
+    // Can be disabled by setting config.emailAndPassword.enabled = false
+    emailAndPassword: {
+      enabled: config.emailAndPassword?.enabled !== false,
+    },
     plugins,
     secret: config.secret,
     socialProviders,

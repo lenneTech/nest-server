@@ -40,7 +40,6 @@ import { ServerModule } from '../../src/server/server.module';
 
 describe('Story: Parallel Legacy/Better-Auth Operation', () => {
   // Test environment
-  const port = 3031;
   let app: INestApplication;
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
@@ -90,8 +89,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
-      testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
-      await app.listen(port, '127.0.0.1');
+      testHelper = new TestHelper(app);
 
       // Connection to database
       mongoClient = await MongoClient.connect(envConfig.mongoose.uri);

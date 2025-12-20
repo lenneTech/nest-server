@@ -38,7 +38,6 @@ describe('Story: BetterAuth Enabled Integration', () => {
           getEnabledSocialProviders: () => [],
           isEnabled: () => false,
           isJwtEnabled: () => false,
-          isLegacyPasswordEnabled: () => false,
           isPasskeyEnabled: () => false,
           isTwoFactorEnabled: () => false,
         };
@@ -52,7 +51,6 @@ describe('Story: BetterAuth Enabled Integration', () => {
         const features = {
           enabled: true,
           jwt: true,
-          legacyPassword: true,
           passkey: false,
           socialProviders: ['google'],
           twoFactor: false,
@@ -85,7 +83,6 @@ describe('Story: BetterAuth Enabled Integration', () => {
               baseUrl: 'http://localhost:3000',
               enabled: true,
               jwt: { enabled: true, expiresIn: '15m' },
-              legacyPassword: { enabled: true },
               passkey: { enabled: false },
               rateLimit: { enabled: true, max: 10, windowSeconds: 60 },
               secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
@@ -328,7 +325,6 @@ describe('Story: BetterAuth Enabled Integration', () => {
       features.jwt = true;
       features.twoFactor = false;
       features.passkey = false;
-      features.legacyPassword = true;
       features.socialProviders = ['google'];
 
       expect(features.enabled).toBe(true);

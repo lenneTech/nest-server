@@ -124,15 +124,6 @@ export class BetterAuthService {
   }
 
   /**
-   * Checks if legacy password handling is enabled.
-   * Legacy password is enabled by default when the legacyPassword config block is present,
-   * unless explicitly disabled with enabled: false.
-   */
-  isLegacyPasswordEnabled(): boolean {
-    return this.isEnabled() && !!this.config.legacyPassword && this.config.legacyPassword.enabled !== false;
-  }
-
-  /**
    * Gets the list of enabled social providers
    * Dynamically iterates over all configured providers.
    *

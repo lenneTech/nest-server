@@ -10,6 +10,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
 import {
@@ -18,6 +19,7 @@ import {
   BetterAuthService,
   ConfigService,
   createBetterAuthInstance,
+  HttpExceptionLogFilter,
   TestGraphQLType,
   TestHelper,
 } from '../../src';
@@ -26,12 +28,11 @@ import { ServerModule } from '../../src/server/server.module';
 
 describe('Story: BetterAuth Integration', () => {
   // Test environment properties
-  const port = 3040;
   let app;
   let testHelper: TestHelper;
 
-  // database
-  let connection;
+  // Database
+  let mongoClient: MongoClient;
   let db;
 
   // Services
@@ -46,19 +47,26 @@ describe('Story: BetterAuth Integration', () => {
       // Start server for testing
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
+        providers: [
+          {
+            provide: 'PUB_SUB',
+            useValue: new PubSub(),
+          },
+        ],
       }).compile();
 
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
+      app.setBaseViewsDir(envConfig.templates.path);
+      app.setViewEngine(envConfig.templates.engine);
       await app.init();
 
-      testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
+      testHelper = new TestHelper(app);
       configService = moduleFixture.get(ConfigService);
 
-      await app.listen(port, '127.0.0.1');
-
       // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
+      db = mongoClient.db();
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -66,8 +74,8 @@ describe('Story: BetterAuth Integration', () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await connection.close();
+    if (mongoClient) {
+      await mongoClient.close();
     }
     if (app) {
       await app.close();
@@ -126,13 +134,6 @@ describe('Story: BetterAuth Integration', () => {
       expect(betterAuthConfig.socialProviders.google).toBeDefined();
       expect(betterAuthConfig.socialProviders.github).toBeDefined();
       expect(betterAuthConfig.socialProviders.apple).toBeDefined();
-    });
-
-    it('should have legacy password configuration for migration', () => {
-      const betterAuthConfig = configService.get('betterAuth');
-
-      expect(betterAuthConfig.legacyPassword).toBeDefined();
-      expect(betterAuthConfig.legacyPassword.enabled).toBe(true);
     });
   });
 
@@ -238,7 +239,6 @@ describe('Story: BetterAuth Integration', () => {
           return {
             enabled: false,
             jwt: { enabled: true, expiresIn: '15m' },
-            legacyPassword: { enabled: true },
             passkey: { enabled: false, rpId: 'localhost', rpName: 'Test App' },
             socialProviders: {
               apple: { enabled: false },
@@ -295,12 +295,6 @@ describe('Story: BetterAuth Integration', () => {
 
     it('should report isPasskeyEnabled as false when disabled', () => {
       expect(betterAuthService.isPasskeyEnabled()).toBe(false);
-    });
-
-    it('should report isLegacyPasswordEnabled as false when disabled', () => {
-      // Even if legacyPassword is configured as enabled, it should return false
-      // because the main betterAuth is disabled
-      expect(betterAuthService.isLegacyPasswordEnabled()).toBe(false);
     });
 
     it('should return empty array for getEnabledSocialProviders when disabled', () => {
@@ -413,10 +407,10 @@ describe('Story: BetterAuth Integration', () => {
       expect(typeof betterAuthConfig.twoFactor.appName).toBe('string');
     });
 
-    it('should have 2FA disabled by default in test environment', () => {
+    it('should have 2FA enabled in test environment for full testing', () => {
       const betterAuthConfig = configService.get('betterAuth');
 
-      expect(betterAuthConfig.twoFactor.enabled).toBe(false);
+      expect(betterAuthConfig.twoFactor.enabled).toBe(true);
     });
 
     it('should report isTwoFactorEnabled correctly via service', async () => {
@@ -465,10 +459,10 @@ describe('Story: BetterAuth Integration', () => {
       expect(typeof betterAuthConfig.passkey.rpName).toBe('string');
     });
 
-    it('should have Passkey disabled by default in test environment', () => {
+    it('should have Passkey enabled in test environment for full testing', () => {
       const betterAuthConfig = configService.get('betterAuth');
 
-      expect(betterAuthConfig.passkey.enabled).toBe(false);
+      expect(betterAuthConfig.passkey.enabled).toBe(true);
     });
 
     it('should have origin configuration for Passkey', () => {
@@ -512,53 +506,10 @@ describe('Story: BetterAuth Integration', () => {
   });
 
   // ===================================================================================================================
-  // Phase 5: Legacy Password Handling Tests
+  // Phase 5: Parallel Operation Tests
   // ===================================================================================================================
 
-  describe('Legacy Password Handling Configuration', () => {
-    it('should have legacyPassword configuration', () => {
-      const betterAuthConfig = configService.get('betterAuth');
-
-      expect(betterAuthConfig.legacyPassword).toBeDefined();
-    });
-
-    it('should have legacyPassword enabled for migration support', () => {
-      const betterAuthConfig = configService.get('betterAuth');
-
-      // Legacy password handling should be enabled to support existing users
-      expect(betterAuthConfig.legacyPassword.enabled).toBe(true);
-    });
-
-    it('should report isLegacyPasswordEnabled correctly via service', async () => {
-      const mockConfig = {
-        get: (key: string) => {
-          if (key === 'betterAuth') {
-            return {
-              enabled: false,
-              legacyPassword: { enabled: true },
-            };
-          }
-          return undefined;
-        },
-      };
-
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          BetterAuthModule.forRoot({
-            config: { enabled: false },
-          }),
-        ],
-        providers: [{ provide: ConfigService, useValue: mockConfig }],
-      }).compile();
-
-      const betterAuthService = moduleRef.get(BetterAuthService);
-      // Even if legacyPassword.enabled is true, isLegacyPasswordEnabled returns false
-      // because the main betterAuth is disabled
-      expect(betterAuthService.isLegacyPasswordEnabled()).toBe(false);
-
-      await moduleRef.close();
-    });
-
+  describe('Parallel Operation with Legacy Auth', () => {
     it('should allow existing users to sign in when better-auth is disabled', async () => {
       // This test verifies that existing authentication still works
       // when better-auth is disabled (legacy mode)
@@ -958,30 +909,16 @@ describe('Story: BetterAuth Integration', () => {
 
   describe('BetterAuth REST API Endpoints', () => {
     // These tests verify the REST API endpoints are accessible when better-auth is enabled
-    // Note: In test environment, better-auth is disabled by default, so these test the disabled behavior
+    // Better-Auth is enabled by default in local/test environment
+    // Note: GraphQL tests provide comprehensive coverage; these tests verify REST availability
 
-    it('should not expose better-auth endpoints when disabled', async () => {
-      // When better-auth is disabled, the /iam endpoints should not be available
-      const response = await testHelper.rest('/iam/sign-up', {
-        method: 'POST',
-        payload: {
-          email: 'test@example.com',
-          password: 'TestPassword123!',
-        },
-        statusCode: 404, // Expecting 404 because better-auth is disabled
-      });
-
-      // The response should indicate the endpoint is not found
-      expect(response.statusCode).toBe(404);
-    });
-
-    it('should return 404 for better-auth session endpoint when disabled', async () => {
-      const response = await testHelper.rest('/iam/session', {
+    it('should return 404 for non-existent better-auth endpoints', async () => {
+      // Non-existent endpoints should return 404
+      // Note: statusCode option validates the response status internally in TestHelper
+      await testHelper.rest('/iam/nonexistent', {
         method: 'GET',
         statusCode: 404,
       });
-
-      expect(response.statusCode).toBe(404);
     });
   });
 });

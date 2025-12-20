@@ -42,6 +42,40 @@ export interface IBetterAuth {
   additionalUserFields?: Record<string, IBetterAuthUserField>;
 
   /**
+   * Whether BetterAuthModule should be auto-registered in CoreModule.
+   *
+   * When false (default), projects integrate BetterAuth via an extended module
+   * in their project (e.g., `src/server/modules/better-auth/better-auth.module.ts`).
+   * This follows the same pattern as Legacy Auth and allows for custom resolvers,
+   * controllers, and project-specific authentication logic.
+   *
+   * Set to true only for simple projects that don't need customization.
+   *
+   * @default false
+   *
+   * @example
+   * ```typescript
+   * // Recommended: Extend BetterAuthModule in your project
+   * // src/server/modules/better-auth/better-auth.module.ts
+   * import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+   *
+   * @Module({})
+   * export class BetterAuthModule {
+   *   static forRoot(options) {
+   *     return {
+   *       imports: [CoreBetterAuthModule.forRoot(options)],
+   *       // Add custom providers, controllers, etc.
+   *     };
+   *   }
+   * }
+   *
+   * // Then import in ServerModule
+   * import { BetterAuthModule } from './modules/better-auth/better-auth.module';
+   * ```
+   */
+  autoRegister?: boolean;
+
+  /**
    * Base path for better-auth endpoints
    * default: '/iam'
    */
@@ -52,6 +86,19 @@ export interface IBetterAuth {
    * e.g. 'http://localhost:3000'
    */
   baseUrl?: string;
+
+  /**
+   * Email/password authentication configuration.
+   * Enabled by default.
+   * Set `enabled: false` to explicitly disable email/password auth.
+   */
+  emailAndPassword?: {
+    /**
+     * Whether email/password authentication is enabled.
+     * @default true
+     */
+    enabled?: boolean;
+  };
 
   /**
    * Whether better-auth is enabled.
@@ -78,20 +125,6 @@ export interface IBetterAuth {
      * @default '15m'
      */
     expiresIn?: string;
-  };
-
-  /**
-   * Legacy password handling configuration.
-   * Used during migration from old auth system.
-   * Enabled by default when this config block is present.
-   * Set `enabled: false` to explicitly disable.
-   */
-  legacyPassword?: {
-    /**
-     * Whether legacy password handling is enabled.
-     * @default true (when legacyPassword config block is present)
-     */
-    enabled?: boolean;
   };
 
   /**
