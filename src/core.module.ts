@@ -229,8 +229,9 @@ export class CoreModule implements NestModule {
       imports.push(CoreHealthCheckModule);
     }
 
-    // Add BetterAuthModule - enabled by default unless explicitly disabled
-    if (config.betterAuth?.enabled !== false) {
+    // Add BetterAuthModule only if autoRegister is explicitly true
+    // By default (autoRegister: false), projects integrate via an extended module in their project
+    if (config.betterAuth?.enabled !== false && config.betterAuth?.autoRegister === true) {
       imports.push(
         BetterAuthModule.forRoot({
           config: config.betterAuth || {},

@@ -2,55 +2,43 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { AuthGuardStrategy } from '../auth/auth-guard-strategy.enum';
-import { AuthGuard } from '../auth/guards/auth.guard';
-import { BetterAuthAuthModel } from './better-auth-auth.model';
+import { Roles } from '../../../core/common/decorators/roles.decorator';
+import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { AuthGuardStrategy } from '../../../core/modules/auth/auth-guard-strategy.enum';
+import { AuthGuard } from '../../../core/modules/auth/guards/auth.guard';
+import { BetterAuthAuthModel } from '../../../core/modules/better-auth/better-auth-auth.model';
 import {
   BetterAuth2FASetupModel,
   BetterAuthFeaturesModel,
   BetterAuthPasskeyChallengeModel,
   BetterAuthPasskeyModel,
   BetterAuthSessionModel,
-} from './better-auth-models';
-import { BetterAuthUserMapper } from './better-auth-user.mapper';
-import { BetterAuthService } from './better-auth.service';
-import { CoreBetterAuthResolver } from './core-better-auth.resolver';
+} from '../../../core/modules/better-auth/better-auth-models';
+import { BetterAuthUserMapper } from '../../../core/modules/better-auth/better-auth-user.mapper';
+import { BetterAuthService } from '../../../core/modules/better-auth/better-auth.service';
+import { CoreBetterAuthResolver } from '../../../core/modules/better-auth/core-better-auth.resolver';
 
 /**
- * Default BetterAuth GraphQL Resolver
+ * Server BetterAuth GraphQL Resolver
  *
- * This resolver extends CoreBetterAuthResolver and provides the default
- * Better-Auth GraphQL operations. It re-declares all methods with decorators
- * because CoreBetterAuthResolver uses `isAbstract: true`, which means its
- * methods are not registered in the GraphQL schema.
+ * This resolver extends CoreBetterAuthResolver and exposes all GraphQL operations.
+ * The `isAbstract: true` pattern in NestJS GraphQL requires concrete classes to
+ * explicitly override and decorate methods for them to be registered in the schema.
  *
- * Override in your project if you need custom behavior (e.g., sending emails after sign-up).
+ * Each method delegates to the parent implementation via `super.methodName()`.
+ * Override any method to add custom behavior (e.g., sending welcome emails after signup).
  *
  * @example
  * ```typescript
- * // In your project - src/server/modules/better-auth/better-auth.resolver.ts
- * @Resolver(() => BetterAuthAuthModel)
- * export class BetterAuthResolver extends CoreBetterAuthResolver {
- *   constructor(
- *     betterAuthService: BetterAuthService,
- *     userMapper: BetterAuthUserMapper,
- *     private readonly emailService: EmailService,
- *   ) {
- *     super(betterAuthService, userMapper);
+ * // Add custom behavior after sign-up
+ * override async betterAuthSignUp(email: string, password: string, name?: string) {
+ *   const result = await super.betterAuthSignUp(email, password, name);
+ *
+ *   if (result.success && result.user) {
+ *     await this.emailService.sendWelcomeEmail(result.user.email);
  *   }
  *
- *   override async betterAuthSignUp(email: string, password: string, name?: string) {
- *     const result = await super.betterAuthSignUp(email, password, name);
- *
- *     // Send welcome email after successful sign-up
- *     if (result.success && result.user) {
- *       await this.emailService.sendWelcomeEmail(result.user.email);
- *     }
- *
- *     return result;
- *   }
+ *   return result;
  * }
  * ```
  */

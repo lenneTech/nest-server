@@ -1,0 +1,41 @@
+import { Controller } from '@nestjs/common';
+
+import { Roles } from '../../../core/common/decorators/roles.decorator';
+import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { ConfigService } from '../../../core/common/services/config.service';
+import { BetterAuthUserMapper } from '../../../core/modules/better-auth/better-auth-user.mapper';
+import { BetterAuthService } from '../../../core/modules/better-auth/better-auth.service';
+import { CoreBetterAuthController } from '../../../core/modules/better-auth/core-better-auth.controller';
+
+/**
+ * Server BetterAuth REST Controller
+ *
+ * This controller extends CoreBetterAuthController and can be customized
+ * for project-specific requirements (e.g., sending welcome emails,
+ * custom validation, audit logging).
+ *
+ * @example
+ * ```typescript
+ * // Add custom behavior after sign-up
+ * override async signUp(res: Response, input: BetterAuthSignUpInput) {
+ *   const result = await super.signUp(res, input);
+ *
+ *   if (result.success && result.user) {
+ *     await this.emailService.sendWelcomeEmail(result.user.email);
+ *   }
+ *
+ *   return result;
+ * }
+ * ```
+ */
+@Controller('iam')
+@Roles(RoleEnum.ADMIN)
+export class BetterAuthController extends CoreBetterAuthController {
+  constructor(
+    protected override readonly betterAuthService: BetterAuthService,
+    protected override readonly userMapper: BetterAuthUserMapper,
+    protected override readonly configService: ConfigService,
+  ) {
+    super(betterAuthService, userMapper, configService);
+  }
+}

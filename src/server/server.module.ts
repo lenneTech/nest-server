@@ -10,6 +10,7 @@ import { CoreAuthService } from '../core/modules/auth/services/core-auth.service
 import { CronJobs } from './common/services/cron-jobs.service';
 import { AuthController } from './modules/auth/auth.controller';
 import { AuthModule } from './modules/auth/auth.module';
+import { BetterAuthModule } from './modules/better-auth/better-auth.module';
 import { FileModule } from './modules/file/file.module';
 import { ServerController } from './server.controller';
 
@@ -24,11 +25,12 @@ import { ServerController } from './server.controller';
   controllers: [ServerController, AuthController],
 
   // Export modules for reuse in other modules
-  exports: [CoreModule, AuthModule, FileModule],
+  exports: [CoreModule, AuthModule, BetterAuthModule, FileModule],
 
   // Include modules
   imports: [
     // Include CoreModule for standard processes
+    // Note: BetterAuthModule is imported manually below (autoRegister defaults to false)
     CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
 
     // Include cron job handling
@@ -37,6 +39,13 @@ import { ServerController } from './server.controller';
     // Include AuthModule for authorization handling,
     // which will also include UserModule
     AuthModule.forRoot(envConfig.jwt),
+
+    // Include BetterAuthModule for better-auth integration
+    // This allows project-specific customization via BetterAuthResolver
+    BetterAuthModule.forRoot({
+      config: envConfig.betterAuth,
+      fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
+    }),
 
     // Include FileModule for file handling
     FileModule,

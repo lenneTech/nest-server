@@ -135,9 +135,6 @@ export class BetterAuthFeaturesModel {
   @Field(() => Boolean, { description: 'Whether Passkey is enabled' })
   passkey: boolean;
 
-  @Field(() => Boolean, { description: 'Whether legacy password handling is enabled' })
-  legacyPassword: boolean;
-
   @Field(() => [String], { description: 'List of enabled social providers' })
   socialProviders: string[];
 }

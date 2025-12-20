@@ -23,9 +23,6 @@ const config: { [env: string]: IServerOptions } = {
         enabled: true,
         expiresIn: '15m',
       },
-      legacyPassword: {
-        enabled: true,
-      },
       passkey: {
         enabled: false,
         origin: 'http://localhost:3000',
@@ -174,11 +171,8 @@ const config: { [env: string]: IServerOptions } = {
         enabled: true,
         expiresIn: '15m',
       },
-      legacyPassword: {
-        enabled: true,
-      },
       passkey: {
-        enabled: false,
+        enabled: true,
         origin: 'http://localhost:3000',
         rpId: 'localhost',
         rpName: 'Nest Server Local',
@@ -211,7 +205,7 @@ const config: { [env: string]: IServerOptions } = {
       },
       twoFactor: {
         appName: 'Nest Server Local',
-        enabled: false,
+        enabled: true,
       },
     },
     compression: true,
@@ -335,9 +329,6 @@ const config: { [env: string]: IServerOptions } = {
       jwt: {
         enabled: true,
         expiresIn: '15m',
-      },
-      legacyPassword: {
-        enabled: true,
       },
       passkey: {
         enabled: false,

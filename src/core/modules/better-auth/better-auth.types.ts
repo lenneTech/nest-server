@@ -51,25 +51,40 @@ export interface BetterAuthSignUpResponse {
 
 /**
  * Type guard to check if response has session
+ * Preserves the original type while asserting session is defined
  */
-export function hasSession<T extends { session?: BetterAuthSessionResponse['session'] }>(
-  response: T,
-): response is T & { session: BetterAuthSessionResponse['session'] } {
-  return response?.session !== undefined && response.session !== null;
+export function hasSession<T>(response: T): response is T & { session: { expiresAt: Date; id: string } } {
+  return (
+    response !== null &&
+    typeof response === 'object' &&
+    'session' in response &&
+    (response as { session?: unknown }).session !== null &&
+    (response as { session?: unknown }).session !== undefined
+  );
 }
 
 /**
  * Type guard to check if response has user
+ * Preserves the original type while asserting user is defined
  */
-export function hasUser<T extends { user?: BetterAuthSessionUser }>(
-  response: T,
-): response is T & { user: BetterAuthSessionUser } {
-  return response?.user !== undefined && response.user !== null;
+export function hasUser<T>(response: T): response is T & { user: BetterAuthSessionUser } {
+  return (
+    response !== null &&
+    typeof response === 'object' &&
+    'user' in response &&
+    (response as { user?: unknown }).user !== null &&
+    (response as { user?: unknown }).user !== undefined
+  );
 }
 
 /**
  * Type guard to check if response requires 2FA
  */
-export function requires2FA(response: BetterAuthSignInResponse): boolean {
-  return response?.twoFactorRedirect === true;
+export function requires2FA<T>(response: T): response is T & { twoFactorRedirect: true } {
+  return (
+    response !== null &&
+    typeof response === 'object' &&
+    'twoFactorRedirect' in response &&
+    (response as { twoFactorRedirect?: boolean }).twoFactorRedirect === true
+  );
 }
