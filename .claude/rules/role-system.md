@@ -49,3 +49,29 @@ The role system is evaluated in:
 - `RolesGuard` - Checks method-level `@Roles()` decorators
 - `CheckResponseInterceptor` - Filters fields based on `@Restricted()` decorators
 - `CheckSecurityInterceptor` - Processes `securityCheck()` methods
+
+## @Roles vs @UseGuards
+
+**IMPORTANT: `@Roles()` already handles JWT authentication internally.**
+
+```typescript
+// CORRECT: @Roles alone is sufficient for authentication + authorization
+@Query(() => SomeModel)
+@Roles(RoleEnum.ADMIN)
+async someAdminQuery(): Promise<SomeModel> { }
+
+// WRONG: Don't add @UseGuards when @Roles is present
+@Query(() => SomeModel)
+@Roles(RoleEnum.ADMIN)
+@UseGuards(AuthGuard(AuthGuardStrategy.JWT))  // REDUNDANT - Roles already handles this
+async someAdminQuery(): Promise<SomeModel> { }
+```
+
+The `@Roles()` decorator combined with `RolesGuard` automatically:
+1. Validates the JWT token
+2. Extracts the user from the token
+3. Checks if the user has the required role
+
+**Exception:** `@UseGuards(AuthGuard(...))` is only needed when:
+- Using `@Roles(RoleEnum.S_EVERYONE)` but still needing an authenticated context
+- Implementing custom authentication strategies outside the role system

@@ -2,6 +2,38 @@
 
 Integration of the [better-auth](https://better-auth.com) authentication framework with @lenne.tech/nest-server.
 
+## TL;DR
+
+```typescript
+// 1. Follow INTEGRATION-CHECKLIST.md to create required files
+// 2. Add to server.module.ts:
+CoreModule.forRoot(envConfig),  // IAM-only (new projects)
+BetterAuthModule.forRoot({ config: envConfig.betterAuth, fallbackSecrets: [envConfig.jwt?.secret] }),
+
+// 3. Configure in config.env.ts:
+betterAuth: { jwt: {}, twoFactor: {}, passkey: {} }
+```
+
+**Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [REST API](#rest-api-endpoints) | [GraphQL API](#graphql-api) | [Configuration](#configuration)
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Integration](#quick-integration-for-claude-code--ai-assistants)
+- [Project Integration Guide](#project-integration-guide-required-steps)
+- [Configuration](#configuration)
+- [REST API Endpoints](#rest-api-endpoints)
+- [GraphQL API](#graphql-api)
+- [CoreModule Signatures](#coremoduleforroot-signatures)
+- [Migration Roadmap](#migration-roadmap-legacy-auth--betterauth)
+- [Password Synchronization](#bidirectional-password-synchronization)
+- [Security Integration](#security-integration)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Features
 
 ### Built-in Plugins (Explicit Configuration)
@@ -15,6 +47,7 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 - **Email/Password Authentication** - Standard username/password login
 - **Social Login** - Any OAuth provider (Google, GitHub, Apple, Discord, etc.)
 - **Parallel Operation** - Runs alongside Legacy Auth without side effects
+- **Bidirectional Sync** - Users can sign in via Legacy Auth or Better-Auth interchangeably
 
 ### Extensible via Plugins
 
@@ -23,53 +56,98 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 - **SSO** - Single Sign-On (OIDC, SAML)
 - **And many more** - See [Plugins and Extensions](#plugins-and-extensions)
 
-## Quick Start
+---
 
-Better-Auth is **enabled by default** and uses sensible defaults. Integration follows the same pattern as Legacy Auth - via an extended module in your project.
+## Quick Integration (for Claude Code / AI Assistants)
 
-### 1. Create Extended Module (Recommended)
+**Use [INTEGRATION-CHECKLIST.md](./INTEGRATION-CHECKLIST.md)** for a concise checklist with references to the actual implementation files.
 
-```typescript
-// src/server/modules/better-auth/better-auth.module.ts
-import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+---
 
-@Module({})
-export class BetterAuthModule {
-  static forRoot(options) {
-    return {
-      module: BetterAuthModule,
-      imports: [CoreBetterAuthModule.forRoot(options)],
-    };
-  }
-}
+## Reference Implementation
+
+A complete working implementation exists in this package:
+
+**Local (in your node_modules):**
+```
+node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 ```
 
-### 2. Import in ServerModule
+**GitHub:**
+https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-auth
+
+**UserService integration:**
+- Local: `node_modules/@lenne.tech/nest-server/src/server/modules/user/user.service.ts`
+- GitHub: https://github.com/lenneTech/nest-server/blob/develop/src/server/modules/user/user.service.ts
+
+---
+
+## Project Integration Guide (Required Steps)
+
+### Step 1: Create BetterAuth Module
+**Create:** `src/server/modules/better-auth/better-auth.module.ts`
+**Copy from:** Reference implementation (see above)
+
+### Step 2: Create BetterAuth Resolver (CRITICAL!)
+**Create:** `src/server/modules/better-auth/better-auth.resolver.ts`
+**Copy from:** Reference implementation
+
+**WHY must ALL decorators be re-declared?**
+GraphQL schema is built from decorators at compile time. The parent class (`CoreBetterAuthResolver`) is marked as `isAbstract: true`, so its methods are not registered in the schema. You MUST re-declare `@Query`, `@Mutation`, `@Roles`, `@UseGuards` decorators in the child class for the methods to appear in the GraphQL schema.
+
+### Step 3: Create BetterAuth Controller
+**Create:** `src/server/modules/better-auth/better-auth.controller.ts`
+**Copy from:** Reference implementation
+
+### Step 4: Inject BetterAuthUserMapper in UserService (CRITICAL!)
+**Modify:** `src/server/modules/user/user.service.ts`
+**Reference:** See UserService in reference implementation
+
+**Required changes:**
+
+1. Add import:
+   ```typescript
+   import { BetterAuthUserMapper } from '@lenne.tech/nest-server';
+   ```
+
+2. Add constructor parameter:
+   ```typescript
+   @Optional() private readonly betterAuthUserMapper?: BetterAuthUserMapper,
+   ```
+
+3. Pass to super() via options object:
+   ```typescript
+   super(configService, emailService, mainDbModel, mainModelConstructor, { betterAuthUserMapper });
+   ```
+
+**Why is this critical?**
+The `BetterAuthUserMapper` enables bidirectional password synchronization:
+- User signs up via BetterAuth → password synced to Legacy Auth (bcrypt hash)
+- User changes password → synced between both systems
+- **Without this, users can only authenticate via ONE system!**
+
+### Step 5: Import in ServerModule
+**Modify:** `src/server/server.module.ts`
+**Reference:** See ServerModule in reference implementation
+
+Add import and include BetterAuthModule in imports array with `fallbackSecrets`:
 
 ```typescript
-// src/server/server.module.ts
-import { BetterAuthModule } from './modules/better-auth/better-auth.module';
-
-@Module({
-  imports: [
-    CoreModule.forRoot(environment),
-    BetterAuthModule.forRoot({ config: environment.betterAuth }),
-  ],
-})
-export class ServerModule {}
+BetterAuthModule.forRoot({
+  config: envConfig.betterAuth,
+  fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
+}),
 ```
 
-### 3. Configure (Optional)
+### Step 6: Configure in config.env.ts
+**Modify:** `src/config.env.ts`
+**Reference:** See config.env.ts in reference implementation
 
-```typescript
-// config.env.ts - customize behavior (optional):
-const config = {
-  betterAuth: {
-    // baseUrl: 'https://your-domain.com',
-    // basePath: '/iam',
-  },
-};
-```
+Add `betterAuth` configuration block. See reference for all available options including `jwt`, `passkey`, `twoFactor`, and `socialProviders`.
+
+---
+
+## Quick Reference
 
 **Default values (used when not configured):**
 
@@ -91,6 +169,8 @@ const config = {
 ```
 
 Read the security section below for production deployments.
+
+---
 
 ## Understanding Core Settings
 
@@ -615,39 +695,22 @@ const config = {
 
 ## Module Setup
 
+See the [Project Integration Guide](#project-integration-guide-required-steps) at the top of this document for complete step-by-step instructions.
+
+### Summary
+
 Better-Auth is **enabled by default** but requires explicit module integration (`autoRegister: false` by default). This follows the same pattern as Legacy Auth, giving projects full control over customization.
 
-### Recommended: Extended Module Pattern
+**Required components:**
 
-Projects typically integrate Better-Auth via an extended module:
-
-```typescript
-// src/server/modules/better-auth/better-auth.module.ts
-import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
-
-@Module({})
-export class BetterAuthModule {
-  static forRoot(options): DynamicModule {
-    return {
-      module: BetterAuthModule,
-      imports: [CoreBetterAuthModule.forRoot(options)],
-    };
-  }
-}
-
-// src/server/server.module.ts
-@Module({
-  imports: [
-    CoreModule.forRoot(environment),
-    BetterAuthModule.forRoot({ config: environment.betterAuth }),
-  ],
-})
-export class ServerModule {}
-```
+1. `BetterAuthModule` - Wraps CoreBetterAuthModule with custom resolver/controller
+2. `BetterAuthResolver` - Extends CoreBetterAuthResolver for GraphQL operations
+3. `BetterAuthController` - Extends CoreBetterAuthController for REST endpoints
+4. `UserService` - Inject `BetterAuthUserMapper` for bidirectional auth sync
 
 ### Simple: Auto-Registration
 
-For simple projects without customization needs:
+For simple projects without customization needs (not recommended for production):
 
 ```typescript
 // In config.env.ts
@@ -1055,9 +1118,132 @@ export class MyService {
 | `hasRole(roles)`              | function   | Check if user has any of the specified roles          |
 | `_authenticatedViaBetterAuth` | true       | Marker for Better-Auth authenticated users            |
 
+## CoreModule.forRoot() Signatures
+
+Two signatures are available for different use cases:
+
+### IAM-Only Signature (Recommended for New Projects)
+
+```typescript
+// server.module.ts
+@Module({
+  imports: [
+    CoreModule.forRoot(envConfig),
+    BetterAuthModule.forRoot({
+      config: envConfig.betterAuth,
+      fallbackSecrets: [envConfig.jwt?.secret],
+    }),
+  ],
+})
+export class ServerModule {}
+```
+
+**Features:**
+- Simplified setup - no Legacy Auth overhead
+- GraphQL Subscription authentication via BetterAuth sessions
+- BetterAuthModule is auto-registered when using this signature
+
+**Requirements:**
+- Create BetterAuthModule, Resolver, and Controller in your project
+- Inject BetterAuthUserMapper in UserService
+- Set `auth.legacyEndpoints.enabled: false` in config
+
+### Legacy + IAM Signature (For Existing Projects)
+
+```typescript
+// server.module.ts
+@Module({
+  imports: [
+    CoreModule.forRoot(AuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
+    BetterAuthModule.forRoot({
+      config: envConfig.betterAuth,
+      fallbackSecrets: [envConfig.jwt?.secret],
+    }),
+  ],
+})
+export class ServerModule {}
+```
+
+> **@deprecated** This 3-parameter signature is deprecated for new projects.
+> Use the single-parameter signature for new projects.
+
+**Features:**
+- Both Legacy Auth and BetterAuth run in parallel
+- Bidirectional password synchronization
+- Gradual user migration to IAM
+
+---
+
+## Migration Roadmap (Legacy Auth → BetterAuth)
+
+Better-Auth is designed as the successor to Legacy Auth. This section describes the migration path.
+
+### Scenario Overview
+
+| Scenario | Signature | Description |
+|----------|-----------|-------------|
+| **1. Legacy Only** | 3-parameter | Existing projects, no IAM integration |
+| **2. Migration** | 3-parameter | Legacy + IAM parallel operation |
+| **3. IAM Only** | 1-parameter | New projects, BetterAuth only |
+
+### Migration Steps (Scenario 2)
+
+1. **Enable BetterAuth**
+   - Follow the [Project Integration Guide](#project-integration-guide-required-steps)
+   - Both systems run in parallel
+
+2. **Monitor Migration Progress**
+   ```graphql
+   query {
+     betterAuthMigrationStatus {
+       totalUsers
+       fullyMigratedUsers
+       pendingMigrationUsers
+       migrationPercentage
+       canDisableLegacyAuth
+     }
+   }
+   ```
+   Users migrate automatically when signing in via BetterAuth (IAM).
+
+3. **Disable Legacy Endpoints** (when `canDisableLegacyAuth: true`)
+   ```typescript
+   // config.env.ts
+   auth: {
+     legacyEndpoints: {
+       enabled: false  // Disables signIn, signUp, logout, refreshToken
+     }
+   }
+   ```
+
+4. **Switch to IAM-Only Signature** (optional)
+   ```typescript
+   // Before (deprecated)
+   CoreModule.forRoot(AuthService, AuthModule.forRoot(envConfig.jwt), envConfig)
+
+   // After (recommended)
+   CoreModule.forRoot(envConfig)
+   ```
+
+### Why No Automatic Migration Script?
+
+| System | Password Hash Algorithm |
+|--------|------------------------|
+| Legacy Auth | `bcrypt(sha256(password))` |
+| BetterAuth | `scrypt(sha256(password))` |
+
+These are **one-way hashes** - there's no way to convert between them without the plain password.
+Users must sign in at least once via BetterAuth to create a compatible hash.
+
+### Detailed Documentation
+
+See `.claude/rules/module-deprecation.md` for complete migration documentation.
+
+---
+
 ## Parallel Operation with Legacy Auth
 
-Better-Auth runs **parallel to Legacy JWT authentication** without conflicts. Both systems are fully compatible because they use the same password hashing (bcrypt) and share the same users collection.
+Better-Auth runs **parallel to Legacy JWT authentication** without conflicts. Both systems are fully compatible because they share the same users collection.
 
 ### How It Works
 
@@ -1096,6 +1282,224 @@ const legacyToken = await authService.signIn({ email, password });
 | `iamId`    | IAM provider user ID (set on first Better-Auth login) |
 
 **No migration is required** - users can authenticate with either system immediately.
+
+## Bidirectional Password Synchronization
+
+### Overview
+
+When both Legacy Auth and BetterAuth (IAM) are active, passwords are automatically synchronized between the systems. This ensures users can sign in via either system after any password change or reset.
+
+### How Password Sync Works
+
+| Scenario | Source | Target | Auto-Synced? |
+|----------|--------|--------|--------------|
+| Sign up via BetterAuth | IAM | Legacy | ✅ Yes |
+| Sign up via Legacy Auth | Legacy | IAM | ⚠️ On first IAM sign-in |
+| Password reset via Legacy | Legacy | IAM | ✅ Yes |
+| Password reset via BetterAuth | IAM | Legacy | ⚠️ See below |
+| Password change via user update | Legacy | IAM | ✅ Yes |
+
+#### IAM Password Reset → Legacy Sync
+
+When a user resets their password via BetterAuth's native `/iam/reset-password` endpoint, the password is hashed with scrypt before storage. Since we don't have access to the plain password after hashing, we **cannot** automatically sync to Legacy Auth.
+
+**Solutions:**
+
+1. **Recommended: Custom Password Reset Flow**
+   Override the password reset to capture the plain password for sync. See [Custom Password Reset with Sync](#custom-password-reset-with-sync).
+
+2. **Use Legacy Password Reset Only**
+   Direct users to the Legacy Auth password reset flow, which syncs to IAM automatically.
+
+3. **Re-authenticate After Reset**
+   After IAM password reset, users can sign in via IAM. On next Legacy sign-in attempt, they'll need to reset via Legacy too.
+
+### Automatic Sync (No Configuration Required)
+
+The following sync operations happen automatically when `BetterAuthUserMapper` is injected in `UserService`:
+
+#### 1. IAM Sign-Up → Legacy
+When a user signs up via BetterAuth (`/iam/sign-up/email`), the password is hashed with bcrypt and stored in `users.password`, enabling Legacy Auth sign-in.
+
+#### 2. Legacy Password Reset → IAM
+When a user resets their password via `CoreUserService.resetPassword()`, the new password is synced to the BetterAuth `account` collection (if the user has a credential account).
+
+#### 3. Legacy Password Update → IAM
+When a user changes their password via `UserService.update()`, the new password is synced to BetterAuth (if the user has a credential account).
+
+#### 4. Legacy → IAM Migration (On First Sign-In)
+When a legacy user signs in via BetterAuth for the first time, their account is migrated:
+- Their `iamId` is set
+- A credential account is created in the `account` collection with the scrypt hash
+
+### BetterAuth Password Reset Configuration
+
+BetterAuth provides native password reset via `/iam/forgot-password` and `/iam/reset-password` endpoints. To enable this, configure the `sendResetPassword` callback:
+
+```typescript
+// config.env.ts
+betterAuth: {
+  options: {
+    emailAndPassword: {
+      sendResetPassword: async ({ user, url, token }) => {
+        // Send password reset email
+        // 'url' contains the full reset URL with token
+        await emailService.sendEmail({
+          to: user.email,
+          subject: 'Reset Your Password',
+          html: `<a href="${url}">Click here to reset your password</a>`,
+        });
+      },
+    },
+  },
+},
+```
+
+#### Password Reset Flow (BetterAuth)
+
+1. User requests reset: `POST /iam/forgot-password` with `{ email }`
+2. BetterAuth generates token and calls `sendResetPassword` callback
+3. User clicks link in email → navigates to reset page
+4. Frontend submits: `POST /iam/reset-password` with `{ token, newPassword }`
+5. BetterAuth updates password in `account` collection
+6. Password is automatically synced to Legacy Auth (`users.password`)
+
+### Password Hashing Algorithms
+
+| System | Algorithm | Format |
+|--------|-----------|--------|
+| Legacy Auth | bcrypt(sha256(password)) | `$2b$10$...` (60 chars) |
+| BetterAuth (IAM) | scrypt | `salt:hash` (hex encoded) |
+
+**Important:** These hashes are NOT interchangeable. Password sync requires re-hashing the plain password with the target algorithm.
+
+### Email Change Synchronization
+
+Email changes are also synchronized bidirectionally:
+
+| Scenario | Effect |
+|----------|--------|
+| Email changed via Legacy (`UserService.update()`) | IAM sessions invalidated (forces re-auth) |
+| Email changed via IAM | Legacy refresh tokens cleared |
+
+### User Deletion Cleanup
+
+When a user is deleted:
+
+| Via | Effect |
+|-----|--------|
+| Legacy (`UserService.delete()`) | IAM accounts and sessions are cleaned up |
+| IAM | Legacy user record is removed |
+
+### Troubleshooting Password Sync
+
+#### Password not syncing to IAM
+
+1. Verify `BetterAuthUserMapper` is injected in `UserService`:
+   ```typescript
+   constructor(
+     @Optional() private readonly betterAuthUserMapper?: BetterAuthUserMapper,
+   ) {
+     super(..., { betterAuthUserMapper });
+   }
+   ```
+
+2. Check if user has an IAM credential account:
+   ```javascript
+   // MongoDB query
+   db.account.findOne({ userId: ObjectId("..."), providerId: "credential" })
+   ```
+
+3. Check server logs for sync warnings:
+   ```
+   [CoreUserService] Failed to sync password to IAM...
+   ```
+
+#### Password reset email not sending
+
+1. Configure `sendResetPassword` callback in `betterAuth.options`
+2. Check that your email service is working
+3. Verify the callback receives `user`, `url`, and `token` parameters
+
+#### Legacy user can't sign in via IAM
+
+The user needs to sign in via Legacy Auth first with their password. This triggers the automatic migration on first IAM sign-in attempt.
+
+Alternatively, use `BetterAuthUserMapper.migrateAccountToIam()` to migrate the user programmatically:
+
+```typescript
+await betterAuthUserMapper.migrateAccountToIam(email, plainPassword);
+```
+
+### Custom Password Reset with Sync
+
+To enable bidirectional password reset sync, implement a custom password reset endpoint that captures the plain password and syncs to both systems:
+
+```typescript
+// src/server/modules/better-auth/better-auth.controller.ts
+import { Body, Controller, Post } from '@nestjs/common';
+import { CoreBetterAuthController, BetterAuthUserMapper, Roles, RoleEnum } from '@lenne.tech/nest-server';
+
+@Controller('iam')
+export class BetterAuthController extends CoreBetterAuthController {
+  constructor(
+    // ... other dependencies
+    private readonly betterAuthUserMapper: BetterAuthUserMapper,
+  ) {
+    super(...);
+  }
+
+  /**
+   * Custom password reset that syncs to both auth systems
+   */
+  @Post('reset-password-sync')
+  @Roles(RoleEnum.S_EVERYONE)
+  async resetPasswordWithSync(
+    @Body() input: { token: string; newPassword: string },
+  ): Promise<{ success: boolean }> {
+    // 1. Reset password via BetterAuth native API
+    const api = this.betterAuthService.getApi();
+    await api.resetPassword({
+      body: { token: input.token, newPassword: input.newPassword },
+    });
+
+    // 2. Sync to Legacy Auth using the plain password
+    // Get user email from the token (you may need to decode it or lookup)
+    const userEmail = await this.getUserEmailFromToken(input.token);
+    if (userEmail) {
+      await this.betterAuthUserMapper.syncPasswordToLegacy(
+        '', // iamUserId not needed for email lookup
+        userEmail,
+        input.newPassword,
+      );
+    }
+
+    return { success: true };
+  }
+
+  private async getUserEmailFromToken(token: string): Promise<string | null> {
+    // Implementation depends on your token structure
+    // You may need to query the database or decode the token
+    return null;
+  }
+}
+```
+
+**Alternative: Use Legacy Password Reset**
+
+The simpler approach is to use the Legacy Auth password reset flow, which automatically syncs to IAM:
+
+```typescript
+// Frontend points to Legacy Auth password reset
+const passwordResetUrl = config.email.passwordResetLink;
+// e.g., 'http://localhost:4200/user/password-reset'
+
+// User submits new password via Legacy Auth
+// → CoreUserService.resetPassword() is called
+// → Automatically syncs to IAM via syncPasswordChangeToIam()
+```
+
+This is the recommended approach for projects in migration phase where both auth systems are active.
 
 ## Testing
 
@@ -1268,119 +1672,33 @@ const config = {
 
 ## Extending Better-Auth (Custom Resolver)
 
-Better-Auth uses the same extension pattern as Legacy Auth. You can extend `CoreBetterAuthResolver` to add custom logic before/after authentication operations.
+See the [Project Integration Guide](#project-integration-guide-required-steps) for complete setup instructions. This section covers additional customization options.
 
-### Creating a Custom Resolver
+### Adding Custom Logic
+
+Override any method to add custom behavior (e.g., sending welcome emails, analytics):
 
 ```typescript
-// src/server/modules/better-auth/better-auth.resolver.ts
-import { Resolver } from '@nestjs/graphql';
-import { Roles } from '@lenne.tech/nest-server';
-import {
-  BetterAuthAuthModel,
-  BetterAuthService,
-  BetterAuthUserMapper,
-  CoreBetterAuthResolver,
-  RoleEnum,
-} from '@lenne.tech/nest-server';
-import { EmailService } from '../email/email.service';
+// In your BetterAuthResolver (see Step 2 in Integration Guide)
 
-@Resolver(() => BetterAuthAuthModel)
-@Roles(RoleEnum.ADMIN)
-export class BetterAuthResolver extends CoreBetterAuthResolver {
-  constructor(
-    betterAuthService: BetterAuthService,
-    userMapper: BetterAuthUserMapper,
-    private readonly emailService: EmailService,
-  ) {
-    super(betterAuthService, userMapper);
+@Mutation(() => BetterAuthAuthModel, { description: 'Sign up via Better-Auth (email/password)' })
+@Roles(RoleEnum.S_EVERYONE)
+override async betterAuthSignUp(
+  @Args('email') email: string,
+  @Args('password') password: string,
+  @Args('name', { nullable: true }) name?: string,
+): Promise<BetterAuthAuthModel> {
+  // Call original implementation
+  const result = await super.betterAuthSignUp(email, password, name);
+
+  // Add custom logic after successful sign-up
+  if (result.success && result.user) {
+    await this.emailService.sendWelcomeEmail(result.user.email, result.user.name);
+    await this.analyticsService.trackSignUp(result.user.id);
   }
 
-  /**
-   * Override signUp to send welcome email after registration
-   */
-  override async betterAuthSignUp(
-    email: string,
-    password: string,
-    name?: string,
-  ): Promise<BetterAuthAuthModel> {
-    // Call original implementation
-    const result = await super.betterAuthSignUp(email, password, name);
-
-    // Add custom logic after successful sign-up
-    if (result.success && result.user) {
-      await this.emailService.sendWelcomeEmail(result.user.email, result.user.name);
-      await this.analyticsService.trackSignUp(result.user.id);
-    }
-
-    return result;
-  }
-
-  /**
-   * Override signIn to add custom tracking
-   */
-  override async betterAuthSignIn(
-    email: string,
-    password: string,
-    ctx: { req: Request; res: Response },
-  ): Promise<BetterAuthAuthModel> {
-    // Add pre-login logic
-    this.logger.log(`Login attempt for ${email}`);
-
-    const result = await super.betterAuthSignIn(email, password, ctx);
-
-    // Add post-login logic
-    if (result.success && result.user) {
-      await this.analyticsService.trackLogin(result.user.id);
-    }
-
-    return result;
-  }
+  return result;
 }
-```
-
-### Registering the Custom Resolver
-
-**Option 1: Via BetterAuthModule options**
-
-```typescript
-// src/server/server.module.ts
-import { BetterAuthModule } from '@lenne.tech/nest-server';
-import { BetterAuthResolver } from './modules/better-auth/better-auth.resolver';
-
-@Module({
-  imports: [
-    CoreModule.forRoot(environment),
-    BetterAuthModule.forRoot({
-      config: environment.betterAuth,
-      resolver: BetterAuthResolver,  // Your custom resolver
-    }),
-  ],
-})
-export class ServerModule {}
-```
-
-**Option 2: Create your own module (like Legacy Auth)**
-
-```typescript
-// src/server/modules/better-auth/better-auth.module.ts
-import { Module } from '@nestjs/common';
-import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
-import { BetterAuthResolver } from './better-auth.resolver';
-import { EmailModule } from '../email/email.module';
-
-@Module({
-  imports: [
-    CoreBetterAuthModule.forRoot({
-      config: environment.betterAuth,
-      resolver: BetterAuthResolver,
-    }),
-    EmailModule,
-  ],
-  providers: [BetterAuthResolver],
-  exports: [BetterAuthResolver],
-})
-export class BetterAuthModule {}
 ```
 
 ### Available Override Methods

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import bcrypt = require('bcrypt');
 import crypto = require('crypto');
 import { sha256 } from 'js-sha256';
@@ -13,20 +13,31 @@ import { CoreModelConstructor } from '../../common/types/core-model-constructor.
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
 import { CoreUserInput } from './inputs/core-user.input';
+import { CoreUserServiceOptions } from './interfaces/core-user-service-options.interface';
 
 /**
  * User service
+ *
+ * Provides user management with automatic synchronization between
+ * Legacy Auth and Better-Auth (IAM) systems when both are enabled.
  */
 export abstract class CoreUserService<
   TUser extends CoreUserModel,
   TUserInput extends CoreUserInput,
   TUserCreateInput extends CoreUserCreateInput,
 > extends CrudService<TUser, TUserCreateInput, TUserInput> {
+  protected readonly userServiceLogger = new Logger(CoreUserService.name);
+
   protected constructor(
     protected override readonly configService: ConfigService,
     protected readonly emailService: EmailService,
     protected override readonly mainDbModel: Model<Document & TUser>,
     protected override readonly mainModelConstructor: CoreModelConstructor<TUser>,
+    /**
+     * Optional configuration for additional features like IAM sync.
+     * Using options object pattern for extensibility without breaking changes.
+     */
+    protected readonly options?: CoreUserServiceOptions,
   ) {
     super();
   }
@@ -125,6 +136,10 @@ export abstract class CoreUserService<
 
   /**
    * Set new password for user with token
+   *
+   * This method also syncs the password change to Better-Auth (IAM) if:
+   * - BetterAuthUserMapper is configured via options
+   * - User has an existing IAM credential account
    */
   async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {
     // Get user
@@ -132,6 +147,10 @@ export abstract class CoreUserService<
     if (!dbObject) {
       throw new NotFoundException(`No user found with password reset token: ${token}`);
     }
+
+    // Store the original plain password for IAM sync before any hashing
+    // We need the plain password because IAM uses scrypt, not bcrypt+sha256
+    const plainPasswordForIamSync = /^[a-f0-9]{64}$/i.test(newPassword) ? undefined : newPassword;
 
     return this.process(
       async () => {
@@ -141,11 +160,26 @@ export abstract class CoreUserService<
           newPassword = sha256(newPassword);
         }
 
-        // Update and return user
-        return await assignPlain(dbObject, {
+        // Update Legacy Auth password
+        const updatedUser = await assignPlain(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
         }).save();
+
+        // Sync password to Better-Auth (IAM) if mapper is available
+        // This ensures users can sign in via IAM after password reset
+        if (this.options?.betterAuthUserMapper && plainPasswordForIamSync && dbObject.email) {
+          try {
+            await this.options.betterAuthUserMapper.syncPasswordChangeToIam(dbObject.email, plainPasswordForIamSync);
+          } catch (error) {
+            // Log but don't fail - Legacy Auth password was updated successfully
+            this.userServiceLogger.warn(
+              `Failed to sync password reset to IAM for ${dbObject.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+          }
+        }
+
+        return updatedUser;
       },
       { dbObject, serviceOptions },
     );
@@ -186,7 +220,7 @@ export abstract class CoreUserService<
     }
 
     // Check roles values
-    if (roles.some(role => typeof role !== 'string')) {
+    if (roles.some((role) => typeof role !== 'string')) {
       throw new BadRequestException('Roles contains invalid values');
     }
 
@@ -197,5 +231,98 @@ export abstract class CoreUserService<
       },
       { serviceOptions },
     );
+  }
+
+  // ===================================================================================================================
+  // Auth System Sync Methods
+  // ===================================================================================================================
+
+  /**
+   * Update user with automatic email and password sync between Legacy and IAM auth systems
+   *
+   * When the email changes and BetterAuthUserMapper is available, this method:
+   * - Invalidates all Better-Auth sessions (forces re-authentication)
+   * - The shared users collection is automatically updated
+   *
+   * When the password changes:
+   * - Updates the Legacy Auth password (bcrypt hash)
+   * - Syncs to Better-Auth (IAM) if the user has a credential account
+   */
+  override async update(id: string, input: TUserInput, serviceOptions?: ServiceOptions): Promise<TUser> {
+    // Get the current user before update to detect email changes
+    const oldUser = (await this.mainDbModel.findById(id).lean().exec()) as null | TUser;
+    const oldEmail = oldUser?.email;
+
+    // Store plain password for IAM sync before any hashing occurs
+    // We need to capture this before super.update() which may hash it
+    const inputPassword = (input as any).password;
+    const plainPasswordForIamSync = inputPassword && !/^[a-f0-9]{64}$/i.test(inputPassword) ? inputPassword : undefined;
+
+    // Perform the update
+    const updatedUser = await super.update(id, input, serviceOptions);
+
+    // Sync email change to IAM if email was changed and mapper is available
+    if (this.options?.betterAuthUserMapper && oldEmail && input.email && oldEmail !== input.email) {
+      try {
+        await this.options.betterAuthUserMapper.syncEmailChangeFromLegacy(oldEmail, input.email);
+        this.userServiceLogger.debug(`Synced email change from Legacy to IAM: ${oldEmail} → ${input.email}`);
+      } catch (error) {
+        this.userServiceLogger.error(
+          `Failed to sync email change to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        // Don't throw - email sync failure shouldn't block the update
+      }
+    }
+
+    // Sync password change to IAM if password was changed and mapper is available
+    if (this.options?.betterAuthUserMapper && plainPasswordForIamSync && oldUser?.email) {
+      try {
+        await this.options.betterAuthUserMapper.syncPasswordChangeToIam(oldUser.email, plainPasswordForIamSync);
+        this.userServiceLogger.debug(`Synced password change to IAM for user ${oldUser.email}`);
+      } catch (error) {
+        this.userServiceLogger.warn(
+          `Failed to sync password change to IAM for ${oldUser.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        // Don't throw - password sync failure shouldn't block the update
+      }
+    }
+
+    return updatedUser;
+  }
+
+  /**
+   * Delete user with automatic cleanup of IAM auth data
+   *
+   * When BetterAuthUserMapper is available, this method also:
+   * - Deletes all Better-Auth accounts for this user
+   * - Deletes all Better-Auth sessions for this user
+   *
+   * This ensures no orphaned auth data remains after user deletion.
+   */
+  override async delete(id: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+    // Get the user before deletion to cleanup IAM data
+    const user = (await this.mainDbModel.findById(id).lean().exec()) as null | (TUser & { _id: any });
+
+    // Perform the deletion
+    const deletedUser = await super.delete(id, serviceOptions);
+
+    // Cleanup IAM data if mapper is available
+    if (this.options?.betterAuthUserMapper && user?._id) {
+      try {
+        const result = await this.options.betterAuthUserMapper.cleanupIamDataForDeletedUser(user._id);
+        if (result.accountsDeleted > 0 || result.sessionsDeleted > 0) {
+          this.userServiceLogger.debug(
+            `Cleaned up IAM data for deleted user ${id}: accounts=${result.accountsDeleted}, sessions=${result.sessionsDeleted}`,
+          );
+        }
+      } catch (error) {
+        this.userServiceLogger.error(
+          `Failed to cleanup IAM data for deleted user: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        // Don't throw - cleanup failure shouldn't block the delete response
+      }
+    }
+
+    return deletedUser;
   }
 }

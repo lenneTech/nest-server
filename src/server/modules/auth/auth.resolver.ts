@@ -30,6 +30,8 @@ export class AuthResolver extends CoreAuthResolver {
 
   /**
    * SignIn for User
+   *
+   * @throws LegacyAuthDisabledException if legacy endpoints are disabled
    */
   @Mutation(() => Auth, { description: 'Sign in and get JWT token' })
   @Roles(RoleEnum.S_EVERYONE)
@@ -38,6 +40,8 @@ export class AuthResolver extends CoreAuthResolver {
     @Context() ctx: { res: ResponseType },
     @Args('input') input: AuthSignInInput,
   ): Promise<Auth> {
+    // Check if legacy endpoints are enabled before proceeding
+    this.checkLegacyGraphQLEnabled('signIn');
     const result = await this.authService.signIn(input, {
       ...serviceOptions,
       inputType: AuthSignInInput,
@@ -47,6 +51,8 @@ export class AuthResolver extends CoreAuthResolver {
 
   /**
    * Sign up for user
+   *
+   * @throws LegacyAuthDisabledException if legacy endpoints are disabled
    */
   @Mutation(() => Auth, {
     description: 'Sign up user and get JWT token',
@@ -57,6 +63,8 @@ export class AuthResolver extends CoreAuthResolver {
     @Context() ctx: { res: ResponseType },
     @Args('input') input: AuthSignUpInput,
   ): Promise<Auth> {
+    // Check if legacy endpoints are enabled before proceeding
+    this.checkLegacyGraphQLEnabled('signUp');
     const result = await this.authService.signUp(input, serviceOptions);
     return this.processCookies(ctx, result);
   }
