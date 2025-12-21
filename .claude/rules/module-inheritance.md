@@ -53,6 +53,39 @@ BetterAuthModule.forRoot({ config, resolver: CustomResolver })
 - `CoreBetterAuthResolver` → extended by project's `BetterAuthResolver`
 - `CoreUserService` → extended by project's `UserService`
 
+## Critical: Call Protected Helper Methods When Overriding
+
+When overriding methods that have **protected helper methods** in the parent class, you MUST call these helpers in your override. Otherwise, important functionality (guards, checks, validation) will be bypassed.
+
+### Example: AuthResolver Override Pattern
+
+```typescript
+// WRONG: Missing checkLegacyGraphQLEnabled call
+@Mutation(() => Auth)
+override async signIn(...): Promise<Auth> {
+  // Bug: Legacy endpoint check is bypassed!
+  const result = await this.authService.signIn(input, serviceOptions);
+  return this.processCookies(ctx, result);
+}
+
+// CORRECT: Call the protected check method
+@Mutation(() => Auth)
+override async signIn(...): Promise<Auth> {
+  this.checkLegacyGraphQLEnabled('signIn');  // Required!
+  const result = await this.authService.signIn(input, serviceOptions);
+  return this.processCookies(ctx, result);
+}
+```
+
+### Protected Helper Methods to Call
+
+| Core Class | Method | Purpose |
+|------------|--------|---------|
+| `CoreAuthResolver` | `checkLegacyGraphQLEnabled(name)` | Throws HTTP 410 if legacy endpoints disabled |
+| `CoreAuthController` | `checkLegacyRESTEnabled(name)` | Throws HTTP 410 if legacy endpoints disabled |
+
+**Rule**: When you override a method, check if the parent calls any `protected` helper methods. If so, call them in your override too.
+
 ## Checklist for New Core Modules
 
 When adding new core modules, ensure:

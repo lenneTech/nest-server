@@ -23,6 +23,170 @@ import { MailjetOptions } from './mailjet-options.interface';
 export type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
 
 /**
+ * Interface for Auth configuration
+ *
+ * This configuration controls the authentication system behavior.
+ * In v11.x, Legacy Auth (CoreAuthService) is the default.
+ * In a future version, BetterAuth (IAM) will become the default.
+ *
+ * @since 11.7.1
+ *
+ * ## Migration Roadmap
+ *
+ * ### v11.x (Current)
+ * - Legacy Auth is the default and required for GraphQL Subscriptions
+ * - BetterAuth can be used alongside Legacy Auth
+ * - Use `legacyEndpoints.enabled: false` after all users migrated to IAM
+ *
+ * ### Future Version (Planned)
+ * - BetterAuth becomes the default
+ * - Legacy Auth becomes optional (must be explicitly enabled)
+ * - CoreModule.forRoot signature simplifies to `CoreModule.forRoot(options)`
+ *
+ * @see https://github.com/lenneTech/nest-server/blob/develop/.claude/rules/module-deprecation.md
+ */
+export interface IAuth {
+  /**
+   * Configuration for legacy auth endpoints
+   *
+   * Legacy endpoints include:
+   * - GraphQL: signIn, signUp, signOut, refreshToken mutations
+   * - REST: /api/auth/* endpoints
+   *
+   * These can be disabled once all users have migrated to BetterAuth (IAM).
+   *
+   * @example
+   * ```typescript
+   * auth: {
+   *   legacyEndpoints: {
+   *     enabled: false // Disable all legacy endpoints after migration
+   *   }
+   * }
+   * ```
+   */
+  legacyEndpoints?: IAuthLegacyEndpoints;
+
+  /**
+   * Prevent user enumeration via unified error messages
+   *
+   * When enabled, authentication errors return a generic "Invalid credentials"
+   * message instead of specific messages like "Unknown email" or "Wrong password".
+   *
+   * This prevents attackers from determining whether an email address exists
+   * in the system, but reduces UX clarity for legitimate users.
+   *
+   * @since 11.7.x
+   * @default false (backward compatible - specific error messages)
+   *
+   * @example
+   * ```typescript
+   * auth: {
+   *   preventUserEnumeration: true // Returns "Invalid credentials" for all auth errors
+   * }
+   * ```
+   */
+  preventUserEnumeration?: boolean;
+
+  /**
+   * Rate limiting configuration for Legacy Auth endpoints
+   *
+   * Protects against brute-force attacks on signIn, signUp, and other
+   * authentication endpoints.
+   *
+   * Follows the same pattern as `betterAuth.rateLimit`.
+   *
+   * @since 11.7.x
+   * @default { enabled: false }
+   *
+   * @example
+   * ```typescript
+   * auth: {
+   *   rateLimit: {
+   *     enabled: true,
+   *     max: 10,
+   *     windowSeconds: 60,
+   *     message: 'Too many login attempts, please try again later.',
+   *   }
+   * }
+   * ```
+   */
+  rateLimit?: IAuthRateLimit;
+}
+
+/**
+ * Interface for Legacy Auth endpoints configuration
+ *
+ * These endpoints are part of the Legacy Auth system (CoreAuthService).
+ * In a future version, BetterAuth (IAM) will become the default and these endpoints
+ * can be disabled once all users have migrated.
+ *
+ * @since 11.7.1
+ * @see https://github.com/lenneTech/nest-server/blob/develop/.claude/rules/module-deprecation.md
+ */
+export interface IAuthLegacyEndpoints {
+  /**
+   * Whether legacy auth endpoints are enabled.
+   *
+   * Set to false to disable all legacy auth endpoints (GraphQL and REST).
+   * Use this after all users have migrated to BetterAuth (IAM).
+   *
+   * Check migration status via the `betterAuthMigrationStatus` query.
+   *
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Whether legacy GraphQL auth endpoints are enabled.
+   * Affects: signIn, signUp, signOut, refreshToken mutations
+   *
+   * @default true (inherits from `enabled`)
+   */
+  graphql?: boolean;
+
+  /**
+   * Whether legacy REST auth endpoints are enabled.
+   * Affects: /api/auth/sign-in, /api/auth/sign-up, etc.
+   *
+   * @default true (inherits from `enabled`)
+   */
+  rest?: boolean;
+}
+
+/**
+ * Interface for Legacy Auth rate limiting configuration
+ *
+ * Same structure as IBetterAuthRateLimit for consistency.
+ *
+ * @since 11.7.x
+ */
+export interface IAuthRateLimit {
+  /**
+   * Whether rate limiting is enabled
+   * @default false
+   */
+  enabled?: boolean;
+
+  /**
+   * Maximum number of requests within the time window
+   * @default 10
+   */
+  max?: number;
+
+  /**
+   * Custom message when rate limit is exceeded
+   * @default 'Too many requests, please try again later.'
+   */
+  message?: string;
+
+  /**
+   * Time window in seconds
+   * @default 60
+   */
+  windowSeconds?: number;
+}
+
+/**
  * Interface for better-auth configuration
  */
 export interface IBetterAuth {
@@ -413,6 +577,17 @@ export interface IJwt {
  * Options for the server
  */
 export interface IServerOptions {
+  /**
+   * Authentication system configuration
+   *
+   * Controls Legacy Auth endpoints and behavior.
+   * In a future version, this will also control BetterAuth as the default system.
+   *
+   * @since 11.7.1
+   * @see IAuth
+   */
+  auth?: IAuth;
+
   /**
    * Automatically detect ObjectIds in string values in FilterQueries
    * and expand them as OR query with string and ObjectId.

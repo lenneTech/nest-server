@@ -10,6 +10,12 @@ export interface ICoreAuthUser {
   email: string;
 
   /**
+   * Better-Auth (IAM) user ID for linking
+   * Set when user is migrated or created via IAM
+   */
+  iamId?: string;
+
+  /**
    * ID of the user
    */
   id: string;

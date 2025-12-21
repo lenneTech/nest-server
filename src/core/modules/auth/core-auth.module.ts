@@ -5,9 +5,11 @@ import { PassportModule } from '@nestjs/passport';
 import { PubSub } from 'graphql-subscriptions';
 
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
+import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
+import { LegacyAuthRateLimiter } from './services/legacy-auth-rate-limiter.service';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -68,6 +70,9 @@ export class CoreAuthModule {
         provide: JwtRefreshStrategy,
         useClass: options.jwtRefreshStrategy || JwtRefreshStrategy,
       },
+      // Rate limiting for Legacy Auth endpoints (disabled by default, configure via auth.rateLimit)
+      LegacyAuthRateLimiter,
+      LegacyAuthRateLimitGuard,
     ];
     if (Array.isArray(options?.providers)) {
       providers = imports.concat(options.providers);
@@ -75,7 +80,16 @@ export class CoreAuthModule {
 
     // Return CoreAuthModule
     return {
-      exports: [CoreAuthService, JwtModule, JwtStrategy, JwtRefreshStrategy, PassportModule, UserModule],
+      exports: [
+        CoreAuthService,
+        JwtModule,
+        JwtStrategy,
+        JwtRefreshStrategy,
+        LegacyAuthRateLimiter,
+        LegacyAuthRateLimitGuard,
+        PassportModule,
+        UserModule,
+      ],
       imports,
       module: CoreAuthModule,
       providers,

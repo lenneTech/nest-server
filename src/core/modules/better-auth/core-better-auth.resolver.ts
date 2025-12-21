@@ -7,6 +7,7 @@ import { RoleEnum } from '../../common/enums/role.enum';
 import { AuthGuardStrategy } from '../auth/auth-guard-strategy.enum';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { BetterAuthAuthModel } from './better-auth-auth.model';
+import { BetterAuthMigrationStatusModel } from './better-auth-migration-status.model';
 import {
   BetterAuth2FASetupModel,
   BetterAuthFeaturesModel,
@@ -128,6 +129,30 @@ export class CoreBetterAuthResolver {
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
+  }
+
+  /**
+   * Get migration status from Legacy Auth to Better-Auth (IAM)
+   *
+   * This query provides administrators with information about how many users
+   * have been migrated to the IAM system. This helps determine when it might
+   * be safe to consider disabling Legacy Auth endpoints.
+   *
+   * A user is considered fully migrated when:
+   * 1. They have an `iamId` set (linked to Better-Auth)
+   * 2. They have a credential account in Better-Auth
+   *
+   * Note: Even when canDisableLegacyAuth returns true, Legacy Auth cannot
+   * currently be removed because CoreModule.forRoot requires AuthService
+   * for GraphQL Subscriptions authentication.
+   */
+  @Query(() => BetterAuthMigrationStatusModel, {
+    description: 'Get migration status from Legacy Auth to Better-Auth (IAM) - Admin only',
+  })
+  @Roles(RoleEnum.ADMIN)
+  async betterAuthMigrationStatus(): Promise<BetterAuthMigrationStatusModel> {
+    const status = await this.userMapper.getMigrationStatus();
+    return status;
   }
 
   // ===========================================================================

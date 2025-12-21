@@ -211,9 +211,30 @@ export class CoreBetterAuthController {
       throw new BadRequestException('Better-Auth API not available');
     }
 
+    // Try to sign in, with automatic legacy user migration
+    return this.attemptSignIn(res, input, api, true);
+  }
+
+  /**
+   * Attempt sign-in with optional legacy user migration
+   * @param res - Response object
+   * @param input - Sign-in credentials
+   * @param api - Better-Auth API instance
+   * @param allowMigration - Whether to attempt legacy migration on failure
+   */
+  private async attemptSignIn(
+    res: Response,
+    input: BetterAuthSignInInput,
+    api: ReturnType<BetterAuthService['getApi']>,
+    allowMigration: boolean,
+  ): Promise<BetterAuthResponse> {
+    // Normalize password to SHA256 format for consistency with Legacy Auth
+    // This ensures users can sign in with either plain password or SHA256 hash
+    const normalizedPassword = this.userMapper.normalizePasswordForIam(input.password);
+
     try {
-      const response = await api.signInEmail({
-        body: { email: input.email, password: input.password },
+      const response = await api!.signInEmail({
+        body: { email: input.email, password: normalizedPassword },
       });
 
       if (!response) {
@@ -244,6 +265,18 @@ export class CoreBetterAuthController {
       throw new UnauthorizedException('Invalid credentials');
     } catch (error) {
       this.logger.debug(`Sign-in error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      // If migration is allowed, try to migrate legacy user and retry
+      if (allowMigration) {
+        // Pass the original password for legacy verification, but migration uses normalized password
+        const migrated = await this.userMapper.migrateAccountToIam(input.email, input.password);
+        if (migrated) {
+          this.logger.debug(`Migrated legacy user ${input.email} to IAM, retrying sign-in`);
+          // Retry sign-in after migration (without allowing another migration to prevent loops)
+          return this.attemptSignIn(res, input, api, false);
+        }
+      }
+
       throw new UnauthorizedException('Invalid credentials');
     }
   }
@@ -267,12 +300,15 @@ export class CoreBetterAuthController {
       throw new BadRequestException('Better-Auth API not available');
     }
 
+    // Normalize password to SHA256 format for consistency with Legacy Auth
+    const normalizedPassword = this.userMapper.normalizePasswordForIam(input.password);
+
     try {
       const response = await api.signUpEmail({
         body: {
           email: input.email,
           name: input.name || input.email.split('@')[0],
-          password: input.password,
+          password: normalizedPassword,
         },
       });
 
@@ -283,6 +319,11 @@ export class CoreBetterAuthController {
       if (hasUser(response)) {
         // Link or create user in our database
         await this.userMapper.linkOrCreateUser(response.user);
+
+        // Sync password to legacy (enables IAM Sign-Up → Legacy Sign-In)
+        // Pass the plain password so it can be hashed with bcrypt for Legacy Auth
+        await this.userMapper.syncPasswordToLegacy(response.user.id, response.user.email, input.password);
+
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
         const result: BetterAuthResponse = {

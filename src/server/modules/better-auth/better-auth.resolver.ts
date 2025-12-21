@@ -7,6 +7,7 @@ import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { AuthGuardStrategy } from '../../../core/modules/auth/auth-guard-strategy.enum';
 import { AuthGuard } from '../../../core/modules/auth/guards/auth.guard';
 import { BetterAuthAuthModel } from '../../../core/modules/better-auth/better-auth-auth.model';
+import { BetterAuthMigrationStatusModel } from '../../../core/modules/better-auth/better-auth-migration-status.model';
 import {
   BetterAuth2FASetupModel,
   BetterAuthFeaturesModel,
@@ -76,6 +77,14 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   @Roles(RoleEnum.S_EVERYONE)
   override betterAuthFeatures(): BetterAuthFeaturesModel {
     return super.betterAuthFeatures();
+  }
+
+  @Query(() => BetterAuthMigrationStatusModel, {
+    description: 'Get migration status from Legacy Auth to Better-Auth (IAM) - Admin only',
+  })
+  @Roles(RoleEnum.ADMIN)
+  override async betterAuthMigrationStatus(): Promise<BetterAuthMigrationStatusModel> {
+    return super.betterAuthMigrationStatus();
   }
 
   @Query(() => [BetterAuthPasskeyModel], {

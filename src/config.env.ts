@@ -14,6 +14,16 @@ const config: { [env: string]: IServerOptions } = {
   // Development environment
   // ===========================================================================
   development: {
+    // Legacy Auth endpoint controls (for migration to BetterAuth)
+    // Set to false after all users have migrated to BetterAuth (IAM)
+    // See: .claude/rules/module-deprecation.md
+    auth: {
+      legacyEndpoints: {
+        enabled: true, // Set to false to disable legacy auth endpoints (returns HTTP 410)
+        // graphql: true, // Optionally disable only GraphQL endpoints
+        // rest: true,    // Optionally disable only REST endpoints
+      },
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       basePath: '/iam',
@@ -162,11 +172,21 @@ const config: { [env: string]: IServerOptions } = {
   // Local environment
   // ===========================================================================
   local: {
+    // Legacy Auth endpoint controls (for migration to BetterAuth)
+    // Set to false after all users have migrated to BetterAuth (IAM)
+    // See: .claude/rules/module-deprecation.md
+    auth: {
+      legacyEndpoints: {
+        enabled: true, // Set to false to disable legacy auth endpoints (returns HTTP 410)
+        // graphql: true, // Optionally disable only GraphQL endpoints
+        // rest: true,    // Optionally disable only REST endpoints
+      },
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       basePath: '/iam',
       baseUrl: 'http://localhost:3000',
-      // enabled: true by default - set false to explicitly disable
+      enabled: true, // Enable for Scenario 2 (Legacy + IAM) testing
       jwt: {
         enabled: true,
         expiresIn: '15m',
@@ -179,7 +199,7 @@ const config: { [env: string]: IServerOptions } = {
       },
       rateLimit: {
         enabled: true,
-        max: 20,
+        max: 100, // Higher limit for local testing
         message: 'Too many requests, please try again later.',
         skipEndpoints: ['/session', '/callback'],
         strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
@@ -321,6 +341,16 @@ const config: { [env: string]: IServerOptions } = {
   // Production environment
   // ===========================================================================
   production: {
+    // Legacy Auth endpoint controls (for migration to BetterAuth)
+    // Set to false after all users have migrated to BetterAuth (IAM)
+    // See: .claude/rules/module-deprecation.md
+    auth: {
+      legacyEndpoints: {
+        enabled: process.env.LEGACY_AUTH_ENABLED !== 'false', // Disable via env var
+        // graphql: true, // Optionally disable only GraphQL endpoints
+        // rest: true,    // Optionally disable only REST endpoints
+      },
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       basePath: '/iam',

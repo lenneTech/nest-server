@@ -18,6 +18,7 @@
  */
 
 export * from './better-auth-auth.model';
+export * from './better-auth-migration-status.model';
 export * from './better-auth-models';
 export * from './better-auth-rate-limit.middleware';
 export * from './better-auth-rate-limiter.service';

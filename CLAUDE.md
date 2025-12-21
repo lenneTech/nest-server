@@ -120,6 +120,15 @@ See `.claude/rules/versioning.md` for release process.
 4. **Never store S_ roles** in user.roles array
 5. **Use Module Inheritance Pattern** for core modules
 6. **Document breaking changes** in commits
+7. **Integration Checklists for Core Modules** - Every core module requiring project integration needs `INTEGRATION-CHECKLIST.md` (see `.claude/rules/core-modules.md`)
+
+## Migration Guides
+
+When releasing MINOR or MAJOR versions, create migration guides in `migration-guides/`:
+- Use `migration-guides/TEMPLATE.md` as starting point
+- Always analyze `src/server/` and [nest-server-starter](https://github.com/lenneTech/nest-server-starter)
+- Ask developer for additional projects to analyze
+- See `.claude/rules/migration-guides.md` for complete process
 
 ## Modular Rules
 
@@ -132,4 +141,7 @@ Detailed documentation in `.claude/rules/`:
 | `architecture.md` | Detailed code architecture |
 | `testing.md` | Test configuration and best practices |
 | `versioning.md` | Version strategy and release process |
-| `core-modules.md` | Path-scoped rules for `src/core/modules/` |
+| `core-modules.md` | Path-scoped rules for `src/core/modules/` incl. Integration Checklist requirements |
+| `module-deprecation.md` | Legacy Auth → BetterAuth migration roadmap |
+| `migration-guides.md` | Process for creating version migration guides |
+| `configurable-features.md` | "Presence implies enabled" pattern for optional features |

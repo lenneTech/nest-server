@@ -26,7 +26,7 @@
  *    - S_VERIFIED works with both systems
  */
 
-import { INestApplication } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test, TestingModule } from '@nestjs/testing';
 import bcrypt = require('bcrypt');
 import { PubSub } from 'graphql-subscriptions';
@@ -40,7 +40,7 @@ import { ServerModule } from '../../src/server/server.module';
 
 describe('Story: Parallel Legacy/Better-Auth Operation', () => {
   // Test environment
-  let app: INestApplication;
+  let app: NestExpressApplication;
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
@@ -84,7 +84,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         ],
       }).compile();
 
-      app = moduleFixture.createNestApplication();
+      app = moduleFixture.createNestApplication<NestExpressApplication>();
       app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
@@ -306,8 +306,8 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         expect(res.errors).toBeDefined();
-        // Error message is "No user found with email: unknown@test.com"
-        expect(res.errors[0].message).toContain('No user found with email');
+        // Error message is "Unknown email" (CoreAuthService catches NotFoundException and returns UnauthorizedException)
+        expect(res.errors[0].message).toContain('Unknown email');
       });
     });
 
@@ -354,7 +354,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
           updatedAt: new Date(),
         });
 
-        // Legacy login should fail
+        // Legacy login should fail with specific message for social-only users
         const res = await testHelper.graphQl({
           arguments: { input: { email, password: 'anypassword' } },
           fields: ['token', { user: ['id'] }],
@@ -363,7 +363,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         expect(res.errors).toBeDefined();
-        // Either "Unknown email" or "Wrong password" depending on implementation
+        expect(res.errors[0].message).toContain('No password set for this account');
       });
     });
 
