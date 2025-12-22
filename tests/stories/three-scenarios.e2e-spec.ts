@@ -15,6 +15,7 @@
  * For migration status, see better-auth-migration-status.e2e-spec.ts
  */
 
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
 import { PubSub } from 'graphql-subscriptions';
@@ -31,7 +32,7 @@ function sha256(password: string): string {
 }
 
 describe('Story: Three Authentication Scenarios', () => {
-  let app;
+  let app: NestExpressApplication;
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
@@ -242,6 +243,122 @@ describe('Story: Three Authentication Scenarios', () => {
 
       expect(result.user).toBeDefined();
       expect(result.user.email).toBe(email);
+    });
+  });
+
+  // =================================================================================================================
+  // IAM JWT Token for Protected Non-IAM Endpoints (@Roles(S_USER))
+  // =================================================================================================================
+
+  describe('IAM JWT Token for Protected Non-IAM Endpoints', () => {
+    /**
+     * MULTI-TOKEN SUPPORT in Scenario 2 (Legacy + IAM):
+     *
+     * The RolesGuard now supports both Legacy JWT and BetterAuth (IAM) JWT tokens.
+     * When Passport JWT validation fails (for IAM tokens), the guard falls back to
+     * BetterAuth JWT verification. This enables users who sign in via IAM
+     * (/iam/sign-in/email) to access all protected endpoints.
+     *
+     * Flow:
+     * 1. User signs in via IAM → receives BetterAuth JWT
+     * 2. User calls protected endpoint (getUser, updateUser, etc.)
+     * 3. RolesGuard tries Passport JWT validation → fails (different secret)
+     * 4. RolesGuard falls back to BetterAuth JWT verification → succeeds
+     * 5. User is loaded from MongoDB and request proceeds
+     */
+
+    it('should accept IAM JWT for non-IAM endpoints in Scenario 2', async () => {
+      const email = generateTestEmail('iam-jwt-limitation');
+      const password = sha256('IamJwtLimit123!');
+
+      // Sign up via IAM
+      const signUpResult = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'IAM JWT Limitation Test', password },
+        statusCode: 201,
+      });
+
+      expect(signUpResult.success).toBe(true);
+
+      // Sign in via IAM to get JWT
+      const signInResult = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+
+      expect(signInResult.success).toBe(true);
+      expect(signInResult.token).toBeDefined();
+
+      // Get user ID from database
+      const dbUser = await db.collection('users').findOne({ email });
+      expect(dbUser).toBeDefined();
+      const userId = dbUser!._id.toString();
+
+      // Call getUser GraphQL query with IAM JWT
+      // With the BetterAuth JWT fallback in RolesGuard, this should now SUCCEED
+      const getUserResult = await testHelper.graphQl(
+        {
+          arguments: { id: userId },
+          fields: ['id', 'email'],
+          name: 'getUser',
+          type: TestGraphQLType.QUERY,
+        },
+        { token: signInResult.token },
+      );
+
+      // With multi-token support, IAM JWT should now work for protected endpoints
+      expect(getUserResult.id).toBe(userId);
+      expect(getUserResult.email).toBe(email);
+    });
+
+    it('should accept IAM JWT for updateUser mutation in Scenario 2', async () => {
+      const email = generateTestEmail('iam-jwt-update-limit');
+      const password = sha256('IamJwtUpdate123!');
+
+      // Sign up via IAM
+      const signUpResult = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'IAM JWT UpdateUser Test', password },
+        statusCode: 201,
+      });
+
+      expect(signUpResult.success).toBe(true);
+
+      // Sign in via IAM to get JWT
+      const signInResult = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+
+      expect(signInResult.success).toBe(true);
+      expect(signInResult.token).toBeDefined();
+
+      // Get user ID from database
+      const dbUser = await db.collection('users').findOne({ email });
+      expect(dbUser).toBeDefined();
+      const userId = dbUser!._id.toString();
+
+      // Call updateUser GraphQL mutation with IAM JWT
+      // With the BetterAuth JWT fallback in RolesGuard, this should now SUCCEED
+      const updateUserResult = await testHelper.graphQl(
+        {
+          arguments: {
+            id: userId,
+            input: { firstName: 'WorksNow' },
+          },
+          fields: ['id', 'email', 'firstName'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: signInResult.token },
+      );
+
+      // With multi-token support, IAM JWT should now work for protected endpoints
+      expect(updateUserResult.id).toBe(userId);
+      expect(updateUserResult.email).toBe(email);
+      expect(updateUserResult.firstName).toBe('WorksNow');
     });
   });
 

@@ -340,10 +340,9 @@ describe('Story: Scenario 3 - IAM Only', () => {
           arguments: {},
           fields: ['token'],
           name: 'refreshToken',
-          token: 'dummy-token',
           type: TestGraphQLType.MUTATION,
         },
-        { statusCode: 400 }, // GraphQL errors return 400
+        { statusCode: 400, token: 'dummy-token' }, // GraphQL errors return 400
       );
 
       // Should have errors
@@ -520,15 +519,21 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Use the IAM token to access GraphQL
       // Note: The token format depends on BetterAuth JWT plugin configuration
       if (signInResult.token) {
-        const result = await testHelper.graphQl({
-          fields: [],
-          name: 'betterAuthEnabled',
-          token: signInResult.token,
-          type: TestGraphQLType.QUERY,
-        });
+        const result = await testHelper.graphQl(
+          {
+            fields: [],
+            name: 'betterAuthEnabled',
+            type: TestGraphQLType.QUERY,
+          },
+          { token: signInResult.token },
+        );
 
         expect(result).toBe(true);
       }
     });
   });
+
+  // Note: Tests for IAM JWT with protected non-IAM endpoints (getUser, updateUser)
+  // are in three-scenarios.e2e-spec.ts which uses the full ServerModule with UserModule.
+  // Scenario 3 (IAM-Only) does not include UserModule by default.
 });

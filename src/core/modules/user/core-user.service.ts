@@ -92,6 +92,33 @@ export abstract class CoreUserService<
   }
 
   /**
+   * Get user by MongoDB ID or BetterAuth IAM ID
+   *
+   * This method is used by RolesGuard to resolve users from BetterAuth JWT tokens.
+   * The sub claim in BetterAuth JWTs can contain either:
+   * - The MongoDB _id of the user
+   * - The BetterAuth iamId
+   *
+   * @param idOrIamId - MongoDB _id or BetterAuth iamId
+   * @returns User object or null if not found
+   */
+  async getByIdOrIamId(idOrIamId: string): Promise<null | TUser> {
+    try {
+      // First, try to find by MongoDB _id
+      const byId = await this.mainDbModel.findById(idOrIamId).exec();
+      if (byId) {
+        return byId as TUser;
+      }
+    } catch {
+      // Invalid ObjectId format - try iamId instead
+    }
+
+    // Try to find by iamId
+    const byIamId = await this.mainDbModel.findOne({ iamId: idOrIamId }).exec();
+    return byIamId as null | TUser;
+  }
+
+  /**
    * Get verified state of user by token
    */
   // eslint-disable-next-line unused-imports/no-unused-vars
