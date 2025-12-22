@@ -23,8 +23,8 @@ describe('ServerModule (e2e)', () => {
   const logError = true; // eslint-disable-line unused-imports/no-unused-vars
 
   // Test environment properties
-  const port = 3030;
   let app;
+  let httpServer;
   let testHelper: TestHelper;
 
   // database
@@ -76,11 +76,18 @@ describe('ServerModule (e2e)', () => {
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
+
+      // Start HTTP server on dynamic port (required for WebSocket subscriptions)
+      httpServer = app.getHttpServer();
+      await new Promise<void>((resolve) => {
+        httpServer.listen(0, '127.0.0.1', () => resolve());
+      });
+      const port = httpServer.address().port;
+
       testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
       userService = moduleFixture.get(UserService);
       configService = moduleFixture.get(ConfigService);
       oTempTokenPeriod = envConfig.jwt.sameTokenIdPeriod;
-      await app.listen(port, '127.0.0.1'); // app.listen is required by subscriptions
 
       // Connection to database
       console.info(`MongoDB: Create connection to ${envConfig.mongoose.uri}`);
@@ -96,6 +103,9 @@ describe('ServerModule (e2e)', () => {
    */
   afterAll(async () => {
     await connection.close();
+    if (httpServer) {
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
     await app.close();
   });
 

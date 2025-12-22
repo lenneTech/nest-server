@@ -243,7 +243,6 @@ export class BetterAuthUserMapper {
     }
 
     if (!plainPassword) {
-      this.logger.debug('No plain password provided - cannot create bcrypt hash for legacy');
       return false;
     }
 
@@ -266,13 +265,7 @@ export class BetterAuthUserMapper {
         { $set: { password: bcryptHash, updatedAt: new Date() } },
       );
 
-      if (result.modifiedCount > 0) {
-        this.logger.debug(`Created bcrypt hash for legacy auth for user ${userEmail}`);
-        return true;
-      }
-
-      this.logger.debug(`No user found to sync password for ${userEmail}`);
-      return false;
+      return result.modifiedCount > 0;
     } catch (error) {
       this.logger.error(
         `Error syncing password to legacy: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -304,7 +297,6 @@ export class BetterAuthUserMapper {
     }
 
     if (!plainPassword) {
-      this.logger.debug('No plain password provided - cannot sync to IAM');
       return false;
     }
 
@@ -315,7 +307,6 @@ export class BetterAuthUserMapper {
       // Find the user
       const user = await usersCollection.findOne({ email: userEmail });
       if (!user) {
-        this.logger.debug(`No user found with email ${userEmail} - cannot sync password to IAM`);
         return false;
       }
 
@@ -326,7 +317,6 @@ export class BetterAuthUserMapper {
       });
 
       if (!existingAccount) {
-        this.logger.debug(`No IAM credential account found for ${userEmail} - sync not needed`);
         return false;
       }
 
@@ -334,7 +324,7 @@ export class BetterAuthUserMapper {
       const scryptHash = await this.hashPasswordForBetterAuth(plainPassword);
 
       // Update the account password
-      const result = await accountCollection.updateOne(
+      await accountCollection.updateOne(
         { _id: existingAccount._id },
         {
           $set: {
@@ -344,12 +334,6 @@ export class BetterAuthUserMapper {
         },
       );
 
-      if (result.modifiedCount > 0) {
-        this.logger.debug(`Synced password change to IAM for user ${userEmail}`);
-        return true;
-      }
-
-      this.logger.debug(`Password already up to date in IAM for ${userEmail}`);
       return true;
     } catch (error) {
       this.logger.error(`Error syncing password to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -371,7 +355,6 @@ export class BetterAuthUserMapper {
    */
   async migrateAccountToIam(userEmail: string, plainPassword?: string): Promise<boolean> {
     if (!this.connection) {
-      this.logger.warn('No database connection available - cannot migrate account to IAM');
       return false;
     }
 
@@ -383,7 +366,6 @@ export class BetterAuthUserMapper {
       const legacyUser = await usersCollection.findOne({ email: userEmail });
 
       if (!legacyUser?.password) {
-        this.logger.debug(`No legacy user with password found for ${userEmail}`);
         return false;
       }
 
@@ -396,17 +378,12 @@ export class BetterAuthUserMapper {
         const directMatch = await bcrypt.compare(plainPassword, legacyUser.password);
         const sha256Match = await bcrypt.compare(sha256(plainPassword), legacyUser.password);
         if (!directMatch && !sha256Match) {
-          // Security: Wrong password provided for migration - reject strongly
-          this.logger.warn(
-            `SECURITY: Password verification failed for ${userEmail} - migration rejected. This may indicate an attempted unauthorized migration.`,
-          );
-          // Return false instead of throwing to avoid exposing user existence
-          // The calling code (CoreAuthService) will handle this as authentication failure
+          // Security: Wrong password provided for migration - reject
+          this.logger.warn(`Migration password verification failed for ${userEmail}`);
           return false;
         }
       } else {
         // No password provided - cannot verify, cannot migrate
-        this.logger.debug(`No password provided for ${userEmail} - migration skipped`);
         return false;
       }
 
@@ -433,8 +410,6 @@ export class BetterAuthUserMapper {
             },
           },
         );
-
-        this.logger.debug(`Added Better-Auth id ${stringId} to legacy user ${userEmail}`);
       }
 
       // Check if credential account already exists
@@ -445,23 +420,11 @@ export class BetterAuthUserMapper {
       });
 
       if (existingAccount) {
-        this.logger.debug(`Credential account already exists for ${userEmail}`);
         return true;
       }
 
-      // Create the credential account
-      // If we have the plain password, create a Better-Auth compatible scrypt hash
-      // Otherwise, migration is not possible (legacy bcrypt hash is not compatible)
-      let passwordHash: string;
-      if (plainPassword) {
-        // Better-Auth uses scrypt with format: salt:hash (both hex encoded)
-        passwordHash = await this.hashPasswordForBetterAuth(plainPassword);
-        this.logger.debug(`Created Better-Auth compatible scrypt hash for ${userEmail}`);
-      } else {
-        // Without plain password, we cannot migrate - Better-Auth uses scrypt, Legacy uses bcrypt
-        this.logger.warn(`Cannot migrate ${userEmail} without plain password - hash formats are incompatible`);
-        return false;
-      }
+      // Create the credential account with Better-Auth compatible scrypt hash
+      const passwordHash = await this.hashPasswordForBetterAuth(plainPassword);
 
       const now = new Date();
       // Store account matching Better-Auth's format:
@@ -477,7 +440,6 @@ export class BetterAuthUserMapper {
         userId: userMongoId,
       });
 
-      this.logger.debug(`Created IAM credential account for legacy user ${userEmail}`);
       return true;
     } catch (error) {
       this.logger.error(`Error migrating account to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -685,22 +647,15 @@ export class BetterAuthUserMapper {
       const user = await usersCollection.findOne({ email: newEmail });
 
       if (!user) {
-        this.logger.debug(`No user found with new email ${newEmail}`);
         return false;
       }
 
       // Invalidate all existing sessions for this user
       // This forces re-authentication with the new email
       if (user._id) {
-        const deleteResult = await sessionCollection.deleteMany({ userId: user._id });
-        if (deleteResult.deletedCount > 0) {
-          this.logger.debug(
-            `Invalidated ${deleteResult.deletedCount} sessions after email change for user ${newEmail}`,
-          );
-        }
+        await sessionCollection.deleteMany({ userId: user._id });
       }
 
-      this.logger.debug(`Email change synced from Legacy to IAM: ${oldEmail} → ${newEmail}`);
       return true;
     } catch (error) {
       this.logger.error(
@@ -744,13 +699,7 @@ export class BetterAuthUserMapper {
         { returnDocument: 'after' },
       );
 
-      if (!result) {
-        this.logger.debug(`No user found with iamId ${userId}`);
-        return false;
-      }
-
-      this.logger.debug(`Email change synced from IAM to Legacy for user ${userId}: → ${newEmail}`);
-      return true;
+      return !!result;
     } catch (error) {
       this.logger.error(
         `Error syncing email change from IAM: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -807,7 +756,6 @@ export class BetterAuthUserMapper {
       }
 
       if (!user) {
-        this.logger.debug(`No user found with identifier ${userIdentifier}`);
         return { accountsDeleted: 0, sessionsDeleted: 0, success: false, userDeleted: false };
       }
 
@@ -874,12 +822,6 @@ export class BetterAuthUserMapper {
       const accountsResult = await accountCollection.deleteMany({ userId: userObjectId });
       const accountsDeleted = accountsResult.deletedCount;
 
-      if (sessionsDeleted > 0 || accountsDeleted > 0) {
-        this.logger.debug(
-          `Cleaned up IAM data for user ${userId}: accounts=${accountsDeleted}, sessions=${sessionsDeleted}`,
-        );
-      }
-
       return {
         accountsDeleted,
         sessionsDeleted,
@@ -914,13 +856,7 @@ export class BetterAuthUserMapper {
         $or: [{ iamId: iamUserId }, { id: iamUserId }],
       });
 
-      if (result.deletedCount > 0) {
-        this.logger.debug(`Cleaned up Legacy user for IAM user ${iamUserId}`);
-        return true;
-      }
-
-      this.logger.debug(`No Legacy user found for IAM user ${iamUserId}`);
-      return false;
+      return result.deletedCount > 0;
     } catch (error) {
       this.logger.error(`Error cleaning up Legacy data: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return false;
@@ -1042,10 +978,6 @@ export class BetterAuthUserMapper {
 
       // Can disable legacy auth only if ALL users are fully migrated
       const canDisableLegacyAuth = totalUsers > 0 && fullyMigratedUsers === totalUsers;
-
-      this.logger.debug(
-        `Migration status: ${fullyMigratedUsers}/${totalUsers} users migrated (${migrationPercentage}%)`,
-      );
 
       return {
         canDisableLegacyAuth,

@@ -92,8 +92,8 @@ export class CoreAuthResolver {
    * @throws LegacyAuthDisabledException if legacy endpoints are disabled
    */
   @Mutation(() => Boolean, { description: 'Logout user (from specific device)' })
-  @Roles(RoleEnum.S_EVERYONE)
-  @UseGuards(LegacyAuthRateLimitGuard, AuthGuard(AuthGuardStrategy.JWT))
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(LegacyAuthRateLimitGuard)
   async logout(
     @CurrentUser() currentUser: ICoreAuthUser,
     @Context() ctx: { res: ResponseType },

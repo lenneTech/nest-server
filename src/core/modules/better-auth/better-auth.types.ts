@@ -11,7 +11,14 @@ import { BetterAuthSessionUser } from './better-auth-user.mapper';
  * Better-Auth 2FA verification response
  */
 export interface BetterAuth2FAResponse {
+  /**
+   * JWT access token (only when JWT plugin is enabled)
+   */
+  accessToken?: string;
   session?: BetterAuthSessionResponse['session'];
+  /**
+   * Session token (random string, not a JWT)
+   */
   token?: string;
   user?: BetterAuthSessionUser;
 }
@@ -35,7 +42,16 @@ export interface BetterAuthSessionResponse {
  * Better-Auth sign-in response
  */
 export interface BetterAuthSignInResponse {
+  /**
+   * JWT access token (only when JWT plugin is enabled)
+   * This is the actual JWT token to use for API authentication
+   */
+  accessToken?: string;
   session?: BetterAuthSessionResponse['session'];
+  /**
+   * Session token (random string, not a JWT)
+   * This is the session identifier, not used for API authentication
+   */
   token?: string;
   twoFactorRedirect?: boolean;
   user?: BetterAuthSessionUser;

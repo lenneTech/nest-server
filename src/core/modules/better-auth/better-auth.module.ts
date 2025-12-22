@@ -20,7 +20,7 @@ import { BetterAuthUserMapper } from './better-auth-user.mapper';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
 import { BetterAuthMiddleware } from './better-auth.middleware';
 import { BetterAuthResolver } from './better-auth.resolver';
-import { BetterAuthService } from './better-auth.service';
+import { BETTER_AUTH_CONFIG, BetterAuthService } from './better-auth.service';
 import { CoreBetterAuthController } from './core-better-auth.controller';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
 
@@ -34,9 +34,13 @@ export const BETTER_AUTH_INSTANCE = 'BETTER_AUTH_INSTANCE';
  */
 export interface BetterAuthModuleOptions {
   /**
-   * Better-auth configuration
+   * Better-auth configuration.
+   * Accepts:
+   * - `true`: Enable with all defaults (including JWT)
+   * - `false`: Disable BetterAuth
+   * - `{ ... }`: Enable with custom configuration
    */
-  config: IBetterAuth;
+  config: boolean | IBetterAuth;
 
   /**
    * Custom controller class to use instead of the default CoreBetterAuthController.
@@ -98,6 +102,20 @@ export interface BetterAuthModuleOptions {
    * ```
    */
   resolver?: Type<CoreBetterAuthResolver>;
+}
+
+/**
+ * Normalizes betterAuth config from boolean | IBetterAuth to IBetterAuth | null
+ * - `true` → `{}` (enabled with defaults)
+ * - `false` → `null` (disabled)
+ * - `undefined` → `null` (disabled for backward compatibility)
+ * - `{ ... }` → `{ ... }` (pass through)
+ */
+function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): IBetterAuth | null {
+  if (config === undefined || config === null) return null;
+  if (config === true) return {};
+  if (config === false) return null;
+  return config;
 }
 
 /**
@@ -178,12 +196,12 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
       // Apply rate limiting to Better-Auth endpoints only
       if (BetterAuthModule.currentConfig?.rateLimit?.enabled) {
         consumer.apply(BetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*path`);
-        BetterAuthModule.logger.log(`Rate limiting enabled for ${basePath}/*path endpoints`);
+        BetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
       }
 
       // Apply session middleware to all routes
       consumer.apply(BetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
-      BetterAuthModule.logger.log('BetterAuthMiddleware registered for all routes');
+      BetterAuthModule.logger.debug('BetterAuthMiddleware registered for all routes');
     }
   }
 
@@ -224,7 +242,10 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: BetterAuthModuleOptions): DynamicModule {
-    const { config, controller, fallbackSecrets, resolver } = options;
+    const { config: rawConfig, controller, fallbackSecrets, resolver } = options;
+
+    // Normalize config: true → {}, false/undefined → null
+    const config = normalizeBetterAuthConfig(rawConfig);
 
     // Store config for middleware configuration
     this.currentConfig = config;
@@ -233,12 +254,11 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
     // Store custom resolver if provided
     this.customResolver = resolver || null;
 
-    // If better-auth is explicitly disabled, return minimal module
+    // If better-auth is disabled (config is null or enabled: false), return minimal module
     // Note: We don't provide middleware classes when disabled because they depend on BetterAuthService
     // and won't be used anyway (middleware is only applied when enabled)
-    // BetterAuth is enabled by default unless explicitly set to false
-    if (config?.enabled === false) {
-      this.logger.debug('BetterAuth is explicitly disabled - skipping initialization');
+    if (config === null || config?.enabled === false) {
+      this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
       return {
         exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
@@ -285,15 +305,16 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
           inject: [ConfigService],
           provide: BETTER_AUTH_INSTANCE,
           useFactory: async (configService: ConfigService) => {
-            const config = configService.get<IBetterAuth>('betterAuth');
+            // Get raw config (can be boolean or object)
+            const rawConfig = configService.get<boolean | IBetterAuth>('betterAuth');
+            // Normalize: true → {}, false/undefined → null
+            const config = normalizeBetterAuthConfig(rawConfig);
 
-            // Store config for middleware configuration
-            this.currentConfig = config || null;
-
-            // BetterAuth is enabled by default unless explicitly set to false
-            if (config?.enabled === false) {
-              this.logger.debug('BetterAuth is explicitly disabled');
+            // BetterAuth is disabled if config is null or enabled: false
+            if (config === null || config?.enabled === false) {
+              this.logger.debug('BetterAuth is disabled');
               this.betterAuthEnabled = false;
+              this.currentConfig = config;
               return null;
             }
 
@@ -315,6 +336,10 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             // with fallback to jwt.secret, jwt.refresh.secret, or auto-generation
             this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
 
+            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
+            // This ensures BetterAuthService has access to the resolved secret (with fallback applied)
+            this.currentConfig = config;
+
             if (this.authInstance) {
               this.logger.log('BetterAuth initialized successfully');
               this.logEnabledFeatures(config);
@@ -323,13 +348,22 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
+        // Provide the resolved config for BetterAuthService
+        {
+          provide: BETTER_AUTH_CONFIG,
+          useFactory: () => this.currentConfig,
+        },
         // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
-          inject: [BETTER_AUTH_INSTANCE, ConfigService],
+          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
           provide: BetterAuthService,
-          useFactory: (authInstance: BetterAuthInstance | null, configService: ConfigService) => {
-            return new BetterAuthService(authInstance, configService);
+          useFactory: (
+            authInstance: BetterAuthInstance | null,
+            resolvedConfig: IBetterAuth | null,
+            connection: Connection,
+          ) => {
+            return new BetterAuthService(authInstance, connection, resolvedConfig);
           },
         },
         BetterAuthUserMapper,
@@ -399,6 +433,10 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
               this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
             }
 
+            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
+            // This ensures BetterAuthService has access to the resolved secret (with fallback applied)
+            this.currentConfig = config;
+
             if (this.authInstance && !this.initLogged) {
               this.initLogged = true;
               this.logger.log('BetterAuth initialized');
@@ -408,13 +446,22 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
+        // Provide the resolved config for BetterAuthService
+        {
+          provide: BETTER_AUTH_CONFIG,
+          useFactory: () => this.currentConfig,
+        },
         // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
-          inject: [BETTER_AUTH_INSTANCE, ConfigService],
+          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
           provide: BetterAuthService,
-          useFactory: (authInstance: BetterAuthInstance | null, configService: ConfigService) => {
-            return new BetterAuthService(authInstance, configService);
+          useFactory: (
+            authInstance: BetterAuthInstance | null,
+            resolvedConfig: IBetterAuth | null,
+            connection: Connection,
+          ) => {
+            return new BetterAuthService(authInstance, connection, resolvedConfig);
           },
         },
         BetterAuthUserMapper,
@@ -434,14 +481,23 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   private static logEnabledFeatures(config: IBetterAuth): void {
     const features: string[] = [];
 
+    // Helper to check if a plugin is enabled
+    // Supports: true, { enabled: true }, { ... } (enabled by default when config block present)
+    // Disabled only when: false or { enabled: false }
+    const isPluginEnabled = <T extends { enabled?: boolean }>(value: boolean | T | undefined): boolean => {
+      if (value === undefined || value === false) return false;
+      if (value === true) return true;
+      return value.enabled !== false;
+    };
+
     // Plugins are enabled by default when config block is present
-    if (config.jwt && config.jwt.enabled !== false) {
+    if (isPluginEnabled(config.jwt)) {
       features.push('JWT');
     }
-    if (config.twoFactor && config.twoFactor.enabled !== false) {
+    if (isPluginEnabled(config.twoFactor)) {
       features.push('2FA/TOTP');
     }
-    if (config.passkey && config.passkey.enabled !== false) {
+    if (isPluginEnabled(config.passkey)) {
       features.push('Passkey/WebAuthn');
     }
 

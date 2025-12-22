@@ -100,7 +100,7 @@ export class BetterAuthRateLimiter {
     };
 
     if (this.config.enabled) {
-      this.logger.log(`Rate limiting enabled: ${this.config.max} requests per ${this.config.windowSeconds}s`);
+      this.logger.debug(`Rate limiting enabled: ${this.config.max} requests per ${this.config.windowSeconds}s`);
     }
   }
 

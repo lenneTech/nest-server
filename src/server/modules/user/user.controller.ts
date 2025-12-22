@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -15,8 +15,6 @@ import { CurrentUser } from '../../../core/common/decorators/current-user.decora
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { AuthGuardStrategy } from '../../../core/modules/auth/auth-guard-strategy.enum';
-import { AuthGuard } from '../../../core/modules/auth/guards/auth.guard';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
 import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
@@ -48,7 +46,6 @@ export class UserController {
   @ApiOperation({ description: 'Find users (via filter)', summary: 'Get all users' })
   @Get()
   @Roles(RoleEnum.ADMIN)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async findUsers(@CurrentUser() currentUser: User): Promise<User[]> {
     const serviceOptions: ServiceOptions = {
       currentUser,
@@ -67,7 +64,6 @@ export class UserController {
   })
   @Get('count')
   @Roles(RoleEnum.ADMIN)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async findAndCountUsers(@CurrentUser() currentUser: User): Promise<FindAndCountUsersResult> {
     const serviceOptions: ServiceOptions = {
       currentUser,
@@ -99,7 +95,6 @@ export class UserController {
   @ApiParam({ description: 'User ID', name: 'id', type: String })
   @Get(':id')
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async getUser(@CurrentUser() currentUser: User, @Param('id') id: string): Promise<User> {
     const serviceOptions: ServiceOptions = {
       currentUser,
@@ -121,7 +116,6 @@ export class UserController {
   @ApiOperation({ description: 'Create a new user', summary: 'Create user' })
   @Post()
   @Roles(RoleEnum.ADMIN)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async createUser(@CurrentUser() currentUser: User, @Body() input: UserCreateInput): Promise<User> {
     const serviceOptions: ServiceOptions = {
       currentUser,
@@ -208,7 +202,6 @@ export class UserController {
   @ApiParam({ description: 'User ID', name: 'id', type: String })
   @Patch(':id')
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async updateUser(@CurrentUser() currentUser: User, @Param('id') id: string, @Body() input: UserInput): Promise<User> {
     const serviceOptions: ServiceOptions = {
       currentUser,
@@ -231,7 +224,6 @@ export class UserController {
   @ApiParam({ description: 'User ID', name: 'id', type: String })
   @Delete(':id')
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async deleteUser(@CurrentUser() currentUser: User, @Param('id') id: string): Promise<User> {
     const serviceOptions: ServiceOptions = {
       currentUser,

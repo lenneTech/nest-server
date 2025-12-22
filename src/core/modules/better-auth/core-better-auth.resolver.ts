@@ -1,11 +1,9 @@
-import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { AuthGuardStrategy } from '../auth/auth-guard-strategy.enum';
-import { AuthGuard } from '../auth/guards/auth.guard';
 import { BetterAuthAuthModel } from './better-auth-auth.model';
 import { BetterAuthMigrationStatusModel } from './better-auth-migration-status.model';
 import {
@@ -83,7 +81,6 @@ export class CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthSession(@Context() ctx: { req: Request }): Promise<BetterAuthSessionModel | null> {
     if (!this.betterAuthService.isEnabled()) {
       return null;
@@ -132,6 +129,27 @@ export class CoreBetterAuthResolver {
   }
 
   /**
+   * Get a fresh JWT token for the current session.
+   *
+   * Use this when your JWT has expired but your session is still valid.
+   * The JWT can be used for stateless authentication with other services
+   * that verify tokens via JWKS (`/iam/jwks`).
+   *
+   * Returns null if:
+   * - Better-Auth is not enabled
+   * - JWT plugin is not enabled
+   * - No valid session exists
+   */
+  @Query(() => String, {
+    description: 'Get fresh JWT token for the current session (requires valid session)',
+    nullable: true,
+  })
+  @Roles(RoleEnum.S_USER)
+  async betterAuthToken(@Context() ctx: { req: Request }): Promise<null | string> {
+    return this.betterAuthService.getToken(ctx.req);
+  }
+
+  /**
    * Get migration status from Legacy Auth to Better-Auth (IAM)
    *
    * This query provides administrators with information about how many users
@@ -165,6 +183,9 @@ export class CoreBetterAuthResolver {
    * This mutation wraps Better-Auth's sign-in endpoint and returns a response
    * compatible with the existing auth system.
    *
+   * Features automatic legacy user migration: If a user exists in Legacy Auth
+   * but not in IAM, they will be automatically migrated on first IAM sign-in.
+   *
    * Override this method to add custom pre/post sign-in logic.
    */
   @Mutation(() => BetterAuthAuthModel, {
@@ -184,11 +205,37 @@ export class CoreBetterAuthResolver {
       throw new BadRequestException('Better-Auth API not available');
     }
 
+    // Try to sign in, with automatic legacy user migration
+    return this.attemptSignIn(email, password, api, true);
+  }
+
+  /**
+   * Attempt sign-in with optional legacy user migration
+   * @param email - User email
+   * @param password - User password (plain or SHA256)
+   * @param api - Better-Auth API instance
+   * @param allowMigration - Whether to attempt legacy migration on failure
+   */
+  protected async attemptSignIn(
+    email: string,
+    password: string,
+    api: ReturnType<BetterAuthService['getApi']>,
+    allowMigration: boolean,
+  ): Promise<BetterAuthAuthModel> {
     try {
-      // Call Better-Auth's sign-in endpoint
-      const response = (await api.signInEmail({
+      // Try sign-in with original password first (for native IAM users)
+      const response = (await api!.signInEmail({
         body: { email, password },
       })) as BetterAuthSignInResponse | null;
+
+      this.logger.debug(`[SignIn] API response for ${email}: ${JSON.stringify(response)?.substring(0, 200)}`);
+
+      // Check if response indicates an error (Better-Auth returns error objects, not throws)
+      const responseAny = response as any;
+      if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
+        this.logger.debug(`[SignIn] API returned error for ${email}: ${responseAny?.error || responseAny?.code}`);
+        throw new Error(responseAny?.error || responseAny?.code || 'Credential account not found');
+      }
 
       if (!response) {
         throw new UnauthorizedException('Invalid credentials');
@@ -208,8 +255,11 @@ export class CoreBetterAuthResolver {
         const sessionUser: BetterAuthSessionUser = response.user;
         const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
 
-        // Get token if JWT plugin is enabled
-        const token = this.betterAuthService.isJwtEnabled() ? response.token : undefined;
+        // Return the session token for session-based authentication
+        // Note: If JWT plugin is enabled, accessToken may be in response or in set-auth-jwt header
+        // For GraphQL responses, we return the session token and let clients use it for session auth
+        const responseAny = response as any;
+        const token = responseAny.accessToken || responseAny.token;
 
         return {
           requiresTwoFactor: false,
@@ -222,9 +272,61 @@ export class CoreBetterAuthResolver {
 
       throw new UnauthorizedException('Invalid credentials');
     } catch (error) {
-      this.logger.debug(`Sign-in error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.debug(
+        `[SignIn] Sign-in failed for ${email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+
+      // If migration is allowed, try to migrate legacy user and retry
+      if (allowMigration) {
+        this.logger.debug(`[SignIn] Attempting migration for ${email}...`);
+        // Pass the original password for legacy verification
+        const migrated = await this.userMapper.migrateAccountToIam(email, password);
+        this.logger.debug(`[SignIn] Migration result for ${email}: ${migrated}`);
+        if (migrated) {
+          this.logger.debug(`[SignIn] Migrated legacy user ${email} to IAM, retrying sign-in`);
+          // Retry sign-in after migration with normalized password (as migrateAccountToIam stores it)
+          const normalizedPassword = this.userMapper.normalizePasswordForIam(password);
+          return this.attemptSignInDirect(email, normalizedPassword, api);
+        }
+      }
+
       throw new UnauthorizedException('Invalid credentials');
     }
+  }
+
+  /**
+   * Direct sign-in attempt without migration logic (used after migration)
+   */
+  private async attemptSignInDirect(
+    email: string,
+    password: string,
+    api: ReturnType<BetterAuthService['getApi']>,
+  ): Promise<BetterAuthAuthModel> {
+    const response = (await api!.signInEmail({
+      body: { email, password },
+    })) as BetterAuthSignInResponse | null;
+
+    if (!response || !hasUser(response)) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (requires2FA(response)) {
+      return { requiresTwoFactor: true, success: false, user: null };
+    }
+
+    const sessionUser: BetterAuthSessionUser = response.user;
+    const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
+    // Return accessToken if available (JWT), otherwise fall back to session token
+    const responseAny = response as any;
+    const token = responseAny.accessToken || responseAny.token;
+
+    return {
+      requiresTwoFactor: false,
+      session: hasSession(response) ? this.mapSessionInfo(response.session) : null,
+      success: true,
+      token,
+      user: mappedUser ? this.mapToUserModel(mappedUser) : null,
+    };
   }
 
   /**
@@ -292,7 +394,6 @@ export class CoreBetterAuthResolver {
    */
   @Mutation(() => Boolean, { description: 'Sign out via Better-Auth' })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthSignOut(@Context() ctx: { req: Request }): Promise<boolean> {
     if (!this.betterAuthService.isEnabled()) {
       return false;
@@ -386,7 +487,6 @@ export class CoreBetterAuthResolver {
     description: 'Enable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthEnable2FA(
     @Args('password') password: string,
     @Context() ctx: { req: Request },
@@ -441,7 +541,6 @@ export class CoreBetterAuthResolver {
     description: 'Disable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthDisable2FA(@Args('password') password: string, @Context() ctx: { req: Request }): Promise<boolean> {
     this.ensureEnabled();
 
@@ -487,7 +586,6 @@ export class CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthGenerateBackupCodes(@Context() ctx: { req: Request }): Promise<null | string[]> {
     this.ensureEnabled();
 
@@ -534,7 +632,6 @@ export class CoreBetterAuthResolver {
     description: 'Get passkey registration challenge for WebAuthn',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthGetPasskeyChallenge(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyChallengeModel> {
     this.ensureEnabled();
 
@@ -580,7 +677,6 @@ export class CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyModel[] | null> {
     if (!this.betterAuthService.isEnabled() || !this.betterAuthService.isPasskeyEnabled()) {
       return null;
@@ -627,7 +723,6 @@ export class CoreBetterAuthResolver {
     description: 'Delete a passkey by ID',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   async betterAuthDeletePasskey(
     @Args('passkeyId') passkeyId: string,
     @Context() ctx: { req: Request },

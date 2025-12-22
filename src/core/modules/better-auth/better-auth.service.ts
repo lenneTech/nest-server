@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectConnection } from '@nestjs/mongoose';
 import { Request } from 'express';
+import { importJWK, jwtVerify } from 'jose';
+import { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -43,6 +46,11 @@ export interface SessionResult {
  * }
  * ```
  */
+/**
+ * Injection token for resolved BetterAuth configuration
+ */
+export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
+
 @Injectable()
 export class BetterAuthService {
   private readonly logger = new Logger(BetterAuthService.name);
@@ -50,10 +58,14 @@ export class BetterAuthService {
 
   constructor(
     @Optional() @Inject(BETTER_AUTH_INSTANCE) private readonly authInstance: BetterAuthInstance | null,
+    @Optional() @InjectConnection() private readonly connection?: Connection,
+    @Inject(BETTER_AUTH_CONFIG) @Optional() private readonly resolvedConfig?: IBetterAuth | null,
+    // ConfigService is last because it's only needed as fallback when resolvedConfig is not provided
     @Optional() private readonly configService?: ConfigService,
   ) {
+    // Use resolvedConfig if provided (has fallback secret applied), otherwise get fresh from ConfigService
     // Better-Auth is enabled by default (zero-config) - only disabled if explicitly set to false
-    this.config = this.configService?.get<IBetterAuth>('betterAuth') || {};
+    this.config = this.resolvedConfig || this.configService?.get<IBetterAuth>('betterAuth') || {};
   }
 
   /**
@@ -98,29 +110,49 @@ export class BetterAuthService {
 
   /**
    * Checks if JWT plugin is enabled.
-   * JWT is enabled by default when the jwt config block is present,
-   * unless explicitly disabled with enabled: false.
+   * JWT is enabled by default when BetterAuth is enabled.
+   * Only returns false if explicitly disabled:
+   * - `jwt: false` → disabled
+   * - `jwt: { enabled: false }` → disabled
+   * - `undefined`, `true`, `{}`, or `{ expiresIn: '...' }` → enabled
    */
   isJwtEnabled(): boolean {
-    return this.isEnabled() && !!this.config.jwt && this.config.jwt.enabled !== false;
+    if (!this.isEnabled()) return false;
+    // JWT is enabled by default unless explicitly disabled
+    const jwtConfig = this.config.jwt;
+    if (jwtConfig === false) return false;
+    if (typeof jwtConfig === 'object' && jwtConfig?.enabled === false) return false;
+    return true;
   }
 
   /**
    * Checks if 2FA is enabled.
-   * 2FA is enabled by default when the twoFactor config block is present,
-   * unless explicitly disabled with enabled: false.
+   * Supports both boolean and object configuration:
+   * - `true` or `{}` → enabled
+   * - `false` or `{ enabled: false }` → disabled
    */
   isTwoFactorEnabled(): boolean {
-    return this.isEnabled() && !!this.config.twoFactor && this.config.twoFactor.enabled !== false;
+    return this.isEnabled() && this.isPluginEnabled(this.config.twoFactor);
   }
 
   /**
    * Checks if Passkey/WebAuthn is enabled.
-   * Passkey is enabled by default when the passkey config block is present,
-   * unless explicitly disabled with enabled: false.
+   * Supports both boolean and object configuration:
+   * - `true` or `{}` → enabled
+   * - `false` or `{ enabled: false }` → disabled
    */
   isPasskeyEnabled(): boolean {
-    return this.isEnabled() && !!this.config.passkey && this.config.passkey.enabled !== false;
+    return this.isEnabled() && this.isPluginEnabled(this.config.passkey);
+  }
+
+  /**
+   * Helper to check if a plugin configuration is enabled.
+   * Supports both boolean and object configuration.
+   */
+  private isPluginEnabled<T extends { enabled?: boolean }>(config: boolean | T | undefined): boolean {
+    if (config === undefined) return false;
+    if (typeof config === 'boolean') return config;
+    return config.enabled !== false;
   }
 
   /**
@@ -165,6 +197,69 @@ export class BetterAuthService {
    */
   getBaseUrl(): string {
     return this.config.baseUrl || 'http://localhost:3000';
+  }
+
+  // ===================================================================================================================
+  // JWT Token Methods
+  // ===================================================================================================================
+
+  /**
+   * Gets a fresh JWT token for the current session.
+   *
+   * Use this when your JWT has expired but your session is still valid.
+   * The JWT can be used for stateless authentication with other services
+   * that verify tokens via JWKS (`/iam/jwks`).
+   *
+   * @param req - Express request object with session cookie/header
+   * @returns Fresh JWT token or null if no valid session or JWT is disabled
+   *
+   * @example
+   * ```typescript
+   * const token = await betterAuthService.getToken(req);
+   * if (token) {
+   *   // Use token for microservice calls
+   *   await fetch('https://api.example.com/data', {
+   *     headers: { Authorization: `Bearer ${token}` }
+   *   });
+   * }
+   * ```
+   */
+  async getToken(req: Request | { headers: Record<string, string | string[] | undefined> }): Promise<null | string> {
+    if (!this.isEnabled() || !this.isJwtEnabled()) {
+      return null;
+    }
+
+    const api = this.getApi();
+    if (!api) {
+      return null;
+    }
+
+    try {
+      // Convert headers to the format Better-Auth expects
+      const headers = new Headers();
+      const reqHeaders = 'headers' in req ? req.headers : {};
+
+      for (const [key, value] of Object.entries(reqHeaders)) {
+        if (typeof value === 'string') {
+          headers.set(key, value);
+        } else if (Array.isArray(value)) {
+          headers.set(key, value.join(', '));
+        }
+      }
+
+      // Call the token endpoint via Better-Auth API
+      // The jwt plugin adds a getToken method to the API
+      const response = await (api as any).getToken({ headers });
+
+      if (response && typeof response === 'object' && 'token' in response) {
+        return response.token as string;
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.debug(`getToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
   }
 
   // ===================================================================================================================
@@ -258,8 +353,6 @@ export class BetterAuthService {
 
       // Call Better-Auth's signOut endpoint
       await api.signOut({ headers });
-
-      this.logger.debug('Session revoked successfully');
       return true;
     } catch (error) {
       this.logger.debug(`revokeSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -310,5 +403,267 @@ export class BetterAuthService {
     const remaining = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
 
     return remaining;
+  }
+
+  /**
+   * Gets a session by token directly from the database.
+   *
+   * This method looks up the session in Better-Auth's session collection
+   * and returns the associated user. Useful for verifying session tokens
+   * passed via Authorization header.
+   *
+   * @param token - The session token to look up
+   * @returns Session and user data, or null if not found/expired
+   */
+  async getSessionByToken(token: string): Promise<SessionResult> {
+    if (!this.isEnabled() || !this.connection) {
+      return { session: null, user: null };
+    }
+
+    try {
+      const db = this.connection.db;
+      if (!db) {
+        return { session: null, user: null };
+      }
+
+      const sessionsCollection = db.collection('session');
+      // Better-Auth is configured to use 'users' (plural) as the model name
+      // This matches the existing Legacy users collection for migration compatibility
+      const usersCollection = db.collection('users');
+
+      // Find session by token
+      const session = await sessionsCollection.findOne({ token });
+
+      if (!session) {
+        return { session: null, user: null };
+      }
+
+      // Check if session is expired
+      if (session.expiresAt && new Date(session.expiresAt) < new Date()) {
+        return { session: null, user: null };
+      }
+
+      // Get user from the user collection
+      // Better-Auth stores userId as a string, try both string id and ObjectId
+      const { ObjectId } = require('mongodb');
+
+      let user = await usersCollection.findOne({ id: session.userId });
+      if (!user) {
+        // Try with ObjectId conversion
+        try {
+          const objectId = new ObjectId(session.userId);
+          user = await usersCollection.findOne({ _id: objectId });
+        } catch {
+          // userId might not be a valid ObjectId, try string match
+          user = await usersCollection.findOne({ _id: session.userId });
+        }
+      }
+
+      if (!user) {
+        return { session: null, user: null };
+      }
+
+      return {
+        session: {
+          expiresAt: session.expiresAt,
+          id: session.id || session._id?.toString(),
+          userId: session.userId?.toString(),
+          ...session,
+        },
+        user: {
+          email: user.email,
+          emailVerified: user.emailVerified,
+          id: user.id || user._id?.toString(),
+          name: user.name,
+        },
+      };
+    } catch (error) {
+      this.logger.debug(`getSessionByToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { session: null, user: null };
+    }
+  }
+
+  // ===================================================================================================================
+  // JWT Token Verification (for BetterAuth JWT tokens using JWKS)
+  // ===================================================================================================================
+
+  /**
+   * Verifies a BetterAuth JWT token using JWKS public keys from the database.
+   *
+   * BetterAuth JWT tokens are signed with asymmetric keys (EdDSA/RSA/EC) stored in the
+   * `jwks` collection. This method verifies the token signature using the public key
+   * and returns the payload if valid.
+   *
+   * This enables stateless JWT verification without requiring a session cookie.
+   *
+   * @param token - The JWT token to verify (from Authorization header)
+   * @returns The JWT payload with user info, or null if verification fails
+   *
+   * @example
+   * ```typescript
+   * const token = req.headers.authorization?.replace('Bearer ', '');
+   * if (token) {
+   *   const payload = await betterAuthService.verifyJwtToken(token);
+   *   if (payload) {
+   *     console.log('User ID:', payload.sub);
+   *   }
+   * }
+   * ```
+   */
+  async verifyJwtToken(token: string): Promise<null | {
+    [key: string]: any;
+    email?: string;
+    sub: string;
+  }> {
+    if (!this.isEnabled() || !this.isJwtEnabled()) {
+      return null;
+    }
+
+    try {
+      // Parse JWT header to determine algorithm
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        this.logger.debug('Invalid JWT format');
+        return null;
+      }
+
+      // Decode header (base64url)
+      const headerStr = Buffer.from(parts[0], 'base64url').toString('utf-8');
+      const header = JSON.parse(headerStr);
+      const alg = header.alg;
+      const kid = header.kid;
+
+      // For HS256 (symmetric), verify with the BetterAuth secret
+      if (alg === 'HS256') {
+        return this.verifyHs256Token(token);
+      }
+
+      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS
+      if (kid && this.connection) {
+        return this.verifyJwksToken(token, kid, alg);
+      }
+
+      this.logger.debug(`JWT verification: unsupported algorithm=${alg} or missing kid`);
+      return null;
+    } catch (error) {
+      this.logger.debug(`JWT verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  /**
+   * Verifies an HS256 JWT token using the BetterAuth secret
+   */
+  private async verifyHs256Token(token: string): Promise<null | {
+    [key: string]: any;
+    email?: string;
+    sub: string;
+  }> {
+    try {
+      const secret = this.config.secret;
+
+      if (!secret) {
+        this.logger.debug('HS256 verification failed: no secret configured');
+        return null;
+      }
+
+      // Create secret key from the BetterAuth secret
+      const secretKey = new TextEncoder().encode(secret);
+
+      // Verify the token
+      const { payload } = await jwtVerify(token, secretKey);
+
+      if (!payload.sub) {
+        this.logger.debug('JWT payload missing sub claim');
+        return null;
+      }
+
+      return payload as { [key: string]: any; email?: string; sub: string };
+    } catch (error) {
+      this.logger.debug(`HS256 verification error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  /**
+   * Verifies a JWT token using JWKS public keys from the database
+   */
+  private async verifyJwksToken(
+    token: string,
+    kid: string,
+    alg: string,
+  ): Promise<null | {
+    [key: string]: any;
+    email?: string;
+    sub: string;
+  }> {
+    if (!this.connection) {
+      this.logger.debug('JWKS verification failed: no database connection');
+      return null;
+    }
+
+    try {
+      // Fetch the JWKS public key from database
+      const jwksCollection = this.connection.collection('jwks');
+      let keyRecord = await jwksCollection.findOne({ id: kid });
+
+      if (!keyRecord) {
+        // Try with _id as fallback (MongoDB ObjectId)
+        const allKeys = await jwksCollection.find({}).toArray();
+        const matchingKey = allKeys.find((k) => k.id === kid || k._id?.toString() === kid);
+        if (!matchingKey) {
+          this.logger.debug(`No JWKS key found for kid: ${kid}`);
+          return null;
+        }
+        keyRecord = matchingKey;
+      }
+
+      if (!keyRecord?.publicKey) {
+        this.logger.debug('JWKS key has no public key');
+        return null;
+      }
+
+      // Parse the public key and import it
+      const publicKey = JSON.parse(keyRecord.publicKey);
+      const algorithm = alg || keyRecord.alg || 'EdDSA';
+      const key = await importJWK(publicKey, algorithm);
+
+      // Verify the JWT - issuer and audience default to baseUrl in Better-Auth
+      const baseUrl = this.getBaseUrl();
+      const { payload } = await jwtVerify(token, key, {
+        audience: baseUrl,
+        issuer: baseUrl,
+      });
+
+      if (!payload.sub) {
+        this.logger.debug('JWT payload missing sub claim');
+        return null;
+      }
+
+      return payload as { [key: string]: any; email?: string; sub: string };
+    } catch (error) {
+      this.logger.debug(`JWKS verification error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extracts and verifies a JWT token from a request's Authorization header.
+   *
+   * @param req - Express request object
+   * @returns The JWT payload with user info, or null if no valid token
+   */
+  async verifyJwtFromRequest(req: Request): Promise<null | {
+    [key: string]: any;
+    email?: string;
+    sub: string;
+  }> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return null;
+    }
+
+    const token = authHeader.substring(7);
+    return this.verifyJwtToken(token);
   }
 }

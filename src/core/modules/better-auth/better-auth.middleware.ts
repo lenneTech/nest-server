@@ -49,7 +49,7 @@ export class BetterAuthMiddleware implements NestMiddleware {
     }
 
     try {
-      // Get session from Better-Auth
+      // Strategy 1: Try session-based authentication (cookies)
       const session = await this.getSession(req);
 
       if (session?.user) {
@@ -63,7 +63,69 @@ export class BetterAuthMiddleware implements NestMiddleware {
         if (mappedUser) {
           // Attach the mapped user to the request
           // This makes it compatible with @CurrentUser() and RolesGuard
-          req.user = mappedUser;
+          // Set _authenticatedViaBetterAuth flag so AuthGuard skips Passport JWT verification
+          req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
+          return next();
+        }
+      }
+
+      // Strategy 2: Try Authorization header (Bearer token)
+      // The token could be a BetterAuth JWT, a Legacy JWT, or a session token
+      if (req.headers.authorization) {
+        const authHeader = req.headers.authorization;
+        const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+        const tokenParts = token.split('.').length;
+
+        // Check if token looks like a JWT (has 3 parts)
+        if (tokenParts === 3) {
+          // Decode JWT payload to check if it's a Legacy JWT or BetterAuth JWT
+          // Legacy JWTs have 'id' claim, BetterAuth JWTs have 'sub' claim
+          const isLegacyJwt = this.isLegacyJwt(token);
+          if (isLegacyJwt) {
+            // Legacy JWT - skip BetterAuth processing, let Passport handle it
+            return next();
+          }
+
+          // Try BetterAuth JWT verification
+          if (this.betterAuthService.isJwtEnabled()) {
+            const jwtPayload = await this.betterAuthService.verifyJwtFromRequest(req);
+
+            if (jwtPayload?.sub) {
+              // JWT payload contains user info - create a session-like user object
+              const sessionUser: BetterAuthSessionUser = {
+                email: jwtPayload.email || '',
+                emailVerified: jwtPayload.emailVerified,
+                id: jwtPayload.sub,
+                name: jwtPayload.name,
+              };
+
+              req.betterAuthUser = sessionUser;
+
+              // Map the JWT user to our User model with hasRole()
+              const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
+
+              if (mappedUser) {
+                req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
+                return next();
+              }
+            }
+          }
+        }
+
+        // If user is still not set, try session token verification as fallback
+        // This handles both non-JWT tokens and JWTs that couldn't be verified
+        if (!req.user) {
+          const sessionResult = await this.betterAuthService.getSessionByToken(token);
+          if (sessionResult?.user) {
+            req.betterAuthSession = { session: sessionResult.session, user: sessionResult.user };
+            req.betterAuthUser = sessionResult.user;
+
+            const mappedUser = await this.userMapper.mapSessionUser(sessionResult.user);
+            if (mappedUser) {
+              req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
+              return next();
+            }
+          }
         }
       }
     } catch (error) {
@@ -73,6 +135,27 @@ export class BetterAuthMiddleware implements NestMiddleware {
     }
 
     next();
+  }
+
+  /**
+   * Checks if a JWT token is a Legacy Auth JWT (has 'id' claim but no 'sub' claim)
+   * Legacy JWTs use 'id' for user ID, BetterAuth JWTs use 'sub'
+   */
+  private isLegacyJwt(token: string): boolean {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return false;
+
+      // Decode the payload (second part)
+      const payloadStr = Buffer.from(parts[1], 'base64url').toString('utf-8');
+      const payload = JSON.parse(payloadStr);
+
+      // Legacy JWT has 'id' claim (and typically 'deviceId', 'tokenId')
+      // BetterAuth JWT has 'sub' claim
+      return payload.id !== undefined && payload.sub === undefined;
+    } catch {
+      return false;
+    }
   }
 
   /**

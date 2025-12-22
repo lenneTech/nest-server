@@ -54,7 +54,9 @@ https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/better-auth.resolver.ts`
 
 **WHY must ALL decorators be re-declared?**
-GraphQL schema is built from decorators at compile time. The parent class (`CoreBetterAuthResolver`) is marked as `isAbstract: true`, so its methods are not registered in the schema. You MUST re-declare `@Query`, `@Mutation`, `@Roles`, `@UseGuards` decorators in the child class for the methods to appear in the GraphQL schema.
+GraphQL schema is built from decorators at compile time. The parent class (`CoreBetterAuthResolver`) is marked as `isAbstract: true`, so its methods are not registered in the schema. You MUST re-declare `@Query`, `@Mutation`, `@Roles` decorators in the child class for the methods to appear in the GraphQL schema.
+
+**Note:** `@UseGuards(AuthGuard(JWT))` is NOT needed when using `@Roles(S_USER)` or `@Roles(ADMIN)` because `RolesGuard` already extends `AuthGuard(JWT)` internally.
 
 ---
 
@@ -136,13 +138,14 @@ const config = {
       enabled: false,
     },
   },
-  // BetterAuth configuration
+  // BetterAuth configuration (minimal - JWT enabled by default)
+  betterAuth: true,  // or betterAuth: {} for same effect
+
+  // OR with optional features:
   betterAuth: {
-    // enabled: true (default)
-    // basePath: '/iam' (default)
-    jwt: {},       // Enable JWT tokens
-    twoFactor: {}, // Enable 2FA
-    passkey: {},   // Enable Passkeys
+    twoFactor: {}, // Enable 2FA (opt-in)
+    passkey: {},   // Enable Passkeys (opt-in)
+    // JWT is already enabled by default
   },
 };
 ```
@@ -156,10 +159,8 @@ const config = {
       enabled: true, // Default - can disable after migration
     },
   },
-  // BetterAuth configuration
-  betterAuth: {
-    // ... same as above
-  },
+  // BetterAuth configuration (JWT enabled by default)
+  betterAuth: true,  // Minimal config, or use object for more options
 };
 ```
 

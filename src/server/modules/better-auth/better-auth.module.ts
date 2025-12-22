@@ -10,9 +10,13 @@ import { BetterAuthResolver } from './better-auth.resolver';
  */
 export interface ServerBetterAuthModuleOptions {
   /**
-   * Better-auth configuration from environment
+   * Better-auth configuration.
+   * Accepts:
+   * - `true`: Enable with all defaults (including JWT)
+   * - `false`: Disable BetterAuth
+   * - `{ ... }`: Enable with custom configuration
    */
-  config: IBetterAuth;
+  config: boolean | IBetterAuth;
 
   /**
    * Fallback secrets for backwards compatibility with JWT config.
@@ -63,7 +67,9 @@ export class BetterAuthModule {
     const { config, fallbackSecrets } = options;
 
     // If better-auth is explicitly disabled, return minimal module
-    if (config?.enabled === false) {
+    // Supports: false, { enabled: false }, or undefined/null
+    const isDisabled = config === false || (typeof config === 'object' && config?.enabled === false);
+    if (isDisabled) {
       return {
         exports: [],
         module: BetterAuthModule,

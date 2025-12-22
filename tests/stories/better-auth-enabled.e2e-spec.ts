@@ -19,7 +19,6 @@ import {
   BetterAuthRateLimiter,
   BetterAuthService,
   BetterAuthUserMapper,
-  ConfigService,
   createBetterAuthInstance,
   RoleEnum,
 } from '../../src';
@@ -74,33 +73,25 @@ describe('Story: BetterAuth Enabled Integration', () => {
     beforeEach(() => {
       rateLimiter = new BetterAuthRateLimiter();
 
-      // Create a mock config service that returns enabled config
-      const mockConfigService = {
-        get: (key: string) => {
-          if (key === 'betterAuth') {
-            return {
-              basePath: '/iam',
-              baseUrl: 'http://localhost:3000',
-              enabled: true,
-              jwt: { enabled: true, expiresIn: '15m' },
-              passkey: { enabled: false },
-              rateLimit: { enabled: true, max: 10, windowSeconds: 60 },
-              secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
-              socialProviders: {
-                apple: { enabled: false },
-                github: { enabled: false },
-                google: { clientId: 'test', clientSecret: 'test', enabled: true },
-              },
-              twoFactor: { enabled: false },
-            };
-          }
-          return undefined;
+      // Config passed directly as resolvedConfig (3rd parameter)
+      const mockConfig = {
+        basePath: '/iam',
+        baseUrl: 'http://localhost:3000',
+        enabled: true,
+        jwt: { enabled: true, expiresIn: '15m' },
+        passkey: { enabled: false },
+        rateLimit: { enabled: true, max: 10, windowSeconds: 60 },
+        secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
+        socialProviders: {
+          google: { clientId: 'test', clientSecret: 'test', enabled: true },
         },
+        twoFactor: { enabled: false },
       };
 
       // Note: Since we can't fully initialize Better-Auth without MongoDB,
       // we test the service methods that don't require the auth instance
-      service = new BetterAuthService(null, mockConfigService as ConfigService);
+      // Parameters: authInstance, connection, resolvedConfig, configService
+      service = new BetterAuthService(null, undefined, mockConfig);
     });
 
     afterEach(() => {
@@ -246,6 +237,101 @@ describe('Story: BetterAuth Enabled Integration', () => {
       expect(module.exports).toContain(BetterAuthService);
       expect(module.exports).toContain(BetterAuthUserMapper);
       expect(module.exports).toContain(BetterAuthRateLimiter);
+    });
+
+    it('should NOT register controllers when disabled', () => {
+      BetterAuthModule.reset();
+
+      const disabledModule = BetterAuthModule.forRoot({
+        config: { enabled: false },
+      });
+
+      // When disabled, no controllers should be registered
+      // This ensures REST endpoints don't appear in Swagger
+      expect(disabledModule.controllers).toBeUndefined();
+    });
+
+    it('should register controllers when enabled', () => {
+      BetterAuthModule.reset();
+
+      const enabledModule = BetterAuthModule.forRoot({
+        config: {
+          basePath: '/iam',
+          enabled: true,
+          secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
+        },
+      });
+
+      // When enabled, controllers should be registered for REST/Swagger
+      expect(enabledModule.controllers).toBeDefined();
+      expect(enabledModule.controllers!.length).toBeGreaterThan(0);
+    });
+
+    it('should NOT include resolver in providers when disabled', () => {
+      BetterAuthModule.reset();
+
+      const disabledModule = BetterAuthModule.forRoot({
+        config: { enabled: false },
+      });
+
+      // When disabled, the resolver class should not be in providers
+      // This ensures GraphQL endpoints don't appear in schema
+      const providerClasses = disabledModule.providers
+        ?.map((p) => {
+          // Handle both class providers and factory providers
+          if (typeof p === 'function') return p;
+          if (typeof p === 'object' && 'provide' in p) {
+            if (typeof p.provide === 'function') return p.provide;
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      // CoreBetterAuthResolver and BetterAuthResolver should not be in providers
+      expect(providerClasses?.some((c) => c?.name?.includes('Resolver'))).toBe(false);
+    });
+
+    it('should include resolver in providers when enabled', () => {
+      BetterAuthModule.reset();
+
+      const enabledModule = BetterAuthModule.forRoot({
+        config: {
+          basePath: '/iam',
+          enabled: true,
+          secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
+        },
+      });
+
+      // When enabled, the resolver should be in providers for GraphQL schema
+      const providerClasses = enabledModule.providers
+        ?.map((p) => {
+          if (typeof p === 'function') return p;
+          return null;
+        })
+        .filter(Boolean);
+
+      expect(providerClasses?.some((c) => c?.name?.includes('Resolver'))).toBe(true);
+    });
+
+    it('should support boolean shorthand: true enables with defaults', () => {
+      BetterAuthModule.reset();
+
+      // betterAuth: true should be equivalent to betterAuth: {}
+      const module = BetterAuthModule.forRoot({ config: true });
+
+      // When enabled via boolean true, controllers should be registered
+      expect(module.controllers).toBeDefined();
+      expect(module.controllers!.length).toBeGreaterThan(0);
+    });
+
+    it('should support boolean shorthand: false disables completely', () => {
+      BetterAuthModule.reset();
+
+      // betterAuth: false should disable the module
+      const module = BetterAuthModule.forRoot({ config: false });
+
+      // When disabled via boolean false, no controllers should be registered
+      expect(module.controllers).toBeUndefined();
     });
   });
 
