@@ -81,7 +81,6 @@
     "@as-integrations/express5": "1.1.2",
     "@better-auth/passkey": "1.4.8-beta.4",
     "@getbrevo/brevo": "3.0.1",
-    "@lenne.tech/nest-server": "file:lenne.tech-nest-server-11.7.2.tgz",
     "@nestjs/apollo": "13.2.3",
     "@nestjs/common": "11.1.9",
     "@nestjs/core": "11.1.9",
