@@ -435,7 +435,9 @@ describe('Story: BetterAuth Security Integration', () => {
       await middleware.use(req, res, next);
 
       expect(next).toHaveBeenCalled();
-      expect(req.user).toBe(mappedUser);
+      // User object is spread with _authenticatedViaBetterAuth flag, so use toMatchObject
+      expect(req.user).toMatchObject(mappedUser);
+      expect(req.user._authenticatedViaBetterAuth).toBe(true);
       expect(req.betterAuthSession).toBe(mockSession);
       expect(req.betterAuthUser).toBe(mockSession.user);
     });

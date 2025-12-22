@@ -233,11 +233,17 @@ export class CoreModule implements NestModule {
     // Add BetterAuthModule based on mode
     // IAM-only mode: Always register BetterAuthModule (required for subscription auth)
     // Legacy mode: Only register if autoRegister is explicitly true
-    if (config.betterAuth?.enabled !== false) {
-      if (isIamOnlyMode || config.betterAuth?.autoRegister === true) {
+    // betterAuth can be: boolean | IBetterAuth | undefined
+    const betterAuthConfig = config.betterAuth;
+    const isBetterAuthEnabled =
+      betterAuthConfig === true || (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled !== false);
+    const isAutoRegister = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === true;
+
+    if (isBetterAuthEnabled) {
+      if (isIamOnlyMode || isAutoRegister) {
         imports.push(
           BetterAuthModule.forRoot({
-            config: config.betterAuth || {},
+            config: betterAuthConfig === true ? {} : betterAuthConfig || {},
             // Pass JWT secrets for backwards compatibility fallback
             fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
           }),

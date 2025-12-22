@@ -101,8 +101,8 @@ export class CoreAuthController {
   @ApiQuery({ description: 'If all devices should be logged out,', name: 'allDevices', required: false, type: Boolean })
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
   @Get('logout')
-  @Roles(RoleEnum.S_EVERYONE)
-  @UseGuards(LegacyAuthRateLimitGuard, AuthGuard(AuthGuardStrategy.JWT))
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(LegacyAuthRateLimitGuard)
   async logout(
     @CurrentUser() currentUser: ICoreAuthUser,
     @Tokens('token') token: string,

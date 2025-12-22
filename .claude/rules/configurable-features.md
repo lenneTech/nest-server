@@ -101,22 +101,129 @@ auth: {
 }
 ```
 
+## Boolean Shorthand Pattern
+
+For simple enable/disable scenarios, support `boolean | object` configuration:
+
+### Rules
+
+1. **`true`**: Feature is **enabled** with all default values
+2. **`false`**: Feature is **disabled**
+3. **`{}`**: Feature is **enabled** with all default values (same as `true`)
+4. **`{ option: value }`**: Feature is **enabled** with custom settings
+5. **`{ enabled: false }`**: Feature is **disabled** (allows pre-configuration)
+6. **`undefined`**: Feature is **disabled** (default)
+
+### Benefits
+
+- **Concise**: `jwt: true` instead of `jwt: {}`
+- **Readable**: Clear intent at a glance
+- **Flexible**: Can still use objects for customization
+
+### Implementation Example
+
+```typescript
+// Interface definition
+interface IBetterAuth {
+  jwt?: boolean | IBetterAuthJwtConfig;
+  twoFactor?: boolean | IBetterAuthTwoFactorConfig;
+  passkey?: boolean | IBetterAuthPasskeyConfig;
+}
+
+interface IBetterAuthJwtConfig {
+  enabled?: boolean;
+  expiresIn?: string;
+}
+
+// Helper functions
+function isPluginEnabled<T extends { enabled?: boolean }>(
+  config: boolean | T | undefined
+): boolean {
+  if (config === undefined) return false;
+  if (typeof config === 'boolean') return config;
+  return config.enabled !== false;
+}
+
+function getPluginConfig<T extends { enabled?: boolean }>(
+  config: boolean | T | undefined
+): T | undefined {
+  if (!isPluginEnabled(config)) return undefined;
+  if (typeof config === 'boolean') return {} as T;
+  return config;
+}
+
+// Usage in build logic
+const jwtConfig = getPluginConfig(config.jwt);
+if (jwtConfig) {
+  plugins.push(jwt({ expirationTime: jwtConfig.expiresIn || '15m' }));
+}
+```
+
+### Usage Examples
+
+```typescript
+// config.env.ts
+
+betterAuth: {
+  // Boolean shorthand - enable with defaults
+  jwt: true,
+  twoFactor: true,
+  passkey: true,
+}
+
+// Equivalent to:
+betterAuth: {
+  jwt: {},
+  twoFactor: {},
+  passkey: {},
+}
+
+// Mixed - some with defaults, some customized
+betterAuth: {
+  jwt: true,                        // Enable with defaults
+  twoFactor: { appName: 'My App' }, // Enable with custom settings
+  passkey: false,                   // Explicitly disabled
+}
+
+// Pre-configured but disabled
+betterAuth: {
+  jwt: { enabled: false, expiresIn: '1h' }, // Ready to enable later
+}
+```
+
 ## Applied Features
 
 This pattern is currently applied to:
 
-| Feature | Config Path | Default Values |
-|---------|-------------|----------------|
-| Legacy Auth Rate Limiting | `auth.rateLimit` | `max: 10`, `windowSeconds: 60` |
-| BetterAuth Rate Limiting | `betterAuth.rateLimit` | `max: 10`, `windowSeconds: 60` |
+| Feature | Config Path | Pattern | Default Values |
+|---------|-------------|---------|----------------|
+| Legacy Auth Rate Limiting | `auth.rateLimit` | Presence Implies Enabled | `max: 10`, `windowSeconds: 60` |
+| BetterAuth Rate Limiting | `betterAuth.rateLimit` | Presence Implies Enabled | `max: 10`, `windowSeconds: 60` |
+| BetterAuth JWT Plugin | `betterAuth.jwt` | Boolean Shorthand | `expiresIn: '15m'` |
+| BetterAuth 2FA Plugin | `betterAuth.twoFactor` | Boolean Shorthand | `appName: 'Nest Server'` |
+| BetterAuth Passkey Plugin | `betterAuth.passkey` | Boolean Shorthand | `rpName: 'Nest Server'` |
 
 ## Checklist for New Configurable Features
 
 When adding a new configurable feature:
+
+### For "Presence Implies Enabled" Pattern:
 
 - [ ] Define interface with `enabled?: boolean` as optional property
 - [ ] Set `enabled: false` in DEFAULT_CONFIG
 - [ ] Implement "presence implies enabled" logic in configure method
 - [ ] Document all default values in interface JSDoc
 - [ ] Add tests for: undefined config, empty object, partial config, explicit disable
+
+### For "Boolean Shorthand" Pattern:
+
+- [ ] Define separate interface for config options (e.g., `IBetterAuthJwtConfig`)
+- [ ] Use union type: `property?: boolean | IPropertyConfig`
+- [ ] Implement `isPluginEnabled()` helper for boolean/object handling
+- [ ] Implement `getPluginConfig()` helper to normalize to object
+- [ ] Add tests for: `true`, `false`, `{}`, `{ option: value }`, `{ enabled: false }`, `undefined`
+
+### For Both Patterns:
+
 - [ ] Update this document with the new feature
+- [ ] Export new interfaces in `src/index.ts` (if needed)

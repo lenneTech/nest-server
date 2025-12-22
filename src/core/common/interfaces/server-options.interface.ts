@@ -274,22 +274,29 @@ export interface IBetterAuth {
 
   /**
    * JWT plugin configuration for API clients.
-   * Enabled by default when this config block is present.
-   * Set `enabled: false` to explicitly disable.
+   *
+   * **Default: Enabled** - JWT is enabled by default when BetterAuth is enabled.
+   * This ensures a minimal config (`betterAuth: true`) provides full functionality.
+   *
+   * Accepts:
+   * - `true` or `{}`: Enable with defaults (same as not specifying)
+   * - `{ expiresIn: '1h' }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Explicitly disable
+   * - `undefined`: Enabled with defaults (JWT is on by default)
+   *
+   * @example
+   * ```typescript
+   * // JWT is enabled by default, no config needed
+   * betterAuth: true,
+   *
+   * // Customize JWT expiry
+   * betterAuth: { jwt: { expiresIn: '1h' } },
+   *
+   * // Explicitly disable JWT (session-only mode)
+   * betterAuth: { jwt: false },
+   * ```
    */
-  jwt?: {
-    /**
-     * Whether JWT plugin is enabled.
-     * @default true (when jwt config block is present)
-     */
-    enabled?: boolean;
-
-    /**
-     * JWT expiration time
-     * @default '15m'
-     */
-    expiresIn?: string;
-  };
+  jwt?: boolean | IBetterAuthJwtConfig;
 
   /**
    * Advanced Better-Auth options passthrough.
@@ -322,34 +329,22 @@ export interface IBetterAuth {
 
   /**
    * Passkey/WebAuthn configuration.
-   * Enabled by default when this config block is present.
-   * Set `enabled: false` to explicitly disable.
+   *
+   * Accepts:
+   * - `true` or `{}`: Enable with defaults
+   * - `{ rpName: 'My App' }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Disable
+   * - `undefined`: Disabled (default)
+   *
+   * @example
+   * ```typescript
+   * passkey: true,       // Enable with defaults
+   * passkey: {},         // Enable with defaults
+   * passkey: { rpName: 'My App', rpId: 'example.com' }, // Enable with custom settings
+   * passkey: false,      // Disable
+   * ```
    */
-  passkey?: {
-    /**
-     * Whether passkey authentication is enabled.
-     * @default true (when passkey config block is present)
-     */
-    enabled?: boolean;
-
-    /**
-     * Origin URL for WebAuthn
-     * e.g. 'http://localhost:3000'
-     */
-    origin?: string;
-
-    /**
-     * Relying Party ID (usually the domain)
-     * e.g. 'localhost' or 'example.com'
-     */
-    rpId?: string;
-
-    /**
-     * Relying Party Name (displayed to users)
-     * e.g. 'My Application'
-     */
-    rpName?: string;
-  };
+  passkey?: boolean | IBetterAuthPasskeyConfig;
 
   /**
    * Additional Better-Auth plugins to include.
@@ -410,22 +405,68 @@ export interface IBetterAuth {
 
   /**
    * Two-factor authentication configuration.
-   * Enabled by default when this config block is present.
-   * Set `enabled: false` to explicitly disable.
+   *
+   * Accepts:
+   * - `true` or `{}`: Enable with defaults
+   * - `{ appName: 'My App' }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Disable
+   * - `undefined`: Disabled (default)
+   *
+   * @example
+   * ```typescript
+   * twoFactor: true,     // Enable with defaults
+   * twoFactor: {},       // Enable with defaults
+   * twoFactor: { appName: 'My App' }, // Enable with custom app name
+   * twoFactor: false,    // Disable
+   * ```
    */
-  twoFactor?: {
-    /**
-     * App name shown in authenticator apps
-     * e.g. 'My Application'
-     */
-    appName?: string;
+  twoFactor?: boolean | IBetterAuthTwoFactorConfig;
+}
 
-    /**
-     * Whether 2FA is enabled.
-     * @default true (when twoFactor config block is present)
-     */
-    enabled?: boolean;
-  };
+/**
+ * JWT plugin configuration for Better-Auth
+ */
+export interface IBetterAuthJwtConfig {
+  /**
+   * Whether JWT plugin is enabled.
+   * @default true (when config block is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * JWT expiration time
+   * @default '15m'
+   */
+  expiresIn?: string;
+}
+
+/**
+ * Passkey/WebAuthn plugin configuration for Better-Auth
+ */
+export interface IBetterAuthPasskeyConfig {
+  /**
+   * Whether passkey authentication is enabled.
+   * @default true (when config block is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Origin URL for WebAuthn
+   * e.g. 'http://localhost:3000'
+   */
+  origin?: string;
+
+  /**
+   * Relying Party ID (usually the domain)
+   * e.g. 'localhost' or 'example.com'
+   */
+  rpId?: string;
+
+  /**
+   * Relying Party Name (displayed to users)
+   * e.g. 'My Application'
+   */
+  rpName?: string;
 }
 
 /**
@@ -501,6 +542,23 @@ export interface IBetterAuthSocialProvider {
    * Defaults to true when clientId and clientSecret are provided.
    * Set to false to explicitly disable this provider.
    * @default true (when credentials are configured)
+   */
+  enabled?: boolean;
+}
+
+/**
+ * Two-factor authentication plugin configuration for Better-Auth
+ */
+export interface IBetterAuthTwoFactorConfig {
+  /**
+   * App name shown in authenticator apps
+   * e.g. 'My Application'
+   */
+  appName?: string;
+
+  /**
+   * Whether 2FA is enabled.
+   * @default true (when config block is present)
    */
   enabled?: boolean;
 }
@@ -598,10 +656,23 @@ export interface IServerOptions {
   automaticObjectIdFiltering?: boolean;
 
   /**
-   * Configuration for better-auth authentication framework
+   * Configuration for better-auth authentication framework.
    * See: https://better-auth.com
+   *
+   * Accepts:
+   * - `true`: Enable with all defaults (including JWT)
+   * - `false`: Disable BetterAuth completely
+   * - `{ ... }`: Enable with custom configuration
+   * - `undefined`: Disabled (default for backward compatibility)
+   *
+   * @example
+   * ```typescript
+   * betterAuth: true,  // Enable with defaults (JWT enabled)
+   * betterAuth: { baseUrl: 'https://example.com' },  // Custom config
+   * betterAuth: false, // Explicitly disabled
+   * ```
    */
-  betterAuth?: IBetterAuth;
+  betterAuth?: boolean | IBetterAuth;
 
   /**
    * Configuration for Brevo

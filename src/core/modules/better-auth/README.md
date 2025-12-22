@@ -10,8 +10,11 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 CoreModule.forRoot(envConfig),  // IAM-only (new projects)
 BetterAuthModule.forRoot({ config: envConfig.betterAuth, fallbackSecrets: [envConfig.jwt?.secret] }),
 
-// 3. Configure in config.env.ts:
-betterAuth: { jwt: {}, twoFactor: {}, passkey: {} }
+// 3. Configure in config.env.ts (minimal - JWT enabled by default):
+betterAuth: true  // or betterAuth: {} for same effect
+
+// With optional features:
+betterAuth: { twoFactor: {}, passkey: {} }
 ```
 
 **Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [REST API](#rest-api-endpoints) | [GraphQL API](#graphql-api) | [Configuration](#configuration)
@@ -36,11 +39,11 @@ betterAuth: { jwt: {}, twoFactor: {}, passkey: {} }
 
 ## Features
 
-### Built-in Plugins (Explicit Configuration)
+### Built-in Plugins
 
-- **JWT Tokens** - For API clients and stateless authentication
-- **Two-Factor Authentication (2FA)** - TOTP-based second factor
-- **Passkey/WebAuthn** - Passwordless authentication
+- **JWT Tokens** - For API clients and stateless authentication (**enabled by default**)
+- **Two-Factor Authentication (2FA)** - TOTP-based second factor (opt-in)
+- **Passkey/WebAuthn** - Passwordless authentication (opt-in)
 
 ### Core Features
 
@@ -93,7 +96,9 @@ https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-
 **Copy from:** Reference implementation
 
 **WHY must ALL decorators be re-declared?**
-GraphQL schema is built from decorators at compile time. The parent class (`CoreBetterAuthResolver`) is marked as `isAbstract: true`, so its methods are not registered in the schema. You MUST re-declare `@Query`, `@Mutation`, `@Roles`, `@UseGuards` decorators in the child class for the methods to appear in the GraphQL schema.
+GraphQL schema is built from decorators at compile time. The parent class (`CoreBetterAuthResolver`) is marked as `isAbstract: true`, so its methods are not registered in the schema. You MUST re-declare `@Query`, `@Mutation`, `@Roles` decorators in the child class for the methods to appear in the GraphQL schema.
+
+**Note:** `@UseGuards(AuthGuard(JWT))` is NOT needed when using `@Roles(S_USER)` or `@Roles(ADMIN)` because `RolesGuard` already extends `AuthGuard(JWT)` internally.
 
 ### Step 3: Create BetterAuth Controller
 **Create:** `src/server/modules/better-auth/better-auth.controller.ts`
@@ -149,22 +154,28 @@ Add `betterAuth` configuration block. See reference for all available options in
 
 ## Quick Reference
 
+**Configuration formats:**
+```typescript
+betterAuth: true               // Enable with all defaults (JWT enabled)
+betterAuth: false              // Disable completely
+betterAuth: {}                 // Same as true
+betterAuth: { ... }            // Enable with custom settings
+betterAuth: { enabled: false } // Disable (allows pre-configuration)
+```
+
 **Default values (used when not configured):**
 
+- **JWT**: Enabled by default
 - **Secret**: Falls back to `jwt.secret` → `jwt.refresh.secret` → auto-generated
 - **Base URL**: `http://localhost:3000`
 - **Base Path**: `/iam`
-- **Passkey Origin**: `http://localhost:3000`
-- **Passkey rpId**: `localhost`
-- **Passkey rpName**: `Nest Server`
+- **2FA/Passkey**: Disabled (opt-in)
 
 To **explicitly disable** Better-Auth:
 
 ```typescript
 const config = {
-  betterAuth: {
-    enabled: false,
-  },
+  betterAuth: false,  // or betterAuth: { enabled: false }
 };
 ```
 
@@ -330,28 +341,29 @@ const config = {
 export default {
   // ... other config
 
-  // OPTIONAL: Better-Auth configuration
-  // Omit entirely for default behavior, or customize as needed:
+  // MINIMAL: Just enable BetterAuth (JWT enabled by default)
+  betterAuth: true,
+
+  // OR with customization:
   betterAuth: {
     // enabled: true by default - only set to false to disable
     // secret: auto-generated if not set (see Security section above)
     // baseUrl: 'http://localhost:3000', // Default
     // basePath: '/iam', // Default
 
-    // JWT Plugin (enabled by default when config block is present)
-    // Set enabled: false to explicitly disable
+    // JWT Plugin - ENABLED BY DEFAULT (no config needed)
+    // Only add this block to customize or explicitly disable
     jwt: {
-      expiresIn: '15m',
+      expiresIn: '30m',  // Default: '15m'
+      // enabled: false,  // Uncomment to disable JWT
     },
 
-    // Two-Factor Authentication (enabled by default when config block is present)
-    // Set enabled: false to explicitly disable
+    // Two-Factor Authentication (opt-in - requires config block)
     twoFactor: {
       appName: 'My Application',
     },
 
-    // Passkey/WebAuthn (enabled by default when config block is present)
-    // Set enabled: false to explicitly disable
+    // Passkey/WebAuthn (opt-in - requires config block)
     passkey: {
       rpId: 'localhost',
       rpName: 'My Application',
@@ -515,23 +527,25 @@ Better-Auth provides a rich plugin ecosystem. This module uses a **hybrid approa
 - **Built-in plugins** (JWT, 2FA, Passkey): Explicitly configured with typed options
 - **Additional plugins**: Dynamically added via the `plugins` array
 
-### Built-in Plugins (Explicit Configuration)
+### Built-in Plugins
 
-These plugins are enabled by default when their config block is present. **All properties have sensible defaults**, so an empty block `{}` is sufficient!
+| Plugin             | Default State | Minimal Config to Enable | Default Values                                                                    |
+| ------------------ | ------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| **JWT**            | **ENABLED**   | *(none needed)*          | `expiresIn: '15m'`                                                                |
+| **Two-Factor**     | Disabled      | `twoFactor: {}`          | `appName: 'Nest Server'`                                                          |
+| **Passkey**        | Disabled      | `passkey: {}`            | `origin: 'http://localhost:3000'`, `rpId: 'localhost'`, `rpName: 'Nest Server'`   |
 
-| Plugin             | Minimal Config       | Default Values                                                                    |
-| ------------------ | -------------------- | --------------------------------------------------------------------------------- |
-| **JWT**            | `jwt: {}`            | `expiresIn: '15m'`                                                                |
-| **Two-Factor**     | `twoFactor: {}`      | `appName: 'Nest Server'`                                                          |
-| **Passkey**        | `passkey: {}`        | `origin: 'http://localhost:3000'`, `rpId: 'localhost'`, `rpName: 'Nest Server'`   |
+**JWT is enabled by default** - no configuration needed. 2FA and Passkey require explicit configuration.
 
 #### Minimal Syntax (Recommended for Development)
 
 ```typescript
 const config = {
+  // JWT is enabled automatically with BetterAuth
+  betterAuth: true,  // or betterAuth: {}
+
+  // To also enable 2FA and Passkey:
   betterAuth: {
-    // Just add empty blocks - all defaults are applied!
-    jwt: {},
     twoFactor: {},
     passkey: {},
   },
@@ -554,16 +568,19 @@ const config = {
 };
 ```
 
-#### Disabling a Plugin
+#### Disabling Plugins
 
 ```typescript
 const config = {
   betterAuth: {
-    jwt: { enabled: false }, // Explicitly disable JWT
-    twoFactor: {}, // 2FA still enabled with defaults
+    jwt: false,               // Disable JWT (or jwt: { enabled: false })
+    twoFactor: {},            // 2FA enabled with defaults
+    passkey: { enabled: false }, // Passkey explicitly disabled
   },
 };
 ```
+
+**Note:** JWT is the only plugin enabled by default. To disable it, use `jwt: false` or `jwt: { enabled: false }`.
 
 ### Dynamic Plugins (plugins Array)
 
@@ -733,9 +750,9 @@ To explicitly disable Better-Auth:
 
 ```typescript
 const config = {
-  betterAuth: {
-    enabled: false,
-  },
+  betterAuth: false,  // Simple boolean
+  // or
+  betterAuth: { enabled: false },  // Allows pre-configuration
 };
 ```
 
@@ -749,9 +766,29 @@ When enabled, Better-Auth exposes the following endpoints at the configured `bas
 | `/iam/sign-in/email`        | POST   | Sign in with email/password  |
 | `/iam/sign-out`             | GET    | Sign out (invalidate session)|
 | `/iam/session`              | GET    | Get current session          |
+| `/iam/token`                | GET    | Get fresh JWT token          |
 | `/iam/forgot-password`      | POST   | Request password reset       |
 | `/iam/reset-password`       | POST   | Reset password with token    |
 | `/iam/verify-email`         | POST   | Verify email address         |
+
+### JWT Token Endpoint
+
+The `/iam/token` endpoint returns a fresh JWT token for the current session. Use this when your JWT has expired but your session is still valid.
+
+**Request:**
+```bash
+curl -X GET https://api.example.com/iam/token \
+  -H "Cookie: better-auth.session_token=..."
+```
+
+**Response:**
+```json
+{
+  "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6Ii4uLiJ9..."
+}
+```
+
+**Use case:** Microservice authentication - pass the JWT to other services that verify tokens via JWKS (`/iam/jwks`) without database access.
 
 ### Social Login Endpoints
 
@@ -781,12 +818,14 @@ In addition to REST endpoints, Better-Auth provides GraphQL queries and mutation
 
 ### Queries
 
-| Query                    | Arguments | Return Type                  | Description                     |
-| ------------------------ | --------- | ---------------------------- | ------------------------------- |
-| `betterAuthEnabled`      | -         | `Boolean`                    | Check if Better-Auth is enabled |
-| `betterAuthFeatures`     | -         | `BetterAuthFeaturesModel`    | Get enabled features status     |
-| `betterAuthSession`      | -         | `BetterAuthSessionModel`     | Get current session (auth req.) |
-| `betterAuthListPasskeys` | -         | `[BetterAuthPasskeyModel]`   | List user's passkeys (auth req.)|
+| Query                    | Arguments | Return Type                  | Description                       |
+| ------------------------ | --------- | ---------------------------- | --------------------------------- |
+| `betterAuthEnabled`      | -         | `Boolean`                    | Check if Better-Auth is enabled   |
+| `betterAuthFeatures`     | -         | `BetterAuthFeaturesModel`    | Get enabled features status       |
+| `betterAuthSession`      | -         | `BetterAuthSessionModel`     | Get current session (auth req.)   |
+| `betterAuthToken`        | -         | `String`                     | Get fresh JWT token (auth req.)   |
+| `betterAuthListPasskeys` | -         | `[BetterAuthPasskeyModel]`   | List user's passkeys (auth req.)  |
+| `betterAuthMigrationStatus` | -      | `BetterAuthMigrationStatusModel` | Migration status (admin only) |
 
 ### Mutations
 

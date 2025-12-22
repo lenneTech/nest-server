@@ -114,7 +114,7 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
     };
 
     if (this.config.enabled) {
-      this.logger.log(
+      this.logger.debug(
         `Legacy Auth rate limiting enabled: ${this.config.max} requests per ${this.config.windowSeconds}s`,
       );
     }

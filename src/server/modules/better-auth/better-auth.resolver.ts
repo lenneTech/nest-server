@@ -1,11 +1,8 @@
-import { UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { AuthGuardStrategy } from '../../../core/modules/auth/auth-guard-strategy.enum';
-import { AuthGuard } from '../../../core/modules/auth/guards/auth.guard';
 import { BetterAuthAuthModel } from '../../../core/modules/better-auth/better-auth-auth.model';
 import { BetterAuthMigrationStatusModel } from '../../../core/modules/better-auth/better-auth-migration-status.model';
 import {
@@ -62,7 +59,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthSession(@Context() ctx: { req: Request }): Promise<BetterAuthSessionModel | null> {
     return super.betterAuthSession(ctx);
   }
@@ -87,12 +83,20 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     return super.betterAuthMigrationStatus();
   }
 
+  @Query(() => String, {
+    description: 'Get fresh JWT token for the current session (requires valid session)',
+    nullable: true,
+  })
+  @Roles(RoleEnum.S_USER)
+  override async betterAuthToken(@Context() ctx: { req: Request }): Promise<null | string> {
+    return super.betterAuthToken(ctx);
+  }
+
   @Query(() => [BetterAuthPasskeyModel], {
     description: 'List passkeys for the current user',
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyModel[] | null> {
     return super.betterAuthListPasskeys(ctx);
   }
@@ -127,7 +131,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
 
   @Mutation(() => Boolean, { description: 'Sign out via Better-Auth' })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthSignOut(@Context() ctx: { req: Request }): Promise<boolean> {
     return super.betterAuthSignOut(ctx);
   }
@@ -151,7 +154,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     description: 'Enable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthEnable2FA(
     @Args('password') password: string,
     @Context() ctx: { req: Request },
@@ -163,7 +165,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     description: 'Disable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthDisable2FA(
     @Args('password') password: string,
     @Context() ctx: { req: Request },
@@ -176,7 +177,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthGenerateBackupCodes(@Context() ctx: { req: Request }): Promise<null | string[]> {
     return super.betterAuthGenerateBackupCodes(ctx);
   }
@@ -189,7 +189,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     description: 'Get passkey registration challenge for WebAuthn',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthGetPasskeyChallenge(
     @Context() ctx: { req: Request },
   ): Promise<BetterAuthPasskeyChallengeModel> {
@@ -200,7 +199,6 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     description: 'Delete a passkey by ID',
   })
   @Roles(RoleEnum.S_USER)
-  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
   override async betterAuthDeletePasskey(
     @Args('passkeyId') passkeyId: string,
     @Context() ctx: { req: Request },

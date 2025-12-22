@@ -72,8 +72,41 @@ describe('Feature Name', () => {
 });
 ```
 
+## WebSocket/Subscription Tests
+
+When testing GraphQL subscriptions, use `httpServer.listen(0)` instead of `app.listen()`:
+
+```typescript
+// ✅ CORRECT: No startup log, dynamic port
+await app.init();
+const httpServer = app.getHttpServer();
+await new Promise<void>((resolve) => {
+  httpServer.listen(0, '127.0.0.1', () => resolve());
+});
+const port = httpServer.address().port;
+testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
+
+// Cleanup in afterAll
+if (httpServer) {
+  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+}
+await app.close();
+```
+
+```typescript
+// ❌ WRONG: Produces "Nest application successfully started" log
+await app.init();
+await app.listen(3030);
+```
+
+**Why:**
+- `app.listen()` triggers NestJS startup log → noisy test output
+- Dynamic port (`0`) avoids port conflicts between parallel tests
+- Explicit `httpServer.close()` prevents open handle warnings
+
 ## Common Test Issues
 
 - **Tests timeout**: Ensure MongoDB is running
 - **Open handles**: Use `npm run test:e2e-doh` to debug
 - **Data conflicts**: Use unique identifiers per test
+- **"NestApplication successfully started" log**: Use `httpServer.listen()` instead of `app.listen()`

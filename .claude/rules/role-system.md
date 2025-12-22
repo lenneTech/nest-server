@@ -72,6 +72,46 @@ The `@Roles()` decorator combined with `RolesGuard` automatically:
 2. Extracts the user from the token
 3. Checks if the user has the required role
 
-**Exception:** `@UseGuards(AuthGuard(...))` is only needed when:
-- Using `@Roles(RoleEnum.S_EVERYONE)` but still needing an authenticated context
-- Implementing custom authentication strategies outside the role system
+### When @UseGuards IS Required
+
+`@UseGuards(AuthGuard(...))` is only needed in these specific cases:
+
+| Case | Example | Reason |
+|------|---------|--------|
+| **Refresh Token** | `@UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))` | Different strategy than standard JWT |
+| **Custom Strategies** | `@UseGuards(AuthGuard(AuthGuardStrategy.CUSTOM))` | Non-standard authentication flow |
+
+```typescript
+// CORRECT: refreshToken needs JWT_REFRESH strategy (not standard JWT)
+@Mutation(() => CoreAuthModel)
+@Roles(RoleEnum.S_EVERYONE)
+@UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))  // Required - different strategy!
+async refreshToken(...): Promise<CoreAuthModel> { }
+
+// CORRECT: Standard endpoints - @Roles is sufficient
+@Mutation(() => CoreAuthModel)
+@Roles(RoleEnum.S_USER)  // Handles JWT auth automatically
+async logout(...): Promise<boolean> { }
+
+@Query(() => User)
+@Roles(RoleEnum.ADMIN)  // Handles JWT auth automatically
+async getUser(...): Promise<User> { }
+```
+
+### Common Mistake: Redundant Guards
+
+When reviewing code, watch for this anti-pattern:
+
+```typescript
+// WRONG: Redundant - @Roles(S_USER) already validates JWT
+@Roles(RoleEnum.S_USER)
+@UseGuards(AuthGuard(AuthGuardStrategy.JWT))  // DELETE THIS
+async someMethod() { }
+
+// WRONG: Redundant - @Roles(ADMIN) already validates JWT
+@Roles(RoleEnum.ADMIN)
+@UseGuards(AuthGuard(AuthGuardStrategy.JWT))  // DELETE THIS
+async adminMethod() { }
+```
+
+**Rule of thumb:** If `@Roles()` uses any role OTHER than `S_EVERYONE`, you don't need `@UseGuards(AuthGuard(JWT))`.

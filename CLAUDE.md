@@ -121,6 +121,7 @@ See `.claude/rules/versioning.md` for release process.
 5. **Use Module Inheritance Pattern** for core modules
 6. **Document breaking changes** in commits
 7. **Integration Checklists for Core Modules** - Every core module requiring project integration needs `INTEGRATION-CHECKLIST.md` (see `.claude/rules/core-modules.md`)
+8. **Don't add redundant @UseGuards** - `@Roles()` already handles JWT auth (see `.claude/rules/role-system.md`)
 
 ## Migration Guides
 
@@ -137,11 +138,11 @@ Detailed documentation in `.claude/rules/`:
 | File | Content |
 |------|---------|
 | `module-inheritance.md` | Core architectural pattern for extending modules |
-| `role-system.md` | Role system with S_ prefix rules |
+| `role-system.md` | Role system, S_ prefix rules, @Roles vs @UseGuards |
 | `architecture.md` | Detailed code architecture |
 | `testing.md` | Test configuration and best practices |
 | `versioning.md` | Version strategy and release process |
 | `core-modules.md` | Path-scoped rules for `src/core/modules/` incl. Integration Checklist requirements |
 | `module-deprecation.md` | Legacy Auth → BetterAuth migration roadmap |
 | `migration-guides.md` | Process for creating version migration guides |
-| `configurable-features.md` | "Presence implies enabled" pattern for optional features |
+| `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |
