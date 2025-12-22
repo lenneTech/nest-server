@@ -3,33 +3,41 @@ import {
   Controller,
   Delete,
   Get,
-  NotFoundException,
   Param,
   Post,
-  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
 import { Readable } from 'stream';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
+import { CoreFileController } from '../../../core/modules/file/core-file.controller';
 import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
 import { FileService } from './file.service';
 
 /**
  * File controller
+ *
+ * Extends CoreFileController to provide public download endpoints:
+ * - GET /files/id/:id - Download file by ID (public)
+ * - GET /files/:filename - Download file by filename (public)
+ *
+ * Adds admin-only endpoints:
+ * - POST /files/upload - Upload file (admin)
+ * - GET /files/info/:id - Get file info (admin)
+ * - DELETE /files/:id - Delete file (admin)
  */
 @Controller('files')
 @Roles(RoleEnum.ADMIN)
-export class FileController {
+export class FileController extends CoreFileController {
   /**
    * Import services
    */
-  constructor(private readonly fileService: FileService) {}
+  constructor(protected override readonly fileService: FileService) {
+    super(fileService);
+  }
 
   /**
    * Upload file via HTTP
@@ -52,34 +60,6 @@ export class FileController {
 
     // Save to GridFS using FileService
     return await this.fileService.createFile(fileUpload);
-  }
-
-  /**
-   * Download file
-   */
-  @Get(':id')
-  @Roles(RoleEnum.ADMIN)
-  async getFile(@Param('id') id: string, @Res() res: Response) {
-    if (!id) {
-      throw new BadRequestException('Missing ID');
-    }
-
-    let file: CoreFileInfo | null;
-    try {
-      file = await this.fileService.getFileInfo(id);
-    } catch (e) {
-      console.error(e);
-      file = null;
-    }
-
-    if (!file) {
-      throw new NotFoundException('File not found');
-    }
-    const filestream = await this.fileService.getFileStream(id);
-    res.header('Content-Type', file.contentType || 'application/octet-stream');
-    res.header('Content-Disposition', `attachment; filename=${file.filename}`);
-    res.header('Cache-Control', 'max-age=31536000');
-    return filestream.pipe(res);
   }
 
   /**

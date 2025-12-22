@@ -190,8 +190,16 @@ describe('File (e2e)', () => {
     expect(res.filename).toEqual(fileInfo.filename);
   });
 
-  it('downloadGraphQLFile', async () => {
-    const res = await testHelper.download(`/files/${fileInfo.id}`, users[0].token);
+  it('downloadGraphQLFileById', async () => {
+    // Download by ID uses /files/id/:id (public endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`);
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('downloadGraphQLFileByFilename', async () => {
+    // Download by filename uses /files/:filename (public endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/${fileInfo.filename}`);
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
@@ -291,8 +299,16 @@ describe('File (e2e)', () => {
     expect(res.filename).toEqual(fileInfo.filename);
   });
 
-  it('downloadRESTFile', async () => {
-    const res = await testHelper.download(`/files/${fileInfo.id}`, users[0].token);
+  it('downloadRESTFileById', async () => {
+    // Download by ID uses /files/id/:id (public endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`);
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('downloadRESTFileByFilename', async () => {
+    // Download by filename uses /files/:filename (public endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/${fileInfo.filename}`);
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });

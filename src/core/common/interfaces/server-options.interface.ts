@@ -1132,4 +1132,158 @@ export interface IServerOptions {
      */
     path?: string;
   };
+
+  /**
+   * TUS resumable upload configuration.
+   *
+   * Follows the "Enabled by Default" pattern - tus is automatically enabled
+   * without any configuration. Set `tus: false` to explicitly disable.
+   *
+   * Accepts:
+   * - `true` or `undefined`: Enable with defaults (enabled by default)
+   * - `false`: Disable TUS uploads
+   * - `{ ... }`: Enable with custom configuration
+   *
+   * @example
+   * ```typescript
+   * // Default: TUS enabled with all defaults (no config needed)
+   *
+   * // Disable TUS
+   * tus: false,
+   *
+   * // Custom configuration
+   * tus: {
+   *   maxSize: 100 * 1024 * 1024, // 100 MB
+   *   path: '/uploads',
+   * },
+   * ```
+   *
+   * @since 11.8.0
+   */
+  tus?: boolean | ITusConfig;
+}
+
+/**
+ * TUS Upload Configuration Interface
+ *
+ * Follows the "Enabled by Default" pattern - tus is automatically enabled
+ * without any configuration. Set `tus: false` to explicitly disable.
+ */
+export interface ITusConfig {
+  /**
+   * Additional allowed HTTP headers for TUS requests (beyond @tus/server defaults).
+   *
+   * Note: @tus/server already includes all TUS protocol headers:
+   * Authorization, Content-Type, Location, Tus-Extension, Tus-Max-Size,
+   * Tus-Resumable, Tus-Version, Upload-Concat, Upload-Defer-Length,
+   * Upload-Length, Upload-Metadata, Upload-Offset, X-HTTP-Method-Override,
+   * X-Requested-With, X-Forwarded-Host, X-Forwarded-Proto, Forwarded
+   *
+   * Use this only for project-specific custom headers.
+   *
+   * @default [] (no additional headers needed)
+   */
+  allowedHeaders?: string[];
+
+  /**
+   * Allowed MIME types for uploads.
+   * If undefined, all types are allowed.
+   * @default undefined (all types allowed)
+   */
+  allowedTypes?: string[];
+
+  /**
+   * Checksum extension configuration.
+   * Enables data integrity verification.
+   * @default true
+   */
+  checksum?: boolean;
+
+  /**
+   * Concatenation extension configuration.
+   * Allows parallel uploads that are merged.
+   * @default true
+   */
+  concatenation?: boolean;
+
+  /**
+   * Creation extension configuration.
+   * Allows creating new uploads via POST.
+   * @default true
+   */
+  creation?: boolean | ITusCreationConfig;
+
+  /**
+   * Creation With Upload extension configuration.
+   * Allows sending data in the initial POST request.
+   * @default true
+   */
+  creationWithUpload?: boolean;
+
+  /**
+   * Whether tus uploads are enabled.
+   * @default true (enabled by default)
+   */
+  enabled?: boolean;
+
+  /**
+   * Expiration extension configuration.
+   * Automatically cleans up incomplete uploads.
+   * @default { expiresIn: '24h' }
+   */
+  expiration?: boolean | ITusExpirationConfig;
+
+  /**
+   * Maximum upload size in bytes
+   * @default 50 * 1024 * 1024 * 1024 (50 GB)
+   */
+  maxSize?: number;
+
+  /**
+   * Base path for tus endpoints
+   * @default '/tus'
+   */
+  path?: string;
+
+  /**
+   * Termination extension configuration.
+   * Allows deleting uploads via DELETE.
+   * @default true
+   */
+  termination?: boolean;
+
+  /**
+   * Directory for temporary upload chunks.
+   * @default 'uploads/tus'
+   */
+  uploadDir?: string;
+}
+
+/**
+ * TUS Creation extension configuration
+ */
+export interface ITusCreationConfig {
+  /**
+   * Whether creation is enabled
+   * @default true
+   */
+  enabled?: boolean;
+}
+
+/**
+ * TUS Expiration extension configuration
+ */
+export interface ITusExpirationConfig {
+  /**
+   * Whether expiration is enabled
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Time until incomplete uploads expire
+   * Supports formats: '24h', '1d', '12h', etc.
+   * @default '24h'
+   */
+  expiresIn?: string;
 }
