@@ -122,6 +122,7 @@ See `.claude/rules/versioning.md` for release process.
 6. **Document breaking changes** in commits
 7. **Integration Checklists for Core Modules** - Every core module requiring project integration needs `INTEGRATION-CHECKLIST.md` (see `.claude/rules/core-modules.md`)
 8. **Don't add redundant @UseGuards** - `@Roles()` already handles JWT auth (see `.claude/rules/role-system.md`)
+9. **Fixed package versions only** - Never use `^`, `~`, or ranges in package.json (see `.claude/rules/package-management.md`)
 
 ## Migration Guides
 
@@ -146,3 +147,4 @@ Detailed documentation in `.claude/rules/`:
 | `module-deprecation.md` | Legacy Auth → BetterAuth migration roadmap |
 | `migration-guides.md` | Process for creating version migration guides |
 | `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |
+| `package-management.md` | Fixed package versions only - no `^`, `~`, or ranges |
