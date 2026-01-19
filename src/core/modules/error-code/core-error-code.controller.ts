@@ -33,8 +33,9 @@ export class CoreErrorCodeController {
    * ```json
    * {
    *   "errors": {
-   *     "LTNS_0001": "Benutzer mit E-Mail {email} wurde nicht gefunden.",
-   *     "LTNS_0002": "Das eingegebene Passwort ist ungültig."
+   *     "LTNS_0001": "Benutzer wurde nicht gefunden.",
+   *     "LTNS_0002": "Das eingegebene Passwort ist ungültig.",
+   *     "LTNS_0100": "Sie sind nicht angemeldet."
    *   }
    * }
    * ```
