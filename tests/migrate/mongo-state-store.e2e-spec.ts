@@ -129,7 +129,7 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
 
       try {
         await stateStore.loadAsync();
-        fail('Should have thrown an error');
+        throw new Error('Should have thrown an error');
       } catch (err) {
         expect(err).toBeInstanceOf(Error);
       }
@@ -152,7 +152,7 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
 
       try {
         await stateStore.loadAsync();
-        fail('Should have thrown an error');
+        throw new Error('Should have thrown an error');
       } catch (err) {
         expect(err).toBeInstanceOf(Error);
         expect((err as Error).message).toBe('Expected exactly one result, but got 2');

@@ -7,11 +7,14 @@ import { Any } from '../core/common/scalars/any.scalar';
 import { DateScalar } from '../core/common/scalars/date.scalar';
 import { JSON } from '../core/common/scalars/json.scalar';
 import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
+import { ErrorCodeModule } from '../core/modules/error-code/error-code.module';
 import { TusModule } from '../core/modules/tus';
 import { CronJobs } from './common/services/cron-jobs.service';
 import { AuthController } from './modules/auth/auth.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { BetterAuthModule } from './modules/better-auth/better-auth.module';
+import { ErrorCodeController } from './modules/error-code/error-code.controller';
+import { ErrorCodeService } from './modules/error-code/error-code.service';
 import { FileModule } from './modules/file/file.module';
 import { ServerController } from './server.controller';
 
@@ -46,6 +49,13 @@ import { ServerController } from './server.controller';
     BetterAuthModule.forRoot({
       config: envConfig.betterAuth,
       fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
+    }),
+
+    // Include ErrorCodeModule with project-specific error codes
+    // Uses Core ErrorCodeModule.forRoot() with custom service and controller
+    ErrorCodeModule.forRoot({
+      controller: ErrorCodeController,
+      service: ErrorCodeService,
     }),
 
     // Include FileModule for file handling

@@ -410,8 +410,7 @@ describe('ServerModule (e2e)', () => {
       name: 'findUsers',
     });
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Unauthorized');
+    expect(res.errors[0].message).toMatch(/LTNS_0100/); // Unauthorized error code
     expect(res.data).toBe(null);
   });
 
@@ -427,8 +426,7 @@ describe('ServerModule (e2e)', () => {
       { token: gToken },
     );
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
-    expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('Missing role');
+    expect(res.errors[0].message).toMatch(/LTNS_0101/); // Access denied error code
     expect(res.data).toBe(null);
   });
 
@@ -436,7 +434,7 @@ describe('ServerModule (e2e)', () => {
    * Get config without admin rights should fail
    */
   it('get config without admin rights should fail', async () => {
-    await testHelper.rest('/config', { statusCode: 401, token: gToken });
+    await testHelper.rest('/config', { statusCode: 403, token: gToken });
   });
 
   /**
@@ -650,7 +648,7 @@ describe('ServerModule (e2e)', () => {
       name: 'signUp',
       type: TestGraphQLType.MUTATION,
     });
-    await testHelper.rest('/users', { statusCode: 401, token: signUpRes.token });
+    await testHelper.rest('/users', { statusCode: 403, token: signUpRes.token });
 
     // Clean up
     await testHelper.graphQl(
@@ -760,7 +758,7 @@ describe('ServerModule (e2e)', () => {
         email: email2,
         password: passwd2,
       },
-      statusCode: 401,
+      statusCode: 403,
       token: signUpRes.token,
     });
 

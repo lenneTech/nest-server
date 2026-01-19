@@ -590,6 +590,70 @@ export interface IBetterAuthUserField {
 }
 
 /**
+ * Interface for Error Code module configuration
+ *
+ * Controls how the ErrorCodeModule is registered and configured.
+ *
+ * @since 11.9.0
+ */
+export interface IErrorCode {
+  /**
+   * Additional error registry to merge with core LTNS_* errors
+   *
+   * Use this to add project-specific error codes with a custom prefix.
+   *
+   * @example
+   * ```typescript
+   * const ProjectErrors = {
+   *   ORDER_NOT_FOUND: {
+   *     code: 'PROJ_0001',
+   *     message: 'Order not found',
+   *     translations: { de: 'Bestellung nicht gefunden.', en: 'Order not found.' }
+   *   }
+   * } as const satisfies IErrorRegistry;
+   *
+   * errorCode: {
+   *   additionalErrorRegistry: ProjectErrors,
+   * }
+   * ```
+   */
+  additionalErrorRegistry?: Record<
+    string,
+    {
+      code: string;
+      message: string;
+      translations: { [locale: string]: string; de: string; en: string };
+    }
+  >;
+
+  /**
+   * Automatically register the ErrorCodeModule in CoreModule
+   *
+   * Set to `false` to disable auto-registration and provide your own
+   * ErrorCodeModule with custom controller and/or service.
+   *
+   * @default true
+   *
+   * @example
+   * ```typescript
+   * // In config.env.ts - disable auto-registration
+   * errorCode: {
+   *   autoRegister: false,
+   * }
+   *
+   * // In server.module.ts - import your custom module
+   * @Module({
+   *   imports: [
+   *     CoreModule.forRoot(...),
+   *     ErrorCodeModule.forRoot(), // Your custom module
+   *   ],
+   * })
+   * ```
+   */
+  autoRegister?: boolean;
+}
+
+/**
  * Interface for JWT configuration (main and refresh)
  */
 export interface IJwt {
@@ -765,6 +829,31 @@ export interface IServerOptions {
    * e.g. 'development'
    */
   env?: string;
+
+  /**
+   * Configuration for the error code module
+   *
+   * Controls how error codes and translations are handled.
+   *
+   * @since 11.9.0
+   *
+   * @example
+   * ```typescript
+   * // Default: auto-register with core errors only
+   * errorCode: undefined
+   *
+   * // Add project-specific error codes
+   * errorCode: {
+   *   additionalErrorRegistry: ProjectErrors,
+   * }
+   *
+   * // Disable auto-registration to provide your own module
+   * errorCode: {
+   *   autoRegister: false,
+   * }
+   * ```
+   */
+  errorCode?: IErrorCode;
 
   /**
    * Exec a command after server is initialized

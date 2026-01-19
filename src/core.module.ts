@@ -22,6 +22,7 @@ import { TemplateService } from './core/common/services/template.service';
 import { BetterAuthUserMapper } from './core/modules/better-auth/better-auth-user.mapper';
 import { BetterAuthModule } from './core/modules/better-auth/better-auth.module';
 import { BetterAuthService } from './core/modules/better-auth/better-auth.service';
+import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 
 /**
@@ -226,6 +227,21 @@ export class CoreModule implements NestModule {
         Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options),
       ),
     ];
+
+    // Add ErrorCodeModule based on configuration
+    // autoRegister defaults to true (backward compatible)
+    const errorCodeConfig = config.errorCode;
+    const isErrorCodeAutoRegister = errorCodeConfig?.autoRegister !== false;
+
+    if (isErrorCodeAutoRegister) {
+      // Always use forRoot() - it registers the controller and handles configuration
+      imports.push(
+        ErrorCodeModule.forRoot({
+          additionalErrorRegistry: errorCodeConfig?.additionalErrorRegistry,
+        }),
+      );
+    }
+
     if (config.healthCheck) {
       imports.push(CoreHealthCheckModule);
     }
