@@ -1,4 +1,4 @@
-import { ExecutionContext, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { getConnectionToken } from '@nestjs/mongoose';
@@ -7,6 +7,7 @@ import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { BetterAuthService } from '../../better-auth/better-auth.service';
+import { ErrorCode } from '../../error-code';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { ExpiredTokenException } from '../exceptions/expired-token.exception';
 import { InvalidTokenException } from '../exceptions/invalid-token.exception';
@@ -331,7 +332,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // Check if locked
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new UnauthorizedException('No access');
+      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
     }
 
     // Check roles
@@ -354,11 +355,11 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
         if (info?.name === 'TokenExpiredError') {
           throw new ExpiredTokenException();
         }
-        throw new UnauthorizedException('Unauthorized');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
 
       // Requester is not authorized
-      throw new UnauthorizedException('Missing role');
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     // Everything is ok

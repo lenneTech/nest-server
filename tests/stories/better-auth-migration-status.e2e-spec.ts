@@ -298,12 +298,14 @@ describe('Story: BetterAuth Migration Status', () => {
         type: TestGraphQLType.MUTATION,
       });
 
-      const res = await testHelper.graphQl({
-        fields: ['totalUsers'],
-        name: 'betterAuthMigrationStatus',
-        token: signIn.token,
-        type: TestGraphQLType.QUERY,
-      });
+      const res = await testHelper.graphQl(
+        {
+          fields: ['totalUsers'],
+          name: 'betterAuthMigrationStatus',
+          type: TestGraphQLType.QUERY,
+        },
+        { token: signIn.token },
+      );
 
       expect(res.errors).toBeDefined();
     });

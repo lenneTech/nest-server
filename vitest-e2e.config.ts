@@ -12,10 +12,6 @@ export default defineConfig({
     }),
   ],
   test: {
-    // Inline dependencies to prevent dual CJS/ESM loading of graphql
-    deps: {
-      inline: true,
-    },
     environment: 'node',
     exclude: [],
     // Enable parallel file execution for speed

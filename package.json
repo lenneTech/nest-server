@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.8.0",
+  "version": "11.9.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -21,7 +21,7 @@
     "build:pack": "npm pack && echo 'use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package'",
     "build:dev": "npm run build && yalc push --private",
     "docs": "npm run docs:ci && open http://127.0.0.1:8080/ && open ./public/index.html && compodoc -p tsconfig.json -s ",
-    "docs:bootstrap": "node extras/update-spectaql-version.mjs && npx -y spectaql ./spectaql.yml",
+    "docs:bootstrap": "node extras/update-spectaql-version.mjs && node scripts/run-spectaql.mjs",
     "docs:ci": "ts-node ./scripts/init-server.ts && npm run docs:bootstrap && compodoc -p tsconfig.json",
     "format": "prettier --write 'src/**/*.ts'",
     "format:staged": "pretty-quick --staged",

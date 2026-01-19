@@ -17,6 +17,7 @@ import { ServiceOptions } from '../../../common/interfaces/service-options.inter
 import { ConfigService } from '../../../common/services/config.service';
 import { BetterAuthUserMapper } from '../../better-auth/better-auth-user.mapper';
 import { BetterAuthService } from '../../better-auth/better-auth.service';
+import { ErrorCode } from '../../error-code';
 import { CoreAuthModel } from '../core-auth.model';
 import { CoreAuthSignInInput } from '../inputs/core-auth-sign-in.input';
 import { CoreAuthSignUpInput } from '../inputs/core-auth-sign-up.input';
@@ -83,13 +84,13 @@ export class CoreAuthService {
     // Check authentication
     const user = serviceOptions.currentUser;
     if (!user || !tokenOrRefreshToken) {
-      throw new UnauthorizedException('Invalid token');
+      throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
     }
 
     // Check authorization
     const deviceId = this.decodeJwt(tokenOrRefreshToken)?.deviceId;
     if (!deviceId || !user.refreshTokens[deviceId]) {
-      throw new UnauthorizedException('Invalid token');
+      throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
     }
 
     // Logout from all devices
@@ -374,7 +375,7 @@ export class CoreAuthService {
     if (currentRefreshToken) {
       deviceId = this.decodeJwt(currentRefreshToken)?.deviceId;
       if (!deviceId || !user.refreshTokens?.[deviceId]) {
-        throw new UnauthorizedException('Invalid token');
+        throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
       }
       if (!this.configService.getFastButReadOnly('jwt.refresh.renewal')) {
         // Return currentToken
@@ -398,7 +399,7 @@ export class CoreAuthService {
     // Set new token
     const payload = this.decodeJwt(newRefreshToken);
     if (!payload) {
-      throw new UnauthorizedException('Invalid token');
+      throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
     }
     if (!deviceId) {
       deviceId = payload.deviceId;

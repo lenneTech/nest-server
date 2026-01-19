@@ -1121,7 +1121,7 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
           metatype: OptionalFieldsInput,
           type: 'body',
         });
-        fail('Should have thrown BadRequestException');
+        throw new Error('Should have thrown BadRequestException');
       } catch (error) {
         expect(error).toBeInstanceOf(BadRequestException);
         const response = error.getResponse();
@@ -1147,7 +1147,7 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
           metatype: BasicValidatorsInput,
           type: 'body',
         });
-        fail('Should have thrown BadRequestException');
+        throw new Error('Should have thrown BadRequestException');
       } catch (error) {
         expect(error).toBeInstanceOf(BadRequestException);
         const response = error.getResponse();
