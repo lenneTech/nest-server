@@ -273,11 +273,14 @@ const orderCode = ProjectErrorCode.ORDER_NOT_FOUND;  // '#PROJ_0001: Order not f
 ```json
 {
   "errors": {
-    "LTNS_0001": "Benutzer mit E-Mail {email} wurde nicht gefunden.",
+    "LTNS_0001": "Benutzer wurde nicht gefunden.",
+    "LTNS_0100": "Sie sind nicht angemeldet.",
     "PROJ_0001": "Bestellung mit ID {orderId} wurde nicht gefunden."
   }
 }
 ```
+
+> **Note:** Core LTNS_* translations are user-friendly messages without placeholders. Project-specific errors (PROJ_*) may include placeholders like `{orderId}` if defined in your `ProjectErrors` registry.
 
 ---
 
