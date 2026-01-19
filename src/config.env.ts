@@ -262,6 +262,10 @@ const config: { [env: string]: IServerOptions } = {
       verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'local',
+    // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
+    errorCode: {
+      autoRegister: false,
+    },
     execAfterInit: 'npm run docs:bootstrap',
     filter: {
       maxLimit: null,

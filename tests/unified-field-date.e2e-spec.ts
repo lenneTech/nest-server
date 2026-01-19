@@ -487,7 +487,7 @@ describe('UnifiedField Date Validation (e2e)', () => {
           metatype: DateFieldInput,
           type: 'body',
         });
-        fail('Should have thrown BadRequestException');
+        throw new Error('Should have thrown BadRequestException');
       } catch (error) {
         expect(error).toBeInstanceOf(BadRequestException);
         const response = error.getResponse();

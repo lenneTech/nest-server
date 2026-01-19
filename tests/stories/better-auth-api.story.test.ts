@@ -337,10 +337,10 @@ describe('Story: BetterAuth API', () => {
             });
             // If it returns something, it should be null (unauthorized users get nothing)
             // or contain an error
-            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden/i)).toBe(true);
+            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
             // If it throws, the error should be about authorization
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -372,9 +372,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.QUERY,
             });
             // Nullable query - may return null or error
-            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden/i)).toBe(true);
+            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -412,9 +412,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Non-nullable Boolean - should be false or error
-            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden/i)).toBe(true);
+            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -447,9 +447,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should have error in response
-            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled/i)).toBe(true);
+            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -514,9 +514,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should return false or have error
-            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled/i)).toBe(true);
+            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -553,9 +553,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Nullable - may return null or error
-            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden|not enabled/i)).toBe(true);
+            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -590,9 +590,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should have success: false or error
-            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled/i)).toBe(true);
+            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -644,9 +644,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should return false or have error
-            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled/i)).toBe(true);
+            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
           } catch (error: any) {
-            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled/i);
+            expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
         });
 
@@ -1073,7 +1073,7 @@ describe('Story: BetterAuth API', () => {
         );
 
         // Should return a boolean (true/false) or have an error
-        expect(typeof res === 'boolean' || hasGraphQlError(res, /unauthorized|forbidden/i)).toBe(true);
+        expect(typeof res === 'boolean' || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(true);
       });
     });
   });

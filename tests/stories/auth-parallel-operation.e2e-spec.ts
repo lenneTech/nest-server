@@ -613,7 +613,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         // User should not have admin access initially
         let findRes = await testHelper.graphQl({ fields: ['id'], name: 'findUsers' }, { token: signUpRes.token });
         expect(findRes.errors).toBeDefined();
-        expect(findRes.errors[0].message).toContain('Missing role');
+        expect(findRes.errors[0].message).toMatch(/LTNS_0101/); // Access denied error code
 
         // Grant admin role
         await db.collection('users').updateOne({ _id: new ObjectId(userId) }, { $set: { roles: [RoleEnum.ADMIN] } });
