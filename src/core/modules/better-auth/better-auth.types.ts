@@ -5,7 +5,7 @@
  * and reduce the need for `as any` casts throughout the codebase.
  */
 
-import { BetterAuthSessionUser } from './better-auth-user.mapper';
+import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 
 /**
  * Better-Auth 2FA verification response
@@ -68,8 +68,9 @@ export interface BetterAuthSignUpResponse {
 /**
  * Type guard to check if response has session
  * Preserves the original type while asserting session is defined
+ * Includes optional token for Better Auth session authentication
  */
-export function hasSession<T>(response: T): response is T & { session: { expiresAt: Date; id: string } } {
+export function hasSession<T>(response: T): response is T & { session: { expiresAt: Date; id: string; token?: string } } {
   return (
     response !== null &&
     typeof response === 'object' &&

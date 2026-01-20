@@ -3,17 +3,17 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { BetterAuthAuthModel } from './better-auth-auth.model';
+import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
 import {
-  BetterAuth2FASetupModel,
-  BetterAuthFeaturesModel,
-  BetterAuthPasskeyChallengeModel,
-  BetterAuthPasskeyModel,
-  BetterAuthSessionModel,
-} from './better-auth-models';
-import { BetterAuthUserMapper } from './better-auth-user.mapper';
-import { BetterAuthService } from './better-auth.service';
+  CoreBetterAuth2FASetupModel,
+  CoreBetterAuthFeaturesModel,
+  CoreBetterAuthPasskeyChallengeModel,
+  CoreBetterAuthPasskeyModel,
+  CoreBetterAuthSessionModel,
+} from './core-better-auth-models';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Default BetterAuth GraphQL Resolver
@@ -28,11 +28,11 @@ import { CoreBetterAuthResolver } from './core-better-auth.resolver';
  * @example
  * ```typescript
  * // In your project - src/server/modules/better-auth/better-auth.resolver.ts
- * @Resolver(() => BetterAuthAuthModel)
+ * @Resolver(() => CoreBetterAuthAuthModel)
  * export class BetterAuthResolver extends CoreBetterAuthResolver {
  *   constructor(
- *     betterAuthService: BetterAuthService,
- *     userMapper: BetterAuthUserMapper,
+ *     betterAuthService: CoreBetterAuthService,
+ *     userMapper: CoreBetterAuthUserMapper,
  *     private readonly emailService: EmailService,
  *   ) {
  *     super(betterAuthService, userMapper);
@@ -51,12 +51,12 @@ import { CoreBetterAuthResolver } from './core-better-auth.resolver';
  * }
  * ```
  */
-@Resolver(() => BetterAuthAuthModel)
+@Resolver(() => CoreBetterAuthAuthModel)
 @Roles(RoleEnum.ADMIN)
-export class BetterAuthResolver extends CoreBetterAuthResolver {
+export class DefaultBetterAuthResolver extends CoreBetterAuthResolver {
   constructor(
-    protected override readonly betterAuthService: BetterAuthService,
-    protected override readonly userMapper: BetterAuthUserMapper,
+    protected override readonly betterAuthService: CoreBetterAuthService,
+    protected override readonly userMapper: CoreBetterAuthUserMapper,
   ) {
     super(betterAuthService, userMapper);
   }
@@ -65,12 +65,12 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   // Queries
   // ===========================================================================
 
-  @Query(() => BetterAuthSessionModel, {
+  @Query(() => CoreBetterAuthSessionModel, {
     description: 'Get current Better-Auth session',
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  override async betterAuthSession(@Context() ctx: { req: Request }): Promise<BetterAuthSessionModel | null> {
+  override async betterAuthSession(@Context() ctx: { req: Request }): Promise<CoreBetterAuthSessionModel | null> {
     return super.betterAuthSession(ctx);
   }
 
@@ -80,18 +80,18 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     return super.betterAuthEnabled();
   }
 
-  @Query(() => BetterAuthFeaturesModel, { description: 'Get enabled Better-Auth features' })
+  @Query(() => CoreBetterAuthFeaturesModel, { description: 'Get enabled Better-Auth features' })
   @Roles(RoleEnum.S_EVERYONE)
-  override betterAuthFeatures(): BetterAuthFeaturesModel {
+  override betterAuthFeatures(): CoreBetterAuthFeaturesModel {
     return super.betterAuthFeatures();
   }
 
-  @Query(() => [BetterAuthPasskeyModel], {
+  @Query(() => [CoreBetterAuthPasskeyModel], {
     description: 'List passkeys for the current user',
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  override async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyModel[] | null> {
+  override async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<CoreBetterAuthPasskeyModel[] | null> {
     return super.betterAuthListPasskeys(ctx);
   }
 
@@ -99,7 +99,7 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   // Authentication Mutations
   // ===========================================================================
 
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign in via Better-Auth (email/password)',
   })
   @Roles(RoleEnum.S_EVERYONE)
@@ -107,11 +107,11 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Context() ctx: { req: Request; res: Response },
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     return super.betterAuthSignIn(email, password, ctx);
   }
 
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign up via Better-Auth (email/password)',
   })
   @Roles(RoleEnum.S_EVERYONE)
@@ -119,7 +119,7 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     return super.betterAuthSignUp(email, password, name);
   }
 
@@ -133,25 +133,25 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   // 2FA Mutations
   // ===========================================================================
 
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Verify 2FA code during sign-in',
   })
   @Roles(RoleEnum.S_EVERYONE)
   override async betterAuthVerify2FA(
     @Args('code') code: string,
     @Context() ctx: { req: Request },
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     return super.betterAuthVerify2FA(code, ctx);
   }
 
-  @Mutation(() => BetterAuth2FASetupModel, {
+  @Mutation(() => CoreBetterAuth2FASetupModel, {
     description: 'Enable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
   override async betterAuthEnable2FA(
     @Args('password') password: string,
     @Context() ctx: { req: Request },
-  ): Promise<BetterAuth2FASetupModel> {
+  ): Promise<CoreBetterAuth2FASetupModel> {
     return super.betterAuthEnable2FA(password, ctx);
   }
 
@@ -179,13 +179,13 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   // Passkey Mutations
   // ===========================================================================
 
-  @Mutation(() => BetterAuthPasskeyChallengeModel, {
+  @Mutation(() => CoreBetterAuthPasskeyChallengeModel, {
     description: 'Get passkey registration challenge for WebAuthn',
   })
   @Roles(RoleEnum.S_USER)
   override async betterAuthGetPasskeyChallenge(
     @Context() ctx: { req: Request },
-  ): Promise<BetterAuthPasskeyChallengeModel> {
+  ): Promise<CoreBetterAuthPasskeyChallengeModel> {
     return super.betterAuthGetPasskeyChallenge(ctx);
   }
 

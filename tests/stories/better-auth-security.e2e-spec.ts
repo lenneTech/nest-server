@@ -18,9 +18,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { RoleEnum } from '../../src';
 import envConfig from '../../src/config.env';
 // Import directly from source files to avoid barrel export issues with DI tokens
-import { BetterAuthUserMapper } from '../../src/core/modules/better-auth/better-auth-user.mapper';
-import { BetterAuthMiddleware } from '../../src/core/modules/better-auth/better-auth.middleware';
-import { BetterAuthService } from '../../src/core/modules/better-auth/better-auth.service';
+import { CoreBetterAuthUserMapper } from '../../src/core/modules/better-auth/core-better-auth-user.mapper';
+import { CoreBetterAuthMiddleware } from '../../src/core/modules/better-auth/core-better-auth.middleware';
+import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
 
 describe('Story: BetterAuth Security Integration', () => {
   // Database connection - shared across tests
@@ -29,7 +29,7 @@ describe('Story: BetterAuth Security Integration', () => {
   let db: any;
 
   // The mapper to test - instantiated directly with mongoose connection
-  let mapper: BetterAuthUserMapper;
+  let mapper: CoreBetterAuthUserMapper;
 
   beforeAll(async () => {
     try {
@@ -42,7 +42,7 @@ describe('Story: BetterAuth Security Integration', () => {
 
       // Instantiate the mapper directly with the connection
       // Using Object.create to bypass DI and set the connection manually
-      mapper = new BetterAuthUserMapper(mongooseConnection);
+      mapper = new CoreBetterAuthUserMapper(mongooseConnection);
     } catch (e) {
       console.error('beforeAll error:', e);
       throw e;
@@ -62,7 +62,7 @@ describe('Story: BetterAuth Security Integration', () => {
   // BetterAuthUserMapper Tests
   // ===================================================================================================================
 
-  describe('BetterAuthUserMapper', () => {
+  describe('CoreBetterAuthUserMapper', () => {
     describe('mapSessionUser', () => {
       it('should return null for null session user', async () => {
         const result = await mapper.mapSessionUser(null as any);
@@ -345,14 +345,17 @@ describe('Story: BetterAuth Security Integration', () => {
   // BetterAuthMiddleware Tests
   // ===================================================================================================================
 
-  describe('BetterAuthMiddleware', () => {
-    let middleware: BetterAuthMiddleware;
+  describe('CoreBetterAuthMiddleware', () => {
+    let middleware: CoreBetterAuthMiddleware;
     let mockBetterAuthService: any;
     let mockUserMapper: any;
 
     beforeEach(() => {
       mockBetterAuthService = {
         getApi: vi.fn().mockReturnValue(null),
+        getBasePath: vi.fn().mockReturnValue('/iam'),
+        getConfig: vi.fn().mockReturnValue({ basePath: '/iam' }),
+        getSessionByToken: vi.fn().mockResolvedValue({ session: null, user: null }),
         isEnabled: vi.fn().mockReturnValue(false),
       };
 
@@ -361,9 +364,9 @@ describe('Story: BetterAuth Security Integration', () => {
       };
 
       // Directly instantiate middleware with mocks to avoid DI resolution issues
-      middleware = new BetterAuthMiddleware(
-        mockBetterAuthService as BetterAuthService,
-        mockUserMapper as BetterAuthUserMapper,
+      middleware = new CoreBetterAuthMiddleware(
+        mockBetterAuthService as CoreBetterAuthService,
+        mockUserMapper as CoreBetterAuthUserMapper,
       );
     });
 

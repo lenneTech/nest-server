@@ -1,8 +1,8 @@
 import { HttpException, HttpStatus, Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { BetterAuthRateLimiter, RateLimitResult } from './better-auth-rate-limiter.service';
-import { BetterAuthService } from './better-auth.service';
+import { CoreBetterAuthRateLimiter, RateLimitResult } from './core-better-auth-rate-limiter.service';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Middleware that applies rate limiting to Better-Auth endpoints
@@ -30,10 +30,10 @@ import { BetterAuthService } from './better-auth.service';
  * ```
  */
 @Injectable()
-export class BetterAuthRateLimitMiddleware implements NestMiddleware {
+export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
   constructor(
-    private readonly rateLimiter: BetterAuthRateLimiter,
-    private readonly betterAuthService: BetterAuthService,
+    private readonly rateLimiter: CoreBetterAuthRateLimiter,
+    private readonly betterAuthService: CoreBetterAuthService,
   ) {}
 
   use(req: Request, res: Response, next: NextFunction) {

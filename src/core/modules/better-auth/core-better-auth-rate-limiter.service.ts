@@ -74,8 +74,8 @@ const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
  * ```
  */
 @Injectable()
-export class BetterAuthRateLimiter {
-  private readonly logger = new Logger(BetterAuthRateLimiter.name);
+export class CoreBetterAuthRateLimiter {
+  private readonly logger = new Logger(CoreBetterAuthRateLimiter.name);
   private readonly store = new Map<string, RateLimitEntry>();
   private config: Required<IBetterAuthRateLimit> = DEFAULT_CONFIG;
   private cleanupInterval: NodeJS.Timeout | null = null;

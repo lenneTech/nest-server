@@ -36,6 +36,7 @@ export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/graphql.helper';
 export * from './core/common/helpers/gridfs.helper';
 export * from './core/common/helpers/input.helper';
+export * from './core/common/helpers/logging.helper';
 export * from './core/common/helpers/model.helper';
 export * from './core/common/helpers/register-enum.helper';
 export * from './core/common/helpers/scim.helper';

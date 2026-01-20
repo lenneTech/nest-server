@@ -22,7 +22,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 
@@ -36,7 +36,7 @@ describe('Story: Three Authentication Scenarios', () => {
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
-  let betterAuthService: BetterAuthService;
+  let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
   // Test data tracking for cleanup
@@ -66,7 +66,7 @@ describe('Story: Three Authentication Scenarios', () => {
     await app.init();
     testHelper = new TestHelper(app);
 
-    betterAuthService = moduleFixture.get(BetterAuthService);
+    betterAuthService = moduleFixture.get(CoreBetterAuthService);
     isBetterAuthEnabled = betterAuthService.isEnabled();
 
     // Connect to MongoDB for cleanup

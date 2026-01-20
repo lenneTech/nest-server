@@ -8,7 +8,7 @@ import { RoleEnum } from '../../common/enums/role.enum';
  */
 @ObjectType({ description: 'Better-Auth User' })
 @Restricted(RoleEnum.S_EVERYONE)
-export class BetterAuthUserModel {
+export class CoreBetterAuthUserModel {
   @Field(() => String, { description: 'User ID' })
   id: string;
 
@@ -36,15 +36,15 @@ export class BetterAuthUserModel {
  */
 @ObjectType({ description: 'Better-Auth Session' })
 @Restricted(RoleEnum.S_USER)
-export class BetterAuthSessionModel {
+export class CoreBetterAuthSessionModel {
   @Field(() => String, { description: 'Session ID' })
   id: string;
 
   @Field(() => Date, { description: 'Session expiration date' })
   expiresAt: Date;
 
-  @Field(() => BetterAuthUserModel, { description: 'Session user' })
-  user: BetterAuthUserModel;
+  @Field(() => CoreBetterAuthUserModel, { description: 'Session user' })
+  user: CoreBetterAuthUserModel;
 }
 
 /**
@@ -52,7 +52,7 @@ export class BetterAuthSessionModel {
  */
 @ObjectType({ description: 'Better-Auth Session Info' })
 @Restricted(RoleEnum.S_EVERYONE)
-export class BetterAuthSessionInfoModel {
+export class CoreBetterAuthSessionInfoModel {
   @Field(() => String, { description: 'Session ID', nullable: true })
   id?: string;
 
@@ -68,7 +68,7 @@ export class BetterAuthSessionInfoModel {
  */
 @ObjectType({ description: 'Better-Auth 2FA setup data' })
 @Restricted(RoleEnum.S_USER)
-export class BetterAuth2FASetupModel {
+export class CoreBetterAuth2FASetupModel {
   @Field(() => Boolean, { description: 'Whether the operation was successful' })
   success: boolean;
 
@@ -87,7 +87,7 @@ export class BetterAuth2FASetupModel {
  */
 @ObjectType({ description: 'Better-Auth Passkey' })
 @Restricted(RoleEnum.S_USER)
-export class BetterAuthPasskeyModel {
+export class CoreBetterAuthPasskeyModel {
   @Field(() => String, { description: 'Passkey ID' })
   id: string;
 
@@ -106,7 +106,7 @@ export class BetterAuthPasskeyModel {
  */
 @ObjectType({ description: 'Better-Auth Passkey registration challenge' })
 @Restricted(RoleEnum.S_USER)
-export class BetterAuthPasskeyChallengeModel {
+export class CoreBetterAuthPasskeyChallengeModel {
   @Field(() => Boolean, { description: 'Whether the operation was successful' })
   success: boolean;
 
@@ -122,7 +122,7 @@ export class BetterAuthPasskeyChallengeModel {
  */
 @ObjectType({ description: 'Better-Auth features status' })
 @Restricted(RoleEnum.S_EVERYONE)
-export class BetterAuthFeaturesModel {
+export class CoreBetterAuthFeaturesModel {
   @Field(() => Boolean, { description: 'Whether Better-Auth is enabled' })
   enabled: boolean;
 

@@ -9,7 +9,7 @@ import { ServiceOptions } from '../../../core/common/interfaces/service-options.
 import { ConfigService } from '../../../core/common/services/config.service';
 import { EmailService } from '../../../core/common/services/email.service';
 import { CoreModelConstructor } from '../../../core/common/types/core-model-constructor.type';
-import { BetterAuthUserMapper } from '../../../core/modules/better-auth/better-auth-user.mapper';
+import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreUserService } from '../../../core/modules/user/core-user.service';
 import { UserCreateInput } from './inputs/user-create.input';
 import { UserInput } from './inputs/user.input';
@@ -33,7 +33,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     @Inject('USER_CLASS') protected override readonly mainModelConstructor: CoreModelConstructor<User>,
     @InjectModel('User') protected override readonly mainDbModel: Model<UserDocument>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub,
-    @Optional() private readonly betterAuthUserMapper?: BetterAuthUserMapper,
+    @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
   ) {
     super(configService, emailService, mainDbModel, mainModelConstructor, { betterAuthUserMapper });
   }

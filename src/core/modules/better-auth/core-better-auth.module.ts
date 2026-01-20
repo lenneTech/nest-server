@@ -14,15 +14,16 @@ import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
-import { BetterAuthRateLimitMiddleware } from './better-auth-rate-limit.middleware';
-import { BetterAuthRateLimiter } from './better-auth-rate-limiter.service';
-import { BetterAuthUserMapper } from './better-auth-user.mapper';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
-import { BetterAuthMiddleware } from './better-auth.middleware';
-import { BetterAuthResolver } from './better-auth.resolver';
-import { BETTER_AUTH_CONFIG, BetterAuthService } from './better-auth.service';
+import { DefaultBetterAuthResolver } from './better-auth.resolver';
+import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
+import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
+import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthController } from './core-better-auth.controller';
+import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
+import { BETTER_AUTH_CONFIG, CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Token for injecting the better-auth instance
@@ -30,9 +31,9 @@ import { CoreBetterAuthResolver } from './core-better-auth.resolver';
 export const BETTER_AUTH_INSTANCE = 'BETTER_AUTH_INSTANCE';
 
 /**
- * Options for BetterAuthModule.forRoot()
+ * Options for CoreBetterAuthModule.forRoot()
  */
-export interface BetterAuthModuleOptions {
+export interface CoreBetterAuthModuleOptions {
   /**
    * Better-auth configuration.
    * Accepts:
@@ -59,7 +60,7 @@ export interface BetterAuthModuleOptions {
    * }
    *
    * // In your module
-   * BetterAuthModule.forRoot({
+   * CoreBetterAuthModule.forRoot({
    *   config: environment.betterAuth,
    *   controller: MyBetterAuthController,
    * })
@@ -79,14 +80,14 @@ export interface BetterAuthModuleOptions {
   fallbackSecrets?: (string | undefined)[];
 
   /**
-   * Custom resolver class to use instead of the default BetterAuthResolver.
+   * Custom resolver class to use instead of the default DefaultBetterAuthResolver.
    * The class must extend CoreBetterAuthResolver.
    *
    * @example
    * ```typescript
    * // Your custom resolver
    * @Resolver(() => BetterAuthAuthModel)
-   * export class MyBetterAuthResolver extends CoreBetterAuthResolver {
+   * export class MyDefaultBetterAuthResolver extends CoreBetterAuthResolver {
    *   override async betterAuthSignUp(...) {
    *     const result = await super.betterAuthSignUp(...);
    *     await this.sendWelcomeEmail(result.user);
@@ -95,9 +96,9 @@ export interface BetterAuthModuleOptions {
    * }
    *
    * // In your module
-   * BetterAuthModule.forRoot({
+   * CoreBetterAuthModule.forRoot({
    *   config: environment.betterAuth,
-   *   resolver: MyBetterAuthResolver,
+   *   resolver: MyDefaultBetterAuthResolver,
    * })
    * ```
    */
@@ -119,7 +120,7 @@ function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): I
 }
 
 /**
- * BetterAuthModule provides integration with the better-auth authentication framework.
+ * CoreBetterAuthModule provides integration with the better-auth authentication framework.
  *
  * This module:
  * - Creates and configures a better-auth instance based on server configuration
@@ -134,7 +135,7 @@ function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): I
  * @Module({
  *   imports: [
  *     CoreModule.forRoot(...),
- *     BetterAuthModule.forRoot({ config: environment.betterAuth }),
+ *     CoreBetterAuthModule.forRoot({ config: environment.betterAuth }),
  *   ],
  * })
  * export class AppModule {}
@@ -142,8 +143,8 @@ function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): I
  */
 @Global()
 @Module({})
-export class BetterAuthModule implements NestModule, OnModuleInit {
-  private static logger = new Logger(BetterAuthModule.name);
+export class CoreBetterAuthModule implements NestModule, OnModuleInit {
+  private static logger = new Logger(CoreBetterAuthModule.name);
   private static authInstance: BetterAuthInstance | null = null;
   private static initialized = false;
   private static initLogged = false;
@@ -163,45 +164,53 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    * Gets the resolver class to use (custom or default)
    */
   private static getResolverClass(): Type<CoreBetterAuthResolver> {
-    return this.customResolver || BetterAuthResolver;
+    return this.customResolver || DefaultBetterAuthResolver;
   }
 
   constructor(
-    @Optional() private readonly betterAuthService?: BetterAuthService,
-    @Optional() private readonly rateLimiter?: BetterAuthRateLimiter,
+    @Optional() private readonly betterAuthService?: CoreBetterAuthService,
+    @Optional() private readonly rateLimiter?: CoreBetterAuthRateLimiter,
   ) {}
 
   onModuleInit() {
-    if (BetterAuthModule.authInstance && !BetterAuthModule.initialized) {
-      BetterAuthModule.initialized = true;
-      BetterAuthModule.logger.log('BetterAuthModule ready');
+    if (CoreBetterAuthModule.authInstance && !CoreBetterAuthModule.initialized) {
+      CoreBetterAuthModule.initialized = true;
+      CoreBetterAuthModule.logger.log('CoreBetterAuthModule ready');
     }
 
     // Configure rate limiter with stored config
-    if (this.rateLimiter && BetterAuthModule.currentConfig?.rateLimit) {
-      this.rateLimiter.configure(BetterAuthModule.currentConfig.rateLimit);
+    if (this.rateLimiter && CoreBetterAuthModule.currentConfig?.rateLimit) {
+      this.rateLimiter.configure(CoreBetterAuthModule.currentConfig.rateLimit);
     }
   }
 
   /**
-   * Configure middleware for Better-Auth session handling and rate limiting
-   * The session middleware runs on all routes and maps Better-Auth sessions to users
-   * The rate limit middleware runs only on Better-Auth endpoints
+   * Configure middleware for Better-Auth API handling, session validation, and rate limiting.
+   *
+   * Middleware order (important!):
+   * 1. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, etc.) to Better Auth's native handler
+   * 2. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
+   * 3. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
    */
   configure(consumer: MiddlewareConsumer) {
     // Only apply middleware if Better-Auth is enabled
-    if (BetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
-      const basePath = BetterAuthModule.currentConfig?.basePath || '/iam';
+    if (CoreBetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
+      const basePath = CoreBetterAuthModule.currentConfig?.basePath || '/iam';
+
+      // Apply API middleware to Better-Auth endpoints FIRST
+      // This handles plugin endpoints (passkey, social login, etc.) that are not defined in the controller
+      consumer.apply(CoreBetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
+      CoreBetterAuthModule.logger.debug(`CoreBetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
 
       // Apply rate limiting to Better-Auth endpoints only
-      if (BetterAuthModule.currentConfig?.rateLimit?.enabled) {
-        consumer.apply(BetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*path`);
-        BetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
+      if (CoreBetterAuthModule.currentConfig?.rateLimit?.enabled) {
+        consumer.apply(CoreBetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*path`);
+        CoreBetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
       }
 
       // Apply session middleware to all routes
-      consumer.apply(BetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
-      BetterAuthModule.logger.debug('BetterAuthMiddleware registered for all routes');
+      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
+      CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
     }
   }
 
@@ -241,7 +250,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
    * @param options - Configuration options
    * @returns Dynamic module configuration
    */
-  static forRoot(options: BetterAuthModuleOptions): DynamicModule {
+  static forRoot(options: CoreBetterAuthModuleOptions): DynamicModule {
     const { config: rawConfig, controller, fallbackSecrets, resolver } = options;
 
     // Normalize config: true → {}, false/undefined → null
@@ -255,14 +264,14 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
     this.customResolver = resolver || null;
 
     // If better-auth is disabled (config is null or enabled: false), return minimal module
-    // Note: We don't provide middleware classes when disabled because they depend on BetterAuthService
+    // Note: We don't provide middleware classes when disabled because they depend on CoreBetterAuthService
     // and won't be used anyway (middleware is only applied when enabled)
     if (config === null || config?.enabled === false) {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
       return {
-        exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
-        module: BetterAuthModule,
+        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
+        module: CoreBetterAuthModule,
         providers: [
           {
             provide: BETTER_AUTH_INSTANCE,
@@ -270,9 +279,9 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
           },
           // Note: ConfigService is provided globally by CoreModule
           // Tests need to provide their own ConfigService
-          BetterAuthService,
-          BetterAuthUserMapper,
-          BetterAuthRateLimiter,
+          CoreBetterAuthService,
+          CoreBetterAuthUserMapper,
+          CoreBetterAuthRateLimiter,
         ],
       };
     }
@@ -297,9 +306,9 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   static forRootAsync(): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
       imports: [],
-      module: BetterAuthModule,
+      module: CoreBetterAuthModule,
       providers: [
         {
           inject: [ConfigService],
@@ -337,7 +346,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
 
             // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures BetterAuthService has access to the resolved secret (with fallback applied)
+            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
             this.currentConfig = config;
 
             if (this.authInstance) {
@@ -348,28 +357,29 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
-        // Provide the resolved config for BetterAuthService
+        // Provide the resolved config for CoreBetterAuthService
         {
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
-        // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
+        // CoreBetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
           inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
-          provide: BetterAuthService,
+          provide: CoreBetterAuthService,
           useFactory: (
             authInstance: BetterAuthInstance | null,
             resolvedConfig: IBetterAuth | null,
             connection: Connection,
           ) => {
-            return new BetterAuthService(authInstance, connection, resolvedConfig);
+            return new CoreBetterAuthService(authInstance, connection, resolvedConfig);
           },
         },
-        BetterAuthUserMapper,
-        BetterAuthMiddleware,
-        BetterAuthRateLimiter,
-        BetterAuthRateLimitMiddleware,
+        CoreBetterAuthUserMapper,
+        CoreBetterAuthMiddleware,
+        CoreBetterAuthApiMiddleware,
+        CoreBetterAuthRateLimiter,
+        CoreBetterAuthRateLimitMiddleware,
         this.getResolverClass(),
       ],
     };
@@ -384,13 +394,13 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
-   * Resets the static state of BetterAuthModule
+   * Resets the static state of CoreBetterAuthModule
    * This is primarily useful for testing to ensure clean state between tests
    *
    * @example
    * ```typescript
    * afterEach(() => {
-   *   BetterAuthModule.reset();
+   *   CoreBetterAuthModule.reset();
    * });
    * ```
    */
@@ -411,8 +421,8 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   private static createDeferredModule(config: IBetterAuth, fallbackSecrets?: (string | undefined)[]): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, BetterAuthService, BetterAuthUserMapper, BetterAuthRateLimiter],
-      module: BetterAuthModule,
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
+      module: CoreBetterAuthModule,
       providers: [
         {
           // Inject Mongoose Connection to ensure NestJS waits for it to be ready
@@ -434,7 +444,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             }
 
             // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures BetterAuthService has access to the resolved secret (with fallback applied)
+            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
             this.currentConfig = config;
 
             if (this.authInstance && !this.initLogged) {
@@ -446,28 +456,29 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
             return this.authInstance;
           },
         },
-        // Provide the resolved config for BetterAuthService
+        // Provide the resolved config for CoreBetterAuthService
         {
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
-        // BetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
+        // CoreBetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
           inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
-          provide: BetterAuthService,
+          provide: CoreBetterAuthService,
           useFactory: (
             authInstance: BetterAuthInstance | null,
             resolvedConfig: IBetterAuth | null,
             connection: Connection,
           ) => {
-            return new BetterAuthService(authInstance, connection, resolvedConfig);
+            return new CoreBetterAuthService(authInstance, connection, resolvedConfig);
           },
         },
-        BetterAuthUserMapper,
-        BetterAuthMiddleware,
-        BetterAuthRateLimiter,
-        BetterAuthRateLimitMiddleware,
+        CoreBetterAuthUserMapper,
+        CoreBetterAuthMiddleware,
+        CoreBetterAuthApiMiddleware,
+        CoreBetterAuthRateLimiter,
+        CoreBetterAuthRateLimitMiddleware,
         this.getResolverClass(),
       ],
     };
