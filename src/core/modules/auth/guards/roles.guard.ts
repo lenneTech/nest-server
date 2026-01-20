@@ -6,7 +6,7 @@ import { Connection, Types } from 'mongoose';
 import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
-import { BetterAuthService } from '../../better-auth/better-auth.service';
+import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
 import { ErrorCode } from '../../error-code';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { ExpiredTokenException } from '../exceptions/expired-token.exception';
@@ -36,7 +36,7 @@ import { AuthGuard } from './auth.guard';
 @Injectable()
 export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
   private readonly logger = new Logger(RolesGuard.name);
-  private betterAuthService: BetterAuthService | null = null;
+  private betterAuthService: CoreBetterAuthService | null = null;
   private mongoConnection: Connection | null = null;
   private servicesResolved = false;
 
@@ -59,7 +59,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     }
 
     try {
-      this.betterAuthService = this.moduleRef.get(BetterAuthService, { strict: false });
+      this.betterAuthService = this.moduleRef.get(CoreBetterAuthService, { strict: false });
     } catch {
       // BetterAuth not available - that's fine, we'll use Legacy JWT only
     }
@@ -166,6 +166,47 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
       } else if (authHeader?.startsWith('bearer ')) {
         // Handle lowercase 'bearer' as well
         token = authHeader.substring(7);
+      }
+
+      // If no token in header, try cookies (for REST endpoints)
+      if (!token) {
+        let cookies: Record<string, string> | undefined;
+
+        // Try GraphQL context first
+        try {
+          const gqlContext = GqlExecutionContext.create(context);
+          const ctx = gqlContext.getContext();
+          if (ctx?.req?.cookies) {
+            cookies = ctx.req.cookies;
+          }
+        } catch {
+          // GraphQL context not available
+        }
+
+        // Fallback to HTTP context
+        if (!cookies) {
+          try {
+            const httpRequest = context.switchToHttp().getRequest();
+            if (httpRequest?.cookies) {
+              cookies = httpRequest.cookies;
+            }
+          } catch {
+            // HTTP context not available
+          }
+        }
+
+        // Extract session token from cookies (try multiple cookie names)
+        if (cookies) {
+          // Get the basePath for cookie name (e.g., 'iam' -> 'iam.session_token')
+          const basePath = this.betterAuthService.getBasePath?.()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
+          const basePathCookie = `${basePath}.session_token`;
+
+          token =
+            cookies[basePathCookie] ||
+            cookies['better-auth.session_token'] ||
+            cookies['token'] ||
+            undefined;
+        }
       }
 
       if (!token) {

@@ -2,14 +2,14 @@ import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
 import { isProduction, maskEmail, maskToken } from '../../common/helpers/logging.helper';
-import { BetterAuthSessionUser, BetterAuthUserMapper, MappedUser } from './better-auth-user.mapper';
-import { extractSessionToken } from './better-auth-web.helper';
-import { BetterAuthService } from './better-auth.service';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
+import { extractSessionToken } from './core-better-auth-web.helper';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Extended Express Request with Better-Auth session data
  */
-export interface BetterAuthRequest extends Request {
+export interface CoreBetterAuthRequest extends Request {
   betterAuthSession?: {
     session: any;
     user: BetterAuthSessionUser;
@@ -31,16 +31,16 @@ export interface BetterAuthRequest extends Request {
  * for RolesGuard and other security checks.
  */
 @Injectable()
-export class BetterAuthMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(BetterAuthMiddleware.name);
+export class CoreBetterAuthMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(CoreBetterAuthMiddleware.name);
   private readonly isProd = isProduction();
 
   constructor(
-    private readonly betterAuthService: BetterAuthService,
-    private readonly userMapper: BetterAuthUserMapper,
+    private readonly betterAuthService: CoreBetterAuthService,
+    private readonly userMapper: CoreBetterAuthUserMapper,
   ) {}
 
-  async use(req: BetterAuthRequest, _res: Response, next: NextFunction) {
+  async use(req: CoreBetterAuthRequest, _res: Response, next: NextFunction) {
     // Skip if Better-Auth is not enabled
     if (!this.betterAuthService.isEnabled()) {
       return next();

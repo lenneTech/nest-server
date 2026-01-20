@@ -98,8 +98,8 @@ export interface SyncedUserDocument {
  * - Legacy → IAM: Creates account entry in `accounts` from `users.password`
  */
 @Injectable()
-export class BetterAuthUserMapper {
-  private readonly logger = new Logger(BetterAuthUserMapper.name);
+export class CoreBetterAuthUserMapper {
+  private readonly logger = new Logger(CoreBetterAuthUserMapper.name);
 
   constructor(@Optional() @InjectConnection() private readonly connection?: Connection) {}
 

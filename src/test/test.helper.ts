@@ -134,6 +134,11 @@ export interface TestRestOptions {
   logError?: boolean;
   method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   payload?: any;
+  /**
+   * Return the full response object including headers instead of just the body.
+   * Useful for inspecting Set-Cookie headers and other response metadata.
+   */
+  returnResponse?: boolean;
   statusCode?: number;
   token?: string;
 }
@@ -392,13 +397,14 @@ export class TestHelper {
       logError: false,
       method: options?.attachments ? 'POST' : 'GET',
       payload: null,
+      returnResponse: false,
       statusCode: 200,
       token: null,
       ...options,
     };
 
     // Init vars
-    const { attachments, log, logError, statusCode, token } = config;
+    const { attachments, log, logError, returnResponse, statusCode, token } = config;
 
     // Request configuration
     const requestConfig: any = {
@@ -412,6 +418,12 @@ export class TestHelper {
 
     // Process response
     const response = await this.getResponse(token, requestConfig, statusCode, log, logError, null, attachments);
+
+    // Return full response if requested (useful for inspecting headers like Set-Cookie)
+    if (returnResponse) {
+      return response;
+    }
+
     let result = response.text;
     if (response.text === '') {
       return null;

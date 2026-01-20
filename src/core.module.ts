@@ -19,9 +19,9 @@ import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
-import { BetterAuthUserMapper } from './core/modules/better-auth/better-auth-user.mapper';
-import { BetterAuthModule } from './core/modules/better-auth/better-auth.module';
-import { BetterAuthService } from './core/modules/better-auth/better-auth.service';
+import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better-auth-user.mapper';
+import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
+import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 
@@ -86,8 +86,8 @@ export class CoreModule implements NestModule {
    *
    * **Requirements:**
    * - Configure `betterAuth` in your config (enabled by default)
-   * - Create BetterAuthModule, Resolver, and Controller in your project
-   * - Inject BetterAuthUserMapper in UserService
+   * - Create CoreBetterAuthModule, Resolver, and Controller in your project
+   * - Inject CoreBetterAuthUserMapper in UserService
    *
    * ### Legacy + IAM Signature (For existing projects)
    *
@@ -246,8 +246,8 @@ export class CoreModule implements NestModule {
       imports.push(CoreHealthCheckModule);
     }
 
-    // Add BetterAuthModule based on mode
-    // IAM-only mode: Always register BetterAuthModule (required for subscription auth)
+    // Add CoreBetterAuthModule based on mode
+    // IAM-only mode: Always register CoreBetterAuthModule (required for subscription auth)
     // Legacy mode: Only register if autoRegister is explicitly true
     // betterAuth can be: boolean | IBetterAuth | undefined
     const betterAuthConfig = config.betterAuth;
@@ -258,7 +258,7 @@ export class CoreModule implements NestModule {
     if (isBetterAuthEnabled) {
       if (isIamOnlyMode || isAutoRegister) {
         imports.push(
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: betterAuthConfig === true ? {} : betterAuthConfig || {},
             // Pass JWT secrets for backwards compatibility fallback
             fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
@@ -289,14 +289,14 @@ export class CoreModule implements NestModule {
   /**
    * Build GraphQL driver configuration for IAM-only mode
    *
-   * Uses BetterAuthService for subscription authentication via JWT tokens.
+   * Uses CoreBetterAuthService for subscription authentication via JWT tokens.
    * This is the recommended mode for new projects.
    */
   private static buildIamOnlyGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
     return {
-      imports: [BetterAuthModule],
-      inject: [BetterAuthService, BetterAuthUserMapper],
-      useFactory: async (betterAuthService: BetterAuthService, userMapper: BetterAuthUserMapper) =>
+      imports: [CoreBetterAuthModule],
+      inject: [CoreBetterAuthService, CoreBetterAuthUserMapper],
+      useFactory: async (betterAuthService: CoreBetterAuthService, userMapper: CoreBetterAuthUserMapper) =>
         Object.assign(
           {
             autoSchemaFile: 'schema.gql',

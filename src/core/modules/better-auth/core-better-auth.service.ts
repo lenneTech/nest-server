@@ -7,9 +7,9 @@ import { Connection } from 'mongoose';
 import { isProduction, maskCookieHeader, maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
-import { BetterAuthSessionUser } from './better-auth-user.mapper';
 import { BetterAuthInstance } from './better-auth.config';
-import { BETTER_AUTH_INSTANCE } from './better-auth.module';
+import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
+import { BETTER_AUTH_INSTANCE } from './core-better-auth.module';
 
 /**
  * Result of a session validation
@@ -25,7 +25,7 @@ export interface SessionResult {
 }
 
 /**
- * BetterAuthService provides a NestJS-friendly wrapper around the better-auth instance.
+ * CoreBetterAuthService provides a NestJS-friendly wrapper around the better-auth instance.
  *
  * This service:
  * - Provides access to the better-auth API
@@ -36,7 +36,7 @@ export interface SessionResult {
  * ```typescript
  * @Injectable()
  * export class MyService {
- *   constructor(private readonly betterAuthService: BetterAuthService) {}
+ *   constructor(private readonly betterAuthService: CoreBetterAuthService) {}
  *
  *   async doSomething() {
  *     if (this.betterAuthService.isEnabled()) {
@@ -53,8 +53,8 @@ export interface SessionResult {
 export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 
 @Injectable()
-export class BetterAuthService {
-  private readonly logger = new Logger(BetterAuthService.name);
+export class CoreBetterAuthService {
+  private readonly logger = new Logger(CoreBetterAuthService.name);
   private readonly isProd = isProduction();
   private readonly config: IBetterAuth;
 

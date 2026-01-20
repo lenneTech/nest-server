@@ -5,7 +5,7 @@
  * and reduce the need for `as any` casts throughout the codebase.
  */
 
-import { BetterAuthSessionUser } from './better-auth-user.mapper';
+import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 
 /**
  * Better-Auth 2FA verification response

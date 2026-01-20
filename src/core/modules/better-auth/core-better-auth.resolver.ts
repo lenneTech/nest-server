@@ -4,18 +4,6 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { BetterAuthAuthModel } from './better-auth-auth.model';
-import { BetterAuthMigrationStatusModel } from './better-auth-migration-status.model';
-import {
-  BetterAuth2FASetupModel,
-  BetterAuthFeaturesModel,
-  BetterAuthPasskeyChallengeModel,
-  BetterAuthPasskeyModel,
-  BetterAuthSessionModel,
-  BetterAuthUserModel,
-} from './better-auth-models';
-import { BetterAuthSessionUser, BetterAuthUserMapper, MappedUser } from './better-auth-user.mapper';
-import { BetterAuthService } from './better-auth.service';
 import {
   BetterAuth2FAResponse,
   BetterAuthSignInResponse,
@@ -24,6 +12,18 @@ import {
   hasUser,
   requires2FA,
 } from './better-auth.types';
+import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
+import { CoreBetterAuthMigrationStatusModel } from './core-better-auth-migration-status.model';
+import {
+  CoreBetterAuth2FASetupModel,
+  CoreBetterAuthFeaturesModel,
+  CoreBetterAuthPasskeyChallengeModel,
+  CoreBetterAuthPasskeyModel,
+  CoreBetterAuthSessionModel,
+  CoreBetterAuthUserModel,
+} from './core-better-auth-models';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Abstract GraphQL Resolver for Better-Auth operations
@@ -38,11 +38,11 @@ import {
  * @example
  * ```typescript
  * // In your project's better-auth.resolver.ts
- * @Resolver(() => BetterAuthAuthModel)
+ * @Resolver(() => CoreBetterAuthAuthModel)
  * export class BetterAuthResolver extends CoreBetterAuthResolver {
  *   constructor(
- *     betterAuthService: BetterAuthService,
- *     userMapper: BetterAuthUserMapper,
+ *     betterAuthService: CoreBetterAuthService,
+ *     userMapper: CoreBetterAuthUserMapper,
  *     private readonly emailService: EmailService,
  *   ) {
  *     super(betterAuthService, userMapper);
@@ -59,14 +59,14 @@ import {
  * }
  * ```
  */
-@Resolver(() => BetterAuthAuthModel, { isAbstract: true })
+@Resolver(() => CoreBetterAuthAuthModel, { isAbstract: true })
 @Roles(RoleEnum.ADMIN)
 export class CoreBetterAuthResolver {
   protected readonly logger = new Logger(CoreBetterAuthResolver.name);
 
   constructor(
-    protected readonly betterAuthService: BetterAuthService,
-    protected readonly userMapper: BetterAuthUserMapper,
+    protected readonly betterAuthService: CoreBetterAuthService,
+    protected readonly userMapper: CoreBetterAuthUserMapper,
   ) {}
 
   // ===========================================================================
@@ -76,12 +76,12 @@ export class CoreBetterAuthResolver {
   /**
    * Get current Better-Auth session
    */
-  @Query(() => BetterAuthSessionModel, {
+  @Query(() => CoreBetterAuthSessionModel, {
     description: 'Get current Better-Auth session',
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  async betterAuthSession(@Context() ctx: { req: Request }): Promise<BetterAuthSessionModel | null> {
+  async betterAuthSession(@Context() ctx: { req: Request }): Promise<CoreBetterAuthSessionModel | null> {
     if (!this.betterAuthService.isEnabled()) {
       return null;
     }
@@ -116,9 +116,9 @@ export class CoreBetterAuthResolver {
   /**
    * Get enabled Better-Auth features
    */
-  @Query(() => BetterAuthFeaturesModel, { description: 'Get enabled Better-Auth features' })
+  @Query(() => CoreBetterAuthFeaturesModel, { description: 'Get enabled Better-Auth features' })
   @Roles(RoleEnum.S_EVERYONE)
-  betterAuthFeatures(): BetterAuthFeaturesModel {
+  betterAuthFeatures(): CoreBetterAuthFeaturesModel {
     return {
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
@@ -164,11 +164,11 @@ export class CoreBetterAuthResolver {
    * currently be removed because CoreModule.forRoot requires AuthService
    * for GraphQL Subscriptions authentication.
    */
-  @Query(() => BetterAuthMigrationStatusModel, {
+  @Query(() => CoreBetterAuthMigrationStatusModel, {
     description: 'Get migration status from Legacy Auth to Better-Auth (IAM) - Admin only',
   })
   @Roles(RoleEnum.ADMIN)
-  async betterAuthMigrationStatus(): Promise<BetterAuthMigrationStatusModel> {
+  async betterAuthMigrationStatus(): Promise<CoreBetterAuthMigrationStatusModel> {
     const status = await this.userMapper.getMigrationStatus();
     return status;
   }
@@ -188,7 +188,7 @@ export class CoreBetterAuthResolver {
    *
    * Override this method to add custom pre/post sign-in logic.
    */
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign in via Better-Auth (email/password)',
   })
   @Roles(RoleEnum.S_EVERYONE)
@@ -197,7 +197,7 @@ export class CoreBetterAuthResolver {
     @Args('password') password: string,
     // eslint-disable-next-line unused-imports/no-unused-vars -- Reserved for future cookie/session handling
     @Context() _ctx: { req: Request; res: Response },
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
 
     const api = this.betterAuthService.getApi();
@@ -219,9 +219,9 @@ export class CoreBetterAuthResolver {
   protected async attemptSignIn(
     email: string,
     password: string,
-    api: ReturnType<BetterAuthService['getApi']>,
+    api: ReturnType<CoreBetterAuthService['getApi']>,
     allowMigration: boolean,
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     try {
       // Try sign-in with original password first (for native IAM users)
       const response = (await api!.signInEmail({
@@ -300,8 +300,8 @@ export class CoreBetterAuthResolver {
   private async attemptSignInDirect(
     email: string,
     password: string,
-    api: ReturnType<BetterAuthService['getApi']>,
-  ): Promise<BetterAuthAuthModel> {
+    api: ReturnType<CoreBetterAuthService['getApi']>,
+  ): Promise<CoreBetterAuthAuthModel> {
     const response = (await api!.signInEmail({
       body: { email, password },
     })) as BetterAuthSignInResponse | null;
@@ -334,7 +334,7 @@ export class CoreBetterAuthResolver {
    *
    * Override this method to add custom pre/post sign-up logic (e.g., sending welcome emails).
    */
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign up via Better-Auth (email/password)',
   })
   @Roles(RoleEnum.S_EVERYONE)
@@ -342,7 +342,7 @@ export class CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
 
     const api = this.betterAuthService.getApi();
@@ -417,14 +417,14 @@ export class CoreBetterAuthResolver {
   /**
    * Verify 2FA code
    */
-  @Mutation(() => BetterAuthAuthModel, {
+  @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Verify 2FA code during sign-in',
   })
   @Roles(RoleEnum.S_EVERYONE)
   async betterAuthVerify2FA(
     @Args('code') code: string,
     @Context() ctx: { req: Request },
-  ): Promise<BetterAuthAuthModel> {
+  ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isTwoFactorEnabled()) {
@@ -483,14 +483,14 @@ export class CoreBetterAuthResolver {
    * Enable 2FA for the current user
    * Returns TOTP URI for QR code generation and backup codes
    */
-  @Mutation(() => BetterAuth2FASetupModel, {
+  @Mutation(() => CoreBetterAuth2FASetupModel, {
     description: 'Enable 2FA for the current user',
   })
   @Roles(RoleEnum.S_USER)
   async betterAuthEnable2FA(
     @Args('password') password: string,
     @Context() ctx: { req: Request },
-  ): Promise<BetterAuth2FASetupModel> {
+  ): Promise<CoreBetterAuth2FASetupModel> {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isTwoFactorEnabled()) {
@@ -628,11 +628,11 @@ export class CoreBetterAuthResolver {
    * Get passkey registration challenge
    * Returns the challenge data needed for WebAuthn registration
    */
-  @Mutation(() => BetterAuthPasskeyChallengeModel, {
+  @Mutation(() => CoreBetterAuthPasskeyChallengeModel, {
     description: 'Get passkey registration challenge for WebAuthn',
   })
   @Roles(RoleEnum.S_USER)
-  async betterAuthGetPasskeyChallenge(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyChallengeModel> {
+  async betterAuthGetPasskeyChallenge(@Context() ctx: { req: Request }): Promise<CoreBetterAuthPasskeyChallengeModel> {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isPasskeyEnabled()) {
@@ -672,12 +672,12 @@ export class CoreBetterAuthResolver {
   /**
    * List passkeys for the current user
    */
-  @Query(() => [BetterAuthPasskeyModel], {
+  @Query(() => [CoreBetterAuthPasskeyModel], {
     description: 'List passkeys for the current user',
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<BetterAuthPasskeyModel[] | null> {
+  async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<CoreBetterAuthPasskeyModel[] | null> {
     if (!this.betterAuthService.isEnabled() || !this.betterAuthService.isPasskeyEnabled()) {
       return null;
     }
@@ -809,9 +809,9 @@ export class CoreBetterAuthResolver {
   }
 
   /**
-   * Map MappedUser to BetterAuthUserModel
+   * Map MappedUser to CoreBetterAuthUserModel
    */
-  protected mapToUserModel(user: MappedUser): BetterAuthUserModel {
+  protected mapToUserModel(user: MappedUser): CoreBetterAuthUserModel {
     return {
       email: user.email,
       emailVerified: user.emailVerified,

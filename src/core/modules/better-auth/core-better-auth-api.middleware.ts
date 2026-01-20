@@ -2,24 +2,21 @@ import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
-import { sendWebResponse, toWebRequest } from './better-auth-web.helper';
-import { BetterAuthService } from './better-auth.service';
+import { extractSessionToken, sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * List of paths that are handled by CoreBetterAuthController
  * These should NOT be forwarded to Better Auth's native handler
  *
- * NOTE: The following endpoints are handled by Better Auth's native plugins
- * for maximum compatibility, updateability, and reduced maintenance:
+ * Only paths with nest-server-specific logic belong here:
+ * - sign-in/email: Legacy user migration, password normalization
+ * - sign-up/email: User linking to own DB, password sync
+ * - sign-out: Custom cookie clearing
+ * - session: Custom response format with mapped user
  *
- * Passkey (WebAuthn):
- *   /passkey/generate-register-options, /passkey/verify-registration,
- *   /passkey/generate-authenticate-options, /passkey/verify-authentication,
- *   /passkey/list-user-passkeys, /passkey/delete-passkey, /passkey/update-passkey
- *
- * Two-Factor Authentication (TOTP):
- *   /two-factor/enable, /two-factor/disable, /two-factor/verify-totp,
- *   /two-factor/generate-backup-codes, /two-factor/verify-backup-code
+ * All other paths (Passkey, 2FA, etc.) go directly to Better Auth's
+ * native handler via this middleware for maximum compatibility.
  */
 const CONTROLLER_HANDLED_PATHS = [
   '/sign-in/email',
@@ -31,25 +28,29 @@ const CONTROLLER_HANDLED_PATHS = [
 /**
  * Middleware that forwards Better Auth API requests to the native Better Auth handler.
  *
- * This middleware is CRITICAL for plugin functionality like Passkey/WebAuthn, social login,
- * magic link, email verification, etc. These endpoints are not explicitly defined in the
- * CoreBetterAuthController but are provided by Better Auth's plugin system.
+ * This middleware handles ALL Better Auth plugin functionality directly:
+ * - Passkey/WebAuthn (registration, authentication, management)
+ * - Two-Factor Authentication (TOTP enable, disable, verify)
+ * - Social Login OAuth flows
+ * - Magic link authentication
+ * - Email verification
  *
  * The middleware:
  * 1. Checks if the request path starts with the Better Auth base path (e.g., /iam)
- * 2. Skips paths that are handled by CoreBetterAuthController
- * 3. Converts the Express request to a Web Standard Request (required by Better Auth)
- * 4. Calls Better Auth's native handler and sends the response
+ * 2. Skips paths that need nest-server-specific logic (sign-in, sign-up, session)
+ * 3. Extracts session token and signs cookies for Better Auth compatibility
+ * 4. Converts the Express request to a Web Standard Request
+ * 5. Calls Better Auth's native handler and sends the response
  *
- * IMPORTANT: This middleware must be registered BEFORE body-parser middleware,
- * or the request body must be properly reconstructed for POST requests.
+ * IMPORTANT: Cookie signing is handled here to ensure Better Auth receives
+ * properly signed session cookies for all plugin endpoints.
  */
 @Injectable()
-export class BetterAuthApiMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(BetterAuthApiMiddleware.name);
+export class CoreBetterAuthApiMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(CoreBetterAuthApiMiddleware.name);
   private readonly isProd = isProduction();
 
-  constructor(private readonly betterAuthService: BetterAuthService) {}
+  constructor(private readonly betterAuthService: CoreBetterAuthService) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
     // Skip if Better-Auth is not enabled
@@ -68,7 +69,7 @@ export class BetterAuthApiMiddleware implements NestMiddleware {
     // Get the path relative to the base path
     const relativePath = requestPath.slice(basePath.length);
 
-    // Skip paths that are handled by CoreBetterAuthController
+    // Skip paths that are handled by CoreBetterAuthController (nest-server-specific logic)
     if (CONTROLLER_HANDLED_PATHS.some((path) => relativePath === path || relativePath.startsWith(`${path}/`))) {
       return next();
     }
@@ -85,20 +86,33 @@ export class BetterAuthApiMiddleware implements NestMiddleware {
     }
 
     try {
-      // Convert Express request to Web Standard Request using shared helper
+      // Extract session token from cookies or Authorization header
+      const sessionToken = extractSessionToken(req, basePath);
+
+      // Get config for cookie signing
+      const config = this.betterAuthService.getConfig();
+
+      // Convert Express request to Web Standard Request with proper cookie signing
+      // This ensures Better Auth receives signed cookies for session validation
       const webRequest = await toWebRequest(req, {
+        basePath,
         baseUrl: this.betterAuthService.getBaseUrl(),
+        logger: this.logger,
+        secret: config.secret,
+        sessionToken,
       });
 
       // Call Better Auth's native handler
       const response = await authInstance.handler(webRequest);
 
+      if (!this.isProd) {
+        this.logger.debug(`Better Auth handler response: ${response.status}`);
+      }
+
       // Convert Web Standard Response to Express response using shared helper
       await sendWebResponse(res, response);
     } catch (error) {
       // Log error with appropriate detail level
-      // In production: log generic message to avoid exposing internals
-      // In development: log full error for debugging
       if (this.isProd) {
         this.logger.error('Better Auth handler error');
       } else {
@@ -106,7 +120,6 @@ export class BetterAuthApiMiddleware implements NestMiddleware {
       }
 
       // Send error response if headers not sent
-      // In production, don't expose internal error details to clients
       if (!res.headersSent) {
         const message = this.isProd
           ? 'Authentication error'

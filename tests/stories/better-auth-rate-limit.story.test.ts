@@ -8,18 +8,18 @@
  * This test file verifies the rate limiting functionality for Better-Auth endpoints.
  */
 
-import { BetterAuthRateLimiter } from '../../src';
+import { CoreBetterAuthRateLimiter } from '../../src';
 
 describe('Story: BetterAuth Rate Limiting', () => {
   // ===================================================================================================================
   // BetterAuthRateLimiter Service Tests
   // ===================================================================================================================
 
-  describe('BetterAuthRateLimiter Service', () => {
-    let rateLimiter: BetterAuthRateLimiter;
+  describe('CoreBetterAuthRateLimiter Service', () => {
+    let rateLimiter: CoreBetterAuthRateLimiter;
 
     beforeEach(() => {
-      rateLimiter = new BetterAuthRateLimiter();
+      rateLimiter = new CoreBetterAuthRateLimiter();
     });
 
     afterEach(() => {
@@ -350,9 +350,9 @@ describe('Story: BetterAuth Rate Limiting', () => {
   // ===================================================================================================================
 
   describe('Rate Limiter Module Integration', () => {
-    it('should create BetterAuthRateLimiter service', () => {
+    it('should create CoreBetterAuthRateLimiter service', () => {
       // Test that the rate limiter can be instantiated standalone
-      const rateLimiter = new BetterAuthRateLimiter();
+      const rateLimiter = new CoreBetterAuthRateLimiter();
       expect(rateLimiter).toBeDefined();
       expect(typeof rateLimiter.check).toBe('function');
       expect(typeof rateLimiter.isEnabled).toBe('function');
@@ -367,7 +367,7 @@ describe('Story: BetterAuth Rate Limiting', () => {
     });
 
     it('should be configurable after instantiation', () => {
-      const rateLimiter = new BetterAuthRateLimiter();
+      const rateLimiter = new CoreBetterAuthRateLimiter();
 
       // Initially disabled
       expect(rateLimiter.isEnabled()).toBe(false);
@@ -391,10 +391,10 @@ describe('Story: BetterAuth Rate Limiting', () => {
   // ===================================================================================================================
 
   describe('Edge Cases', () => {
-    let rateLimiter: BetterAuthRateLimiter;
+    let rateLimiter: CoreBetterAuthRateLimiter;
 
     beforeEach(() => {
-      rateLimiter = new BetterAuthRateLimiter();
+      rateLimiter = new CoreBetterAuthRateLimiter();
       rateLimiter.configure({
         enabled: true,
         max: 10,
@@ -481,10 +481,10 @@ describe('Story: BetterAuth Rate Limiting', () => {
   // ===================================================================================================================
 
   describe('Default Configuration', () => {
-    let rateLimiter: BetterAuthRateLimiter;
+    let rateLimiter: CoreBetterAuthRateLimiter;
 
     beforeEach(() => {
-      rateLimiter = new BetterAuthRateLimiter();
+      rateLimiter = new CoreBetterAuthRateLimiter();
       // Enable with minimal config to use defaults
       rateLimiter.configure({
         enabled: true,

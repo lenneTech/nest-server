@@ -8,7 +8,7 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 // 1. Follow INTEGRATION-CHECKLIST.md to create required files
 // 2. Add to server.module.ts:
 CoreModule.forRoot(envConfig),  // IAM-only (new projects)
-BetterAuthModule.forRoot({ config: envConfig.betterAuth, fallbackSecrets: [envConfig.jwt?.secret] }),
+CoreBetterAuthModule.forRoot({ config: envConfig.betterAuth, fallbackSecrets: [envConfig.jwt?.secret] }),
 
 // 3. Configure in config.env.ts (minimal - JWT enabled by default):
 betterAuth: true  // or betterAuth: {} for same effect
@@ -112,12 +112,12 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 
 1. Add import:
    ```typescript
-   import { BetterAuthUserMapper } from '@lenne.tech/nest-server';
+   import { CoreBetterAuthUserMapper } from '@lenne.tech/nest-server';
    ```
 
 2. Add constructor parameter:
    ```typescript
-   @Optional() private readonly betterAuthUserMapper?: BetterAuthUserMapper,
+   @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
    ```
 
 3. Pass to super() via options object:
@@ -126,7 +126,7 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
    ```
 
 **Why is this critical?**
-The `BetterAuthUserMapper` enables bidirectional password synchronization:
+The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
 - User signs up via BetterAuth → password synced to Legacy Auth (bcrypt hash)
 - User changes password → synced between both systems
 - **Without this, users can only authenticate via ONE system!**
@@ -135,10 +135,10 @@ The `BetterAuthUserMapper` enables bidirectional password synchronization:
 **Modify:** `src/server/server.module.ts`
 **Reference:** See ServerModule in reference implementation
 
-Add import and include BetterAuthModule in imports array with `fallbackSecrets`:
+Add import and include CoreBetterAuthModule in imports array with `fallbackSecrets`:
 
 ```typescript
-BetterAuthModule.forRoot({
+CoreBetterAuthModule.forRoot({
   config: envConfig.betterAuth,
   fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
 }),
@@ -216,7 +216,7 @@ Read the security section below for production deployments.
   /iam/session
   /iam/callback/:provider
   ```
-- **Middleware Matching**: `BetterAuthMiddleware` only forwards requests to paths starting with `basePath`
+- **Middleware Matching**: `CoreBetterAuthMiddleware` only forwards requests to paths starting with `basePath`
 
 **Default `/iam`** avoids collisions with existing `/auth` routes from Legacy Auth.
 
@@ -441,7 +441,7 @@ By default (`autoRegister: false`), projects integrate BetterAuth via an **exten
 ```typescript
 // src/server/modules/better-auth/better-auth.module.ts
 import { Module, DynamicModule } from '@nestjs/common';
-import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+import { CoreBetterAuthModule } from '@lenne.tech/nest-server';
 
 @Module({})
 export class BetterAuthModule {
@@ -723,7 +723,7 @@ Better-Auth is **enabled by default** but requires explicit module integration (
 1. `BetterAuthModule` - Wraps CoreBetterAuthModule with custom resolver/controller
 2. `BetterAuthResolver` - Extends CoreBetterAuthResolver for GraphQL operations
 3. `BetterAuthController` - Extends CoreBetterAuthController for REST endpoints
-4. `UserService` - Inject `BetterAuthUserMapper` for bidirectional auth sync
+4. `UserService` - Inject `CoreBetterAuthUserMapper` for bidirectional auth sync
 
 ### Simple: Auto-Registration
 
@@ -866,10 +866,10 @@ In addition to REST endpoints, Better-Auth provides GraphQL queries and mutation
 
 ### Response Types
 
-#### BetterAuthAuthModel
+#### CoreBetterAuthAuthModel
 
 ```graphql
-type BetterAuthAuthModel {
+type CoreBetterAuthAuthModel {
   success: Boolean!
   requiresTwoFactor: Boolean
   token: String
@@ -879,10 +879,10 @@ type BetterAuthAuthModel {
 }
 ```
 
-#### BetterAuthFeaturesModel
+#### CoreBetterAuthFeaturesModel
 
 ```graphql
-type BetterAuthFeaturesModel {
+type CoreBetterAuthFeaturesModel {
   enabled: Boolean!
   jwt: Boolean!
   twoFactor: Boolean!
@@ -891,10 +891,10 @@ type BetterAuthFeaturesModel {
 }
 ```
 
-#### BetterAuth2FASetupModel
+#### CoreBetterAuth2FASetupModel
 
 ```graphql
-type BetterAuth2FASetupModel {
+type CoreBetterAuth2FASetupModel {
   success: Boolean!
   totpUri: String
   backupCodes: [String!]
@@ -902,10 +902,10 @@ type BetterAuth2FASetupModel {
 }
 ```
 
-#### BetterAuthPasskeyModel
+#### CoreBetterAuthPasskeyModel
 
 ```graphql
-type BetterAuthPasskeyModel {
+type CoreBetterAuthPasskeyModel {
   id: String!
   name: String
   credentialId: String!
@@ -913,10 +913,10 @@ type BetterAuthPasskeyModel {
 }
 ```
 
-#### BetterAuthPasskeyChallengeModel
+#### CoreBetterAuthPasskeyChallengeModel
 
 ```graphql
-type BetterAuthPasskeyChallengeModel {
+type CoreBetterAuthPasskeyChallengeModel {
   success: Boolean!
   challenge: String
   error: String
@@ -1029,16 +1029,16 @@ mutation {
 }
 ```
 
-## Using BetterAuthService
+## Using CoreBetterAuthService
 
-Inject `BetterAuthService` to access Better-Auth functionality:
+Inject `CoreBetterAuthService` to access Better-Auth functionality:
 
 ```typescript
-import { BetterAuthService } from '@lenne.tech/nest-server';
+import { CoreBetterAuthService } from '@lenne.tech/nest-server';
 
 @Injectable()
 export class MyService {
-  constructor(private readonly betterAuthService: BetterAuthService) {}
+  constructor(private readonly betterAuthService: CoreBetterAuthService) {}
 
   async checkUser(req: Request) {
     // Check if Better-Auth is enabled
@@ -1119,21 +1119,21 @@ async findAllUsers() {
 
 ### How It Works
 
-1. `BetterAuthMiddleware` validates the session on each request
-2. `BetterAuthUserMapper` maps the session user to a user with `hasRole()` capability
+1. `CoreBetterAuthMiddleware` validates the session on each request
+2. `CoreBetterAuthUserMapper` maps the session user to a user with `hasRole()` capability
 3. The mapped user is set to `req.user` for use with guards and decorators
 4. `RolesGuard` and `@Restricted()` work as expected
 
 ## User Mapping
 
-The `BetterAuthUserMapper` handles the conversion between Better-Auth sessions and application users:
+The `CoreBetterAuthUserMapper` handles the conversion between Better-Auth sessions and application users:
 
 ```typescript
-import { BetterAuthUserMapper } from '@lenne.tech/nest-server';
+import { CoreBetterAuthUserMapper } from '@lenne.tech/nest-server';
 
 @Injectable()
 export class MyService {
-  constructor(private readonly userMapper: BetterAuthUserMapper) {}
+  constructor(private readonly userMapper: CoreBetterAuthUserMapper) {}
 
   async mapUser(sessionUser: BetterAuthSessionUser) {
     // Maps session user to application user with roles
@@ -1366,7 +1366,7 @@ When a user resets their password via BetterAuth's native `/iam/reset-password` 
 
 ### Automatic Sync (No Configuration Required)
 
-The following sync operations happen automatically when `BetterAuthUserMapper` is injected in `UserService`:
+The following sync operations happen automatically when `CoreBetterAuthUserMapper` is injected in `UserService`:
 
 #### 1. IAM Sign-Up → Legacy
 When a user signs up via BetterAuth (`/iam/sign-up/email`), the password is hashed with bcrypt and stored in `users.password`, enabling Legacy Auth sign-in.
@@ -1445,10 +1445,10 @@ When a user is deleted:
 
 #### Password not syncing to IAM
 
-1. Verify `BetterAuthUserMapper` is injected in `UserService`:
+1. Verify `CoreBetterAuthUserMapper` is injected in `UserService`:
    ```typescript
    constructor(
-     @Optional() private readonly betterAuthUserMapper?: BetterAuthUserMapper,
+     @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
    ) {
      super(..., { betterAuthUserMapper });
    }
@@ -1475,7 +1475,7 @@ When a user is deleted:
 
 The user needs to sign in via Legacy Auth first with their password. This triggers the automatic migration on first IAM sign-in attempt.
 
-Alternatively, use `BetterAuthUserMapper.migrateAccountToIam()` to migrate the user programmatically:
+Alternatively, use `CoreBetterAuthUserMapper.migrateAccountToIam()` to migrate the user programmatically:
 
 ```typescript
 await betterAuthUserMapper.migrateAccountToIam(email, plainPassword);
@@ -1488,13 +1488,13 @@ To enable bidirectional password reset sync, implement a custom password reset e
 ```typescript
 // src/server/modules/better-auth/better-auth.controller.ts
 import { Body, Controller, Post } from '@nestjs/common';
-import { CoreBetterAuthController, BetterAuthUserMapper, Roles, RoleEnum } from '@lenne.tech/nest-server';
+import { CoreBetterAuthController, CoreBetterAuthUserMapper, Roles, RoleEnum } from '@lenne.tech/nest-server';
 
 @Controller('iam')
 export class BetterAuthController extends CoreBetterAuthController {
   constructor(
     // ... other dependencies
-    private readonly betterAuthUserMapper: BetterAuthUserMapper,
+    private readonly betterAuthUserMapper: CoreBetterAuthUserMapper,
   ) {
     super(...);
   }
@@ -1556,16 +1556,16 @@ This is the recommended approach for projects in migration phase where both auth
 The module provides a `reset()` method for testing:
 
 ```typescript
-import { BetterAuthModule } from '@lenne.tech/nest-server';
+import { CoreBetterAuthModule } from '@lenne.tech/nest-server';
 
 describe('My Tests', () => {
   beforeEach(() => {
     // Reset static state between tests
-    BetterAuthModule.reset();
+    CoreBetterAuthModule.reset();
   });
 
   afterAll(() => {
-    BetterAuthModule.reset();
+    CoreBetterAuthModule.reset();
   });
 });
 ```
@@ -1669,14 +1669,14 @@ When the rate limit is exceeded, a `429 Too Many Requests` response is returned:
 }
 ```
 
-### Using BetterAuthRateLimiter Programmatically
+### Using CoreBetterAuthRateLimiter Programmatically
 
 ```typescript
-import { BetterAuthRateLimiter } from '@lenne.tech/nest-server';
+import { CoreBetterAuthRateLimiter } from '@lenne.tech/nest-server';
 
 @Injectable()
 export class MyService {
-  constructor(private readonly rateLimiter: BetterAuthRateLimiter) {}
+  constructor(private readonly rateLimiter: CoreBetterAuthRateLimiter) {}
 
   checkCustomLimit(ip: string) {
     // Check rate limit for custom endpoint
@@ -1731,13 +1731,13 @@ Override any method to add custom behavior (e.g., sending welcome emails, analyt
 ```typescript
 // In your BetterAuthResolver (see Step 2 in Integration Guide)
 
-@Mutation(() => BetterAuthAuthModel, { description: 'Sign up via Better-Auth (email/password)' })
+@Mutation(() => CoreBetterAuthAuthModel, { description: 'Sign up via Better-Auth (email/password)' })
 @Roles(RoleEnum.S_EVERYONE)
 override async betterAuthSignUp(
   @Args('email') email: string,
   @Args('password') password: string,
   @Args('name', { nullable: true }) name?: string,
-): Promise<BetterAuthAuthModel> {
+): Promise<CoreBetterAuthAuthModel> {
   // Call original implementation
   const result = await super.betterAuthSignUp(email, password, name);
 
@@ -1788,3 +1788,30 @@ const sessionInfo = this.mapSessionInfo(response.session);
 // Map user to model
 const userModel = this.mapToUserModel(mappedUser);
 ```
+
+---
+
+## Client-Side Integration
+
+For frontend integration with Better-Auth, see the **[Integration Checklist](./INTEGRATION-CHECKLIST.md#client-side-configuration)** which includes:
+
+- Complete auth-client configuration with password hashing
+- 2FA login flow handling (`twoFactorRedirect`)
+- Passkey authentication with `validateSession()` fallback
+- Passkey registration and management
+
+### Quick Reference
+
+| Feature | Client Method | Server Endpoint |
+|---------|---------------|-----------------|
+| Email Sign-In | `authClient.signIn.email()` | `POST /iam/sign-in/email` |
+| Passkey Sign-In | `authClient.signIn.passkey()` | `POST /iam/passkey/verify-authentication` |
+| 2FA Verify | `authClient.twoFactor.verifyTotp()` | `POST /iam/two-factor/verify-totp` |
+| Session Validation | `authClient.$fetch('/session')` | `GET /iam/session` |
+
+### Key Points
+
+1. **Password Hashing**: Always hash passwords with SHA256 client-side before sending
+2. **2FA Redirect**: Check for `twoFactorRedirect: true` in sign-in response
+3. **Passkey Session**: Passkey auth returns session without user - call `validateSession()` to fetch user data
+4. **Credentials**: Use `credentials: 'include'` for cross-origin cookie handling

@@ -18,7 +18,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
 
-import { BetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 
@@ -26,7 +26,7 @@ describe('Story: BetterAuth API', () => {
   // Test environment properties
   let app;
   let testHelper: TestHelper;
-  let betterAuthService: BetterAuthService;
+  let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
   // Database
@@ -60,7 +60,7 @@ describe('Story: BetterAuth API', () => {
       await app.init();
 
       testHelper = new TestHelper(app);
-      betterAuthService = moduleFixture.get(BetterAuthService);
+      betterAuthService = moduleFixture.get(CoreBetterAuthService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
       mongoClient = await MongoClient.connect(envConfig.mongoose.uri);

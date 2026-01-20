@@ -1,4 +1,5 @@
 import {
+  All,
   BadRequestException,
   Body,
   Controller,
@@ -19,21 +20,14 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { isProduction, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
-import { BetterAuthSessionUser, BetterAuthUserMapper } from './better-auth-user.mapper';
-import { sendWebResponse, toWebRequest } from './better-auth-web.helper';
-import { BetterAuthService } from './better-auth.service';
-import { hasSession, hasUser, requires2FA } from './better-auth.types';
+import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
+import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
 // ===================================================================================================================
 // Response Models
 // ===================================================================================================================
-
-/**
- * Token response interface for JWT tokens
- */
-interface TokenResponse {
-  token?: string;
-}
 
 /**
  * Session info for REST responses
@@ -41,7 +35,7 @@ interface TokenResponse {
  * NOTE: The session token is NOT included in this response for security reasons.
  * It is set as an httpOnly cookie instead.
  */
-export class BetterAuthSessionInfo {
+export class CoreBetterAuthSessionInfo {
   @ApiProperty({ description: 'Session expiration time' })
   expiresAt: string;
 
@@ -52,7 +46,7 @@ export class BetterAuthSessionInfo {
 /**
  * User model for REST responses
  */
-export class BetterAuthUserResponse {
+export class CoreBetterAuthUserResponse {
   @ApiProperty({ description: 'User email address' })
   email: string;
 
@@ -72,15 +66,15 @@ export class BetterAuthUserResponse {
 /**
  * Standard auth response
  */
-export class BetterAuthResponse {
+export class CoreBetterAuthResponse {
   @ApiProperty({ description: 'Error message if failed', required: false })
   error?: string;
 
   @ApiProperty({ description: 'Whether 2FA is required', required: false })
   requiresTwoFactor?: boolean;
 
-  @ApiProperty({ description: 'Session information', required: false, type: BetterAuthSessionInfo })
-  session?: BetterAuthSessionInfo;
+  @ApiProperty({ description: 'Session information', required: false, type: CoreBetterAuthSessionInfo })
+  session?: CoreBetterAuthSessionInfo;
 
   @ApiProperty({ description: 'Whether operation succeeded' })
   success: boolean;
@@ -88,8 +82,8 @@ export class BetterAuthResponse {
   @ApiProperty({ description: 'JWT token (if JWT plugin enabled)', required: false })
   token?: string;
 
-  @ApiProperty({ description: 'User information', required: false, type: BetterAuthUserResponse })
-  user?: BetterAuthUserResponse;
+  @ApiProperty({ description: 'User information', required: false, type: CoreBetterAuthUserResponse })
+  user?: CoreBetterAuthUserResponse;
 }
 
 // ===================================================================================================================
@@ -99,7 +93,7 @@ export class BetterAuthResponse {
 /**
  * Sign-in input DTO
  */
-export class BetterAuthSignInInput {
+export class CoreBetterAuthSignInInput {
   @ApiProperty({ description: 'User email address', example: 'user@example.com' })
   email: string;
 
@@ -110,7 +104,7 @@ export class BetterAuthSignInInput {
 /**
  * Sign-up input DTO
  */
-export class BetterAuthSignUpInput {
+export class CoreBetterAuthSignUpInput {
   @ApiProperty({ description: 'User email address', example: 'user@example.com' })
   email: string;
 
@@ -138,15 +132,15 @@ export class BetterAuthSignUpInput {
  * @Controller('iam')
  * export class BetterAuthController extends CoreBetterAuthController {
  *   constructor(
- *     betterAuthService: BetterAuthService,
- *     userMapper: BetterAuthUserMapper,
+ *     betterAuthService: CoreBetterAuthService,
+ *     userMapper: CoreBetterAuthUserMapper,
  *     configService: ConfigService,
  *     private readonly emailService: EmailService,
  *   ) {
  *     super(betterAuthService, userMapper, configService);
  *   }
  *
- *   override async signUp(res: Response, input: BetterAuthSignUpInput) {
+ *   override async signUp(res: Response, input: CoreBetterAuthSignUpInput) {
  *     const result = await super.signUp(res, input);
  *     if (result.success && result.user) {
  *       await this.emailService.sendWelcomeEmail(result.user.email);
@@ -163,8 +157,8 @@ export class CoreBetterAuthController {
   protected readonly logger = new Logger(CoreBetterAuthController.name);
 
   constructor(
-    protected readonly betterAuthService: BetterAuthService,
-    protected readonly userMapper: BetterAuthUserMapper,
+    protected readonly betterAuthService: CoreBetterAuthService,
+    protected readonly userMapper: CoreBetterAuthUserMapper,
     protected readonly configService: ConfigService,
   ) {}
 
@@ -174,17 +168,27 @@ export class CoreBetterAuthController {
 
   /**
    * Sign in with email and password
+   *
+   * This endpoint handles legacy user migration and password normalization.
+   *
+   * Flow:
+   * 1. Try legacy user migration if the user exists in legacy system
+   * 2. Normalize password to SHA256 format
+   * 3. Call Better Auth API directly for consistent response format
+   * 4. For 2FA: Use native handler to ensure cookies are set correctly
+   * 5. Return response with session cookies
    */
-  @ApiBody({ type: BetterAuthSignInInput })
-  @ApiCreatedResponse({ description: 'Signed in successfully', type: BetterAuthResponse })
+  @ApiBody({ type: CoreBetterAuthSignInInput })
+  @ApiCreatedResponse({ description: 'Signed in successfully', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Sign in via Better-Auth with email and password', summary: 'Sign In' })
   @HttpCode(HttpStatus.OK)
   @Post('sign-in/email')
   @Roles(RoleEnum.S_EVERYONE)
   async signIn(
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-    @Body() input: BetterAuthSignInInput,
-  ): Promise<BetterAuthResponse> {
+    @Body() input: CoreBetterAuthSignInInput,
+  ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
 
     const api = this.betterAuthService.getApi();
@@ -192,47 +196,102 @@ export class CoreBetterAuthController {
       throw new BadRequestException('Better-Auth API not available');
     }
 
-    // Try to sign in, with automatic legacy user migration
-    return this.attemptSignIn(res, input, api, true);
-  }
+    // Step 1: Try legacy user migration BEFORE Better Auth handles the request
+    // This allows users who exist in legacy system to be migrated automatically
+    try {
+      const migrated = await this.userMapper.migrateAccountToIam(input.email, input.password);
+      if (migrated) {
+        this.logger.debug(`Migrated legacy user ${input.email} to IAM`);
+      }
+    } catch (error) {
+      // Migration failure is not fatal - user might not exist in legacy or already migrated
+      this.logger.debug(`Legacy migration check: ${error instanceof Error ? error.message : 'not needed'}`);
+    }
 
-  /**
-   * Attempt sign-in with optional legacy user migration
-   * @param res - Response object
-   * @param input - Sign-in credentials
-   * @param api - Better-Auth API instance
-   * @param allowMigration - Whether to attempt legacy migration on failure
-   */
-  private async attemptSignIn(
-    res: Response,
-    input: BetterAuthSignInInput,
-    api: ReturnType<BetterAuthService['getApi']>,
-    allowMigration: boolean,
-  ): Promise<BetterAuthResponse> {
-    // Normalize password to SHA256 format for consistency with Legacy Auth
-    // This ensures users can sign in with either plain password or SHA256 hash
+    // Step 2: Normalize password for Better Auth (SHA256 format)
     const normalizedPassword = this.userMapper.normalizePasswordForIam(input.password);
 
+    // Step 3: Call Better Auth API to check response type
     try {
-      const response = await api!.signInEmail({
-        body: { email: input.email, password: normalizedPassword },
-      });
+      const response = (await api.signInEmail({
+        body: {
+          email: input.email,
+          password: normalizedPassword,
+        },
+      })) as BetterAuthSignInResponse | null;
 
       if (!response) {
         throw new UnauthorizedException('Invalid credentials');
       }
 
       // Check for 2FA requirement
+      // When 2FA is required, we need to use the native Better Auth handler
+      // because api.signInEmail() doesn't return the session token needed for 2FA verification
       if (requires2FA(response)) {
-        return { requiresTwoFactor: true, success: false };
+        if (!isProduction()) {
+          this.logger.debug(`2FA required for ${input.email}, forwarding to native handler for cookie handling`);
+        }
+
+        // Forward to native Better Auth handler which sets the session cookie correctly
+        // We need to modify the request body to use the normalized password
+        const authInstance = this.betterAuthService.getInstance();
+        if (!authInstance) {
+          throw new InternalServerErrorException('Better-Auth not initialized');
+        }
+
+        // Create a modified request body with normalized password
+        const modifiedBody = JSON.stringify({
+          email: input.email,
+          password: normalizedPassword,
+        });
+
+        // Build the sign-in URL
+        const basePath = this.betterAuthService.getBasePath();
+        const baseUrl = this.betterAuthService.getBaseUrl();
+        const signInUrl = new URL(`${basePath}/sign-in/email`, baseUrl);
+
+        // Create a new Web Request for Better Auth's native handler
+        const webRequest = new Request(signInUrl.toString(), {
+          body: modifiedBody,
+          headers: new Headers({
+            'Content-Type': 'application/json',
+            'Origin': req.headers.origin || baseUrl,
+          }),
+          method: 'POST',
+        });
+
+        // Call Better Auth's native handler
+        const nativeResponse = await authInstance.handler(webRequest);
+
+        // Extract and forward Set-Cookie headers
+        const setCookieHeaders = nativeResponse.headers.getSetCookie?.() || [];
+        for (const cookie of setCookieHeaders) {
+          res.setHeader('Set-Cookie', cookie);
+        }
+
+        // Return the structured response
+        return {
+          requiresTwoFactor: true,
+          success: false,
+        };
       }
 
-      // Get user data
-      if (hasUser(response)) {
-        const mappedUser = await this.userMapper.mapSessionUser(response.user);
-        const token = this.betterAuthService.isJwtEnabled() ? (response as TokenResponse).token : undefined;
+      // Check if response indicates an error
+      const responseAny = response as any;
+      if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
+        throw new UnauthorizedException('Invalid credentials');
+      }
 
-        const result: BetterAuthResponse = {
+      if (hasUser(response)) {
+        // Link or create user in our database (in case it doesn't exist)
+        await this.userMapper.linkOrCreateUser(response.user);
+
+        const mappedUser = await this.userMapper.mapSessionUser(response.user);
+
+        // Get token (JWT if available, session token otherwise)
+        const token = responseAny.accessToken || responseAny.token;
+
+        const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
           session: hasSession(response) ? this.mapSession(response.session) : undefined,
           success: true,
@@ -245,17 +304,11 @@ export class CoreBetterAuthController {
 
       throw new UnauthorizedException('Invalid credentials');
     } catch (error) {
-      this.logger.debug(`Sign-in error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.debug(`Sign-in error: ${errorMessage}`);
 
-      // If migration is allowed, try to migrate legacy user and retry
-      if (allowMigration) {
-        // Pass the original password for legacy verification, but migration uses normalized password
-        const migrated = await this.userMapper.migrateAccountToIam(input.email, input.password);
-        if (migrated) {
-          this.logger.debug(`Migrated legacy user ${input.email} to IAM, retrying sign-in`);
-          // Retry sign-in after migration (without allowing another migration to prevent loops)
-          return this.attemptSignIn(res, input, api, false);
-        }
+      if (error instanceof UnauthorizedException) {
+        throw error;
       }
 
       throw new UnauthorizedException('Invalid credentials');
@@ -265,15 +318,15 @@ export class CoreBetterAuthController {
   /**
    * Sign up with email and password
    */
-  @ApiBody({ type: BetterAuthSignUpInput })
-  @ApiCreatedResponse({ description: 'Signed up successfully', type: BetterAuthResponse })
+  @ApiBody({ type: CoreBetterAuthSignUpInput })
+  @ApiCreatedResponse({ description: 'Signed up successfully', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Sign up via Better-Auth with email and password', summary: 'Sign Up' })
   @Post('sign-up/email')
   @Roles(RoleEnum.S_EVERYONE)
   async signUp(
     @Res({ passthrough: true }) res: Response,
-    @Body() input: BetterAuthSignUpInput,
-  ): Promise<BetterAuthResponse> {
+    @Body() input: CoreBetterAuthSignUpInput,
+  ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
 
     const api = this.betterAuthService.getApi();
@@ -307,7 +360,7 @@ export class CoreBetterAuthController {
 
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
-        const result: BetterAuthResponse = {
+        const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
           session: hasSession(response) ? this.mapSession(response.session) : undefined,
           success: true,
@@ -330,12 +383,14 @@ export class CoreBetterAuthController {
 
   /**
    * Sign out (logout)
+   *
+   * NOTE: Better-Auth uses POST for sign-out (matches better-auth convention)
    */
-  @ApiOkResponse({ description: 'Signed out successfully', type: BetterAuthResponse })
+  @ApiOkResponse({ description: 'Signed out successfully', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Sign out from Better-Auth', summary: 'Sign Out' })
-  @Get('sign-out')
+  @Post('sign-out')
   @Roles(RoleEnum.S_EVERYONE)
-  async signOut(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<BetterAuthResponse> {
+  async signOut(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<CoreBetterAuthResponse> {
     if (!this.betterAuthService.isEnabled()) {
       return { success: true };
     }
@@ -363,11 +418,11 @@ export class CoreBetterAuthController {
   /**
    * Get current session
    */
-  @ApiOkResponse({ description: 'Current session', type: BetterAuthResponse })
+  @ApiOkResponse({ description: 'Current session', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Get current session from Better-Auth', summary: 'Get Session' })
   @Get('session')
   @Roles(RoleEnum.S_EVERYONE)
-  async getSession(@Req() req: Request): Promise<BetterAuthResponse> {
+  async getSession(@Req() req: Request): Promise<CoreBetterAuthResponse> {
     if (!this.betterAuthService.isEnabled()) {
       return { error: 'Better-Auth is disabled', success: false };
     }
@@ -390,6 +445,33 @@ export class CoreBetterAuthController {
       this.logger.debug(`Get session error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return { success: false };
     }
+  }
+
+  // ===================================================================================================================
+  // Catch-All Route for Better Auth Plugins
+  // ===================================================================================================================
+
+  /**
+   * Catch-all route for all other Better Auth plugin endpoints.
+   *
+   * This route handles:
+   * - Passkey/WebAuthn (all endpoints)
+   * - Two-Factor Authentication (all endpoints)
+   * - Social Login OAuth flows
+   * - Email verification
+   * - Magic link authentication
+   * - Any other Better Auth plugin functionality
+   *
+   * IMPORTANT: This route must be defined LAST in the controller to ensure
+   * it doesn't intercept the explicitly defined routes above.
+   *
+   * Better Auth handles authentication internally - it returns appropriate
+   * errors (401, 403) if a user is not authenticated for protected endpoints.
+   */
+  @All('*path')
+  @Roles(RoleEnum.S_EVERYONE)
+  async handlePluginRoutes(@Req() req: Request, @Res() res: Response): Promise<void> {
+    return this.handleBetterAuthPlugins(req, res);
   }
 
   // ===================================================================================================================
@@ -442,7 +524,7 @@ export class CoreBetterAuthController {
    * NOTE: The session token is intentionally NOT included in the response.
    * It is set as an httpOnly cookie for security.
    */
-  protected mapSession(session: null | undefined | { expiresAt: Date; id: string; token?: string }): BetterAuthSessionInfo | undefined {
+  protected mapSession(session: null | undefined | { expiresAt: Date; id: string; token?: string }): CoreBetterAuthSessionInfo | undefined {
     if (!session) return undefined;
     return {
       expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : String(session.expiresAt),
@@ -457,7 +539,7 @@ export class CoreBetterAuthController {
    * @param _mappedUser - The synced user from legacy system (available for override customization)
    */
   // eslint-disable-next-line unused-imports/no-unused-vars
-  protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): BetterAuthUserResponse {
+  protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): CoreBetterAuthUserResponse {
     return {
       email: sessionUser.email,
       emailVerified: sessionUser.emailVerified || false,
@@ -487,10 +569,10 @@ export class CoreBetterAuthController {
    * that Better Auth's plugin system recognizes (default: `{basePath}.session_token`).
    *
    * @param res - Express Response object
-   * @param result - The BetterAuthResponse to return
+   * @param result - The CoreBetterAuthResponse to return
    * @param sessionToken - Optional session token to set in cookies (if not provided, uses result.token)
    */
-  protected processCookies(res: Response, result: BetterAuthResponse, sessionToken?: string): BetterAuthResponse {
+  protected processCookies(res: Response, result: CoreBetterAuthResponse, sessionToken?: string): CoreBetterAuthResponse {
     // Check if cookie handling is activated
     if (this.configService.getFastButReadOnly('cookies')) {
       const cookieOptions = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' };

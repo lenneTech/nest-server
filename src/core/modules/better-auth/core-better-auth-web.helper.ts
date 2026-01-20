@@ -196,9 +196,9 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
     headers.set('authorization', `Bearer ${sessionToken}`);
 
     // Also ensure the session token is in the cookies with PROPER SIGNING
+    // IMPORTANT: We must REPLACE unsigned cookies with signed ones, not just add if missing
     const normalizedBasePath = basePath?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
-    const existingCookies = headers.get('cookie') || '';
-    const cookiesToAdd: string[] = [];
+    const existingCookieString = headers.get('cookie') || '';
 
     // Sign the session token for Better Auth (if secret is provided)
     let signedToken: string;
@@ -209,29 +209,32 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
       signedToken = sessionToken;
     }
 
-    // Add signed session token cookies if not already present
-    // The primary cookie name Better Auth looks for
+    // Cookie names that need signed tokens
     const primaryCookieName = `${normalizedBasePath}.session_token`;
-    if (!existingCookies.includes(`${primaryCookieName}=`)) {
-      cookiesToAdd.push(`${primaryCookieName}=${signedToken}`);
-    }
+    const sessionCookieNames = [
+      primaryCookieName,
+      BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION,
+    ];
 
-    // Also add the legacy cookie name for backwards compatibility
-    if (!existingCookies.includes(`${BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION}=`)) {
-      cookiesToAdd.push(`${BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION}=${signedToken}`);
+    // Parse existing cookies
+    const existingCookies = parseCookieHeader(existingCookieString);
+
+    // Replace session token cookies with signed versions
+    for (const cookieName of sessionCookieNames) {
+      existingCookies[cookieName] = signedToken;
     }
 
     // Keep the unsigned token cookie for nest-server compatibility
-    if (!existingCookies.includes(`${BETTER_AUTH_COOKIE_NAMES.TOKEN}=`)) {
-      cookiesToAdd.push(`${BETTER_AUTH_COOKIE_NAMES.TOKEN}=${sessionToken}`);
+    if (!existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN]) {
+      existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN] = sessionToken;
     }
 
-    if (cookiesToAdd.length > 0) {
-      const allCookies = existingCookies
-        ? `${existingCookies}; ${cookiesToAdd.join('; ')}`
-        : cookiesToAdd.join('; ');
-      headers.set('cookie', allCookies);
-    }
+    // Rebuild the cookie string
+    const newCookieString = Object.entries(existingCookies)
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; ');
+
+    headers.set('cookie', newCookieString);
   }
 
   // Build request options

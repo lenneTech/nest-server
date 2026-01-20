@@ -5,7 +5,7 @@
  * I want to integrate better-auth for modern authentication,
  * So that I can use 2FA, Passkeys, and Social Login in my application.
  *
- * This test file verifies the basic integration of the BetterAuthModule
+ * This test file verifies the basic integration of the CoreBetterAuthModule
  * with the nest-server framework.
  */
 
@@ -15,9 +15,9 @@ import { MongoClient, ObjectId } from 'mongodb';
 
 import {
   BETTER_AUTH_INSTANCE,
-  BetterAuthModule,
-  BetterAuthService,
   ConfigService,
+  CoreBetterAuthModule,
+  CoreBetterAuthService,
   createBetterAuthInstance,
   HttpExceptionLogFilter,
   TestGraphQLType,
@@ -137,7 +137,7 @@ describe('Story: BetterAuth Integration', () => {
     });
   });
 
-  describe('BetterAuthModule (Disabled)', () => {
+  describe('CoreBetterAuthModule (Disabled)', () => {
     const mockConfigService = {
       get: (key: string) => {
         if (key === 'betterAuth') {
@@ -150,7 +150,7 @@ describe('Story: BetterAuth Integration', () => {
     it('should create module with null instance when disabled', async () => {
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
@@ -163,17 +163,17 @@ describe('Story: BetterAuth Integration', () => {
       await moduleRef.close();
     });
 
-    it('should provide BetterAuthService when disabled', async () => {
+    it('should provide CoreBetterAuthService when disabled', async () => {
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfigService }],
       }).compile();
 
-      const betterAuthService = moduleRef.get(BetterAuthService);
+      const betterAuthService = moduleRef.get(CoreBetterAuthService);
       expect(betterAuthService).toBeDefined();
       expect(betterAuthService.isEnabled()).toBe(false);
       expect(betterAuthService.getInstance()).toBeNull();
@@ -183,21 +183,21 @@ describe('Story: BetterAuth Integration', () => {
     });
   });
 
-  describe('BetterAuthModule.reset()', () => {
+  describe('CoreBetterAuthModule.reset()', () => {
     it('should reset static state for testing', () => {
       // First, verify reset method exists
-      expect(typeof BetterAuthModule.reset).toBe('function');
+      expect(typeof CoreBetterAuthModule.reset).toBe('function');
 
       // Call reset
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
       // After reset, getInstance should return null
-      expect(BetterAuthModule.getInstance()).toBeNull();
+      expect(CoreBetterAuthModule.getInstance()).toBeNull();
     });
 
     it('should allow fresh initialization after reset', async () => {
       // Reset before test
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
       const mockConfigService = {
         get: (key: string) => {
@@ -211,27 +211,27 @@ describe('Story: BetterAuth Integration', () => {
       // Create new module after reset
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfigService }],
       }).compile();
 
-      const betterAuthService = moduleRef.get(BetterAuthService);
+      const betterAuthService = moduleRef.get(CoreBetterAuthService);
       expect(betterAuthService).toBeDefined();
       expect(betterAuthService.isEnabled()).toBe(false);
 
       await moduleRef.close();
 
       // Reset after test for clean state
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
     });
   });
 
-  describe('BetterAuthService (Disabled Mode)', () => {
+  describe('CoreBetterAuthService (Disabled Mode)', () => {
     let moduleRef: TestingModule;
-    let betterAuthService: BetterAuthService;
+    let betterAuthService: CoreBetterAuthService;
 
     const mockConfigService = {
       get: (key: string) => {
@@ -255,14 +255,14 @@ describe('Story: BetterAuth Integration', () => {
     beforeAll(async () => {
       moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfigService }],
       }).compile();
 
-      betterAuthService = moduleRef.get(BetterAuthService);
+      betterAuthService = moduleRef.get(CoreBetterAuthService);
     });
 
     afterAll(async () => {
@@ -428,14 +428,14 @@ describe('Story: BetterAuth Integration', () => {
 
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfig }],
       }).compile();
 
-      const betterAuthService = moduleRef.get(BetterAuthService);
+      const betterAuthService = moduleRef.get(CoreBetterAuthService);
       // Even if twoFactor.enabled is true, isTwoFactorEnabled returns false
       // because the main betterAuth is disabled
       expect(betterAuthService.isTwoFactorEnabled()).toBe(false);
@@ -489,14 +489,14 @@ describe('Story: BetterAuth Integration', () => {
 
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfig }],
       }).compile();
 
-      const betterAuthService = moduleRef.get(BetterAuthService);
+      const betterAuthService = moduleRef.get(CoreBetterAuthService);
       // Even if passkey.enabled is true, isPasskeyEnabled returns false
       // because the main betterAuth is disabled
       expect(betterAuthService.isPasskeyEnabled()).toBe(false);
@@ -598,14 +598,14 @@ describe('Story: BetterAuth Integration', () => {
 
       const moduleRef = await Test.createTestingModule({
         imports: [
-          BetterAuthModule.forRoot({
+          CoreBetterAuthModule.forRoot({
             config: { enabled: false },
           }),
         ],
         providers: [{ provide: ConfigService, useValue: mockConfig }],
       }).compile();
 
-      const betterAuthService = moduleRef.get(BetterAuthService);
+      const betterAuthService = moduleRef.get(CoreBetterAuthService);
       const enabledProviders = betterAuthService.getEnabledSocialProviders();
 
       // Note: The service returns empty because authInstance is null (forRoot with enabled: false)

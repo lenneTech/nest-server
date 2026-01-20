@@ -1,4 +1,4 @@
-import { BetterAuthUserMapper } from '../../better-auth/better-auth-user.mapper';
+import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper';
 
 /**
  * Optional configuration for CoreUserService
@@ -8,8 +8,8 @@ import { BetterAuthUserMapper } from '../../better-auth/better-auth-user.mapper'
  */
 export interface CoreUserServiceOptions {
   /**
-   * Optional BetterAuthUserMapper for syncing between Legacy and IAM auth systems.
+   * Optional CoreBetterAuthUserMapper for syncing between Legacy and IAM auth systems.
    * When provided, email changes and user deletions are automatically synced.
    */
-  betterAuthUserMapper?: BetterAuthUserMapper;
+  betterAuthUserMapper?: CoreBetterAuthUserMapper;
 }
