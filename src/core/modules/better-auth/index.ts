@@ -17,12 +17,14 @@
  * - BetterAuthController/BetterAuthResolver: Default implementations
  */
 
+export * from './better-auth-api.middleware';
 export * from './better-auth-auth.model';
 export * from './better-auth-migration-status.model';
 export * from './better-auth-models';
 export * from './better-auth-rate-limit.middleware';
 export * from './better-auth-rate-limiter.service';
 export * from './better-auth-user.mapper';
+export * from './better-auth-web.helper';
 export * from './better-auth.config';
 export * from './better-auth.middleware';
 export * from './better-auth.module';

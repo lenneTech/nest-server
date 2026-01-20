@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
 
+import { isProduction, maskCookieHeader, maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthSessionUser } from './better-auth-user.mapper';
@@ -54,6 +55,7 @@ export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 @Injectable()
 export class BetterAuthService {
   private readonly logger = new Logger(BetterAuthService.name);
+  private readonly isProd = isProduction();
   private readonly config: IBetterAuth;
 
   constructor(
@@ -304,7 +306,18 @@ export class BetterAuthService {
         }
       }
 
+      // Debug: Log the cookie header being sent to api.getSession (masked for security)
+      if (!this.isProd) {
+        const cookieHeader = headers.get('cookie');
+        this.logger.debug(`getSession called with cookies: ${maskCookieHeader(cookieHeader)}`);
+      }
+
       const response = await api.getSession({ headers });
+
+      // Debug: Log the response from api.getSession
+      if (!this.isProd) {
+        this.logger.debug(`getSession response: ${JSON.stringify(response)?.substring(0, 200)}`);
+      }
 
       if (response && typeof response === 'object' && 'user' in response) {
         return response as SessionResult;
@@ -312,7 +325,9 @@ export class BetterAuthService {
 
       return { session: null, user: null };
     } catch (error) {
-      this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!this.isProd) {
+        this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
       return { session: null, user: null };
     }
   }
@@ -355,7 +370,9 @@ export class BetterAuthService {
       await api.signOut({ headers });
       return true;
     } catch (error) {
-      this.logger.debug(`revokeSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!this.isProd) {
+        this.logger.debug(`revokeSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
       return false;
     }
   }
@@ -416,59 +433,86 @@ export class BetterAuthService {
    * @returns Session and user data, or null if not found/expired
    */
   async getSessionByToken(token: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection) {
+    if (!this.isEnabled() || !this.connection?.db) {
       return { session: null, user: null };
     }
 
     try {
       const db = this.connection.db;
-      if (!db) {
-        return { session: null, user: null };
-      }
-
       const sessionsCollection = db.collection('session');
-      // Better-Auth is configured to use 'users' (plural) as the model name
-      // This matches the existing Legacy users collection for migration compatibility
-      const usersCollection = db.collection('users');
 
-      // Find session by token
-      const session = await sessionsCollection.findOne({ token });
+      // Use aggregation pipeline for single-query lookup with automatic userId type handling
+      // This handles both ObjectId and string userId formats efficiently
+      const results = await sessionsCollection
+        .aggregate([
+          // Match session by token
+          { $match: { token } },
+          // Join with users collection - handles both ObjectId and string userId
+          {
+            $lookup: {
+              as: 'userDoc',
+              from: 'users',
+              let: { sessionUserId: '$userId' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
+                        // Match by _id (ObjectId comparison)
+                        { $eq: ['$_id', '$$sessionUserId'] },
+                        // Match by _id with string conversion
+                        { $eq: [{ $toString: '$_id' }, { $toString: '$$sessionUserId' }] },
+                        // Match by id field (string field)
+                        { $eq: ['$id', { $toString: '$$sessionUserId' }] },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          // Unwind user document (results in null if no match)
+          { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+          // Project final result
+          { $limit: 1 },
+        ])
+        .toArray();
 
-      if (!session) {
+      const result = results[0];
+
+      if (!result) {
+        if (!this.isProd) {
+          this.logger.debug(`getSessionByToken: session not found for token ${maskToken(token)}`);
+        }
         return { session: null, user: null };
       }
 
       // Check if session is expired
-      if (session.expiresAt && new Date(session.expiresAt) < new Date()) {
-        return { session: null, user: null };
-      }
-
-      // Get user from the user collection
-      // Better-Auth stores userId as a string, try both string id and ObjectId
-      const { ObjectId } = require('mongodb');
-
-      let user = await usersCollection.findOne({ id: session.userId });
-      if (!user) {
-        // Try with ObjectId conversion
-        try {
-          const objectId = new ObjectId(session.userId);
-          user = await usersCollection.findOne({ _id: objectId });
-        } catch {
-          // userId might not be a valid ObjectId, try string match
-          user = await usersCollection.findOne({ _id: session.userId });
+      if (result.expiresAt && new Date(result.expiresAt) < new Date()) {
+        if (!this.isProd) {
+          this.logger.debug(`getSessionByToken: session expired`);
         }
+        return { session: null, user: null };
       }
 
+      const user = result.userDoc;
       if (!user) {
+        if (!this.isProd) {
+          this.logger.debug(`getSessionByToken: user not found for session`);
+        }
         return { session: null, user: null };
+      }
+
+      if (!this.isProd) {
+        this.logger.debug(`getSessionByToken: found session for user ${maskEmail(user.email)}`);
       }
 
       return {
         session: {
-          expiresAt: session.expiresAt,
-          id: session.id || session._id?.toString(),
-          userId: session.userId?.toString(),
-          ...session,
+          expiresAt: result.expiresAt,
+          id: result.id || result._id?.toString(),
+          token: result.token,
+          userId: result.userId?.toString(),
         },
         user: {
           email: user.email,
@@ -478,7 +522,9 @@ export class BetterAuthService {
         },
       };
     } catch (error) {
-      this.logger.debug(`getSessionByToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!this.isProd) {
+        this.logger.debug(`getSessionByToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
       return { session: null, user: null };
     }
   }

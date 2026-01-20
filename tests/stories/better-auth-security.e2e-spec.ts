@@ -353,6 +353,9 @@ describe('Story: BetterAuth Security Integration', () => {
     beforeEach(() => {
       mockBetterAuthService = {
         getApi: vi.fn().mockReturnValue(null),
+        getBasePath: vi.fn().mockReturnValue('/iam'),
+        getConfig: vi.fn().mockReturnValue({ basePath: '/iam' }),
+        getSessionByToken: vi.fn().mockResolvedValue({ session: null, user: null }),
         isEnabled: vi.fn().mockReturnValue(false),
       };
 

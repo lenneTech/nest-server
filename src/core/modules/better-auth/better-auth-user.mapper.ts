@@ -17,6 +17,7 @@ const scryptPromise = (password: string, salt: string, keylen: number, options: 
 };
 
 import { RoleEnum } from '../../common/enums/role.enum';
+import { maskEmail } from '../../common/helpers/logging.helper';
 
 /**
  * Interface for Better-Auth session user
@@ -379,7 +380,7 @@ export class BetterAuthUserMapper {
         const sha256Match = await bcrypt.compare(sha256(plainPassword), legacyUser.password);
         if (!directMatch && !sha256Match) {
           // Security: Wrong password provided for migration - reject
-          this.logger.warn(`Migration password verification failed for ${userEmail}`);
+          this.logger.warn(`Migration password verification failed for ${maskEmail(userEmail)}`);
           return false;
         }
       } else {

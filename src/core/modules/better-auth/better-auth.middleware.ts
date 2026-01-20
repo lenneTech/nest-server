@@ -1,7 +1,9 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
+import { isProduction, maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { BetterAuthSessionUser, BetterAuthUserMapper, MappedUser } from './better-auth-user.mapper';
+import { extractSessionToken } from './better-auth-web.helper';
 import { BetterAuthService } from './better-auth.service';
 
 /**
@@ -31,6 +33,7 @@ export interface BetterAuthRequest extends Request {
 @Injectable()
 export class BetterAuthMiddleware implements NestMiddleware {
   private readonly logger = new Logger(BetterAuthMiddleware.name);
+  private readonly isProd = isProduction();
 
   constructor(
     private readonly betterAuthService: BetterAuthService,
@@ -79,7 +82,7 @@ export class BetterAuthMiddleware implements NestMiddleware {
         // Check if token looks like a JWT (has 3 parts)
         if (tokenParts === 3) {
           // Decode JWT payload to check if it's a Legacy JWT or BetterAuth JWT
-          // Legacy JWTs have 'id' claim, BetterAuth JWTs have 'sub' claim
+          // Legacy JWTs have 'id' claim, BetterAuth JWTs use 'sub'
           const isLegacyJwt = this.isLegacyJwt(token);
           if (isLegacyJwt) {
             // Legacy JWT - skip BetterAuth processing, let Passport handle it
@@ -131,7 +134,9 @@ export class BetterAuthMiddleware implements NestMiddleware {
     } catch (error) {
       // Don't block the request on auth errors
       // The guards will handle unauthorized access
-      this.logger.debug(`Session validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!this.isProd) {
+        this.logger.debug(`Session validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
     next();
@@ -159,15 +164,48 @@ export class BetterAuthMiddleware implements NestMiddleware {
   }
 
   /**
-   * Gets the session from Better-Auth
+   * Gets the session from Better-Auth using session token from cookies
+   *
+   * This method first tries to extract the session token from cookies
+   * (checking multiple cookie names for compatibility), then validates
+   * the session directly from the database using getSessionByToken().
    */
   private async getSession(req: Request): Promise<null | { session: any; user: BetterAuthSessionUser }> {
-    const api = this.betterAuthService.getApi();
-    if (!api) {
-      return null;
-    }
-
     try {
+      // Strategy 1: Try to get session token from cookies using shared helper
+      const basePath = this.betterAuthService.getBasePath();
+      const sessionToken = extractSessionToken(req, basePath);
+
+      if (!this.isProd) {
+        this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
+      }
+
+      if (sessionToken) {
+        if (!this.isProd) {
+          this.logger.debug(`[MIDDLEWARE] Found session token in cookies: ${maskToken(sessionToken)}`);
+        }
+
+        // Use getSessionByToken to validate session directly from database
+        const sessionResult = await this.betterAuthService.getSessionByToken(sessionToken);
+
+        if (!this.isProd) {
+          this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
+        }
+
+        if (sessionResult?.user && sessionResult?.session) {
+          if (!this.isProd) {
+            this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);
+          }
+          return sessionResult as { session: any; user: BetterAuthSessionUser };
+        }
+      }
+
+      // Strategy 2: Fallback to api.getSession() for edge cases
+      const api = this.betterAuthService.getApi();
+      if (!api) {
+        return null;
+      }
+
       // Convert Express headers to the format Better-Auth expects
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
@@ -187,7 +225,9 @@ export class BetterAuthMiddleware implements NestMiddleware {
 
       return null;
     } catch (error) {
-      this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!this.isProd) {
+        this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
       return null;
     }
   }

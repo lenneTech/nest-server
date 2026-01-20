@@ -5,19 +5,22 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  InternalServerErrorException,
   Logger,
   Post,
   Req,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiCreatedResponse, ApiExcludeEndpoint, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { isProduction, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthSessionUser, BetterAuthUserMapper } from './better-auth-user.mapper';
+import { sendWebResponse, toWebRequest } from './better-auth-web.helper';
 import { BetterAuthService } from './better-auth.service';
 import { hasSession, hasUser, requires2FA } from './better-auth.types';
 
@@ -34,6 +37,9 @@ interface TokenResponse {
 
 /**
  * Session info for REST responses
+ *
+ * NOTE: The session token is NOT included in this response for security reasons.
+ * It is set as an httpOnly cookie instead.
  */
 export class BetterAuthSessionInfo {
   @ApiProperty({ description: 'Session expiration time' })
@@ -113,31 +119,6 @@ export class BetterAuthSignUpInput {
 
   @ApiProperty({ description: 'User password (min 8 characters)' })
   password: string;
-}
-
-/**
- * 2FA verification input DTO
- */
-export class BetterAuthTwoFactorInput {
-  @ApiProperty({ description: 'TOTP code from authenticator app', example: '123456' })
-  code: string;
-}
-
-/**
- * 2FA setup response
- */
-export class BetterAuthTwoFactorSetupResponse {
-  @ApiProperty({ description: 'Backup codes for recovery' })
-  backupCodes: string[];
-
-  @ApiProperty({ description: 'Whether operation succeeded' })
-  success: boolean;
-
-  @ApiProperty({ description: 'TOTP secret for manual entry' })
-  totpSecret: string;
-
-  @ApiProperty({ description: 'QR code URI for authenticator apps' })
-  totpUri: string;
 }
 
 // ===================================================================================================================
@@ -412,136 +393,6 @@ export class CoreBetterAuthController {
   }
 
   // ===================================================================================================================
-  // Two-Factor Authentication Endpoints
-  // ===================================================================================================================
-
-  /**
-   * Enable 2FA for current user
-   */
-  @ApiOkResponse({ description: '2FA setup information', type: BetterAuthTwoFactorSetupResponse })
-  @ApiOperation({ description: 'Enable Two-Factor Authentication', summary: 'Enable 2FA' })
-  @Post('two-factor/enable')
-  @Roles(RoleEnum.S_USER)
-  async enableTwoFactor(@Req() req: Request): Promise<BetterAuthResponse | BetterAuthTwoFactorSetupResponse> {
-    this.ensureEnabled();
-
-    if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled');
-    }
-
-    const api = this.betterAuthService.getApi();
-    if (!api || !('enableTwoFactor' in api)) {
-      throw new BadRequestException('2FA API not available');
-    }
-
-    try {
-      const headers = this.extractHeaders(req);
-      const response = await (api as any).enableTwoFactor({ headers });
-
-      if (!response) {
-        throw new BadRequestException('Failed to enable 2FA');
-      }
-
-      return {
-        backupCodes: response.backupCodes || [],
-        success: true,
-        totpSecret: response.totpSecret || '',
-        totpUri: response.totpURI || '',
-      };
-    } catch (error) {
-      this.logger.debug(`Enable 2FA error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw new BadRequestException('Failed to enable 2FA');
-    }
-  }
-
-  /**
-   * Verify 2FA code during sign-in
-   */
-  @ApiBody({ type: BetterAuthTwoFactorInput })
-  @ApiOkResponse({ description: 'Verification result', type: BetterAuthResponse })
-  @ApiOperation({ description: 'Verify Two-Factor Authentication code', summary: 'Verify 2FA' })
-  @HttpCode(HttpStatus.OK)
-  @Post('two-factor/verify')
-  @Roles(RoleEnum.S_EVERYONE)
-  async verifyTwoFactor(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-    @Body() input: BetterAuthTwoFactorInput,
-  ): Promise<BetterAuthResponse> {
-    this.ensureEnabled();
-
-    if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled');
-    }
-
-    const api = this.betterAuthService.getApi();
-    if (!api || !('verifyTOTP' in api)) {
-      throw new BadRequestException('2FA API not available');
-    }
-
-    try {
-      const headers = this.extractHeaders(req);
-      const response = await (api as any).verifyTOTP({
-        body: { code: input.code },
-        headers,
-      });
-
-      if (!response) {
-        throw new UnauthorizedException('Invalid 2FA code');
-      }
-
-      if (hasUser(response)) {
-        const mappedUser = await this.userMapper.mapSessionUser(response.user);
-        const token = this.betterAuthService.isJwtEnabled() ? (response as TokenResponse).token : undefined;
-
-        const result: BetterAuthResponse = {
-          session: hasSession(response) ? this.mapSession(response.session) : undefined,
-          success: true,
-          token,
-          user: mappedUser ? this.mapUser(response.user, mappedUser) : undefined,
-        };
-
-        return this.processCookies(res, result);
-      }
-
-      throw new UnauthorizedException('Invalid 2FA code');
-    } catch (error) {
-      this.logger.debug(`Verify 2FA error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw new UnauthorizedException('Invalid 2FA code');
-    }
-  }
-
-  /**
-   * Disable 2FA for current user
-   */
-  @ApiOkResponse({ description: 'Disable result', type: BetterAuthResponse })
-  @ApiOperation({ description: 'Disable Two-Factor Authentication', summary: 'Disable 2FA' })
-  @Post('two-factor/disable')
-  @Roles(RoleEnum.S_USER)
-  async disableTwoFactor(@Req() req: Request): Promise<BetterAuthResponse> {
-    this.ensureEnabled();
-
-    if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled');
-    }
-
-    const api = this.betterAuthService.getApi();
-    if (!api || !('disableTwoFactor' in api)) {
-      throw new BadRequestException('2FA API not available');
-    }
-
-    try {
-      const headers = this.extractHeaders(req);
-      await (api as any).disableTwoFactor({ headers });
-
-      return { success: true };
-    } catch (error) {
-      this.logger.debug(`Disable 2FA error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw new BadRequestException('Failed to disable 2FA');
-    }
-  }
-
-  // ===================================================================================================================
   // Helper Methods (protected for extension)
   // ===================================================================================================================
 
@@ -587,12 +438,16 @@ export class CoreBetterAuthController {
 
   /**
    * Map session to response format
+   *
+   * NOTE: The session token is intentionally NOT included in the response.
+   * It is set as an httpOnly cookie for security.
    */
-  protected mapSession(session: null | undefined | { expiresAt: Date; id: string }): BetterAuthSessionInfo | undefined {
+  protected mapSession(session: null | undefined | { expiresAt: Date; id: string; token?: string }): BetterAuthSessionInfo | undefined {
     if (!session) return undefined;
     return {
       expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : String(session.expiresAt),
       id: session.id,
+      // NOTE: token is intentionally NOT returned - it's set as httpOnly cookie
     };
   }
 
@@ -613,19 +468,63 @@ export class CoreBetterAuthController {
 
   /**
    * Process cookies for response
+   *
+   * Sets multiple cookies for authentication compatibility:
+   *
+   * | Cookie Name | Purpose |
+   * |-------------|---------|
+   * | `token` | Primary session token (nest-server compatibility) |
+   * | `{basePath}.session_token` | Better Auth's native cookie for plugins (e.g., `iam.session_token`) |
+   * | `better-auth.session_token` | Legacy Better Auth cookie name (backwards compatibility) |
+   * | `{configured}` | Custom cookie name if configured via `options.advanced.cookies.session_token.name` |
+   * | `session` | Session ID for reference/debugging |
+   *
+   * IMPORTANT: Better Auth's sign-in returns a session token in `result.token`.
+   * This is NOT a JWT - it's the session token stored in the database.
+   * The JWT plugin generates JWTs separately via the /token endpoint when needed.
+   *
+   * For plugins like Passkey to work, the session token must be available in a cookie
+   * that Better Auth's plugin system recognizes (default: `{basePath}.session_token`).
+   *
+   * @param res - Express Response object
+   * @param result - The BetterAuthResponse to return
+   * @param sessionToken - Optional session token to set in cookies (if not provided, uses result.token)
    */
-  protected processCookies(res: Response, result: BetterAuthResponse): BetterAuthResponse {
+  protected processCookies(res: Response, result: BetterAuthResponse, sessionToken?: string): BetterAuthResponse {
     // Check if cookie handling is activated
     if (this.configService.getFastButReadOnly('cookies')) {
       const cookieOptions = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' };
 
-      // Set or clear token cookie
-      if (result.token) {
-        res.cookie('token', result.token, cookieOptions);
-        delete result.token; // Remove from response body
+      // Use provided sessionToken or fall back to result.token
+      const tokenToSet = sessionToken || result.token;
+
+      if (tokenToSet) {
+        // Set the primary token cookie (for nest-server compatibility)
+        res.cookie('token', tokenToSet, cookieOptions);
+
+        // Set Better Auth's native session token cookies for plugin compatibility
+        // This is CRITICAL for Passkey/WebAuthn to work
+        const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
+        const defaultCookieName = `${basePath}.session_token`;
+        res.cookie(defaultCookieName, tokenToSet, cookieOptions);
+
+        // Also set the legacy cookie name for backwards compatibility
+        res.cookie('better-auth.session_token', tokenToSet, cookieOptions);
+
+        // Get configured cookie name and set if different from defaults
+        const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
+        const configuredCookieName = betterAuthConfig?.options?.advanced?.cookies?.session_token?.name;
+        if (configuredCookieName && configuredCookieName !== 'token' && configuredCookieName !== defaultCookieName) {
+          res.cookie(configuredCookieName, tokenToSet, cookieOptions);
+        }
+
+        // Remove token from response body (it's now in cookies)
+        if (result.token) {
+          delete result.token;
+        }
       }
 
-      // Set session cookie if we have a session
+      // Set session ID cookie (for reference/debugging)
       if (result.session) {
         res.cookie('session', result.session.id, cookieOptions);
       }
@@ -642,5 +541,104 @@ export class CoreBetterAuthController {
     res.cookie('token', '', { ...cookieOptions, maxAge: 0 });
     res.cookie('session', '', { ...cookieOptions, maxAge: 0 });
     res.cookie('better-auth.session_token', '', { ...cookieOptions, maxAge: 0 });
+
+    // Clear the path-based session token cookie
+    const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
+    const defaultCookieName = `${basePath}.session_token`;
+    res.cookie(defaultCookieName, '', { ...cookieOptions, maxAge: 0 });
+
+    // Clear configured session token cookie if different
+    const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
+    const configuredCookieName = betterAuthConfig?.options?.advanced?.cookies?.session_token?.name;
+    if (configuredCookieName && configuredCookieName !== 'token' && configuredCookieName !== defaultCookieName) {
+      res.cookie(configuredCookieName, '', { ...cookieOptions, maxAge: 0 });
+    }
+  }
+
+  // ===================================================================================================================
+  // Better Auth Plugin Handler (shared implementation)
+  // ===================================================================================================================
+
+  /**
+   * Handler for Better Auth plugin endpoints (Passkey, Social Login, etc.)
+   *
+   * This method forwards requests to Better Auth's native handler. It enables:
+   * - Passkey/WebAuthn registration and authentication
+   * - Social Login OAuth flows
+   * - Email verification links
+   * - Magic link authentication
+   * - And other plugin-provided functionality
+   *
+   * IMPORTANT: This method injects the session token into both cookies AND
+   * Authorization header to ensure Better Auth can find the session via
+   * multiple lookup strategies.
+   */
+  @ApiExcludeEndpoint() // Don't show in Swagger docs
+  protected async handleBetterAuthPlugins(req: Request, res: Response): Promise<void> {
+    this.ensureEnabled();
+
+    const authInstance = this.betterAuthService.getInstance();
+    if (!authInstance) {
+      throw new InternalServerErrorException('Better-Auth not initialized');
+    }
+
+    if (!isProduction()) {
+      this.logger.debug(`Forwarding to Better Auth: ${req.method} ${req.path}`);
+    }
+
+    try {
+      // Extract session token from the validated middleware session or cookies
+      const sessionToken = this.getSessionTokenFromRequest(req);
+
+      if (!isProduction()) {
+        this.logger.debug(`Session token for forwarding: ${maskToken(sessionToken)}`);
+      }
+
+      // Get config for signing cookies
+      const config = this.betterAuthService.getConfig();
+
+      // Convert Express request to Web Standard Request with enhanced session context
+      const webRequest = await toWebRequest(req, {
+        basePath: this.betterAuthService.getBasePath(),
+        baseUrl: this.betterAuthService.getBaseUrl(),
+        logger: this.logger,
+        secret: config.secret,
+        sessionToken,
+      });
+
+      // Call Better Auth's native handler
+      const response = await authInstance.handler(webRequest);
+
+      if (!isProduction()) {
+        this.logger.debug(`Better Auth handler response status: ${response.status}`);
+      }
+
+      // Send the response back
+      await sendWebResponse(res, response);
+    } catch (error) {
+      this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      // Re-throw NestJS exceptions
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof InternalServerErrorException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException('Authentication handler error');
+    }
+  }
+
+  /**
+   * Gets the session token from the request.
+   * Prioritizes the middleware-validated session, then falls back to cookies.
+   */
+  private getSessionTokenFromRequest(req: Request): null | string {
+    // First, try to get token from middleware-validated session
+    const betterAuthReq = req as any;
+    if (betterAuthReq.betterAuthSession?.session?.token) {
+      return betterAuthReq.betterAuthSession.session.token;
+    }
+
+    // Fall back to extracting from cookies
+    return this.extractSessionToken(req);
   }
 }

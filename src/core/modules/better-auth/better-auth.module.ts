@@ -14,6 +14,7 @@ import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { BetterAuthApiMiddleware } from './better-auth-api.middleware';
 import { BetterAuthRateLimitMiddleware } from './better-auth-rate-limit.middleware';
 import { BetterAuthRateLimiter } from './better-auth-rate-limiter.service';
 import { BetterAuthUserMapper } from './better-auth-user.mapper';
@@ -184,14 +185,22 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
-   * Configure middleware for Better-Auth session handling and rate limiting
-   * The session middleware runs on all routes and maps Better-Auth sessions to users
-   * The rate limit middleware runs only on Better-Auth endpoints
+   * Configure middleware for Better-Auth API handling, session validation, and rate limiting.
+   *
+   * Middleware order (important!):
+   * 1. BetterAuthApiMiddleware - Forwards plugin endpoints (passkey, etc.) to Better Auth's native handler
+   * 2. BetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
+   * 3. BetterAuthMiddleware - Session validation and user mapping for all routes
    */
   configure(consumer: MiddlewareConsumer) {
     // Only apply middleware if Better-Auth is enabled
     if (BetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
       const basePath = BetterAuthModule.currentConfig?.basePath || '/iam';
+
+      // Apply API middleware to Better-Auth endpoints FIRST
+      // This handles plugin endpoints (passkey, social login, etc.) that are not defined in the controller
+      consumer.apply(BetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
+      BetterAuthModule.logger.debug(`BetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
 
       // Apply rate limiting to Better-Auth endpoints only
       if (BetterAuthModule.currentConfig?.rateLimit?.enabled) {
@@ -368,6 +377,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
         },
         BetterAuthUserMapper,
         BetterAuthMiddleware,
+        BetterAuthApiMiddleware,
         BetterAuthRateLimiter,
         BetterAuthRateLimitMiddleware,
         this.getResolverClass(),
@@ -466,6 +476,7 @@ export class BetterAuthModule implements NestModule, OnModuleInit {
         },
         BetterAuthUserMapper,
         BetterAuthMiddleware,
+        BetterAuthApiMiddleware,
         BetterAuthRateLimiter,
         BetterAuthRateLimitMiddleware,
         this.getResolverClass(),

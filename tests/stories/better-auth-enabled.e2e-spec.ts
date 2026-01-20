@@ -74,12 +74,13 @@ describe('Story: BetterAuth Enabled Integration', () => {
       rateLimiter = new BetterAuthRateLimiter();
 
       // Config passed directly as resolvedConfig (3rd parameter)
+      // Note: Using 'as const' to preserve literal types for passkey.enabled
       const mockConfig = {
         basePath: '/iam',
         baseUrl: 'http://localhost:3000',
         enabled: true,
         jwt: { enabled: true, expiresIn: '15m' },
-        passkey: { enabled: false },
+        passkey: { enabled: false as const },
         rateLimit: { enabled: true, max: 10, windowSeconds: 60 },
         secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
         socialProviders: {

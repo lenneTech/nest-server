@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.9.0",
+  "version": "11.10.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -62,6 +62,7 @@
     "vitest:watch": "NODE_ENV=local vitest --config vitest-e2e.config.ts",
     "vitest:unit": "vitest run --config vitest.config.ts",
     "test:unit:watch": "vitest --config vitest.config.ts",
+    "test:types": "tsc --noEmit --skipLibCheck -p tests/types/tsconfig.json",
     "watch": "npm-watch",
     "link:eslint": "yalc add @lenne.tech/eslint-config-ts && yalc link @lenne.tech/eslint-config-ts && npm install",
     "unlink:eslint": "yalc remove @lenne.tech/eslint-config-ts && npm install"

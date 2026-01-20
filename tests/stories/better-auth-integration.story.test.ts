@@ -704,6 +704,7 @@ describe('Story: BetterAuth Integration', () => {
               rpName: 'Test',
             },
             secret: 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing',
+            trustedOrigins: ['http://localhost:3000'],
           },
           db,
         });
@@ -808,6 +809,7 @@ describe('Story: BetterAuth Integration', () => {
             rpName: 'Test App',
           },
           secret: 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing',
+          trustedOrigins: ['http://localhost:3000'],
         },
         db,
       });

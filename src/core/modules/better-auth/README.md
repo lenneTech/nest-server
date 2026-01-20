@@ -797,20 +797,31 @@ curl -X GET https://api.example.com/iam/token \
 | `/iam/sign-in/social`      | POST   | Initiate social login |
 | `/iam/callback/:provider`  | GET    | OAuth callback        |
 
-### Two-Factor Authentication Endpoints
+### Two-Factor Authentication Endpoints (Native Better Auth)
 
-| Endpoint                  | Method | Description      |
-| ------------------------- | ------ | ---------------- |
-| `/iam/two-factor/enable`  | POST   | Enable 2FA       |
-| `/iam/two-factor/disable` | POST   | Disable 2FA      |
-| `/iam/two-factor/verify`  | POST   | Verify 2FA code  |
+These endpoints are handled by Better Auth's native `twoFactor` plugin:
 
-### Passkey Endpoints
+| Endpoint                            | Method | Description                    |
+| ----------------------------------- | ------ | ------------------------------ |
+| `/iam/two-factor/enable`            | POST   | Enable 2FA, get TOTP URI       |
+| `/iam/two-factor/disable`           | POST   | Disable 2FA                    |
+| `/iam/two-factor/verify-totp`       | POST   | Verify TOTP code               |
+| `/iam/two-factor/generate-backup-codes` | POST | Generate backup codes      |
+| `/iam/two-factor/verify-backup-code`| POST   | Verify backup code             |
 
-| Endpoint                     | Method | Description               |
-| ---------------------------- | ------ | ------------------------- |
-| `/iam/passkey/register`      | POST   | Register new passkey      |
-| `/iam/passkey/authenticate`  | POST   | Authenticate with passkey |
+### Passkey Endpoints (Native Better Auth)
+
+These endpoints are handled by Better Auth's native `passkey` plugin:
+
+| Endpoint                                  | Method | Description                         |
+| ----------------------------------------- | ------ | ----------------------------------- |
+| `/iam/passkey/generate-register-options`  | POST   | Get WebAuthn registration options   |
+| `/iam/passkey/verify-registration`        | POST   | Verify and store passkey            |
+| `/iam/passkey/generate-authenticate-options` | POST | Get WebAuthn authentication options |
+| `/iam/passkey/verify-authentication`      | POST   | Verify passkey authentication       |
+| `/iam/passkey/list-user-passkeys`         | POST   | List user's passkeys                |
+| `/iam/passkey/delete-passkey`             | POST   | Delete a passkey                    |
+| `/iam/passkey/update-passkey`             | POST   | Update passkey name                 |
 
 ## GraphQL API
 
