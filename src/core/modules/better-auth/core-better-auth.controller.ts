@@ -126,6 +126,32 @@ export class CoreBetterAuthSignUpInput {
  * This controller follows the same pattern as CoreAuthController and can be
  * extended by project-specific implementations.
  *
+ * ## Why Custom Controller Instead of Native Better-Auth Endpoints?
+ *
+ * This controller implements custom endpoints rather than directly using Better-Auth's
+ * native API. This architecture is **necessary** for nest-server's requirements:
+ *
+ * ### 1. Better-Auth Hooks Cannot:
+ * - Access plaintext passwords in after-hooks (needed for Legacy sync)
+ * - Modify HTTP responses (needed for custom response format)
+ * - Set cookies (needed for multi-cookie auth strategy)
+ * - Access NestJS Dependency Injection (needed for UserService, etc.)
+ *
+ * ### 2. Custom Endpoints Enable:
+ * - **Hybrid Auth**: Bidirectional Legacy Auth ↔ Better-Auth synchronization
+ * - **Password Normalization**: SHA256 pre-hashing for security
+ * - **Legacy Migration**: Automatic migration of legacy users on sign-in
+ * - **Multi-Cookie Support**: Setting multiple auth cookies for compatibility
+ * - **Role Mapping**: Integration with nest-server's role-based access control
+ *
+ * ### 3. Native Handler Where Possible:
+ * Despite custom endpoints, we use `authInstance.handler()` for:
+ * - Plugin routes (Passkey, 2FA, OAuth)
+ * - 2FA verification (for correct cookie handling)
+ * - All plugin-provided functionality
+ *
+ * See README.md section "Architecture: Why Custom Controllers?" for details.
+ *
  * @example
  * ```typescript
  * // In your project - src/server/modules/better-auth/better-auth.controller.ts
@@ -169,14 +195,22 @@ export class CoreBetterAuthController {
   /**
    * Sign in with email and password
    *
-   * This endpoint handles legacy user migration and password normalization.
+   * **Why Custom Implementation (not hooks):**
+   * - Hooks cannot access plaintext password for legacy migration
+   * - Hooks cannot modify response format
+   * - Hooks cannot set multi-cookie auth strategy
    *
-   * Flow:
+   * **Flow:**
    * 1. Try legacy user migration if the user exists in legacy system
-   * 2. Normalize password to SHA256 format
+   *    → Requires plaintext password (unavailable in after-hooks)
+   * 2. Normalize password to SHA256 format for Better Auth
    * 3. Call Better Auth API directly for consistent response format
    * 4. For 2FA: Use native handler to ensure cookies are set correctly
-   * 5. Return response with session cookies
+   *    → Hooks cannot set cookies, so we use authInstance.handler()
+   * 5. Return response with multiple auth cookies
+   *    → Hooks cannot modify response or set cookies
+   *
+   * @see README.md "Architecture: Why Custom Controllers?"
    */
   @ApiBody({ type: CoreBetterAuthSignInInput })
   @ApiCreatedResponse({ description: 'Signed in successfully', type: CoreBetterAuthResponse })
@@ -317,6 +351,23 @@ export class CoreBetterAuthController {
 
   /**
    * Sign up with email and password
+   *
+   * **Why Custom Implementation (not hooks):**
+   * - After-hooks don't have access to plaintext password
+   *   → Cannot call syncPasswordToLegacy() in hooks
+   * - Hooks cannot access NestJS services
+   *   → Cannot use UserMapper for user linking
+   * - Hooks cannot modify response format
+   *
+   * **Custom Logic:**
+   * 1. Normalize password to SHA256 for Better Auth storage
+   * 2. Create user via Better Auth API
+   * 3. Link user to Legacy system (requires NestJS UserMapper)
+   * 4. Sync plaintext password to Legacy Auth (bcrypt hash)
+   *    → CRITICAL: This requires plaintext, unavailable in after-hooks
+   * 5. Return response with session cookies
+   *
+   * @see README.md "Architecture: Why Custom Controllers?"
    */
   @ApiBody({ type: CoreBetterAuthSignUpInput })
   @ApiCreatedResponse({ description: 'Signed up successfully', type: CoreBetterAuthResponse })
@@ -384,7 +435,13 @@ export class CoreBetterAuthController {
   /**
    * Sign out (logout)
    *
+   * **Why Custom Implementation (not hooks):**
+   * - Must clear multiple cookies (token, session, better-auth.session_token, etc.)
+   * - Hooks cannot modify response or set/clear cookies
+   *
    * NOTE: Better-Auth uses POST for sign-out (matches better-auth convention)
+   *
+   * @see README.md "Architecture: Why Custom Controllers?"
    */
   @ApiOkResponse({ description: 'Signed out successfully', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Sign out from Better-Auth', summary: 'Sign Out' })
@@ -417,6 +474,13 @@ export class CoreBetterAuthController {
 
   /**
    * Get current session
+   *
+   * **Why Custom Implementation (not hooks):**
+   * - Must map Better Auth user to nest-server user with roles
+   * - Hooks cannot access NestJS UserMapper service
+   * - Custom response format with mapped user data
+   *
+   * @see README.md "Architecture: Why Custom Controllers?"
    */
   @ApiOkResponse({ description: 'Current session', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Get current session from Better-Auth', summary: 'Get Session' })
@@ -454,7 +518,17 @@ export class CoreBetterAuthController {
   /**
    * Catch-all route for all other Better Auth plugin endpoints.
    *
-   * This route handles:
+   * **This route USES the native Better Auth handler** via `authInstance.handler()`.
+   * It's the best of both worlds:
+   * - Custom endpoints where we need NestJS features (sign-in, sign-up, etc.)
+   * - Native handler for plugins that work correctly out-of-the-box
+   *
+   * **Why Not Fully Native:**
+   * Even this catch-all requires custom logic:
+   * - Session token injection into request (before-hooks can't inject tokens)
+   * - Converting Express Request to Web Standard Request
+   *
+   * **Handles:**
    * - Passkey/WebAuthn (all endpoints)
    * - Two-Factor Authentication (all endpoints)
    * - Social Login OAuth flows
@@ -467,6 +541,8 @@ export class CoreBetterAuthController {
    *
    * Better Auth handles authentication internally - it returns appropriate
    * errors (401, 403) if a user is not authenticated for protected endpoints.
+   *
+   * @see README.md "Architecture: Why Custom Controllers?"
    */
   @All('*path')
   @Roles(RoleEnum.S_EVERYONE)

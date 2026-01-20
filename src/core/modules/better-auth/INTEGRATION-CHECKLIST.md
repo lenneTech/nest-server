@@ -439,6 +439,84 @@ async function deletePasskey(passkeyId: string) {
 
 ---
 
+## Better-Auth Hooks: Limitations & Warnings
+
+### Why nest-server Uses Custom Controllers
+
+nest-server implements custom REST endpoints instead of relying solely on Better-Auth hooks. This is **by design** due to fundamental hook limitations.
+
+### Hook Limitations Summary
+
+| Limitation | Impact |
+|------------|--------|
+| **After-hooks cannot access plaintext password** | Cannot sync password to Legacy Auth after sign-up |
+| **Hooks cannot modify HTTP response** | Cannot customize response format or add custom fields |
+| **Hooks cannot set cookies** | Cannot implement multi-cookie auth strategy |
+| **No NestJS Dependency Injection** | Cannot access services like UserService, EmailService |
+| **Before-hooks cannot inject tokens** | Cannot add session tokens to request headers |
+
+### What You CAN Do with Hooks
+
+Better-Auth hooks are suitable for:
+- ✅ Logging and analytics (side effects only)
+- ✅ Sending notifications after events
+- ✅ Simple validation in before-hooks
+- ✅ Database writes using global connection (not recommended)
+
+### What You CANNOT Do with Hooks
+
+Do NOT try to implement these via hooks:
+- ❌ Password synchronization between auth systems
+- ❌ Custom response formats
+- ❌ Setting authentication cookies
+- ❌ User role mapping
+- ❌ Legacy auth migration
+
+### Recommended Approach
+
+If you need custom authentication logic:
+
+1. **Extend the Controller** - Override methods in `BetterAuthController`
+2. **Use NestJS Services** - Inject services via constructor
+3. **Call super()** - Reuse base implementation where possible
+
+```typescript
+// Correct: Custom logic via controller extension
+@Controller('iam')
+export class BetterAuthController extends CoreBetterAuthController {
+  constructor(
+    betterAuthService: CoreBetterAuthService,
+    userMapper: CoreBetterAuthUserMapper,
+    configService: ConfigService,
+    private readonly analyticsService: AnalyticsService, // Custom service
+  ) {
+    super(betterAuthService, userMapper, configService);
+  }
+
+  @Post('sign-up/email')
+  @Roles(RoleEnum.S_EVERYONE)
+  override async signUp(
+    @Res({ passthrough: true }) res: Response,
+    @Body() input: CoreBetterAuthSignUpInput,
+  ): Promise<CoreBetterAuthResponse> {
+    const result = await super.signUp(res, input);
+
+    // Custom logic with full NestJS DI access
+    if (result.success) {
+      await this.analyticsService.trackSignUp(result.user.id);
+    }
+
+    return result;
+  }
+}
+```
+
+### Further Reading
+
+See README.md section "Architecture: Why Custom Controllers?" for detailed explanation.
+
+---
+
 ## Detailed Documentation
 
 For complete configuration options, API reference, and advanced topics:

@@ -1570,6 +1570,12 @@ describe('My Tests', () => {
 });
 ```
 
+## Architecture: Why Custom Controllers?
+
+See **[ARCHITECTURE.md](./ARCHITECTURE.md)** for detailed documentation on why custom controllers are necessary for the hybrid auth system.
+
+---
+
 ## Troubleshooting
 
 ### Better-Auth endpoints return 404
