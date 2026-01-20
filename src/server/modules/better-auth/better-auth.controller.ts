@@ -3,9 +3,9 @@ import { Controller } from '@nestjs/common';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ConfigService } from '../../../core/common/services/config.service';
-import { BetterAuthUserMapper } from '../../../core/modules/better-auth/better-auth-user.mapper';
-import { BetterAuthService } from '../../../core/modules/better-auth/better-auth.service';
+import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthController } from '../../../core/modules/better-auth/core-better-auth.controller';
+import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-better-auth.service';
 
 /**
  * Server BetterAuth REST Controller
@@ -32,8 +32,8 @@ import { CoreBetterAuthController } from '../../../core/modules/better-auth/core
 @Roles(RoleEnum.ADMIN)
 export class BetterAuthController extends CoreBetterAuthController {
   constructor(
-    protected override readonly betterAuthService: BetterAuthService,
-    protected override readonly userMapper: BetterAuthUserMapper,
+    protected override readonly betterAuthService: CoreBetterAuthService,
+    protected override readonly userMapper: CoreBetterAuthUserMapper,
     protected override readonly configService: ConfigService,
   ) {
     super(betterAuthService, userMapper, configService);

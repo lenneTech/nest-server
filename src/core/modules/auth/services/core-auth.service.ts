@@ -15,8 +15,8 @@ import { getStringIds } from '../../../common/helpers/db.helper';
 import { prepareServiceOptions } from '../../../common/helpers/service.helper';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
-import { BetterAuthUserMapper } from '../../better-auth/better-auth-user.mapper';
-import { BetterAuthService } from '../../better-auth/better-auth.service';
+import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper';
+import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
 import { ErrorCode } from '../../error-code';
 import { CoreAuthModel } from '../core-auth.model';
 import { CoreAuthSignInInput } from '../inputs/core-auth-sign-in.input';
@@ -63,8 +63,8 @@ export class CoreAuthService {
     protected readonly userService: CoreAuthUserService,
     protected readonly jwtService: JwtService,
     protected readonly configService: ConfigService,
-    @Optional() protected readonly betterAuthService?: BetterAuthService,
-    @Optional() protected readonly betterAuthUserMapper?: BetterAuthUserMapper,
+    @Optional() protected readonly betterAuthService?: CoreBetterAuthService,
+    @Optional() protected readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
   ) {}
 
   /**

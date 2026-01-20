@@ -17,7 +17,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 
@@ -27,7 +27,7 @@ describe('Story: BetterAuth Migration Status', () => {
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
-  let betterAuthService: BetterAuthService;
+  let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
   let adminToken: string;
 
@@ -60,7 +60,7 @@ describe('Story: BetterAuth Migration Status', () => {
       await app.init();
       testHelper = new TestHelper(app);
 
-      betterAuthService = moduleFixture.get(BetterAuthService);
+      betterAuthService = moduleFixture.get(CoreBetterAuthService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
       mongoClient = await MongoClient.connect(envConfig.mongoose.uri);

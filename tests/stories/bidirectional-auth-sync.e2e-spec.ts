@@ -27,8 +27,8 @@ import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
-  BetterAuthService,
-  BetterAuthUserMapper,
+  CoreBetterAuthService,
+  CoreBetterAuthUserMapper,
   HttpExceptionLogFilter,
   TestGraphQLType,
   TestHelper,
@@ -42,8 +42,8 @@ describe('Story: Bidirectional Auth Sync', () => {
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
-  let betterAuthService: BetterAuthService;
-  let userMapper: BetterAuthUserMapper;
+  let betterAuthService: CoreBetterAuthService;
+  let userMapper: CoreBetterAuthUserMapper;
   let isBetterAuthEnabled: boolean;
 
   // Test data tracking for cleanup
@@ -82,8 +82,8 @@ describe('Story: Bidirectional Auth Sync', () => {
       testHelper = new TestHelper(app);
 
       // Get Better-Auth service and user mapper
-      betterAuthService = moduleFixture.get(BetterAuthService);
-      userMapper = moduleFixture.get(BetterAuthUserMapper);
+      betterAuthService = moduleFixture.get(CoreBetterAuthService);
+      userMapper = moduleFixture.get(CoreBetterAuthUserMapper);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
       // Connection to database

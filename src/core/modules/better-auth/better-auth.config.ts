@@ -135,7 +135,7 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
   const additionalFields = buildUserFields(config);
 
   // Build the base Better-Auth configuration
-  const betterAuthConfig = {
+  const betterAuthConfig: Record<string, unknown> = {
     basePath: config.basePath || '/iam',
     baseURL: config.baseUrl || 'http://localhost:3000',
     database: mongodbAdapter(db),
@@ -147,12 +147,17 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     plugins,
     secret: config.secret,
     socialProviders,
-    trustedOrigins,
     user: {
       additionalFields,
       modelName: 'users',
     },
   };
+
+  // Only add trustedOrigins if explicitly configured
+  // When undefined, Better-Auth uses its default CORS behavior (allows all origins)
+  if (trustedOrigins) {
+    betterAuthConfig.trustedOrigins = trustedOrigins;
+  }
 
   // Merge with custom options passthrough
   // This allows projects to configure any Better-Auth option not explicitly defined
@@ -205,13 +210,28 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   // Passkey/WebAuthn Plugin
   const passkeyConfig = getPluginConfig(config.passkey);
   if (passkeyConfig) {
-    plugins.push(
-      passkey({
-        origin: passkeyConfig.origin || 'http://localhost:3000',
-        rpID: passkeyConfig.rpId || 'localhost',
-        rpName: passkeyConfig.rpName || 'Nest Server',
-      }),
-    );
+    // Build passkey options, only including defined values
+    const passkeyOptions: Record<string, unknown> = {
+      origin: passkeyConfig.origin || 'http://localhost:3000',
+      rpID: passkeyConfig.rpId || 'localhost',
+      rpName: passkeyConfig.rpName || 'Nest Server',
+    };
+
+    // Add optional WebAuthn configuration if specified
+    if (passkeyConfig.authenticatorAttachment) {
+      passkeyOptions.authenticatorAttachment = passkeyConfig.authenticatorAttachment;
+    }
+    if (passkeyConfig.residentKey) {
+      passkeyOptions.residentKey = passkeyConfig.residentKey;
+    }
+    if (passkeyConfig.userVerification) {
+      passkeyOptions.userVerification = passkeyConfig.userVerification;
+    }
+    if (passkeyConfig.webAuthnChallengeCookie) {
+      passkeyOptions.webAuthnChallengeCookie = passkeyConfig.webAuthnChallengeCookie;
+    }
+
+    plugins.push(passkey(passkeyOptions));
   }
 
   // Merge custom plugins from configuration
@@ -249,16 +269,33 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
 }
 
 /**
- * Builds the trusted origins array
+ * Builds the trusted origins array for CORS configuration.
+ *
+ * Behavior:
+ * - If trustedOrigins is explicitly configured → use those origins
+ * - If Passkey disabled and baseUrl set → fallback to [baseUrl] (backwards compatible)
+ * - Otherwise → return undefined (allows all origins via Better-Auth's default)
+ *
+ * NOTE: When Passkey is enabled, trustedOrigins MUST be configured because
+ * Passkey uses credentials: 'include' which doesn't work with CORS '*' wildcard.
+ * This is validated in validateConfig() which throws an error if missing.
  */
-function buildTrustedOrigins(config: IBetterAuth): string[] {
+function buildTrustedOrigins(config: IBetterAuth): string[] | undefined {
+  // If trustedOrigins is explicitly configured, use it
   if (config.trustedOrigins?.length) {
     return config.trustedOrigins;
   }
-  if (config.baseUrl) {
+
+  // Backwards-compatible fallback for non-Passkey configs
+  // When Passkey is enabled, validateConfig() will throw an error anyway
+  const isPasskeyEnabled = isPluginEnabled(config.passkey);
+  if (!isPasskeyEnabled && config.baseUrl) {
     return [config.baseUrl];
   }
-  return ['http://localhost:3000'];
+
+  // Otherwise, let Better-Auth handle CORS with its default behavior
+  // This allows all origins for requests without credentials
+  return undefined;
 }
 
 /**
@@ -415,16 +452,16 @@ function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefin
   // Log information about secret source
   switch (secretSource) {
     case 'auto-generated':
-      warnings.push('⚠️  BETTER_AUTH: No secret configured - using auto-generated secret.');
-      warnings.push('⚠️  CONSEQUENCE: All user sessions will be invalidated on server restart!');
+      warnings.push('BETTER_AUTH: No secret configured - using auto-generated secret.');
+      warnings.push('CONSEQUENCE: All user sessions will be invalidated on server restart!');
       warnings.push(
-        '💡 FOR PRODUCTION: Set betterAuth.secret in config or provide a valid fallback secret (min 32 chars).',
+        'FOR PRODUCTION: Set betterAuth.secret in config or provide a valid fallback secret (min 32 chars).',
       );
-      warnings.push("💡 Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
+      warnings.push("Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
       break;
     case 'fallback':
       warnings.push(
-        '💡 BETTER_AUTH: Using fallback secret (backwards compatible). Consider setting betterAuth.secret explicitly.',
+        'BETTER_AUTH: Using fallback secret (backwards compatible). Consider setting betterAuth.secret explicitly.',
       );
       break;
     // 'explicit' - no warning needed, explicitly configured
@@ -442,6 +479,17 @@ function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefin
         errors.push(`Invalid trustedOrigin format: ${origin}`);
       }
     }
+  }
+
+  // ERROR if Passkey is enabled but trustedOrigins is not configured
+  // Passkey uses credentials: 'include', which doesn't work with CORS '*' wildcard
+  const isPasskeyEnabled = isPluginEnabled(config.passkey);
+  if (isPasskeyEnabled && !config.trustedOrigins?.length) {
+    errors.push(
+      'PASSKEY CORS: trustedOrigins is REQUIRED when Passkey is enabled. ' +
+        'Passkey uses credentials which requires explicit CORS origins (wildcard "*" is not allowed). ' +
+        'Configure betterAuth.trustedOrigins with your frontend URLs, e.g.: ["http://localhost:3001", "https://app.example.com"]',
+    );
   }
 
   // Validate passkey origin

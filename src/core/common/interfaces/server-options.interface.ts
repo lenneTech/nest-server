@@ -187,241 +187,41 @@ export interface IAuthRateLimit {
 }
 
 /**
- * Interface for better-auth configuration
+ * Better-Auth configuration type (Discriminated Union).
+ *
+ * This type enforces at compile-time that `trustedOrigins` is REQUIRED
+ * when `passkey` is enabled. This prevents CORS errors at runtime.
+ *
+ * ## Why this constraint?
+ * Passkey (WebAuthn) uses `credentials: 'include'` for API calls.
+ * Browsers don't allow CORS wildcard `*` with credentials, so explicit
+ * origins must be configured.
+ *
+ * ## Usage Examples
+ *
+ * ```typescript
+ * // CORRECT: Passkey with trustedOrigins
+ * const config: IBetterAuth = {
+ *   passkey: true,
+ *   trustedOrigins: ['http://localhost:3001'],
+ * };
+ *
+ * // CORRECT: No Passkey, trustedOrigins optional
+ * const config: IBetterAuth = {
+ *   twoFactor: true,
+ * };
+ *
+ * // TypeScript ERROR: trustedOrigins required when passkey is enabled
+ * const config: IBetterAuth = {
+ *   passkey: true,
+ *   // Error: Property 'trustedOrigins' is missing
+ * };
+ * ```
+ *
+ * @see IBetterAuthWithPasskey - When Passkey is enabled
+ * @see IBetterAuthWithoutPasskey - When Passkey is disabled
  */
-export interface IBetterAuth {
-  /**
-   * Additional user fields beyond the core fields (firstName, lastName, etc.)
-   * These fields will be merged with the default user fields.
-   * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
-   * @example
-   * ```typescript
-   * additionalUserFields: {
-   *   phoneNumber: { type: 'string', defaultValue: null },
-   *   department: { type: 'string', required: true },
-   *   preferences: { type: 'string', defaultValue: '{}' },
-   * }
-   * ```
-   */
-  additionalUserFields?: Record<string, IBetterAuthUserField>;
-
-  /**
-   * Whether BetterAuthModule should be auto-registered in CoreModule.
-   *
-   * When false (default), projects integrate BetterAuth via an extended module
-   * in their project (e.g., `src/server/modules/better-auth/better-auth.module.ts`).
-   * This follows the same pattern as Legacy Auth and allows for custom resolvers,
-   * controllers, and project-specific authentication logic.
-   *
-   * Set to true only for simple projects that don't need customization.
-   *
-   * @default false
-   *
-   * @example
-   * ```typescript
-   * // Recommended: Extend BetterAuthModule in your project
-   * // src/server/modules/better-auth/better-auth.module.ts
-   * import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
-   *
-   * @Module({})
-   * export class BetterAuthModule {
-   *   static forRoot(options) {
-   *     return {
-   *       imports: [CoreBetterAuthModule.forRoot(options)],
-   *       // Add custom providers, controllers, etc.
-   *     };
-   *   }
-   * }
-   *
-   * // Then import in ServerModule
-   * import { BetterAuthModule } from './modules/better-auth/better-auth.module';
-   * ```
-   */
-  autoRegister?: boolean;
-
-  /**
-   * Base path for better-auth endpoints
-   * default: '/iam'
-   */
-  basePath?: string;
-
-  /**
-   * Base URL of the application
-   * e.g. 'http://localhost:3000'
-   */
-  baseUrl?: string;
-
-  /**
-   * Email/password authentication configuration.
-   * Enabled by default.
-   * Set `enabled: false` to explicitly disable email/password auth.
-   */
-  emailAndPassword?: {
-    /**
-     * Whether email/password authentication is enabled.
-     * @default true
-     */
-    enabled?: boolean;
-  };
-
-  /**
-   * Whether better-auth is enabled.
-   * BetterAuth is enabled by default (zero-config philosophy).
-   * Set to false to explicitly disable it.
-   * @default true
-   */
-  enabled?: boolean;
-
-  /**
-   * JWT plugin configuration for API clients.
-   *
-   * **Default: Enabled** - JWT is enabled by default when BetterAuth is enabled.
-   * This ensures a minimal config (`betterAuth: true`) provides full functionality.
-   *
-   * Accepts:
-   * - `true` or `{}`: Enable with defaults (same as not specifying)
-   * - `{ expiresIn: '1h' }`: Enable with custom settings
-   * - `false` or `{ enabled: false }`: Explicitly disable
-   * - `undefined`: Enabled with defaults (JWT is on by default)
-   *
-   * @example
-   * ```typescript
-   * // JWT is enabled by default, no config needed
-   * betterAuth: true,
-   *
-   * // Customize JWT expiry
-   * betterAuth: { jwt: { expiresIn: '1h' } },
-   *
-   * // Explicitly disable JWT (session-only mode)
-   * betterAuth: { jwt: false },
-   * ```
-   */
-  jwt?: boolean | IBetterAuthJwtConfig;
-
-  /**
-   * Advanced Better-Auth options passthrough.
-   * These options are passed directly to Better-Auth, allowing full customization.
-   * Use this for any Better-Auth options not explicitly defined in this interface.
-   * @see https://www.better-auth.com/docs/reference/options
-   * @example
-   * ```typescript
-   * options: {
-   *   emailAndPassword: {
-   *     enabled: true,
-   *     requireEmailVerification: true,
-   *     sendResetPassword: async ({ user, url }) => { ... },
-   *   },
-   *   account: {
-   *     accountLinking: { enabled: true },
-   *   },
-   *   session: {
-   *     expiresIn: 60 * 60 * 24 * 7, // 7 days
-   *     updateAge: 60 * 60 * 24, // 1 day
-   *   },
-   *   advanced: {
-   *     cookiePrefix: 'my-app',
-   *     useSecureCookies: true,
-   *   },
-   * }
-   * ```
-   */
-  options?: Record<string, unknown>;
-
-  /**
-   * Passkey/WebAuthn configuration.
-   *
-   * Accepts:
-   * - `true` or `{}`: Enable with defaults
-   * - `{ rpName: 'My App' }`: Enable with custom settings
-   * - `false` or `{ enabled: false }`: Disable
-   * - `undefined`: Disabled (default)
-   *
-   * @example
-   * ```typescript
-   * passkey: true,       // Enable with defaults
-   * passkey: {},         // Enable with defaults
-   * passkey: { rpName: 'My App', rpId: 'example.com' }, // Enable with custom settings
-   * passkey: false,      // Disable
-   * ```
-   */
-  passkey?: boolean | IBetterAuthPasskeyConfig;
-
-  /**
-   * Additional Better-Auth plugins to include.
-   * These will be merged with the built-in plugins (jwt, twoFactor, passkey).
-   * @see https://www.better-auth.com/docs/plugins
-   * @example
-   * ```typescript
-   * import { organization } from 'better-auth/plugins';
-   * import { magicLink } from 'better-auth/plugins';
-   *
-   * plugins: [
-   *   organization({ ... }),
-   *   magicLink({ ... }),
-   * ]
-   * ```
-   */
-  plugins?: unknown[];
-
-  /**
-   * Rate limiting configuration for Better-Auth endpoints
-   * Protects against brute-force attacks
-   */
-  rateLimit?: IBetterAuthRateLimit;
-
-  /**
-   * Secret for better-auth (min 32 characters)
-   * Used for session encryption
-   */
-  secret?: string;
-
-  /**
-   * Social login providers configuration
-   * Supports all Better-Auth providers dynamically (google, github, apple, discord, etc.)
-   *
-   * **Enabled by default:** Providers are automatically enabled when credentials
-   * are configured. Set `enabled: false` to explicitly disable a provider.
-   *
-   * @see https://www.better-auth.com/docs/authentication/social-sign-in
-   * @example
-   * ```typescript
-   * socialProviders: {
-   *   // These providers are enabled (no need for enabled: true)
-   *   google: { clientId: '...', clientSecret: '...' },
-   *   github: { clientId: '...', clientSecret: '...' },
-   *   // This provider is explicitly disabled
-   *   discord: { clientId: '...', clientSecret: '...', enabled: false },
-   * }
-   * ```
-   */
-  socialProviders?: Record<string, IBetterAuthSocialProvider>;
-
-  /**
-   * Trusted origins for CORS and OAuth callbacks
-   * If not specified, defaults to [baseUrl]
-   * e.g. ['https://example.com', 'https://app.example.com']
-   */
-  trustedOrigins?: string[];
-
-  /**
-   * Two-factor authentication configuration.
-   *
-   * Accepts:
-   * - `true` or `{}`: Enable with defaults
-   * - `{ appName: 'My App' }`: Enable with custom settings
-   * - `false` or `{ enabled: false }`: Disable
-   * - `undefined`: Disabled (default)
-   *
-   * @example
-   * ```typescript
-   * twoFactor: true,     // Enable with defaults
-   * twoFactor: {},       // Enable with defaults
-   * twoFactor: { appName: 'My App' }, // Enable with custom app name
-   * twoFactor: false,    // Disable
-   * ```
-   */
-  twoFactor?: boolean | IBetterAuthTwoFactorConfig;
-}
+export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
 
 /**
  * JWT plugin configuration for Better-Auth
@@ -442,8 +242,18 @@ export interface IBetterAuthJwtConfig {
 
 /**
  * Passkey/WebAuthn plugin configuration for Better-Auth
+ * @see https://www.better-auth.com/docs/plugins/passkey
  */
 export interface IBetterAuthPasskeyConfig {
+  /**
+   * Authenticator attachment preference.
+   * - 'platform': Built-in authenticators (Touch ID, Face ID, Windows Hello)
+   * - 'cross-platform': External authenticators (YubiKey, security keys)
+   * - undefined: Allow both (default, platform preferred)
+   * @default undefined (both allowed)
+   */
+  authenticatorAttachment?: 'cross-platform' | 'platform';
+
   /**
    * Whether passkey authentication is enabled.
    * @default true (when config block is present)
@@ -457,6 +267,15 @@ export interface IBetterAuthPasskeyConfig {
   origin?: string;
 
   /**
+   * Resident key (discoverable credential) requirement.
+   * - 'required': Must create discoverable credential
+   * - 'preferred': Prefer discoverable, but allow non-discoverable (default)
+   * - 'discouraged': Prefer non-discoverable credentials
+   * @default 'preferred'
+   */
+  residentKey?: 'discouraged' | 'preferred' | 'required';
+
+  /**
    * Relying Party ID (usually the domain)
    * e.g. 'localhost' or 'example.com'
    */
@@ -467,6 +286,21 @@ export interface IBetterAuthPasskeyConfig {
    * e.g. 'My Application'
    */
   rpName?: string;
+
+  /**
+   * User verification requirement.
+   * - 'required': Always require biometric/PIN verification (most secure)
+   * - 'preferred': Request verification if available (default)
+   * - 'discouraged': Skip verification for faster auth (least secure)
+   * @default 'preferred'
+   */
+  userVerification?: 'discouraged' | 'preferred' | 'required';
+
+  /**
+   * Custom cookie name for WebAuthn challenge storage.
+   * @default 'better-auth-passkey'
+   */
+  webAuthnChallengeCookie?: string;
 }
 
 /**
@@ -1375,4 +1209,355 @@ export interface ITusExpirationConfig {
    * @default '24h'
    */
   expiresIn?: string;
+}
+
+/**
+ * Base interface for better-auth configuration (shared properties)
+ * This contains all properties except passkey and trustedOrigins,
+ * which are handled by the discriminated union types below.
+ */
+interface IBetterAuthBase {
+  /**
+   * Additional user fields beyond the core fields (firstName, lastName, etc.)
+   * These fields will be merged with the default user fields.
+   * @see https://www.better-auth.com/docs/concepts/users-accounts#additional-fields
+   * @example
+   * ```typescript
+   * additionalUserFields: {
+   *   phoneNumber: { type: 'string', defaultValue: null },
+   *   department: { type: 'string', required: true },
+   *   preferences: { type: 'string', defaultValue: '{}' },
+   * }
+   * ```
+   */
+  additionalUserFields?: Record<string, IBetterAuthUserField>;
+
+  /**
+   * Whether BetterAuthModule should be auto-registered in CoreModule.
+   *
+   * When false (default), projects integrate BetterAuth via an extended module
+   * in their project (e.g., `src/server/modules/better-auth/better-auth.module.ts`).
+   * This follows the same pattern as Legacy Auth and allows for custom resolvers,
+   * controllers, and project-specific authentication logic.
+   *
+   * Set to true only for simple projects that don't need customization.
+   *
+   * @default false
+   *
+   * @example
+   * ```typescript
+   * // Recommended: Extend BetterAuthModule in your project
+   * // src/server/modules/better-auth/better-auth.module.ts
+   * import { BetterAuthModule as CoreBetterAuthModule } from '@lenne.tech/nest-server';
+   *
+   * @Module({})
+   * export class BetterAuthModule {
+   *   static forRoot(options) {
+   *     return {
+   *       imports: [CoreBetterAuthModule.forRoot(options)],
+   *       // Add custom providers, controllers, etc.
+   *     };
+   *   }
+   * }
+   *
+   * // Then import in ServerModule
+   * import { BetterAuthModule } from './modules/better-auth/better-auth.module';
+   * ```
+   */
+  autoRegister?: boolean;
+
+  /**
+   * Base path for better-auth endpoints
+   * default: '/iam'
+   */
+  basePath?: string;
+
+  /**
+   * Base URL of the application
+   * e.g. 'http://localhost:3000'
+   */
+  baseUrl?: string;
+
+  /**
+   * Email/password authentication configuration.
+   * Enabled by default.
+   * Set `enabled: false` to explicitly disable email/password auth.
+   */
+  emailAndPassword?: {
+    /**
+     * Whether email/password authentication is enabled.
+     * @default true
+     */
+    enabled?: boolean;
+  };
+
+  /**
+   * Whether better-auth is enabled.
+   * BetterAuth is enabled by default (zero-config philosophy).
+   * Set to false to explicitly disable it.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * JWT plugin configuration for API clients.
+   *
+   * **Default: Enabled** - JWT is enabled by default when BetterAuth is enabled.
+   * This ensures a minimal config (`betterAuth: true`) provides full functionality.
+   *
+   * Accepts:
+   * - `true` or `{}`: Enable with defaults (same as not specifying)
+   * - `{ expiresIn: '1h' }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Explicitly disable
+   * - `undefined`: Enabled with defaults (JWT is on by default)
+   *
+   * @example
+   * ```typescript
+   * // JWT is enabled by default, no config needed
+   * betterAuth: true,
+   *
+   * // Customize JWT expiry
+   * betterAuth: { jwt: { expiresIn: '1h' } },
+   *
+   * // Explicitly disable JWT (session-only mode)
+   * betterAuth: { jwt: false },
+   * ```
+   */
+  jwt?: boolean | IBetterAuthJwtConfig;
+
+  /**
+   * Advanced Better-Auth options passthrough.
+   * These options are passed directly to Better-Auth, allowing full customization.
+   * Use this for any Better-Auth options not explicitly defined in this interface.
+   * @see https://www.better-auth.com/docs/reference/options
+   * @example
+   * ```typescript
+   * options: {
+   *   emailAndPassword: {
+   *     enabled: true,
+   *     requireEmailVerification: true,
+   *     sendResetPassword: async ({ user, url }) => { ... },
+   *   },
+   *   account: {
+   *     accountLinking: { enabled: true },
+   *   },
+   *   session: {
+   *     expiresIn: 60 * 60 * 24 * 7, // 7 days
+   *     updateAge: 60 * 60 * 24, // 1 day
+   *   },
+   *   advanced: {
+   *     cookiePrefix: 'my-app',
+   *     useSecureCookies: true,
+   *   },
+   * }
+   * ```
+   */
+  options?: Record<string, unknown>;
+
+  /**
+   * Additional Better-Auth plugins to include.
+   * These will be merged with the built-in plugins (jwt, twoFactor, passkey).
+   * @see https://www.better-auth.com/docs/plugins
+   * @example
+   * ```typescript
+   * import { organization } from 'better-auth/plugins';
+   * import { magicLink } from 'better-auth/plugins';
+   *
+   * plugins: [
+   *   organization({ ... }),
+   *   magicLink({ ... }),
+   * ]
+   * ```
+   */
+  plugins?: unknown[];
+
+  /**
+   * Rate limiting configuration for Better-Auth endpoints
+   * Protects against brute-force attacks
+   */
+  rateLimit?: IBetterAuthRateLimit;
+
+  /**
+   * Secret for better-auth (min 32 characters)
+   * Used for session encryption
+   */
+  secret?: string;
+
+  /**
+   * Social login providers configuration
+   * Supports all Better-Auth providers dynamically (google, github, apple, discord, etc.)
+   *
+   * **Enabled by default:** Providers are automatically enabled when credentials
+   * are configured. Set `enabled: false` to explicitly disable a provider.
+   *
+   * @see https://www.better-auth.com/docs/authentication/social-sign-in
+   * @example
+   * ```typescript
+   * socialProviders: {
+   *   // These providers are enabled (no need for enabled: true)
+   *   google: { clientId: '...', clientSecret: '...' },
+   *   github: { clientId: '...', clientSecret: '...' },
+   *   // This provider is explicitly disabled
+   *   discord: { clientId: '...', clientSecret: '...', enabled: false },
+   * }
+   * ```
+   */
+  socialProviders?: Record<string, IBetterAuthSocialProvider>;
+
+  /**
+   * Two-factor authentication configuration.
+   *
+   * Accepts:
+   * - `true` or `{}`: Enable with defaults
+   * - `{ appName: 'My App' }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Disable
+   * - `undefined`: Disabled (default)
+   *
+   * @example
+   * ```typescript
+   * twoFactor: true,     // Enable with defaults
+   * twoFactor: {},       // Enable with defaults
+   * twoFactor: { appName: 'My App' }, // Enable with custom app name
+   * twoFactor: false,    // Disable
+   * ```
+   */
+  twoFactor?: boolean | IBetterAuthTwoFactorConfig;
+}
+
+/**
+ * Passkey configuration that is considered "disabled".
+ * This includes:
+ * - `false` (boolean shorthand)
+ * - `{ enabled: false, ...otherProps }` (explicit disabled, can include other props)
+ * - `undefined` (not configured = disabled by default)
+ *
+ * ## TypeScript Type Narrowing Note
+ *
+ * When using `enabled: false` in an object literal, TypeScript may infer the type
+ * as `boolean` instead of the literal `false`. To ensure proper type narrowing,
+ * use `as const` assertion:
+ *
+ * ```typescript
+ * // MAY NOT TYPE-CHECK CORRECTLY (TypeScript infers boolean)
+ * const config: IBetterAuth = {
+ *   passkey: { enabled: false },
+ * };
+ *
+ * // CORRECT: Use 'as const' for literal type
+ * const config: IBetterAuth = {
+ *   passkey: { enabled: false as const },
+ * };
+ *
+ * // ALTERNATIVE: Use boolean shorthand (recommended)
+ * const config: IBetterAuth = {
+ *   passkey: false,
+ * };
+ * ```
+ */
+type IBetterAuthPasskeyDisabled =
+  | false
+  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled: false })
+  | undefined;
+
+/**
+ * Passkey configuration that is considered "enabled".
+ * This includes:
+ * - `true` (boolean shorthand)
+ * - `{}` (empty object = defaults)
+ * - `{ enabled: true, ... }` (explicit enabled)
+ * - `{ rpName: 'My App', ... }` (config without explicit enabled = defaults to true)
+ */
+type IBetterAuthPasskeyEnabled =
+  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled?: true })
+  | true;
+
+/**
+ * BetterAuth configuration WITHOUT Passkey (or Passkey disabled).
+ * When Passkey is disabled, trustedOrigins is optional.
+ * If not set, all origins are allowed (CORS `*`).
+ *
+ * @example
+ * ```typescript
+ * // Without Passkey: trustedOrigins optional
+ * betterAuth: {
+ *   twoFactor: true,
+ *   // trustedOrigins is optional here
+ * }
+ *
+ * // Explicitly disabled Passkey
+ * betterAuth: {
+ *   passkey: false,
+ *   trustedOrigins: ['https://app.example.com'], // Still optional
+ * }
+ * ```
+ */
+interface IBetterAuthWithoutPasskey extends IBetterAuthBase {
+  /**
+   * Passkey/WebAuthn configuration (DISABLED or not configured).
+   */
+  passkey?: IBetterAuthPasskeyDisabled;
+
+  /**
+   * Trusted origins for CORS configuration.
+   *
+   * Optional when Passkey is disabled.
+   * If not set, all origins are allowed (CORS `*`).
+   *
+   * @example
+   * ```typescript
+   * // Restrict origins even without Passkey
+   * trustedOrigins: ['https://app.example.com'],
+   *
+   * // Or leave undefined for open CORS
+   * ```
+   */
+  trustedOrigins?: string[];
+}
+
+/**
+ * BetterAuth configuration WITH Passkey enabled.
+ * When Passkey is enabled, trustedOrigins is REQUIRED because:
+ * - Passkey uses `credentials: 'include'` for WebAuthn API calls
+ * - Browsers don't allow CORS wildcard `*` with credentials
+ * - Explicit origins must be configured for CORS to work
+ *
+ * @example
+ * ```typescript
+ * // CORRECT: Passkey with trustedOrigins
+ * betterAuth: {
+ *   passkey: true,
+ *   trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
+ * }
+ *
+ * // TypeScript ERROR: trustedOrigins missing
+ * betterAuth: {
+ *   passkey: true,
+ *   // Missing trustedOrigins!
+ * }
+ * ```
+ */
+interface IBetterAuthWithPasskey extends IBetterAuthBase {
+  /**
+   * Passkey/WebAuthn configuration (ENABLED).
+   * @see IBetterAuthPasskeyConfig
+   */
+  passkey: IBetterAuthPasskeyEnabled;
+
+  /**
+   * Trusted origins for CORS configuration.
+   *
+   * **REQUIRED when Passkey is enabled!**
+   * Passkey uses `credentials: 'include'` which requires explicit CORS origins.
+   * Browsers don't allow wildcard `*` with credentials.
+   *
+   * @example
+   * ```typescript
+   * // Development
+   * trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
+   *
+   * // Production
+   * trustedOrigins: process.env.TRUSTED_ORIGINS?.split(',') || [],
+   * ```
+   */
+  trustedOrigins: string[];
 }

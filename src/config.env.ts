@@ -69,6 +69,12 @@ const config: { [env: string]: IServerOptions } = {
         appName: 'Nest Server Development',
         enabled: false,
       },
+      // CORS trustedOrigins configuration:
+      // - Not set + Passkey disabled: All origins allowed (default)
+      // - Not set + Passkey enabled: Server startup FAILS (trustedOrigins required)
+      // - Set explicitly: Only configured origins allowed
+      // Uncomment and configure when enabling Passkey:
+      // trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
     },
     compression: true,
     cookies: false,
@@ -223,6 +229,10 @@ const config: { [env: string]: IServerOptions } = {
           enabled: false,
         },
       },
+      // REQUIRED when Passkey is enabled!
+      // Passkey uses credentials: 'include' which requires explicit CORS origins.
+      // Server startup will fail if Passkey is enabled without trustedOrigins.
+      trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
       twoFactor: {
         appName: 'Nest Server Local',
         enabled: true,
@@ -399,10 +409,15 @@ const config: { [env: string]: IServerOptions } = {
           enabled: !!process.env.SOCIAL_GOOGLE_CLIENT_ID,
         },
       },
+      // REQUIRED for Passkey in production!
+      // Passkey uses credentials: 'include' which requires explicit origins (no wildcard '*')
+      // Configure all frontend URLs that need Passkey authentication:
+      trustedOrigins: process.env.TRUSTED_ORIGINS?.split(',') || [],
       twoFactor: {
         appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server',
         enabled: process.env.TWO_FACTOR_ENABLED === 'true',
       },
+      // Example: TRUSTED_ORIGINS=https://app.example.com,https://admin.example.com
     },
     compression: true,
     cookies: false,

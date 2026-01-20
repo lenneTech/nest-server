@@ -2,7 +2,7 @@ import { Field, ObjectType } from '@nestjs/graphql';
 
 import { Restricted } from '../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { BetterAuthSessionInfoModel, BetterAuthUserModel } from './better-auth-models';
+import { CoreBetterAuthSessionInfoModel, CoreBetterAuthUserModel } from './core-better-auth-models';
 
 /**
  * Better-Auth Authentication Response Model
@@ -13,7 +13,7 @@ import { BetterAuthSessionInfoModel, BetterAuthUserModel } from './better-auth-m
  */
 @ObjectType({ description: 'Better-Auth Authentication Response' })
 @Restricted(RoleEnum.S_EVERYONE)
-export class BetterAuthAuthModel {
+export class CoreBetterAuthAuthModel {
   /**
    * Whether the authentication was successful
    */
@@ -43,20 +43,20 @@ export class BetterAuthAuthModel {
   /**
    * Authenticated user
    */
-  @Field(() => BetterAuthUserModel, {
+  @Field(() => CoreBetterAuthUserModel, {
     description: 'Authenticated user',
     nullable: true,
   })
-  user?: BetterAuthUserModel;
+  user?: CoreBetterAuthUserModel;
 
   /**
    * Session information
    */
-  @Field(() => BetterAuthSessionInfoModel, {
+  @Field(() => CoreBetterAuthSessionInfoModel, {
     description: 'Session information',
     nullable: true,
   })
-  session?: BetterAuthSessionInfoModel;
+  session?: CoreBetterAuthSessionInfoModel;
 
   /**
    * Error message if authentication failed

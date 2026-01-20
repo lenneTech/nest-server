@@ -8,7 +8,7 @@ import { Field, Int, ObjectType } from '@nestjs/graphql';
  * safe to disable Legacy Auth.
  */
 @ObjectType({ description: 'Migration status from Legacy Auth to Better-Auth (IAM)' })
-export class BetterAuthMigrationStatusModel {
+export class CoreBetterAuthMigrationStatusModel {
   /**
    * Total number of users in the system
    */

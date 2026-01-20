@@ -15,10 +15,10 @@ import { Db, MongoClient } from 'mongodb';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  BetterAuthModule,
-  BetterAuthRateLimiter,
-  BetterAuthService,
-  BetterAuthUserMapper,
+  CoreBetterAuthModule,
+  CoreBetterAuthRateLimiter,
+  CoreBetterAuthService,
+  CoreBetterAuthUserMapper,
   createBetterAuthInstance,
   RoleEnum,
 } from '../../src';
@@ -63,23 +63,24 @@ describe('Story: BetterAuth Enabled Integration', () => {
   });
 
   // ===================================================================================================================
-  // BetterAuthService Tests with Enabled Config
+  // CoreBetterAuthService Tests with Enabled Config
   // ===================================================================================================================
 
-  describe('BetterAuthService with Enabled Configuration', () => {
-    let service: BetterAuthService;
-    let rateLimiter: BetterAuthRateLimiter;
+  describe('CoreBetterAuthService with Enabled Configuration', () => {
+    let service: CoreBetterAuthService;
+    let rateLimiter: CoreBetterAuthRateLimiter;
 
     beforeEach(() => {
-      rateLimiter = new BetterAuthRateLimiter();
+      rateLimiter = new CoreBetterAuthRateLimiter();
 
       // Config passed directly as resolvedConfig (3rd parameter)
+      // Note: Using 'as const' to preserve literal types for passkey.enabled
       const mockConfig = {
         basePath: '/iam',
         baseUrl: 'http://localhost:3000',
         enabled: true,
         jwt: { enabled: true, expiresIn: '15m' },
-        passkey: { enabled: false },
+        passkey: { enabled: false as const },
         rateLimit: { enabled: true, max: 10, windowSeconds: 60 },
         secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
         socialProviders: {
@@ -91,7 +92,7 @@ describe('Story: BetterAuth Enabled Integration', () => {
       // Note: Since we can't fully initialize Better-Auth without MongoDB,
       // we test the service methods that don't require the auth instance
       // Parameters: authInstance, connection, resolvedConfig, configService
-      service = new BetterAuthService(null, undefined, mockConfig);
+      service = new CoreBetterAuthService(null, undefined, mockConfig);
     });
 
     afterEach(() => {
@@ -183,11 +184,11 @@ describe('Story: BetterAuth Enabled Integration', () => {
         secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
       };
 
-      // BetterAuthModule.forRoot should not throw when disabled
-      const module = BetterAuthModule.forRoot({ config: config as any });
+      // CoreBetterAuthModule.forRoot should not throw when disabled
+      const module = CoreBetterAuthModule.forRoot({ config: config as any });
 
       expect(module).toBeDefined();
-      expect(module.module).toBe(BetterAuthModule);
+      expect(module.module).toBe(CoreBetterAuthModule);
     });
 
     it('should accept short secret when valid fallback is available', () => {
@@ -200,7 +201,7 @@ describe('Story: BetterAuth Enabled Integration', () => {
       // With the new fallback system, forRoot doesn't throw immediately
       // The secret validation happens in createBetterAuthInstance
       // If a valid fallback is provided, the module will use that instead
-      const module = BetterAuthModule.forRoot({
+      const module = CoreBetterAuthModule.forRoot({
         config: configWithShortSecret as any,
         fallbackSecrets: ['a-valid-fallback-secret-that-is-at-least-32-chars'],
       });
@@ -231,18 +232,18 @@ describe('Story: BetterAuth Enabled Integration', () => {
         secret: 'TEST_SECRET_THAT_IS_AT_LEAST_32_CHARS_LONG',
       };
 
-      const module = BetterAuthModule.forRoot({ config: config as any });
+      const module = CoreBetterAuthModule.forRoot({ config: config as any });
 
       // Check exports include essential services
-      expect(module.exports).toContain(BetterAuthService);
-      expect(module.exports).toContain(BetterAuthUserMapper);
-      expect(module.exports).toContain(BetterAuthRateLimiter);
+      expect(module.exports).toContain(CoreBetterAuthService);
+      expect(module.exports).toContain(CoreBetterAuthUserMapper);
+      expect(module.exports).toContain(CoreBetterAuthRateLimiter);
     });
 
     it('should NOT register controllers when disabled', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
-      const disabledModule = BetterAuthModule.forRoot({
+      const disabledModule = CoreBetterAuthModule.forRoot({
         config: { enabled: false },
       });
 
@@ -252,9 +253,9 @@ describe('Story: BetterAuth Enabled Integration', () => {
     });
 
     it('should register controllers when enabled', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
-      const enabledModule = BetterAuthModule.forRoot({
+      const enabledModule = CoreBetterAuthModule.forRoot({
         config: {
           basePath: '/iam',
           enabled: true,
@@ -268,9 +269,9 @@ describe('Story: BetterAuth Enabled Integration', () => {
     });
 
     it('should NOT include resolver in providers when disabled', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
-      const disabledModule = BetterAuthModule.forRoot({
+      const disabledModule = CoreBetterAuthModule.forRoot({
         config: { enabled: false },
       });
 
@@ -292,9 +293,9 @@ describe('Story: BetterAuth Enabled Integration', () => {
     });
 
     it('should include resolver in providers when enabled', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
-      const enabledModule = BetterAuthModule.forRoot({
+      const enabledModule = CoreBetterAuthModule.forRoot({
         config: {
           basePath: '/iam',
           enabled: true,
@@ -314,10 +315,10 @@ describe('Story: BetterAuth Enabled Integration', () => {
     });
 
     it('should support boolean shorthand: true enables with defaults', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
       // betterAuth: true should be equivalent to betterAuth: {}
-      const module = BetterAuthModule.forRoot({ config: true });
+      const module = CoreBetterAuthModule.forRoot({ config: true });
 
       // When enabled via boolean true, controllers should be registered
       expect(module.controllers).toBeDefined();
@@ -325,10 +326,10 @@ describe('Story: BetterAuth Enabled Integration', () => {
     });
 
     it('should support boolean shorthand: false disables completely', () => {
-      BetterAuthModule.reset();
+      CoreBetterAuthModule.reset();
 
       // betterAuth: false should disable the module
-      const module = BetterAuthModule.forRoot({ config: false });
+      const module = CoreBetterAuthModule.forRoot({ config: false });
 
       // When disabled via boolean false, no controllers should be registered
       expect(module.controllers).toBeUndefined();
@@ -385,15 +386,15 @@ describe('Story: BetterAuth Enabled Integration', () => {
   // ===================================================================================================================
 
   describe('GraphQL Schema Types', () => {
-    it('should define BetterAuthAuthModel correctly', async () => {
+    it('should define CoreBetterAuthAuthModel correctly', async () => {
       // Import the model to ensure it's properly defined
-      const { BetterAuthAuthModel } = await import('../../src/core/modules/better-auth/better-auth-auth.model');
+      const { CoreBetterAuthAuthModel } = await import('../../src/core/modules/better-auth/core-better-auth-auth.model');
 
       // Verify the class exists and has expected structure
-      expect(BetterAuthAuthModel).toBeDefined();
+      expect(CoreBetterAuthAuthModel).toBeDefined();
 
       // Create an instance to verify fields
-      const instance = new BetterAuthAuthModel();
+      const instance = new CoreBetterAuthAuthModel();
       instance.success = true;
       instance.requiresTwoFactor = false;
 
@@ -401,12 +402,12 @@ describe('Story: BetterAuth Enabled Integration', () => {
       expect(instance.requiresTwoFactor).toBe(false);
     });
 
-    it('should define BetterAuthFeaturesModel correctly', async () => {
-      const { BetterAuthFeaturesModel } = await import('../../src/core/modules/better-auth/better-auth-models');
+    it('should define CoreBetterAuthFeaturesModel correctly', async () => {
+      const { CoreBetterAuthFeaturesModel } = await import('../../src/core/modules/better-auth/core-better-auth-models');
 
-      expect(BetterAuthFeaturesModel).toBeDefined();
+      expect(CoreBetterAuthFeaturesModel).toBeDefined();
 
-      const features = new BetterAuthFeaturesModel();
+      const features = new CoreBetterAuthFeaturesModel();
       features.enabled = true;
       features.jwt = true;
       features.twoFactor = false;
@@ -417,12 +418,12 @@ describe('Story: BetterAuth Enabled Integration', () => {
       expect(features.socialProviders).toContain('google');
     });
 
-    it('should define BetterAuthUserModel correctly', async () => {
-      const { BetterAuthUserModel } = await import('../../src/core/modules/better-auth/better-auth-models');
+    it('should define CoreBetterAuthUserModel correctly', async () => {
+      const { CoreBetterAuthUserModel } = await import('../../src/core/modules/better-auth/core-better-auth-models');
 
-      expect(BetterAuthUserModel).toBeDefined();
+      expect(CoreBetterAuthUserModel).toBeDefined();
 
-      const user = new BetterAuthUserModel();
+      const user = new CoreBetterAuthUserModel();
       user.id = 'test-id';
       user.email = 'test@test.com';
       user.roles = [RoleEnum.S_USER];
@@ -431,16 +432,16 @@ describe('Story: BetterAuth Enabled Integration', () => {
       expect(user.email).toBe('test@test.com');
     });
 
-    it('should define BetterAuthSessionModel correctly', async () => {
-      const { BetterAuthSessionModel, BetterAuthUserModel } =
-        await import('../../src/core/modules/better-auth/better-auth-models');
+    it('should define CoreBetterAuthSessionModel correctly', async () => {
+      const { CoreBetterAuthSessionModel, CoreBetterAuthUserModel } =
+        await import('../../src/core/modules/better-auth/core-better-auth-models');
 
-      expect(BetterAuthSessionModel).toBeDefined();
+      expect(CoreBetterAuthSessionModel).toBeDefined();
 
-      const session = new BetterAuthSessionModel();
+      const session = new CoreBetterAuthSessionModel();
       session.id = 'session-id';
       session.expiresAt = new Date();
-      session.user = new BetterAuthUserModel();
+      session.user = new CoreBetterAuthUserModel();
       session.user.id = 'user-id';
       session.user.email = 'test@test.com';
 

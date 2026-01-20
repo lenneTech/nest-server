@@ -18,7 +18,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
@@ -69,7 +69,7 @@ describe('Story: Scenario 1 - Legacy Only', () => {
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
-  let betterAuthService: BetterAuthService | null = null;
+  let betterAuthService: CoreBetterAuthService | null = null;
 
   // Test data tracking for cleanup
   const testEmails: string[] = [];
@@ -98,9 +98,9 @@ describe('Story: Scenario 1 - Legacy Only', () => {
     await app.init();
     testHelper = new TestHelper(app);
 
-    // Try to get BetterAuthService - should exist but be disabled
+    // Try to get CoreBetterAuthService - should exist but be disabled
     try {
-      betterAuthService = moduleFixture.get(BetterAuthService, { strict: false });
+      betterAuthService = moduleFixture.get(CoreBetterAuthService, { strict: false });
     } catch {
       betterAuthService = null;
     }

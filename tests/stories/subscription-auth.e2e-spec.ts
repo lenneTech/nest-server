@@ -23,7 +23,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { BetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
@@ -61,7 +61,7 @@ describe('Story: GraphQL Subscription Authentication', () => {
   let testHelper: TestHelper;
   let mongoClient: MongoClient;
   let db: Db;
-  let betterAuthService: BetterAuthService;
+  let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
   let httpServer;
   let subscriptionUrl: string;
@@ -103,7 +103,7 @@ describe('Story: GraphQL Subscription Authentication', () => {
     testHelper = new TestHelper(app, subscriptionUrl);
 
     // Get BetterAuth service
-    betterAuthService = moduleFixture.get(BetterAuthService);
+    betterAuthService = moduleFixture.get(CoreBetterAuthService);
     isBetterAuthEnabled = betterAuthService?.isEnabled() ?? false;
 
     // Connect to MongoDB for cleanup
