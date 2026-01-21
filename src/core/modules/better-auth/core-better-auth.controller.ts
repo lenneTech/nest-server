@@ -614,7 +614,7 @@ export class CoreBetterAuthController {
    * @param sessionUser - The user from Better-Auth session
    * @param _mappedUser - The synced user from legacy system (available for override customization)
    */
-  // eslint-disable-next-line unused-imports/no-unused-vars
+   
   protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): CoreBetterAuthUserResponse {
     return {
       email: sessionUser.email,

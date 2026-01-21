@@ -9,11 +9,14 @@ import {
   Optional,
   Type,
 } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
@@ -78,6 +81,19 @@ export interface CoreBetterAuthModuleOptions {
    * ```
    */
   fallbackSecrets?: (string | undefined)[];
+
+  /**
+   * Register RolesGuard as a global guard.
+   *
+   * This should be set to `true` for IAM-only setups (CoreModule.forRoot with 1 parameter)
+   * where CoreAuthModule is not imported (which normally registers RolesGuard globally).
+   *
+   * When `true`, all `@Roles()` decorators will be enforced automatically without
+   * needing explicit `@UseGuards(RolesGuard)` on each endpoint.
+   *
+   * @default false
+   */
+  registerRolesGuardGlobally?: boolean;
 
   /**
    * Custom resolver class to use instead of the default DefaultBetterAuthResolver.
@@ -152,6 +168,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static currentConfig: IBetterAuth | null = null;
   private static customController: null | Type<CoreBetterAuthController> = null;
   private static customResolver: null | Type<CoreBetterAuthResolver> = null;
+  private static shouldRegisterRolesGuardGlobally = false;
 
   /**
    * Gets the controller class to use (custom or default)
@@ -251,7 +268,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: CoreBetterAuthModuleOptions): DynamicModule {
-    const { config: rawConfig, controller, fallbackSecrets, resolver } = options;
+    const { config: rawConfig, controller, fallbackSecrets, registerRolesGuardGlobally, resolver } = options;
 
     // Normalize config: true → {}, false/undefined → null
     const config = normalizeBetterAuthConfig(rawConfig);
@@ -262,6 +279,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.customController = controller || null;
     // Store custom resolver if provided
     this.customResolver = resolver || null;
+    // Store whether to register RolesGuard globally (for IAM-only setups)
+    this.shouldRegisterRolesGuardGlobally = registerRolesGuardGlobally ?? false;
 
     // If better-auth is disabled (config is null or enabled: false), return minimal module
     // Note: We don't provide middleware classes when disabled because they depend on CoreBetterAuthService
@@ -270,7 +289,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
       return {
-        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
+        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
         module: CoreBetterAuthModule,
         providers: [
           {
@@ -282,6 +301,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           CoreBetterAuthService,
           CoreBetterAuthUserMapper,
           CoreBetterAuthRateLimiter,
+          BetterAuthTokenService,
         ],
       };
     }
@@ -306,7 +326,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   static forRootAsync(): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
       imports: [],
       module: CoreBetterAuthModule,
       providers: [
@@ -380,6 +400,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         CoreBetterAuthApiMiddleware,
         CoreBetterAuthRateLimiter,
         CoreBetterAuthRateLimitMiddleware,
+        // BetterAuthTokenService needs explicit factory to ensure proper dependency injection
+        {
+          inject: [CoreBetterAuthService, getConnectionToken()],
+          provide: BetterAuthTokenService,
+          useFactory: (betterAuthService: CoreBetterAuthService, connection: Connection) => {
+            return new BetterAuthTokenService(betterAuthService, connection);
+          },
+        },
         this.getResolverClass(),
       ],
     };
@@ -412,6 +440,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.currentConfig = null;
     this.customController = null;
     this.customResolver = null;
+    this.shouldRegisterRolesGuardGlobally = false;
   }
 
   /**
@@ -421,7 +450,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static createDeferredModule(config: IBetterAuth, fallbackSecrets?: (string | undefined)[]): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
       module: CoreBetterAuthModule,
       providers: [
         {
@@ -479,7 +508,25 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         CoreBetterAuthApiMiddleware,
         CoreBetterAuthRateLimiter,
         CoreBetterAuthRateLimitMiddleware,
+        // BetterAuthTokenService needs explicit factory to ensure proper dependency injection
+        {
+          inject: [CoreBetterAuthService, getConnectionToken()],
+          provide: BetterAuthTokenService,
+          useFactory: (betterAuthService: CoreBetterAuthService, connection: Connection) => {
+            return new BetterAuthTokenService(betterAuthService, connection);
+          },
+        },
         this.getResolverClass(),
+        // Conditionally register RolesGuard globally for IAM-only setups
+        // In Legacy mode, RolesGuard is already registered globally via CoreAuthModule
+        ...(this.shouldRegisterRolesGuardGlobally
+          ? [
+              {
+                provide: APP_GUARD,
+                useClass: RolesGuard,
+              },
+            ]
+          : []),
       ],
     };
   }

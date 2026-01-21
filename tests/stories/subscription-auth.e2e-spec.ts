@@ -23,7 +23,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
+import { CoreBetterAuthModule, CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
@@ -112,17 +112,29 @@ describe('Story: GraphQL Subscription Authentication', () => {
   });
 
   afterAll(async () => {
-    // Clean up test users
+    // Clean up test users and their associated data
     if (db && testEmails.length > 0) {
+      // Get user IDs before deletion for cleaning up related collections
+      const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
+      const testIamIds = testUsers.map((u) => u.iamId).filter(Boolean);
+
+      // Delete users
       await db.collection('users').deleteMany({ email: { $in: testEmails } });
-      await db.collection('account').deleteMany({});
-      await db.collection('session').deleteMany({});
+
+      // Delete only test user's accounts and sessions (not all data!)
+      if (testIamIds.length > 0) {
+        await db.collection('account').deleteMany({ userId: { $in: testIamIds } });
+        await db.collection('session').deleteMany({ userId: { $in: testIamIds } });
+      }
     }
     if (mongoClient) await mongoClient.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
     if (app) await app.close();
+
+    // Reset module static state to avoid test pollution
+    CoreBetterAuthModule.reset();
   });
 
   // =================================================================================================================

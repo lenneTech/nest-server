@@ -195,7 +195,7 @@ export class CoreBetterAuthResolver {
   async betterAuthSignIn(
     @Args('email') email: string,
     @Args('password') password: string,
-    // eslint-disable-next-line unused-imports/no-unused-vars -- Reserved for future cookie/session handling
+     
     @Context() _ctx: { req: Request; res: Response },
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();

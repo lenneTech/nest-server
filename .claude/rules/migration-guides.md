@@ -78,6 +78,7 @@ Use `migration-guides/TEMPLATE.md` as starting point.
 7. **Module Documentation** - Links to affected module docs (README.md, INTEGRATION-CHECKLIST.md)
 
 **Rules:**
+- **Write ALL content in English** - This includes section titles, descriptions, explanations, and code comments. Technical terms and code identifiers remain unchanged.
 - Do NOT name specific customer projects (except nest-server-starter as reference)
 - Keep information general and pattern-based
 - Include code examples for all changes
@@ -107,6 +108,7 @@ ls src/core/modules/**/INTEGRATION-CHECKLIST.md
 
 ## Guide Quality Checklist
 
+- [ ] **Written entirely in English**
 - [ ] Overview table is complete
 - [ ] Quick migration path provided
 - [ ] All breaking changes documented with before/after

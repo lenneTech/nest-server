@@ -5,6 +5,8 @@
  * and reduce the need for `as any` casts throughout the codebase.
  */
 
+import { Types } from 'mongoose';
+
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 
 /**
@@ -21,6 +23,41 @@ export interface BetterAuth2FAResponse {
    */
   token?: string;
   user?: BetterAuthSessionUser;
+}
+
+/**
+ * Authenticated user object created from BetterAuth token verification.
+ *
+ * This interface represents a user that has been authenticated via BetterAuth
+ * (either JWT or session token). It includes the `hasRole` method for
+ * role-based access control and the `_authenticatedViaBetterAuth` flag
+ * to identify BetterAuth-authenticated users.
+ */
+export interface BetterAuthenticatedUser {
+  /** Allow additional properties from MongoDB document */
+  [key: string]: unknown;
+  /** Flag indicating this user was authenticated via BetterAuth */
+  _authenticatedViaBetterAuth: true;
+  /** MongoDB _id field */
+  _id?: Types.ObjectId;
+  /** User's email address */
+  email: string;
+  /** Whether user's email is verified */
+  emailVerified?: boolean;
+  /**
+   * Check if user has any of the specified roles
+   * @param roles - Array of role names to check
+   * @returns true if user has at least one of the roles
+   */
+  hasRole: (roles: string[]) => boolean;
+  /** User ID as string */
+  id: string;
+  /** User's assigned roles */
+  roles?: string[];
+  /** Whether the user is verified */
+  verified?: boolean;
+  /** Timestamp when user was verified */
+  verifiedAt?: Date;
 }
 
 /**

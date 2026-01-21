@@ -118,7 +118,7 @@ const invalidEmptyPasskeyObject: IBetterAuth = {
 // =============================================================================
 // Prevent unused variable warnings (underscore prefix signals intentionally unused)
 // =============================================================================
-// eslint-disable-next-line unused-imports/no-unused-vars
+ 
 const _typeTestConfigs = [
   invalidEmptyPasskeyObject,
   invalidPasskeyConfigNoOrigins,

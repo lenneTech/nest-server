@@ -1,11 +1,11 @@
 import { ExecutionContext, ForbiddenException, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { getConnectionToken } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
 import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
+import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
+import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
 import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
 import { ErrorCode } from '../../error-code';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
@@ -23,7 +23,7 @@ import { AuthGuard } from './auth.guard';
  * MULTI-TOKEN SUPPORT:
  * This guard supports multiple authentication token types:
  * 1. Legacy JWT tokens (Passport JWT strategy)
- * 2. BetterAuth JWT tokens (verified via BetterAuth service)
+ * 2. BetterAuth JWT tokens (verified via BetterAuthTokenService)
  * 3. BetterAuth session tokens (verified via database lookup)
  *
  * When Passport JWT validation fails, the guard falls back to BetterAuth verification:
@@ -37,7 +37,7 @@ import { AuthGuard } from './auth.guard';
 export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
   private readonly logger = new Logger(RolesGuard.name);
   private betterAuthService: CoreBetterAuthService | null = null;
-  private mongoConnection: Connection | null = null;
+  private tokenService: BetterAuthTokenService | null = null;
   private servicesResolved = false;
 
   /**
@@ -51,7 +51,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
   }
 
   /**
-   * Lazily resolve BetterAuth service and MongoDB connection
+   * Lazily resolve BetterAuth services
    */
   private resolveServices(): void {
     if (this.servicesResolved || !this.moduleRef) {
@@ -65,10 +65,9 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     }
 
     try {
-      // Get the Mongoose connection to query users directly
-      this.mongoConnection = this.moduleRef.get(getConnectionToken(), { strict: false });
+      this.tokenService = this.moduleRef.get(BetterAuthTokenService, { strict: false });
     } catch {
-      // MongoDB connection not available
+      // BetterAuthTokenService not available
     }
 
     this.servicesResolved = true;
@@ -78,291 +77,172 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    * Override canActivate to add BetterAuth JWT fallback
    *
    * Flow:
-   * 1. Try Passport JWT authentication (Legacy JWT)
-   * 2. If that fails, try BetterAuth JWT verification
-   * 3. If BetterAuth succeeds, load the user and proceed
+   * 1. Check if roles are required - if not, skip authentication entirely
+   * 2. Check if user is already authenticated via BetterAuth middleware
+   * 3. If BetterAuth is enabled, try BetterAuth token verification first
+   * 4. Otherwise, try Passport JWT authentication (Legacy JWT)
+   * 5. If Passport fails and BetterAuth is enabled, try BetterAuth as fallback
+   *
+   * This order ensures IAM-only setups work without requiring JWT strategy registration.
    */
   override async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Resolve services lazily
+    // Get roles FIRST to check if authentication is even needed
+    const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+    const roles: string[] = reflectorRoles[0]
+      ? reflectorRoles[1]
+        ? [...reflectorRoles[0], ...reflectorRoles[1]]
+        : reflectorRoles[0]
+      : reflectorRoles[1];
+
+    // Check if locked - always deny
+    if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
+      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+    }
+
+    // If no roles required, or S_EVERYONE is set, allow access without authentication
+    // This allows public endpoints (without @Roles decorator or with S_EVERYONE) to work
+    if (!roles || !roles.some((value) => !!value) || roles.includes(RoleEnum.S_EVERYONE)) {
+      return true;
+    }
+
+    // Resolve services lazily (only needed if authentication is required)
     this.resolveServices();
 
-    // First, try the parent canActivate (Passport JWT)
+    // Get request and check for existing user (from BetterAuth middleware)
+    const request = this.getRequest(context);
+    const existingUser = request?.user;
+
+    // If user is already authenticated via BetterAuth middleware, validate roles directly
+    if (existingUser && existingUser._authenticatedViaBetterAuth === true) {
+      this.handleRequest(null, existingUser, null, context);
+      return true;
+    }
+
+    // If BetterAuth is enabled, try BetterAuth verification FIRST
+    // This allows IAM-only setups to work without JWT strategy
+    if (this.betterAuthService?.isEnabled()) {
+      const user = await this.verifyBetterAuthTokenFromContext(context);
+      if (user) {
+        // BetterAuth token is valid - set the user on the request
+        if (request) {
+          request.user = user;
+        }
+        // Validate roles
+        this.handleRequest(null, user, null, context);
+        return true;
+      }
+    }
+
+    // Try Passport JWT authentication (Legacy JWT)
     try {
       const result = super.canActivate(context);
       return isObservable(result) ? await firstValueFrom(result) : await result;
     } catch (passportError) {
-      // Passport JWT validation failed - try BetterAuth token fallback (JWT or session)
-      if (!this.betterAuthService?.isEnabled()) {
-        // BetterAuth not available - rethrow original error
-        throw passportError;
+      // Check if this is an "Unknown authentication strategy" error
+      // This happens in IAM-only setups where JWT strategy is not registered
+      const errorMessage = passportError instanceof Error ? passportError.message : String(passportError);
+      const isStrategyError = errorMessage.includes('Unknown authentication strategy');
+
+      // If BetterAuth is enabled but verification failed earlier, or if this is a strategy error
+      if (this.betterAuthService?.isEnabled()) {
+        // For strategy errors, BetterAuth verification already failed above
+        // Rethrow with a more descriptive error
+        if (isStrategyError) {
+          throw new InvalidTokenException();
+        }
+
+        // For other errors (e.g., invalid JWT), try BetterAuth as fallback one more time
+        const user = await this.verifyBetterAuthTokenFromContext(context);
+        if (user) {
+          if (request) {
+            request.user = user;
+          }
+          this.handleRequest(null, user, null, context);
+          return true;
+        }
       }
 
-      // Try to verify the token via BetterAuth (JWT or session token)
-      const user = await this.verifyBetterAuthTokenFromContext(context);
-      if (!user) {
-        // BetterAuth verification also failed - rethrow original Passport error
-        throw passportError;
-      }
-
-      // BetterAuth token is valid - set the user on the request
-      const request = this.getRequest(context);
-      if (request) {
-        request.user = user;
-      }
-
-      // Now call handleRequest with the BetterAuth-authenticated user to check roles
-      this.handleRequest(null, user, null, context);
-
-      return true;
+      // BetterAuth verification also failed - rethrow original error
+      throw passportError;
     }
   }
 
   /**
-   * Verify BetterAuth token (JWT or session) and load the corresponding user
+   * Verify BetterAuth token (JWT or session) and load the corresponding user.
    *
-   * This method tries multiple verification strategies:
-   * 1. BetterAuth JWT verification (if JWT plugin is enabled)
-   * 2. BetterAuth session token lookup (database lookup)
+   * Delegates to BetterAuthTokenService for token extraction and verification.
+   * Handles both GraphQL and HTTP contexts.
    *
    * @param context - ExecutionContext to extract request from
    * @returns User object if verification succeeds, null otherwise
    */
-  private async verifyBetterAuthTokenFromContext(context: ExecutionContext): Promise<any> {
-    if (!this.betterAuthService || !this.mongoConnection) {
+  private async verifyBetterAuthTokenFromContext(context: ExecutionContext): Promise<BetterAuthenticatedUser | null> {
+    if (!this.tokenService) {
       return null;
     }
 
     try {
-      // Get the raw HTTP request from multiple possible sources
-      let authHeader: string | undefined;
-
-      // Try GraphQL context first
-      try {
-        const gqlContext = GqlExecutionContext.create(context);
-        const ctx = gqlContext.getContext();
-        if (ctx?.req?.headers) {
-          authHeader = ctx.req.headers.authorization || ctx.req.headers.Authorization;
-        }
-      } catch {
-        // GraphQL context not available
+      // Extract request from context (supports both GraphQL and HTTP)
+      const request = this.extractRequestFromContext(context);
+      if (!request) {
+        return null;
       }
 
-      // Fallback to HTTP context
-      if (!authHeader) {
-        try {
-          const httpRequest = context.switchToHttp().getRequest();
-          if (httpRequest?.headers) {
-            authHeader = httpRequest.headers.authorization || httpRequest.headers.Authorization;
-          }
-        } catch {
-          // HTTP context not available
-        }
-      }
-
-      let token: string | undefined;
-
-      if (authHeader?.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      } else if (authHeader?.startsWith('bearer ')) {
-        // Handle lowercase 'bearer' as well
-        token = authHeader.substring(7);
-      }
-
-      // If no token in header, try cookies (for REST endpoints)
-      if (!token) {
-        let cookies: Record<string, string> | undefined;
-
-        // Try GraphQL context first
-        try {
-          const gqlContext = GqlExecutionContext.create(context);
-          const ctx = gqlContext.getContext();
-          if (ctx?.req?.cookies) {
-            cookies = ctx.req.cookies;
-          }
-        } catch {
-          // GraphQL context not available
-        }
-
-        // Fallback to HTTP context
-        if (!cookies) {
-          try {
-            const httpRequest = context.switchToHttp().getRequest();
-            if (httpRequest?.cookies) {
-              cookies = httpRequest.cookies;
-            }
-          } catch {
-            // HTTP context not available
-          }
-        }
-
-        // Extract session token from cookies (try multiple cookie names)
-        if (cookies) {
-          // Get the basePath for cookie name (e.g., 'iam' -> 'iam.session_token')
-          const basePath = this.betterAuthService.getBasePath?.()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
-          const basePathCookie = `${basePath}.session_token`;
-
-          token =
-            cookies[basePathCookie] ||
-            cookies['better-auth.session_token'] ||
-            cookies['token'] ||
-            undefined;
-        }
-      }
-
+      // Extract token from request
+      const { token } = this.tokenService.extractTokenFromRequest(request);
       if (!token) {
         return null;
       }
 
-      // Strategy 1: Try JWT verification (if JWT plugin is enabled)
-      if (this.betterAuthService.isJwtEnabled()) {
-        try {
-          const payload = await this.betterAuthService.verifyJwtToken(token);
-          if (payload?.sub) {
-            const user = await this.loadUserFromPayload(payload);
-            if (user) {
-              return user;
-            }
-          }
-        } catch {
-          // JWT verification failed - try session token next
-        }
-      }
-
-      // Strategy 2: Try session token lookup (database lookup)
-      try {
-        const sessionResult = await this.betterAuthService.getSessionByToken(token);
-        if (sessionResult?.user) {
-          return this.loadUserFromSessionResult(sessionResult.user);
-        }
-      } catch {
-        // Session lookup failed
-      }
-
-      return null;
+      // Verify token and load user
+      return await this.tokenService.verifyAndLoadUser(token);
     } catch (error) {
       this.logger.debug(
-        `BetterAuth token fallback failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `BetterAuth token verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       return null;
     }
   }
 
   /**
-   * Load user from JWT payload using direct MongoDB query
+   * Extracts the request object from ExecutionContext.
+   * Handles both GraphQL and HTTP contexts.
    *
-   * @param payload - JWT payload with sub (user ID or iamId)
-   * @returns User object with hasRole method
+   * @param context - ExecutionContext
+   * @returns Request object with headers and cookies
    */
-  private async loadUserFromPayload(payload: { [key: string]: any; sub: string }): Promise<any> {
-    if (!this.mongoConnection) {
-      return null;
-    }
-
+  private extractRequestFromContext(context: ExecutionContext): null | {
+    cookies?: Record<string, string>;
+    headers?: Record<string, string | string[] | undefined>;
+  } {
+    // Try GraphQL context first
     try {
-      const usersCollection = this.mongoConnection.collection('users');
-      let user: any = null;
-
-      // Try to find by MongoDB _id first
-      if (Types.ObjectId.isValid(payload.sub)) {
-        user = await usersCollection.findOne({ _id: new Types.ObjectId(payload.sub) });
+      const gqlContext = GqlExecutionContext.create(context);
+      const ctx = gqlContext.getContext();
+      if (ctx?.req) {
+        return ctx.req;
       }
-
-      // If not found, try by iamId
-      if (!user) {
-        user = await usersCollection.findOne({ iamId: payload.sub });
-      }
-
-      if (!user) {
-        return null;
-      }
-
-      // Convert MongoDB document to user-like object with hasRole method
-      const userObject = {
-        ...user,
-        _authenticatedViaBetterAuth: true,
-        // Add hasRole method for role checking
-        hasRole: (roles: string[]): boolean => {
-          if (!user.roles || !Array.isArray(user.roles)) {
-            return false;
-          }
-          return roles.some((role) => user.roles.includes(role));
-        },
-        id: user._id?.toString(),
-      };
-
-      return userObject;
-    } catch (error) {
-      this.logger.debug(
-        `Failed to load user from payload: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Load user from session result (from getSessionByToken)
-   *
-   * @param sessionUser - User object from session lookup
-   * @returns User object with hasRole method
-   */
-  private async loadUserFromSessionResult(sessionUser: any): Promise<any> {
-    if (!this.mongoConnection || !sessionUser) {
-      return null;
+    } catch {
+      // GraphQL context not available
     }
 
+    // Fallback to HTTP context
     try {
-      const usersCollection = this.mongoConnection.collection('users');
-
-      // The sessionUser might have id (BetterAuth ID) or email
-      // We need to find the corresponding user in our users collection
-      let user: any = null;
-
-      // Try to find by email (most reliable)
-      if (sessionUser.email) {
-        user = await usersCollection.findOne({ email: sessionUser.email });
+      const httpRequest = context.switchToHttp().getRequest();
+      if (httpRequest) {
+        return httpRequest;
       }
-
-      // If not found by email, try by iamId
-      if (!user && sessionUser.id) {
-        user = await usersCollection.findOne({ iamId: sessionUser.id });
-      }
-
-      // If still not found, try by _id (if the ID looks like a MongoDB ObjectId)
-      if (!user && sessionUser.id && Types.ObjectId.isValid(sessionUser.id)) {
-        user = await usersCollection.findOne({ _id: new Types.ObjectId(sessionUser.id) });
-      }
-
-      if (!user) {
-        return null;
-      }
-
-      // Convert MongoDB document to user-like object with hasRole method
-      const userObject = {
-        ...user,
-        _authenticatedViaBetterAuth: true,
-        // Add hasRole method for role checking
-        hasRole: (roles: string[]): boolean => {
-          if (!user.roles || !Array.isArray(user.roles)) {
-            return false;
-          }
-          return roles.some((role) => user.roles.includes(role));
-        },
-        id: user._id?.toString(),
-      };
-
-      return userObject;
-    } catch (error) {
-      this.logger.debug(
-        `Failed to load user from session: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      return null;
+    } catch {
+      // HTTP context not available
     }
+
+    return null;
   }
 
   /**
    * Handle request
    */
-  override handleRequest(err, user, info, context) {
+  override handleRequest(err: Error | null, user: any, info: any, context: ExecutionContext) {
     // Get roles
     const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles: string[] = reflectorRoles[0]
