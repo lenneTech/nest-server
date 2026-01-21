@@ -74,6 +74,8 @@ Always analyze:
 
 Use the template at `migration-guides/TEMPLATE.md` and follow the process in `.claude/rules/migration-guides.md`.
 
+**IMPORTANT: All migration guides MUST be written in English.** This includes all section titles, descriptions, code comments, and explanations. Technical terms and code identifiers remain unchanged.
+
 Required sections:
 1. Overview table
 2. Quick Migration

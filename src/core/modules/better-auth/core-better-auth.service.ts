@@ -201,6 +201,19 @@ export class CoreBetterAuthService {
     return this.config.baseUrl || 'http://localhost:3000';
   }
 
+  /**
+   * Gets the session cookie name based on the configured base path.
+   *
+   * The cookie name follows the pattern: `{basePath}.session_token`
+   * For example, with basePath '/iam', the cookie name is 'iam.session_token'
+   *
+   * @returns The session cookie name
+   */
+  getSessionCookieName(): string {
+    const basePath = this.getBasePath()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
+    return `${basePath}.session_token`;
+  }
+
   // ===================================================================================================================
   // JWT Token Methods
   // ===================================================================================================================

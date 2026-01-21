@@ -262,6 +262,9 @@ export class CoreModule implements NestModule {
             config: betterAuthConfig === true ? {} : betterAuthConfig || {},
             // Pass JWT secrets for backwards compatibility fallback
             fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
+            // In IAM-only mode, register RolesGuard globally to enforce @Roles() decorators
+            // In Legacy mode (autoRegister), RolesGuard is already registered via CoreAuthModule
+            registerRolesGuardGlobally: isIamOnlyMode,
           }),
         );
       }

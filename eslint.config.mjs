@@ -10,7 +10,11 @@ const patched = baseConfig.map(config => {
   if (config.rules?.['unused-imports/no-unused-vars']) {
     config.rules['unused-imports/no-unused-vars'] = [
       'warn',
-      {caughtErrors: 'none'},
+      {
+        argsIgnorePattern: '^_',
+        caughtErrors: 'none',
+        varsIgnorePattern: '^_',
+      },
     ];
   }
   return config;
