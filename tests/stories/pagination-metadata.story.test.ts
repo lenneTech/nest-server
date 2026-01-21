@@ -385,7 +385,7 @@ describe('Story: Pagination Metadata', () => {
         { token: adminToken },
       );
 
-      // perPage should have a sensible default (commonly 0 or null when no limit specified)
+      // perPage should have a sensible default (in this implementation, 0 when no limit specified)
       expect(result.pagination.perPage).toBeDefined();
     });
   });

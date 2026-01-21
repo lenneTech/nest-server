@@ -219,7 +219,11 @@ export abstract class CrudService<
   async findAndCount(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions,
-  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
+  ): Promise<{
+    items: Model[];
+    pagination: PaginationInfo;
+    totalCount: number;
+  }> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
     if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
