@@ -15,6 +15,7 @@ import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
+import { PaginationInfo } from '../models/pagination-info.model';
 import { PlainObject } from '../types/plain-object.type';
 import { ConfigService } from './config.service';
 import { ModuleService } from './module.service';
@@ -218,7 +219,7 @@ export abstract class CrudService<
   async findAndCount(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions?: ServiceOptions,
-  ): Promise<{ items: Model[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
     // If filter is not instance of FilterArgs a simple form with filterQuery and queryOptions is set
     // and should not be processed as FilterArgs
     if (!(filter instanceof FilterArgs) && serviceOptions?.inputType === FilterArgs) {
@@ -284,6 +285,17 @@ export abstract class CrudService<
           (await this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}).exec())[0] || {};
         dbResult.totalCount = dbResult.totalCount?.[0]?.total || 0;
         dbResult.items = dbResult.items?.map((item) => this.mainDbModel.hydrate(item)) || [];
+
+        // Calculate pagination info
+        const queryOptions = filterQuery.queryOptions || {};
+        dbResult.pagination = PaginationInfo.create({
+          limit: queryOptions.limit,
+          offset: queryOptions.offset,
+          skip: queryOptions.skip,
+          take: queryOptions.take,
+          totalCount: dbResult.totalCount,
+        });
+
         return dbResult;
       },
       { input: filter, outputPath: 'items', serviceOptions },
@@ -297,7 +309,7 @@ export abstract class CrudService<
   async findAndCountForce(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
     serviceOptions.raw = true;
     return this.findAndCount(filter, serviceOptions);
   }
@@ -309,7 +321,7 @@ export abstract class CrudService<
   async findAndCountRaw(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; totalCount: number }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.raw = true;
     return this.findAndCountForce(filter, serviceOptions);

@@ -3,6 +3,7 @@ import { ObjectType } from '@nestjs/graphql';
 import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../../core/common/enums/role.enum';
+import { PaginationInfo } from '../../../../core/common/models/pagination-info.model';
 import { User } from '../user.model';
 
 @ObjectType({ description: 'Result of find and count' })
@@ -21,4 +22,11 @@ export class FindAndCountUsersResult {
     isOptional: false,
   })
   totalCount: number;
+
+  @UnifiedField({
+    description: 'Pagination information',
+    isOptional: true,
+    type: () => PaginationInfo,
+  })
+  pagination?: PaginationInfo;
 }

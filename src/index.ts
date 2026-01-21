@@ -62,6 +62,7 @@ export * from './core/common/interfaces/service-options.interface';
 export * from './core/common/middlewares/to-lower-case.middleware';
 export * from './core/common/models/core-model.model';
 export * from './core/common/models/core-persistence.model';
+export * from './core/common/models/pagination-info.model';
 export * from './core/common/pipes/check-input.pipe';
 export * from './core/common/pipes/map-and-validate.pipe';
 export * from './core/common/plugins/complexity.plugin';
