@@ -7,6 +7,19 @@ import { BetterAuthResolver } from './better-auth.resolver';
 
 /**
  * Options for BetterAuthModule.forRoot()
+ *
+ * All options are optional when using Zero-Config:
+ * All values are auto-read from ConfigService (set by CoreModule.forRoot)
+ *
+ * @example
+ * // Zero-Config - all values auto-detected from ConfigService
+ * BetterAuthModule.forRoot({})
+ *
+ * // Or with explicit overrides
+ * BetterAuthModule.forRoot({
+ *   config: { secret: 'custom-secret' },
+ *   serverAppUrl: 'https://custom-app.com',
+ * })
  */
 export interface ServerBetterAuthModuleOptions {
   /**
@@ -15,14 +28,33 @@ export interface ServerBetterAuthModuleOptions {
    * - `true`: Enable with all defaults (including JWT)
    * - `false`: Disable BetterAuth
    * - `{ ... }`: Enable with custom configuration
+   * - `undefined`: Auto-read from ConfigService (Zero-Config)
    */
-  config: boolean | IBetterAuth;
+  config?: boolean | IBetterAuth;
 
   /**
    * Fallback secrets for backwards compatibility with JWT config.
    * If no betterAuth.secret is configured, these secrets are tried in order.
    */
   fallbackSecrets?: (string | undefined)[];
+
+  /**
+   * Server-level app URL for Passkey auto-detection.
+   * @see IServerOptions.appUrl
+   */
+  serverAppUrl?: string;
+
+  /**
+   * Server-level base URL for Passkey auto-detection.
+   * @see IServerOptions.baseUrl
+   */
+  serverBaseUrl?: string;
+
+  /**
+   * Server environment for localhost defaults (local, ci, e2e).
+   * @see IServerOptions.env
+   */
+  serverEnv?: string;
 }
 
 /**
@@ -42,14 +74,9 @@ export interface ServerBetterAuthModuleOptions {
  *
  * @Module({
  *   imports: [
- *     CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), {
- *       ...envConfig,
- *       betterAuth: { ...envConfig.betterAuth, autoRegister: false },
- *     }),
- *     BetterAuthModule.forRoot({
- *       config: envConfig.betterAuth,
- *       fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
- *     }),
+ *     CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
+ *     // Zero-Config: All values auto-read from ConfigService
+ *     BetterAuthModule.forRoot({}),
  *   ],
  * })
  * export class ServerModule {}
@@ -64,7 +91,7 @@ export class BetterAuthModule {
    * @returns Dynamic module configuration
    */
   static forRoot(options: ServerBetterAuthModuleOptions): DynamicModule {
-    const { config, fallbackSecrets } = options;
+    const { config, fallbackSecrets, serverAppUrl, serverBaseUrl, serverEnv } = options;
 
     // If better-auth is explicitly disabled, return minimal module
     // Supports: false, { enabled: false }, or undefined/null
@@ -85,6 +112,9 @@ export class BetterAuthModule {
           controller: BetterAuthController,
           fallbackSecrets,
           resolver: BetterAuthResolver,
+          serverAppUrl,
+          serverBaseUrl,
+          serverEnv,
         }),
       ],
       module: BetterAuthModule,

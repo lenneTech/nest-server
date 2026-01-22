@@ -132,7 +132,15 @@ export interface IAuthLegacyEndpoints {
    *
    * Check migration status via the `betterAuthMigrationStatus` query.
    *
+   * **Environment Variable:** `LEGACY_AUTH_ENABLED`
+   *
    * @default true
+   *
+   * @example
+   * ```typescript
+   * // Via environment variable
+   * enabled: process.env.LEGACY_AUTH_ENABLED !== 'false',
+   * ```
    */
   enabled?: boolean;
 
@@ -225,11 +233,15 @@ export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
 
 /**
  * JWT plugin configuration for Better-Auth
+ *
+ * **Enabled by Default:** JWT is enabled by default when BetterAuth is active.
+ * This provides stateless authentication for API clients.
+ * Set `jwt: false` or `jwt: { enabled: false }` to disable.
  */
 export interface IBetterAuthJwtConfig {
   /**
    * Whether JWT plugin is enabled.
-   * @default true (when config block is present)
+   * @default true (enabled by default when BetterAuth is active)
    */
   enabled?: boolean;
 
@@ -242,7 +254,36 @@ export interface IBetterAuthJwtConfig {
 
 /**
  * Passkey/WebAuthn plugin configuration for Better-Auth
+ *
+ * **Auto-Detection from baseUrl:** When `passkey: true` is set and `baseUrl` is configured,
+ * the following values are auto-detected:
+ * - `rpId`: Derived from baseUrl hostname (e.g., 'example.com')
+ * - `origin`: Derived from baseUrl (e.g., 'https://api.example.com')
+ * - `trustedOrigins`: Derived from baseUrl (e.g., ['https://api.example.com'])
+ *
+ * **Graceful Degradation:** If auto-detection fails and values are not explicitly set,
+ * Passkey is automatically disabled with a warning. Other auth methods continue to work.
+ *
  * @see https://www.better-auth.com/docs/plugins/passkey
+ *
+ * @example
+ * ```typescript
+ * // RECOMMENDED: Use auto-detection
+ * betterAuth: {
+ *   baseUrl: process.env.BASE_URL, // e.g., 'https://api.example.com'
+ *   passkey: true, // Auto-detects rpId, origin, trustedOrigins
+ * }
+ *
+ * // Explicit configuration (overrides auto-detection)
+ * betterAuth: {
+ *   passkey: {
+ *     rpId: 'example.com',
+ *     origin: 'https://app.example.com',
+ *     rpName: 'My App',
+ *   },
+ *   trustedOrigins: ['https://app.example.com'],
+ * }
+ * ```
  */
 export interface IBetterAuthPasskeyConfig {
   /**
@@ -255,14 +296,38 @@ export interface IBetterAuthPasskeyConfig {
   authenticatorAttachment?: 'cross-platform' | 'platform';
 
   /**
+   * Where to store WebAuthn challenges.
+   * - 'database': Store in MongoDB with TTL (default, works everywhere including cross-origin and JWT mode)
+   * - 'cookie': Store in httpOnly cookie (requires session cookies and same-origin setup)
+   *
+   * Use 'cookie' only when:
+   * - You want to avoid database writes for challenges
+   * - You have a same-origin setup (frontend and API on same domain/port)
+   * - You are NOT using JWT mode
+   *
+   * @default 'database'
+   */
+  challengeStorage?: 'cookie' | 'database';
+
+  /**
+   * TTL in seconds for database-stored challenges.
+   * Only used when challengeStorage is 'database'.
+   * @default 300 (5 minutes)
+   */
+  challengeTtlSeconds?: number;
+
+  /**
    * Whether passkey authentication is enabled.
    * @default true (when config block is present)
    */
   enabled?: boolean;
 
   /**
-   * Origin URL for WebAuthn
-   * e.g. 'http://localhost:3000'
+   * Origin URL for WebAuthn.
+   *
+   * **Auto-detected** from `baseUrl` if not set (e.g., 'https://api.example.com').
+   *
+   * @example 'http://localhost:3000' or 'https://api.example.com'
    */
   origin?: string;
 
@@ -276,8 +341,11 @@ export interface IBetterAuthPasskeyConfig {
   residentKey?: 'discouraged' | 'preferred' | 'required';
 
   /**
-   * Relying Party ID (usually the domain)
-   * e.g. 'localhost' or 'example.com'
+   * Relying Party ID (usually the domain without protocol).
+   *
+   * **Auto-detected** from `baseUrl` hostname if not set (e.g., 'example.com').
+   *
+   * @example 'localhost' or 'example.com'
    */
   rpId?: string;
 
@@ -298,6 +366,7 @@ export interface IBetterAuthPasskeyConfig {
 
   /**
    * Custom cookie name for WebAuthn challenge storage.
+   * Only used when challengeStorage is 'cookie'.
    * @default 'better-auth-passkey'
    */
   webAuthnChallengeCookie?: string;
@@ -305,17 +374,30 @@ export interface IBetterAuthPasskeyConfig {
 
 /**
  * Interface for Better-Auth rate limiting configuration
+ *
+ * **Environment Variables:**
+ * - `RATE_LIMIT_ENABLED` - Set to 'false' to disable
+ * - `RATE_LIMIT_MAX` - Maximum requests per window
+ * - `RATE_LIMIT_WINDOW_SECONDS` - Window duration
+ *
+ * @example
+ * ```typescript
+ * rateLimit: {
+ *   enabled: process.env.RATE_LIMIT_ENABLED !== 'false',
+ *   max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10),
+ * },
+ * ```
  */
 export interface IBetterAuthRateLimit {
   /**
    * Whether rate limiting is enabled
-   * default: false
+   * @default false
    */
   enabled?: boolean;
 
   /**
    * Maximum number of requests within the time window
-   * default: 10
+   * @default 10
    */
   max?: number;
 
@@ -351,10 +433,18 @@ export interface IBetterAuthRateLimit {
  * both `clientId` and `clientSecret` are provided. You only need to set
  * `enabled: false` to explicitly disable a configured provider.
  *
+ * **Environment Variables (convention):**
+ * - `SOCIAL_GOOGLE_CLIENT_ID`, `SOCIAL_GOOGLE_CLIENT_SECRET`
+ * - `SOCIAL_GITHUB_CLIENT_ID`, `SOCIAL_GITHUB_CLIENT_SECRET`
+ * - `SOCIAL_APPLE_CLIENT_ID`, `SOCIAL_APPLE_CLIENT_SECRET`
+ *
  * @example
  * ```typescript
- * // Provider is enabled (has credentials, no explicit enabled flag needed)
- * google: { clientId: '...', clientSecret: '...' }
+ * // Via environment variables (recommended)
+ * google: {
+ *   clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
+ *   clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
+ * },
  *
  * // Provider is explicitly disabled despite having credentials
  * github: { clientId: '...', clientSecret: '...', enabled: false }
@@ -382,17 +472,30 @@ export interface IBetterAuthSocialProvider {
 
 /**
  * Two-factor authentication plugin configuration for Better-Auth
+ *
+ * **Enabled by Default:** 2FA is enabled by default when BetterAuth is active.
+ * Users can optionally set up 2FA for their accounts.
+ * Set `twoFactor: false` or `twoFactor: { enabled: false }` to disable.
+ *
+ * **Environment Variables:**
+ * - `TWO_FACTOR_APP_NAME` - App name shown in authenticator apps
+ * - `TWO_FACTOR_ENABLED` - Set to 'true' to enable (default: true)
  */
 export interface IBetterAuthTwoFactorConfig {
   /**
-   * App name shown in authenticator apps
-   * e.g. 'My Application'
+   * App name shown in authenticator apps.
+   * This appears in Google Authenticator, Authy, etc.
+   *
+   * **Environment Variable:** `TWO_FACTOR_APP_NAME`
+   *
+   * @default 'Nest Server'
+   * @example 'My Application'
    */
   appName?: string;
 
   /**
    * Whether 2FA is enabled.
-   * @default true (when config block is present)
+   * @default true (enabled by default when BetterAuth is active)
    */
   enabled?: boolean;
 }
@@ -534,6 +637,44 @@ export interface IJwt {
  */
 export interface IServerOptions {
   /**
+   * Base URL of the frontend/app application.
+   *
+   * Used for:
+   * - CORS `trustedOrigins` configuration
+   * - Passkey/WebAuthn `origin` (where the browser runs)
+   * - Frontend redirect URLs
+   *
+   * **Auto-Detection from `baseUrl`:**
+   * If not set, `appUrl` is derived from `baseUrl`:
+   * - `https://api.example.com` → `https://example.com` (removes 'api.' prefix)
+   * - `https://example.com` → `https://example.com` (unchanged)
+   *
+   * **Localhost Environment Defaults:**
+   * When `env` is 'local', 'ci', or 'e2e' and neither `baseUrl` nor `appUrl` is set:
+   * - `appUrl` defaults to `http://localhost:3001`
+   *
+   * **Environment Variable:** `APP_URL` (only needed if not auto-derivable from `BASE_URL`)
+   *
+   * @example 'https://example.com' or 'http://localhost:3001'
+   *
+   * @example
+   * ```typescript
+   * // Typical production setup (appUrl auto-derived from baseUrl)
+   * baseUrl: process.env.BASE_URL,  // e.g., 'https://api.example.com'
+   * // → appUrl auto-derived: 'https://example.com'
+   *
+   * // Explicit appUrl (when frontend is on different domain)
+   * appUrl: process.env.APP_URL,    // e.g., 'https://app.different-domain.com'
+   *
+   * // Local/CI/E2E (auto-defaults)
+   * env: 'local', // or 'ci' or 'e2e'
+   * // baseUrl defaults to 'http://localhost:3000'
+   * // appUrl defaults to 'http://localhost:3001'
+   * ```
+   */
+  appUrl?: string;
+
+  /**
    * Authentication system configuration
    *
    * Controls Legacy Auth endpoints and behavior.
@@ -554,20 +695,86 @@ export interface IServerOptions {
   automaticObjectIdFiltering?: boolean;
 
   /**
-   * Configuration for better-auth authentication framework.
-   * See: https://better-auth.com
+   * Base URL of the API server.
    *
-   * Accepts:
-   * - `true`: Enable with all defaults (including JWT)
-   * - `false`: Disable BetterAuth completely
-   * - `{ ... }`: Enable with custom configuration
-   * - `undefined`: Disabled (default for backward compatibility)
+   * Used for:
+   * - Email links (password reset, verification)
+   * - OAuth callback URLs
+   * - Swagger/OpenAPI documentation
+   * - BetterAuth configuration
+   *
+   * **Localhost Environment Defaults:**
+   * When `env` is 'local', 'ci', or 'e2e' and `baseUrl` is not set:
+   * - `baseUrl` defaults to `http://localhost:3000`
+   *
+   * **Relationship with `appUrl`:**
+   * If `appUrl` is not set, it is auto-derived from `baseUrl`:
+   * - `https://api.example.com` → `appUrl: https://example.com`
+   * - `https://example.com` → `appUrl: https://example.com`
+   *
+   * **Environment Variable:** `BASE_URL`
+   *
+   * @example 'https://api.example.com' or 'http://localhost:3000'
    *
    * @example
    * ```typescript
-   * betterAuth: true,  // Enable with defaults (JWT enabled)
-   * betterAuth: { baseUrl: 'https://example.com' },  // Custom config
-   * betterAuth: false, // Explicitly disabled
+   * // Production (via environment variable)
+   * baseUrl: process.env.BASE_URL,
+   *
+   * // Local/CI/E2E (auto-defaults)
+   * env: 'local', // or 'ci' or 'e2e'
+   * // baseUrl defaults to 'http://localhost:3000'
+   * ```
+   */
+  baseUrl?: string;
+
+  /**
+   * Configuration for better-auth authentication framework.
+   * See: https://better-auth.com
+   *
+   * **Zero-Config Philosophy:** BetterAuth is enabled by default.
+   * JWT, 2FA, and Passkey are also enabled by default when BetterAuth is active.
+   *
+   * **Passkey Auto-Activation:**
+   * Passkey is automatically enabled when `baseUrl` (or `appUrl`) is configured.
+   * If URLs are not set, Passkey is disabled with a warning (Graceful Degradation).
+   *
+   * Accepts:
+   * - `undefined`: Enabled with defaults (zero-config)
+   * - `true`: Enable with all defaults (same as undefined)
+   * - `false`: Disable BetterAuth completely
+   * - `{ ... }`: Enable with custom configuration
+   * - `{ enabled: false }`: Disable BetterAuth completely
+   *
+   * | Configuration | BetterAuth | JWT | 2FA | Passkey |
+   * |---------------|:----------:|:---:|:---:|:-------:|
+   * | *not set* + no URLs | ✅ | ✅ | ✅ | ⚠️ disabled |
+   * | *not set* + `baseUrl` set | ✅ | ✅ | ✅ | ✅ auto |
+   * | `env: 'local'/'ci'/'e2e'` (auto URLs) | ✅ | ✅ | ✅ | ✅ auto |
+   * | `false` | ❌ | ❌ | ❌ | ❌ |
+   * | `{ passkey: false }` | ✅ | ✅ | ✅ | ❌ |
+   * | `{ twoFactor: false }` | ✅ | ✅ | ❌ | ✅ auto |
+   *
+   * @default undefined (enabled with defaults)
+   *
+   * @example
+   * ```typescript
+   * // Zero-config for local/ci/e2e:
+   * env: 'local', // or 'ci' or 'e2e'
+   * // → baseUrl: 'http://localhost:3000' (auto)
+   * // → appUrl: 'http://localhost:3001' (auto)
+   * // → BetterAuth + JWT + 2FA + Passkey all enabled!
+   *
+   * // Production with auto-derived appUrl:
+   * baseUrl: 'https://api.example.com',
+   * // → appUrl: 'https://example.com' (auto-derived)
+   * // → Passkey uses appUrl for origin/trustedOrigins
+   *
+   * // Disable Passkey explicitly (no warning):
+   * betterAuth: { passkey: false },
+   *
+   * // Disable BetterAuth completely:
+   * betterAuth: false,
    * ```
    */
   betterAuth?: boolean | IBetterAuth;
@@ -1293,28 +1500,31 @@ interface IBetterAuthBase {
 
   /**
    * Whether better-auth is enabled.
-   * BetterAuth is enabled by default (zero-config philosophy).
-   * Set to false to explicitly disable it.
-   * @default true
+   *
+   * **Zero-Config Philosophy:** BetterAuth is enabled by default.
+   * Set to `false` to explicitly disable it.
+   *
+   * @default true (enabled by default)
    */
   enabled?: boolean;
 
   /**
    * JWT plugin configuration for API clients.
    *
-   * **Default: Enabled** - JWT is enabled by default when BetterAuth is enabled.
-   * This ensures a minimal config (`betterAuth: true`) provides full functionality.
+   * **Enabled by Default:** JWT is enabled by default when BetterAuth is active.
+   * This provides stateless authentication for API clients.
    *
    * Accepts:
-   * - `true` or `{}`: Enable with defaults (same as not specifying)
+   * - `undefined`: Enabled with defaults (zero-config)
+   * - `true` or `{}`: Enable with defaults (same as undefined)
    * - `{ expiresIn: '1h' }`: Enable with custom settings
    * - `false` or `{ enabled: false }`: Explicitly disable
-   * - `undefined`: Enabled with defaults (JWT is on by default)
+   *
+   * @default undefined (enabled by default)
    *
    * @example
    * ```typescript
-   * // JWT is enabled by default, no config needed
-   * betterAuth: true,
+   * // JWT enabled by default - no config needed
    *
    * // Customize JWT expiry
    * betterAuth: { jwt: { expiresIn: '1h' } },
@@ -1378,8 +1588,46 @@ interface IBetterAuthBase {
   rateLimit?: IBetterAuthRateLimit;
 
   /**
-   * Secret for better-auth (min 32 characters)
-   * Used for session encryption
+   * Secret for better-auth session cookie signing.
+   *
+   * **Used for:**
+   * - Session cookie integrity (HMAC-SHA256 signature)
+   * - Cookie encryption (when using JWE strategy)
+   *
+   * **NOT used for:**
+   * - JWT signing (JWT plugin generates asymmetric keys stored in `jwks` collection)
+   * - Refresh tokens (Better-Auth uses DB sessions, not refresh JWTs)
+   *
+   * **REQUIRED for Production!** Without a persistent secret:
+   * - Session cookies become invalid on server restart
+   * - Sessions cannot be shared across cluster instances
+   *
+   * **Note:** Unlike Legacy Auth, Better-Auth sessions are stored in the database.
+   * The secret only signs the session cookie, not the session itself.
+   *
+   * **Minimum:** 32 characters
+   *
+   * **Fallback Chain (nest-server implementation):**
+   * 1. `betterAuth.secret` (if set)
+   * 2. `jwt.secret` (if ≥32 chars, for backwards compatibility)
+   * 3. `jwt.refresh.secret` (if ≥32 chars, for backwards compatibility)
+   * 4. Auto-generated (with warning, not persistent!)
+   *
+   * **Environment Variable:** `BETTER_AUTH_SECRET`
+   *
+   * **Generate a secure secret:**
+   * ```bash
+   * node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   * ```
+   *
+   * @example
+   * ```typescript
+   * // Via environment variable (recommended)
+   * secret: process.env.BETTER_AUTH_SECRET,
+   *
+   * // Or direct value (not recommended for production)
+   * secret: 'your-32-character-minimum-secret-here',
+   * ```
    */
   secret?: string;
 
@@ -1407,18 +1655,23 @@ interface IBetterAuthBase {
   /**
    * Two-factor authentication configuration.
    *
+   * **Enabled by Default:** 2FA is enabled by default when BetterAuth is active.
+   * Users can optionally set up 2FA for their accounts.
+   *
    * Accepts:
-   * - `true` or `{}`: Enable with defaults
+   * - `undefined`: Enabled with defaults (zero-config)
+   * - `true` or `{}`: Enable with defaults (same as undefined)
    * - `{ appName: 'My App' }`: Enable with custom settings
-   * - `false` or `{ enabled: false }`: Disable
-   * - `undefined`: Disabled (default)
+   * - `false` or `{ enabled: false }`: Explicitly disable
+   *
+   * @default undefined (enabled by default)
    *
    * @example
    * ```typescript
-   * twoFactor: true,     // Enable with defaults
-   * twoFactor: {},       // Enable with defaults
-   * twoFactor: { appName: 'My App' }, // Enable with custom app name
-   * twoFactor: false,    // Disable
+   * // 2FA enabled by default - no config needed
+   *
+   * twoFactor: { appName: 'My App' }, // Customize app name in authenticator
+   * twoFactor: false,    // Explicitly disable 2FA
    * ```
    */
   twoFactor?: boolean | IBetterAuthTwoFactorConfig;

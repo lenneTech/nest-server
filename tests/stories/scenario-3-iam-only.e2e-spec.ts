@@ -66,6 +66,9 @@ const scenario3Config = {
     BetterAuthModule.forRoot({
       config: scenario3Config.betterAuth,
       fallbackSecrets: [scenario3Config.jwt?.secret, scenario3Config.jwt?.refresh?.secret],
+      serverAppUrl: scenario3Config.appUrl,
+      serverBaseUrl: scenario3Config.baseUrl,
+      serverEnv: scenario3Config.env,
     }),
     FileModule,
     // Note: NO AuthModule imported!

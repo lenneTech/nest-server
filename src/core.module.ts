@@ -265,6 +265,11 @@ export class CoreModule implements NestModule {
             // In IAM-only mode, register RolesGuard globally to enforce @Roles() decorators
             // In Legacy mode (autoRegister), RolesGuard is already registered via CoreAuthModule
             registerRolesGuardGlobally: isIamOnlyMode,
+            // Pass server-level URLs for Passkey auto-detection
+            // When env: 'local', defaults are: baseUrl=localhost:3000, appUrl=localhost:3001
+            serverAppUrl: config.appUrl,
+            serverBaseUrl: config.baseUrl,
+            serverEnv: config.env,
           }),
         );
       }

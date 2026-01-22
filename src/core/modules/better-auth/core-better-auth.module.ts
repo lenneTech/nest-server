@@ -20,6 +20,7 @@ import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
+import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
 import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
@@ -38,13 +39,14 @@ export const BETTER_AUTH_INSTANCE = 'BETTER_AUTH_INSTANCE';
  */
 export interface CoreBetterAuthModuleOptions {
   /**
-   * Better-auth configuration.
+   * Better-auth configuration (optional - auto-read from ConfigService).
    * Accepts:
    * - `true`: Enable with all defaults (including JWT)
    * - `false`: Disable BetterAuth
    * - `{ ... }`: Enable with custom configuration
+   * - `undefined`: Auto-read from ConfigService (Zero-Config)
    */
-  config: boolean | IBetterAuth;
+  config?: boolean | IBetterAuth;
 
   /**
    * Custom controller class to use instead of the default CoreBetterAuthController.
@@ -119,19 +121,66 @@ export interface CoreBetterAuthModuleOptions {
    * ```
    */
   resolver?: Type<CoreBetterAuthResolver>;
+
+  /**
+   * Server-level app/frontend URL (from IServerOptions.appUrl).
+   * This is the frontend application URL where the browser runs.
+   *
+   * Used for:
+   * - CORS trustedOrigins
+   * - Passkey/WebAuthn origin
+   *
+   * Auto-Detection:
+   * - If not set, derived from `serverBaseUrl`:
+   *   - 'https://api.example.com' → 'https://example.com'
+   *   - 'https://example.com' → 'https://example.com'
+   * - When `serverEnv: 'local'` and not set: defaults to 'http://localhost:3001'
+   *
+   * @example 'https://example.com'
+   */
+  serverAppUrl?: string;
+
+  /**
+   * Server-level base URL (from IServerOptions.baseUrl).
+   * This is the API server URL.
+   *
+   * Used for:
+   * - Email links (password reset, verification)
+   * - OAuth callback URLs
+   * - As fallback for betterAuth.baseUrl
+   *
+   * Auto-Detection:
+   * - When `serverEnv: 'local'` and not set: defaults to 'http://localhost:3000'
+   *
+   * @example 'https://api.example.com'
+   */
+  serverBaseUrl?: string;
+
+  /**
+   * Server environment (from IServerOptions.env).
+   * Used for local environment defaults:
+   * - When `env: 'local'` and no URLs are set:
+   *   - `serverBaseUrl` defaults to 'http://localhost:3000'
+   *   - `serverAppUrl` defaults to 'http://localhost:3001'
+   */
+  serverEnv?: string;
 }
 
 /**
  * Normalizes betterAuth config from boolean | IBetterAuth to IBetterAuth | null
  * - `true` → `{}` (enabled with defaults)
  * - `false` → `null` (disabled)
- * - `undefined` → `null` (disabled for backward compatibility)
+ * - `undefined` → `{}` (enabled by default - zero-config)
+ * - `{ enabled: false }` → `null` (disabled)
  * - `{ ... }` → `{ ... }` (pass through)
  */
 function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): IBetterAuth | null {
-  if (config === undefined || config === null) return null;
+  // BetterAuth is enabled by default (zero-config)
+  if (config === undefined || config === null) return {};
   if (config === true) return {};
   if (config === false) return null;
+  // Check for explicit { enabled: false }
+  if (typeof config === 'object' && config.enabled === false) return null;
   return config;
 }
 
@@ -268,10 +317,39 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: CoreBetterAuthModuleOptions): DynamicModule {
-    const { config: rawConfig, controller, fallbackSecrets, registerRolesGuardGlobally, resolver } = options;
+    const {
+      config: rawConfig,
+      controller,
+      fallbackSecrets,
+      registerRolesGuardGlobally,
+      resolver,
+      serverAppUrl,
+      serverBaseUrl,
+      serverEnv,
+    } = options;
+
+    // Auto-read from global ConfigService if not explicitly provided
+    // This allows projects to use BetterAuthModule.forRoot({}) for true Zero-Config
+    // as all values are already available from CoreModule.forRoot(envConfig)
+    const globalConfig = ConfigService.configFastButReadOnly;
+
+    // Auto-detect config from ConfigService if not explicitly provided
+    const effectiveRawConfig = rawConfig ?? globalConfig?.betterAuth;
+
+    // Auto-detect fallbackSecrets from ConfigService if not explicitly provided
+    const effectiveFallbackSecrets = fallbackSecrets ?? (
+      globalConfig?.jwt
+        ? [globalConfig.jwt.secret, globalConfig.jwt.refresh?.secret].filter(Boolean)
+        : undefined
+    );
+
+    // Auto-detect server URLs from ConfigService if not explicitly provided
+    const effectiveServerAppUrl = serverAppUrl ?? globalConfig?.appUrl;
+    const effectiveServerBaseUrl = serverBaseUrl ?? globalConfig?.baseUrl;
+    const effectiveServerEnv = serverEnv ?? globalConfig?.env;
 
     // Normalize config: true → {}, false/undefined → null
-    const config = normalizeBetterAuthConfig(rawConfig);
+    const config = normalizeBetterAuthConfig(effectiveRawConfig);
 
     // Store config for middleware configuration
     this.currentConfig = config;
@@ -289,7 +367,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
       return {
-        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
+        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
         module: CoreBetterAuthModule,
         providers: [
           {
@@ -302,6 +380,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           CoreBetterAuthUserMapper,
           CoreBetterAuthRateLimiter,
           BetterAuthTokenService,
+          CoreBetterAuthChallengeService,
         ],
       };
     }
@@ -314,7 +393,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
 
     // Always use deferred initialization to ensure MongoDB is ready
     // This prevents timing issues during application startup
-    return this.createDeferredModule(config, fallbackSecrets);
+    // Pass server-level URLs for Passkey auto-detection (using effective values from ConfigService fallback)
+    return this.createDeferredModule(config, effectiveFallbackSecrets, {
+      serverAppUrl: effectiveServerAppUrl,
+      serverBaseUrl: effectiveServerBaseUrl,
+      serverEnv: effectiveServerEnv,
+    });
   }
 
   /**
@@ -326,7 +410,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   static forRootAsync(): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
       imports: [],
       module: CoreBetterAuthModule,
       providers: [
@@ -408,6 +492,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             return new BetterAuthTokenService(betterAuthService, connection);
           },
         },
+        CoreBetterAuthChallengeService,
         this.getResolverClass(),
       ],
     };
@@ -446,11 +531,19 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   /**
    * Creates a deferred initialization module that waits for mongoose connection
    * By injecting the Connection token, NestJS ensures Mongoose is ready first
+   *
+   * @param config - BetterAuth configuration
+   * @param fallbackSecrets - Fallback secrets for backwards compatibility
+   * @param serverUrls - Server-level URLs for Passkey auto-detection
    */
-  private static createDeferredModule(config: IBetterAuth, fallbackSecrets?: (string | undefined)[]): DynamicModule {
+  private static createDeferredModule(
+    config: IBetterAuth,
+    fallbackSecrets?: (string | undefined)[],
+    serverUrls?: { serverAppUrl?: string; serverBaseUrl?: string; serverEnv?: string },
+  ): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
       module: CoreBetterAuthModule,
       providers: [
         {
@@ -467,9 +560,23 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               if (!globalDb) {
                 throw new Error('MongoDB database not available');
               }
-              this.authInstance = createBetterAuthInstance({ config, db: globalDb, fallbackSecrets });
+              this.authInstance = createBetterAuthInstance({
+                config,
+                db: globalDb,
+                fallbackSecrets,
+                serverAppUrl: serverUrls?.serverAppUrl,
+                serverBaseUrl: serverUrls?.serverBaseUrl,
+                serverEnv: serverUrls?.serverEnv,
+              });
             } else {
-              this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
+              this.authInstance = createBetterAuthInstance({
+                config,
+                db,
+                fallbackSecrets,
+                serverAppUrl: serverUrls?.serverAppUrl,
+                serverBaseUrl: serverUrls?.serverBaseUrl,
+                serverEnv: serverUrls?.serverEnv,
+              });
             }
 
             // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
@@ -516,6 +623,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             return new BetterAuthTokenService(betterAuthService, connection);
           },
         },
+        CoreBetterAuthChallengeService,
         this.getResolverClass(),
         // Conditionally register RolesGuard globally for IAM-only setups
         // In Legacy mode, RolesGuard is already registered globally via CoreAuthModule
@@ -539,24 +647,26 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static logEnabledFeatures(config: IBetterAuth): void {
     const features: string[] = [];
 
-    // Helper to check if a plugin is enabled
-    // Supports: true, { enabled: true }, { ... } (enabled by default when config block present)
-    // Disabled only when: false or { enabled: false }
-    const isPluginEnabled = <T extends { enabled?: boolean }>(value: boolean | T | undefined): boolean => {
-      if (value === undefined || value === false) return false;
-      if (value === true) return true;
-      return value.enabled !== false;
+    // Helper to check if a plugin is explicitly disabled
+    const isExplicitlyDisabled = <T extends { enabled?: boolean }>(value: boolean | T | undefined): boolean => {
+      if (value === false) return true;
+      if (typeof value === 'object' && value?.enabled === false) return true;
+      return false;
     };
 
-    // Plugins are enabled by default when config block is present
-    if (isPluginEnabled(config.jwt)) {
+    // JWT and 2FA are enabled by default unless explicitly disabled
+    if (!isExplicitlyDisabled(config.jwt)) {
       features.push('JWT');
     }
-    if (isPluginEnabled(config.twoFactor)) {
+    if (!isExplicitlyDisabled(config.twoFactor)) {
       features.push('2FA/TOTP');
     }
-    if (isPluginEnabled(config.passkey)) {
-      features.push('Passkey/WebAuthn');
+    // Passkey is enabled by default, unless explicitly set to false
+    if (config.passkey !== false && !(typeof config.passkey === 'object' && config.passkey?.enabled === false)) {
+      const passkeyConfig = typeof config.passkey === 'object' ? config.passkey : null;
+      // Challenge storage is 'database' by default, can be overridden via config
+      const challengeStorage = passkeyConfig?.challengeStorage || 'database';
+      features.push(`Passkey/WebAuthn (challenges: ${challengeStorage})`);
     }
 
     // Dynamically collect enabled social providers

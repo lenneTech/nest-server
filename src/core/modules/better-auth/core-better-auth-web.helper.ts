@@ -78,6 +78,49 @@ export function extractSessionToken(req: Request, basePath: string = 'iam'): nul
 }
 
 /**
+ * Checks if a cookie value appears to be already signed.
+ *
+ * A signed cookie has the format: `value.base64signature` where the signature
+ * is a base64-encoded string. This function checks if the value contains a dot
+ * followed by what looks like a base64 signature (not a JWT which has 2 dots).
+ *
+ * Note: This also handles URL-encoded signed cookies.
+ *
+ * @param value - The cookie value to check
+ * @returns true if the value appears to be already signed
+ */
+export function isAlreadySigned(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+
+  // First, try to URL-decode the value (signed cookies from signCookieValue are URL-encoded)
+  let decodedValue = value;
+  try {
+    decodedValue = decodeURIComponent(value);
+  } catch {
+    // If decoding fails, use the original value
+  }
+
+  // A JWT has exactly 2 dots (header.payload.signature)
+  // A signed cookie has exactly 1 dot (value.signature)
+  const dotCount = (decodedValue.match(/\./g) || []).length;
+
+  if (dotCount !== 1) {
+    return false;
+  }
+
+  // Check if the part after the dot looks like a base64 signature
+  const lastDotIndex = decodedValue.lastIndexOf('.');
+  const potentialSignature = decodedValue.substring(lastDotIndex + 1);
+
+  // Base64 signature should be non-empty and contain only valid base64 characters
+  // HMAC-SHA256 base64 signatures are typically 44 characters (32 bytes -> 44 base64 chars with padding)
+  const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+  return potentialSignature.length >= 20 && base64Regex.test(potentialSignature);
+}
+
+/**
  * Parses a Cookie header string into an object.
  *
  * @param cookieHeader - The Cookie header string
@@ -166,6 +209,25 @@ export function signCookieValue(value: string, secret: string): string {
 }
 
 /**
+ * Signs a cookie value only if it's not already signed.
+ *
+ * This prevents double-signing which would make the cookie invalid.
+ *
+ * @param value - The cookie value to potentially sign
+ * @param secret - The secret to use for signing
+ * @param logger - Optional logger for debug output
+ * @returns The signed cookie value (URL-encoded) or the original if already signed
+ */
+export function signCookieValueIfNeeded(value: string, secret: string, logger?: Logger): string {
+  if (isAlreadySigned(value)) {
+    logger?.debug?.('Cookie value appears to be already signed, skipping signing');
+    // Return URL-encoded to match signCookieValue behavior
+    return value.includes('%') ? value : encodeURIComponent(value);
+  }
+  return signCookieValue(value, secret);
+}
+
+/**
  * Converts an Express Request to a Web Standard Request.
  *
  * Better Auth uses the Fetch API's Request/Response objects internally.
@@ -201,9 +263,10 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
     const existingCookieString = headers.get('cookie') || '';
 
     // Sign the session token for Better Auth (if secret is provided)
+    // IMPORTANT: Only sign if not already signed to prevent double-signing
     let signedToken: string;
     if (secret) {
-      signedToken = signCookieValue(sessionToken, secret);
+      signedToken = signCookieValueIfNeeded(sessionToken, secret, logger);
     } else {
       logger?.warn('No Better Auth secret configured - cookies will not be signed');
       signedToken = sessionToken;

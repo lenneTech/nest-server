@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { maskEmail } from '../../common/helpers/logging.helper';
 import {
   BetterAuth2FAResponse,
   BetterAuthSignInResponse,
@@ -228,12 +229,12 @@ export class CoreBetterAuthResolver {
         body: { email, password },
       })) as BetterAuthSignInResponse | null;
 
-      this.logger.debug(`[SignIn] API response for ${email}: ${JSON.stringify(response)?.substring(0, 200)}`);
+      this.logger.debug(`[SignIn] API response for ${maskEmail(email)}: ${JSON.stringify(response)?.substring(0, 200)}`);
 
       // Check if response indicates an error (Better-Auth returns error objects, not throws)
       const responseAny = response as any;
       if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
-        this.logger.debug(`[SignIn] API returned error for ${email}: ${responseAny?.error || responseAny?.code}`);
+        this.logger.debug(`[SignIn] API returned error for ${maskEmail(email)}: ${responseAny?.error || responseAny?.code}`);
         throw new Error(responseAny?.error || responseAny?.code || 'Credential account not found');
       }
 
@@ -273,17 +274,17 @@ export class CoreBetterAuthResolver {
       throw new UnauthorizedException('Invalid credentials');
     } catch (error) {
       this.logger.debug(
-        `[SignIn] Sign-in failed for ${email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `[SignIn] Sign-in failed for ${maskEmail(email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
 
       // If migration is allowed, try to migrate legacy user and retry
       if (allowMigration) {
-        this.logger.debug(`[SignIn] Attempting migration for ${email}...`);
+        this.logger.debug(`[SignIn] Attempting migration for ${maskEmail(email)}...`);
         // Pass the original password for legacy verification
         const migrated = await this.userMapper.migrateAccountToIam(email, password);
-        this.logger.debug(`[SignIn] Migration result for ${email}: ${migrated}`);
+        this.logger.debug(`[SignIn] Migration result for ${maskEmail(email)}: ${migrated}`);
         if (migrated) {
-          this.logger.debug(`[SignIn] Migrated legacy user ${email} to IAM, retrying sign-in`);
+          this.logger.debug(`[SignIn] Migrated legacy user ${maskEmail(email)} to IAM, retrying sign-in`);
           // Retry sign-in after migration with normalized password (as migrateAccountToIam stores it)
           const normalizedPassword = this.userMapper.normalizePasswordForIam(password);
           return this.attemptSignInDirect(email, normalizedPassword, api);

@@ -4,7 +4,7 @@ import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
 
-import { isProduction, maskCookieHeader, maskEmail, maskToken } from '../../common/helpers/logging.helper';
+import { maskCookieHeader, maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthInstance } from './better-auth.config';
@@ -55,7 +55,6 @@ export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 @Injectable()
 export class CoreBetterAuthService {
   private readonly logger = new Logger(CoreBetterAuthService.name);
-  private readonly isProd = isProduction();
   private readonly config: IBetterAuth;
 
   constructor(
@@ -129,32 +128,30 @@ export class CoreBetterAuthService {
 
   /**
    * Checks if 2FA is enabled.
-   * Supports both boolean and object configuration:
-   * - `true` or `{}` → enabled
-   * - `false` or `{ enabled: false }` → disabled
+   * 2FA is enabled by default when BetterAuth is enabled.
+   * Only disabled when explicitly set to:
+   * - `false`
+   * - `{ enabled: false }`
    */
   isTwoFactorEnabled(): boolean {
-    return this.isEnabled() && this.isPluginEnabled(this.config.twoFactor);
+    if (!this.isEnabled()) return false;
+    if (this.config.twoFactor === false) return false;
+    if (typeof this.config.twoFactor === 'object' && this.config.twoFactor?.enabled === false) return false;
+    return true;
   }
 
   /**
    * Checks if Passkey/WebAuthn is enabled.
-   * Supports both boolean and object configuration:
-   * - `true` or `{}` → enabled
-   * - `false` or `{ enabled: false }` → disabled
+   * Passkey is enabled by default when BetterAuth is enabled.
+   * Only disabled when explicitly set to:
+   * - `false`
+   * - `{ enabled: false }`
    */
   isPasskeyEnabled(): boolean {
-    return this.isEnabled() && this.isPluginEnabled(this.config.passkey);
-  }
-
-  /**
-   * Helper to check if a plugin configuration is enabled.
-   * Supports both boolean and object configuration.
-   */
-  private isPluginEnabled<T extends { enabled?: boolean }>(config: boolean | T | undefined): boolean {
-    if (config === undefined) return false;
-    if (typeof config === 'boolean') return config;
-    return config.enabled !== false;
+    if (!this.isEnabled()) return false;
+    if (this.config.passkey === false) return false;
+    if (typeof this.config.passkey === 'object' && this.config.passkey?.enabled === false) return false;
+    return true;
   }
 
   /**
@@ -320,17 +317,13 @@ export class CoreBetterAuthService {
       }
 
       // Debug: Log the cookie header being sent to api.getSession (masked for security)
-      if (!this.isProd) {
-        const cookieHeader = headers.get('cookie');
-        this.logger.debug(`getSession called with cookies: ${maskCookieHeader(cookieHeader)}`);
-      }
+      const cookieHeader = headers.get('cookie');
+      this.logger.debug(`getSession called with cookies: ${maskCookieHeader(cookieHeader)}`);
 
       const response = await api.getSession({ headers });
 
       // Debug: Log the response from api.getSession
-      if (!this.isProd) {
-        this.logger.debug(`getSession response: ${JSON.stringify(response)?.substring(0, 200)}`);
-      }
+      this.logger.debug(`getSession response: ${JSON.stringify(response)?.substring(0, 200)}`);
 
       if (response && typeof response === 'object' && 'user' in response) {
         return response as SessionResult;
@@ -338,9 +331,7 @@ export class CoreBetterAuthService {
 
       return { session: null, user: null };
     } catch (error) {
-      if (!this.isProd) {
-        this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return { session: null, user: null };
     }
   }
@@ -383,9 +374,7 @@ export class CoreBetterAuthService {
       await api.signOut({ headers });
       return true;
     } catch (error) {
-      if (!this.isProd) {
-        this.logger.debug(`revokeSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      this.logger.debug(`revokeSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return false;
     }
   }
@@ -494,31 +483,23 @@ export class CoreBetterAuthService {
       const result = results[0];
 
       if (!result) {
-        if (!this.isProd) {
-          this.logger.debug(`getSessionByToken: session not found for token ${maskToken(token)}`);
-        }
+        this.logger.debug(`getSessionByToken: session not found for token ${maskToken(token)}`);
         return { session: null, user: null };
       }
 
       // Check if session is expired
       if (result.expiresAt && new Date(result.expiresAt) < new Date()) {
-        if (!this.isProd) {
-          this.logger.debug(`getSessionByToken: session expired`);
-        }
+        this.logger.debug(`getSessionByToken: session expired`);
         return { session: null, user: null };
       }
 
       const user = result.userDoc;
       if (!user) {
-        if (!this.isProd) {
-          this.logger.debug(`getSessionByToken: user not found for session`);
-        }
+        this.logger.debug(`getSessionByToken: user not found for session`);
         return { session: null, user: null };
       }
 
-      if (!this.isProd) {
-        this.logger.debug(`getSessionByToken: found session for user ${maskEmail(user.email)}`);
-      }
+      this.logger.debug(`getSessionByToken: found session for user ${maskEmail(user.email)}`);
 
       return {
         session: {
@@ -535,9 +516,7 @@ export class CoreBetterAuthService {
         },
       };
     } catch (error) {
-      if (!this.isProd) {
-        this.logger.debug(`getSessionByToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      this.logger.debug(`getSessionByToken error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return { session: null, user: null };
     }
   }

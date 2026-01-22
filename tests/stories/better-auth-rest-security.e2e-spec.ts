@@ -145,6 +145,9 @@ const testConfig = {
     BetterAuthModule.forRoot({
       config: testConfig.betterAuth,
       fallbackSecrets: [testConfig.jwt?.secret, testConfig.jwt?.refresh?.secret],
+      serverAppUrl: testConfig.appUrl,
+      serverBaseUrl: testConfig.baseUrl,
+      serverEnv: testConfig.env,
     }),
   ],
   providers: [

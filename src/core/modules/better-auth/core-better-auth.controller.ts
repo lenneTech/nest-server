@@ -18,7 +18,7 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
-import { isProduction, maskToken } from '../../common/helpers/logging.helper';
+import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
@@ -235,7 +235,7 @@ export class CoreBetterAuthController {
     try {
       const migrated = await this.userMapper.migrateAccountToIam(input.email, input.password);
       if (migrated) {
-        this.logger.debug(`Migrated legacy user ${input.email} to IAM`);
+        this.logger.debug(`Migrated legacy user ${maskEmail(input.email)} to IAM`);
       }
     } catch (error) {
       // Migration failure is not fatal - user might not exist in legacy or already migrated
@@ -262,9 +262,7 @@ export class CoreBetterAuthController {
       // When 2FA is required, we need to use the native Better Auth handler
       // because api.signInEmail() doesn't return the session token needed for 2FA verification
       if (requires2FA(response)) {
-        if (!isProduction()) {
-          this.logger.debug(`2FA required for ${input.email}, forwarding to native handler for cookie handling`);
-        }
+        this.logger.debug(`2FA required for ${maskEmail(input.email)}, forwarding to native handler for cookie handling`);
 
         // Forward to native Better Auth handler which sets the session cookie correctly
         // We need to modify the request body to use the normalized password
@@ -740,17 +738,13 @@ export class CoreBetterAuthController {
       throw new InternalServerErrorException('Better-Auth not initialized');
     }
 
-    if (!isProduction()) {
-      this.logger.debug(`Forwarding to Better Auth: ${req.method} ${req.path}`);
-    }
+    this.logger.debug(`Forwarding to Better Auth: ${req.method} ${req.path}`);
 
     try {
       // Extract session token from the validated middleware session or cookies
       const sessionToken = this.getSessionTokenFromRequest(req);
 
-      if (!isProduction()) {
-        this.logger.debug(`Session token for forwarding: ${maskToken(sessionToken)}`);
-      }
+      this.logger.debug(`Session token for forwarding: ${maskToken(sessionToken)}`);
 
       // Get config for signing cookies
       const config = this.betterAuthService.getConfig();
@@ -767,9 +761,7 @@ export class CoreBetterAuthController {
       // Call Better Auth's native handler
       const response = await authInstance.handler(webRequest);
 
-      if (!isProduction()) {
-        this.logger.debug(`Better Auth handler response status: ${response.status}`);
-      }
+      this.logger.debug(`Better Auth handler response status: ${response.status}`);
 
       // Send the response back
       await sendWebResponse(res, response);

@@ -163,7 +163,7 @@ export class CoreBetterAuthUserMapper {
       // User doesn't exist in our database yet
       // This can happen if they signed up through Better-Auth but not legacy auth
       // Return a user with default roles (S_USER since they're authenticated)
-      this.logger.debug(`Better-Auth user ${sessionUser.email} not found in users collection`);
+      this.logger.debug(`Better-Auth user ${maskEmail(sessionUser.email)} not found in users collection`);
 
       return this.createMappedUser({
         email: sessionUser.email,

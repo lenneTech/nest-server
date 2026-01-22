@@ -10,11 +10,15 @@ Integration of the [better-auth](https://better-auth.com) authentication framewo
 CoreModule.forRoot(envConfig),  // IAM-only (new projects)
 CoreBetterAuthModule.forRoot({ config: envConfig.betterAuth, fallbackSecrets: [envConfig.jwt?.secret] }),
 
-// 3. Configure in config.env.ts (minimal - JWT enabled by default):
-betterAuth: true  // or betterAuth: {} for same effect
-
-// With optional features:
-betterAuth: { twoFactor: {}, passkey: {} }
+// 3. Configure in config.env.ts (zero-config - enabled by default):
+// BetterAuth is enabled automatically with JWT + 2FA
+// Passkey is auto-activated when URLs can be resolved:
+//   - via root-level baseUrl (server-wide)
+//   - or env: 'local'/'ci'/'e2e' (uses localhost defaults)
+const config = {
+  baseUrl: 'https://api.example.com',  // Root-level - Passkey auto-detected from this
+  env: 'production',
+}
 ```
 
 **Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [REST API](#rest-api-endpoints) | [GraphQL API](#graphql-api) | [Configuration](#configuration)
@@ -42,8 +46,8 @@ betterAuth: { twoFactor: {}, passkey: {} }
 ### Built-in Plugins
 
 - **JWT Tokens** - For API clients and stateless authentication (**enabled by default**)
-- **Two-Factor Authentication (2FA)** - TOTP-based second factor (opt-in)
-- **Passkey/WebAuthn** - Passwordless authentication (opt-in)
+- **Two-Factor Authentication (2FA)** - TOTP-based second factor (**enabled by default**)
+- **Passkey/WebAuthn** - Passwordless authentication (**enabled by default**, requires resolvable URLs)
 
 ### Core Features
 
@@ -166,10 +170,11 @@ betterAuth: { enabled: false } // Disable (allows pre-configuration)
 **Default values (used when not configured):**
 
 - **JWT**: Enabled by default
+- **2FA/TOTP**: Enabled by default (users can optionally set up 2FA)
+- **Passkey**: Enabled by default (requires resolvable URLs via `baseUrl`, `appUrl`, or `env: 'local'`)
 - **Secret**: Falls back to `jwt.secret` → `jwt.refresh.secret` → auto-generated
 - **Base URL**: `http://localhost:3000`
 - **Base Path**: `/iam`
-- **2FA/Passkey**: Disabled (opt-in)
 
 To **explicitly disable** Better-Auth:
 
@@ -242,18 +247,55 @@ Read the security section below for production deployments.
 
 **For Development:** The defaults (`http://localhost:3000`, `/iam`) are correct.
 
-**For Production:** You must set `baseUrl` and `passkey.origin` to your actual domain:
+### Passkey Auto-Detection (Recommended)
+
+**New in v11.x:** Passkey configuration can be auto-detected from URLs:
+
+```typescript
+// RECOMMENDED: Set root-level baseUrl - Passkey values are auto-detected
+const config = {
+  baseUrl: process.env.BASE_URL, // e.g., 'https://api.example.com'
+  env: 'production',
+  // Passkey is AUTO-ACTIVATED with:
+  // - rpId: 'example.com' (derived from appUrl)
+  // - origin: 'https://example.com' (= appUrl, derived from baseUrl)
+  // - trustedOrigins: ['https://example.com'] (= appUrl)
+};
+
+// OR for local development - env: 'local' uses localhost defaults:
+const localConfig = {
+  env: 'local',  // Uses API=localhost:3000, App=localhost:3001
+};
+```
+
+**Benefits:**
+- **One config per stage**: Only set `BASE_URL` in your environment
+- **No duplication**: Passkey values derived automatically
+- **Graceful Degradation**: If auto-detection fails (no baseUrl), Passkey is disabled with a warning - other auth methods (Email/Password, 2FA) continue to work
+
+**Auto-Detection Resolution:**
+| Value | Priority | Source |
+|-------|----------|--------|
+| `baseUrl` | 1. Explicit `betterAuth.baseUrl` → 2. Root-level `baseUrl` → 3. Localhost default (env: 'local') |
+| `appUrl` | 1. Root-level `appUrl` → 2. Derived from `baseUrl` (removes `api.` prefix) → 3. Localhost default |
+| `rpId` | 1. Explicit `passkey.rpId` → 2. Auto-detect from appUrl hostname |
+| `origin` | 1. Explicit `passkey.origin` → 2. Auto-detect from appUrl |
+| `trustedOrigins` | 1. Explicit `trustedOrigins` → 2. Auto-detect from appUrl |
+
+### Explicit Passkey Configuration (Advanced)
+
+For production scenarios where you need full control:
 
 ```typescript
 const config = {
+  baseUrl: 'https://api.your-domain.com',  // Root-level
   betterAuth: {
-    baseUrl: 'https://api.your-domain.com',
     passkey: {
-      // enabled by default when config block is present
-      origin: 'https://your-domain.com', // Frontend domain
+      origin: 'https://your-domain.com', // Frontend domain (if different from API)
       rpId: 'your-domain.com', // Domain without protocol
       rpName: 'Your Application',
     },
+    trustedOrigins: ['https://your-domain.com', 'https://admin.your-domain.com'],
   },
 };
 ```
@@ -334,7 +376,53 @@ const config = {
 
 ## Configuration
 
-**Optional** - Better-Auth works without any configuration (true zero-config). Only add this block if you need to customize behavior:
+**Optional** - Better-Auth works without any configuration (true zero-config). Only add this block if you need to customize behavior.
+
+### Default Behavior Overview
+
+The following table shows which features are active based on your configuration:
+
+| Configuration | BetterAuth | JWT | 2FA | Passkey |
+|---------------|:----------:|:---:|:---:|:-------:|
+| *not set* (no URLs) | ✅ | ✅ | ✅ | ⚠️ disabled |
+| `env: 'local'/'ci'/'e2e'` (auto URLs) | ✅ | ✅ | ✅ | ✅ auto |
+| `baseUrl` set | ✅ | ✅ | ✅ | ✅ auto |
+| `betterAuth: false` | ❌ | ❌ | ❌ | ❌ |
+| `{ passkey: false }` | ✅ | ✅ | ✅ | ❌ |
+| `{ twoFactor: false }` | ✅ | ✅ | ❌ | ✅ auto |
+
+**Key points:**
+- **BetterAuth** is enabled by default (zero-config)
+- **JWT** is enabled by default (stateless authentication)
+- **2FA/TOTP** is enabled by default (users can optionally set up 2FA)
+- **Passkey/WebAuthn** is enabled by default, but requires resolvable URLs:
+  - Explicitly: `passkey.rpId`, `passkey.origin`, `trustedOrigins`
+  - Or via `baseUrl` → auto-detects `appUrl`, `rpId`, `origin`, `trustedOrigins`
+  - Or via `env: 'local'/'ci'/'e2e'` → uses localhost defaults
+
+### URL Configuration (Important for Passkey!)
+
+**Typical Architecture:**
+- **API**: `https://api.example.com` (NestJS server)
+- **App**: `https://example.com` (Frontend where browser runs)
+
+**URL Resolution:**
+
+| Config | `baseUrl` (API) | `appUrl` (Frontend) | Passkey |
+|--------|-----------------|---------------------|---------|
+| `env: 'local'/'ci'/'e2e'` | `http://localhost:3000` | `http://localhost:3001` | ✅ auto |
+| `baseUrl: 'https://api.example.com'` | as set | `https://example.com` (auto-derived) | ✅ auto |
+| `baseUrl: 'https://example.com'` | as set | `https://example.com` (same) | ✅ auto |
+| `appUrl: 'https://app.example.com'` | - | as set | ✅ auto |
+| Neither set | - | - | ⚠️ disabled |
+
+**Auto-Detection Logic:**
+1. `appUrl` is derived from `baseUrl` by removing `api.` prefix
+2. `rpId` is extracted from `appUrl` (e.g., `example.com`)
+3. `origin` = `appUrl` (e.g., `https://example.com`)
+4. `trustedOrigins` = `[appUrl]` (e.g., `['https://example.com']`)
+
+### Configuration Examples
 
 ```typescript
 // In config.env.ts
@@ -358,17 +446,23 @@ export default {
       // enabled: false,  // Uncomment to disable JWT
     },
 
-    // Two-Factor Authentication (opt-in - requires config block)
+    // Two-Factor Authentication - ENABLED BY DEFAULT
+    // Only add this block to customize or explicitly disable
     twoFactor: {
-      appName: 'My Application',
+      appName: 'My Application',  // Default: 'Nest Server'
+      // enabled: false,  // Uncomment to disable 2FA
     },
 
-    // Passkey/WebAuthn (opt-in - requires config block)
-    passkey: {
-      rpId: 'localhost',
-      rpName: 'My Application',
-      origin: 'http://localhost:3000',
-    },
+    // Passkey/WebAuthn - Auto-detection from baseUrl!
+    // If baseUrl is set, rpId/origin/trustedOrigins are auto-detected
+    passkey: true, // Just enable - values derived from baseUrl
+
+    // OR with explicit configuration (overrides auto-detection):
+    // passkey: {
+    //   rpId: 'localhost',       // Auto-detected from baseUrl hostname
+    //   rpName: 'My Application',
+    //   origin: 'http://localhost:3000', // Auto-detected from baseUrl
+    // },
 
     // Social Providers (enabled by default when credentials are configured)
     // Set enabled: false to explicitly disable a provider
@@ -384,6 +478,8 @@ export default {
     },
 
     // Trusted Origins for CORS
+    // Auto-detected from baseUrl when Passkey is enabled!
+    // Only set explicitly if you need additional origins
     trustedOrigins: ['http://localhost:3000', 'https://your-app.com'],
 
     // Rate Limiting (optional)
@@ -529,26 +625,27 @@ Better-Auth provides a rich plugin ecosystem. This module uses a **hybrid approa
 
 ### Built-in Plugins
 
-| Plugin             | Default State | Minimal Config to Enable | Default Values                                                                    |
+| Plugin             | Default State | Config to Disable        | Default Values                                                                    |
 | ------------------ | ------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| **JWT**            | **ENABLED**   | *(none needed)*          | `expiresIn: '15m'`                                                                |
-| **Two-Factor**     | Disabled      | `twoFactor: {}`          | `appName: 'Nest Server'`                                                          |
-| **Passkey**        | Disabled      | `passkey: {}`            | `origin: 'http://localhost:3000'`, `rpId: 'localhost'`, `rpName: 'Nest Server'`   |
+| **JWT**            | **ENABLED**   | `jwt: false`             | `expiresIn: '15m'`                                                                |
+| **Two-Factor**     | **ENABLED**   | `twoFactor: false`       | `appName: 'Nest Server'`                                                          |
+| **Passkey**        | **ENABLED**   | `passkey: false`         | Auto-detected from `baseUrl`/`appUrl`, `rpName: 'Nest Server'`                    |
 
-**JWT is enabled by default** - no configuration needed. 2FA and Passkey require explicit configuration.
+**All three plugins are enabled by default** - no configuration needed. Passkey requires resolvable URLs to function (via `baseUrl`, `appUrl`, or `env: 'local'/'ci'/'e2e'`). If URLs cannot be resolved, Passkey is disabled with a warning (graceful degradation).
 
 #### Minimal Syntax (Recommended for Development)
 
 ```typescript
 const config = {
-  // JWT is enabled automatically with BetterAuth
+  // JWT and 2FA are enabled automatically with BetterAuth
   betterAuth: true,  // or betterAuth: {}
 
-  // To also enable 2FA and Passkey:
-  betterAuth: {
-    twoFactor: {},
-    passkey: {},
-  },
+  // Passkey is auto-activated when URLs can be resolved:
+  // Option 1: Set root-level baseUrl (production)
+  baseUrl: 'https://api.example.com',  // Passkey values auto-detected from this
+
+  // Option 2: Use env: 'local'/'ci'/'e2e' (development)
+  env: 'local',  // Uses localhost defaults: API=:3000, App=:3001
 };
 ```
 
@@ -574,13 +671,13 @@ const config = {
 const config = {
   betterAuth: {
     jwt: false,               // Disable JWT (or jwt: { enabled: false })
-    twoFactor: {},            // 2FA enabled with defaults
-    passkey: { enabled: false }, // Passkey explicitly disabled
+    twoFactor: false,         // Disable 2FA (or twoFactor: { enabled: false })
+    passkey: false,           // Disable Passkey (or passkey: { enabled: false })
   },
 };
 ```
 
-**Note:** JWT is the only plugin enabled by default. To disable it, use `jwt: false` or `jwt: { enabled: false }`.
+**Note:** All three plugins (JWT, 2FA, Passkey) are enabled by default. Passkey requires resolvable URLs to function. Use `false` or `{ enabled: false }` to disable any plugin.
 
 ### Dynamic Plugins (plugins Array)
 

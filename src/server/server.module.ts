@@ -45,11 +45,9 @@ import { ServerController } from './server.controller';
     AuthModule.forRoot(envConfig.jwt),
 
     // Include BetterAuthModule for better-auth integration
+    // Zero-Config: All values are auto-read from ConfigService (set by CoreModule.forRoot)
     // This allows project-specific customization via BetterAuthResolver
-    BetterAuthModule.forRoot({
-      config: envConfig.betterAuth,
-      fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
-    }),
+    BetterAuthModule.forRoot({}),
 
     // Include ErrorCodeModule with project-specific error codes
     // Uses Core ErrorCodeModule.forRoot() with custom service and controller

@@ -144,6 +144,7 @@ Detailed documentation in `.claude/rules/`:
 | `testing.md` | Test configuration and best practices |
 | `versioning.md` | Version strategy and release process |
 | `core-modules.md` | Path-scoped rules for `src/core/modules/` incl. Integration Checklist requirements |
+| `better-auth.md` | **Security-critical**: Better-Auth module rules (standard compliance, security, testing) |
 | `module-deprecation.md` | Legacy Auth → BetterAuth migration roadmap |
 | `migration-guides.md` | Process for creating version migration guides |
 | `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |

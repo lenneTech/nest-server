@@ -1,7 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { isProduction, maskEmail, maskToken } from '../../common/helpers/logging.helper';
+import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
 import { extractSessionToken } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -33,7 +33,6 @@ export interface CoreBetterAuthRequest extends Request {
 @Injectable()
 export class CoreBetterAuthMiddleware implements NestMiddleware {
   private readonly logger = new Logger(CoreBetterAuthMiddleware.name);
-  private readonly isProd = isProduction();
 
   constructor(
     private readonly betterAuthService: CoreBetterAuthService,
@@ -134,9 +133,7 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
     } catch (error) {
       // Don't block the request on auth errors
       // The guards will handle unauthorized access
-      if (!this.isProd) {
-        this.logger.debug(`Session validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      this.logger.debug(`Session validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     next();
@@ -176,26 +173,18 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
       const basePath = this.betterAuthService.getBasePath();
       const sessionToken = extractSessionToken(req, basePath);
 
-      if (!this.isProd) {
-        this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
-      }
+      this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
 
       if (sessionToken) {
-        if (!this.isProd) {
-          this.logger.debug(`[MIDDLEWARE] Found session token in cookies: ${maskToken(sessionToken)}`);
-        }
+        this.logger.debug(`[MIDDLEWARE] Found session token in cookies: ${maskToken(sessionToken)}`);
 
         // Use getSessionByToken to validate session directly from database
         const sessionResult = await this.betterAuthService.getSessionByToken(sessionToken);
 
-        if (!this.isProd) {
-          this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
-        }
+        this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
 
         if (sessionResult?.user && sessionResult?.session) {
-          if (!this.isProd) {
-            this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);
-          }
+          this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);
           return sessionResult as { session: any; user: BetterAuthSessionUser };
         }
       }
@@ -225,9 +214,7 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
       return null;
     } catch (error) {
-      if (!this.isProd) {
-        this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      this.logger.debug(`getSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return null;
     }
   }

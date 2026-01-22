@@ -74,6 +74,9 @@ import { ServerController } from '../../src/server/server.controller';
     BetterAuthModule.forRoot({
       config: envConfig.betterAuth,
       fallbackSecrets: [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret],
+      serverAppUrl: envConfig.appUrl,
+      serverBaseUrl: envConfig.baseUrl,
+      serverEnv: envConfig.env,
     }),
     // Use Core ErrorCodeModule.forRoot() with custom service and controller
     ErrorCodeModule.forRoot({

@@ -129,38 +129,47 @@ export class ServerModule {}
 **Modify:** `src/config.env.ts`
 **Reference:** `node_modules/@lenne.tech/nest-server/src/config.env.ts`
 
-#### For New Projects (IAM-Only):
+#### Zero-Config (Default):
+BetterAuth is **enabled by default** with JWT + 2FA. No configuration required!
+
 ```typescript
 const config = {
-  // Disable Legacy Auth endpoints
+  // BetterAuth is automatically enabled with:
+  // - JWT tokens (for API clients)
+  // - 2FA/TOTP (users can enable it in settings)
+  // No betterAuth config needed!
+
+  // For new projects, disable Legacy Auth:
   auth: {
     legacyEndpoints: {
       enabled: false,
     },
   },
-  // BetterAuth configuration (minimal - JWT enabled by default)
-  betterAuth: true,  // or betterAuth: {} for same effect
-
-  // OR with optional features:
-  betterAuth: {
-    twoFactor: {}, // Enable 2FA (opt-in)
-    passkey: {},   // Enable Passkeys (opt-in)
-    // JWT is already enabled by default
-  },
 };
 ```
 
-#### For Existing Projects (Migration):
+#### With Passkey (auto-detected from baseUrl):
 ```typescript
 const config = {
-  // Keep Legacy Auth endpoints enabled during migration
-  auth: {
-    legacyEndpoints: {
-      enabled: true, // Default - can disable after migration
-    },
+  // Passkey is auto-activated when URLs can be resolved
+  // Option 1: Set root-level baseUrl (production)
+  baseUrl: 'https://api.example.com',  // rpId, origin, trustedOrigins auto-detected
+  env: 'production',
+
+  // Option 2: Use env: 'local'/'ci'/'e2e' (development)
+  // env: 'local',  // Uses localhost defaults: API=:3000, App=:3001
+};
+```
+
+#### Disabling Features:
+```typescript
+const config = {
+  betterAuth: {
+    jwt: false,       // Disable JWT (use cookies only)
+    twoFactor: false, // Disable 2FA
   },
-  // BetterAuth configuration (JWT enabled by default)
-  betterAuth: true,  // Minimal config, or use object for more options
+  // OR disable BetterAuth completely:
+  betterAuth: false,
 };
 ```
 
@@ -345,26 +354,31 @@ async function useBackupCode(code: string) {
 
 ### Passkey Login Flow (Client-Side)
 
-Handle passkey authentication with session validation fallback:
+Handle passkey authentication with session validation fallback.
+
+**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `authenticateWithPasskey()` function from the composable instead of `authClient.signIn.passkey()` directly. This is because JWT mode requires sending a `challengeId` to the server for challenge verification.
 
 ```typescript
-// login.vue - Passkey login
+// login.vue - Passkey login (JWT-compatible)
+// Use authenticateWithPasskey from useBetterAuth composable
+const { authenticateWithPasskey, setUser, validateSession } = useBetterAuth();
+
 async function onPasskeyLogin() {
   try {
-    // Use official Better Auth passkey sign-in
-    const result = await authClient.signIn.passkey();
+    // Use composable method which handles challengeId for JWT mode
+    const result = await authenticateWithPasskey();
 
-    if (result.error) {
-      showError(result.error.message || 'Passkey authentication failed');
+    // Check for error (returns { success, error?, user?, session? })
+    if (!result.success) {
+      showError(result.error || 'Passkey authentication failed');
       return;
     }
 
     // Update auth state with user data if available
-    if (result.data?.user) {
-      setUser(result.data.user);
-    } else if (result.data?.session) {
-      // IMPORTANT: Passkey auth returns session without user
-      // Fetch user data via session validation
+    if (result.user) {
+      setUser(result.user);
+    } else {
+      // Passkey auth may return success without user - fetch via session validation
       await validateSession();
     }
 
@@ -378,33 +392,36 @@ async function onPasskeyLogin() {
     showError(err instanceof Error ? err.message : 'Passkey login failed');
   }
 }
-
-// Helper: Validate session and fetch user data
-async function validateSession() {
-  const sessionResult = await authClient.$fetch('/session');
-  if (sessionResult.user) {
-    setUser(sessionResult.user);
-    return true;
-  }
-  return false;
-}
 ```
+
+**Why not use `authClient.signIn.passkey()` directly?**
+
+In JWT mode (`cookies: false`), the server stores WebAuthn challenges in the database instead of cookies. The server returns a `challengeId` in the generate-options response, which must be sent back in the verify request. The `authenticateWithPasskey()` composable function handles this automatically.
+
+| Mode | Challenge Storage | Client Approach |
+|------|------------------|-----------------|
+| Cookie (`cookies: true` or not set) | Cookie (`better-auth.better-auth-passkey`) | Either approach works |
+| JWT (`cookies: false`) | Database with `challengeId` mapping (auto-enabled) | **Must use composable** |
+
+**Note:** Database challenge storage is automatically enabled when `options.cookies: false` is set. No additional configuration is required.
 
 ### Passkey Registration (Client-Side)
 
-Register a new passkey for an authenticated user:
+Register a new passkey for an authenticated user.
+
+**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `registerPasskey()` function from the composable. This ensures the `challengeId` is correctly sent to the server.
 
 ```typescript
-// settings.vue - Register new passkey
-async function registerPasskey() {
-  try {
-    // This calls generate-register-options → verify-registration
-    const result = await authClient.passkey.addPasskey({
-      name: 'My Device',  // Optional: passkey name
-    });
+// settings.vue - Register new passkey (JWT-compatible)
+const { registerPasskey, listPasskeys, deletePasskey } = useBetterAuth();
 
-    if (result.error) {
-      showError(result.error.message);
+async function onRegisterPasskey() {
+  try {
+    // Use composable method which handles challengeId for JWT mode
+    const result = await registerPasskey('My Device'); // Optional name
+
+    if (!result.success) {
+      showError(result.error || 'Passkey registration failed');
       return;
     }
 
@@ -420,21 +437,30 @@ async function registerPasskey() {
   }
 }
 
-// List user's passkeys
+// List user's passkeys (works in both modes)
 async function loadPasskeys() {
-  const result = await authClient.passkey.listUserPasskeys();
-  if (!result.error) {
-    passkeys.value = result.data || [];
+  const result = await listPasskeys();
+  if (result.success) {
+    passkeys.value = result.passkeys || [];
   }
 }
 
-// Delete a passkey
-async function deletePasskey(passkeyId: string) {
-  const result = await authClient.passkey.deletePasskey({ id: passkeyId });
-  if (!result.error) {
+// Delete a passkey (works in both modes)
+async function onDeletePasskey(passkeyId: string) {
+  const result = await deletePasskey(passkeyId);
+  if (result.success) {
     await loadPasskeys();
   }
 }
+```
+
+**Alternative for Cookie mode only:**
+
+If you're only using Cookie mode (`cookies: true`), you can use `authClient.passkey` directly:
+
+```typescript
+// Cookie mode ONLY - does NOT work with JWT mode
+const result = await authClient.passkey.addPasskey({ name: 'My Device' });
 ```
 
 ---
