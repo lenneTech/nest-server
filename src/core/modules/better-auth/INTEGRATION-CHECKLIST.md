@@ -101,12 +101,15 @@ The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
     BetterAuthModule.forRoot({
       config: envConfig.betterAuth,
       fallbackSecrets: [envConfig.jwt?.secret],
+      // registerRolesGuardGlobally defaults to true - @Roles() decorators work automatically!
     }),
     // ... other modules
   ],
 })
 export class ServerModule {}
 ```
+
+**Note:** Since 11.10.3, `registerRolesGuardGlobally` defaults to `true`. You don't need to set it explicitly.
 
 #### For Existing Projects (Migration):
 ```typescript
