@@ -138,37 +138,52 @@ describe('Story: BetterAuth Enabled Integration', () => {
     it('should have all required fields in config', () => {
       const config = envConfig.betterAuth;
 
+      // With Zero-Config approach, betterAuth config can be minimal
+      // Only secret is expected to be defined for local environment
       expect(config).toBeDefined();
-      expect(config.basePath).toBeDefined();
-      expect(config.baseUrl).toBeDefined();
       expect(config.secret).toBeDefined();
+      // basePath and baseUrl are now optional (auto-resolved from server config)
       // enabled can be boolean or undefined (undefined is treated as true/enabled)
       expect(config.enabled === undefined || typeof config.enabled === 'boolean').toBe(true);
     });
 
-    it('should have JWT config', () => {
+    it('should have JWT config or use defaults', () => {
       const config = envConfig.betterAuth;
 
-      expect(config.jwt).toBeDefined();
-      expect(typeof config.jwt.enabled).toBe('boolean');
+      // JWT is enabled by default unless explicitly disabled
+      // Config can be undefined (defaults used), boolean, or object
+      if (config.jwt !== undefined) {
+        expect(typeof config.jwt === 'boolean' || typeof config.jwt === 'object').toBe(true);
+      }
+      // No explicit config means JWT is enabled with defaults
     });
 
-    it('should have social providers config', () => {
+    it('should have social providers config when configured', () => {
       const config = envConfig.betterAuth;
 
-      expect(config.socialProviders).toBeDefined();
-      expect(config.socialProviders.google).toBeDefined();
-      expect(config.socialProviders.github).toBeDefined();
-      expect(config.socialProviders.apple).toBeDefined();
+      // Social providers are optional - only validate if configured
+      if (config.socialProviders) {
+        expect(typeof config.socialProviders).toBe('object');
+        // Providers are only validated if they exist
+      }
+      // Missing socialProviders config is valid (no social login)
     });
 
-    it('should have rate limit config', () => {
+    it('should have rate limit config when configured', () => {
       const config = envConfig.betterAuth;
 
-      expect(config.rateLimit).toBeDefined();
-      expect(typeof config.rateLimit.enabled).toBe('boolean');
-      expect(typeof config.rateLimit.max).toBe('number');
-      expect(typeof config.rateLimit.windowSeconds).toBe('number');
+      // Rate limiting is optional - only validate if configured
+      if (config.rateLimit) {
+        expect(typeof config.rateLimit).toBe('object');
+        // enabled and max are optional - if present, validate types
+        if (config.rateLimit.enabled !== undefined) {
+          expect(typeof config.rateLimit.enabled).toBe('boolean');
+        }
+        if (config.rateLimit.max !== undefined) {
+          expect(typeof config.rateLimit.max).toBe('number');
+        }
+      }
+      // Missing rateLimit config is valid (no rate limiting)
     });
   });
 

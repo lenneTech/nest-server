@@ -62,6 +62,24 @@ export interface CreateBetterAuthOptions {
    * ```
    */
   fallbackSecrets?: (string | undefined)[];
+
+  /**
+   * Server-level app/frontend URL (from IServerOptions.appUrl).
+   * Used for Passkey origin and CORS trustedOrigins.
+   */
+  serverAppUrl?: string;
+
+  /**
+   * Server-level base URL (from IServerOptions.baseUrl).
+   * Used as fallback for betterAuth.baseUrl.
+   */
+  serverBaseUrl?: string;
+
+  /**
+   * Server environment (from IServerOptions.env).
+   * Used for local environment defaults.
+   */
+  serverEnv?: string;
 }
 
 /**
@@ -69,6 +87,46 @@ export interface CreateBetterAuthOptions {
  * Matches the DBFieldType from better-auth
  */
 type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
+
+/**
+ * Normalized Passkey configuration with required fields
+ */
+interface NormalizedPasskeyConfig {
+  authenticatorAttachment?: 'cross-platform' | 'platform';
+  challengeStorage?: 'cookie' | 'database';
+  challengeTtlSeconds?: number;
+  origin: string;
+  residentKey?: 'discouraged' | 'preferred' | 'required';
+  rpId: string;
+  rpName: string;
+  userVerification?: 'discouraged' | 'preferred' | 'required';
+  webAuthnChallengeCookie?: string;
+}
+
+/**
+ * Result of Passkey configuration normalization
+ */
+interface PasskeyNormalizationResult {
+  /**
+   * Whether Passkey should be enabled after normalization
+   */
+  enabled: boolean;
+
+  /**
+   * Normalized Passkey configuration (with auto-detected values)
+   */
+  normalizedConfig: NormalizedPasskeyConfig | null;
+
+  /**
+   * Auto-detected trustedOrigins (to be merged with config)
+   */
+  trustedOrigins: null | string[];
+
+  /**
+   * Warnings generated during normalization
+   */
+  warnings: string[];
+}
 
 /**
  * Social provider configuration for better-auth
@@ -115,8 +173,26 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     return null;
   }
 
+  // Resolve URLs with auto-detection and local defaults
+  const resolvedUrls = resolveUrls(options);
+
+  // Log URL resolution warnings
+  for (const warning of resolvedUrls.warnings) {
+    logger.log(warning);
+  }
+
+  // Normalize Passkey configuration with auto-detection from resolved URLs
+  // This must happen BEFORE validation to allow graceful degradation
+  // Passkey is now AUTO-ACTIVATED by default (not opt-in)
+  const passkeyNormalization = normalizePasskeyConfig(config, resolvedUrls);
+
+  // Log passkey normalization warnings (info about auto-detection or disabled status)
+  for (const warning of passkeyNormalization.warnings) {
+    logger.warn(warning);
+  }
+
   // Validate configuration (with fallback secrets for backwards compatibility)
-  const validation = validateConfig(config, fallbackSecrets);
+  const validation = validateConfig(config, fallbackSecrets, passkeyNormalization);
 
   // Log warnings
   for (const warning of validation.warnings) {
@@ -128,16 +204,17 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     throw new Error(`BetterAuth configuration invalid: ${validation.errors.join('; ')}`);
   }
 
-  // Build configuration components
-  const plugins = buildPlugins(config);
+  // Build configuration components (pass normalized passkey config and resolved URLs)
+  const plugins = buildPlugins(config, passkeyNormalization);
   const socialProviders = buildSocialProviders(config);
-  const trustedOrigins = buildTrustedOrigins(config);
+  const trustedOrigins = buildTrustedOrigins(config, passkeyNormalization, resolvedUrls);
   const additionalFields = buildUserFields(config);
 
   // Build the base Better-Auth configuration
+  // Use resolved baseUrl (with local defaults) or fallback
   const betterAuthConfig: Record<string, unknown> = {
     basePath: config.basePath || '/iam',
-    baseURL: config.baseUrl || 'http://localhost:3000',
+    baseURL: resolvedUrls.baseUrl || config.baseUrl || 'http://localhost:3000',
     database: mongodbAdapter(db),
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
@@ -178,8 +255,11 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
  * - `{ option: value }`: Enable with custom settings
  * - `false` or `{ enabled: false }`: Disable
  * - `undefined`: Disabled (default)
+ *
+ * @param config - Better-auth configuration
+ * @param passkeyNormalization - Normalized passkey configuration from normalizePasskeyConfig()
  */
-function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
+function buildPlugins(config: IBetterAuth, passkeyNormalization: PasskeyNormalizationResult): BetterAuthPlugin[] {
   const plugins: BetterAuthPlugin[] = [];
 
   // JWT Plugin for API client compatibility
@@ -198,8 +278,11 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   }
 
   // Two-Factor Authentication Plugin
-  const twoFactorConfig = getPluginConfig(config.twoFactor);
-  if (twoFactorConfig) {
+  // 2FA is enabled by default unless explicitly disabled (twoFactor: false or twoFactor: { enabled: false })
+  const twoFactorExplicitlyDisabled =
+    config.twoFactor === false || (typeof config.twoFactor === 'object' && config.twoFactor?.enabled === false);
+  if (!twoFactorExplicitlyDisabled) {
+    const twoFactorConfig = typeof config.twoFactor === 'object' ? config.twoFactor : {};
     plugins.push(
       twoFactor({
         issuer: twoFactorConfig.appName || 'Nest Server',
@@ -208,27 +291,29 @@ function buildPlugins(config: IBetterAuth): BetterAuthPlugin[] {
   }
 
   // Passkey/WebAuthn Plugin
-  const passkeyConfig = getPluginConfig(config.passkey);
-  if (passkeyConfig) {
-    // Build passkey options, only including defined values
+  // Uses normalized config from normalizePasskeyConfig() which handles auto-detection
+  if (passkeyNormalization.enabled && passkeyNormalization.normalizedConfig) {
+    const normalizedPasskey = passkeyNormalization.normalizedConfig;
+
+    // Build passkey options from normalized config
     const passkeyOptions: Record<string, unknown> = {
-      origin: passkeyConfig.origin || 'http://localhost:3000',
-      rpID: passkeyConfig.rpId || 'localhost',
-      rpName: passkeyConfig.rpName || 'Nest Server',
+      origin: normalizedPasskey.origin,
+      rpID: normalizedPasskey.rpId,
+      rpName: normalizedPasskey.rpName,
     };
 
     // Add optional WebAuthn configuration if specified
-    if (passkeyConfig.authenticatorAttachment) {
-      passkeyOptions.authenticatorAttachment = passkeyConfig.authenticatorAttachment;
+    if (normalizedPasskey.authenticatorAttachment) {
+      passkeyOptions.authenticatorAttachment = normalizedPasskey.authenticatorAttachment;
     }
-    if (passkeyConfig.residentKey) {
-      passkeyOptions.residentKey = passkeyConfig.residentKey;
+    if (normalizedPasskey.residentKey) {
+      passkeyOptions.residentKey = normalizedPasskey.residentKey;
     }
-    if (passkeyConfig.userVerification) {
-      passkeyOptions.userVerification = passkeyConfig.userVerification;
+    if (normalizedPasskey.userVerification) {
+      passkeyOptions.userVerification = normalizedPasskey.userVerification;
     }
-    if (passkeyConfig.webAuthnChallengeCookie) {
-      passkeyOptions.webAuthnChallengeCookie = passkeyConfig.webAuthnChallengeCookie;
+    if (normalizedPasskey.webAuthnChallengeCookie) {
+      passkeyOptions.webAuthnChallengeCookie = normalizedPasskey.webAuthnChallengeCookie;
     }
 
     plugins.push(passkey(passkeyOptions));
@@ -273,24 +358,32 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
  *
  * Behavior:
  * - If trustedOrigins is explicitly configured → use those origins
- * - If Passkey disabled and baseUrl set → fallback to [baseUrl] (backwards compatible)
+ * - If Passkey is enabled → use trustedOrigins from normalizePasskeyConfig()
+ * - Fallback to resolved appUrl
  * - Otherwise → return undefined (allows all origins via Better-Auth's default)
  *
- * NOTE: When Passkey is enabled, trustedOrigins MUST be configured because
- * Passkey uses credentials: 'include' which doesn't work with CORS '*' wildcard.
- * This is validated in validateConfig() which throws an error if missing.
+ * @param config - Better-auth configuration
+ * @param passkeyNormalization - Normalized passkey configuration from normalizePasskeyConfig()
+ * @param resolvedUrls - Resolved URLs from resolveUrls()
  */
-function buildTrustedOrigins(config: IBetterAuth): string[] | undefined {
+function buildTrustedOrigins(
+  config: IBetterAuth,
+  passkeyNormalization: PasskeyNormalizationResult,
+  resolvedUrls: ResolvedUrls,
+): string[] | undefined {
   // If trustedOrigins is explicitly configured, use it
   if (config.trustedOrigins?.length) {
     return config.trustedOrigins;
   }
 
-  // Backwards-compatible fallback for non-Passkey configs
-  // When Passkey is enabled, validateConfig() will throw an error anyway
-  const isPasskeyEnabled = isPluginEnabled(config.passkey);
-  if (!isPasskeyEnabled && config.baseUrl) {
-    return [config.baseUrl];
+  // If Passkey is enabled, use the trustedOrigins from normalization
+  if (passkeyNormalization.enabled && passkeyNormalization.trustedOrigins?.length) {
+    return passkeyNormalization.trustedOrigins;
+  }
+
+  // Fallback to resolved appUrl (for CORS even without Passkey)
+  if (resolvedUrls.appUrl) {
+    return [resolvedUrls.appUrl];
   }
 
   // Otherwise, let Better-Auth handle CORS with its default behavior
@@ -366,29 +459,6 @@ function getAutoGeneratedSecret(): string {
 }
 
 /**
- * Gets plugin configuration as object, handling boolean shorthand.
- * Returns undefined if disabled, or the config object if enabled.
- */
-function getPluginConfig<T extends { enabled?: boolean }>(config: boolean | T | undefined): T | undefined {
-  if (!isPluginEnabled(config)) return undefined;
-  if (typeof config === 'boolean') return {} as T;
-  return config;
-}
-
-/**
- * Checks if a plugin configuration is enabled.
- * Supports both boolean and object configuration:
- * - `true` or `{}` or `{ enabled: true }` → enabled
- * - `false` or `{ enabled: false }` → disabled
- * - `undefined` → disabled
- */
-function isPluginEnabled<T extends { enabled?: boolean }>(config: boolean | T | undefined): boolean {
-  if (config === undefined) return false;
-  if (typeof config === 'boolean') return config;
-  return config.enabled !== false;
-}
-
-/**
  * Checks if a secret has valid minimum length (32 characters)
  */
 function isValidSecretLength(secret: string): boolean {
@@ -408,6 +478,263 @@ function isValidUrl(url: string): boolean {
 }
 
 /**
+ * Default URLs for local/test environments (local, ci, e2e)
+ * These environments typically run on localhost and don't have a deployed domain.
+ */
+const LOCALHOST_DEFAULTS = {
+  API_URL: 'http://localhost:3000',
+  APP_URL: 'http://localhost:3001',
+};
+
+/**
+ * Environments that use localhost defaults for URLs.
+ * These are typically development/test environments without deployed domains.
+ */
+const LOCALHOST_ENVS = ['local', 'ci', 'e2e'];
+
+/**
+ * Resolves the effective URLs for BetterAuth configuration.
+ *
+ * Resolution priority:
+ * 1. Explicit betterAuth config values
+ * 2. Server-level URLs (IServerOptions.baseUrl, IServerOptions.appUrl)
+ * 3. Auto-derived values (appUrl from baseUrl)
+ * 4. Local environment defaults (when env: 'local')
+ *
+ * @param options - CreateBetterAuthOptions containing config and server URLs
+ * @returns Resolved URLs with warnings for logging
+ */
+interface ResolvedUrls {
+  appUrl: string | undefined;
+  baseUrl: string | undefined;
+  rpId: string | undefined;
+  warnings: string[];
+}
+
+/**
+ * Derives appUrl from baseUrl by removing 'api.' prefix from subdomain.
+ *
+ * Examples:
+ * - 'https://api.example.com' → 'https://example.com'
+ * - 'https://api.dev.example.com' → 'https://dev.example.com'
+ * - 'https://example.com' → 'https://example.com' (unchanged)
+ * - 'http://localhost:3000' → 'http://localhost:3000' (unchanged)
+ *
+ * @param baseUrl - The API base URL
+ * @returns Derived app URL or the original URL if no 'api.' prefix
+ */
+function deriveAppUrlFromBaseUrl(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    const hostname = url.hostname;
+
+    // Check if hostname starts with 'api.'
+    if (hostname.startsWith('api.')) {
+      // Remove 'api.' prefix
+      url.hostname = hostname.substring(4);
+      return url.origin;
+    }
+
+    // Return original URL if no 'api.' prefix
+    return url.origin;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/**
+ * Extracts the root domain from a URL for use as Passkey rpId.
+ *
+ * For localhost: Returns 'localhost' (not 'localhost:3000')
+ * For domains: Returns the registrable domain (e.g., 'example.com')
+ *
+ * Examples:
+ * - 'https://api.example.com' → 'example.com'
+ * - 'https://app.dev.example.com' → 'example.com'
+ * - 'http://localhost:3000' → 'localhost'
+ * - 'https://example.com' → 'example.com'
+ *
+ * @param url - The URL to extract rpId from
+ * @returns The root domain suitable for Passkey rpId
+ */
+function extractRpIdFromUrl(url: string): string {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname;
+
+    // localhost is a special case
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'localhost';
+    }
+
+    // For regular domains, extract the registrable domain
+    // This is a simplified approach - for complex TLDs like .co.uk, a library would be better
+    const parts = hostname.split('.');
+
+    // If it's just a simple domain (example.com), return it
+    if (parts.length <= 2) {
+      return hostname;
+    }
+
+    // For subdomains, return the last two parts (example.com from api.example.com)
+    // Note: This doesn't handle .co.uk style TLDs correctly, but works for common cases
+    return parts.slice(-2).join('.');
+  } catch {
+    return 'localhost';
+  }
+}
+
+/**
+ * Normalizes Passkey configuration with auto-detection from resolved URLs.
+ *
+ * **AUTO-ACTIVATION:** Passkey is enabled by default when BetterAuth is active.
+ * It is only disabled when:
+ * 1. Explicitly disabled: `passkey: false` or `passkey: { enabled: false }`
+ * 2. Required URLs cannot be resolved (Graceful Degradation)
+ *
+ * Auto-Detection Logic (using resolvedUrls from resolveUrls()):
+ * - `rpId`: from passkey.rpId > resolvedUrls.rpId (derived from appUrl)
+ * - `origin`: from passkey.origin > resolvedUrls.appUrl
+ * - `trustedOrigins`: from config.trustedOrigins > [resolvedUrls.appUrl]
+ *
+ * @param config - Better-auth configuration
+ * @param resolvedUrls - Resolved URLs from resolveUrls()
+ * @returns Normalization result with enabled status, config, and warnings
+ */
+function normalizePasskeyConfig(config: IBetterAuth, resolvedUrls: ResolvedUrls): PasskeyNormalizationResult {
+  const warnings: string[] = [];
+
+  // Check if Passkey is explicitly DISABLED
+  // passkey: false OR passkey: { enabled: false }
+  const isExplicitlyDisabled =
+    config.passkey === false || (typeof config.passkey === 'object' && config.passkey?.enabled === false);
+
+  if (isExplicitlyDisabled) {
+    return { enabled: false, normalizedConfig: null, trustedOrigins: null, warnings };
+  }
+
+  // Get the raw passkey config (if object)
+  const rawConfig = typeof config.passkey === 'object' ? config.passkey : {};
+
+  // Resolve values: explicit config > resolved URLs
+  const finalRpId = rawConfig.rpId || resolvedUrls.rpId;
+  const finalOrigin = rawConfig.origin || resolvedUrls.appUrl;
+  const finalTrustedOrigins = config.trustedOrigins?.length ? config.trustedOrigins : resolvedUrls.appUrl ? [resolvedUrls.appUrl] : undefined;
+
+  // Check if we have all required values for Passkey
+  const hasRequiredConfig = finalRpId && finalOrigin && finalTrustedOrigins?.length;
+
+  if (!hasRequiredConfig) {
+    // Graceful Degradation: Disable Passkey with warning
+    const missingFields: string[] = [];
+    if (!finalRpId) missingFields.push('rpId');
+    if (!finalOrigin) missingFields.push('origin');
+    if (!finalTrustedOrigins?.length) missingFields.push('trustedOrigins');
+
+    warnings.push(
+      `⚠️ PASSKEY DISABLED: Cannot auto-detect required values (${missingFields.join(', ')}). ` +
+        'To enable Passkey, set baseUrl in your config or configure passkey values explicitly.',
+    );
+    warnings.push(
+      'Fix options:\n' +
+        '  1. Set baseUrl: "https://api.example.com" → auto-detects appUrl, rpId, origin\n' +
+        '  2. Set env: "local" → uses localhost:3000 (API) and localhost:3001 (App) defaults\n' +
+        '  3. Disable Passkey explicitly: passkey: false (no warning)',
+    );
+
+    return { enabled: false, normalizedConfig: null, trustedOrigins: null, warnings };
+  }
+
+  // Log auto-detection info
+  if (!rawConfig.rpId && resolvedUrls.rpId) {
+    warnings.push(`PASSKEY: Using rpId="${finalRpId}" (auto-detected from appUrl)`);
+  }
+  if (!rawConfig.origin && resolvedUrls.appUrl) {
+    warnings.push(`PASSKEY: Using origin="${finalOrigin}" (= appUrl)`);
+  }
+  if (!config.trustedOrigins?.length && resolvedUrls.appUrl) {
+    warnings.push(`PASSKEY: Using trustedOrigins=${JSON.stringify(finalTrustedOrigins)} (= [appUrl])`);
+  }
+
+  // Build normalized config
+  const normalizedConfig: NormalizedPasskeyConfig = {
+    origin: finalOrigin,
+    rpId: finalRpId,
+    rpName: rawConfig.rpName || 'Nest Server',
+  };
+
+  // Copy optional fields from explicit config
+  if (rawConfig.authenticatorAttachment) {
+    normalizedConfig.authenticatorAttachment = rawConfig.authenticatorAttachment;
+  }
+  if (rawConfig.challengeStorage) {
+    normalizedConfig.challengeStorage = rawConfig.challengeStorage;
+  }
+  if (rawConfig.challengeTtlSeconds) {
+    normalizedConfig.challengeTtlSeconds = rawConfig.challengeTtlSeconds;
+  }
+  if (rawConfig.residentKey) {
+    normalizedConfig.residentKey = rawConfig.residentKey;
+  }
+  if (rawConfig.userVerification) {
+    normalizedConfig.userVerification = rawConfig.userVerification;
+  }
+  if (rawConfig.webAuthnChallengeCookie) {
+    normalizedConfig.webAuthnChallengeCookie = rawConfig.webAuthnChallengeCookie;
+  }
+
+  return {
+    enabled: true,
+    normalizedConfig,
+    trustedOrigins: finalTrustedOrigins,
+    warnings,
+  };
+}
+
+function resolveUrls(options: CreateBetterAuthOptions): ResolvedUrls {
+  const { config, serverAppUrl, serverBaseUrl, serverEnv } = options;
+  const warnings: string[] = [];
+  const usesLocalhostDefaults = LOCALHOST_ENVS.includes(serverEnv || '');
+
+  // Step 1: Resolve baseUrl
+  // Priority: betterAuth.baseUrl > serverBaseUrl > localhost default (for local/ci/e2e)
+  let baseUrl = config.baseUrl || serverBaseUrl;
+  if (!baseUrl && usesLocalhostDefaults) {
+    baseUrl = LOCALHOST_DEFAULTS.API_URL;
+    warnings.push(`URL: Using localhost default baseUrl="${baseUrl}" (env: '${serverEnv}')`);
+  }
+
+  // Step 2: Resolve appUrl
+  // Priority: serverAppUrl > localhost default (when baseUrl is localhost) > derived from baseUrl
+  let appUrl = serverAppUrl;
+
+  // For localhost environments with localhost baseUrl, use localhost app default
+  // This handles the common case where API runs on :3000 and App on :3001
+  const isBaseUrlLocalhost = baseUrl && (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'));
+  if (!appUrl && usesLocalhostDefaults && isBaseUrlLocalhost) {
+    appUrl = LOCALHOST_DEFAULTS.APP_URL;
+    warnings.push(`URL: Using localhost default appUrl="${appUrl}" (env: '${serverEnv}')`);
+  }
+
+  // For non-localhost environments, try to derive appUrl from baseUrl
+  if (!appUrl && baseUrl) {
+    appUrl = deriveAppUrlFromBaseUrl(baseUrl);
+    if (appUrl !== baseUrl) {
+      warnings.push(`URL: Auto-derived appUrl="${appUrl}" from baseUrl="${baseUrl}"`);
+    }
+  }
+
+  // Step 3: Resolve rpId from appUrl (not baseUrl!)
+  // rpId should be the domain where the user authenticates (app domain)
+  let rpId: string | undefined;
+  if (appUrl) {
+    rpId = extractRpIdFromUrl(appUrl);
+  }
+
+  return { appUrl, baseUrl, rpId, warnings };
+}
+
+/**
  * Validates the better-auth configuration and applies fallback secret if needed.
  * Mutates config.secret if fallback is applied.
  *
@@ -418,8 +745,13 @@ function isValidUrl(url: string): boolean {
  *
  * @param config - Better-auth configuration
  * @param fallbackSecrets - Optional array of fallback secrets to try
+ * @param passkeyNormalization - Result of passkey normalization (handles graceful degradation)
  */
-function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefined)[]): ValidationResult {
+function validateConfig(
+  config: IBetterAuth,
+  fallbackSecrets?: (string | undefined)[],
+  passkeyNormalization?: PasskeyNormalizationResult,
+): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -472,7 +804,7 @@ function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefin
     errors.push(`Invalid baseUrl format: ${config.baseUrl}`);
   }
 
-  // Validate trustedOrigins
+  // Validate trustedOrigins (if explicitly configured)
   if (config.trustedOrigins) {
     for (const origin of config.trustedOrigins) {
       if (!isValidUrl(origin)) {
@@ -481,21 +813,21 @@ function validateConfig(config: IBetterAuth, fallbackSecrets?: (string | undefin
     }
   }
 
-  // ERROR if Passkey is enabled but trustedOrigins is not configured
-  // Passkey uses credentials: 'include', which doesn't work with CORS '*' wildcard
-  const isPasskeyEnabled = isPluginEnabled(config.passkey);
-  if (isPasskeyEnabled && !config.trustedOrigins?.length) {
-    errors.push(
-      'PASSKEY CORS: trustedOrigins is REQUIRED when Passkey is enabled. ' +
-        'Passkey uses credentials which requires explicit CORS origins (wildcard "*" is not allowed). ' +
-        'Configure betterAuth.trustedOrigins with your frontend URLs, e.g.: ["http://localhost:3001", "https://app.example.com"]',
-    );
+  // Validate auto-detected trustedOrigins from passkey normalization
+  if (passkeyNormalization?.trustedOrigins) {
+    for (const origin of passkeyNormalization.trustedOrigins) {
+      if (!isValidUrl(origin)) {
+        errors.push(`Invalid auto-detected trustedOrigin format: ${origin}`);
+      }
+    }
   }
 
-  // Validate passkey origin
-  const passkeyConfig = typeof config.passkey === 'object' ? config.passkey : null;
-  if (passkeyConfig?.enabled && passkeyConfig.origin && !isValidUrl(passkeyConfig.origin)) {
-    errors.push(`Invalid passkey origin format: ${passkeyConfig.origin}`);
+  // Validate passkey origin (only if passkey is enabled after normalization)
+  if (passkeyNormalization?.enabled && passkeyNormalization.normalizedConfig) {
+    const normalizedOrigin = passkeyNormalization.normalizedConfig.origin;
+    if (!isValidUrl(normalizedOrigin)) {
+      errors.push(`Invalid passkey origin format: ${normalizedOrigin}`);
+    }
   }
 
   // Validate social providers dynamically

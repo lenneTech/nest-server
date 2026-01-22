@@ -7,6 +7,7 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 
 /**
  * Configuration for the different environments
+ * @see IServerOptions for documentation of all options
  */
 dotenv.config();
 const config: { [env: string]: IServerOptions } = {
@@ -14,68 +15,11 @@ const config: { [env: string]: IServerOptions } = {
   // Development environment
   // ===========================================================================
   development: {
-    // Legacy Auth endpoint controls (for migration to BetterAuth)
-    // Set to false after all users have migrated to BetterAuth (IAM)
-    // See: .claude/rules/module-deprecation.md
     auth: {
-      legacyEndpoints: {
-        enabled: true, // Set to false to disable legacy auth endpoints (returns HTTP 410)
-        // graphql: true, // Optionally disable only GraphQL endpoints
-        // rest: true,    // Optionally disable only REST endpoints
-      },
+      legacyEndpoints: { enabled: true },
     },
     automaticObjectIdFiltering: true,
-    betterAuth: {
-      basePath: '/iam',
-      baseUrl: 'http://localhost:3000',
-      // enabled: true by default - set false to explicitly disable
-      jwt: {
-        enabled: true,
-        expiresIn: '15m',
-      },
-      passkey: {
-        enabled: false,
-        origin: 'http://localhost:3000',
-        rpId: 'localhost',
-        rpName: 'Nest Server Development',
-      },
-      rateLimit: {
-        enabled: true,
-        max: 20,
-        message: 'Too many requests, please try again later.',
-        skipEndpoints: ['/session', '/callback'],
-        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
-        windowSeconds: 60,
-      },
-      secret: 'BETTER_AUTH_SECRET_DEV_32_CHARS_MIN',
-      socialProviders: {
-        apple: {
-          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
-          enabled: false,
-        },
-        github: {
-          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
-          enabled: false,
-        },
-        google: {
-          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
-          enabled: false,
-        },
-      },
-      twoFactor: {
-        appName: 'Nest Server Development',
-        enabled: false,
-      },
-      // CORS trustedOrigins configuration:
-      // - Not set + Passkey disabled: All origins allowed (default)
-      // - Not set + Passkey enabled: Server startup FAILS (trustedOrigins required)
-      // - Set explicitly: Only configured origins allowed
-      // Uncomment and configure when enabling Passkey:
-      // trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
-    },
+    baseUrl: 'http://localhost:3000',
     compression: true,
     cookies: false,
     email: {
@@ -128,14 +72,12 @@ const config: { [env: string]: IServerOptions } = {
         // Each secret should be unique and not reused in other environments,
         // also the JWT secret should be different from the Refresh secret!
         // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_DEV',
       signInOptions: {
         expiresIn: '15m',
@@ -175,68 +117,30 @@ const config: { [env: string]: IServerOptions } = {
   },
 
   // ===========================================================================
-  // Local environment
+  // Local environment (env: 'local' → auto URLs + Passkey)
   // ===========================================================================
   local: {
-    // Legacy Auth endpoint controls (for migration to BetterAuth)
-    // Set to false after all users have migrated to BetterAuth (IAM)
-    // See: .claude/rules/module-deprecation.md
     auth: {
-      legacyEndpoints: {
-        enabled: true, // Set to false to disable legacy auth endpoints (returns HTTP 410)
-        // graphql: true, // Optionally disable only GraphQL endpoints
-        // rest: true,    // Optionally disable only REST endpoints
-      },
+      legacyEndpoints: { enabled: true },
     },
     automaticObjectIdFiltering: true,
     betterAuth: {
-      basePath: '/iam',
-      baseUrl: 'http://localhost:3000',
-      enabled: true, // Enable for Scenario 2 (Legacy + IAM) testing
-      jwt: {
-        enabled: true,
-        expiresIn: '15m',
-      },
-      passkey: {
-        enabled: true,
-        origin: 'http://localhost:3000',
-        rpId: 'localhost',
-        rpName: 'Nest Server Local',
-      },
-      rateLimit: {
-        enabled: true,
-        max: 100, // Higher limit for local testing
-        message: 'Too many requests, please try again later.',
-        skipEndpoints: ['/session', '/callback'],
-        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
-        windowSeconds: 60,
-      },
+      // JWT enabled by default (zero-config)
+      jwt: { enabled: true, expiresIn: '15m' },
+      // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
+      passkey: { enabled: true, origin: 'http://localhost:3001', rpId: 'localhost', rpName: 'Nest Server Local' },
+      rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
       secret: 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
+      // Social providers disabled in local environment (no credentials)
       socialProviders: {
-        apple: {
-          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
-          enabled: false,
-        },
-        github: {
-          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
-          enabled: false,
-        },
-        google: {
-          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
-          enabled: false,
-        },
+        apple: { clientId: '', clientSecret: '', enabled: false },
+        github: { clientId: '', clientSecret: '', enabled: false },
+        google: { clientId: '', clientSecret: '', enabled: false },
       },
-      // REQUIRED when Passkey is enabled!
-      // Passkey uses credentials: 'include' which requires explicit CORS origins.
-      // Server startup will fail if Passkey is enabled without trustedOrigins.
+      // Trusted origins for Passkey (localhost defaults)
       trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
-      twoFactor: {
-        appName: 'Nest Server Local',
-        enabled: true,
-      },
+      // 2FA enabled for local testing
+      twoFactor: { appName: 'Nest Server Local', enabled: true },
     },
     compression: true,
     cookies: false,
@@ -305,14 +209,12 @@ const config: { [env: string]: IServerOptions } = {
         // Each secret should be unique and not reused in other environments,
         // also the JWT secret should be different from the Refresh secret!
         // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
         expiresIn: '15m',
@@ -352,72 +254,22 @@ const config: { [env: string]: IServerOptions } = {
   },
 
   // ===========================================================================
-  // Production environment
+  // Production environment (set BASE_URL env var for auto Passkey)
   // ===========================================================================
   production: {
-    // Legacy Auth endpoint controls (for migration to BetterAuth)
-    // Set to false after all users have migrated to BetterAuth (IAM)
-    // See: .claude/rules/module-deprecation.md
     auth: {
-      legacyEndpoints: {
-        enabled: process.env.LEGACY_AUTH_ENABLED !== 'false', // Disable via env var
-        // graphql: true, // Optionally disable only GraphQL endpoints
-        // rest: true,    // Optionally disable only REST endpoints
-      },
+      legacyEndpoints: { enabled: process.env.LEGACY_AUTH_ENABLED !== 'false' },
     },
     automaticObjectIdFiltering: true,
+    baseUrl: process.env.BASE_URL,
     betterAuth: {
-      basePath: '/iam',
-      baseUrl: process.env.BETTER_AUTH_URL || 'https://example.com',
-      // enabled: true by default - set false to explicitly disable
-      jwt: {
-        enabled: true,
-        expiresIn: '15m',
-      },
-      passkey: {
-        enabled: false,
-        origin: process.env.BETTER_AUTH_URL || 'https://example.com',
-        rpId: process.env.PASSKEY_RP_ID || 'example.com',
-        rpName: process.env.PASSKEY_RP_NAME || 'Nest Server Production',
-      },
-      rateLimit: {
-        enabled: process.env.RATE_LIMIT_ENABLED !== 'false',
-        max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10),
-        message: process.env.RATE_LIMIT_MESSAGE || 'Too many requests, please try again later.',
-        skipEndpoints: ['/session', '/callback'],
-        strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
-        windowSeconds: parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS || '60', 10),
-      },
-      // IMPORTANT: Set BETTER_AUTH_SECRET in production!
-      // Without it, an insecure default is used which allows session forgery.
-      // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      rateLimit: { enabled: process.env.RATE_LIMIT_ENABLED !== 'false', max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10) },
       secret: process.env.BETTER_AUTH_SECRET,
       socialProviders: {
-        apple: {
-          clientId: process.env.SOCIAL_APPLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_APPLE_CLIENT_SECRET || '',
-          enabled: !!process.env.SOCIAL_APPLE_CLIENT_ID,
-        },
-        github: {
-          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
-          enabled: !!process.env.SOCIAL_GITHUB_CLIENT_ID,
-        },
-        google: {
-          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
-          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
-          enabled: !!process.env.SOCIAL_GOOGLE_CLIENT_ID,
-        },
+        github: { clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '', clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '' },
+        google: { clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '', clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '' },
       },
-      // REQUIRED for Passkey in production!
-      // Passkey uses credentials: 'include' which requires explicit origins (no wildcard '*')
-      // Configure all frontend URLs that need Passkey authentication:
-      trustedOrigins: process.env.TRUSTED_ORIGINS?.split(',') || [],
-      twoFactor: {
-        appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server',
-        enabled: process.env.TWO_FACTOR_ENABLED === 'true',
-      },
-      // Example: TRUSTED_ORIGINS=https://app.example.com,https://admin.example.com
+      twoFactor: { appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server' },
     },
     compression: true,
     cookies: false,
@@ -471,14 +323,12 @@ const config: { [env: string]: IServerOptions } = {
         // Each secret should be unique and not reused in other environments,
         // also the JWT secret should be different from the Refresh secret!
         // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        // tslint:disable-next-line:max-line-length
         secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      // tslint:disable-next-line:max-line-length
       secret: 'SECRET_OR_PRIVATE_KEY_PROD',
       signInOptions: {
         expiresIn: '15m',

@@ -67,6 +67,9 @@ const http410Config = {
     BetterAuthModule.forRoot({
       config: http410Config.betterAuth,
       fallbackSecrets: [http410Config.jwt?.secret, http410Config.jwt?.refresh?.secret],
+      serverAppUrl: http410Config.appUrl,
+      serverBaseUrl: http410Config.baseUrl,
+      serverEnv: http410Config.env,
     }),
     FileModule,
   ],
