@@ -11,7 +11,6 @@
  */
 
 import { Controller, Get, Module, UseGuards } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -30,7 +29,6 @@ import {
   HttpExceptionLogFilter,
   RoleEnum,
   Roles,
-  RolesGuard,
   TestHelper,
 } from '../../src';
 import envConfig from '../../src/config.env';
@@ -155,12 +153,8 @@ const testConfig = {
     CronJobs,
     DateScalar,
     JSONScalar,
-    // CRITICAL: Register RolesGuard as global guard for role checking
-    // This is what enables @Roles() decorator to work
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
+    // NOTE: RolesGuard is now automatically registered by CoreBetterAuthModule
+    // via RolesGuardRegistry (registerRolesGuardGlobally defaults to true)
   ],
 })
 class SecurityTestModule {}

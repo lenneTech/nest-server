@@ -6,6 +6,7 @@ import { PubSub } from 'graphql-subscriptions';
 
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
+import { RolesGuardRegistry } from './guards/roles-guard-registry';
 import { RolesGuard } from './guards/roles.guard';
 import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
@@ -44,12 +45,17 @@ export class CoreAuthModule {
     }
 
     // Process providers
+    // Only register RolesGuard if not already registered (prevents duplicate with CoreBetterAuthModule)
+    const rolesGuardProvider = RolesGuardRegistry.isRegistered()
+      ? []
+      : (() => {
+          RolesGuardRegistry.markRegistered('CoreAuthModule');
+          return [{ provide: APP_GUARD, useClass: RolesGuard }];
+        })();
+
     let providers = [
-      // [Global] The GraphQLAuthGard integrates the user into context
-      {
-        provide: APP_GUARD,
-        useClass: RolesGuard,
-      },
+      // [Global] The GraphQLAuthGuard integrates the user into context
+      ...rolesGuardProvider,
       {
         provide: CoreAuthUserService,
         useClass: UserService,

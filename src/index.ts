@@ -112,6 +112,7 @@ export * from './core/modules/auth/exceptions/invalid-token.exception';
 export * from './core/modules/auth/exceptions/legacy-auth-disabled.exception';
 export * from './core/modules/auth/guards/auth.guard';
 export * from './core/modules/auth/guards/legacy-auth-rate-limit.guard';
+export * from './core/modules/auth/guards/roles-guard-registry';
 export * from './core/modules/auth/guards/roles.guard';
 export * from './core/modules/auth/inputs/core-auth-sign-in.input';
 export * from './core/modules/auth/inputs/core-auth-sign-up.input';

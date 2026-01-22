@@ -15,6 +15,7 @@ import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
@@ -87,13 +88,14 @@ export interface CoreBetterAuthModuleOptions {
   /**
    * Register RolesGuard as a global guard.
    *
-   * This should be set to `true` for IAM-only setups (CoreModule.forRoot with 1 parameter)
-   * where CoreAuthModule is not imported (which normally registers RolesGuard globally).
-   *
    * When `true`, all `@Roles()` decorators will be enforced automatically without
    * needing explicit `@UseGuards(RolesGuard)` on each endpoint.
    *
-   * @default false
+   * **Important:** This should be `false` in Legacy mode (3-parameter CoreModule.forRoot)
+   * because CoreAuthModule already registers RolesGuard globally. Setting it to `true`
+   * in Legacy mode would cause duplicate guard registration.
+   *
+   * @default true (secure by default - ensures @Roles() decorators are enforced)
    */
   registerRolesGuardGlobally?: boolean;
 
@@ -218,6 +220,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static customController: null | Type<CoreBetterAuthController> = null;
   private static customResolver: null | Type<CoreBetterAuthResolver> = null;
   private static shouldRegisterRolesGuardGlobally = false;
+  // Track if registerRolesGuardGlobally was explicitly set to false (for warning)
+  private static rolesGuardExplicitlyDisabled = false;
 
   /**
    * Gets the controller class to use (custom or default)
@@ -247,6 +251,16 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Configure rate limiter with stored config
     if (this.rateLimiter && CoreBetterAuthModule.currentConfig?.rateLimit) {
       this.rateLimiter.configure(CoreBetterAuthModule.currentConfig.rateLimit);
+    }
+
+    // Security warning: Check if RolesGuard is registered when explicitly disabled
+    // This warning helps developers identify potential security misconfigurations
+    if (CoreBetterAuthModule.rolesGuardExplicitlyDisabled && !RolesGuardRegistry.isRegistered()) {
+      CoreBetterAuthModule.logger.warn(
+        '⚠️ SECURITY WARNING: registerRolesGuardGlobally is explicitly set to false, ' +
+        'but no RolesGuard is registered globally. @Roles() decorators will NOT enforce access control! ' +
+        'Either set registerRolesGuardGlobally: true, or ensure CoreAuthModule (Legacy) is imported.',
+      );
     }
   }
 
@@ -357,8 +371,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.customController = controller || null;
     // Store custom resolver if provided
     this.customResolver = resolver || null;
-    // Store whether to register RolesGuard globally (for IAM-only setups)
-    this.shouldRegisterRolesGuardGlobally = registerRolesGuardGlobally ?? false;
+    // Store whether to register RolesGuard globally
+    // Default is true (secure by default) - ensures @Roles() decorators are enforced
+    // CoreModule.forRoot sets this to false in Legacy mode (where CoreAuthModule handles it)
+    this.shouldRegisterRolesGuardGlobally = registerRolesGuardGlobally ?? true;
+    // Track if explicitly disabled (for security warning in onModuleInit)
+    this.rolesGuardExplicitlyDisabled = registerRolesGuardGlobally === false;
 
     // If better-auth is disabled (config is null or enabled: false), return minimal module
     // Note: We don't provide middleware classes when disabled because they depend on CoreBetterAuthService
@@ -526,6 +544,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.customController = null;
     this.customResolver = null;
     this.shouldRegisterRolesGuardGlobally = false;
+    this.rolesGuardExplicitlyDisabled = false;
+    // Reset shared RolesGuard registry (shared with CoreAuthModule)
+    RolesGuardRegistry.reset();
   }
 
   /**
@@ -627,13 +648,17 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         this.getResolverClass(),
         // Conditionally register RolesGuard globally for IAM-only setups
         // In Legacy mode, RolesGuard is already registered globally via CoreAuthModule
-        ...(this.shouldRegisterRolesGuardGlobally
-          ? [
-              {
-                provide: APP_GUARD,
-                useClass: RolesGuard,
-              },
-            ]
+        // Uses shared RolesGuardRegistry to prevent duplicate registration across modules
+        ...(this.shouldRegisterRolesGuardGlobally && !RolesGuardRegistry.isRegistered()
+          ? (() => {
+              RolesGuardRegistry.markRegistered('CoreBetterAuthModule');
+              return [
+                {
+                  provide: APP_GUARD,
+                  useClass: RolesGuard,
+                },
+              ];
+            })()
           : []),
       ],
     };
