@@ -133,6 +133,106 @@ export const LtnsErrors = {
     },
   },
 
+  // BetterAuth specific errors (LTNS_0010-LTNS_0049)
+  INVALID_CREDENTIALS: {
+    code: 'LTNS_0010',
+    message: 'Invalid credentials',
+    translations: {
+      de: 'Ungültige Anmeldedaten.',
+      en: 'Invalid credentials.',
+    },
+  },
+
+  INVALID_2FA_CODE: {
+    code: 'LTNS_0011',
+    message: 'Invalid 2FA code',
+    translations: {
+      de: 'Der 2FA-Code ist ungültig.',
+      en: 'The 2FA code is invalid.',
+    },
+  },
+
+  TWO_FACTOR_NOT_ENABLED: {
+    code: 'LTNS_0012',
+    message: 'Two-factor authentication is not enabled',
+    translations: {
+      de: 'Zwei-Faktor-Authentifizierung ist nicht aktiviert.',
+      en: 'Two-factor authentication is not enabled.',
+    },
+  },
+
+  TWO_FACTOR_NOT_ENABLED_SERVER: {
+    code: 'LTNS_0013',
+    message: 'Two-factor authentication is not enabled on this server',
+    translations: {
+      de: 'Zwei-Faktor-Authentifizierung ist auf diesem Server nicht aktiviert.',
+      en: 'Two-factor authentication is not enabled on this server.',
+    },
+  },
+
+  PASSKEY_NOT_ENABLED_SERVER: {
+    code: 'LTNS_0014',
+    message: 'Passkey authentication is not enabled on this server',
+    translations: {
+      de: 'Passkey-Authentifizierung ist auf diesem Server nicht aktiviert.',
+      en: 'Passkey authentication is not enabled on this server.',
+    },
+  },
+
+  SIGNUP_FAILED: {
+    code: 'LTNS_0015',
+    message: 'Sign-up failed',
+    translations: {
+      de: 'Die Registrierung ist fehlgeschlagen.',
+      en: 'Sign-up failed.',
+    },
+  },
+
+  BETTERAUTH_NOT_INITIALIZED: {
+    code: 'LTNS_0016',
+    message: 'Better-Auth not initialized',
+    translations: {
+      de: 'Better-Auth ist nicht initialisiert.',
+      en: 'Better-Auth is not initialized.',
+    },
+  },
+
+  BETTERAUTH_DISABLED: {
+    code: 'LTNS_0017',
+    message: 'Better-Auth is disabled',
+    translations: {
+      de: 'Better-Auth ist deaktiviert.',
+      en: 'Better-Auth is disabled.',
+    },
+  },
+
+  BETTERAUTH_API_NOT_AVAILABLE: {
+    code: 'LTNS_0018',
+    message: 'Better-Auth API not available',
+    translations: {
+      de: 'Better-Auth API ist nicht verfügbar.',
+      en: 'Better-Auth API is not available.',
+    },
+  },
+
+  TWO_FACTOR_METHOD_NOT_AVAILABLE: {
+    code: 'LTNS_0019',
+    message: '2FA verification method not available',
+    translations: {
+      de: '2FA-Verifizierungsmethode ist nicht verfügbar.',
+      en: '2FA verification method is not available.',
+    },
+  },
+
+  RATE_LIMIT_EXCEEDED: {
+    code: 'LTNS_0020',
+    message: 'Too many requests',
+    translations: {
+      de: 'Zu viele Anfragen. Bitte versuchen Sie es später erneut.',
+      en: 'Too many requests. Please try again later.',
+    },
+  },
+
   // =====================================================
   // Authorization Errors (LTNS_0100-LTNS_0199)
   // =====================================================

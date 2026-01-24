@@ -20,6 +20,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
+import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
@@ -227,7 +228,7 @@ export class CoreBetterAuthController {
 
     const api = this.betterAuthService.getApi();
     if (!api) {
-      throw new BadRequestException('Better-Auth API not available');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
     }
 
     // Step 1: Try legacy user migration BEFORE Better Auth handles the request
@@ -255,7 +256,7 @@ export class CoreBetterAuthController {
       })) as BetterAuthSignInResponse | null;
 
       if (!response) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
       }
 
       // Check for 2FA requirement
@@ -268,7 +269,7 @@ export class CoreBetterAuthController {
         // We need to modify the request body to use the normalized password
         const authInstance = this.betterAuthService.getInstance();
         if (!authInstance) {
-          throw new InternalServerErrorException('Better-Auth not initialized');
+          throw new InternalServerErrorException(ErrorCode.BETTERAUTH_NOT_INITIALIZED);
         }
 
         // Create a modified request body with normalized password
@@ -311,7 +312,7 @@ export class CoreBetterAuthController {
       // Check if response indicates an error
       const responseAny = response as any;
       if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
       }
 
       if (hasUser(response)) {
@@ -334,7 +335,7 @@ export class CoreBetterAuthController {
         return this.processCookies(res, result);
       }
 
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.debug(`Sign-in error: ${errorMessage}`);
@@ -343,7 +344,7 @@ export class CoreBetterAuthController {
         throw error;
       }
 
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     }
   }
 
@@ -380,7 +381,7 @@ export class CoreBetterAuthController {
 
     const api = this.betterAuthService.getApi();
     if (!api) {
-      throw new BadRequestException('Better-Auth API not available');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
     }
 
     // Normalize password to SHA256 format for consistency with Legacy Auth
@@ -396,7 +397,7 @@ export class CoreBetterAuthController {
       });
 
       if (!response) {
-        throw new BadRequestException('Sign-up failed');
+        throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
       }
 
       if (hasUser(response)) {
@@ -419,14 +420,14 @@ export class CoreBetterAuthController {
         return this.processCookies(res, result);
       }
 
-      throw new BadRequestException('Sign-up failed');
+      throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.debug(`Sign-up error: ${errorMessage}`);
       if (errorMessage.includes('already exists')) {
-        throw new BadRequestException('User with this email already exists');
+        throw new BadRequestException(ErrorCode.EMAIL_ALREADY_EXISTS);
       }
-      throw new BadRequestException('Sign-up failed');
+      throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     }
   }
 
@@ -557,7 +558,7 @@ export class CoreBetterAuthController {
    */
   protected ensureEnabled(): void {
     if (!this.betterAuthService.isEnabled()) {
-      throw new BadRequestException('Better-Auth is not enabled');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_DISABLED);
     }
   }
 
@@ -735,7 +736,7 @@ export class CoreBetterAuthController {
 
     const authInstance = this.betterAuthService.getInstance();
     if (!authInstance) {
-      throw new InternalServerErrorException('Better-Auth not initialized');
+      throw new InternalServerErrorException(ErrorCode.BETTERAUTH_NOT_INITIALIZED);
     }
 
     this.logger.debug(`Forwarding to Better Auth: ${req.method} ${req.path}`);

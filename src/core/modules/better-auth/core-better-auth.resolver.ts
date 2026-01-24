@@ -5,6 +5,7 @@ import { Request, Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { maskEmail } from '../../common/helpers/logging.helper';
+import { ErrorCode } from '../error-code/error-codes';
 import {
   BetterAuth2FAResponse,
   BetterAuthSignInResponse,
@@ -203,7 +204,7 @@ export class CoreBetterAuthResolver {
 
     const api = this.betterAuthService.getApi();
     if (!api) {
-      throw new BadRequestException('Better-Auth API not available');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
     }
 
     // Try to sign in, with automatic legacy user migration
@@ -239,7 +240,7 @@ export class CoreBetterAuthResolver {
       }
 
       if (!response) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
       }
 
       // Check for 2FA requirement
@@ -271,7 +272,7 @@ export class CoreBetterAuthResolver {
         };
       }
 
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     } catch (error) {
       this.logger.debug(
         `[SignIn] Sign-in failed for ${maskEmail(email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -291,7 +292,7 @@ export class CoreBetterAuthResolver {
         }
       }
 
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     }
   }
 
@@ -308,7 +309,7 @@ export class CoreBetterAuthResolver {
     })) as BetterAuthSignInResponse | null;
 
     if (!response || !hasUser(response)) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     }
 
     if (requires2FA(response)) {
@@ -348,7 +349,7 @@ export class CoreBetterAuthResolver {
 
     const api = this.betterAuthService.getApi();
     if (!api) {
-      throw new BadRequestException('Better-Auth API not available');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
     }
 
     try {
@@ -361,7 +362,7 @@ export class CoreBetterAuthResolver {
       })) as BetterAuthSignUpResponse | null;
 
       if (!response) {
-        throw new BadRequestException('Sign-up failed');
+        throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
       }
 
       if (hasUser(response)) {
@@ -379,14 +380,14 @@ export class CoreBetterAuthResolver {
         };
       }
 
-      throw new BadRequestException('Sign-up failed');
+      throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.debug(`Sign-up error: ${errorMessage}`);
       if (errorMessage.includes('already exists')) {
-        throw new BadRequestException('User with this email already exists');
+        throw new BadRequestException(ErrorCode.EMAIL_ALREADY_EXISTS);
       }
-      throw new BadRequestException('Sign-up failed');
+      throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     }
   }
 
@@ -429,12 +430,12 @@ export class CoreBetterAuthResolver {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled');
+      throw new BadRequestException(ErrorCode.TWO_FACTOR_NOT_ENABLED_SERVER);
     }
 
     const api = this.betterAuthService.getApi();
     if (!api) {
-      throw new BadRequestException('Better-Auth API not available');
+      throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
     }
 
     try {
@@ -450,7 +451,7 @@ export class CoreBetterAuthResolver {
           };
 
       if (!twoFactorApi?.verifyTotp) {
-        throw new BadRequestException('2FA verification method not available');
+        throw new BadRequestException(ErrorCode.TWO_FACTOR_METHOD_NOT_AVAILABLE);
       }
 
       const response = await twoFactorApi.verifyTotp({
@@ -469,10 +470,10 @@ export class CoreBetterAuthResolver {
         };
       }
 
-      throw new UnauthorizedException('Invalid 2FA code');
+      throw new UnauthorizedException(ErrorCode.INVALID_2FA_CODE);
     } catch (error) {
       this.logger.debug(`2FA verification error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw new UnauthorizedException('Invalid 2FA code');
+      throw new UnauthorizedException(ErrorCode.INVALID_2FA_CODE);
     }
   }
 
@@ -546,7 +547,7 @@ export class CoreBetterAuthResolver {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled on this server');
+      throw new BadRequestException(ErrorCode.TWO_FACTOR_NOT_ENABLED_SERVER);
     }
 
     const api = this.betterAuthService.getApi();
@@ -564,7 +565,7 @@ export class CoreBetterAuthResolver {
           };
 
       if (!twoFactorApi?.disable) {
-        throw new BadRequestException('2FA disable method not available');
+        throw new BadRequestException(ErrorCode.TWO_FACTOR_METHOD_NOT_AVAILABLE);
       }
 
       const response = await twoFactorApi.disable({
@@ -591,7 +592,7 @@ export class CoreBetterAuthResolver {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isTwoFactorEnabled()) {
-      throw new BadRequestException('Two-factor authentication is not enabled on this server');
+      throw new BadRequestException(ErrorCode.TWO_FACTOR_NOT_ENABLED_SERVER);
     }
 
     const api = this.betterAuthService.getApi();
@@ -609,7 +610,7 @@ export class CoreBetterAuthResolver {
           };
 
       if (!twoFactorApi?.generateBackupCodes) {
-        throw new BadRequestException('Generate backup codes method not available');
+        throw new BadRequestException(ErrorCode.TWO_FACTOR_METHOD_NOT_AVAILABLE);
       }
 
       const response = await twoFactorApi.generateBackupCodes({ headers });
@@ -731,7 +732,7 @@ export class CoreBetterAuthResolver {
     this.ensureEnabled();
 
     if (!this.betterAuthService.isPasskeyEnabled()) {
-      throw new BadRequestException('Passkey authentication is not enabled on this server');
+      throw new BadRequestException(ErrorCode.PASSKEY_NOT_ENABLED_SERVER);
     }
 
     const api = this.betterAuthService.getApi();
@@ -749,7 +750,7 @@ export class CoreBetterAuthResolver {
           };
 
       if (!passkeyApi?.deletePasskey) {
-        throw new BadRequestException('Delete passkey method not available');
+        throw new BadRequestException(ErrorCode.TWO_FACTOR_METHOD_NOT_AVAILABLE);
       }
 
       const response = await passkeyApi.deletePasskey({
@@ -773,9 +774,7 @@ export class CoreBetterAuthResolver {
    */
   protected ensureEnabled(): void {
     if (!this.betterAuthService.isEnabled()) {
-      throw new BadRequestException(
-        'Better-Auth is not enabled. Check that betterAuth.enabled is not set to false in your environment.',
-      );
+      throw new BadRequestException(ErrorCode.BETTERAUTH_DISABLED);
     }
   }
 
