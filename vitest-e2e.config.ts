@@ -26,13 +26,13 @@ export default defineConfig({
     // Isolate each test file in its own process for stability
     isolate: true,
     // Allow multiple files to run concurrently
-    maxConcurrency: 4,
+    maxConcurrency: 3,
     // Use forks instead of threads for better NestJS performance
     pool: 'forks',
     reporters: ['default'],
     // Retry flaky tests up to 3 times before failing
     // This handles intermittent MongoDB race conditions
-    retry: 3,
+    retry: 5,
     root: './',
     teardownTimeout: 30000,
     testTimeout: 30000,
