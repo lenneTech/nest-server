@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware, Optional } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
