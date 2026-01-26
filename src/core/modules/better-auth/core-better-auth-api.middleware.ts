@@ -244,9 +244,12 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         }
       }
 
-      // Clean up the used challenge mapping after verification (success or failure)
-      if (challengeIdToDelete && this.challengeService) {
+      // Clean up the used challenge mapping only after SUCCESSFUL verification
+      // On failure, keep the challenge so the user can retry with a different passkey
+      if (challengeIdToDelete && this.challengeService && response.ok) {
         await this.challengeService.deleteChallengeMapping(challengeIdToDelete);
+      } else if (challengeIdToDelete && !response.ok) {
+        this.logger.debug(`Keeping challenge mapping after failed verification (status=${response.status}) for retry`);
       }
 
       // Convert Web Standard Response to Express response using shared helper
