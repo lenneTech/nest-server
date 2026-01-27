@@ -48,10 +48,16 @@ export interface ToWebRequestOptions {
  * @returns Session token or null if not found
  */
 export function extractSessionToken(req: Request, basePath: string = 'iam'): null | string {
-  // Check Authorization header first
+  // Check Authorization header for session tokens (but NOT JWTs).
+  // JWTs (3 dot-separated parts) are handled separately by the session middleware.
+  // Returning a JWT here would cause toWebRequest() to overwrite valid session
+  // cookies with the JWT, breaking Better Auth's session lookup.
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.substring(7);
+    const bearerToken = authHeader.substring(7);
+    if (bearerToken.split('.').length !== 3) {
+      return bearerToken;
+    }
   }
 
   // Normalize basePath (remove leading slash, replace slashes with dots)
@@ -70,6 +76,11 @@ export function extractSessionToken(req: Request, basePath: string = 'iam'): nul
   for (const name of cookieNames) {
     const token = cookies?.[name];
     if (token && typeof token === 'string') {
+      // If the cookie value is signed (TOKEN.SIGNATURE format), extract the raw token.
+      // Better Auth signs session cookies; the DB stores only the raw token.
+      if (isAlreadySigned(token)) {
+        return token.split('.')[0];
+      }
       return token;
     }
   }
@@ -137,7 +148,14 @@ export function parseCookieHeader(cookieHeader: string | undefined): Record<stri
   for (const pair of pairs) {
     const [name, ...valueParts] = pair.trim().split('=');
     if (name && valueParts.length > 0) {
-      cookies[name.trim()] = valueParts.join('=').trim();
+      const rawValue = valueParts.join('=').trim();
+      // URL-decode cookie values (standard behavior matching cookie-parser/npm cookie package)
+      // Express's res.cookie() URL-encodes values, so we must decode them when parsing
+      try {
+        cookies[name.trim()] = decodeURIComponent(rawValue);
+      } catch {
+        cookies[name.trim()] = rawValue;
+      }
     }
   }
 
@@ -157,11 +175,23 @@ export async function sendWebResponse(res: Response, webResponse: globalThis.Res
   // Set status code
   res.status(webResponse.status);
 
-  // Copy headers
+  // Handle Set-Cookie headers separately
+  // Headers.forEach() either combines Set-Cookie values (invalid for browsers)
+  // or overwrites previous values with setHeader(). Use getSetCookie() instead.
+  // IMPORTANT: Merge with any existing Set-Cookie headers (e.g., from res.cookie() calls)
+  // to avoid overwriting compatibility cookies set before sendWebResponse is called.
+  const setCookieHeaders = webResponse.headers.getSetCookie?.() || [];
+  if (setCookieHeaders.length > 0) {
+    const existing = res.getHeader('set-cookie');
+    const existingHeaders = existing ? (Array.isArray(existing) ? existing.map(String) : [String(existing)]) : [];
+    res.setHeader('set-cookie', [...existingHeaders, ...setCookieHeaders]);
+  }
+
+  // Copy other headers
   webResponse.headers.forEach((value, key) => {
     // Skip certain headers that Express handles differently
     const lowerKey = key.toLowerCase();
-    if (lowerKey === 'content-encoding' || lowerKey === 'transfer-encoding') {
+    if (lowerKey === 'set-cookie' || lowerKey === 'content-encoding' || lowerKey === 'transfer-encoding') {
       return;
     }
     res.setHeader(key, value);
@@ -200,10 +230,7 @@ export function signCookieValue(value: string, secret: string): string {
     throw new Error('Cannot sign cookie: Better Auth secret is not configured');
   }
 
-  const signature = crypto
-    .createHmac('sha256', secret)
-    .update(value)
-    .digest('base64');
+  const signature = crypto.createHmac('sha256', secret).update(value).digest('base64');
   const signedValue = `${value}.${signature}`;
   return encodeURIComponent(signedValue);
 }
@@ -274,10 +301,7 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
 
     // Cookie names that need signed tokens
     const primaryCookieName = `${normalizedBasePath}.session_token`;
-    const sessionCookieNames = [
-      primaryCookieName,
-      BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION,
-    ];
+    const sessionCookieNames = [primaryCookieName, BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION];
 
     // Parse existing cookies
     const existingCookies = parseCookieHeader(existingCookieString);
