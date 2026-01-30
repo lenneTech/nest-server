@@ -2,6 +2,8 @@ import { Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 
+import { isSessionToken } from './core-better-auth-token.helper';
+
 /**
  * Cookie names used by Better Auth and nest-server
  */
@@ -55,7 +57,7 @@ export function extractSessionToken(req: Request, basePath: string = 'iam'): nul
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     const bearerToken = authHeader.substring(7);
-    if (bearerToken.split('.').length !== 3) {
+    if (isSessionToken(bearerToken)) {
       return bearerToken;
     }
   }
