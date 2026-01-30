@@ -172,8 +172,8 @@ export class CoreAuthResolver {
    * Process cookies
    */
   protected processCookies(ctx: { res: ResponseType }, result: any) {
-    // Check if cookie handling is activated
-    if (this.configService.getFastButReadOnly('cookies')) {
+    // Check if cookie handling is activated (enabled by default, unless explicitly set to false)
+    if (this.configService.getFastButReadOnly('cookies') !== false) {
       // Set cookies
       if (!result || typeof result !== 'object') {
         ctx.res.cookie('token', '', { httpOnly: true });

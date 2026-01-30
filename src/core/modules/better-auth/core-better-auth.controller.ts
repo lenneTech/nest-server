@@ -22,6 +22,7 @@ import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
+import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -182,12 +183,21 @@ export class CoreBetterAuthSignUpInput {
 @Roles(RoleEnum.ADMIN)
 export class CoreBetterAuthController {
   protected readonly logger = new Logger(CoreBetterAuthController.name);
+  protected readonly cookieHelper: BetterAuthCookieHelper;
 
   constructor(
     protected readonly betterAuthService: CoreBetterAuthService,
     protected readonly userMapper: CoreBetterAuthUserMapper,
     protected readonly configService: ConfigService,
-  ) {}
+  ) {
+    // Initialize cookie helper with Better-Auth configuration
+    const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
+    this.cookieHelper = createCookieHelper(
+      this.betterAuthService.getBasePath(),
+      betterAuthConfig?.options?.advanced?.cookies?.session_token?.name,
+      this.logger,
+    );
+  }
 
   // ===================================================================================================================
   // Authentication Endpoints
@@ -626,90 +636,38 @@ export class CoreBetterAuthController {
   /**
    * Process cookies for response
    *
-   * Sets multiple cookies for authentication compatibility:
-   *
-   * | Cookie Name | Purpose |
-   * |-------------|---------|
-   * | `token` | Primary session token (nest-server compatibility) |
-   * | `{basePath}.session_token` | Better Auth's native cookie for plugins (e.g., `iam.session_token`) |
-   * | `better-auth.session_token` | Legacy Better Auth cookie name (backwards compatibility) |
-   * | `{configured}` | Custom cookie name if configured via `options.advanced.cookies.session_token.name` |
-   * | `session` | Session ID for reference/debugging |
+   * Sets multiple cookies for authentication compatibility using the centralized cookie helper.
+   * See BetterAuthCookieHelper for the complete cookie strategy.
    *
    * IMPORTANT: Better Auth's sign-in returns a session token in `result.token`.
    * This is NOT a JWT - it's the session token stored in the database.
    * The JWT plugin generates JWTs separately via the /token endpoint when needed.
-   *
-   * For plugins like Passkey to work, the session token must be available in a cookie
-   * that Better Auth's plugin system recognizes (default: `{basePath}.session_token`).
    *
    * @param res - Express Response object
    * @param result - The CoreBetterAuthResponse to return
    * @param sessionToken - Optional session token to set in cookies (if not provided, uses result.token)
    */
   protected processCookies(res: Response, result: CoreBetterAuthResponse, sessionToken?: string): CoreBetterAuthResponse {
-    // Check if cookie handling is activated
-    if (this.configService.getFastButReadOnly('cookies')) {
-      const cookieOptions = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' };
+    const cookiesEnabled = this.configService.getFastButReadOnly('cookies') !== false;
 
-      // Use provided sessionToken or fall back to result.token
-      const tokenToSet = sessionToken || result.token;
-
-      if (tokenToSet) {
-        // Set the primary token cookie (for nest-server compatibility)
-        res.cookie('token', tokenToSet, cookieOptions);
-
-        // Set Better Auth's native session token cookies for plugin compatibility
-        // This is CRITICAL for Passkey/WebAuthn to work
-        const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
-        const defaultCookieName = `${basePath}.session_token`;
-        res.cookie(defaultCookieName, tokenToSet, cookieOptions);
-
-        // Also set the legacy cookie name for backwards compatibility
-        res.cookie('better-auth.session_token', tokenToSet, cookieOptions);
-
-        // Get configured cookie name and set if different from defaults
-        const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
-        const configuredCookieName = betterAuthConfig?.options?.advanced?.cookies?.session_token?.name;
-        if (configuredCookieName && configuredCookieName !== 'token' && configuredCookieName !== defaultCookieName) {
-          res.cookie(configuredCookieName, tokenToSet, cookieOptions);
-        }
-
-        // Remove token from response body (it's now in cookies)
-        if (result.token) {
-          delete result.token;
-        }
+    // If a specific session token is provided, use it directly
+    if (sessionToken && cookiesEnabled) {
+      this.cookieHelper.setSessionCookies(res, sessionToken, result.session?.id);
+      if (result.token) {
+        delete result.token;
       }
-
-      // Set session ID cookie (for reference/debugging)
-      if (result.session) {
-        res.cookie('session', result.session.id, cookieOptions);
-      }
+      return result;
     }
 
-    return result;
+    // Otherwise, use the cookie helper's standard processing
+    return this.cookieHelper.processAuthResult(res, result, cookiesEnabled);
   }
 
   /**
-   * Clear authentication cookies
+   * Clear authentication cookies using the centralized cookie helper.
    */
   protected clearAuthCookies(res: Response): void {
-    const cookieOptions = { httpOnly: true, sameSite: 'lax' as const };
-    res.cookie('token', '', { ...cookieOptions, maxAge: 0 });
-    res.cookie('session', '', { ...cookieOptions, maxAge: 0 });
-    res.cookie('better-auth.session_token', '', { ...cookieOptions, maxAge: 0 });
-
-    // Clear the path-based session token cookie
-    const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
-    const defaultCookieName = `${basePath}.session_token`;
-    res.cookie(defaultCookieName, '', { ...cookieOptions, maxAge: 0 });
-
-    // Clear configured session token cookie if different
-    const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
-    const configuredCookieName = betterAuthConfig?.options?.advanced?.cookies?.session_token?.name;
-    if (configuredCookieName && configuredCookieName !== 'token' && configuredCookieName !== defaultCookieName) {
-      res.cookie(configuredCookieName, '', { ...cookieOptions, maxAge: 0 });
-    }
+    this.cookieHelper.clearSessionCookies(res);
   }
 
   // ===================================================================================================================

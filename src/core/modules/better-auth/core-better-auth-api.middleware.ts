@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
+import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
@@ -19,28 +20,17 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  * All other paths (Passkey, 2FA, etc.) go directly to Better Auth's
  * native handler via this middleware for maximum compatibility.
  */
-const CONTROLLER_HANDLED_PATHS = [
-  '/sign-in/email',
-  '/sign-up/email',
-  '/sign-out',
-  '/session',
-];
+const CONTROLLER_HANDLED_PATHS = ['/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
 
 /**
  * Passkey paths that generate challenges
  */
-const PASSKEY_GENERATE_PATHS = [
-  '/passkey/generate-register-options',
-  '/passkey/generate-authenticate-options',
-];
+const PASSKEY_GENERATE_PATHS = ['/passkey/generate-register-options', '/passkey/generate-authenticate-options'];
 
 /**
  * Passkey paths that verify challenges
  */
-const PASSKEY_VERIFY_PATHS = [
-  '/passkey/verify-registration',
-  '/passkey/verify-authentication',
-];
+const PASSKEY_VERIFY_PATHS = ['/passkey/verify-registration', '/passkey/verify-authentication'];
 
 /**
  * Middleware that forwards Better Auth API requests to the native Better Auth handler.
@@ -63,11 +53,23 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
   private readonly logger = new Logger(CoreBetterAuthApiMiddleware.name);
   private readonly isProd = isProduction();
   private loggedChallengeStorageMode = false;
+  private cookieHelper?: BetterAuthCookieHelper;
 
   constructor(
     private readonly betterAuthService: CoreBetterAuthService,
     @Optional() private readonly challengeService?: CoreBetterAuthChallengeService,
   ) {}
+
+  /**
+   * Gets or creates the cookie helper instance.
+   * Lazy initialization because betterAuthService may not be fully initialized in constructor.
+   */
+  private getCookieHelper(): BetterAuthCookieHelper {
+    if (!this.cookieHelper) {
+      this.cookieHelper = createCookieHelper(this.betterAuthService.getBasePath(), undefined, this.logger);
+    }
+    return this.cookieHelper;
+  }
 
   /**
    * Check if database challenge storage should be used.
@@ -134,7 +136,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       let challengeIdToDelete: string | undefined;
       if (isPasskeyVerify && this.challengeService) {
         const challengeId = req.body?.challengeId;
-        this.logger.debug(`Passkey verify: challengeId=${challengeId ? `${challengeId.substring(0, 8)}...` : 'MISSING'}, body keys=${Object.keys(req.body || {}).join(', ')}`);
+        this.logger.debug(
+          `Passkey verify: challengeId=${challengeId ? `${challengeId.substring(0, 8)}...` : 'MISSING'}, body keys=${Object.keys(req.body || {}).join(', ')}`,
+        );
         if (challengeId) {
           const verificationToken = await this.challengeService.getVerificationToken(challengeId);
           if (verificationToken) {
@@ -252,6 +256,14 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         this.logger.debug(`Keeping challenge mapping after failed verification (status=${response.status}) for retry`);
       }
 
+      // For successful passkey verify-authentication, set compatibility cookies
+      // The controller's processCookies() sets multiple cookie names for compatibility,
+      // but the middleware only forwards Better-Auth's native cookies. This ensures
+      // the same multi-cookie strategy is applied after passkey login.
+      if (relativePath === '/passkey/verify-authentication' && response.ok) {
+        this.getCookieHelper().setSessionCookiesFromWebResponse(res, response);
+      }
+
       // Convert Web Standard Response to Express response using shared helper
       await sendWebResponse(res, response);
     } catch (error) {
@@ -264,9 +276,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
 
       // Send error response if headers not sent
       if (!res.headersSent) {
-        const message = this.isProd
-          ? 'Authentication error'
-          : (error instanceof Error ? error.message : 'Unknown error');
+        const message = this.isProd ? 'Authentication error' : error instanceof Error ? error.message : 'Unknown error';
         res.status(500).json({
           error: 'Authentication handler error',
           message,
