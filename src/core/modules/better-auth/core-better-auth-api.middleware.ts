@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
+import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
@@ -52,11 +53,23 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
   private readonly logger = new Logger(CoreBetterAuthApiMiddleware.name);
   private readonly isProd = isProduction();
   private loggedChallengeStorageMode = false;
+  private cookieHelper?: BetterAuthCookieHelper;
 
   constructor(
     private readonly betterAuthService: CoreBetterAuthService,
     @Optional() private readonly challengeService?: CoreBetterAuthChallengeService,
   ) {}
+
+  /**
+   * Gets or creates the cookie helper instance.
+   * Lazy initialization because betterAuthService may not be fully initialized in constructor.
+   */
+  private getCookieHelper(): BetterAuthCookieHelper {
+    if (!this.cookieHelper) {
+      this.cookieHelper = createCookieHelper(this.betterAuthService.getBasePath(), undefined, this.logger);
+    }
+    return this.cookieHelper;
+  }
 
   /**
    * Check if database challenge storage should be used.
@@ -69,57 +82,6 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       this.loggedChallengeStorageMode = true;
     }
     return enabled;
-  }
-
-  /**
-   * Extracts the session token from the Better-Auth response Set-Cookie headers
-   * and sets compatibility cookies on the Express response.
-   *
-   * This replicates the controller's processCookies() multi-cookie strategy
-   * for passkey authentication responses that go through the middleware.
-   */
-  private setSessionCookiesFromResponse(res: Response, response: globalThis.Response, basePath: string): void {
-    try {
-      const setCookieHeaders = response.headers.getSetCookie?.() || [];
-      const normalizedBasePath = basePath.replace(/^\//, '').replace(/\//g, '.');
-      const sessionCookieName = `${normalizedBasePath}.session_token`;
-
-      // Find the session token cookie from Better-Auth's response
-      let sessionToken: null | string = null;
-      for (const cookieHeader of setCookieHeaders) {
-        if (cookieHeader.startsWith(`${sessionCookieName}=`) || cookieHeader.startsWith('better-auth.session_token=')) {
-          // Extract the cookie value (before the first semicolon, after the equals sign)
-          const cookieValue = cookieHeader.split(';')[0].split('=').slice(1).join('=');
-          // URL decode to get the raw value
-          try {
-            sessionToken = decodeURIComponent(cookieValue);
-          } catch {
-            sessionToken = cookieValue;
-          }
-          // If it's a signed cookie (value.signature), extract just the value
-          if (sessionToken.includes('.')) {
-            sessionToken = sessionToken.split('.')[0];
-          }
-          break;
-        }
-      }
-
-      if (!sessionToken) {
-        this.logger.debug('No session token found in passkey verify-authentication response cookies');
-        return;
-      }
-
-      const cookieOptions = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' };
-
-      // Set compatibility cookies (same as controller's processCookies())
-      res.cookie('token', sessionToken, cookieOptions);
-      res.cookie(sessionCookieName, sessionToken, cookieOptions);
-      res.cookie('better-auth.session_token', sessionToken, cookieOptions);
-
-      this.logger.debug('Set compatibility session cookies for passkey authentication');
-    } catch (error) {
-      this.logger.debug(`Failed to set session cookies: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
   }
 
   async use(req: Request, res: Response, next: NextFunction) {
@@ -299,7 +261,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // but the middleware only forwards Better-Auth's native cookies. This ensures
       // the same multi-cookie strategy is applied after passkey login.
       if (relativePath === '/passkey/verify-authentication' && response.ok) {
-        this.setSessionCookiesFromResponse(res, response, basePath);
+        this.getCookieHelper().setSessionCookiesFromWebResponse(res, response);
       }
 
       // Convert Web Standard Response to Express response using shared helper
