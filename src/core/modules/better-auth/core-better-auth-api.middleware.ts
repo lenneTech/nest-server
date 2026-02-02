@@ -140,10 +140,6 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // Extract session token from cookies or Authorization header
       const sessionToken = extractSessionToken(req, basePath);
 
-      // Debug: Log the extracted session token
-      this.logger.debug(`Session token extracted: ${sessionToken ? `${sessionToken.substring(0, 8)}...` : 'NONE'}`);
-      this.logger.debug(`Request cookies: ${req.headers.cookie ? `${req.headers.cookie.substring(0, 100)  }...` : 'NONE'}`);
-
       // Get config for cookie signing
       const config = this.betterAuthService.getConfig();
       const cookieName = this.challengeService?.getCookieName() || 'better-auth.better-auth-passkey';
@@ -185,10 +181,6 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         secret: config.secret,
         sessionToken,
       });
-
-      // Debug: Log what's being sent to Better-Auth
-      const webCookies = webRequest.headers.get('cookie');
-      this.logger.debug(`Cookies sent to Better-Auth: ${webCookies?.substring(0, 150)}...`);
 
       // Call Better Auth's native handler
       const response = await authInstance.handler(webRequest);

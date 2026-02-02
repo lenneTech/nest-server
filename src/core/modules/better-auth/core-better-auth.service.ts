@@ -4,7 +4,7 @@ import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
 
-import { maskCookieHeader, maskEmail, maskToken } from '../../common/helpers/logging.helper';
+import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthInstance } from './better-auth.config';
@@ -345,14 +345,7 @@ export class CoreBetterAuthService {
         }
       }
 
-      // Debug: Log the cookie header being sent to api.getSession (masked for security)
-      const debugCookieHeader = headers.get('cookie');
-      this.logger.debug(`getSession called with cookies: ${maskCookieHeader(debugCookieHeader)}`);
-
       const response = await api.getSession({ headers });
-
-      // Debug: Log the response from api.getSession
-      this.logger.debug(`getSession response: ${JSON.stringify(response)?.substring(0, 200)}`);
 
       if (response && typeof response === 'object' && 'user' in response) {
         return response as SessionResult;

@@ -162,7 +162,6 @@ export class BetterAuthCookieHelper {
     let cookieValue: string;
     if (this.config.secret) {
       cookieValue = signCookieValue(sessionToken, this.config.secret);
-      this.config.logger?.debug('Setting signed session cookie');
     } else {
       this.config.logger?.warn('No secret configured - setting unsigned cookie (Passkey/2FA may fail)');
       cookieValue = sessionToken;
@@ -177,10 +176,6 @@ export class BetterAuthCookieHelper {
     if (this.config.legacyCookieEnabled) {
       res.cookie(AUTH_COOKIE_NAMES.TOKEN, sessionToken, cookieOptions);
     }
-
-    this.config.logger?.debug(
-      `Set session cookies: ${this.cookieName}${this.config.legacyCookieEnabled ? ' + token (legacy)' : ''}`,
-    );
   }
 
   /**
@@ -204,11 +199,6 @@ export class BetterAuthCookieHelper {
     if (this.config.legacyCookieEnabled) {
       res.cookie(AUTH_COOKIE_NAMES.TOKEN, '', cookieOptions);
     }
-
-    // Clear old Better-Auth default cookie (migration cleanup)
-    res.cookie('better-auth.session_token', '', cookieOptions);
-
-    this.config.logger?.debug('Cleared authentication cookies');
   }
 
   /**
@@ -273,7 +263,6 @@ export class BetterAuthCookieHelper {
     const sessionToken = this.extractSessionTokenFromResponse(webResponse);
 
     if (!sessionToken) {
-      this.config.logger?.debug('No session token found in response cookies');
       return;
     }
 

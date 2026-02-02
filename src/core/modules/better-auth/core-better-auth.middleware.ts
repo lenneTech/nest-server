@@ -1,7 +1,6 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { isLegacyJwt } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
 import { extractSessionToken } from './core-better-auth-web.helper';
@@ -150,25 +149,13 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
     try {
       // Strategy 1: Try to get session token from cookies using shared helper
       const basePath = this.betterAuthService.getBasePath();
-
-      // Debug: Log incoming cookies
-      const cookieHeader = req.headers.cookie;
-      this.logger.debug(`[MIDDLEWARE] Incoming cookies: ${cookieHeader ? `${cookieHeader.substring(0, 100)  }...` : 'NONE'}`);
-
       const sessionToken = extractSessionToken(req, basePath);
 
-      this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
-
       if (sessionToken) {
-        this.logger.debug(`[MIDDLEWARE] Found session token in cookies: ${maskToken(sessionToken)}`);
-
         // Use getSessionByToken to validate session directly from database
         const sessionResult = await this.betterAuthService.getSessionByToken(sessionToken);
 
-        this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
-
         if (sessionResult?.user && sessionResult?.session) {
-          this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);
           return sessionResult as { session: any; user: BetterAuthSessionUser };
         }
       }
