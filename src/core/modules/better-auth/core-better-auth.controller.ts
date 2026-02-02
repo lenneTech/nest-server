@@ -190,11 +190,22 @@ export class CoreBetterAuthController {
     protected readonly userMapper: CoreBetterAuthUserMapper,
     protected readonly configService: ConfigService,
   ) {
-    // Initialize cookie helper with Better-Auth configuration
-    const betterAuthConfig = this.configService.getFastButReadOnly('betterAuth');
+    // Detect if Legacy Auth is active (for < 11.7.0 compatibility)
+    // Legacy Auth is active when JWT secret is configured
+    const jwtConfig = this.configService.getFastButReadOnly('jwt');
+    const legacyAuthEnabled = !!(jwtConfig?.secret || jwtConfig?.secretOrPrivateKey);
+
+    // Get Better-Auth secret for cookie signing
+    // CRITICAL: Cookies must be signed for Passkey/2FA to work
+    const betterAuthConfig = this.betterAuthService.getConfig();
+
+    // Initialize cookie helper with Legacy Auth detection and secret
     this.cookieHelper = createCookieHelper(
       this.betterAuthService.getBasePath(),
-      betterAuthConfig?.options?.advanced?.cookies?.session_token?.name,
+      {
+        legacyCookieEnabled: legacyAuthEnabled,
+        secret: betterAuthConfig?.secret,
+      },
       this.logger,
     );
   }
@@ -445,7 +456,7 @@ export class CoreBetterAuthController {
    * Sign out (logout)
    *
    * **Why Custom Implementation (not hooks):**
-   * - Must clear multiple cookies (token, session, better-auth.session_token, etc.)
+   * - Must clear session cookies (basePath.session_token + optional legacy token)
    * - Hooks cannot modify response or set/clear cookies
    *
    * NOTE: Better-Auth uses POST for sign-out (matches better-auth convention)
@@ -574,6 +585,11 @@ export class CoreBetterAuthController {
 
   /**
    * Extract session token from request
+   *
+   * Cookie priority (v11.12+):
+   * 1. Authorization: Bearer header
+   * 2. `{basePath}.session_token` (e.g., `iam.session_token`) - Better-Auth native
+   * 3. `token` - Legacy compatibility (only if Legacy Auth might be active)
    */
   protected extractSessionToken(req: Request): null | string {
     // Check Authorization header
@@ -582,10 +598,10 @@ export class CoreBetterAuthController {
       return authHeader.substring(7);
     }
 
-    // Check cookies
+    // Check cookies - Better-Auth native cookie first, then legacy token
     const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
     const cookieName = `${basePath}.session_token`;
-    return req.cookies?.[cookieName] || req.cookies?.['better-auth.session_token'] || null;
+    return req.cookies?.[cookieName] || req.cookies?.['token'] || null;
   }
 
   /**

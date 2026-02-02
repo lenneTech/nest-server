@@ -1,15 +1,22 @@
 import { Logger } from '@nestjs/common';
 import { Response } from 'express';
 
+import { signCookieValue } from './core-better-auth-web.helper';
+
 /**
  * Standard cookie names used by Better-Auth and nest-server.
+ *
+ * ## Cookie Strategy (v11.12+)
+ *
+ * | Cookie Name | Purpose | When Set |
+ * |-------------|---------|----------|
+ * | `{basePath}.session_token` | Better-Auth's native cookie (e.g., `iam.session_token`) | Always |
+ * | `token` | Legacy compatibility for < 11.7.0 | Only if Legacy Auth is active |
+ *
+ * This is a significant reduction from previous versions (4-5 cookies → 1-2 cookies).
  */
 export const AUTH_COOKIE_NAMES = {
-  /** Legacy Better-Auth session token cookie (backwards compatibility) */
-  BETTER_AUTH_SESSION: 'better-auth.session_token',
-  /** Session ID cookie for reference/debugging */
-  SESSION: 'session',
-  /** Primary token cookie for nest-server compatibility */
+  /** Primary token cookie for nest-server compatibility (Legacy Auth) */
   TOKEN: 'token',
 } as const;
 
@@ -29,10 +36,20 @@ export interface AuthCookieOptions {
 export interface BetterAuthCookieHelperConfig {
   /** Base path for Better-Auth (e.g., '/iam' or 'iam') */
   basePath: string;
-  /** Custom cookie name from Better-Auth config (optional) */
-  configuredCookieName?: string;
+  /**
+   * Enable legacy 'token' cookie for backwards compatibility with < 11.7.0.
+   * Only needed when Legacy Auth (Passport) is also active.
+   * @default false (auto-detected based on Legacy Auth activation)
+   */
+  legacyCookieEnabled?: boolean;
   /** Logger instance for debug output */
   logger?: Logger;
+  /**
+   * Secret for signing cookies.
+   * Better-Auth expects signed cookies in format: value.signature
+   * CRITICAL: Required for Passkey/2FA to work correctly.
+   */
+  secret?: string;
 }
 
 /**
@@ -50,33 +67,33 @@ export interface CookieProcessingResult {
  *
  * This class consolidates all cookie-related logic to ensure consistency
  * across the controller and middlewares. It handles:
- * - Setting multiple session cookies for compatibility
+ * - Setting session cookies for Better-Auth
+ * - Optional legacy cookie for backwards compatibility
  * - Clearing authentication cookies
  * - Extracting session tokens from responses
- * - Base path normalization
  *
- * ## Cookie Strategy
+ * ## Cookie Strategy (v11.12+)
  *
- * Multiple cookies are set for maximum compatibility:
+ * Only the minimum required cookies are set:
  *
- * | Cookie Name | Purpose |
- * |-------------|---------|
- * | `token` | Primary session token (nest-server compatibility) |
- * | `{basePath}.session_token` | Better-Auth's native cookie (e.g., `iam.session_token`) |
- * | `better-auth.session_token` | Legacy Better-Auth cookie (backwards compatibility) |
- * | `{configured}` | Custom cookie name if configured |
- * | `session` | Session ID for reference/debugging |
+ * | Cookie Name | Purpose | When Set |
+ * |-------------|---------|----------|
+ * | `{basePath}.session_token` | Better-Auth's native cookie (CRITICAL for Passkey/2FA) | Always |
+ * | `token` | Legacy compatibility | Only if `legacyCookieEnabled: true` |
+ *
+ * **Vorher:** 4-5 Cookies (`token`, `iam.session_token`, `better-auth.session_token`, `session`, optional)
+ * **Nachher:** 1-2 Cookies (`iam.session_token`, optional `token` for Legacy)
  *
  * @example
  * ```typescript
  * const cookieHelper = new BetterAuthCookieHelper({
  *   basePath: '/iam',
- *   configuredCookieName: betterAuthConfig?.options?.advanced?.cookies?.session_token?.name,
+ *   legacyCookieEnabled: !!jwtConfig?.secret, // Auto-detect Legacy Auth
  *   logger: this.logger,
  * });
  *
  * // In sign-in handler
- * cookieHelper.setSessionCookies(res, sessionToken, sessionId);
+ * cookieHelper.setSessionCookies(res, sessionToken);
  *
  * // In sign-out handler
  * cookieHelper.clearSessionCookies(res);
@@ -84,13 +101,13 @@ export interface CookieProcessingResult {
  */
 export class BetterAuthCookieHelper {
   private readonly normalizedBasePath: string;
-  private readonly defaultCookieName: string;
+  private readonly cookieName: string;
 
   constructor(private readonly config: BetterAuthCookieHelperConfig) {
     // Normalize basePath: remove leading slash, replace slashes with dots
     this.normalizedBasePath = config.basePath.replace(/^\//, '').replace(/\//g, '.');
     // Default cookie name based on basePath (e.g., 'iam.session_token')
-    this.defaultCookieName = `${this.normalizedBasePath}.session_token`;
+    this.cookieName = `${this.normalizedBasePath}.session_token`;
   }
 
   /**
@@ -114,55 +131,63 @@ export class BetterAuthCookieHelper {
   }
 
   /**
-   * Gets the default cookie name based on the base path.
+   * Gets the cookie name based on the base path.
+   * This is the ONLY required cookie for Better-Auth.
    */
-  getDefaultCookieName(): string {
-    return this.defaultCookieName;
+  getCookieName(): string {
+    return this.cookieName;
   }
 
   /**
    * Sets session cookies on the response for authentication.
    *
-   * This method sets multiple cookies to ensure compatibility with:
-   * - nest-server's existing authentication flow (`token` cookie)
-   * - Better-Auth's native plugin system (basePath-based cookie)
-   * - Legacy Better-Auth implementations (`better-auth.session_token`)
-   * - Custom cookie configurations
+   * Sets the minimum required cookies:
+   * 1. `{basePath}.session_token` - Better-Auth's native cookie (REQUIRED)
+   *    This is CRITICAL for Passkey/WebAuthn and 2FA to work.
+   * 2. `token` - Legacy cookie (OPTIONAL, only if legacyCookieEnabled)
+   *
+   * IMPORTANT: Cookies are SIGNED using Better-Auth's secret.
+   * Better-Auth expects signed cookies in format: value.signature
+   * Without signing, Passkey and 2FA will fail with 401 errors.
    *
    * @param res - Express Response object
    * @param sessionToken - The session token to set
-   * @param sessionId - Optional session ID for the session cookie
+   * @param _sessionId - Deprecated, kept for API compatibility but no longer used
    */
-  setSessionCookies(res: Response, sessionToken: string, sessionId?: string): void {
+  setSessionCookies(res: Response, sessionToken: string, _sessionId?: string): void {
     const cookieOptions = this.getDefaultCookieOptions();
 
-    // Set the primary token cookie (nest-server compatibility)
-    res.cookie(AUTH_COOKIE_NAMES.TOKEN, sessionToken, cookieOptions);
-
-    // Set Better-Auth's native session token cookie for plugin compatibility
-    // This is CRITICAL for Passkey/WebAuthn to work
-    res.cookie(this.defaultCookieName, sessionToken, cookieOptions);
-
-    // Set the legacy cookie name for backwards compatibility
-    res.cookie(AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION, sessionToken, cookieOptions);
-
-    // Set configured cookie name if different from defaults
-    if (this.shouldSetConfiguredCookie()) {
-      res.cookie(this.config.configuredCookieName!, sessionToken, cookieOptions);
+    // Sign the session token for Better-Auth
+    // CRITICAL: Without signing, Better-Auth cannot validate sessions
+    let cookieValue: string;
+    if (this.config.secret) {
+      cookieValue = signCookieValue(sessionToken, this.config.secret);
+      this.config.logger?.debug('Setting signed session cookie');
+    } else {
+      this.config.logger?.warn('No secret configured - setting unsigned cookie (Passkey/2FA may fail)');
+      cookieValue = sessionToken;
     }
 
-    // Set session ID cookie (for reference/debugging)
-    if (sessionId) {
-      res.cookie(AUTH_COOKIE_NAMES.SESSION, sessionId, cookieOptions);
+    // Set Better-Auth's native session token cookie
+    // This is the ONLY required cookie for all Better-Auth features
+    res.cookie(this.cookieName, cookieValue, cookieOptions);
+
+    // Legacy 'token' cookie only if Legacy Auth is active (< 11.7.0 compatibility)
+    // Note: Legacy cookie uses UNSIGNED value (Legacy Auth doesn't use signing)
+    if (this.config.legacyCookieEnabled) {
+      res.cookie(AUTH_COOKIE_NAMES.TOKEN, sessionToken, cookieOptions);
     }
 
-    this.config.logger?.debug('Set session cookies for authentication');
+    this.config.logger?.debug(
+      `Set session cookies: ${this.cookieName}${this.config.legacyCookieEnabled ? ' + token (legacy)' : ''}`,
+    );
   }
 
   /**
    * Clears all authentication cookies from the response.
    *
-   * This method clears all known cookie names to ensure complete logout.
+   * This method clears both the native cookie and the legacy cookie
+   * (if it was potentially set).
    *
    * @param res - Express Response object
    */
@@ -172,20 +197,18 @@ export class BetterAuthCookieHelper {
       maxAge: 0,
     };
 
-    // Clear primary cookies
-    res.cookie(AUTH_COOKIE_NAMES.TOKEN, '', cookieOptions);
-    res.cookie(AUTH_COOKIE_NAMES.SESSION, '', cookieOptions);
-    res.cookie(AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION, '', cookieOptions);
+    // Clear Better-Auth's native cookie
+    res.cookie(this.cookieName, '', cookieOptions);
 
-    // Clear the path-based session token cookie
-    res.cookie(this.defaultCookieName, '', cookieOptions);
-
-    // Clear configured cookie name if different from defaults
-    if (this.shouldSetConfiguredCookie()) {
-      res.cookie(this.config.configuredCookieName!, '', cookieOptions);
+    // Clear legacy cookie if it was potentially set
+    if (this.config.legacyCookieEnabled) {
+      res.cookie(AUTH_COOKIE_NAMES.TOKEN, '', cookieOptions);
     }
 
-    this.config.logger?.debug('Cleared all authentication cookies');
+    // Clear old Better-Auth default cookie (migration cleanup)
+    res.cookie('better-auth.session_token', '', cookieOptions);
+
+    this.config.logger?.debug('Cleared authentication cookies');
   }
 
   /**
@@ -201,12 +224,9 @@ export class BetterAuthCookieHelper {
     try {
       const setCookieHeaders = response.headers.getSetCookie?.() || [];
 
-      // Look for session token in known cookie names
+      // Look for session token in the native cookie name
       for (const cookieHeader of setCookieHeaders) {
-        if (
-          cookieHeader.startsWith(`${this.defaultCookieName}=`) ||
-          cookieHeader.startsWith(`${AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION}=`)
-        ) {
+        if (cookieHeader.startsWith(`${this.cookieName}=`)) {
           // Extract the cookie value (before the first semicolon, after the equals sign)
           const cookieValue = cookieHeader.split(';')[0].split('=').slice(1).join('=');
 
@@ -257,7 +277,7 @@ export class BetterAuthCookieHelper {
       return;
     }
 
-    // Set all compatibility cookies (without session ID since we don't have it)
+    // Set session cookies
     this.setSessionCookies(res, sessionToken);
   }
 
@@ -267,7 +287,6 @@ export class BetterAuthCookieHelper {
    * This method handles the common pattern of:
    * 1. Setting cookies if cookie handling is enabled
    * 2. Removing the token from the response body (it's now in cookies)
-   * 3. Setting session ID cookie if available
    *
    * @param res - Express Response object
    * @param result - The result object to process (modified in place)
@@ -281,28 +300,13 @@ export class BetterAuthCookieHelper {
 
     if (result.token) {
       // Set cookies
-      this.setSessionCookies(res, result.token, result.session?.id);
+      this.setSessionCookies(res, result.token);
 
       // Remove token from response body (it's now in cookies)
       delete result.token;
-    } else if (result.session?.id) {
-      // No token but has session - just set session cookie
-      const cookieOptions = this.getDefaultCookieOptions();
-      res.cookie(AUTH_COOKIE_NAMES.SESSION, result.session.id, cookieOptions);
     }
 
     return result;
-  }
-
-  /**
-   * Checks if the configured cookie name should be set.
-   *
-   * Returns true if a custom cookie name is configured and it's different
-   * from the default names (to avoid duplicates).
-   */
-  private shouldSetConfiguredCookie(): boolean {
-    const configured = this.config.configuredCookieName;
-    return !!(configured && configured !== AUTH_COOKIE_NAMES.TOKEN && configured !== this.defaultCookieName);
   }
 }
 
@@ -312,18 +316,19 @@ export class BetterAuthCookieHelper {
  * Utility function for quick instantiation with typical settings.
  *
  * @param basePath - Base path for Better-Auth
- * @param configuredCookieName - Optional custom cookie name
+ * @param options - Configuration options (legacyCookieEnabled, secret, etc.)
  * @param logger - Optional logger instance
  * @returns Configured BetterAuthCookieHelper instance
  */
 export function createCookieHelper(
   basePath: string,
-  configuredCookieName?: string,
+  options?: { legacyCookieEnabled?: boolean; secret?: string },
   logger?: Logger,
 ): BetterAuthCookieHelper {
   return new BetterAuthCookieHelper({
     basePath,
-    configuredCookieName,
+    legacyCookieEnabled: options?.legacyCookieEnabled ?? false,
     logger,
+    secret: options?.secret,
   });
 }

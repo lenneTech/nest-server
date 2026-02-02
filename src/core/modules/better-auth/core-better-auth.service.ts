@@ -9,6 +9,7 @@ import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthInstance } from './better-auth.config';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
+import { parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
 import { BETTER_AUTH_INSTANCE } from './core-better-auth.module';
 
 /**
@@ -316,9 +317,37 @@ export class CoreBetterAuthService {
         }
       }
 
-      // Debug: Log the cookie header being sent to api.getSession (masked for security)
+      // Sign cookies before sending to Better-Auth API
+      // Browser clients send unsigned cookies, but Better-Auth expects signed cookies
       const cookieHeader = headers.get('cookie');
-      this.logger.debug(`getSession called with cookies: ${maskCookieHeader(cookieHeader)}`);
+      if (cookieHeader && this.config?.secret) {
+        const basePath = this.getBasePath()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
+        const sessionCookieName = `${basePath}.session_token`;
+        const cookies = parseCookieHeader(cookieHeader);
+        let modified = false;
+
+        for (const [name, value] of Object.entries(cookies)) {
+          // Sign the session token cookie if it's not already signed
+          if (name === sessionCookieName || name === 'token') {
+            const signedValue = signCookieValueIfNeeded(value, this.config.secret);
+            if (signedValue !== value) {
+              cookies[name] = signedValue;
+              modified = true;
+            }
+          }
+        }
+
+        if (modified) {
+          const signedCookieHeader = Object.entries(cookies)
+            .map(([name, value]) => `${name}=${value}`)
+            .join('; ');
+          headers.set('cookie', signedCookieHeader);
+        }
+      }
+
+      // Debug: Log the cookie header being sent to api.getSession (masked for security)
+      const debugCookieHeader = headers.get('cookie');
+      this.logger.debug(`getSession called with cookies: ${maskCookieHeader(debugCookieHeader)}`);
 
       const response = await api.getSession({ headers });
 
@@ -347,11 +376,11 @@ export class CoreBetterAuthService {
    *
    * @example
    * ```typescript
-   * // Get session token from cookie or header
-   * const sessionToken = req.cookies['better-auth.session_token'];
+   * // Get session token from cookie (using basePath-based name)
+   * const sessionToken = req.cookies['iam.session_token'];
    * const success = await betterAuthService.revokeSession(sessionToken);
    * if (success) {
-   *   res.clearCookie('better-auth.session_token');
+   *   res.clearCookie('iam.session_token');
    * }
    * ```
    */

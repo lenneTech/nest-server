@@ -212,8 +212,16 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
 
   // Build the base Better-Auth configuration
   // Use resolved baseUrl (with local defaults) or fallback
+  const basePath = config.basePath || '/iam';
+  // Cookie prefix derived from basePath (e.g., '/iam' → 'iam')
+  // This ensures Better-Auth looks for cookies like 'iam.session_token' instead of 'better-auth.session_token'
+  const cookiePrefix = basePath.replace(/^\//, '').replace(/\//g, '.');
+
   const betterAuthConfig: Record<string, unknown> = {
-    basePath: config.basePath || '/iam',
+    advanced: {
+      cookiePrefix,
+    },
+    basePath,
     baseURL: resolvedUrls.baseUrl || config.baseUrl || 'http://localhost:3000',
     database: mongodbAdapter(db),
     // Enable email/password authentication by default (required by Better-Auth 1.x)

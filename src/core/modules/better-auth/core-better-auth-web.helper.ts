@@ -6,10 +6,14 @@ import { isSessionToken } from './core-better-auth-token.helper';
 
 /**
  * Cookie names used by Better Auth and nest-server
+ *
+ * ## Cookie Strategy (v11.12+)
+ *
+ * Only the minimum required cookies are used:
+ * - `{basePath}.session_token` (e.g., `iam.session_token`) - Better-Auth native (ALWAYS)
+ * - `token` - Legacy compatibility (only if Legacy Auth active)
  */
 export const BETTER_AUTH_COOKIE_NAMES = {
-  /** Better Auth's default session token cookie */
-  BETTER_AUTH_SESSION: 'better-auth.session_token',
   /** Legacy nest-server token cookie */
   TOKEN: 'token',
 } as const;
@@ -39,11 +43,10 @@ export interface ToWebRequestOptions {
 /**
  * Extracts the session token from Express request cookies or Authorization header.
  *
- * Checks multiple cookie names for compatibility with different configurations:
- * 1. `{basePath}.session_token` - Based on configured basePath (e.g., iam.session_token)
- * 2. `better-auth.session_token` - Better Auth default
+ * Cookie priority (v11.12+):
+ * 1. Authorization: Bearer header (if session token, not JWT)
+ * 2. `{basePath}.session_token` (e.g., `iam.session_token`) - Better-Auth native
  * 3. `token` - Legacy nest-server cookie
- * 4. Authorization: Bearer header
  *
  * @param req - Express request
  * @param basePath - Base path for cookie names (e.g., '/iam' or 'iam')
@@ -66,9 +69,9 @@ export function extractSessionToken(req: Request, basePath: string = 'iam'): nul
   const normalizedBasePath = basePath.replace(/^\//, '').replace(/\//g, '.');
 
   // Cookie names to check (in order of priority)
+  // v11.12+: Only native Better-Auth cookie and legacy token
   const cookieNames = [
-    `${normalizedBasePath}.session_token`, // Based on configured basePath
-    BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION, // Better Auth default
+    `${normalizedBasePath}.session_token`, // Better-Auth native (PRIMARY)
     BETTER_AUTH_COOKIE_NAMES.TOKEN, // Legacy nest-server cookie
   ];
 
@@ -224,17 +227,20 @@ export async function sendWebResponse(res: Response, webResponse: globalThis.Res
  *
  * @param value - The raw cookie value to sign
  * @param secret - The secret to use for signing
- * @returns The signed cookie value (URL-encoded)
+ * @param urlEncode - Whether to URL-encode the result (default: false)
+ *                    Set to true when building cookie header strings manually.
+ *                    Set to false when using Express res.cookie() which encodes automatically.
+ * @returns The signed cookie value
  * @throws Error if secret is not provided
  */
-export function signCookieValue(value: string, secret: string): string {
+export function signCookieValue(value: string, secret: string, urlEncode = false): string {
   if (!secret) {
     throw new Error('Cannot sign cookie: Better Auth secret is not configured');
   }
 
   const signature = crypto.createHmac('sha256', secret).update(value).digest('base64');
   const signedValue = `${value}.${signature}`;
-  return encodeURIComponent(signedValue);
+  return urlEncode ? encodeURIComponent(signedValue) : signedValue;
 }
 
 /**
@@ -244,16 +250,22 @@ export function signCookieValue(value: string, secret: string): string {
  *
  * @param value - The cookie value to potentially sign
  * @param secret - The secret to use for signing
+ * @param urlEncode - Whether to URL-encode the result (default: true for backwards compatibility)
+ *                    Set to true when building cookie header strings manually.
+ *                    Set to false when using Express res.cookie() which encodes automatically.
  * @param logger - Optional logger for debug output
- * @returns The signed cookie value (URL-encoded) or the original if already signed
+ * @returns The signed cookie value or the original if already signed
  */
-export function signCookieValueIfNeeded(value: string, secret: string, logger?: Logger): string {
+export function signCookieValueIfNeeded(value: string, secret: string, urlEncode = true, logger?: Logger): string {
   if (isAlreadySigned(value)) {
     logger?.debug?.('Cookie value appears to be already signed, skipping signing');
-    // Return URL-encoded to match signCookieValue behavior
-    return value.includes('%') ? value : encodeURIComponent(value);
+    // Return URL-encoded if requested and not already encoded
+    if (urlEncode) {
+      return value.includes('%') ? value : encodeURIComponent(value);
+    }
+    return value.includes('%') ? decodeURIComponent(value) : value;
   }
-  return signCookieValue(value, secret);
+  return signCookieValue(value, secret, urlEncode);
 }
 
 /**
@@ -293,27 +305,26 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
 
     // Sign the session token for Better Auth (if secret is provided)
     // IMPORTANT: Only sign if not already signed to prevent double-signing
+    // URL-encode because we're building the cookie header string manually
     let signedToken: string;
     if (secret) {
-      signedToken = signCookieValueIfNeeded(sessionToken, secret, logger);
+      signedToken = signCookieValueIfNeeded(sessionToken, secret, true, logger);
     } else {
       logger?.warn('No Better Auth secret configured - cookies will not be signed');
       signedToken = sessionToken;
     }
 
-    // Cookie names that need signed tokens
+    // Primary cookie name for Better-Auth (e.g., 'iam.session_token')
     const primaryCookieName = `${normalizedBasePath}.session_token`;
-    const sessionCookieNames = [primaryCookieName, BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION];
 
     // Parse existing cookies
     const existingCookies = parseCookieHeader(existingCookieString);
 
-    // Replace session token cookies with signed versions
-    for (const cookieName of sessionCookieNames) {
-      existingCookies[cookieName] = signedToken;
-    }
+    // Set the signed session token on the primary cookie
+    // This is the ONLY cookie Better-Auth needs
+    existingCookies[primaryCookieName] = signedToken;
 
-    // Keep the unsigned token cookie for nest-server compatibility
+    // Keep the unsigned token cookie for legacy nest-server compatibility
     if (!existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN]) {
       existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN] = sessionToken;
     }

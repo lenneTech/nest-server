@@ -150,6 +150,11 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
     try {
       // Strategy 1: Try to get session token from cookies using shared helper
       const basePath = this.betterAuthService.getBasePath();
+
+      // Debug: Log incoming cookies
+      const cookieHeader = req.headers.cookie;
+      this.logger.debug(`[MIDDLEWARE] Incoming cookies: ${cookieHeader ? `${cookieHeader.substring(0, 100)  }...` : 'NONE'}`);
+
       const sessionToken = extractSessionToken(req, basePath);
 
       this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
