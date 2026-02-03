@@ -14,10 +14,10 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { BrevoService } from '../../common/services/brevo.service';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
@@ -445,6 +445,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       providers: [
         // Optional BrevoService: uses factory to avoid constructor error when brevo config is missing
         {
+          inject: [ConfigService],
           provide: CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN,
           useFactory: (configService: ConfigService) => {
             if (configService.configFastButReadOnly?.brevo?.apiKey) {
@@ -452,7 +453,6 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             }
             return null;
           },
-          inject: [ConfigService],
         },
         // Email verification service - must be initialized early for callbacks
         CoreBetterAuthEmailVerificationService,
@@ -671,6 +671,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       providers: [
         // Optional BrevoService: uses factory to avoid constructor error when brevo config is missing
         {
+          inject: [ConfigService],
           provide: CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN,
           useFactory: (configService: ConfigService) => {
             if (configService.configFastButReadOnly?.brevo?.apiKey) {
@@ -678,7 +679,6 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             }
             return null;
           },
-          inject: [ConfigService],
         },
         // Email verification service - must be initialized early for callbacks
         CoreBetterAuthEmailVerificationService,

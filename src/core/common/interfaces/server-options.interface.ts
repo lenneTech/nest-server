@@ -277,6 +277,21 @@ export interface IBetterAuthEmailVerificationConfig {
   autoSignInAfterVerification?: boolean;
 
   /**
+   * Brevo template ID for verification emails.
+   * When set and Brevo is configured (config.brevo), verification emails
+   * are sent via Brevo's transactional API instead of SMTP/EJS templates.
+   *
+   * Template variables passed to Brevo:
+   * - `name`: User display name
+   * - `link`: Verification URL
+   * - `appName`: Application name
+   * - `expiresIn`: Formatted expiration time
+   *
+   * @default undefined (uses SMTP/EJS templates)
+   */
+  brevoTemplateId?: number;
+
+  /**
    * Whether email verification is enabled.
    * @default true (enabled by default when BetterAuth is active)
    */
@@ -294,21 +309,6 @@ export interface IBetterAuthEmailVerificationConfig {
    * @default 'en'
    */
   locale?: string;
-
-  /**
-   * Brevo template ID for verification emails.
-   * When set and Brevo is configured (config.brevo), verification emails
-   * are sent via Brevo's transactional API instead of SMTP/EJS templates.
-   *
-   * Template variables passed to Brevo:
-   * - `name`: User display name
-   * - `link`: Verification URL
-   * - `appName`: Application name
-   * - `expiresIn`: Formatted expiration time
-   *
-   * @default undefined (uses SMTP/EJS templates)
-   */
-  brevoTemplateId?: number;
 
   /**
    * Custom template name for the verification email.
