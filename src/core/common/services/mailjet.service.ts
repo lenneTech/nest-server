@@ -3,7 +3,6 @@ const Mailjet = require('node-mailjet');
 
 import { ConfigService } from './config.service';
 
-
 /**
  * Mailjet service
  */
@@ -83,8 +82,8 @@ export class MailjetService {
       });
     } catch (e) {
       if (
-        this.configService.getFastButReadOnly('email.mailjet.api_key_public')
-        && this.configService.getFastButReadOnly('email.mailjet.api_key_private')
+        this.configService.getFastButReadOnly('email.mailjet.api_key_public') &&
+        this.configService.getFastButReadOnly('email.mailjet.api_key_private')
       ) {
         throw new HttpException('Cannot connect to mailjet.', 502);
       }
@@ -95,8 +94,8 @@ export class MailjetService {
               this.configService.getFastButReadOnly('email.mailjet.api_key_private') || 'missing',
             'email.mailjet.api_key_public':
               this.configService.getFastButReadOnly('email.mailjet.api_key_public') || 'missing',
-            'info': 'Mailjet credentials are missing',
-            'templateData': templateData,
+            info: 'Mailjet credentials are missing',
+            templateData: templateData,
           },
           null,
           2,

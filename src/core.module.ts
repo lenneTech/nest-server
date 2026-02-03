@@ -255,16 +255,14 @@ export class CoreModule implements NestModule {
     // Determine if BetterAuth is explicitly disabled
     // In IAM-only mode: enabled by default (undefined = true), only false or { enabled: false } disables
     // In Legacy mode: disabled by default (undefined = false), must be explicitly enabled
-    const isExplicitlyDisabled = betterAuthConfig === false ||
-      (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled === false);
-    const isExplicitlyEnabled = betterAuthConfig === true ||
-      (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled !== false);
+    const isExplicitlyDisabled =
+      betterAuthConfig === false || (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled === false);
+    const isExplicitlyEnabled =
+      betterAuthConfig === true || (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled !== false);
 
     // IAM-only mode: enabled unless explicitly disabled
     // Legacy mode: enabled only if explicitly enabled
-    const isBetterAuthEnabled = isIamOnlyMode
-      ? !isExplicitlyDisabled
-      : isExplicitlyEnabled;
+    const isBetterAuthEnabled = isIamOnlyMode ? !isExplicitlyDisabled : isExplicitlyEnabled;
 
     const isAutoRegister = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === true;
 

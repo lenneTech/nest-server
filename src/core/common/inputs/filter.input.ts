@@ -18,23 +18,23 @@ export class FilterInput extends CoreInput {
   /**
    * Combination of multiple filters via logical operator
    */
-   @UnifiedField({
-      description: 'Filter for a single property',
-      isOptional: true,
-      roles: RoleEnum.S_EVERYONE,
-      type: CombinedFilterInput,
-    })
+  @UnifiedField({
+    description: 'Filter for a single property',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    type: CombinedFilterInput,
+  })
   combinedFilter?: CombinedFilterInput = undefined;
 
   /**
    * Filter for a single property
    */
-    @UnifiedField({
-      description: 'Filter for a single property',
-      isOptional: true,
-      roles: RoleEnum.S_EVERYONE,
-      type: SingleFilterInput,
-    })
+  @UnifiedField({
+    description: 'Filter for a single property',
+    isOptional: true,
+    roles: RoleEnum.S_EVERYONE,
+    type: SingleFilterInput,
+  })
   singleFilter?: SingleFilterInput = undefined;
 
   // ===================================================================================================================
@@ -55,7 +55,7 @@ export class FilterInput extends CoreInput {
     super.map(data, options);
     this.combinedFilter = data.combinedFilter ? CombinedFilterInput.map(data.combinedFilter, options) : undefined;
     this.singleFilter = data.singleFilter ? SingleFilterInput.map(data.singleFilter, options) : undefined;
-    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }
 }

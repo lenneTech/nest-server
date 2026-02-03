@@ -380,7 +380,7 @@ export function clone(object: any, options?: { checkResult?: boolean; circles?: 
         console.debug(e, config, object, 'automatic try to use rfdc with circles');
       }
       try {
-        const clonedWithCircles = rfdc({ ...config, ...{ circles: true } })(object);
+        const clonedWithCircles = rfdc({ ...config, circles: true })(object);
         if (config.checkResult && !util.isDeepStrictEqual(object, clonedWithCircles)) {
           throw new Error('Cloned object differs from original object');
         }
@@ -533,7 +533,7 @@ export function isDate(parameter: Date, falseFunction: (...params) => any = erro
  * Check if parameter is a valid email address
  */
 export function isEmail(parameter: string, falseFunction: (...params) => any = errorFunction): boolean {
-  const regex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,})+$/;
+  const regex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,})+$/;
   return regex.test(parameter) ? true : falseFunction(isEmail);
 }
 

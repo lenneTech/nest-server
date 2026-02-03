@@ -200,10 +200,7 @@ export function signCookieValue(value: string, secret: string): string {
     throw new Error('Cannot sign cookie: Better Auth secret is not configured');
   }
 
-  const signature = crypto
-    .createHmac('sha256', secret)
-    .update(value)
-    .digest('base64');
+  const signature = crypto.createHmac('sha256', secret).update(value).digest('base64');
   const signedValue = `${value}.${signature}`;
   return encodeURIComponent(signedValue);
 }
@@ -274,10 +271,7 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
 
     // Cookie names that need signed tokens
     const primaryCookieName = `${normalizedBasePath}.session_token`;
-    const sessionCookieNames = [
-      primaryCookieName,
-      BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION,
-    ];
+    const sessionCookieNames = [primaryCookieName, BETTER_AUTH_COOKIE_NAMES.BETTER_AUTH_SESSION];
 
     // Parse existing cookies
     const existingCookies = parseCookieHeader(existingCookieString);

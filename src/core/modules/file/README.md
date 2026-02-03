@@ -6,10 +6,10 @@ File upload and download functionality with MongoDB GridFS storage.
 
 ### Public Endpoints (via CoreFileController)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/files/id/:id` | Download file by ID |
-| GET | `/files/:filename` | Download file by filename |
+| Method | Endpoint           | Description               |
+| ------ | ------------------ | ------------------------- |
+| GET    | `/files/id/:id`    | Download file by ID       |
+| GET    | `/files/:filename` | Download file by filename |
 
 **Note:** These endpoints are public (`S_EVERYONE`) by default. Projects can restrict access by extending `CoreFileController`.
 
@@ -17,11 +17,11 @@ File upload and download functionality with MongoDB GridFS storage.
 
 Projects typically add admin-only endpoints like:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/files/upload` | Upload file (multipart/form-data) |
-| GET | `/files/info/:id` | Get file metadata |
-| DELETE | `/files/:id` | Delete file |
+| Method | Endpoint          | Description                       |
+| ------ | ----------------- | --------------------------------- |
+| POST   | `/files/upload`   | Upload file (multipart/form-data) |
+| GET    | `/files/info/:id` | Get file metadata                 |
+| DELETE | `/files/:id`      | Delete file                       |
 
 ---
 
@@ -139,6 +139,7 @@ GET /files/<original-filename>
 Files are stored in MongoDB GridFS with the following structure:
 
 **fs.files collection:**
+
 ```json
 {
   "_id": ObjectId,
@@ -154,6 +155,7 @@ Files are stored in MongoDB GridFS with the following structure:
 ```
 
 **fs.chunks collection:**
+
 - Binary file data split into 255KB chunks
 - Automatically managed by GridFS
 

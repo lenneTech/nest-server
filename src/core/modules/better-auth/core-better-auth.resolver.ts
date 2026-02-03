@@ -197,7 +197,7 @@ export class CoreBetterAuthResolver {
   async betterAuthSignIn(
     @Args('email') email: string,
     @Args('password') password: string,
-     
+
     @Context() _ctx: { req: Request; res: Response },
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
@@ -230,12 +230,16 @@ export class CoreBetterAuthResolver {
         body: { email, password },
       })) as BetterAuthSignInResponse | null;
 
-      this.logger.debug(`[SignIn] API response for ${maskEmail(email)}: ${JSON.stringify(response)?.substring(0, 200)}`);
+      this.logger.debug(
+        `[SignIn] API response for ${maskEmail(email)}: ${JSON.stringify(response)?.substring(0, 200)}`,
+      );
 
       // Check if response indicates an error (Better-Auth returns error objects, not throws)
       const responseAny = response as any;
       if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
-        this.logger.debug(`[SignIn] API returned error for ${maskEmail(email)}: ${responseAny?.error || responseAny?.code}`);
+        this.logger.debug(
+          `[SignIn] API returned error for ${maskEmail(email)}: ${responseAny?.error || responseAny?.code}`,
+        );
         throw new Error(responseAny?.error || responseAny?.code || 'Credential account not found');
       }
 

@@ -30,7 +30,7 @@ export abstract class CoreInput extends CoreModel {
       ...options,
     };
     const coreInput = map(data, this, config);
-    Object.keys(coreInput).forEach(key => coreInput[key] === undefined && delete coreInput[key]);
+    Object.keys(coreInput).forEach((key) => coreInput[key] === undefined && delete coreInput[key]);
     return coreInput;
   }
 }

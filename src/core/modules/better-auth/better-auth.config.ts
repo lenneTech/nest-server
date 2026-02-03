@@ -619,7 +619,11 @@ function normalizePasskeyConfig(config: IBetterAuth, resolvedUrls: ResolvedUrls)
   // Resolve values: explicit config > resolved URLs
   const finalRpId = rawConfig.rpId || resolvedUrls.rpId;
   const finalOrigin = rawConfig.origin || resolvedUrls.appUrl;
-  const finalTrustedOrigins = config.trustedOrigins?.length ? config.trustedOrigins : resolvedUrls.appUrl ? [resolvedUrls.appUrl] : undefined;
+  const finalTrustedOrigins = config.trustedOrigins?.length
+    ? config.trustedOrigins
+    : resolvedUrls.appUrl
+      ? [resolvedUrls.appUrl]
+      : undefined;
 
   // Check if we have all required values for Passkey
   const hasRequiredConfig = finalRpId && finalOrigin && finalTrustedOrigins?.length;

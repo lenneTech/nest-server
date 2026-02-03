@@ -181,7 +181,9 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
         // Use getSessionByToken to validate session directly from database
         const sessionResult = await this.betterAuthService.getSessionByToken(sessionToken);
 
-        this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
+        this.logger.debug(
+          `[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`,
+        );
 
         if (sessionResult?.user && sessionResult?.session) {
           this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);

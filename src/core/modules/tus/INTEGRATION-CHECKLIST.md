@@ -8,18 +8,19 @@
 
 ## Do You Need This Checklist?
 
-| Scenario | Checklist Needed? |
-|----------|-------------------|
-| Use TUS with defaults (everyone can upload) | No - works automatically |
-| Require authentication for uploads | Yes - Step 1 |
-| Custom upload handling (notifications, etc.) | Yes - Step 2 |
-| Disable TUS completely | No - just use `TusModule.forRoot({ config: false })` |
+| Scenario                                     | Checklist Needed?                                    |
+| -------------------------------------------- | ---------------------------------------------------- |
+| Use TUS with defaults (everyone can upload)  | No - works automatically                             |
+| Require authentication for uploads           | Yes - Step 1                                         |
+| Custom upload handling (notifications, etc.) | Yes - Step 2                                         |
+| Disable TUS completely                       | No - just use `TusModule.forRoot({ config: false })` |
 
 ---
 
 ## Reference Implementation
 
 **Local (in your node_modules):**
+
 ```
 node_modules/@lenne.tech/nest-server/src/server/server.module.ts
 ```
@@ -116,13 +117,13 @@ TusModule.forRoot({
     path: '/uploads',
     expiration: { expiresIn: '12h' },
   },
-})
+});
 ```
 
 ### Disable TUS
 
 ```typescript
-TusModule.forRoot({ config: false })
+TusModule.forRoot({ config: false });
 ```
 
 ---
@@ -140,11 +141,11 @@ TusModule.forRoot({ config: false })
 
 ## Common Mistakes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| Forgot to register custom controller | Default S_EVERYONE permissions | Add `controller: TusController` to forRoot() |
-| Custom controller missing @Roles | No authentication required | Add `@Roles(RoleEnum.S_USER)` to controller class |
-| Using wrong endpoint path | 404 on upload | Ensure client uses same path as config |
+| Mistake                              | Symptom                        | Fix                                               |
+| ------------------------------------ | ------------------------------ | ------------------------------------------------- |
+| Forgot to register custom controller | Default S_EVERYONE permissions | Add `controller: TusController` to forRoot()      |
+| Custom controller missing @Roles     | No authentication required     | Add `@Roles(RoleEnum.S_USER)` to controller class |
+| Using wrong endpoint path            | 404 on upload                  | Ensure client uses same path as config            |
 
 ---
 

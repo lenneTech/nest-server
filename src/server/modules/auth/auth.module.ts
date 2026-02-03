@@ -25,10 +25,9 @@ export class AuthModule {
       imports: [
         CoreAuthModule.forRoot(UserModule, UserService, {
           ...options,
-          ...{
-            // imports: [], // Integrate additional Services here to resolve dependencies
-            // providers: [] // Integrate additional Providers here to resolve dependencies
-          },
+
+          // imports: [], // Integrate additional Services here to resolve dependencies
+          // providers: [] // Integrate additional Providers here to resolve dependencies,
         }),
       ],
       module: AuthModule,

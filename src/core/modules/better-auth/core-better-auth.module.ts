@@ -258,8 +258,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     if (CoreBetterAuthModule.rolesGuardExplicitlyDisabled && !RolesGuardRegistry.isRegistered()) {
       CoreBetterAuthModule.logger.warn(
         '⚠️ SECURITY WARNING: registerRolesGuardGlobally is explicitly set to false, ' +
-        'but no RolesGuard is registered globally. @Roles() decorators will NOT enforce access control! ' +
-        'Either set registerRolesGuardGlobally: true, or ensure CoreAuthModule (Legacy) is imported.',
+          'but no RolesGuard is registered globally. @Roles() decorators will NOT enforce access control! ' +
+          'Either set registerRolesGuardGlobally: true, or ensure CoreAuthModule (Legacy) is imported.',
       );
     }
   }
@@ -351,11 +351,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     const effectiveRawConfig = rawConfig ?? globalConfig?.betterAuth;
 
     // Auto-detect fallbackSecrets from ConfigService if not explicitly provided
-    const effectiveFallbackSecrets = fallbackSecrets ?? (
-      globalConfig?.jwt
-        ? [globalConfig.jwt.secret, globalConfig.jwt.refresh?.secret].filter(Boolean)
-        : undefined
-    );
+    const effectiveFallbackSecrets =
+      fallbackSecrets ??
+      (globalConfig?.jwt ? [globalConfig.jwt.secret, globalConfig.jwt.refresh?.secret].filter(Boolean) : undefined);
 
     // Auto-detect server URLs from ConfigService if not explicitly provided
     const effectiveServerAppUrl = serverAppUrl ?? globalConfig?.appUrl;
@@ -385,7 +383,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
       return {
-        exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
+        exports: [
+          BETTER_AUTH_INSTANCE,
+          CoreBetterAuthService,
+          CoreBetterAuthUserMapper,
+          CoreBetterAuthRateLimiter,
+          BetterAuthTokenService,
+          CoreBetterAuthChallengeService,
+        ],
         module: CoreBetterAuthModule,
         providers: [
           {
@@ -428,7 +433,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   static forRootAsync(): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
+      exports: [
+        BETTER_AUTH_INSTANCE,
+        CoreBetterAuthService,
+        CoreBetterAuthUserMapper,
+        CoreBetterAuthRateLimiter,
+        BetterAuthTokenService,
+        CoreBetterAuthChallengeService,
+      ],
       imports: [],
       module: CoreBetterAuthModule,
       providers: [
@@ -564,7 +576,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   ): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
+      exports: [
+        BETTER_AUTH_INSTANCE,
+        CoreBetterAuthService,
+        CoreBetterAuthUserMapper,
+        CoreBetterAuthRateLimiter,
+        BetterAuthTokenService,
+        CoreBetterAuthChallengeService,
+      ],
       module: CoreBetterAuthModule,
       providers: [
         {

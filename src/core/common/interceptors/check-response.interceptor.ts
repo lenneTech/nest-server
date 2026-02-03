@@ -42,8 +42,8 @@ export class CheckResponseInterceptor implements NestInterceptor {
         const start = Date.now();
         const result = checkRestricted(data, currentUser, this.config);
         if (
-          this.config.debug
-          && Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)
+          this.config.debug &&
+          Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)
         ) {
           console.warn(
             `Duration for CheckResponseInterceptor is too long: ${Date.now() - start}ms`,

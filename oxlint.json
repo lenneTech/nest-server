@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import"],
+  "env": {
+    "browser": false,
+    "node": true
+  },
+  "rules": {
+    "eqeqeq": "warn",
+    "no-console": "off",
+    "no-unused-vars": "warn",
+    "@typescript-eslint/no-unused-expressions": ["warn", { "allowShortCircuit": true, "allowTernary": true }]
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "*.d.ts",
+    "src/core/modules/migrate/templates/migration-project.template.ts"
+  ]
+}

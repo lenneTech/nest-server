@@ -139,8 +139,10 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
       // Proceed with Passport authentication for other strategies
       const response = context?.switchToHttp()?.getResponse();
       const passportFn = createPassportContext(request, response);
-      const user = await passportFn(type || this.options?.defaultStrategy, options, (err: any, currentUser: any, info: any) =>
-        this.handleRequest(err, currentUser, info, context),
+      const user = await passportFn(
+        type || this.options?.defaultStrategy,
+        options,
+        (err: any, currentUser: any, info: any) => this.handleRequest(err, currentUser, info, context),
       );
       request[options.property || defaultOptions.property] = user;
       return true;

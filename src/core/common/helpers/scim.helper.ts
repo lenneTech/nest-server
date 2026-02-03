@@ -3,7 +3,6 @@ import type { LogicalOperator } from '../types/scim-logical-operator.type';
 
 import { ScimNode } from '../types/scim-node.type';
 
-
 export function scimToMongo(scim: string): any {
   if (!scim) {
     return {};
@@ -51,7 +50,8 @@ function parseTokens(tokens: string[]): ScimNode {
 
   /** Parses a single term: either a nested expression, array filter, or condition */
   function parseTerm(): ScimNode {
-    if (tokens[pos] === '(') { // Start of a nested filter
+    if (tokens[pos] === '(') {
+      // Start of a nested filter
       pos++; // skip '('
       const expr = parseExpression();
       if (tokens[pos] !== ')') {
@@ -60,7 +60,8 @@ function parseTokens(tokens: string[]): ScimNode {
       pos++; // skip ')'
       return expr;
     }
-    if (tokens[pos + 1] === '[') { // Start of an array Filter
+    if (tokens[pos + 1] === '[') {
+      // Start of an array Filter
       const path = tokens[pos++];
       pos++; // skip '['
       const expr = parseExpression();
@@ -83,7 +84,8 @@ function parseTokens(tokens: string[]): ScimNode {
 
     let value: any = null;
 
-    if (op !== 'pr') { // "Is Present" doesnt require a value
+    if (op !== 'pr') {
+      // "Is Present" doesnt require a value
       let rawValue = tokens[pos++]; // Third token is the value
       if (!attr || !op || rawValue === undefined) {
         throw new Error(`Invalid condition syntax at token ${pos}`);
@@ -106,8 +108,7 @@ function parseTokens(tokens: string[]): ScimNode {
   return parseExpression();
 }
 
-
-  /** Converts string values to appropriate types (number, boolean, or string) */
+/** Converts string values to appropriate types (number, boolean, or string) */
 function parseValue(value: string): any {
   if (value === null || value === undefined) {
     return value;
@@ -132,9 +133,9 @@ function parseValue(value: string): any {
 }
 
 /**
-   * Tokenizes a SCIM filter string into meaningful parts.
-   * e.g., 'userName eq "john"' → ['userName', 'eq', '"john"']
-   */
+ * Tokenizes a SCIM filter string into meaningful parts.
+ * e.g., 'userName eq "john"' → ['userName', 'eq', '"john"']
+ */
 function tokenize(input: string): string[] {
   // Space out brackets, but not inside quoted strings
   let result = '';
@@ -153,10 +154,12 @@ function tokenize(input: string): string[] {
     }
   }
 
-  return result
-    .replace(/\s+/g, ' ') // Normalise whitespaces
-    .trim()
-    .match(/\[|]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || []; // Match tokens: brackets, identifiers, quoted strings
+  return (
+    result
+      .replace(/\s+/g, ' ') // Normalise whitespaces
+      .trim()
+      .match(/\[|]|\(|\)|[a-zA-Z0-9_.]+|"(?:[^"\\]|\\.)*"/g) || []
+  ); // Match tokens: brackets, identifiers, quoted strings
 }
 
 /** Converts the parsed SCIM AST to an equivalent MongoDB query object */

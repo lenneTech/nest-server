@@ -313,7 +313,7 @@ export abstract class CrudService<
   async findAndCountForce(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number }> {
     serviceOptions.raw = true;
     return this.findAndCount(filter, serviceOptions);
   }
@@ -325,7 +325,7 @@ export abstract class CrudService<
   async findAndCountRaw(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.raw = true;
     return this.findAndCountForce(filter, serviceOptions);

@@ -68,8 +68,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
     for (const [name, CronExpressionOrConfig] of Object.entries(this.cronJobs)) {
       // Check config
       if (
-        !CronExpressionOrConfig
-        || (typeof CronExpressionOrConfig === 'object' && (CronExpressionOrConfig as CronJobConfigWithTimeZone).disabled)
+        !CronExpressionOrConfig ||
+        (typeof CronExpressionOrConfig === 'object' && (CronExpressionOrConfig as CronJobConfigWithTimeZone).disabled)
       ) {
         continue;
       }
@@ -116,8 +116,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
 
           // Check if parallel execution is allowed and if so how many can run in parallel
           if (
-            dates?.length
-            && (!config.runParallel || (typeof config.runParallel === 'number' && dates.length >= config.runParallel))
+            dates?.length &&
+            (!config.runParallel || (typeof config.runParallel === 'number' && dates.length >= config.runParallel))
           ) {
             return;
           }
@@ -134,7 +134,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
             await this[name]();
           } catch (e) {
             // Remove job from running list
-            this.runningJobs[name] = this.runningJobs[name].filter(item => item !== date);
+            this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
             if (config.throwException) {
               throw e;
             } else {
@@ -143,7 +143,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap {
           }
 
           // Remove job from running list
-          this.runningJobs[name] = this.runningJobs[name].filter(item => item !== date);
+          this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
         },
         null,
         true,

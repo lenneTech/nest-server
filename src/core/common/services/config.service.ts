@@ -38,14 +38,14 @@ export class ConfigService {
   /**
    * BehaviorSubject for config
    */
-  protected static _configSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }>
-    = new BehaviorSubject(undefined);
+  protected static _configSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }> =
+    new BehaviorSubject(undefined);
 
   /**
    * BehaviorSubject for frozen config
    */
-  protected static _frozenConfigSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }>
-    = new BehaviorSubject(undefined);
+  protected static _frozenConfigSubject$: BehaviorSubject<Partial<IServerOptions> & { [key: string]: any }> =
+    new BehaviorSubject(undefined);
 
   /**
    * Singleton instance of ConfigService
@@ -82,8 +82,8 @@ export class ConfigService {
     // Set config before setting instance
     if (typeof configObject === 'object') {
       isInitialized
-        ? ConfigService.mergeConfig(configObject, { ...config, ...{ init: false } })
-        : ConfigService.setConfig(configObject, { ...config, ...{ init: false } });
+        ? ConfigService.mergeConfig(configObject, { ...config, init: false })
+        : ConfigService.setConfig(configObject, { ...config, init: false });
     }
 
     // Set instance if not yet initialized
@@ -181,8 +181,8 @@ export class ConfigService {
    */
   static get observable() {
     return ConfigService._configSubject$.asObservable().pipe(
-      filter(config => !config),
-      map(config => clone(config, { circles: false })),
+      filter((config) => !config),
+      map((config) => clone(config, { circles: false })),
     );
   }
 
@@ -197,7 +197,7 @@ export class ConfigService {
    * Get observable for faster but read-only deep-frozen configuration
    */
   static get observableFastButReadOnly() {
-    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter(config => !config));
+    return ConfigService._frozenConfigSubject$.asObservable().pipe(filter((config) => !config));
   }
 
   /**
@@ -343,8 +343,8 @@ export class ConfigService {
     // Check for unintentional overwriting
     if (!firstInitialization && !config.reInit) {
       throw new Error(
-        'Unintentional overwriting of the configuration. '
-          + 'If overwriting is desired, please set `reInit` in setConfig of ConfigService to `true`.',
+        'Unintentional overwriting of the configuration. ' +
+          'If overwriting is desired, please set `reInit` in setConfig of ConfigService to `true`.',
       );
     }
 

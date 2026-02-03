@@ -1707,10 +1707,7 @@ interface IBetterAuthBase {
  * };
  * ```
  */
-type IBetterAuthPasskeyDisabled =
-  | false
-  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled: false })
-  | undefined;
+type IBetterAuthPasskeyDisabled = false | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled: false }) | undefined;
 
 /**
  * Passkey configuration that is considered "enabled".
@@ -1720,9 +1717,7 @@ type IBetterAuthPasskeyDisabled =
  * - `{ enabled: true, ... }` (explicit enabled)
  * - `{ rpName: 'My App', ... }` (config without explicit enabled = defaults to true)
  */
-type IBetterAuthPasskeyEnabled =
-  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled?: true })
-  | true;
+type IBetterAuthPasskeyEnabled = (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled?: true }) | true;
 
 /**
  * BetterAuth configuration WITHOUT Passkey (or Passkey disabled).

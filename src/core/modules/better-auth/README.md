@@ -76,6 +76,7 @@ const config = {
 A complete working implementation exists in this package:
 
 **Local (in your node_modules):**
+
 ```
 node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 ```
@@ -84,6 +85,7 @@ node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-auth
 
 **UserService integration:**
+
 - Local: `node_modules/@lenne.tech/nest-server/src/server/modules/user/user.service.ts`
 - GitHub: https://github.com/lenneTech/nest-server/blob/develop/src/server/modules/user/user.service.ts
 
@@ -92,10 +94,12 @@ https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-
 ## Project Integration Guide (Required Steps)
 
 ### Step 1: Create BetterAuth Module
+
 **Create:** `src/server/modules/better-auth/better-auth.module.ts`
 **Copy from:** Reference implementation (see above)
 
 ### Step 2: Create BetterAuth Resolver (CRITICAL!)
+
 **Create:** `src/server/modules/better-auth/better-auth.resolver.ts`
 **Copy from:** Reference implementation
 
@@ -105,21 +109,25 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 **Note:** `@UseGuards(AuthGuard(JWT))` is NOT needed when using `@Roles(S_USER)` or `@Roles(ADMIN)` because `RolesGuard` already extends `AuthGuard(JWT)` internally.
 
 ### Step 3: Create BetterAuth Controller
+
 **Create:** `src/server/modules/better-auth/better-auth.controller.ts`
 **Copy from:** Reference implementation
 
 ### Step 4: Inject BetterAuthUserMapper in UserService (CRITICAL!)
+
 **Modify:** `src/server/modules/user/user.service.ts`
 **Reference:** See UserService in reference implementation
 
 **Required changes:**
 
 1. Add import:
+
    ```typescript
    import { CoreBetterAuthUserMapper } from '@lenne.tech/nest-server';
    ```
 
 2. Add constructor parameter:
+
    ```typescript
    @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
    ```
@@ -131,11 +139,13 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 
 **Why is this critical?**
 The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
+
 - User signs up via BetterAuth → password synced to Legacy Auth (bcrypt hash)
 - User changes password → synced between both systems
 - **Without this, users can only authenticate via ONE system!**
 
 ### Step 5: Import in ServerModule
+
 **Modify:** `src/server/server.module.ts`
 **Reference:** See ServerModule in reference implementation
 
@@ -149,6 +159,7 @@ CoreBetterAuthModule.forRoot({
 ```
 
 ### Step 6: Configure in config.env.ts
+
 **Modify:** `src/config.env.ts`
 **Reference:** See config.env.ts in reference implementation
 
@@ -159,6 +170,7 @@ Add `betterAuth` configuration block. See reference for all available options in
 ## Quick Reference
 
 **Configuration formats:**
+
 ```typescript
 betterAuth: true               // Enable with all defaults (JWT enabled)
 betterAuth: false              // Disable completely
@@ -180,7 +192,7 @@ To **explicitly disable** Better-Auth:
 
 ```typescript
 const config = {
-  betterAuth: false,  // or betterAuth: { enabled: false }
+  betterAuth: false, // or betterAuth: { enabled: false }
 };
 ```
 
@@ -239,11 +251,11 @@ Read the security section below for production deployments.
 
 ### Configuration Summary
 
-| Setting           | Technical Purpose      | Impact of Wrong Value        |
-| ----------------- | ---------------------- | ---------------------------- |
-| `baseUrl`         | Email links, OAuth     | Links point to wrong server  |
-| `basePath`        | Endpoint routing       | 404 on API calls             |
-| `passkey.origin`  | WebAuthn security      | Passkey auth fails           |
+| Setting          | Technical Purpose  | Impact of Wrong Value       |
+| ---------------- | ------------------ | --------------------------- |
+| `baseUrl`        | Email links, OAuth | Links point to wrong server |
+| `basePath`       | Endpoint routing   | 404 on API calls            |
+| `passkey.origin` | WebAuthn security  | Passkey auth fails          |
 
 **For Development:** The defaults (`http://localhost:3000`, `/iam`) are correct.
 
@@ -264,11 +276,12 @@ const config = {
 
 // OR for local development - env: 'local' uses localhost defaults:
 const localConfig = {
-  env: 'local',  // Uses API=localhost:3000, App=localhost:3001
+  env: 'local', // Uses API=localhost:3000, App=localhost:3001
 };
 ```
 
 **Benefits:**
+
 - **One config per stage**: Only set `BASE_URL` in your environment
 - **No duplication**: Passkey values derived automatically
 - **Graceful Degradation**: If auto-detection fails (no baseUrl), Passkey is disabled with a warning - other auth methods (Email/Password, 2FA) continue to work
@@ -288,7 +301,7 @@ For production scenarios where you need full control:
 
 ```typescript
 const config = {
-  baseUrl: 'https://api.your-domain.com',  // Root-level
+  baseUrl: 'https://api.your-domain.com', // Root-level
   betterAuth: {
     passkey: {
       origin: 'https://your-domain.com', // Frontend domain (if different from API)
@@ -349,11 +362,11 @@ export BETTER_AUTH_SECRET="your-generated-secret-here"
 
 ### Secret Requirements
 
-| Requirement       | Value                                                     |
-| ----------------- | --------------------------------------------------------- |
-| Minimum length    | 32 characters                                             |
-| Recommended       | 44+ characters (32 bytes base64)                          |
-| Character types   | At least 2 of: lowercase, uppercase, numbers, special     |
+| Requirement     | Value                                                 |
+| --------------- | ----------------------------------------------------- |
+| Minimum length  | 32 characters                                         |
+| Recommended     | 44+ characters (32 bytes base64)                      |
+| Character types | At least 2 of: lowercase, uppercase, numbers, special |
 
 ### Configuration Examples
 
@@ -382,16 +395,17 @@ const config = {
 
 The following table shows which features are active based on your configuration:
 
-| Configuration | BetterAuth | JWT | 2FA | Passkey |
-|---------------|:----------:|:---:|:---:|:-------:|
-| *not set* (no URLs) | ✅ | ✅ | ✅ | ⚠️ disabled |
-| `env: 'local'/'ci'/'e2e'` (auto URLs) | ✅ | ✅ | ✅ | ✅ auto |
-| `baseUrl` set | ✅ | ✅ | ✅ | ✅ auto |
-| `betterAuth: false` | ❌ | ❌ | ❌ | ❌ |
-| `{ passkey: false }` | ✅ | ✅ | ✅ | ❌ |
-| `{ twoFactor: false }` | ✅ | ✅ | ❌ | ✅ auto |
+| Configuration                         | BetterAuth | JWT | 2FA |   Passkey   |
+| ------------------------------------- | :--------: | :-: | :-: | :---------: |
+| _not set_ (no URLs)                   |     ✅     | ✅  | ✅  | ⚠️ disabled |
+| `env: 'local'/'ci'/'e2e'` (auto URLs) |     ✅     | ✅  | ✅  |   ✅ auto   |
+| `baseUrl` set                         |     ✅     | ✅  | ✅  |   ✅ auto   |
+| `betterAuth: false`                   |     ❌     | ❌  | ❌  |     ❌      |
+| `{ passkey: false }`                  |     ✅     | ✅  | ✅  |     ❌      |
+| `{ twoFactor: false }`                |     ✅     | ✅  | ❌  |   ✅ auto   |
 
 **Key points:**
+
 - **BetterAuth** is enabled by default (zero-config)
 - **JWT** is enabled by default (stateless authentication)
 - **2FA/TOTP** is enabled by default (users can optionally set up 2FA)
@@ -403,20 +417,22 @@ The following table shows which features are active based on your configuration:
 ### URL Configuration (Important for Passkey!)
 
 **Typical Architecture:**
+
 - **API**: `https://api.example.com` (NestJS server)
 - **App**: `https://example.com` (Frontend where browser runs)
 
 **URL Resolution:**
 
-| Config | `baseUrl` (API) | `appUrl` (Frontend) | Passkey |
-|--------|-----------------|---------------------|---------|
-| `env: 'local'/'ci'/'e2e'` | `http://localhost:3000` | `http://localhost:3001` | ✅ auto |
-| `baseUrl: 'https://api.example.com'` | as set | `https://example.com` (auto-derived) | ✅ auto |
-| `baseUrl: 'https://example.com'` | as set | `https://example.com` (same) | ✅ auto |
-| `appUrl: 'https://app.example.com'` | - | as set | ✅ auto |
-| Neither set | - | - | ⚠️ disabled |
+| Config                               | `baseUrl` (API)         | `appUrl` (Frontend)                  | Passkey     |
+| ------------------------------------ | ----------------------- | ------------------------------------ | ----------- |
+| `env: 'local'/'ci'/'e2e'`            | `http://localhost:3000` | `http://localhost:3001`              | ✅ auto     |
+| `baseUrl: 'https://api.example.com'` | as set                  | `https://example.com` (auto-derived) | ✅ auto     |
+| `baseUrl: 'https://example.com'`     | as set                  | `https://example.com` (same)         | ✅ auto     |
+| `appUrl: 'https://app.example.com'`  | -                       | as set                               | ✅ auto     |
+| Neither set                          | -                       | -                                    | ⚠️ disabled |
 
 **Auto-Detection Logic:**
+
 1. `appUrl` is derived from `baseUrl` by removing `api.` prefix
 2. `rpId` is extracted from `appUrl` (e.g., `example.com`)
 3. `origin` = `appUrl` (e.g., `https://example.com`)
@@ -442,14 +458,14 @@ export default {
     // JWT Plugin - ENABLED BY DEFAULT (no config needed)
     // Only add this block to customize or explicitly disable
     jwt: {
-      expiresIn: '30m',  // Default: '15m'
+      expiresIn: '30m', // Default: '15m'
       // enabled: false,  // Uncomment to disable JWT
     },
 
     // Two-Factor Authentication - ENABLED BY DEFAULT
     // Only add this block to customize or explicitly disable
     twoFactor: {
-      appName: 'My Application',  // Default: 'Nest Server'
+      appName: 'My Application', // Default: 'Nest Server'
       // enabled: false,  // Uncomment to disable 2FA
     },
 
@@ -625,11 +641,11 @@ Better-Auth provides a rich plugin ecosystem. This module uses a **hybrid approa
 
 ### Built-in Plugins
 
-| Plugin             | Default State | Config to Disable        | Default Values                                                                    |
-| ------------------ | ------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| **JWT**            | **ENABLED**   | `jwt: false`             | `expiresIn: '15m'`                                                                |
-| **Two-Factor**     | **ENABLED**   | `twoFactor: false`       | `appName: 'Nest Server'`                                                          |
-| **Passkey**        | **ENABLED**   | `passkey: false`         | Auto-detected from `baseUrl`/`appUrl`, `rpName: 'Nest Server'`                    |
+| Plugin         | Default State | Config to Disable  | Default Values                                                 |
+| -------------- | ------------- | ------------------ | -------------------------------------------------------------- |
+| **JWT**        | **ENABLED**   | `jwt: false`       | `expiresIn: '15m'`                                             |
+| **Two-Factor** | **ENABLED**   | `twoFactor: false` | `appName: 'Nest Server'`                                       |
+| **Passkey**    | **ENABLED**   | `passkey: false`   | Auto-detected from `baseUrl`/`appUrl`, `rpName: 'Nest Server'` |
 
 **All three plugins are enabled by default** - no configuration needed. Passkey requires resolvable URLs to function (via `baseUrl`, `appUrl`, or `env: 'local'/'ci'/'e2e'`). If URLs cannot be resolved, Passkey is disabled with a warning (graceful degradation).
 
@@ -638,14 +654,14 @@ Better-Auth provides a rich plugin ecosystem. This module uses a **hybrid approa
 ```typescript
 const config = {
   // JWT and 2FA are enabled automatically with BetterAuth
-  betterAuth: true,  // or betterAuth: {}
+  betterAuth: true, // or betterAuth: {}
 
   // Passkey is auto-activated when URLs can be resolved:
   // Option 1: Set root-level baseUrl (production)
-  baseUrl: 'https://api.example.com',  // Passkey values auto-detected from this
+  baseUrl: 'https://api.example.com', // Passkey values auto-detected from this
 
   // Option 2: Use env: 'local'/'ci'/'e2e' (development)
-  env: 'local',  // Uses localhost defaults: API=:3000, App=:3001
+  env: 'local', // Uses localhost defaults: API=:3000, App=:3001
 };
 ```
 
@@ -670,9 +686,9 @@ const config = {
 ```typescript
 const config = {
   betterAuth: {
-    jwt: false,               // Disable JWT (or jwt: { enabled: false })
-    twoFactor: false,         // Disable 2FA (or twoFactor: { enabled: false })
-    passkey: false,           // Disable Passkey (or passkey: { enabled: false })
+    jwt: false, // Disable JWT (or jwt: { enabled: false })
+    twoFactor: false, // Disable 2FA (or twoFactor: { enabled: false })
+    passkey: false, // Disable Passkey (or passkey: { enabled: false })
   },
 };
 ```
@@ -714,16 +730,16 @@ const config = {
 
 ### Available Better-Auth Plugins
 
-| Plugin             | Use Case                                      | Recommendation              |
-| ------------------ | --------------------------------------------- | --------------------------- |
-| **organization**   | Multi-tenant apps, teams, member management   | Common for SaaS/B2B         |
-| **admin**          | User impersonation, banning, user management  | Common for admin panels     |
-| **multiSession**   | Multiple active sessions per user             | Account switching apps      |
-| **apiKey**         | API key based authentication                  | Public APIs                 |
-| **sso**            | Single Sign-On (OIDC, SAML 2.0)               | Enterprise apps             |
-| **oidcProvider**   | Build your own identity provider              | Identity platforms          |
-| **genericOAuth**   | Custom OAuth providers                        | Special OAuth integrations  |
-| **polar**          | Usage-based billing with Polar                | SaaS billing                |
+| Plugin           | Use Case                                     | Recommendation             |
+| ---------------- | -------------------------------------------- | -------------------------- |
+| **organization** | Multi-tenant apps, teams, member management  | Common for SaaS/B2B        |
+| **admin**        | User impersonation, banning, user management | Common for admin panels    |
+| **multiSession** | Multiple active sessions per user            | Account switching apps     |
+| **apiKey**       | API key based authentication                 | Public APIs                |
+| **sso**          | Single Sign-On (OIDC, SAML 2.0)              | Enterprise apps            |
+| **oidcProvider** | Build your own identity provider             | Identity platforms         |
+| **genericOAuth** | Custom OAuth providers                       | Special OAuth integrations |
+| **polar**        | Usage-based billing with Polar               | SaaS billing               |
 
 For the complete list of plugins, see:
 
@@ -796,10 +812,10 @@ const config = {
 
 ### Why This Hybrid Approach?
 
-| Approach                          | Pros                                               | Cons                              |
-| --------------------------------- | -------------------------------------------------- | --------------------------------- |
-| **Built-in** (jwt, 2fa, passkey)  | TypeScript types, IDE autocomplete, documentation | Package update needed for changes |
-| **Dynamic** (plugins array)       | Any plugin works immediately, future-proof         | No typed config in IBetterAuth    |
+| Approach                         | Pros                                              | Cons                              |
+| -------------------------------- | ------------------------------------------------- | --------------------------------- |
+| **Built-in** (jwt, 2fa, passkey) | TypeScript types, IDE autocomplete, documentation | Package update needed for changes |
+| **Dynamic** (plugins array)      | Any plugin works immediately, future-proof        | No typed config in IBetterAuth    |
 
 **Best of both worlds:**
 
@@ -847,9 +863,9 @@ To explicitly disable Better-Auth:
 
 ```typescript
 const config = {
-  betterAuth: false,  // Simple boolean
+  betterAuth: false, // Simple boolean
   // or
-  betterAuth: { enabled: false },  // Allows pre-configuration
+  betterAuth: { enabled: false }, // Allows pre-configuration
 };
 ```
 
@@ -857,28 +873,30 @@ const config = {
 
 When enabled, Better-Auth exposes the following endpoints at the configured `basePath` (default: `/iam`):
 
-| Endpoint                    | Method | Description                  |
-| --------------------------- | ------ | ---------------------------- |
-| `/iam/sign-up/email`        | POST   | Register new user            |
-| `/iam/sign-in/email`        | POST   | Sign in with email/password  |
-| `/iam/sign-out`             | GET    | Sign out (invalidate session)|
-| `/iam/session`              | GET    | Get current session          |
-| `/iam/token`                | GET    | Get fresh JWT token          |
-| `/iam/forgot-password`      | POST   | Request password reset       |
-| `/iam/reset-password`       | POST   | Reset password with token    |
-| `/iam/verify-email`         | POST   | Verify email address         |
+| Endpoint               | Method | Description                   |
+| ---------------------- | ------ | ----------------------------- |
+| `/iam/sign-up/email`   | POST   | Register new user             |
+| `/iam/sign-in/email`   | POST   | Sign in with email/password   |
+| `/iam/sign-out`        | GET    | Sign out (invalidate session) |
+| `/iam/session`         | GET    | Get current session           |
+| `/iam/token`           | GET    | Get fresh JWT token           |
+| `/iam/forgot-password` | POST   | Request password reset        |
+| `/iam/reset-password`  | POST   | Reset password with token     |
+| `/iam/verify-email`    | POST   | Verify email address          |
 
 ### JWT Token Endpoint
 
 The `/iam/token` endpoint returns a fresh JWT token for the current session. Use this when your JWT has expired but your session is still valid.
 
 **Request:**
+
 ```bash
 curl -X GET https://api.example.com/iam/token \
   -H "Cookie: better-auth.session_token=..."
 ```
 
 **Response:**
+
 ```json
 {
   "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6Ii4uLiJ9..."
@@ -889,36 +907,36 @@ curl -X GET https://api.example.com/iam/token \
 
 ### Social Login Endpoints
 
-| Endpoint                   | Method | Description           |
-| -------------------------- | ------ | --------------------- |
-| `/iam/sign-in/social`      | POST   | Initiate social login |
-| `/iam/callback/:provider`  | GET    | OAuth callback        |
+| Endpoint                  | Method | Description           |
+| ------------------------- | ------ | --------------------- |
+| `/iam/sign-in/social`     | POST   | Initiate social login |
+| `/iam/callback/:provider` | GET    | OAuth callback        |
 
 ### Two-Factor Authentication Endpoints (Native Better Auth)
 
 These endpoints are handled by Better Auth's native `twoFactor` plugin:
 
-| Endpoint                            | Method | Description                    |
-| ----------------------------------- | ------ | ------------------------------ |
-| `/iam/two-factor/enable`            | POST   | Enable 2FA, get TOTP URI       |
-| `/iam/two-factor/disable`           | POST   | Disable 2FA                    |
-| `/iam/two-factor/verify-totp`       | POST   | Verify TOTP code               |
-| `/iam/two-factor/generate-backup-codes` | POST | Generate backup codes      |
-| `/iam/two-factor/verify-backup-code`| POST   | Verify backup code             |
+| Endpoint                                | Method | Description              |
+| --------------------------------------- | ------ | ------------------------ |
+| `/iam/two-factor/enable`                | POST   | Enable 2FA, get TOTP URI |
+| `/iam/two-factor/disable`               | POST   | Disable 2FA              |
+| `/iam/two-factor/verify-totp`           | POST   | Verify TOTP code         |
+| `/iam/two-factor/generate-backup-codes` | POST   | Generate backup codes    |
+| `/iam/two-factor/verify-backup-code`    | POST   | Verify backup code       |
 
 ### Passkey Endpoints (Native Better Auth)
 
 These endpoints are handled by Better Auth's native `passkey` plugin:
 
-| Endpoint                                  | Method | Description                         |
-| ----------------------------------------- | ------ | ----------------------------------- |
-| `/iam/passkey/generate-register-options`  | POST   | Get WebAuthn registration options   |
-| `/iam/passkey/verify-registration`        | POST   | Verify and store passkey            |
-| `/iam/passkey/generate-authenticate-options` | POST | Get WebAuthn authentication options |
-| `/iam/passkey/verify-authentication`      | POST   | Verify passkey authentication       |
-| `/iam/passkey/list-user-passkeys`         | POST   | List user's passkeys                |
-| `/iam/passkey/delete-passkey`             | POST   | Delete a passkey                    |
-| `/iam/passkey/update-passkey`             | POST   | Update passkey name                 |
+| Endpoint                                     | Method | Description                         |
+| -------------------------------------------- | ------ | ----------------------------------- |
+| `/iam/passkey/generate-register-options`     | POST   | Get WebAuthn registration options   |
+| `/iam/passkey/verify-registration`           | POST   | Verify and store passkey            |
+| `/iam/passkey/generate-authenticate-options` | POST   | Get WebAuthn authentication options |
+| `/iam/passkey/verify-authentication`         | POST   | Verify passkey authentication       |
+| `/iam/passkey/list-user-passkeys`            | POST   | List user's passkeys                |
+| `/iam/passkey/delete-passkey`                | POST   | Delete a passkey                    |
+| `/iam/passkey/update-passkey`                | POST   | Update passkey name                 |
 
 ## GraphQL API
 
@@ -926,40 +944,40 @@ In addition to REST endpoints, Better-Auth provides GraphQL queries and mutation
 
 ### Queries
 
-| Query                    | Arguments | Return Type                  | Description                       |
-| ------------------------ | --------- | ---------------------------- | --------------------------------- |
-| `betterAuthEnabled`      | -         | `Boolean`                    | Check if Better-Auth is enabled   |
-| `betterAuthFeatures`     | -         | `BetterAuthFeaturesModel`    | Get enabled features status       |
-| `betterAuthSession`      | -         | `BetterAuthSessionModel`     | Get current session (auth req.)   |
-| `betterAuthToken`        | -         | `String`                     | Get fresh JWT token (auth req.)   |
-| `betterAuthListPasskeys` | -         | `[BetterAuthPasskeyModel]`   | List user's passkeys (auth req.)  |
-| `betterAuthMigrationStatus` | -      | `BetterAuthMigrationStatusModel` | Migration status (admin only) |
+| Query                       | Arguments | Return Type                      | Description                      |
+| --------------------------- | --------- | -------------------------------- | -------------------------------- |
+| `betterAuthEnabled`         | -         | `Boolean`                        | Check if Better-Auth is enabled  |
+| `betterAuthFeatures`        | -         | `BetterAuthFeaturesModel`        | Get enabled features status      |
+| `betterAuthSession`         | -         | `BetterAuthSessionModel`         | Get current session (auth req.)  |
+| `betterAuthToken`           | -         | `String`                         | Get fresh JWT token (auth req.)  |
+| `betterAuthListPasskeys`    | -         | `[BetterAuthPasskeyModel]`       | List user's passkeys (auth req.) |
+| `betterAuthMigrationStatus` | -         | `BetterAuthMigrationStatusModel` | Migration status (admin only)    |
 
 ### Mutations
 
 #### Authentication
 
-| Mutation              | Arguments                    | Return Type          | Description               |
-| --------------------- | ---------------------------- | -------------------- | ------------------------- |
-| `betterAuthSignIn`    | `email`, `password`          | `BetterAuthAuthModel`| Sign in with email/pass   |
-| `betterAuthSignUp`    | `email`, `password`, `name?` | `BetterAuthAuthModel`| Register new account      |
-| `betterAuthSignOut`   | -                            | `Boolean`            | Sign out (requires auth)  |
-| `betterAuthVerify2FA` | `code`                       | `BetterAuthAuthModel`| Verify 2FA code           |
+| Mutation              | Arguments                    | Return Type           | Description              |
+| --------------------- | ---------------------------- | --------------------- | ------------------------ |
+| `betterAuthSignIn`    | `email`, `password`          | `BetterAuthAuthModel` | Sign in with email/pass  |
+| `betterAuthSignUp`    | `email`, `password`, `name?` | `BetterAuthAuthModel` | Register new account     |
+| `betterAuthSignOut`   | -                            | `Boolean`             | Sign out (requires auth) |
+| `betterAuthVerify2FA` | `code`                       | `BetterAuthAuthModel` | Verify 2FA code          |
 
 #### 2FA Management (requires authentication)
 
-| Mutation                       | Arguments  | Return Type              | Description                    |
-| ------------------------------ | ---------- | ------------------------ | ------------------------------ |
-| `betterAuthEnable2FA`          | `password` | `BetterAuth2FASetupModel`| Enable 2FA, get TOTP URI       |
-| `betterAuthDisable2FA`         | `password` | `Boolean`                | Disable 2FA for user           |
-| `betterAuthGenerateBackupCodes`| -          | `[String]`               | Generate new backup codes      |
+| Mutation                        | Arguments  | Return Type               | Description               |
+| ------------------------------- | ---------- | ------------------------- | ------------------------- |
+| `betterAuthEnable2FA`           | `password` | `BetterAuth2FASetupModel` | Enable 2FA, get TOTP URI  |
+| `betterAuthDisable2FA`          | `password` | `Boolean`                 | Disable 2FA for user      |
+| `betterAuthGenerateBackupCodes` | -          | `[String]`                | Generate new backup codes |
 
 #### Passkey Management (requires authentication)
 
-| Mutation                       | Arguments   | Return Type                      | Description                 |
-| ------------------------------ | ----------- | -------------------------------- | --------------------------- |
-| `betterAuthGetPasskeyChallenge`| -           | `BetterAuthPasskeyChallengeModel`| Get WebAuthn challenge      |
-| `betterAuthDeletePasskey`      | `passkeyId` | `Boolean`                        | Delete a passkey            |
+| Mutation                        | Arguments   | Return Type                       | Description            |
+| ------------------------------- | ----------- | --------------------------------- | ---------------------- |
+| `betterAuthGetPasskeyChallenge` | -           | `BetterAuthPasskeyChallengeModel` | Get WebAuthn challenge |
+| `betterAuthDeletePasskey`       | `passkeyId` | `Boolean`                         | Delete a passkey       |
 
 ### Response Types
 
@@ -1056,11 +1074,7 @@ mutation {
 
 # Sign up
 mutation {
-  betterAuthSignUp(
-    email: "newuser@example.com"
-    password: "securePassword123"
-    name: "New User"
-  ) {
+  betterAuthSignUp(email: "newuser@example.com", password: "securePassword123", name: "New User") {
     success
     user {
       id
@@ -1172,22 +1186,22 @@ export class MyService {
 
 ### Available Methods
 
-| Method                              | Description                                  |
-| ----------------------------------- | -------------------------------------------- |
-| `isEnabled()`                       | Check if Better-Auth is enabled              |
-| `getInstance()`                     | Get the Better-Auth instance                 |
-| `getApi()`                          | Get the Better-Auth API                      |
-| `getConfig()`                       | Get the current configuration                |
-| `isJwtEnabled()`                    | Check if JWT plugin is enabled               |
-| `isTwoFactorEnabled()`              | Check if 2FA is enabled                      |
-| `isPasskeyEnabled()`                | Check if Passkey is enabled                  |
-| `getEnabledSocialProviders()`       | Get list of enabled social providers         |
-| `getBasePath()`                     | Get the base path for endpoints              |
-| `getBaseUrl()`                      | Get the base URL                             |
-| `getSession(req)`                   | Get current session from request             |
-| `revokeSession(token)`              | Revoke a session (logout)                    |
-| `isSessionExpiringSoon(session, t?)`| Check if session is expiring soon            |
-| `getSessionTimeRemaining(session)`  | Get remaining session time in seconds        |
+| Method                               | Description                           |
+| ------------------------------------ | ------------------------------------- |
+| `isEnabled()`                        | Check if Better-Auth is enabled       |
+| `getInstance()`                      | Get the Better-Auth instance          |
+| `getApi()`                           | Get the Better-Auth API               |
+| `getConfig()`                        | Get the current configuration         |
+| `isJwtEnabled()`                     | Check if JWT plugin is enabled        |
+| `isTwoFactorEnabled()`               | Check if 2FA is enabled               |
+| `isPasskeyEnabled()`                 | Check if Passkey is enabled           |
+| `getEnabledSocialProviders()`        | Get list of enabled social providers  |
+| `getBasePath()`                      | Get the base path for endpoints       |
+| `getBaseUrl()`                       | Get the base URL                      |
+| `getSession(req)`                    | Get current session from request      |
+| `revokeSession(token)`               | Revoke a session (logout)             |
+| `isSessionExpiringSoon(session, t?)` | Check if session is expiring soon     |
+| `getSessionTimeRemaining(session)`   | Get remaining session time in seconds |
 
 ## Security Integration
 
@@ -1207,12 +1221,12 @@ async findAllUsers() {
 
 ### Special Roles
 
-| Role          | Description                           |
-| ------------- | ------------------------------------- |
-| `S_EVERYONE`  | Accessible by everyone (no auth req.) |
-| `S_USER`      | Any authenticated user                |
-| `S_VERIFIED`  | Users with verified email             |
-| `S_NO_ONE`    | Never accessible                      |
+| Role         | Description                           |
+| ------------ | ------------------------------------- |
+| `S_EVERYONE` | Accessible by everyone (no auth req.) |
+| `S_USER`     | Any authenticated user                |
+| `S_VERIFIED` | Users with verified email             |
+| `S_NO_ONE`   | Never accessible                      |
 
 ### How It Works
 
@@ -1253,17 +1267,17 @@ export class MyService {
 
 ### Mapped User Properties
 
-| Property                      | Type       | Description                                           |
-| ----------------------------- | ---------- | ----------------------------------------------------- |
-| `id`                          | string     | User ID (from database or Better-Auth ID as fallback) |
-| `iamId`                       | string     | IAM provider user ID (e.g., Better-Auth)              |
-| `email`                       | string     | User email                                            |
-| `name`                        | string     | User display name                                     |
-| `roles`                       | string[]   | User roles from database                              |
-| `verified`                    | boolean    | Whether user is verified                              |
-| `emailVerified`               | boolean    | Better-Auth email verification status                 |
-| `hasRole(roles)`              | function   | Check if user has any of the specified roles          |
-| `_authenticatedViaBetterAuth` | true       | Marker for Better-Auth authenticated users            |
+| Property                      | Type     | Description                                           |
+| ----------------------------- | -------- | ----------------------------------------------------- |
+| `id`                          | string   | User ID (from database or Better-Auth ID as fallback) |
+| `iamId`                       | string   | IAM provider user ID (e.g., Better-Auth)              |
+| `email`                       | string   | User email                                            |
+| `name`                        | string   | User display name                                     |
+| `roles`                       | string[] | User roles from database                              |
+| `verified`                    | boolean  | Whether user is verified                              |
+| `emailVerified`               | boolean  | Better-Auth email verification status                 |
+| `hasRole(roles)`              | function | Check if user has any of the specified roles          |
+| `_authenticatedViaBetterAuth` | true     | Marker for Better-Auth authenticated users            |
 
 ## CoreModule.forRoot() Signatures
 
@@ -1286,11 +1300,13 @@ export class ServerModule {}
 ```
 
 **Features:**
+
 - Simplified setup - no Legacy Auth overhead
 - GraphQL Subscription authentication via BetterAuth sessions
 - BetterAuthModule is auto-registered when using this signature
 
 **Requirements:**
+
 - Create BetterAuthModule, Resolver, and Controller in your project
 - Inject BetterAuthUserMapper in UserService
 - Set `auth.legacyEndpoints.enabled: false` in config
@@ -1315,6 +1331,7 @@ export class ServerModule {}
 > Use the single-parameter signature for new projects.
 
 **Features:**
+
 - Both Legacy Auth and BetterAuth run in parallel
 - Bidirectional password synchronization
 - Gradual user migration to IAM
@@ -1327,11 +1344,11 @@ Better-Auth is designed as the successor to Legacy Auth. This section describes 
 
 ### Scenario Overview
 
-| Scenario | Signature | Description |
-|----------|-----------|-------------|
+| Scenario           | Signature   | Description                           |
+| ------------------ | ----------- | ------------------------------------- |
 | **1. Legacy Only** | 3-parameter | Existing projects, no IAM integration |
-| **2. Migration** | 3-parameter | Legacy + IAM parallel operation |
-| **3. IAM Only** | 1-parameter | New projects, BetterAuth only |
+| **2. Migration**   | 3-parameter | Legacy + IAM parallel operation       |
+| **3. IAM Only**    | 1-parameter | New projects, BetterAuth only         |
 
 ### Migration Steps (Scenario 2)
 
@@ -1340,6 +1357,7 @@ Better-Auth is designed as the successor to Legacy Auth. This section describes 
    - Both systems run in parallel
 
 2. **Monitor Migration Progress**
+
    ```graphql
    query {
      betterAuthMigrationStatus {
@@ -1351,33 +1369,36 @@ Better-Auth is designed as the successor to Legacy Auth. This section describes 
      }
    }
    ```
+
    Users migrate automatically when signing in via BetterAuth (IAM).
 
 3. **Disable Legacy Endpoints** (when `canDisableLegacyAuth: true`)
+
    ```typescript
    // config.env.ts
    auth: {
      legacyEndpoints: {
-       enabled: false  // Disables signIn, signUp, logout, refreshToken
+       enabled: false; // Disables signIn, signUp, logout, refreshToken
      }
    }
    ```
 
 4. **Switch to IAM-Only Signature** (optional)
+
    ```typescript
    // Before (deprecated)
-   CoreModule.forRoot(AuthService, AuthModule.forRoot(envConfig.jwt), envConfig)
+   CoreModule.forRoot(AuthService, AuthModule.forRoot(envConfig.jwt), envConfig);
 
    // After (recommended)
-   CoreModule.forRoot(envConfig)
+   CoreModule.forRoot(envConfig);
    ```
 
 ### Why No Automatic Migration Script?
 
-| System | Password Hash Algorithm |
-|--------|------------------------|
+| System      | Password Hash Algorithm    |
+| ----------- | -------------------------- |
 | Legacy Auth | `bcrypt(sha256(password))` |
-| BetterAuth | `scrypt(sha256(password))` |
+| BetterAuth  | `scrypt(sha256(password))` |
 
 These are **one-way hashes** - there's no way to convert between them without the plain password.
 Users must sign in at least once via BetterAuth to create a compatible hash.
@@ -1413,19 +1434,19 @@ const legacyToken = await authService.signIn({ email, password });
 
 ### Compatibility Matrix
 
-| Scenario                           | Result                             |
-| ---------------------------------- | ---------------------------------- |
-| Legacy user → Legacy login         | Works                              |
-| Legacy user → Better-Auth login    | Works (bcrypt compatible)          |
-| Better-Auth user → Better-Auth     | Works                              |
-| Better-Auth user → Legacy login    | Works (password field preserved)   |
-| Social-only user → Legacy login    | Fails (no password field)          |
+| Scenario                        | Result                           |
+| ------------------------------- | -------------------------------- |
+| Legacy user → Legacy login      | Works                            |
+| Legacy user → Better-Auth login | Works (bcrypt compatible)        |
+| Better-Auth user → Better-Auth  | Works                            |
+| Better-Auth user → Legacy login | Works (password field preserved) |
+| Social-only user → Legacy login | Fails (no password field)        |
 
 ### User Database Fields
 
-| Field      | Purpose                                           |
-| ---------- | ------------------------------------------------- |
-| `password` | Password hash (bcrypt) - used by both systems     |
+| Field      | Purpose                                               |
+| ---------- | ----------------------------------------------------- |
+| `password` | Password hash (bcrypt) - used by both systems         |
 | `iamId`    | IAM provider user ID (set on first Better-Auth login) |
 
 **No migration is required** - users can authenticate with either system immediately.
@@ -1438,13 +1459,13 @@ When both Legacy Auth and BetterAuth (IAM) are active, passwords are automatical
 
 ### How Password Sync Works
 
-| Scenario | Source | Target | Auto-Synced? |
-|----------|--------|--------|--------------|
-| Sign up via BetterAuth | IAM | Legacy | ✅ Yes |
-| Sign up via Legacy Auth | Legacy | IAM | ⚠️ On first IAM sign-in |
-| Password reset via Legacy | Legacy | IAM | ✅ Yes |
-| Password reset via BetterAuth | IAM | Legacy | ⚠️ See below |
-| Password change via user update | Legacy | IAM | ✅ Yes |
+| Scenario                        | Source | Target | Auto-Synced?            |
+| ------------------------------- | ------ | ------ | ----------------------- |
+| Sign up via BetterAuth          | IAM    | Legacy | ✅ Yes                  |
+| Sign up via Legacy Auth         | Legacy | IAM    | ⚠️ On first IAM sign-in |
+| Password reset via Legacy       | Legacy | IAM    | ✅ Yes                  |
+| Password reset via BetterAuth   | IAM    | Legacy | ⚠️ See below            |
+| Password change via user update | Legacy | IAM    | ✅ Yes                  |
 
 #### IAM Password Reset → Legacy Sync
 
@@ -1466,16 +1487,21 @@ When a user resets their password via BetterAuth's native `/iam/reset-password` 
 The following sync operations happen automatically when `CoreBetterAuthUserMapper` is injected in `UserService`:
 
 #### 1. IAM Sign-Up → Legacy
+
 When a user signs up via BetterAuth (`/iam/sign-up/email`), the password is hashed with bcrypt and stored in `users.password`, enabling Legacy Auth sign-in.
 
 #### 2. Legacy Password Reset → IAM
+
 When a user resets their password via `CoreUserService.resetPassword()`, the new password is synced to the BetterAuth `account` collection (if the user has a credential account).
 
 #### 3. Legacy Password Update → IAM
+
 When a user changes their password via `UserService.update()`, the new password is synced to BetterAuth (if the user has a credential account).
 
 #### 4. Legacy → IAM Migration (On First Sign-In)
+
 When a legacy user signs in via BetterAuth for the first time, their account is migrated:
+
 - Their `iamId` is set
 - A credential account is created in the `account` collection with the scrypt hash
 
@@ -1513,10 +1539,10 @@ betterAuth: {
 
 ### Password Hashing Algorithms
 
-| System | Algorithm | Format |
-|--------|-----------|--------|
-| Legacy Auth | bcrypt(sha256(password)) | `$2b$10$...` (60 chars) |
-| BetterAuth (IAM) | scrypt | `salt:hash` (hex encoded) |
+| System           | Algorithm                | Format                    |
+| ---------------- | ------------------------ | ------------------------- |
+| Legacy Auth      | bcrypt(sha256(password)) | `$2b$10$...` (60 chars)   |
+| BetterAuth (IAM) | scrypt                   | `salt:hash` (hex encoded) |
 
 **Important:** These hashes are NOT interchangeable. Password sync requires re-hashing the plain password with the target algorithm.
 
@@ -1524,25 +1550,26 @@ betterAuth: {
 
 Email changes are also synchronized bidirectionally:
 
-| Scenario | Effect |
-|----------|--------|
+| Scenario                                          | Effect                                    |
+| ------------------------------------------------- | ----------------------------------------- |
 | Email changed via Legacy (`UserService.update()`) | IAM sessions invalidated (forces re-auth) |
-| Email changed via IAM | Legacy refresh tokens cleared |
+| Email changed via IAM                             | Legacy refresh tokens cleared             |
 
 ### User Deletion Cleanup
 
 When a user is deleted:
 
-| Via | Effect |
-|-----|--------|
+| Via                             | Effect                                   |
+| ------------------------------- | ---------------------------------------- |
 | Legacy (`UserService.delete()`) | IAM accounts and sessions are cleaned up |
-| IAM | Legacy user record is removed |
+| IAM                             | Legacy user record is removed            |
 
 ### Troubleshooting Password Sync
 
 #### Password not syncing to IAM
 
 1. Verify `CoreBetterAuthUserMapper` is injected in `UserService`:
+
    ```typescript
    constructor(
      @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
@@ -1552,9 +1579,10 @@ When a user is deleted:
    ```
 
 2. Check if user has an IAM credential account:
+
    ```javascript
    // MongoDB query
-   db.account.findOne({ userId: ObjectId("..."), providerId: "credential" })
+   db.account.findOne({ userId: ObjectId('...'), providerId: 'credential' });
    ```
 
 3. Check server logs for sync warnings:
@@ -1723,14 +1751,14 @@ const config = {
 
 ### Configuration Options
 
-| Option            | Type     | Default                    | Description                           |
-| ----------------- | -------- | -------------------------- | ------------------------------------- |
-| `enabled`         | boolean  | `false`                    | Enable/disable rate limiting          |
-| `max`             | number   | `10`                       | Maximum requests per time window      |
-| `windowSeconds`   | number   | `60`                       | Time window in seconds                |
-| `message`         | string   | `'Too many requests...'`   | Error message when limit exceeded     |
-| `strictEndpoints` | string[] | See below                  | Endpoints with half the normal limit  |
-| `skipEndpoints`   | string[] | See below                  | Endpoints that skip rate limiting     |
+| Option            | Type     | Default                  | Description                          |
+| ----------------- | -------- | ------------------------ | ------------------------------------ |
+| `enabled`         | boolean  | `false`                  | Enable/disable rate limiting         |
+| `max`             | number   | `10`                     | Maximum requests per time window     |
+| `windowSeconds`   | number   | `60`                     | Time window in seconds               |
+| `message`         | string   | `'Too many requests...'` | Error message when limit exceeded    |
+| `strictEndpoints` | string[] | See below                | Endpoints with half the normal limit |
+| `skipEndpoints`   | string[] | See below                | Endpoints that skip rate limiting    |
 
 ### Default Strict Endpoints
 
@@ -1752,12 +1780,12 @@ These endpoints bypass rate limiting entirely:
 
 When rate limiting is enabled, the following headers are added to responses:
 
-| Header                 | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `X-RateLimit-Limit`    | Maximum requests allowed in the window   |
-| `X-RateLimit-Remaining`| Remaining requests in current window     |
-| `X-RateLimit-Reset`    | Seconds until the rate limit resets      |
-| `Retry-After`          | (429 only) Seconds to wait before retry  |
+| Header                  | Description                             |
+| ----------------------- | --------------------------------------- |
+| `X-RateLimit-Limit`     | Maximum requests allowed in the window  |
+| `X-RateLimit-Remaining` | Remaining requests in current window    |
+| `X-RateLimit-Reset`     | Seconds until the rate limit resets     |
+| `Retry-After`           | (429 only) Seconds to wait before retry |
 
 ### Rate Limit Exceeded Response
 
@@ -1858,21 +1886,21 @@ override async betterAuthSignUp(
 
 All methods in `CoreBetterAuthResolver` can be overridden:
 
-| Method | Description |
-| ------ | ----------- |
-| `betterAuthSignIn(email, password, ctx)` | Sign in with email/password |
-| `betterAuthSignUp(email, password, name?)` | Register new user |
-| `betterAuthSignOut(ctx)` | Sign out current session |
-| `betterAuthVerify2FA(code, ctx)` | Verify 2FA code |
-| `betterAuthEnable2FA(password, ctx)` | Enable 2FA for user |
-| `betterAuthDisable2FA(password, ctx)` | Disable 2FA for user |
-| `betterAuthGenerateBackupCodes(ctx)` | Generate new backup codes |
-| `betterAuthGetPasskeyChallenge(ctx)` | Get WebAuthn challenge |
-| `betterAuthListPasskeys(ctx)` | List user's passkeys |
-| `betterAuthDeletePasskey(passkeyId, ctx)` | Delete a passkey |
-| `betterAuthSession(ctx)` | Get current session |
-| `betterAuthEnabled()` | Check if Better-Auth is enabled |
-| `betterAuthFeatures()` | Get enabled features |
+| Method                                     | Description                     |
+| ------------------------------------------ | ------------------------------- |
+| `betterAuthSignIn(email, password, ctx)`   | Sign in with email/password     |
+| `betterAuthSignUp(email, password, name?)` | Register new user               |
+| `betterAuthSignOut(ctx)`                   | Sign out current session        |
+| `betterAuthVerify2FA(code, ctx)`           | Verify 2FA code                 |
+| `betterAuthEnable2FA(password, ctx)`       | Enable 2FA for user             |
+| `betterAuthDisable2FA(password, ctx)`      | Disable 2FA for user            |
+| `betterAuthGenerateBackupCodes(ctx)`       | Generate new backup codes       |
+| `betterAuthGetPasskeyChallenge(ctx)`       | Get WebAuthn challenge          |
+| `betterAuthListPasskeys(ctx)`              | List user's passkeys            |
+| `betterAuthDeletePasskey(passkeyId, ctx)`  | Delete a passkey                |
+| `betterAuthSession(ctx)`                   | Get current session             |
+| `betterAuthEnabled()`                      | Check if Better-Auth is enabled |
+| `betterAuthFeatures()`                     | Get enabled features            |
 
 ### Helper Methods (Protected)
 
@@ -1905,12 +1933,12 @@ For frontend integration with Better-Auth, see the **[Integration Checklist](./I
 
 ### Quick Reference
 
-| Feature | Client Method | Server Endpoint |
-|---------|---------------|-----------------|
-| Email Sign-In | `authClient.signIn.email()` | `POST /iam/sign-in/email` |
-| Passkey Sign-In | `authClient.signIn.passkey()` | `POST /iam/passkey/verify-authentication` |
-| 2FA Verify | `authClient.twoFactor.verifyTotp()` | `POST /iam/two-factor/verify-totp` |
-| Session Validation | `authClient.$fetch('/session')` | `GET /iam/session` |
+| Feature            | Client Method                       | Server Endpoint                           |
+| ------------------ | ----------------------------------- | ----------------------------------------- |
+| Email Sign-In      | `authClient.signIn.email()`         | `POST /iam/sign-in/email`                 |
+| Passkey Sign-In    | `authClient.signIn.passkey()`       | `POST /iam/passkey/verify-authentication` |
+| 2FA Verify         | `authClient.twoFactor.verifyTotp()` | `POST /iam/two-factor/verify-totp`        |
+| Session Validation | `authClient.$fetch('/session')`     | `GET /iam/session`                        |
 
 ### Key Points
 

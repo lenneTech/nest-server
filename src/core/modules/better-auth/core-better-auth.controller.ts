@@ -13,7 +13,15 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiBody, ApiCreatedResponse, ApiExcludeEndpoint, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiCreatedResponse,
+  ApiExcludeEndpoint,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -263,7 +271,9 @@ export class CoreBetterAuthController {
       // When 2FA is required, we need to use the native Better Auth handler
       // because api.signInEmail() doesn't return the session token needed for 2FA verification
       if (requires2FA(response)) {
-        this.logger.debug(`2FA required for ${maskEmail(input.email)}, forwarding to native handler for cookie handling`);
+        this.logger.debug(
+          `2FA required for ${maskEmail(input.email)}, forwarding to native handler for cookie handling`,
+        );
 
         // Forward to native Better Auth handler which sets the session cookie correctly
         // We need to modify the request body to use the normalized password
@@ -288,7 +298,7 @@ export class CoreBetterAuthController {
           body: modifiedBody,
           headers: new Headers({
             'Content-Type': 'application/json',
-            'Origin': req.headers.origin || baseUrl,
+            Origin: req.headers.origin || baseUrl,
           }),
           method: 'POST',
         });
@@ -599,7 +609,9 @@ export class CoreBetterAuthController {
    * NOTE: The session token is intentionally NOT included in the response.
    * It is set as an httpOnly cookie for security.
    */
-  protected mapSession(session: null | undefined | { expiresAt: Date; id: string; token?: string }): CoreBetterAuthSessionInfo | undefined {
+  protected mapSession(
+    session: null | undefined | { expiresAt: Date; id: string; token?: string },
+  ): CoreBetterAuthSessionInfo | undefined {
     if (!session) return undefined;
     return {
       expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : String(session.expiresAt),
@@ -613,7 +625,7 @@ export class CoreBetterAuthController {
    * @param sessionUser - The user from Better-Auth session
    * @param _mappedUser - The synced user from legacy system (available for override customization)
    */
-   
+
   protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): CoreBetterAuthUserResponse {
     return {
       email: sessionUser.email,
@@ -647,7 +659,11 @@ export class CoreBetterAuthController {
    * @param result - The CoreBetterAuthResponse to return
    * @param sessionToken - Optional session token to set in cookies (if not provided, uses result.token)
    */
-  protected processCookies(res: Response, result: CoreBetterAuthResponse, sessionToken?: string): CoreBetterAuthResponse {
+  protected processCookies(
+    res: Response,
+    result: CoreBetterAuthResponse,
+    sessionToken?: string,
+  ): CoreBetterAuthResponse {
     // Check if cookie handling is activated
     if (this.configService.getFastButReadOnly('cookies')) {
       const cookieOptions = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' };
@@ -770,7 +786,11 @@ export class CoreBetterAuthController {
       this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 
       // Re-throw NestJS exceptions
-      if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof InternalServerErrorException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
 
