@@ -317,14 +317,14 @@ function buildEmailVerificationConfig(
   },
 ): null | Record<string, unknown> {
   const { onEmailVerified, sendVerificationEmail } = callbacks ?? {};
-  // Follow "presence implies enabled" pattern:
-  // - undefined/null: disabled (backward compatible - no config means no email verification)
-  // - false: explicitly disabled
+  // Email verification is enabled by default (zero-config):
+  // - undefined/null: enabled with defaults
   // - true: enabled with defaults
+  // - false: explicitly disabled
   // - { ... }: enabled with custom settings (unless enabled: false)
   const emailVerificationConfig = config.emailVerification;
 
-  if (emailVerificationConfig === undefined || emailVerificationConfig === null || emailVerificationConfig === false) {
+  if (emailVerificationConfig === false) {
     return null;
   }
 

@@ -260,7 +260,7 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    * Date when terms and privacy policy were accepted
    * Set during sign-up when user accepts terms and privacy policy
    *
-   * @since 11.12.1
+   * @since 11.13.0
    */
   @UnifiedField({
     description: 'Date when terms and privacy policy were accepted',

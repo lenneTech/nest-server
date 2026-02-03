@@ -298,43 +298,42 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
   if (sessionToken) {
     headers.set('authorization', `Bearer ${sessionToken}`);
 
-    // Also ensure the session token is in the cookies with PROPER SIGNING
-    // IMPORTANT: We must REPLACE unsigned cookies with signed ones, not just add if missing
     const normalizedBasePath = basePath?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
+    const primaryCookieName = `${normalizedBasePath}.session_token`;
     const existingCookieString = headers.get('cookie') || '';
 
-    // Sign the session token for Better Auth (if secret is provided)
-    // IMPORTANT: Only sign if not already signed to prevent double-signing
-    // URL-encode because we're building the cookie header string manually
-    let signedToken: string;
-    if (secret) {
-      signedToken = signCookieValueIfNeeded(sessionToken, secret, true, logger);
+    // Check if the request already has a signed session cookie.
+    // If so, preserve the original Cookie header to avoid re-encoding issues.
+    // The original cookie was signed by setSessionCookies() or Better Auth and is
+    // already in the correct format that Better Auth's cookie parser expects.
+    const hasExistingSessionCookie = existingCookieString.includes(`${primaryCookieName}=`);
+
+    if (hasExistingSessionCookie) {
+      // Original Cookie header already contains a session cookie - keep it as-is.
+      // Better Auth can read the original signed cookie directly.
+      // Only add legacy token cookie if missing.
+      if (!existingCookieString.includes(`${BETTER_AUTH_COOKIE_NAMES.TOKEN}=`)) {
+        headers.set('cookie', `${existingCookieString}; ${BETTER_AUTH_COOKIE_NAMES.TOKEN}=${sessionToken}`);
+      }
     } else {
-      logger?.warn('No Better Auth secret configured - cookies will not be signed');
-      signedToken = sessionToken;
+      // No session cookie in request (e.g., JWT/bearer mode or Authorization header only).
+      // Create a signed cookie for Better Auth's native handler.
+      if (secret) {
+        const signedToken = signCookieValue(sessionToken, secret, true);
+        let newCookieString = existingCookieString
+          ? `${existingCookieString}; ${primaryCookieName}=${signedToken}`
+          : `${primaryCookieName}=${signedToken}`;
+
+        // Add legacy token cookie if not present
+        if (!existingCookieString.includes(`${BETTER_AUTH_COOKIE_NAMES.TOKEN}=`)) {
+          newCookieString += `; ${BETTER_AUTH_COOKIE_NAMES.TOKEN}=${sessionToken}`;
+        }
+
+        headers.set('cookie', newCookieString);
+      } else {
+        logger?.warn('No Better Auth secret configured - cookies will not be signed');
+      }
     }
-
-    // Primary cookie name for Better-Auth (e.g., 'iam.session_token')
-    const primaryCookieName = `${normalizedBasePath}.session_token`;
-
-    // Parse existing cookies
-    const existingCookies = parseCookieHeader(existingCookieString);
-
-    // Set the signed session token on the primary cookie
-    // This is the ONLY cookie Better-Auth needs
-    existingCookies[primaryCookieName] = signedToken;
-
-    // Keep the unsigned token cookie for legacy nest-server compatibility
-    if (!existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN]) {
-      existingCookies[BETTER_AUTH_COOKIE_NAMES.TOKEN] = sessionToken;
-    }
-
-    // Rebuild the cookie string
-    const newCookieString = Object.entries(existingCookies)
-      .map(([name, value]) => `${name}=${value}`)
-      .join('; ');
-
-    headers.set('cookie', newCookieString);
   }
 
   // Build request options

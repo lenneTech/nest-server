@@ -247,7 +247,7 @@ export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
  * - `{ locale: 'de', ... }`: Enable with custom settings
  * - `false` or `{ enabled: false }`: Explicitly disable
  *
- * @since 11.12.1
+ * @since 11.13.0
  *
  * @example
  * ```typescript
@@ -292,6 +292,26 @@ export interface IBetterAuthEmailVerificationConfig {
   brevoTemplateId?: number;
 
   /**
+   * Frontend callback URL for email verification.
+   *
+   * When set, the verification link in the email will point to this URL
+   * with the token as a query parameter (e.g., `{callbackURL}?token=xxx`).
+   * The frontend page should then call the backend verify-email endpoint
+   * to complete verification.
+   *
+   * Supports both absolute URLs and relative paths:
+   * - Absolute: `https://example.com/auth/verify-email`
+   * - Relative: `/auth/verify-email` (resolved against `appUrl`)
+   *
+   * When not set, the verification link points directly to the backend
+   * endpoint which handles verification and redirects.
+   *
+   * @default undefined (backend-handled verification)
+   * @since 11.13.0
+   */
+  callbackURL?: string;
+
+  /**
    * Whether email verification is enabled.
    * @default true (enabled by default when BetterAuth is active)
    */
@@ -309,6 +329,16 @@ export interface IBetterAuthEmailVerificationConfig {
    * @default 'en'
    */
   locale?: string;
+
+  /**
+   * Cooldown in seconds between resend requests for the same email address.
+   * Prevents abuse by limiting how often verification emails can be resent.
+   * Applied per email address in-memory.
+   *
+   * @default 60
+   * @since 11.13.0
+   */
+  resendCooldownSeconds?: number;
 
   /**
    * Custom template name for the verification email.
@@ -533,7 +563,7 @@ export interface IBetterAuthRateLimit {
  * - `{ requiredFields: [...] }`: Enable with custom required fields
  * - `false` or `{ enabled: false }`: Disable sign-up checks entirely
  *
- * @since 11.12.1
+ * @since 11.13.0
  *
  * @example
  * ```typescript
@@ -1656,7 +1686,7 @@ interface IBetterAuthBase {
    * - `false` or `{ enabled: false }`: Explicitly disable
    *
    * @default undefined (enabled by default)
-   * @since 11.12.1
+   * @since 11.13.0
    *
    * @example
    * ```typescript
@@ -1822,7 +1852,7 @@ interface IBetterAuthBase {
    * - `false` or `{ enabled: false }`: Disable sign-up checks entirely
    *
    * @default undefined (enabled by default)
-   * @since 11.12.1
+   * @since 11.13.0
    *
    * @example
    * ```typescript

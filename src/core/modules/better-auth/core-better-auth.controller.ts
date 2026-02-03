@@ -24,6 +24,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
@@ -195,6 +196,7 @@ export class CoreBetterAuthController {
     protected readonly userMapper: CoreBetterAuthUserMapper,
     protected readonly configService: ConfigService,
     @Optional() protected readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
+    @Optional() protected readonly emailVerificationService?: CoreBetterAuthEmailVerificationService,
   ) {
     // Detect if Legacy Auth is active (for < 11.7.0 compatibility)
     // Legacy Auth is active when JWT secret is configured
@@ -214,6 +216,35 @@ export class CoreBetterAuthController {
       },
       this.logger,
     );
+  }
+
+  // ===================================================================================================================
+  // Feature Discovery
+  // ===================================================================================================================
+
+  /**
+   * Get enabled Better-Auth features
+   *
+   * Returns public feature flags for client-side feature detection.
+   * This allows frontends to adapt their UI based on enabled features
+   * (e.g., show/hide email verification step, passkey options, etc.).
+   *
+   * @since 11.13.0
+   */
+  @ApiOkResponse({ description: 'Better-Auth feature flags' })
+  @ApiOperation({ description: 'Get enabled Better-Auth features for client-side feature detection', summary: 'Get Features' })
+  @Get('features')
+  @Roles(RoleEnum.S_EVERYONE)
+  getFeatures(): Record<string, boolean | number | string[]> {
+    return {
+      emailVerification: this.emailVerificationService?.isEnabled() ?? false,
+      enabled: this.betterAuthService.isEnabled(),
+      jwt: this.betterAuthService.isJwtEnabled(),
+      passkey: this.betterAuthService.isPasskeyEnabled(),
+      resendCooldownSeconds: this.emailVerificationService?.getConfig()?.resendCooldownSeconds ?? 60,
+      socialProviders: this.betterAuthService.getEnabledSocialProviders(),
+      twoFactor: this.betterAuthService.isTwoFactorEnabled(),
+    };
   }
 
   // ===================================================================================================================
@@ -348,8 +379,8 @@ export class CoreBetterAuthController {
 
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
-        // Get token (JWT if available, session token otherwise)
-        const token = responseAny.accessToken || responseAny.token;
+        // Get token: JWT accessToken > top-level token > session.token
+        const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
 
         const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
@@ -443,10 +474,17 @@ export class CoreBetterAuthController {
 
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
+        // Get token: JWT accessToken > top-level token > session.token
+        // Without this, no session cookies are set after sign-up, causing 401 on
+        // subsequent authenticated requests (e.g., Passkey, 2FA, /token)
+        const responseAny = response as any;
+        const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+
         const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
           session: hasSession(response) ? this.mapSession(response.session) : undefined,
           success: true,
+          token,
           user: mappedUser ? this.mapUser(response.user, mappedUser) : undefined,
         };
 

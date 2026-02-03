@@ -58,7 +58,7 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 
 **Note:** `@UseGuards(AuthGuard(JWT))` is NOT needed when using `@Roles(S_USER)` or `@Roles(ADMIN)` because `RolesGuard` already extends `AuthGuard(JWT)` internally.
 
-**Sign-Up Validation (v11.12.1+):** The resolver includes `CoreBetterAuthSignUpValidatorService` injection with `@Optional()`. This enables the `termsAndPrivacyAccepted` parameter on the `betterAuthSignUp` mutation.
+**Sign-Up Validation (v11.13.0+):** The resolver includes `CoreBetterAuthSignUpValidatorService` injection with `@Optional()`. This enables the `termsAndPrivacyAccepted` parameter on the `betterAuthSignUp` mutation.
 
 ---
 
@@ -180,7 +180,7 @@ const config = {
 
 ---
 
-## Email Verification (v11.12.1+)
+## Email Verification (v11.13.0+)
 
 Email verification is **enabled by default** via Better-Auth's `emailVerification` plugin.
 
@@ -219,7 +219,7 @@ Available variables: `name`, `link`, `expiresIn`, `appName`
 
 ---
 
-## Sign-Up Checks (v11.12.1+)
+## Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted`.
 
@@ -288,7 +288,7 @@ After integration, verify:
 - [ ] Sign-up via BetterAuth creates user in database with `iamId`
 - [ ] Sign-in via BetterAuth works correctly
 
-### Additional checks for v11.12.1+ features:
+### Additional checks for v11.13.0+ features:
 - [ ] Sign-up without `termsAndPrivacyAccepted` returns error `LTNS_0021`
 - [ ] Sign-up with `termsAndPrivacyAccepted: true` succeeds
 - [ ] User record contains `termsAndPrivacyAcceptedAt` timestamp after sign-up
@@ -312,8 +312,8 @@ After integration, verify:
 | Wrong `basePath` in config | 404 on BetterAuth endpoints | Ensure basePath matches controller (default: `/iam`) |
 | Using wrong CoreModule signature | Build errors or missing features | New projects: 1-parameter, Existing: 3-parameter |
 | AuthResolver override missing `checkLegacyGraphQLEnabled()` | Legacy endpoint disabling doesn't work (no HTTP 410) | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides |
-| Missing `signUpValidator` in custom Resolver (v11.12.1+) | Sign-up validation not working | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
-| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.12.1+) | GraphQL error "Unknown argument" | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method |
+| Missing `signUpValidator` in custom Resolver (v11.13.0+) | Sign-up validation not working | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
+| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+) | GraphQL error "Unknown argument" | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method |
 
 ---
 

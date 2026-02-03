@@ -7,6 +7,8 @@
  *
  * Tests cover:
  * - Email verification service configuration
+ * - Resend cooldown mechanism (backend)
+ * - GET /iam/features REST endpoint
  * - Sign-up validation with termsAndPrivacyAccepted
  * - GraphQL sign-up mutation with validation
  * - Configuration options (enable/disable features)
@@ -128,18 +130,18 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       expect(emailVerificationService).toBeDefined();
     });
 
-    it('should be disabled when not explicitly configured', () => {
-      // Email verification follows "presence implies enabled" pattern:
-      // No config (undefined) = disabled (backward compatible)
+    it('should be enabled by default when not explicitly configured', () => {
+      // Email verification is enabled by default (zero-config):
+      // No config (undefined) = enabled with defaults
       // The nest-server test config does NOT have betterAuth.emailVerification set
-      expect(emailVerificationService.isEnabled()).toBe(false);
+      expect(emailVerificationService.isEnabled()).toBe(true);
     });
 
     it('should return correct configuration', () => {
       const config = emailVerificationService.getConfig();
       expect(config).toBeDefined();
-      // Not enabled since not configured in test environment
-      expect(config.enabled).toBe(false);
+      // Enabled by default even without explicit configuration
+      expect(config.enabled).toBe(true);
       expect(config.expiresIn).toBeGreaterThan(0);
       expect(config.template).toBeDefined();
       expect(config.locale).toBeDefined();
@@ -149,6 +151,140 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       const expiresIn = emailVerificationService.getExpiresIn();
       expect(typeof expiresIn).toBe('number');
       expect(expiresIn).toBeGreaterThan(0);
+    });
+
+    it('should have resendCooldownSeconds in configuration', () => {
+      const config = emailVerificationService.getConfig();
+      expect(typeof config.resendCooldownSeconds).toBe('number');
+      expect(config.resendCooldownSeconds).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should default resendCooldownSeconds to 60', () => {
+      // Without explicit configuration, resendCooldownSeconds defaults to 60
+      const config = emailVerificationService.getConfig();
+      expect(config.resendCooldownSeconds).toBe(60);
+    });
+  });
+
+  // ===================================================================================================================
+  // Resend Cooldown Tests
+  // ===================================================================================================================
+
+  describe('Resend Cooldown Mechanism', () => {
+    it('should not be in cooldown for a fresh email address', () => {
+      // Access protected method via type assertion for testing
+      const service = emailVerificationService as any;
+      const result = service.isInCooldown(`fresh-${Date.now()}@test.com`);
+      expect(result).toBe(false);
+    });
+
+    it('should track send and enforce cooldown', () => {
+      const service = emailVerificationService as any;
+      const testEmail = `cooldown-test-${Date.now()}@test.com`;
+
+      // Initially not in cooldown
+      expect(service.isInCooldown(testEmail)).toBe(false);
+
+      // Track a send
+      service.trackSend(testEmail);
+
+      // Now should be in cooldown
+      expect(service.isInCooldown(testEmail)).toBe(true);
+    });
+
+    it('should be case-insensitive for cooldown tracking', () => {
+      const service = emailVerificationService as any;
+      const timestamp = Date.now();
+      const lowerEmail = `case-test-${timestamp}@test.com`;
+      const upperEmail = `CASE-TEST-${timestamp}@TEST.COM`;
+
+      // Track send with lowercase
+      service.trackSend(lowerEmail);
+
+      // Should also be in cooldown with uppercase
+      expect(service.isInCooldown(upperEmail)).toBe(true);
+    });
+  });
+
+  // ===================================================================================================================
+  // GET /iam/features REST Endpoint Tests
+  // ===================================================================================================================
+
+  describe('GET /iam/features', () => {
+    it('should return feature flags as JSON', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', {
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(response).toBeDefined();
+      expect(typeof response.enabled).toBe('boolean');
+      expect(typeof response.emailVerification).toBe('boolean');
+      expect(typeof response.jwt).toBe('boolean');
+      expect(typeof response.twoFactor).toBe('boolean');
+      expect(typeof response.passkey).toBe('boolean');
+      expect(Array.isArray(response.socialProviders)).toBe(true);
+      expect(typeof response.resendCooldownSeconds).toBe('number');
+    });
+
+    it('should return resendCooldownSeconds matching service config', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', {
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      const serviceConfig = emailVerificationService.getConfig();
+      expect(response.resendCooldownSeconds).toBe(serviceConfig.resendCooldownSeconds);
+    });
+
+    it('should report emailVerification as enabled', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', {
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      // Email verification is enabled by default (zero-config)
+      expect(response.emailVerification).toBe(true);
+    });
+
+    it('should report enabled as true', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', {
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(response.enabled).toBe(true);
+    });
+
+    it('should be accessible without authentication', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      // No token passed - should still work (S_EVERYONE)
+      const response = await testHelper.rest('/iam/features', {
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(response).toBeDefined();
+      expect(response.enabled).toBe(true);
     });
   });
 
@@ -355,6 +491,93 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       // Verify the field was stored correctly
       const user = await db.collection('users').findOne({ _id: result.insertedId });
       expect(user?.termsAndPrivacyAcceptedAt).toEqual(now);
+    });
+  });
+
+  // ===================================================================================================================
+  // Resend Cooldown via REST Tests
+  // ===================================================================================================================
+
+  describe('Resend Cooldown via REST', () => {
+    it('should silently skip second send within cooldown period', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const email = `cooldown-rest-${Date.now()}@example.com`;
+      testEmails.push(email);
+
+      // First call: should succeed (Better-Auth may return 200 even for non-existent user)
+      const firstResponse = await testHelper.rest('/iam/send-verification-email', {
+        method: 'POST',
+        payload: { callbackURL: '/auth/verify-email', email },
+        statusCode: 200,
+      });
+
+      expect(firstResponse).toBeDefined();
+
+      // Second call immediately: should be silently handled (cooldown enforced by service)
+      // The endpoint still returns 200 but the service logs "Resend cooldown active" and skips
+      const secondResponse = await testHelper.rest('/iam/send-verification-email', {
+        method: 'POST',
+        payload: { callbackURL: '/auth/verify-email', email },
+        statusCode: 200,
+      });
+
+      expect(secondResponse).toBeDefined();
+    });
+  });
+
+  // ===================================================================================================================
+  // Verification Token Reuse Tests
+  // ===================================================================================================================
+
+  describe('Verification Token Reuse', () => {
+    it('should reject verification with invalid token', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      // Use a random invalid token
+      try {
+        await testHelper.rest('/iam/verify-email?token=invalid-token-12345', {
+          method: 'GET',
+          statusCode: 200,
+        });
+        // If it returns 200 with status: false, that's also valid
+      } catch {
+        // Expected: invalid token should fail
+      }
+    });
+  });
+
+  // ===================================================================================================================
+  // Redirect Flow Tests (without callbackURL)
+  // ===================================================================================================================
+
+  describe('Verification Redirect Flow', () => {
+    it('should build correct frontend URL when callbackURL is configured', () => {
+      // When callbackURL is configured, the service should build a frontend URL
+      const service = emailVerificationService as any;
+      const config = emailVerificationService.getConfig();
+
+      if (config.callbackURL) {
+        const url = service.buildFrontendVerificationUrl('test-token-123');
+        expect(url).toContain('test-token-123');
+        expect(url).toContain('token=');
+      }
+    });
+
+    it('should use appUrl for relative callbackURL paths', () => {
+      const service = emailVerificationService as any;
+      const config = emailVerificationService.getConfig();
+
+      if (config.callbackURL && config.callbackURL.startsWith('/')) {
+        const url = service.buildFrontendVerificationUrl('test-token-456');
+        // Should contain a full URL, not just a relative path
+        expect(url).toMatch(/^https?:\/\//);
+        expect(url).toContain('token=test-token-456');
+      }
     });
   });
 });

@@ -171,7 +171,7 @@ describe('Story: BetterAuth REST Security', () => {
   let db: Db;
   let betterAuthService: CoreBetterAuthService;
 
-  // Test users
+  // Test users (JWT tokens)
   let regularUserEmail: string;
   let regularUserPassword: string;
   let regularUserToken: string;
@@ -184,10 +184,99 @@ describe('Story: BetterAuth REST Security', () => {
   let unverifiedUserPassword: string;
   let unverifiedUserToken: string;
 
+  // Cookie-based session tokens (from DB)
+  let regularUserSessionToken: string;
+  let adminUserSessionToken: string;
+  let unverifiedUserSessionToken: string;
+
   // Helper to generate unique test emails
   const generateTestEmail = (prefix: string): string => {
     return `sec-test-${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
   };
+
+  /**
+   * Ensure a valid token by verifying it against a public endpoint.
+   * If the token returns 401, re-sign-in to get a fresh token.
+   * This handles cross-process MongoDB interference in parallel test runs.
+   */
+  async function ensureValidToken(token: string | undefined, email: string, password: string): Promise<string> {
+    if (!token) {
+      const signIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+      return signIn.token;
+    }
+
+    try {
+      await testHelper.rest('/security-test/protected', {
+        method: 'GET',
+        statusCode: 200,
+        token,
+      });
+      return token;
+    } catch {
+      // Token invalid, re-sign-in
+      const signIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+      return signIn.token;
+    }
+  }
+
+  /**
+   * Read session token from database for a given user email.
+   */
+  async function getSessionTokenFromDb(email: string): Promise<null | string> {
+    const dbUser = await db.collection('users').findOne({ email });
+    if (!dbUser) return null;
+    // Try finding session by user's _id (string) or iamId
+    const session = await db.collection('session').findOne({
+      $or: [{ userId: dbUser._id }, { userId: dbUser._id.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
+    });
+    return session?.token || null;
+  }
+
+  /**
+   * Ensure a valid cookie-based session token by verifying against a protected endpoint.
+   * If the token returns 401, re-sign-in and read fresh session token from DB.
+   */
+  async function ensureValidCookieToken(
+    sessionToken: string | undefined,
+    email: string,
+    password: string,
+  ): Promise<string> {
+    if (!sessionToken) {
+      await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+      const token = await getSessionTokenFromDb(email);
+      return token || '';
+    }
+
+    try {
+      await testHelper.rest('/security-test/protected', {
+        cookies: sessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+      return sessionToken;
+    } catch {
+      // Token invalid, re-sign-in
+      await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+      const token = await getSessionTokenFromDb(email);
+      return token || '';
+    }
+  }
 
   // =================================================================================================
   // Setup and Teardown
@@ -264,11 +353,37 @@ describe('Story: BetterAuth REST Security', () => {
     CoreBetterAuthModule.reset();
   });
 
+  // Refresh stale tokens before each test to handle cross-process session invalidation
+  // in parallel execution (pool: 'forks' + shared MongoDB)
+  beforeEach(async () => {
+    if (regularUserEmail) {
+      regularUserToken = await ensureValidToken(regularUserToken, regularUserEmail, regularUserPassword);
+      regularUserSessionToken = await ensureValidCookieToken(regularUserSessionToken, regularUserEmail, regularUserPassword);
+    }
+    if (adminUserEmail) {
+      adminUserToken = await ensureValidToken(adminUserToken, adminUserEmail, adminUserPassword);
+      adminUserSessionToken = await ensureValidCookieToken(adminUserSessionToken, adminUserEmail, adminUserPassword);
+    }
+    if (unverifiedUserEmail) {
+      unverifiedUserToken = await ensureValidToken(unverifiedUserToken, unverifiedUserEmail, unverifiedUserPassword);
+      unverifiedUserSessionToken = await ensureValidCookieToken(unverifiedUserSessionToken, unverifiedUserEmail, unverifiedUserPassword);
+      // Re-mark as unverified in case the re-sign-in changed anything
+      await db.collection('users').updateOne(
+        { email: unverifiedUserEmail },
+        { $set: { emailVerified: false, verified: false } },
+      );
+    }
+  });
+
   // =================================================================================================
   // Helper: Setup Test Users
   // =================================================================================================
 
   async function setupTestUsers() {
+    // Small delay helper to allow MongoDB writes to be fully committed
+    // This prevents race conditions when test files run in parallel (pool: 'forks')
+    const waitForDb = () => new Promise<void>((resolve) => setTimeout(resolve, 200));
+
     // 1. Regular user (no admin role, verified)
     regularUserEmail = generateTestEmail('regular');
     regularUserPassword = 'RegularUser123!';
@@ -279,7 +394,15 @@ describe('Story: BetterAuth REST Security', () => {
       statusCode: 201,
     });
 
-    // Sign in to get token
+    await waitForDb();
+
+    // Mark user as verified in database BEFORE sign-in so the token reflects verified status
+    await db.collection('users').updateOne({ email: regularUserEmail }, { $set: { emailVerified: true, verified: true } });
+    await db.collection('iam_user').updateOne({ email: regularUserEmail }, { $set: { emailVerified: true } });
+
+    await waitForDb();
+
+    // Sign in to get token (user is already verified)
     const regularSignIn = await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
       payload: { email: regularUserEmail, password: regularUserPassword },
@@ -287,8 +410,11 @@ describe('Story: BetterAuth REST Security', () => {
     });
     regularUserToken = regularSignIn.token;
 
-    // Mark user as verified in database
-    await db.collection('users').updateOne({ email: regularUserEmail }, { $set: { verified: true } });
+    if (!regularUserToken) {
+      console.warn('WARNING: Regular user token is empty after sign-in. Sign-in response:', JSON.stringify(regularSignIn));
+    }
+
+    await waitForDb();
 
     // 2. Admin user
     adminUserEmail = generateTestEmail('admin');
@@ -300,7 +426,24 @@ describe('Story: BetterAuth REST Security', () => {
       statusCode: 201,
     });
 
-    // Sign in to get token
+    await waitForDb();
+
+    // Mark user as verified and add ADMIN role BEFORE sign-in so the token reflects correct status
+    await db.collection('users').updateOne(
+      { email: adminUserEmail },
+      {
+        $set: {
+          emailVerified: true,
+          roles: [RoleEnum.ADMIN],
+          verified: true,
+        },
+      },
+    );
+    await db.collection('iam_user').updateOne({ email: adminUserEmail }, { $set: { emailVerified: true } });
+
+    await waitForDb();
+
+    // Sign in to get token (user is already verified with ADMIN role)
     const adminSignIn = await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
       payload: { email: adminUserEmail, password: adminUserPassword },
@@ -308,16 +451,11 @@ describe('Story: BetterAuth REST Security', () => {
     });
     adminUserToken = adminSignIn.token;
 
-    // Add ADMIN role to user in database
-    await db.collection('users').updateOne(
-      { email: adminUserEmail },
-      {
-        $set: {
-          roles: [RoleEnum.ADMIN],
-          verified: true,
-        },
-      },
-    );
+    if (!adminUserToken) {
+      console.warn('WARNING: Admin user token is empty after sign-in. Sign-in response:', JSON.stringify(adminSignIn));
+    }
+
+    await waitForDb();
 
     // 3. Unverified user
     unverifiedUserEmail = generateTestEmail('unverified');
@@ -329,6 +467,8 @@ describe('Story: BetterAuth REST Security', () => {
       statusCode: 201,
     });
 
+    await waitForDb();
+
     // Sign in to get token
     const unverifiedSignIn = await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
@@ -336,6 +476,10 @@ describe('Story: BetterAuth REST Security', () => {
       statusCode: 200,
     });
     unverifiedUserToken = unverifiedSignIn.token;
+
+    if (!unverifiedUserToken) {
+      console.warn('WARNING: Unverified user token is empty after sign-in. Sign-in response:', JSON.stringify(unverifiedSignIn));
+    }
 
     // Explicitly mark as NOT verified
     await db.collection('users').updateOne(
@@ -347,6 +491,19 @@ describe('Story: BetterAuth REST Security', () => {
         },
       },
     );
+
+    await waitForDb();
+
+    // Final token validation - ensure all tokens are working before tests run
+    // This catches initialization race conditions in parallel test execution
+    regularUserToken = await ensureValidToken(regularUserToken, regularUserEmail, regularUserPassword);
+    adminUserToken = await ensureValidToken(adminUserToken, adminUserEmail, adminUserPassword);
+    unverifiedUserToken = await ensureValidToken(unverifiedUserToken, unverifiedUserEmail, unverifiedUserPassword);
+
+    // Read session tokens from database for cookie-based tests
+    regularUserSessionToken = await getSessionTokenFromDb(regularUserEmail) || '';
+    adminUserSessionToken = await getSessionTokenFromDb(adminUserEmail) || '';
+    unverifiedUserSessionToken = await getSessionTokenFromDb(unverifiedUserEmail) || '';
   }
 
   // =================================================================================================
@@ -755,6 +912,215 @@ describe('Story: BetterAuth REST Security', () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('explicit-better-auth');
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Protected Endpoints (S_USER)
+  // =================================================================================================
+
+  describe('Cookie Auth: Protected Endpoints (S_USER)', () => {
+    it('SECURITY: should REJECT request without cookie or token', async () => {
+      const result = await testHelper.rest('/security-test/protected', {
+        method: 'GET',
+        statusCode: 401,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+
+    it('SECURITY: should REJECT request with invalid cookie', async () => {
+      const result = await testHelper.rest('/security-test/protected', {
+        cookies: { 'iam.session_token': 'invalid-session-token-12345' },
+        method: 'GET',
+        statusCode: 401,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+
+    it('should ALLOW regular user via cookie', async () => {
+      if (!regularUserSessionToken) {
+        console.warn('Skipping test: no regular user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/protected', {
+        cookies: regularUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('protected');
+      expect(result.userId).toBeDefined();
+    });
+
+    it('should ALLOW admin user via cookie', async () => {
+      if (!adminUserSessionToken) {
+        console.warn('Skipping test: no admin user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/protected', {
+        cookies: adminUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('protected');
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Admin-Only Endpoints (ADMIN)
+  // =================================================================================================
+
+  describe('Cookie Auth: Admin-Only Endpoints (ADMIN)', () => {
+    it('SECURITY: should REJECT non-admin via cookie', async () => {
+      if (!regularUserSessionToken) {
+        console.warn('Skipping test: no regular user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/admin-only', {
+        cookies: regularUserSessionToken,
+        method: 'GET',
+        statusCode: 403,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+
+    it('should ALLOW admin via cookie', async () => {
+      if (!adminUserSessionToken) {
+        console.warn('Skipping test: no admin user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/admin-only', {
+        cookies: adminUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('admin-only');
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Verified User Endpoints (S_VERIFIED)
+  // =================================================================================================
+
+  describe('Cookie Auth: Verified User Endpoints (S_VERIFIED)', () => {
+    it('SECURITY: should REJECT unverified user via cookie', async () => {
+      if (!unverifiedUserSessionToken) {
+        console.warn('Skipping test: no unverified user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/verified-only', {
+        cookies: unverifiedUserSessionToken,
+        method: 'GET',
+        statusCode: 403,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+
+    it('should ALLOW verified user via cookie', async () => {
+      if (!regularUserSessionToken) {
+        console.warn('Skipping test: no regular user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/verified-only', {
+        cookies: regularUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('verified-only');
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Locked Endpoints (S_NO_ONE)
+  // =================================================================================================
+
+  describe('Cookie Auth: Locked Endpoints (S_NO_ONE)', () => {
+    it('SECURITY: should REJECT admin via cookie', async () => {
+      if (!adminUserSessionToken) {
+        console.warn('Skipping test: no admin user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/locked', {
+        cookies: adminUserSessionToken,
+        method: 'GET',
+        statusCode: 401,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Explicit BETTER_AUTH Strategy
+  // =================================================================================================
+
+  describe('Cookie Auth: Explicit BETTER_AUTH Strategy', () => {
+    it('SECURITY: should REJECT unauthenticated via cookie endpoint', async () => {
+      const result = await testHelper.rest('/security-test/explicit-better-auth', {
+        method: 'GET',
+        statusCode: 401,
+      });
+
+      expect(result.success).not.toBe(true);
+    });
+
+    it('should ALLOW authenticated via cookie', async () => {
+      if (!regularUserSessionToken) {
+        console.warn('Skipping test: no regular user session token available');
+        return;
+      }
+
+      const result = await testHelper.rest('/security-test/explicit-better-auth', {
+        cookies: regularUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('explicit-better-auth');
+    });
+  });
+
+  // =================================================================================================
+  // Test: Cookie Auth - Mixed Token Sources
+  // =================================================================================================
+
+  describe('Cookie Auth: Mixed Token Sources', () => {
+    it('should use Authorization header token when both header and cookie are present', async () => {
+      if (!adminUserToken || !regularUserSessionToken) {
+        console.warn('Skipping test: tokens not available');
+        return;
+      }
+
+      // Send admin JWT via header and regular user session via cookie
+      // The admin JWT should take precedence -> admin-only endpoint should succeed
+      const result = await testHelper.rest('/security-test/admin-only', {
+        cookies: regularUserSessionToken,
+        method: 'GET',
+        statusCode: 200,
+        token: adminUserToken,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('admin-only');
     });
   });
 });

@@ -20,7 +20,7 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  * All other paths (Passkey, 2FA, etc.) go directly to Better Auth's
  * native handler via this middleware for maximum compatibility.
  */
-const CONTROLLER_HANDLED_PATHS = ['/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
+const CONTROLLER_HANDLED_PATHS = ['/features', '/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
 
 /**
  * Passkey paths that generate challenges

@@ -5,6 +5,7 @@ import { Request, Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import {
   CoreBetterAuth2FASetupModel,
   CoreBetterAuthFeaturesModel,
@@ -65,8 +66,9 @@ export class DefaultBetterAuthResolver extends CoreBetterAuthResolver {
     protected override readonly betterAuthService: CoreBetterAuthService,
     protected override readonly userMapper: CoreBetterAuthUserMapper,
     @Optional() protected override readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
+    @Optional() protected override readonly emailVerificationService?: CoreBetterAuthEmailVerificationService,
   ) {
-    super(betterAuthService, userMapper, signUpValidator);
+    super(betterAuthService, userMapper, signUpValidator, emailVerificationService);
   }
 
   // ===========================================================================

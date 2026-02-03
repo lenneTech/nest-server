@@ -48,8 +48,8 @@ const config = {
 - **JWT Tokens** - For API clients and stateless authentication (**enabled by default**)
 - **Two-Factor Authentication (2FA)** - TOTP-based second factor (**enabled by default**)
 - **Passkey/WebAuthn** - Passwordless authentication (**enabled by default**, requires resolvable URLs)
-- **Email Verification** - Verify user email addresses (**enabled by default** since v11.12.1)
-- **Sign-Up Checks** - Validate sign-up requirements like `termsAndPrivacyAccepted` (**enabled by default** since v11.12.1)
+- **Email Verification** - Verify user email addresses (**enabled by default** since v11.13.0)
+- **Sign-Up Checks** - Validate sign-up requirements like `termsAndPrivacyAccepted` (**enabled by default** since v11.13.0)
 
 ### Core Features
 
@@ -499,7 +499,7 @@ export default {
 
 ## Advanced Configuration
 
-### Email Verification (v11.12.1+)
+### Email Verification (v11.13.0+)
 
 Email verification is **enabled by default**. Users receive a verification email after sign-up and `verifiedAt` is automatically set when verified.
 
@@ -524,7 +524,7 @@ const config = {
 
 **Brevo Integration:** When `brevoTemplateId` is set and Brevo is configured (`config.brevo`), verification emails are sent via Brevo's transactional API instead of SMTP/EJS templates. The same template variables (`name`, `link`, `appName`, `expiresIn`) are passed to the Brevo template.
 
-### Sign-Up Checks (v11.12.1+)
+### Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted: true`.
 
@@ -1008,7 +1008,7 @@ In addition to REST endpoints, Better-Auth provides GraphQL queries and mutation
 | `betterAuthSignOut`   | -                                            | `Boolean`            | Sign out (requires auth)  |
 | `betterAuthVerify2FA` | `code`                                       | `BetterAuthAuthModel`| Verify 2FA code           |
 
-**Note (v11.12.1+):** `termsAndPrivacyAccepted` is required by default. Set `signUpChecks: false` to disable.
+**Note (v11.13.0+):** `termsAndPrivacyAccepted` is required by default. Set `signUpChecks: false` to disable.
 
 #### 2FA Management (requires authentication)
 
@@ -1118,7 +1118,7 @@ mutation {
   }
 }
 
-# Sign up (v11.12.1+: termsAndPrivacyAccepted required by default)
+# Sign up (v11.13.0+: termsAndPrivacyAccepted required by default)
 mutation {
   betterAuthSignUp(
     email: "newuser@example.com"

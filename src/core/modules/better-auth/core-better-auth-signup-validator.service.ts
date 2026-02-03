@@ -70,7 +70,7 @@ export interface SignUpValidationInput {
  * }
  * ```
  *
- * @since 11.12.1
+ * @since 11.13.0
  */
 @Injectable()
 export class CoreBetterAuthSignUpValidatorService {

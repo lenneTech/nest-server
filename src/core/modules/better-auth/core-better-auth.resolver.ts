@@ -15,6 +15,7 @@ import {
   requires2FA,
 } from './better-auth.types';
 import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthMigrationStatusModel } from './core-better-auth-migration-status.model';
 import {
   CoreBetterAuth2FASetupModel,
@@ -71,6 +72,7 @@ export class CoreBetterAuthResolver {
     protected readonly betterAuthService: CoreBetterAuthService,
     protected readonly userMapper: CoreBetterAuthUserMapper,
     @Optional() protected readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
+    @Optional() protected readonly emailVerificationService?: CoreBetterAuthEmailVerificationService,
   ) {}
 
   // ===========================================================================
@@ -124,6 +126,7 @@ export class CoreBetterAuthResolver {
   @Roles(RoleEnum.S_EVERYONE)
   betterAuthFeatures(): CoreBetterAuthFeaturesModel {
     return {
+      emailVerification: this.emailVerificationService?.isEnabled() ?? false,
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
@@ -259,11 +262,12 @@ export class CoreBetterAuthResolver {
         const sessionUser: BetterAuthSessionUser = response.user;
         const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
 
-        // Return the session token for session-based authentication
-        // Note: If JWT plugin is enabled, accessToken may be in response or in set-auth-jwt header
-        // For GraphQL responses, we return the session token and let clients use it for session auth
+        // Return the best available token:
+        // 1. accessToken (JWT plugin enriched response)
+        // 2. token (top-level, some BetterAuth versions)
+        // 3. session.token (session-based fallback)
         const responseAny = response as any;
-        const token = responseAny.accessToken || responseAny.token;
+        const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
 
         return {
           requiresTwoFactor: false,
@@ -320,9 +324,12 @@ export class CoreBetterAuthResolver {
 
     const sessionUser: BetterAuthSessionUser = response.user;
     const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
-    // Return accessToken if available (JWT), otherwise fall back to session token
+    // Return the best available token:
+    // 1. accessToken (JWT plugin enriched response)
+    // 2. token (top-level, some BetterAuth versions)
+    // 3. session.token (session-based fallback)
     const responseAny = response as any;
-    const token = responseAny.accessToken || responseAny.token;
+    const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
 
     return {
       requiresTwoFactor: false,

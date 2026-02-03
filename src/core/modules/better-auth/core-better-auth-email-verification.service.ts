@@ -13,8 +13,9 @@ import { TemplateService } from '../../common/services/template.service';
  * Resolved configuration type for email verification
  * Uses Required for mandatory fields but preserves optional nature of brevoTemplateId
  */
-type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 'brevoTemplateId'>
-  & Required<Omit<IBetterAuthEmailVerificationConfig, 'brevoTemplateId'>>;
+type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL'>
+  & Required<Omit<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL' | 'resendCooldownSeconds'>>
+  & { resendCooldownSeconds: number };
 
 /**
  * Default configuration for email verification
@@ -24,6 +25,7 @@ const DEFAULT_CONFIG: ResolvedEmailVerificationConfig = {
   enabled: true,
   expiresIn: 86400, // 24 hours in seconds
   locale: 'en',
+  resendCooldownSeconds: 60,
   template: 'email-verification',
 };
 
@@ -79,12 +81,18 @@ export interface SendVerificationEmailOptions {
  * }
  * ```
  *
- * @since 11.12.1
+ * @since 11.13.0
  */
 @Injectable()
 export class CoreBetterAuthEmailVerificationService {
   protected readonly logger = new Logger(CoreBetterAuthEmailVerificationService.name);
   protected config: ResolvedEmailVerificationConfig = DEFAULT_CONFIG;
+
+  /**
+   * In-memory tracking of last send time per email address for cooldown enforcement.
+   * Key: email address (lowercase), Value: timestamp (ms) of last send
+   */
+  private readonly lastSendTimes = new Map<string, number>();
 
   /**
    * Token for optional BrevoService injection.
@@ -140,7 +148,19 @@ export class CoreBetterAuthEmailVerificationService {
    * @param options - The verification email options from Better-Auth
    */
   async sendVerificationEmail(options: SendVerificationEmailOptions): Promise<void> {
-    const { url, user } = options;
+    const { token, user } = options;
+    let { url } = options;
+
+    // Check resend cooldown per email address
+    if (this.isInCooldown(user.email)) {
+      this.logger.debug(`Resend cooldown active for ${this.maskEmail(user.email)}, skipping email send`);
+      return;
+    }
+
+    // Override URL if callbackURL is configured (frontend-based verification)
+    if (this.config.callbackURL) {
+      url = this.buildFrontendVerificationUrl(token);
+    }
 
     // Always log verification URL for development/testing (useful for capturing in tests)
     // Uses console.log directly to ensure reliable capture in test environments (Vitest, Jest)
@@ -158,6 +178,7 @@ export class CoreBetterAuthEmailVerificationService {
           link: url,
           name: user.name || user.email.split('@')[0],
         });
+        this.trackSend(user.email);
         this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
         return;
       } catch (error) {
@@ -204,6 +225,7 @@ export class CoreBetterAuthEmailVerificationService {
         );
       }
 
+      this.trackSend(user.email);
       this.logger.debug(`Verification email sent to ${this.maskEmail(user.email)}`);
     } catch (error) {
       this.logger.error(`Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -223,31 +245,46 @@ export class CoreBetterAuthEmailVerificationService {
   protected configure(): void {
     const rawConfig = this.configService.getFastButReadOnly<boolean | IBetterAuthEmailVerificationConfig>('betterAuth.emailVerification');
 
-    // Follow "presence implies enabled" pattern:
-    // No config = disabled (backward compatible)
-    if (rawConfig === undefined || rawConfig === null) {
-      this.config = { ...DEFAULT_CONFIG, enabled: false };
-      return;
-    }
-
-    // Boolean shorthand: true = enabled with defaults, false = disabled
-    if (rawConfig === true) {
-      this.config = { ...DEFAULT_CONFIG, enabled: true };
-      return;
-    }
-
+    // false = explicitly disabled
     if (rawConfig === false) {
       this.config = { ...DEFAULT_CONFIG, enabled: false };
       return;
     }
 
-    // Object config: merge with defaults
-    const enabled = rawConfig.enabled !== false;
+    // undefined/null/true = enabled with defaults (zero-config: email verification is on by default)
+    if (!rawConfig || rawConfig === true) {
+      this.config = { ...DEFAULT_CONFIG, enabled: true };
+      return;
+    }
+
+    // Object config: merge with defaults, enabled unless explicitly disabled
     this.config = {
       ...DEFAULT_CONFIG,
       ...rawConfig,
-      enabled,
+      enabled: rawConfig.enabled !== false,
     };
+  }
+
+  /**
+   * Build the frontend verification URL from the configured callbackURL and token.
+   *
+   * Resolves relative paths against `appUrl`. Appends the token as a query parameter.
+   *
+   * @param token - The verification token from Better-Auth
+   * @returns The full frontend URL with token query parameter
+   */
+  protected buildFrontendVerificationUrl(token: string): string {
+    let baseUrl = this.config.callbackURL!;
+
+    // Resolve relative paths against appUrl
+    if (baseUrl.startsWith('/')) {
+      const appUrl = this.configService.getFastButReadOnly<string>('appUrl') || 'http://localhost:3001';
+      baseUrl = `${appUrl.replace(/\/$/, '')}${baseUrl}`;
+    }
+
+    // Append token as query parameter
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}token=${token}`;
   }
 
   /**
@@ -358,6 +395,35 @@ export class CoreBetterAuthEmailVerificationService {
       return hours === 1 ? '1 Stunde' : `${hours} Stunden`;
     }
     return hours === 1 ? '1 hour' : `${hours} hours`;
+  }
+
+  /**
+   * Check if an email address is still in the resend cooldown period
+   */
+  protected isInCooldown(email: string): boolean {
+    const cooldown = this.config.resendCooldownSeconds;
+    if (cooldown <= 0) return false;
+
+    const key = email.toLowerCase();
+    const lastSend = this.lastSendTimes.get(key);
+    if (!lastSend) return false;
+
+    const elapsed = (Date.now() - lastSend) / 1000;
+    return elapsed < cooldown;
+  }
+
+  /**
+   * Track that a verification email was sent to this address
+   */
+  protected trackSend(email: string): void {
+    const key = email.toLowerCase();
+    this.lastSendTimes.set(key, Date.now());
+
+    // Schedule cleanup to prevent memory leak
+    const cooldown = this.config.resendCooldownSeconds;
+    if (cooldown > 0) {
+      setTimeout(() => this.lastSendTimes.delete(key), cooldown * 1000);
+    }
   }
 
   /**

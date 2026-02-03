@@ -104,6 +104,11 @@ await app.listen(3030);
 - Dynamic port (`0`) avoids port conflicts between parallel tests
 - Explicit `httpServer.close()` prevents open handle warnings
 
+## TestHelper Reference
+
+Full documentation for TestHelper (REST, GraphQL, Cookie support):
+`src/test/README.md` (also available in `node_modules/@lenne.tech/nest-server/src/test/README.md`)
+
 ## Common Test Issues
 
 - **Tests timeout**: Ensure MongoDB is running

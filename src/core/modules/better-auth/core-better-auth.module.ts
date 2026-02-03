@@ -259,6 +259,24 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.rateLimiter.configure(CoreBetterAuthModule.currentConfig.rateLimit);
     }
 
+    // Configuration warning: cookies: false without jwt: true
+    // When cookies are disabled, BetterAuth needs JWT plugin to issue tokens via Authorization header
+    if (CoreBetterAuthModule.currentConfig) {
+      const globalConfig = ConfigService.configFastButReadOnly;
+      const cookiesDisabled = globalConfig?.cookies === false;
+      const jwtEnabled = CoreBetterAuthModule.currentConfig.jwt === true
+        || (typeof CoreBetterAuthModule.currentConfig.jwt === 'object' && CoreBetterAuthModule.currentConfig.jwt?.enabled !== false);
+
+      if (cookiesDisabled && !jwtEnabled) {
+        CoreBetterAuthModule.logger.warn(
+          'CONFIGURATION WARNING: cookies is set to false, but betterAuth.jwt is not enabled. ' +
+          'Without cookies, BetterAuth cannot establish sessions via Set-Cookie headers. ' +
+          'Enable betterAuth.jwt (set jwt: true in betterAuth config) to use Bearer token authentication, ' +
+          'or set cookies: true to use cookie-based sessions.',
+        );
+      }
+    }
+
     // Security warning: Check if RolesGuard is registered when explicitly disabled
     // This warning helps developers identify potential security misconfigurations
     if (CoreBetterAuthModule.rolesGuardExplicitlyDisabled && !RolesGuardRegistry.isRegistered()) {
@@ -505,9 +523,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               sendVerificationEmail,
             });
 
-            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
-            this.currentConfig = config;
+            // Store a config copy with the resolved secret so that consumers
+            // (CoreBetterAuthService, CoreBetterAuthController) can sign cookies.
+            // The original config object may be frozen (from ConfigService), so we
+            // create a shallow copy with the resolved fallback secret applied.
+            const resolvedSecret = config.secret || fallbackSecrets?.find((s) => s && s.length >= 32);
+            this.currentConfig = resolvedSecret && resolvedSecret !== config.secret
+              ? { ...config, secret: resolvedSecret }
+              : config;
 
             if (this.authInstance) {
               this.logger.log('BetterAuth initialized successfully');
@@ -518,7 +541,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           },
         },
         // Provide the resolved config for CoreBetterAuthService
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure currentConfig is set
         {
+          inject: [BETTER_AUTH_INSTANCE],
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
@@ -728,9 +753,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               });
             }
 
-            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
-            this.currentConfig = config;
+            // Store a config copy with the resolved secret (same as first forRoot variant)
+            const fallbacks = options?.fallbackSecrets;
+            const resolvedSecret2 = config.secret || fallbacks?.find((s) => s && s.length >= 32);
+            this.currentConfig = resolvedSecret2 && resolvedSecret2 !== config.secret
+              ? { ...config, secret: resolvedSecret2 }
+              : config;
 
             if (this.authInstance && !this.initLogged) {
               this.initLogged = true;
@@ -742,7 +770,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           },
         },
         // Provide the resolved config for CoreBetterAuthService
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure currentConfig is set
         {
+          inject: [BETTER_AUTH_INSTANCE],
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
