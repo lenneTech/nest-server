@@ -190,8 +190,8 @@ export class CoreAuthController {
    * Process cookies
    */
   protected processCookies(res: ResponseType, result: any) {
-    // Check if cookie handling is activated
-    if (this.configService.getFastButReadOnly('cookies')) {
+    // Check if cookie handling is activated (enabled by default, unless explicitly set to false)
+    if (this.configService.getFastButReadOnly('cookies') !== false) {
       // Set cookies
       if (!result || typeof result !== 'object') {
         res.cookie('token', '', { httpOnly: true });
