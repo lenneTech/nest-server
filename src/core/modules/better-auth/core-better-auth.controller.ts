@@ -8,6 +8,7 @@ import {
   HttpStatus,
   InternalServerErrorException,
   Logger,
+  Optional,
   Post,
   Req,
   Res,
@@ -23,6 +24,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -115,6 +117,9 @@ export class CoreBetterAuthSignUpInput {
 
   @ApiProperty({ description: 'User password (min 8 characters)' })
   password: string;
+
+  @ApiProperty({ description: 'Whether user accepted terms and privacy policy', required: false })
+  termsAndPrivacyAccepted?: boolean;
 }
 
 // ===================================================================================================================
@@ -189,6 +194,7 @@ export class CoreBetterAuthController {
     protected readonly betterAuthService: CoreBetterAuthService,
     protected readonly userMapper: CoreBetterAuthUserMapper,
     protected readonly configService: ConfigService,
+    @Optional() protected readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
   ) {
     // Detect if Legacy Auth is active (for < 11.7.0 compatibility)
     // Legacy Auth is active when JWT secret is configured
@@ -400,6 +406,11 @@ export class CoreBetterAuthController {
   ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
 
+    // Validate sign-up input (termsAndPrivacyAccepted is required by default)
+    if (this.signUpValidator) {
+      this.signUpValidator.validateSignUpInput({ termsAndPrivacyAccepted: input.termsAndPrivacyAccepted });
+    }
+
     const api = this.betterAuthService.getApi();
     if (!api) {
       throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
@@ -423,7 +434,8 @@ export class CoreBetterAuthController {
 
       if (hasUser(response)) {
         // Link or create user in our database
-        await this.userMapper.linkOrCreateUser(response.user);
+        // Pass termsAndPrivacyAccepted to store the acceptance timestamp
+        await this.userMapper.linkOrCreateUser(response.user, { termsAndPrivacyAccepted: input.termsAndPrivacyAccepted });
 
         // Sync password to legacy (enables IAM Sign-Up → Legacy Sign-In)
         // Pass the plain password so it can be hashed with bcrypt for Legacy Auth

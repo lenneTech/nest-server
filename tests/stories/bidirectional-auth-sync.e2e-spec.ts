@@ -140,7 +140,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       // Sign up via Better-Auth (IAM) - returns 201 Created
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM User', password },
+        payload: { email, name: 'IAM User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -173,7 +173,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       // Sign up via Better-Auth (IAM) - returns 201 Created
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Cross System User', password },
+        payload: { email, name: 'Cross System User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -459,7 +459,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       // Sign up via IAM (returns 201 Created)
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Test User', password: correctPassword },
+        payload: { email, name: 'Test User', password: correctPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
       expect(signUpRes.success).toBe(true);
@@ -554,7 +554,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       // Sign up via IAM with old email
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email: oldEmail, name: 'Email Test User', password },
+        payload: { email: oldEmail, name: 'Email Test User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
       expect(signUpRes.success).toBe(true);

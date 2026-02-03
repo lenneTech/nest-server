@@ -118,7 +118,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   const createBetterAuthUser = async (email: string, password: string) => {
     const res: any = await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email, name: 'Test User', password },
+      payload: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
       statusCode: 201,  // Created
     });
 

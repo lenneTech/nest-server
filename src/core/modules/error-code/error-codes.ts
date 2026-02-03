@@ -233,6 +233,51 @@ export const LtnsErrors = {
     },
   },
 
+  SIGNUP_TERMS_NOT_ACCEPTED: {
+    code: 'LTNS_0021',
+    message: 'Terms and privacy policy must be accepted',
+    translations: {
+      de: 'Die Nutzungsbedingungen und Datenschutzrichtlinie müssen akzeptiert werden.',
+      en: 'Terms and privacy policy must be accepted.',
+    },
+  },
+
+  SIGNUP_MISSING_REQUIRED_FIELDS: {
+    code: 'LTNS_0022',
+    message: 'Required sign-up fields are missing',
+    translations: {
+      de: 'Erforderliche Registrierungsfelder fehlen.',
+      en: 'Required sign-up fields are missing.',
+    },
+  },
+
+  EMAIL_VERIFICATION_REQUIRED: {
+    code: 'LTNS_0023',
+    message: 'Email verification required',
+    translations: {
+      de: 'Bitte verifizieren Sie Ihre E-Mail-Adresse.',
+      en: 'Please verify your email address.',
+    },
+  },
+
+  EMAIL_VERIFICATION_TOKEN_INVALID: {
+    code: 'LTNS_0024',
+    message: 'Email verification token is invalid or expired',
+    translations: {
+      de: 'Der E-Mail-Verifizierungslink ist ungültig oder abgelaufen.',
+      en: 'The email verification link is invalid or expired.',
+    },
+  },
+
+  EMAIL_ALREADY_VERIFIED: {
+    code: 'LTNS_0025',
+    message: 'Email is already verified',
+    translations: {
+      de: 'Die E-Mail-Adresse ist bereits verifiziert.',
+      en: 'The email address is already verified.',
+    },
+  },
+
   // =====================================================
   // Authorization Errors (LTNS_0100-LTNS_0199)
   // =====================================================

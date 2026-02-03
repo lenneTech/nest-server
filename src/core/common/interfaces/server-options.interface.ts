@@ -232,6 +232,98 @@ export interface IAuthRateLimit {
 export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
 
 /**
+ * Email verification configuration for Better-Auth
+ *
+ * Controls email verification behavior after sign-up.
+ * When enabled, users receive a verification email and must verify
+ * their email address before certain actions are allowed.
+ *
+ * **Enabled by Default:** Email verification is enabled by default.
+ * Set `emailVerification: false` or `emailVerification: { enabled: false }` to disable.
+ *
+ * Accepts:
+ * - `undefined`: Enabled with defaults (zero-config)
+ * - `true` or `{}`: Enable with defaults (same as undefined)
+ * - `{ locale: 'de', ... }`: Enable with custom settings
+ * - `false` or `{ enabled: false }`: Explicitly disable
+ *
+ * @since 11.12.1
+ *
+ * @example
+ * ```typescript
+ * // Default: Email verification enabled
+ * betterAuth: {}
+ *
+ * // Custom configuration
+ * betterAuth: {
+ *   emailVerification: {
+ *     locale: 'de',
+ *     autoSignInAfterVerification: true,
+ *     expiresIn: 86400, // 24 hours in seconds
+ *   }
+ * }
+ *
+ * // Disable email verification
+ * betterAuth: {
+ *   emailVerification: false,
+ * }
+ * ```
+ */
+export interface IBetterAuthEmailVerificationConfig {
+  /**
+   * Whether to automatically sign in the user after email verification.
+   * @default true
+   */
+  autoSignInAfterVerification?: boolean;
+
+  /**
+   * Whether email verification is enabled.
+   * @default true (enabled by default when BetterAuth is active)
+   */
+  enabled?: boolean;
+
+  /**
+   * Time in seconds until the verification link expires.
+   * @default 86400 (24 hours)
+   */
+  expiresIn?: number;
+
+  /**
+   * Locale for the verification email template.
+   * Used to select the correct language template.
+   * @default 'en'
+   */
+  locale?: string;
+
+  /**
+   * Brevo template ID for verification emails.
+   * When set and Brevo is configured (config.brevo), verification emails
+   * are sent via Brevo's transactional API instead of SMTP/EJS templates.
+   *
+   * Template variables passed to Brevo:
+   * - `name`: User display name
+   * - `link`: Verification URL
+   * - `appName`: Application name
+   * - `expiresIn`: Formatted expiration time
+   *
+   * @default undefined (uses SMTP/EJS templates)
+   */
+  brevoTemplateId?: number;
+
+  /**
+   * Custom template name for the verification email.
+   * The system looks for templates in this order:
+   * 1. `<template>-<locale>.ejs` in project templates
+   * 2. `<template>.ejs` in project templates
+   * 3. `<template>-<locale>.ejs` in nest-server templates (fallback)
+   * 4. `<template>.ejs` in nest-server templates (fallback)
+   *
+   * @default 'email-verification'
+   */
+  template?: string;
+}
+
+/**
  * JWT plugin configuration for Better-Auth
  *
  * **Enabled by Default:** JWT is enabled by default when BetterAuth is active.
@@ -424,6 +516,59 @@ export interface IBetterAuthRateLimit {
    * default: 60 (1 minute)
    */
   windowSeconds?: number;
+}
+
+/**
+ * Sign-up checks configuration for Better-Auth
+ *
+ * Controls which fields are required during sign-up.
+ * This is useful for enforcing terms acceptance, age verification, etc.
+ *
+ * **Enabled by Default:** Sign-up checks are enabled by default with
+ * `requiredFields: ['termsAndPrivacyAccepted']`.
+ *
+ * Accepts:
+ * - `undefined`: Enabled with defaults (`termsAndPrivacyAccepted` required)
+ * - `true` or `{}`: Enable with defaults (same as undefined)
+ * - `{ requiredFields: [...] }`: Enable with custom required fields
+ * - `false` or `{ enabled: false }`: Disable sign-up checks entirely
+ *
+ * @since 11.12.1
+ *
+ * @example
+ * ```typescript
+ * // Default: termsAndPrivacyAccepted is required
+ * betterAuth: {}
+ *
+ * // Custom required fields
+ * betterAuth: {
+ *   signUpChecks: {
+ *     requiredFields: ['termsAndPrivacyAccepted', 'ageConfirmed'],
+ *   }
+ * }
+ *
+ * // Disable sign-up checks (no fields required)
+ * betterAuth: {
+ *   signUpChecks: false,
+ * }
+ * ```
+ */
+export interface IBetterAuthSignUpChecksConfig {
+  /**
+   * Whether sign-up checks are enabled.
+   * @default true (enabled by default when BetterAuth is active)
+   */
+  enabled?: boolean;
+
+  /**
+   * Fields that must be provided and truthy during sign-up.
+   * If a required field is missing or falsy, sign-up will fail.
+   *
+   * @default ['termsAndPrivacyAccepted']
+   *
+   * @example ['termsAndPrivacyAccepted', 'ageConfirmed', 'newsletterOptIn']
+   */
+  requiredFields?: string[];
 }
 
 /**
@@ -1499,6 +1644,39 @@ interface IBetterAuthBase {
   };
 
   /**
+   * Email verification configuration.
+   *
+   * **Enabled by Default:** Email verification is enabled by default.
+   * Users receive a verification email after sign-up.
+   *
+   * Accepts:
+   * - `undefined`: Enabled with defaults (zero-config)
+   * - `true` or `{}`: Enable with defaults (same as undefined)
+   * - `{ locale: 'de', ... }`: Enable with custom settings
+   * - `false` or `{ enabled: false }`: Explicitly disable
+   *
+   * @default undefined (enabled by default)
+   * @since 11.12.1
+   *
+   * @example
+   * ```typescript
+   * // Email verification enabled by default - no config needed
+   *
+   * // Custom configuration
+   * betterAuth: {
+   *   emailVerification: {
+   *     locale: 'de',
+   *     autoSignInAfterVerification: true,
+   *   }
+   * }
+   *
+   * // Disable email verification
+   * betterAuth: { emailVerification: false }
+   * ```
+   */
+  emailVerification?: boolean | IBetterAuthEmailVerificationConfig;
+
+  /**
    * Whether better-auth is enabled.
    *
    * **Zero-Config Philosophy:** BetterAuth is enabled by default.
@@ -1630,6 +1808,38 @@ interface IBetterAuthBase {
    * ```
    */
   secret?: string;
+
+  /**
+   * Sign-up checks configuration.
+   *
+   * **Enabled by Default:** Sign-up checks are enabled by default with
+   * `requiredFields: ['termsAndPrivacyAccepted']`.
+   *
+   * Accepts:
+   * - `undefined`: Enabled with defaults (termsAndPrivacyAccepted required)
+   * - `true` or `{}`: Enable with defaults (same as undefined)
+   * - `{ requiredFields: [...] }`: Enable with custom required fields
+   * - `false` or `{ enabled: false }`: Disable sign-up checks entirely
+   *
+   * @default undefined (enabled by default)
+   * @since 11.12.1
+   *
+   * @example
+   * ```typescript
+   * // Default: termsAndPrivacyAccepted is required during sign-up
+   *
+   * // Custom required fields
+   * betterAuth: {
+   *   signUpChecks: {
+   *     requiredFields: ['termsAndPrivacyAccepted', 'ageConfirmed'],
+   *   }
+   * }
+   *
+   * // Disable sign-up checks (no fields required)
+   * betterAuth: { signUpChecks: false }
+   * ```
+   */
+  signUpChecks?: boolean | IBetterAuthSignUpChecksConfig;
 
   /**
    * Social login providers configuration

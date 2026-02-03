@@ -1,3 +1,4 @@
+import { Optional } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
@@ -11,6 +12,7 @@ import {
   CoreBetterAuthPasskeyModel,
   CoreBetterAuthSessionModel,
 } from './core-better-auth-models';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -38,8 +40,13 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  *     super(betterAuthService, userMapper);
  *   }
  *
- *   override async betterAuthSignUp(email: string, password: string, name?: string) {
- *     const result = await super.betterAuthSignUp(email, password, name);
+ *   override async betterAuthSignUp(
+ *     email: string,
+ *     password: string,
+ *     name?: string,
+ *     termsAndPrivacyAccepted?: boolean,
+ *   ) {
+ *     const result = await super.betterAuthSignUp(email, password, name, termsAndPrivacyAccepted);
  *
  *     // Send welcome email after successful sign-up
  *     if (result.success && result.user) {
@@ -57,8 +64,9 @@ export class DefaultBetterAuthResolver extends CoreBetterAuthResolver {
   constructor(
     protected override readonly betterAuthService: CoreBetterAuthService,
     protected override readonly userMapper: CoreBetterAuthUserMapper,
+    @Optional() protected override readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
   ) {
-    super(betterAuthService, userMapper);
+    super(betterAuthService, userMapper, signUpValidator);
   }
 
   // ===========================================================================
@@ -119,8 +127,9 @@ export class DefaultBetterAuthResolver extends CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
+    @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
-    return super.betterAuthSignUp(email, password, name);
+    return super.betterAuthSignUp(email, password, name, termsAndPrivacyAccepted);
   }
 
   @Mutation(() => Boolean, { description: 'Sign out via Better-Auth' })

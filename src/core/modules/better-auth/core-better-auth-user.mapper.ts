@@ -571,6 +571,15 @@ export class CoreBetterAuthUserMapper {
         $or: [{ email: sessionUser.email }, { iamId: sessionUser.id }],
       });
 
+      // Process additionalData to convert termsAndPrivacyAccepted to timestamp
+      const processedAdditionalData = { ...additionalData };
+      if (processedAdditionalData?.termsAndPrivacyAccepted === true) {
+        processedAdditionalData.termsAndPrivacyAcceptedAt = new Date();
+        delete processedAdditionalData.termsAndPrivacyAccepted;
+      } else {
+        delete processedAdditionalData?.termsAndPrivacyAccepted;
+      }
+
       const updateData: Record<string, any> = {
         email: sessionUser.email,
         ...(sessionUser.name && { firstName: sessionUser.name.split(' ')[0] }),
@@ -582,7 +591,7 @@ export class CoreBetterAuthUserMapper {
         ...(sessionUser.image && { avatar: sessionUser.image }),
         iamId: sessionUser.id,
         updatedAt: new Date(),
-        ...additionalData,
+        ...processedAdditionalData,
       };
 
       // Build the update query

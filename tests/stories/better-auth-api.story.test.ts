@@ -262,7 +262,7 @@ describe('Story: BetterAuth API', () => {
           } else {
             // When enabled, should create user
             const res: any = await testHelper.graphQl({
-              arguments: { email, name: 'Test User', password },
+              arguments: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
               fields: ['success', 'requiresTwoFactor', { user: ['id', 'email'] }],
               name: 'betterAuthSignUp',
               type: TestGraphQLType.MUTATION,
@@ -296,7 +296,7 @@ describe('Story: BetterAuth API', () => {
           } else {
             // First create user via signup
             const signUpRes: any = await testHelper.graphQl({
-              arguments: { email, password },
+              arguments: { email, password, termsAndPrivacyAccepted: true },
               fields: ['success', { user: ['id'] }],
               name: 'betterAuthSignUp',
               type: TestGraphQLType.MUTATION,
@@ -711,7 +711,7 @@ describe('Story: BetterAuth API', () => {
           try {
             const response = await testHelper.rest('/iam/sign-up/email', {
               method: 'POST',
-              payload: { email, password },
+              payload: { email, password, termsAndPrivacyAccepted: true },
               statusCode: 400,
             });
             expect(response.statusCode || 400).toBe(400);
@@ -725,7 +725,7 @@ describe('Story: BetterAuth API', () => {
           const response = await testHelper.rest('/iam/sign-up/email', {
             logError: true,
             method: 'POST',
-            payload: { email, name: 'REST Test User', password },
+            payload: { email, name: 'REST Test User', password, termsAndPrivacyAccepted: true },
             statusCode: 201, // Better-Auth returns 201 (Created)
           });
 
@@ -765,7 +765,7 @@ describe('Story: BetterAuth API', () => {
           // Create user first
           await testHelper.rest('/iam/sign-up/email', {
             method: 'POST',
-            payload: { email, password },
+            payload: { email, password, termsAndPrivacyAccepted: true },
             statusCode: 201,
           });
 
@@ -975,6 +975,7 @@ describe('Story: BetterAuth API', () => {
               email: iamUserEmail,
               name: 'IAM Test User',
               password: iamUserPassword,
+              termsAndPrivacyAccepted: true,
             },
             fields: ['success', 'error', { user: ['id', 'email'] }],
             name: 'betterAuthSignUp',

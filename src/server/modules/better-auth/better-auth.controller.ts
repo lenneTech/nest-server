@@ -1,8 +1,9 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Optional } from '@nestjs/common';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ConfigService } from '../../../core/common/services/config.service';
+import { CoreBetterAuthSignUpValidatorService } from '../../../core/modules/better-auth/core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthController } from '../../../core/modules/better-auth/core-better-auth.controller';
 import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-better-auth.service';
@@ -35,7 +36,8 @@ export class BetterAuthController extends CoreBetterAuthController {
     protected override readonly betterAuthService: CoreBetterAuthService,
     protected override readonly userMapper: CoreBetterAuthUserMapper,
     protected override readonly configService: ConfigService,
+    @Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService,
   ) {
-    super(betterAuthService, userMapper, configService);
+    super(betterAuthService, userMapper, configService, signUpValidator);
   }
 }

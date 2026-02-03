@@ -1,4 +1,4 @@
-import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
@@ -24,6 +24,7 @@ import {
   CoreBetterAuthSessionModel,
   CoreBetterAuthUserModel,
 } from './core-better-auth-models';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
@@ -69,6 +70,7 @@ export class CoreBetterAuthResolver {
   constructor(
     protected readonly betterAuthService: CoreBetterAuthService,
     protected readonly userMapper: CoreBetterAuthUserMapper,
+    @Optional() protected readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
   ) {}
 
   // ===========================================================================
@@ -335,6 +337,16 @@ export class CoreBetterAuthResolver {
    * Sign up via Better-Auth
    *
    * Override this method to add custom pre/post sign-up logic (e.g., sending welcome emails).
+   *
+   * By default, `termsAndPrivacyAccepted` must be `true` for sign-up to succeed.
+   * This can be configured via `betterAuth.signUpChecks` in your server config:
+   * - `signUpChecks: false` - Disable all sign-up checks
+   * - `signUpChecks: { requiredFields: ['termsAndPrivacyAccepted', 'ageConfirmed'] }` - Custom fields
+   *
+   * @param email - User email address
+   * @param password - User password
+   * @param name - Optional display name
+   * @param termsAndPrivacyAccepted - Whether user accepted terms and privacy policy (required by default)
    */
   @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign up via Better-Auth (email/password)',
@@ -344,8 +356,14 @@ export class CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
+    @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
+
+    // Validate sign-up input (termsAndPrivacyAccepted is required by default)
+    if (this.signUpValidator) {
+      this.signUpValidator.validateSignUpInput({ termsAndPrivacyAccepted });
+    }
 
     const api = this.betterAuthService.getApi();
     if (!api) {
@@ -369,7 +387,8 @@ export class CoreBetterAuthResolver {
         const sessionUser: BetterAuthSessionUser = response.user;
 
         // Link or create user in our database
-        await this.userMapper.linkOrCreateUser(sessionUser);
+        // Pass termsAndPrivacyAccepted to store the acceptance timestamp
+        await this.userMapper.linkOrCreateUser(sessionUser, { termsAndPrivacyAccepted });
         const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
 
         return {
@@ -386,6 +405,10 @@ export class CoreBetterAuthResolver {
       this.logger.debug(`Sign-up error: ${errorMessage}`);
       if (errorMessage.includes('already exists')) {
         throw new BadRequestException(ErrorCode.EMAIL_ALREADY_EXISTS);
+      }
+      // Re-throw BadRequestException (e.g., from sign-up validation)
+      if (error instanceof BadRequestException) {
+        throw error;
       }
       throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     }

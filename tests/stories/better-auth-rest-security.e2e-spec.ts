@@ -275,7 +275,7 @@ describe('Story: BetterAuth REST Security', () => {
 
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email: regularUserEmail, name: 'Regular User', password: regularUserPassword },
+      payload: { email: regularUserEmail, name: 'Regular User', password: regularUserPassword, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
 
@@ -296,7 +296,7 @@ describe('Story: BetterAuth REST Security', () => {
 
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email: adminUserEmail, name: 'Admin User', password: adminUserPassword },
+      payload: { email: adminUserEmail, name: 'Admin User', password: adminUserPassword, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
 
@@ -325,7 +325,7 @@ describe('Story: BetterAuth REST Security', () => {
 
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email: unverifiedUserEmail, name: 'Unverified User', password: unverifiedUserPassword },
+      payload: { email: unverifiedUserEmail, name: 'Unverified User', password: unverifiedUserPassword, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
 
