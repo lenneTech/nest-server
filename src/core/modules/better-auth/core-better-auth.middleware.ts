@@ -1,7 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
+import { isLegacyJwt } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
 import { extractSessionToken } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -80,10 +80,9 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
         // Check if token looks like a JWT (has 3 parts)
         if (tokenParts === 3) {
-          // Decode JWT payload to check if it's a Legacy JWT or BetterAuth JWT
-          // Legacy JWTs have 'id' claim, BetterAuth JWTs use 'sub'
-          const isLegacyJwt = this.isLegacyJwt(token);
-          if (isLegacyJwt) {
+          // Check if it's a Legacy JWT (has 'id' claim, no 'sub')
+          // Legacy JWTs should be handled by Passport, not Better-Auth
+          if (isLegacyJwt(token)) {
             // Legacy JWT - skip BetterAuth processing, let Passport handle it
             return next();
           }
@@ -140,27 +139,6 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
   }
 
   /**
-   * Checks if a JWT token is a Legacy Auth JWT (has 'id' claim but no 'sub' claim)
-   * Legacy JWTs use 'id' for user ID, BetterAuth JWTs use 'sub'
-   */
-  private isLegacyJwt(token: string): boolean {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return false;
-
-      // Decode the payload (second part)
-      const payloadStr = Buffer.from(parts[1], 'base64url').toString('utf-8');
-      const payload = JSON.parse(payloadStr);
-
-      // Legacy JWT has 'id' claim (and typically 'deviceId', 'tokenId')
-      // BetterAuth JWT has 'sub' claim
-      return payload.id !== undefined && payload.sub === undefined;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Gets the session from Better-Auth using session token from cookies
    *
    * This method first tries to extract the session token from cookies
@@ -173,18 +151,11 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
       const basePath = this.betterAuthService.getBasePath();
       const sessionToken = extractSessionToken(req, basePath);
 
-      this.logger.debug(`[MIDDLEWARE] getSession called, token found: ${sessionToken ? 'yes' : 'no'}`);
-
       if (sessionToken) {
-        this.logger.debug(`[MIDDLEWARE] Found session token in cookies: ${maskToken(sessionToken)}`);
-
         // Use getSessionByToken to validate session directly from database
         const sessionResult = await this.betterAuthService.getSessionByToken(sessionToken);
 
-        this.logger.debug(`[MIDDLEWARE] getSessionByToken result: user=${maskEmail(sessionResult?.user?.email)}, session=${!!sessionResult?.session}`);
-
         if (sessionResult?.user && sessionResult?.session) {
-          this.logger.debug(`[MIDDLEWARE] Session validated for user: ${maskEmail(sessionResult.user.email)}`);
           return sessionResult as { session: any; user: BetterAuthSessionUser };
         }
       }

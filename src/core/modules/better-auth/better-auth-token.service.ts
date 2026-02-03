@@ -49,9 +49,10 @@ export class BetterAuthTokenService {
   /**
    * Extracts a token from the request's Authorization header or cookies.
    *
-   * Checks in order:
+   * Cookie priority (v11.12+):
    * 1. Authorization header (Bearer token)
-   * 2. Session cookies (iam.session_token, better-auth.session_token, token)
+   * 2. `{basePath}.session_token` (e.g., `iam.session_token`) - Better-Auth native
+   * 3. `token` - Legacy nest-server cookie
    *
    * @param request - HTTP request object with headers and cookies
    * @returns Token extraction result with token and source
@@ -70,14 +71,10 @@ export class BetterAuthTokenService {
       }
     }
 
-    // Try cookies
+    // Try cookies - Better-Auth native cookie first, then legacy
     if (request.cookies && this.betterAuthService) {
       const cookieName = this.betterAuthService.getSessionCookieName();
-      const token =
-        request.cookies[cookieName] ||
-        request.cookies['better-auth.session_token'] ||
-        request.cookies['token'] ||
-        undefined;
+      const token = request.cookies[cookieName] || request.cookies['token'] || undefined;
 
       if (token) {
         return { source: 'cookie', token };
