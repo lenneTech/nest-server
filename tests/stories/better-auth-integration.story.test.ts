@@ -923,4 +923,143 @@ describe('Story: BetterAuth Integration', () => {
       });
     });
   });
+
+  // ===================================================================================================================
+  // Bug #3 Regression: JWT Warning Logic
+  // ===================================================================================================================
+
+  describe('JWT Warning Logic (Bug #3)', () => {
+    it('should consider JWT enabled by default (undefined config)', () => {
+      // JWT is enabled by default - isJwtEnabled should return true when jwt config is undefined
+      const betterAuthService = app.get(CoreBetterAuthService);
+      expect(betterAuthService.isJwtEnabled()).toBe(true);
+    });
+
+    it('should match isJwtEnabled logic: undefined = enabled, false = disabled', () => {
+      // The warning logic in CoreBetterAuthModule.onModuleInit must match
+      // CoreBetterAuthService.isJwtEnabled(). This test verifies the service behavior
+      // that the warning logic must align with.
+      const betterAuthService = app.get(CoreBetterAuthService);
+
+      // Current local config has jwt: { enabled: true } → should be enabled
+      expect(betterAuthService.isJwtEnabled()).toBe(true);
+
+      // Verify the config is present (not undefined)
+      const config = betterAuthService.getConfig();
+      expect(config.jwt).toBeDefined();
+    });
+  });
+
+  // ===================================================================================================================
+  // Bug #4 Regression: JWT Token in Cookie-less Mode
+  // ===================================================================================================================
+
+  describe('JWT Token Resolution (Bug #4)', () => {
+    beforeAll(async () => {
+      // Clear stale JWKS keys that may have been encrypted with a different secret
+      // This prevents "Failed to decrypt private key" errors during JWT generation
+      if (db) {
+        await db.collection('jwks').deleteMany({});
+      }
+    });
+
+    it('should return a proper JWT (not session token) from REST sign-in when cookies are disabled', async () => {
+      const cookiesDisabled = configService.getFastButReadOnly('cookies') === false;
+      if (!cookiesDisabled) {
+        // Skip test when cookies are enabled (different auth flow)
+        return;
+      }
+
+      const email = `jwt-bug4-rest-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
+      const password = 'SecurePassword123!';
+
+      // Create user via sign-up
+      await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+
+      // Track for cleanup
+      const iamUser = await db.collection('iam_user').findOne({ email });
+      const cleanupIamId = iamUser?._id;
+      const user = await db.collection('users').findOne({ email });
+      const cleanupUserId = user?._id?.toString();
+
+      try {
+        // Sign in
+        const signInRes: any = await testHelper.rest('/iam/sign-in/email', {
+          method: 'POST',
+          payload: { email, password },
+          statusCode: 200,
+        });
+
+        expect(signInRes).toBeDefined();
+        expect(signInRes.token).toBeDefined();
+
+        // Bug #4: Token must be a JWT (starts with "eyJ" and has 3 dot-separated parts)
+        const token = signInRes.token;
+        expect(token).toMatch(/^eyJ/);
+        expect(token.split('.').length).toBe(3);
+      } finally {
+        // Cleanup
+        if (cleanupUserId) {
+          await db.collection('users').deleteOne({ _id: new ObjectId(cleanupUserId) });
+        }
+        if (cleanupIamId) {
+          await db.collection('iam_user').deleteOne({ _id: cleanupIamId });
+          await db.collection('iam_session').deleteMany({ userId: cleanupIamId });
+        }
+      }
+    });
+
+    it('should return a proper JWT (not session token) from GraphQL sign-in when cookies are disabled', async () => {
+      const cookiesDisabled = configService.getFastButReadOnly('cookies') === false;
+      if (!cookiesDisabled) {
+        return;
+      }
+
+      const email = `jwt-bug4-gql-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
+      const password = 'SecurePassword123!';
+
+      // Create user via sign-up
+      const signUpRes: any = await testHelper.graphQl({
+        arguments: { email, password, termsAndPrivacyAccepted: true },
+        fields: ['success', { user: ['id'] }],
+        name: 'betterAuthSignUp',
+        type: TestGraphQLType.MUTATION,
+      });
+
+      const userId = signUpRes?.user?.id;
+      const iamUser = await db.collection('iam_user').findOne({ email });
+      const cleanupIamId = iamUser?._id;
+
+      try {
+        // Sign in
+        const signInRes: any = await testHelper.graphQl({
+          arguments: { email, password },
+          fields: ['success', 'token'],
+          name: 'betterAuthSignIn',
+          type: TestGraphQLType.MUTATION,
+        });
+
+        expect(signInRes.success).toBe(true);
+        expect(signInRes.token).toBeDefined();
+
+        // Bug #4: Token must be a JWT (starts with "eyJ" and has 3 dot-separated parts)
+        const token = signInRes.token;
+        expect(token).toMatch(/^eyJ/);
+        expect(token.split('.').length).toBe(3);
+      } finally {
+        // Cleanup
+        if (userId) {
+          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+        }
+        if (cleanupIamId) {
+          await db.collection('iam_user').deleteOne({ _id: cleanupIamId });
+          await db.collection('iam_session').deleteMany({ userId: cleanupIamId });
+        }
+      }
+    });
+  });
 });

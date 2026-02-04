@@ -27,6 +27,10 @@ export interface CoreBetterAuthRequest extends Request {
  * 3. Maps the Better-Auth user to our User model with hasRole() capability
  * 4. Attaches the mapped user to req.user for use with our security decorators
  *
+ * Token priority: Authorization header > Cookies
+ * The Authorization header is explicitly set by the client and takes precedence
+ * over cookies which are implicitly sent by the browser.
+ *
  * IMPORTANT: This middleware runs BEFORE guards, so the user will be available
  * for RolesGuard and other security checks.
  */
@@ -51,28 +55,9 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
     }
 
     try {
-      // Strategy 1: Try session-based authentication (cookies)
-      const session = await this.getSession(req);
-
-      if (session?.user) {
-        // Store the original Better-Auth session
-        req.betterAuthSession = session;
-        req.betterAuthUser = session.user;
-
-        // Map the Better-Auth user to our User model with hasRole()
-        const mappedUser = await this.userMapper.mapSessionUser(session.user);
-
-        if (mappedUser) {
-          // Attach the mapped user to the request
-          // This makes it compatible with @CurrentUser() and RolesGuard
-          // Set _authenticatedViaBetterAuth flag so AuthGuard skips Passport JWT verification
-          req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
-          return next();
-        }
-      }
-
-      // Strategy 2: Try Authorization header (Bearer token)
-      // The token could be a BetterAuth JWT, a Legacy JWT, or a session token
+      // Strategy 1: Try Authorization header (Bearer token) - takes precedence
+      // The Authorization header is explicitly set by the client, so it should
+      // override cookies which are implicitly sent by the browser.
       if (req.headers.authorization) {
         const authHeader = req.headers.authorization;
         const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
@@ -126,6 +111,29 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
               req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
               return next();
             }
+          }
+        }
+      }
+
+      // Strategy 2: Fallback to session-based authentication (cookies)
+      // Only used when no Authorization header is present or header auth failed
+      if (!req.user) {
+        const session = await this.getSession(req);
+
+        if (session?.user) {
+          // Store the original Better-Auth session
+          req.betterAuthSession = session;
+          req.betterAuthUser = session.user;
+
+          // Map the Better-Auth user to our User model with hasRole()
+          const mappedUser = await this.userMapper.mapSessionUser(session.user);
+
+          if (mappedUser) {
+            // Attach the mapped user to the request
+            // This makes it compatible with @CurrentUser() and RolesGuard
+            // Set _authenticatedViaBetterAuth flag so AuthGuard skips Passport JWT verification
+            req.user = { ...mappedUser, _authenticatedViaBetterAuth: true };
+            return next();
           }
         }
       }

@@ -27,7 +27,7 @@ import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-c
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
-import { sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
+import { sendWebResponse, signCookieValueIfNeeded, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
 // ===================================================================================================================
@@ -219,6 +219,56 @@ export class CoreBetterAuthController {
   }
 
   // ===================================================================================================================
+  // Token Resolution
+  // ===================================================================================================================
+
+  /**
+   * Resolves a session token to a JWT when cookies are disabled and JWT is enabled.
+   *
+   * When cookies are disabled, BetterAuth's internal API may return a session token
+   * (opaque string like "TVRRtiL19h9q...") instead of a JWT. This method detects
+   * non-JWT tokens and converts them to proper JWTs via the BetterAuth JWT plugin.
+   *
+   * The session token is passed as a cookie header because BetterAuth's getToken API
+   * identifies sessions via the session cookie (e.g., `iam.session_token`), not via
+   * the Authorization header.
+   *
+   * @param token - The token from BetterAuth response (may be session token or JWT)
+   * @returns A proper JWT token, or the original token if conversion is not needed/possible
+   */
+  protected async resolveJwtToken(token: string | undefined): Promise<string | undefined> {
+    if (!token) return undefined;
+
+    const cookiesEnabled = this.configService.getFastButReadOnly('cookies') !== false;
+    if (cookiesEnabled || !this.betterAuthService.isJwtEnabled()) {
+      return token;
+    }
+
+    // Already a JWT (three base64url segments separated by dots)
+    if (token.startsWith('eyJ') && token.split('.').length === 3) {
+      return token;
+    }
+
+    // Convert session token to JWT via BetterAuth JWT plugin
+    // BetterAuth identifies sessions via the session cookie, so we pass
+    // the session token as a cookie header (signed, as BetterAuth expects)
+    const cookieName = this.betterAuthService.getSessionCookieName();
+    const secret = this.betterAuthService.getConfig()?.secret || '';
+    const signedToken = secret ? signCookieValueIfNeeded(token, secret, true) : encodeURIComponent(token);
+    const jwt = await this.betterAuthService.getToken({
+      headers: { cookie: `${cookieName}=${signedToken}` },
+    });
+
+    if (jwt) {
+      this.logger.debug('Resolved session token to JWT for cookie-less mode');
+      return jwt;
+    }
+
+    this.logger.warn('Failed to resolve session token to JWT - returning session token as fallback');
+    return token;
+  }
+
+  // ===================================================================================================================
   // Feature Discovery
   // ===================================================================================================================
 
@@ -242,6 +292,7 @@ export class CoreBetterAuthController {
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
       resendCooldownSeconds: this.emailVerificationService?.getConfig()?.resendCooldownSeconds ?? 60,
+      signUpChecks: this.signUpValidator?.isEnabled() ?? false,
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
@@ -380,7 +431,8 @@ export class CoreBetterAuthController {
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
         // Get token: JWT accessToken > top-level token > session.token
-        const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const token = await this.resolveJwtToken(rawToken);
 
         const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
@@ -478,7 +530,8 @@ export class CoreBetterAuthController {
         // Without this, no session cookies are set after sign-up, causing 401 on
         // subsequent authenticated requests (e.g., Passkey, 2FA, /token)
         const responseAny = response as any;
-        const token = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const token = await this.resolveJwtToken(rawToken);
 
         const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,

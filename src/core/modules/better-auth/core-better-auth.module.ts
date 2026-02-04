@@ -259,15 +259,17 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.rateLimiter.configure(CoreBetterAuthModule.currentConfig.rateLimit);
     }
 
-    // Configuration warning: cookies: false without jwt: true
+    // Configuration warning: cookies: false without jwt enabled
     // When cookies are disabled, BetterAuth needs JWT plugin to issue tokens via Authorization header
+    // JWT is enabled by default (same logic as CoreBetterAuthService.isJwtEnabled()),
+    // so only warn when explicitly disabled via `jwt: false` or `jwt: { enabled: false }`
     if (CoreBetterAuthModule.currentConfig) {
       const globalConfig = ConfigService.configFastButReadOnly;
       const cookiesDisabled = globalConfig?.cookies === false;
-      const jwtEnabled = CoreBetterAuthModule.currentConfig.jwt === true
-        || (typeof CoreBetterAuthModule.currentConfig.jwt === 'object' && CoreBetterAuthModule.currentConfig.jwt?.enabled !== false);
+      const jwtExplicitlyDisabled = CoreBetterAuthModule.currentConfig.jwt === false
+        || (typeof CoreBetterAuthModule.currentConfig.jwt === 'object' && CoreBetterAuthModule.currentConfig.jwt?.enabled === false);
 
-      if (cookiesDisabled && !jwtEnabled) {
+      if (cookiesDisabled && jwtExplicitlyDisabled) {
         CoreBetterAuthModule.logger.warn(
           'CONFIGURATION WARNING: cookies is set to false, but betterAuth.jwt is not enabled. ' +
           'Without cookies, BetterAuth cannot establish sessions via Set-Cookie headers. ' +
