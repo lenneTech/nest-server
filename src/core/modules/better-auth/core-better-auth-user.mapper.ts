@@ -450,13 +450,14 @@ export class CoreBetterAuthUserMapper {
 
   /**
    * Generates a unique ID for Better-Auth entities
-   * Uses the same format as Better-Auth (nanoid-style)
+   * Uses the same format as Better-Auth (nanoid-style) with cryptographically secure randomness
    */
   private generateId(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = randomBytes(21);
     let result = '';
     for (let i = 0; i < 21; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      result += chars.charAt(bytes[i] % chars.length);
     }
     return result;
   }
@@ -526,15 +527,6 @@ export class CoreBetterAuthUserMapper {
   }
 
   /**
-   * Converts bytes to hex string
-   */
-  private bytesToHex(bytes: Uint8Array): string {
-    return Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  /**
    * Links an existing user or creates a new user from Better-Auth session data
    *
    * This method:
@@ -571,6 +563,15 @@ export class CoreBetterAuthUserMapper {
         $or: [{ email: sessionUser.email }, { iamId: sessionUser.id }],
       });
 
+      // Process additionalData to convert termsAndPrivacyAccepted to timestamp
+      const processedAdditionalData = { ...additionalData };
+      if (processedAdditionalData?.termsAndPrivacyAccepted === true) {
+        processedAdditionalData.termsAndPrivacyAcceptedAt = new Date();
+        delete processedAdditionalData.termsAndPrivacyAccepted;
+      } else {
+        delete processedAdditionalData?.termsAndPrivacyAccepted;
+      }
+
       const updateData: Record<string, any> = {
         email: sessionUser.email,
         ...(sessionUser.name && { firstName: sessionUser.name.split(' ')[0] }),
@@ -582,7 +583,7 @@ export class CoreBetterAuthUserMapper {
         ...(sessionUser.image && { avatar: sessionUser.image }),
         iamId: sessionUser.id,
         updatedAt: new Date(),
-        ...additionalData,
+        ...processedAdditionalData,
       };
 
       // Build the update query
@@ -643,9 +644,11 @@ export class CoreBetterAuthUserMapper {
     try {
       const sessionCollection = this.connection.collection('session');
 
-      // Find user by new email (already updated by Legacy Auth)
+      // Find user by new email (already updated by Legacy Auth), fallback to old email
       const usersCollection = this.connection.collection('users');
-      const user = await usersCollection.findOne({ email: newEmail });
+      const user = await usersCollection.findOne({
+        $or: [{ email: newEmail }, { email: oldEmail }],
+      });
 
       if (!user) {
         return false;
@@ -655,6 +658,7 @@ export class CoreBetterAuthUserMapper {
       // This forces re-authentication with the new email
       if (user._id) {
         await sessionCollection.deleteMany({ userId: user._id });
+        this.logger.debug(`Invalidated sessions for email change: ${maskEmail(oldEmail)} → ${maskEmail(newEmail)}`);
       }
 
       return true;

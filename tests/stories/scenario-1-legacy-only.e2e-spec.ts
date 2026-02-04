@@ -290,7 +290,7 @@ describe('Story: Scenario 1 - Legacy Only', () => {
 
       await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Test', password },
+        payload: { email, name: 'Test', password, termsAndPrivacyAccepted: true },
         statusCode: 404,
       });
     });

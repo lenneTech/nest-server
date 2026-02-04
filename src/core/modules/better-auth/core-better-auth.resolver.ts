@@ -1,4 +1,4 @@
-import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
@@ -15,6 +15,7 @@ import {
   requires2FA,
 } from './better-auth.types';
 import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthMigrationStatusModel } from './core-better-auth-migration-status.model';
 import {
   CoreBetterAuth2FASetupModel,
@@ -24,7 +25,9 @@ import {
   CoreBetterAuthSessionModel,
   CoreBetterAuthUserModel,
 } from './core-better-auth-models';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
+import { convertExpressHeaders } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
 /**
@@ -69,7 +72,71 @@ export class CoreBetterAuthResolver {
   constructor(
     protected readonly betterAuthService: CoreBetterAuthService,
     protected readonly userMapper: CoreBetterAuthUserMapper,
+    @Optional() protected readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
+    @Optional() protected readonly emailVerificationService?: CoreBetterAuthEmailVerificationService,
   ) {}
+
+  // ===========================================================================
+  // Token Resolution
+  // ===========================================================================
+
+  /**
+   * Resolves a session token to a JWT when cookies are disabled and JWT is enabled.
+   * Delegates to CoreBetterAuthService.resolveJwtToken().
+   *
+   * @param token - The token from BetterAuth response (may be session token or JWT)
+   * @returns A proper JWT token, or the original token if conversion is not needed/possible
+   */
+  protected async resolveJwtToken(token: string | undefined): Promise<string | undefined> {
+    return this.betterAuthService.resolveJwtToken(token);
+  }
+
+  // ===========================================================================
+  // Email Verification
+  // ===========================================================================
+
+  /**
+   * Check if email verification is required and the user's email is verified.
+   * Throws UnauthorizedException with EMAIL_VERIFICATION_REQUIRED if:
+   * - emailVerificationService is available AND enabled
+   * - AND the user's email is NOT verified
+   *
+   * Override this method to customize the email verification check behavior.
+   *
+   * @param sessionUser - The user from Better-Auth sign-in response
+   * @throws UnauthorizedException if email is not verified and verification is required
+   */
+  protected checkEmailVerification(sessionUser: BetterAuthSessionUser): void {
+    if (
+      this.emailVerificationService?.isEnabled()
+      && !sessionUser.emailVerified
+    ) {
+      this.logger.debug(`[SignIn] Email not verified for ${maskEmail(sessionUser.email)}, blocking login`);
+      throw new UnauthorizedException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
+    }
+  }
+
+  /**
+   * Check email verification by looking up the user by email address.
+   *
+   * This is used in the 2FA path where the sign-in response does NOT include user data
+   * (only a 2FA challenge), so we cannot use checkEmailVerification(sessionUser).
+   * Instead, we look up the user via CoreBetterAuthService.isUserEmailVerified().
+   *
+   * @param email - The email address to check
+   * @throws UnauthorizedException if email is not verified and verification is required
+   */
+  protected async checkEmailVerificationByEmail(email: string): Promise<void> {
+    if (!this.emailVerificationService?.isEnabled()) {
+      return;
+    }
+
+    const verified = await this.betterAuthService.isUserEmailVerified(email);
+    if (verified === false) {
+      this.logger.debug(`[SignIn/2FA] Email not verified for ${maskEmail(email)}, blocking login`);
+      throw new UnauthorizedException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
+    }
+  }
 
   // ===========================================================================
   // Queries
@@ -122,6 +189,7 @@ export class CoreBetterAuthResolver {
   @Roles(RoleEnum.S_EVERYONE)
   betterAuthFeatures(): CoreBetterAuthFeaturesModel {
     return {
+      emailVerification: this.emailVerificationService?.isEnabled() ?? false,
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
@@ -189,6 +257,11 @@ export class CoreBetterAuthResolver {
    * but not in IAM, they will be automatically migrated on first IAM sign-in.
    *
    * Override this method to add custom pre/post sign-in logic.
+   *
+   * NOTE: The `_ctx` parameter is intentionally kept but unused in the base implementation.
+   * It provides override flexibility for consuming projects that need access to the Express
+   * Request/Response context (e.g., for IP logging, custom cookie handling, audit trails).
+   * DO NOT REMOVE this parameter - it would break existing project overrides.
    */
   @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign in via Better-Auth (email/password)',
@@ -197,8 +270,8 @@ export class CoreBetterAuthResolver {
   async betterAuthSignIn(
     @Args('email') email: string,
     @Args('password') password: string,
-     
-    @Context() _ctx: { req: Request; res: Response },
+    // Kept for override flexibility - projects may need req/res in their overrides
+    @Context() _ctx?: { req: Request; res: Response },
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
 
@@ -245,6 +318,8 @@ export class CoreBetterAuthResolver {
 
       // Check for 2FA requirement
       if (requires2FA(response)) {
+        // Defense-in-depth: Check email verification even for 2FA users
+        await this.checkEmailVerificationByEmail(email);
         return {
           requiresTwoFactor: true,
           success: false,
@@ -255,13 +330,19 @@ export class CoreBetterAuthResolver {
       // Get user data
       if (hasUser(response)) {
         const sessionUser: BetterAuthSessionUser = response.user;
+
+        // Check email verification requirement before allowing login
+        this.checkEmailVerification(sessionUser);
+
         const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
 
-        // Return the session token for session-based authentication
-        // Note: If JWT plugin is enabled, accessToken may be in response or in set-auth-jwt header
-        // For GraphQL responses, we return the session token and let clients use it for session auth
+        // Return the best available token:
+        // 1. accessToken (JWT plugin enriched response)
+        // 2. token (top-level, some BetterAuth versions)
+        // 3. session.token (session-based fallback)
         const responseAny = response as any;
-        const token = responseAny.accessToken || responseAny.token;
+        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const token = await this.resolveJwtToken(rawToken);
 
         return {
           requiresTwoFactor: false,
@@ -299,7 +380,7 @@ export class CoreBetterAuthResolver {
   /**
    * Direct sign-in attempt without migration logic (used after migration)
    */
-  private async attemptSignInDirect(
+  protected async attemptSignInDirect(
     email: string,
     password: string,
     api: ReturnType<CoreBetterAuthService['getApi']>,
@@ -313,14 +394,24 @@ export class CoreBetterAuthResolver {
     }
 
     if (requires2FA(response)) {
+      // Defense-in-depth: Check email verification even for 2FA users
+      await this.checkEmailVerificationByEmail(email);
       return { requiresTwoFactor: true, success: false, user: null };
     }
 
     const sessionUser: BetterAuthSessionUser = response.user;
+
+    // Check email verification requirement before allowing login
+    this.checkEmailVerification(sessionUser);
+
     const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
-    // Return accessToken if available (JWT), otherwise fall back to session token
+    // Return the best available token:
+    // 1. accessToken (JWT plugin enriched response)
+    // 2. token (top-level, some BetterAuth versions)
+    // 3. session.token (session-based fallback)
     const responseAny = response as any;
-    const token = responseAny.accessToken || responseAny.token;
+    const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+    const token = await this.resolveJwtToken(rawToken);
 
     return {
       requiresTwoFactor: false,
@@ -335,6 +426,16 @@ export class CoreBetterAuthResolver {
    * Sign up via Better-Auth
    *
    * Override this method to add custom pre/post sign-up logic (e.g., sending welcome emails).
+   *
+   * By default, `termsAndPrivacyAccepted` must be `true` for sign-up to succeed.
+   * This can be configured via `betterAuth.signUpChecks` in your server config:
+   * - `signUpChecks: false` - Disable all sign-up checks
+   * - `signUpChecks: { requiredFields: ['termsAndPrivacyAccepted', 'ageConfirmed'] }` - Custom fields
+   *
+   * @param email - User email address
+   * @param password - User password
+   * @param name - Optional display name
+   * @param termsAndPrivacyAccepted - Whether user accepted terms and privacy policy (required by default)
    */
   @Mutation(() => CoreBetterAuthAuthModel, {
     description: 'Sign up via Better-Auth (email/password)',
@@ -344,8 +445,14 @@ export class CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
+    @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
+
+    // Validate sign-up input (termsAndPrivacyAccepted is required by default)
+    if (this.signUpValidator) {
+      this.signUpValidator.validateSignUpInput({ termsAndPrivacyAccepted });
+    }
 
     const api = this.betterAuthService.getApi();
     if (!api) {
@@ -369,8 +476,25 @@ export class CoreBetterAuthResolver {
         const sessionUser: BetterAuthSessionUser = response.user;
 
         // Link or create user in our database
-        await this.userMapper.linkOrCreateUser(sessionUser);
+        // Pass termsAndPrivacyAccepted to store the acceptance timestamp
+        await this.userMapper.linkOrCreateUser(sessionUser, { termsAndPrivacyAccepted });
         const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
+
+        // If email verification is enabled, revoke the session and don't return session data
+        // The user must verify their email before they can use any session
+        if (this.emailVerificationService?.isEnabled()) {
+          const sessionToken = hasSession(response) ? response.session.token : undefined;
+          if (sessionToken) {
+            await this.betterAuthService.revokeSession(sessionToken);
+          }
+          this.logger.debug(`[SignUp] Email verification required for ${maskEmail(sessionUser.email)}, session revoked`);
+          return {
+            emailVerificationRequired: true,
+            requiresTwoFactor: false,
+            success: true,
+            user: mappedUser ? this.mapToUserModel(mappedUser) : null,
+          };
+        }
 
         return {
           requiresTwoFactor: false,
@@ -386,6 +510,10 @@ export class CoreBetterAuthResolver {
       this.logger.debug(`Sign-up error: ${errorMessage}`);
       if (errorMessage.includes('already exists')) {
         throw new BadRequestException(ErrorCode.EMAIL_ALREADY_EXISTS);
+      }
+      // Re-throw BadRequestException (e.g., from sign-up validation)
+      if (error instanceof BadRequestException) {
+        throw error;
       }
       throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
     }
@@ -782,15 +910,7 @@ export class CoreBetterAuthResolver {
    * Convert Express headers to Web API Headers
    */
   protected convertHeaders(headers: Record<string, string | string[] | undefined>): Headers {
-    const result = new Headers();
-    for (const [key, value] of Object.entries(headers)) {
-      if (typeof value === 'string') {
-        result.set(key, value);
-      } else if (Array.isArray(value)) {
-        result.set(key, value.join(', '));
-      }
-    }
-    return result;
+    return convertExpressHeaders(headers);
   }
 
   /**

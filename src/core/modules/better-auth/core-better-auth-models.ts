@@ -123,18 +123,21 @@ export class CoreBetterAuthPasskeyChallengeModel {
 @ObjectType({ description: 'Better-Auth features status' })
 @Restricted(RoleEnum.S_EVERYONE)
 export class CoreBetterAuthFeaturesModel {
+  @Field(() => Boolean, { description: 'Whether email verification is required on sign-up' })
+  emailVerification: boolean;
+
   @Field(() => Boolean, { description: 'Whether Better-Auth is enabled' })
   enabled: boolean;
 
   @Field(() => Boolean, { description: 'Whether JWT plugin is enabled' })
   jwt: boolean;
 
-  @Field(() => Boolean, { description: 'Whether 2FA is enabled' })
-  twoFactor: boolean;
-
   @Field(() => Boolean, { description: 'Whether Passkey is enabled' })
   passkey: boolean;
 
   @Field(() => [String], { description: 'List of enabled social providers' })
   socialProviders: string[];
+
+  @Field(() => Boolean, { description: 'Whether 2FA is enabled' })
+  twoFactor: boolean;
 }

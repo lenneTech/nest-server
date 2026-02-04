@@ -9,7 +9,7 @@ import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { BetterAuthInstance } from './better-auth.config';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
-import { parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
+import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
 import { BETTER_AUTH_INSTANCE } from './core-better-auth.module';
 
 /**
@@ -217,6 +217,48 @@ export class CoreBetterAuthService {
   // ===================================================================================================================
 
   /**
+   * Resolves a session token to a JWT when cookies are disabled and JWT is enabled.
+   *
+   * When cookies are disabled, BetterAuth's internal API may return a session token
+   * (opaque string like "TVRRtiL19h9q...") instead of a JWT. This method detects
+   * non-JWT tokens and converts them to proper JWTs via the BetterAuth JWT plugin.
+   *
+   * @param token - The token from BetterAuth response (may be session token or JWT)
+   * @returns A proper JWT token, or the original token if conversion is not needed/possible
+   */
+  async resolveJwtToken(token: string | undefined): Promise<string | undefined> {
+    if (!token) return undefined;
+
+    const cookiesEnabled = ConfigService.configFastButReadOnly?.cookies !== false;
+    if (cookiesEnabled || !this.isJwtEnabled()) {
+      return token;
+    }
+
+    // Already a JWT (three base64url segments separated by dots)
+    if (token.startsWith('eyJ') && token.split('.').length === 3) {
+      return token;
+    }
+
+    // Convert session token to JWT via BetterAuth JWT plugin
+    // BetterAuth identifies sessions via the session cookie, so we pass
+    // the session token as a cookie header (signed, as BetterAuth expects)
+    const cookieName = this.getSessionCookieName();
+    const secret = this.config?.secret || '';
+    const signedToken = secret ? signCookieValueIfNeeded(token, secret, true) : encodeURIComponent(token);
+    const jwt = await this.getToken({
+      headers: { cookie: `${cookieName}=${signedToken}` },
+    });
+
+    if (jwt) {
+      this.logger.debug('Resolved session token to JWT for cookie-less mode');
+      return jwt;
+    }
+
+    this.logger.warn('Failed to resolve session token to JWT - returning session token as fallback');
+    return token;
+  }
+
+  /**
    * Gets a fresh JWT token for the current session.
    *
    * Use this when your JWT has expired but your session is still valid.
@@ -249,16 +291,8 @@ export class CoreBetterAuthService {
 
     try {
       // Convert headers to the format Better-Auth expects
-      const headers = new Headers();
       const reqHeaders = 'headers' in req ? req.headers : {};
-
-      for (const [key, value] of Object.entries(reqHeaders)) {
-        if (typeof value === 'string') {
-          headers.set(key, value);
-        } else if (Array.isArray(value)) {
-          headers.set(key, value.join(', '));
-        }
-      }
+      const headers = convertExpressHeaders(reqHeaders as Record<string, string | string[] | undefined>);
 
       // Call the token endpoint via Better-Auth API
       // The jwt plugin adds a getToken method to the API
@@ -306,16 +340,8 @@ export class CoreBetterAuthService {
 
     try {
       // Convert headers to the format Better-Auth expects
-      const headers = new Headers();
       const reqHeaders = 'headers' in req ? req.headers : {};
-
-      for (const [key, value] of Object.entries(reqHeaders)) {
-        if (typeof value === 'string') {
-          headers.set(key, value);
-        } else if (Array.isArray(value)) {
-          headers.set(key, value.join(', '));
-        }
-      }
+      const headers = convertExpressHeaders(reqHeaders as Record<string, string | string[] | undefined>);
 
       // Sign cookies before sending to Better-Auth API
       // Browser clients send unsigned cookies, but Better-Auth expects signed cookies
@@ -543,6 +569,132 @@ export class CoreBetterAuthService {
     }
   }
 
+  /**
+   * Gets the most recent active (non-expired) session for a user.
+   *
+   * This is needed in JWT mode where the client only has a JWT but BetterAuth's
+   * plugin endpoints (2FA, Passkey, etc.) need a real session token for authentication.
+   *
+   * @param userId - The user ID to find an active session for
+   * @returns Session result with token, or null if no active session exists
+   */
+  async getActiveSessionForUser(userId: string): Promise<SessionResult> {
+    if (!this.isEnabled() || !this.connection?.db) {
+      return { session: null, user: null };
+    }
+
+    try {
+      const db = this.connection.db;
+      const sessionsCollection = db.collection('session');
+
+      // Find the most recent non-expired session for this user
+      const results = await sessionsCollection
+        .aggregate([
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ['$userId', userId] },
+                  { $eq: [{ $toString: '$userId' }, userId] },
+                ],
+              },
+              expiresAt: { $gt: new Date() },
+            },
+          },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 },
+          {
+            $lookup: {
+              as: 'userDoc',
+              from: 'users',
+              let: { sessionUserId: '$userId' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
+                        { $eq: ['$_id', '$$sessionUserId'] },
+                        { $eq: [{ $toString: '$_id' }, { $toString: '$$sessionUserId' }] },
+                        { $eq: ['$id', { $toString: '$$sessionUserId' }] },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+        ])
+        .toArray();
+
+      const result = results[0];
+
+      if (!result) {
+        this.logger.debug(`getActiveSessionForUser: no active session for user ${userId}`);
+        return { session: null, user: null };
+      }
+
+      const user = result.userDoc;
+
+      return {
+        session: {
+          expiresAt: result.expiresAt,
+          id: result.id || result._id?.toString(),
+          token: result.token,
+          userId: result.userId?.toString(),
+        },
+        user: user
+          ? {
+              email: user.email,
+              emailVerified: user.emailVerified,
+              id: user.id || user._id?.toString(),
+              name: user.name,
+            }
+          : null,
+      };
+    } catch (error) {
+      this.logger.debug(`getActiveSessionForUser error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { session: null, user: null };
+    }
+  }
+
+  // ===================================================================================================================
+  // User Lookup Methods
+  // ===================================================================================================================
+
+  /**
+   * Checks whether a user's email is verified via Better-Auth's internal adapter.
+   *
+   * Returns:
+   * - `true` if the user exists and their email is verified
+   * - `false` if the user exists and their email is NOT verified
+   * - `null` if the user could not be found or Better-Auth is not available
+   *
+   * This method is used by controller and resolver to check email verification
+   * in the 2FA path, where the sign-in response does not include user data.
+   *
+   * @param email - The email address to look up
+   * @returns `true`, `false`, or `null`
+   */
+  async isUserEmailVerified(email: string): Promise<boolean | null> {
+    const authInstance = this.getInstance();
+    if (!authInstance) {
+      return null;
+    }
+
+    try {
+      const context = await authInstance.$context;
+      const result = await context.internalAdapter.findUserByEmail(email);
+      if (!result?.user) {
+        return null;
+      }
+      return !!result.user.emailVerified;
+    } catch (error) {
+      this.logger.debug(`isUserEmailVerified error for ${maskEmail(email)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
   // ===================================================================================================================
   // JWT Token Verification (for BetterAuth JWT tokens using JWKS)
   // ===================================================================================================================
@@ -708,22 +860,26 @@ export class CoreBetterAuthService {
   }
 
   /**
-   * Extracts and verifies a JWT token from a request's Authorization header.
+   * Extracts and verifies a JWT token from a request's Authorization header,
+   * or verifies a directly provided token.
    *
    * @param req - Express request object
+   * @param token - Optional JWT token to verify directly (bypasses header extraction)
    * @returns The JWT payload with user info, or null if no valid token
    */
-  async verifyJwtFromRequest(req: Request): Promise<null | {
+  async verifyJwtFromRequest(req: Request, token?: string): Promise<null | {
     [key: string]: any;
     email?: string;
     sub: string;
   }> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return null;
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return null;
+      }
+      token = authHeader.substring(7);
     }
 
-    const token = authHeader.substring(7);
     return this.verifyJwtToken(token);
   }
 }

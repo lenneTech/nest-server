@@ -58,6 +58,8 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 
 **Note:** `@UseGuards(AuthGuard(JWT))` is NOT needed when using `@Roles(S_USER)` or `@Roles(ADMIN)` because `RolesGuard` already extends `AuthGuard(JWT)` internally.
 
+**Sign-Up Validation (v11.13.0+):** The resolver includes `CoreBetterAuthSignUpValidatorService` injection with `@Optional()`. This enables the `termsAndPrivacyAccepted` parameter on the `betterAuthSignUp` mutation.
+
 ---
 
 ### 4. Update UserService (CRITICAL!)
@@ -178,6 +180,103 @@ const config = {
 
 ---
 
+## Email Verification (v11.13.0+)
+
+Email verification is **enabled by default** via Better-Auth's `emailVerification` plugin.
+
+### Default Behavior
+
+- Users receive a verification email after sign-up
+- Email contains a verification link with token
+- After verification, `verifiedAt` is automatically set on the user
+- Templates are provided in German and English
+
+### Configuration
+
+```typescript
+const config = {
+  betterAuth: {
+    // Email verification is enabled by default
+    // To customize:
+    emailVerification: {
+      expiresIn: 86400,           // Token expiration in seconds (default: 24h)
+      template: 'custom-verify',  // Custom template name
+      locale: 'en',               // Template locale (default: 'de')
+    },
+    // To disable:
+    emailVerification: false,
+  },
+};
+```
+
+### Custom Email Templates
+
+Create custom templates in your project's templates directory:
+- `templates/email-verification-de.ejs` - German
+- `templates/email-verification-en.ejs` - English
+
+Available variables: `name`, `link`, `expiresIn`, `appName`
+
+---
+
+## Sign-Up Checks (v11.13.0+)
+
+Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted`.
+
+### Default Behavior
+
+- `termsAndPrivacyAccepted: true` is required for sign-up
+- When accepted, `termsAndPrivacyAcceptedAt` is stored in the user record
+- Sign-up fails with error `LTNS_0021` if not accepted
+
+### GraphQL Usage
+
+```graphql
+mutation {
+  betterAuthSignUp(
+    email: "user@example.com"
+    password: "hashedPassword"
+    name: "User Name"
+    termsAndPrivacyAccepted: true  # Required by default
+  ) {
+    success
+    user { id email }
+  }
+}
+```
+
+### Configuration
+
+```typescript
+const config = {
+  betterAuth: {
+    // Sign-up checks are enabled by default
+    // To customize required fields:
+    signUpChecks: {
+      requiredFields: ['termsAndPrivacyAccepted', 'ageConfirmed'],
+    },
+    // To disable all sign-up checks:
+    signUpChecks: false,
+  },
+};
+```
+
+### REST API
+
+For REST sign-up, include `termsAndPrivacyAccepted` in the request body:
+
+```json
+POST /iam/sign-up/email
+{
+  "email": "user@example.com",
+  "password": "hashedPassword",
+  "name": "User Name",
+  "termsAndPrivacyAccepted": true
+}
+```
+
+---
+
 ## Verification Checklist
 
 After integration, verify:
@@ -188,6 +287,16 @@ After integration, verify:
 - [ ] REST endpoint `GET /iam/session` responds
 - [ ] Sign-up via BetterAuth creates user in database with `iamId`
 - [ ] Sign-in via BetterAuth works correctly
+
+### Additional checks for v11.13.0+ features:
+- [ ] Sign-up without `termsAndPrivacyAccepted` returns error `LTNS_0021`
+- [ ] Sign-up with `termsAndPrivacyAccepted: true` succeeds
+- [ ] User record contains `termsAndPrivacyAcceptedAt` timestamp after sign-up
+- [ ] Email verification link is sent after sign-up (check console in local mode)
+- [ ] After clicking verification link, `verifiedAt` is set on user
+- [ ] Passkey login returns user data in response (verify enrichment works)
+- [ ] Passkey login redirects to dashboard after successful authentication
+- [ ] Passkey can be registered, listed, and deleted from security settings
 
 ### Additional checks for Migration scenario:
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users
@@ -206,6 +315,8 @@ After integration, verify:
 | Wrong `basePath` in config | 404 on BetterAuth endpoints | Ensure basePath matches controller (default: `/iam`) |
 | Using wrong CoreModule signature | Build errors or missing features | New projects: 1-parameter, Existing: 3-parameter |
 | AuthResolver override missing `checkLegacyGraphQLEnabled()` | Legacy endpoint disabling doesn't work (no HTTP 410) | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides |
+| Missing `signUpValidator` in custom Resolver (v11.13.0+) | Sign-up validation not working | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
+| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+) | GraphQL error "Unknown argument" | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method |
 
 ---
 
@@ -360,6 +471,8 @@ async function useBackupCode(code: string) {
 Handle passkey authentication with session validation fallback.
 
 **IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `authenticateWithPasskey()` function from the composable instead of `authClient.signIn.passkey()` directly. This is because JWT mode requires sending a `challengeId` to the server for challenge verification.
+
+**Note on Passkey Login Response (v11.13.0+):** The server enriches the passkey verify-authentication response with user data. Better Auth's passkey plugin only returns `{ session }`, but the server fetches the user from the database and adds it to the response. The composable handles both scenarios (user in response vs. fallback to get-session).
 
 ```typescript
 // login.vue - Passkey login (JWT-compatible)

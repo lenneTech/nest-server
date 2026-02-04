@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-Mail-Adresse bestätigen</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      background-color: #ffffff;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #2563eb;
+      margin-bottom: 20px;
+    }
+    .button {
+      display: inline-block;
+      background-color: #2563eb;
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 12px 30px;
+      border-radius: 6px;
+      font-weight: 600;
+      margin: 20px 0;
+    }
+    .button:hover {
+      background-color: #1d4ed8;
+    }
+    .footer {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .link-fallback {
+      font-size: 12px;
+      color: #6b7280;
+      word-break: break-all;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Hallo <%= name %>,</h1>
+
+    <p>Vielen Dank für Ihre Registrierung bei <%= appName %>!</p>
+
+    <p>Bitte klicken Sie auf die Schaltfläche unten, um Ihre E-Mail-Adresse zu bestätigen:</p>
+
+    <p style="text-align: center;">
+      <a href="<%= link %>" class="button">E-Mail-Adresse bestätigen</a>
+    </p>
+
+    <p>Dieser Link ist <strong><%= expiresIn %></strong> gültig.</p>
+
+    <div class="footer">
+      <p>Wenn Sie kein Konto erstellt haben, können Sie diese E-Mail ignorieren.</p>
+
+      <p class="link-fallback">
+        Falls die Schaltfläche nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:<br>
+        <a href="<%= link %>"><%= link %></a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>

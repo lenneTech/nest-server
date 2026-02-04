@@ -14,6 +14,7 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -22,8 +23,10 @@ import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.conf
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthController } from './core-better-auth.controller';
 import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
@@ -222,6 +225,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static shouldRegisterRolesGuardGlobally = false;
   // Track if registerRolesGuardGlobally was explicitly set to false (for warning)
   private static rolesGuardExplicitlyDisabled = false;
+  // Static reference to email verification service for Better-Auth hooks (outside DI context)
+  private static emailVerificationService: CoreBetterAuthEmailVerificationService | null = null;
+  private static mongoConnection: Connection | null = null;
 
   /**
    * Gets the controller class to use (custom or default)
@@ -253,6 +259,26 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       this.rateLimiter.configure(CoreBetterAuthModule.currentConfig.rateLimit);
     }
 
+    // Configuration warning: cookies: false without jwt enabled
+    // When cookies are disabled, BetterAuth needs JWT plugin to issue tokens via Authorization header
+    // JWT is enabled by default (same logic as CoreBetterAuthService.isJwtEnabled()),
+    // so only warn when explicitly disabled via `jwt: false` or `jwt: { enabled: false }`
+    if (CoreBetterAuthModule.currentConfig) {
+      const globalConfig = ConfigService.configFastButReadOnly;
+      const cookiesDisabled = globalConfig?.cookies === false;
+      const jwtExplicitlyDisabled = CoreBetterAuthModule.currentConfig.jwt === false
+        || (typeof CoreBetterAuthModule.currentConfig.jwt === 'object' && CoreBetterAuthModule.currentConfig.jwt?.enabled === false);
+
+      if (cookiesDisabled && jwtExplicitlyDisabled) {
+        CoreBetterAuthModule.logger.warn(
+          'CONFIGURATION WARNING: cookies is set to false, but betterAuth.jwt is not enabled. ' +
+          'Without cookies, BetterAuth cannot establish sessions via Set-Cookie headers. ' +
+          'Enable betterAuth.jwt (set jwt: true in betterAuth config) to use Bearer token authentication, ' +
+          'or set cookies: true to use cookie-based sessions.',
+        );
+      }
+    }
+
     // Security warning: Check if RolesGuard is registered when explicitly disabled
     // This warning helps developers identify potential security misconfigurations
     if (CoreBetterAuthModule.rolesGuardExplicitlyDisabled && !RolesGuardRegistry.isRegistered()) {
@@ -265,22 +291,27 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
-   * Configure middleware for Better-Auth API handling, session validation, and rate limiting.
+   * Configure middleware for Better-Auth session validation, API handling, and rate limiting.
    *
    * Middleware order (important!):
-   * 1. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, etc.) to Better Auth's native handler
+   * 1. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
+   *    Must run FIRST so that req.betterAuthSession is available for downstream middleware.
+   *    In JWT mode, this resolves the JWT to a real DB session (via getActiveSessionForUser).
    * 2. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
-   * 3. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
+   * 3. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, 2FA, etc.) to Better Auth's native handler
+   *    Runs AFTER session middleware so it can use req.betterAuthSession.session.token
+   *    to authenticate requests in JWT mode.
    */
   configure(consumer: MiddlewareConsumer) {
     // Only apply middleware if Better-Auth is enabled
     if (CoreBetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
       const basePath = CoreBetterAuthModule.currentConfig?.basePath || '/iam';
 
-      // Apply API middleware to Better-Auth endpoints FIRST
-      // This handles plugin endpoints (passkey, social login, etc.) that are not defined in the controller
-      consumer.apply(CoreBetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
-      CoreBetterAuthModule.logger.debug(`CoreBetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
+      // Apply session middleware to all routes FIRST
+      // This resolves JWT tokens to DB sessions, making req.betterAuthSession available
+      // for the API middleware to use when forwarding to Better Auth's native handler.
+      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
+      CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
 
       // Apply rate limiting to Better-Auth endpoints only
       if (CoreBetterAuthModule.currentConfig?.rateLimit?.enabled) {
@@ -288,9 +319,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         CoreBetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
       }
 
-      // Apply session middleware to all routes
-      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
-      CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
+      // Apply API middleware to Better-Auth endpoints LAST
+      // This handles plugin endpoints (passkey, 2FA, social login, etc.) that are not defined in the controller.
+      // It uses req.betterAuthSession (set by session middleware above) for JWT mode authentication.
+      consumer.apply(CoreBetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
+      CoreBetterAuthModule.logger.debug(`CoreBetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
     }
   }
 
@@ -381,6 +414,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // If better-auth is disabled (config is null or enabled: false), return minimal module
     // Note: We don't provide middleware classes when disabled because they depend on CoreBetterAuthService
     // and won't be used anyway (middleware is only applied when enabled)
+    // Note: EmailVerificationService and SignUpValidatorService are not provided in disabled mode
+    // because they require ConfigService and are only useful when BetterAuth is enabled
     if (config === null || config?.enabled === false) {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
@@ -399,6 +434,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           CoreBetterAuthRateLimiter,
           BetterAuthTokenService,
           CoreBetterAuthChallengeService,
+          // Note: EmailVerificationService and SignUpValidatorService are NOT provided when disabled
+          // because they require ConfigService and have no purpose when BetterAuth is disabled
         ],
       };
     }
@@ -412,7 +449,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Always use deferred initialization to ensure MongoDB is ready
     // This prevents timing issues during application startup
     // Pass server-level URLs for Passkey auto-detection (using effective values from ConfigService fallback)
-    return this.createDeferredModule(config, effectiveFallbackSecrets, {
+    return this.createDeferredModule(config, {
+      fallbackSecrets: effectiveFallbackSecrets,
       serverAppUrl: effectiveServerAppUrl,
       serverBaseUrl: effectiveServerBaseUrl,
       serverEnv: effectiveServerEnv,
@@ -428,14 +466,32 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   static forRootAsync(): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService, CoreBetterAuthEmailVerificationService, CoreBetterAuthSignUpValidatorService],
       imports: [],
       module: CoreBetterAuthModule,
       providers: [
+        // Optional BrevoService: uses factory to avoid constructor error when brevo config is missing
         {
           inject: [ConfigService],
+          provide: CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN,
+          useFactory: (configService: ConfigService) => {
+            if (configService.configFastButReadOnly?.brevo?.apiKey) {
+              return new BrevoService(configService);
+            }
+            return null;
+          },
+        },
+        // Email verification service - must be initialized early for callbacks
+        CoreBetterAuthEmailVerificationService,
+        // Sign-up validator service
+        CoreBetterAuthSignUpValidatorService,
+        {
+          inject: [ConfigService, CoreBetterAuthEmailVerificationService],
           provide: BETTER_AUTH_INSTANCE,
-          useFactory: async (configService: ConfigService) => {
+          useFactory: async (configService: ConfigService, emailVerificationService: CoreBetterAuthEmailVerificationService) => {
+            // Set static reference for callbacks BEFORE creating Better-Auth instance
+            this.setEmailVerificationService(emailVerificationService);
+
             // Get raw config (can be boolean or object)
             const rawConfig = configService.get<boolean | IBetterAuth>('betterAuth');
             // Normalize: true → {}, false/undefined → null
@@ -463,13 +519,27 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             const jwtConfig = configService.get<{ refresh?: { secret?: string }; secret?: string }>('jwt');
             const fallbackSecrets = [jwtConfig?.secret, jwtConfig?.refresh?.secret];
 
+            // Create email verification callbacks that delegate to the NestJS service
+            const { onEmailVerified, sendVerificationEmail } = this.createEmailVerificationCallbacks();
+
             // Note: Secret validation is now handled in createBetterAuthInstance
             // with fallback to jwt.secret, jwt.refresh.secret, or auto-generation
-            this.authInstance = createBetterAuthInstance({ config, db, fallbackSecrets });
+            this.authInstance = createBetterAuthInstance({
+              config,
+              db,
+              fallbackSecrets,
+              onEmailVerified,
+              sendVerificationEmail,
+            });
 
-            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
-            this.currentConfig = config;
+            // Store a config copy with the resolved secret so that consumers
+            // (CoreBetterAuthService, CoreBetterAuthController) can sign cookies.
+            // The original config object may be frozen (from ConfigService), so we
+            // create a shallow copy with the resolved fallback secret applied.
+            const resolvedSecret = config.secret || fallbackSecrets?.find((s) => s && s.length >= 32);
+            this.currentConfig = resolvedSecret && resolvedSecret !== config.secret
+              ? { ...config, secret: resolvedSecret }
+              : config;
 
             if (this.authInstance) {
               this.logger.log('BetterAuth initialized successfully');
@@ -480,7 +550,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           },
         },
         // Provide the resolved config for CoreBetterAuthService
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure currentConfig is set
         {
+          inject: [BETTER_AUTH_INSTANCE],
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
@@ -545,8 +617,69 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.customResolver = null;
     this.shouldRegisterRolesGuardGlobally = false;
     this.rolesGuardExplicitlyDisabled = false;
+    this.emailVerificationService = null;
     // Reset shared RolesGuard registry (shared with CoreAuthModule)
     RolesGuardRegistry.reset();
+  }
+
+  /**
+   * Set the email verification service instance for Better-Auth hooks.
+   * Called internally during module initialization.
+   * @internal
+   */
+  static setEmailVerificationService(service: CoreBetterAuthEmailVerificationService): void {
+    this.emailVerificationService = service;
+  }
+
+  /**
+   * Get the email verification service instance.
+   * @internal
+   */
+  static getEmailVerificationService(): CoreBetterAuthEmailVerificationService | null {
+    return this.emailVerificationService;
+  }
+
+  /**
+   * Create email verification callbacks that delegate to the NestJS service.
+   * These callbacks are passed to Better-Auth during initialization.
+   * They access the service via static reference since Better-Auth hooks run outside DI context.
+   * @internal
+   */
+  private static createEmailVerificationCallbacks(): {
+    onEmailVerified: (userId: string) => Promise<void>;
+    sendVerificationEmail: (options: { token: string; url: string; user: { email: string; id: string; name?: null | string } }) => Promise<void>;
+  } {
+    return {
+      onEmailVerified: async (userId: string) => {
+        // This callback is called by Better-Auth when email is verified
+        // Sync nest-server's verified/verifiedAt fields with Better-Auth's emailVerified
+        try {
+          const db = this.mongoConnection?.db;
+          if (db) {
+            const { ObjectId } = await import('mongodb');
+            await db.collection('users').updateOne(
+              { _id: new ObjectId(userId) },
+              { $set: { verified: true, verifiedAt: new Date() } },
+            );
+            this.logger.debug(`Email verified for user ${userId} - synced verified/verifiedAt`);
+          } else {
+            this.logger.warn(`Cannot sync verifiedAt for user ${userId} - no database connection`);
+          }
+        } catch (error) {
+          this.logger.error(`Failed to sync verifiedAt for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      },
+      sendVerificationEmail: async (options) => {
+        // Delegate to the NestJS service
+        if (this.emailVerificationService) {
+          await this.emailVerificationService.sendVerificationEmail(options);
+        } else {
+          // Fallback: Log verification URL if service not available
+          this.logger.warn('Email verification service not available, logging URL for development');
+          this.logger.log(`[DEV] Verification URL for ${options.user.email}: ${options.url}`);
+        }
+      },
+    };
   }
 
   /**
@@ -554,24 +687,61 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * By injecting the Connection token, NestJS ensures Mongoose is ready first
    *
    * @param config - BetterAuth configuration
-   * @param fallbackSecrets - Fallback secrets for backwards compatibility
-   * @param serverUrls - Server-level URLs for Passkey auto-detection
+   * @param options - Optional deferred module options (fallback secrets, server URLs)
    */
   private static createDeferredModule(
     config: IBetterAuth,
-    fallbackSecrets?: (string | undefined)[],
-    serverUrls?: { serverAppUrl?: string; serverBaseUrl?: string; serverEnv?: string },
+    options?: {
+      fallbackSecrets?: (string | undefined)[];
+      serverAppUrl?: string;
+      serverBaseUrl?: string;
+      serverEnv?: string;
+    },
   ): DynamicModule {
     return {
       controllers: [this.getControllerClass()],
-      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
+      exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService, CoreBetterAuthEmailVerificationService, CoreBetterAuthSignUpValidatorService],
       module: CoreBetterAuthModule,
       providers: [
+        // Optional BrevoService: uses factory to avoid constructor error when brevo config is missing
+        {
+          inject: [ConfigService],
+          provide: CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN,
+          useFactory: (configService: ConfigService) => {
+            if (configService.configFastButReadOnly?.brevo?.apiKey) {
+              return new BrevoService(configService);
+            }
+            return null;
+          },
+        },
+        // Email verification service - must be initialized early for callbacks
+        CoreBetterAuthEmailVerificationService,
+        // Sign-up validator service
+        CoreBetterAuthSignUpValidatorService,
         {
           // Inject Mongoose Connection to ensure NestJS waits for it to be ready
-          inject: [getConnectionToken()],
+          // Also inject EmailVerificationService to set static reference before Better-Auth init
+          inject: [getConnectionToken(), CoreBetterAuthEmailVerificationService],
           provide: BETTER_AUTH_INSTANCE,
-          useFactory: async (connection: Connection) => {
+          useFactory: async (connection: Connection, emailVerificationService: CoreBetterAuthEmailVerificationService) => {
+            // Set static references for callbacks BEFORE creating Better-Auth instance
+            this.setEmailVerificationService(emailVerificationService);
+            this.mongoConnection = connection;
+
+            // Create email verification callbacks that delegate to the NestJS service
+            const { onEmailVerified, sendVerificationEmail } = this.createEmailVerificationCallbacks();
+
+            // Build shared instance options
+            const sharedInstanceOptions = {
+              config,
+              fallbackSecrets: options?.fallbackSecrets,
+              onEmailVerified,
+              sendVerificationEmail,
+              serverAppUrl: options?.serverAppUrl,
+              serverBaseUrl: options?.serverBaseUrl,
+              serverEnv: options?.serverEnv,
+            };
+
             // Connection is now guaranteed to be established
             const db = connection.db;
             if (!db) {
@@ -582,27 +752,22 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
                 throw new Error('MongoDB database not available');
               }
               this.authInstance = createBetterAuthInstance({
-                config,
+                ...sharedInstanceOptions,
                 db: globalDb,
-                fallbackSecrets,
-                serverAppUrl: serverUrls?.serverAppUrl,
-                serverBaseUrl: serverUrls?.serverBaseUrl,
-                serverEnv: serverUrls?.serverEnv,
               });
             } else {
               this.authInstance = createBetterAuthInstance({
-                config,
+                ...sharedInstanceOptions,
                 db,
-                fallbackSecrets,
-                serverAppUrl: serverUrls?.serverAppUrl,
-                serverBaseUrl: serverUrls?.serverBaseUrl,
-                serverEnv: serverUrls?.serverEnv,
               });
             }
 
-            // IMPORTANT: Store the config AFTER createBetterAuthInstance mutates it
-            // This ensures CoreBetterAuthService has access to the resolved secret (with fallback applied)
-            this.currentConfig = config;
+            // Store a config copy with the resolved secret (same as first forRoot variant)
+            const fallbacks = options?.fallbackSecrets;
+            const resolvedSecret2 = config.secret || fallbacks?.find((s) => s && s.length >= 32);
+            this.currentConfig = resolvedSecret2 && resolvedSecret2 !== config.secret
+              ? { ...config, secret: resolvedSecret2 }
+              : config;
 
             if (this.authInstance && !this.initLogged) {
               this.initLogged = true;
@@ -614,7 +779,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           },
         },
         // Provide the resolved config for CoreBetterAuthService
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure currentConfig is set
         {
+          inject: [BETTER_AUTH_INSTANCE],
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
@@ -714,6 +881,16 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Rate limiting still requires explicit enabled: true
     if (config.rateLimit?.enabled) {
       features.push(`Rate Limiting (${config.rateLimit.max || 10}/${config.rateLimit.windowSeconds || 60}s)`);
+    }
+
+    // Email verification is enabled by default unless explicitly disabled
+    if (!isExplicitlyDisabled(config.emailVerification)) {
+      features.push('Email Verification');
+    }
+
+    // Sign-up checks are enabled by default unless explicitly disabled
+    if (!isExplicitlyDisabled(config.signUpChecks)) {
+      features.push('Sign-Up Checks');
     }
 
     if (features.length > 0) {

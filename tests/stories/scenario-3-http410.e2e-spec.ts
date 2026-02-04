@@ -232,7 +232,7 @@ describe('Story: Scenario 3 - HTTP 410 for Disabled Legacy Endpoints', () => {
 
       const result = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM User', password },
+        payload: { email, name: 'IAM User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -248,7 +248,7 @@ describe('Story: Scenario 3 - HTTP 410 for Disabled Legacy Endpoints', () => {
       // Sign up first
       await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM Sign In User', password },
+        payload: { email, name: 'IAM Sign In User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 

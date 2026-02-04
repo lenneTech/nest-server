@@ -188,7 +188,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
 
       const result = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM Only User', password },
+        payload: { email, name: 'IAM Only User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -208,7 +208,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up first
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Sign In User', password },
+        payload: { email, name: 'Sign In User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -236,7 +236,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up with hashed password
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'SHA256 User', password: hashedPassword },
+        payload: { email, name: 'SHA256 User', password: hashedPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -263,7 +263,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up with PLAIN password
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Normalize User', password: plainPassword },
+        payload: { email, name: 'Normalize User', password: plainPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -289,7 +289,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Wrong PW User', password: correctPassword },
+        payload: { email, name: 'Wrong PW User', password: correctPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -386,7 +386,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up via IAM
       const result = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Scrypt User', password },
+        payload: { email, name: 'Scrypt User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -420,7 +420,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up via IAM
       const result = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Bcrypt Sync User', password },
+        payload: { email, name: 'Bcrypt Sync User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -448,7 +448,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Session User', password },
+        payload: { email, name: 'Session User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -477,7 +477,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Session Verify User', password },
+        payload: { email, name: 'Session Verify User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -515,7 +515,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       // Sign up
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'GraphQL JWT User', password },
+        payload: { email, name: 'GraphQL JWT User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 

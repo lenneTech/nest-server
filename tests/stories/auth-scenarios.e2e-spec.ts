@@ -297,7 +297,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM with hashed password (as clients should)
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM to Legacy User', password: hashedPassword },
+        payload: { email, name: 'IAM to Legacy User', password: hashedPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -346,7 +346,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM with plaintext password
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM Only User', password },
+        payload: { email, name: 'IAM Only User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -380,7 +380,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM with hashed password (recommended for clients)
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM Hashed User', password: hashedPassword },
+        payload: { email, name: 'IAM Hashed User', password: hashedPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -414,7 +414,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM with PLAINTEXT password
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Normalize Test', password: plainPassword },
+        payload: { email, name: 'Normalize Test', password: plainPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -453,7 +453,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Sync Test User', password },
+        payload: { email, name: 'Sync Test User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -491,7 +491,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM with correct password
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Wrong Hash User', password: correctPassword },
+        payload: { email, name: 'Wrong Hash User', password: correctPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -547,7 +547,7 @@ describe('Story: Authentication Scenarios', () => {
       // Sign up via IAM
       const signUpRes = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Special Chars User', password: specialPassword },
+        payload: { email, name: 'Special Chars User', password: specialPassword, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 

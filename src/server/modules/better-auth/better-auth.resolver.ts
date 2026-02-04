@@ -1,9 +1,11 @@
+import { Optional } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreBetterAuthAuthModel } from '../../../core/modules/better-auth/core-better-auth-auth.model';
+import { CoreBetterAuthEmailVerificationService } from '../../../core/modules/better-auth/core-better-auth-email-verification.service';
 import { CoreBetterAuthMigrationStatusModel } from '../../../core/modules/better-auth/core-better-auth-migration-status.model';
 import {
   CoreBetterAuth2FASetupModel,
@@ -12,6 +14,7 @@ import {
   CoreBetterAuthPasskeyModel,
   CoreBetterAuthSessionModel,
 } from '../../../core/modules/better-auth/core-better-auth-models';
+import { CoreBetterAuthSignUpValidatorService } from '../../../core/modules/better-auth/core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthResolver } from '../../../core/modules/better-auth/core-better-auth.resolver';
 import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-better-auth.service';
@@ -29,8 +32,13 @@ import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-be
  * @example
  * ```typescript
  * // Add custom behavior after sign-up
- * override async betterAuthSignUp(email: string, password: string, name?: string) {
- *   const result = await super.betterAuthSignUp(email, password, name);
+ * override async betterAuthSignUp(
+ *   email: string,
+ *   password: string,
+ *   name?: string,
+ *   termsAndPrivacyAccepted?: boolean,
+ * ) {
+ *   const result = await super.betterAuthSignUp(email, password, name, termsAndPrivacyAccepted);
  *
  *   if (result.success && result.user) {
  *     await this.emailService.sendWelcomeEmail(result.user.email);
@@ -46,8 +54,10 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   constructor(
     protected override readonly betterAuthService: CoreBetterAuthService,
     protected override readonly userMapper: CoreBetterAuthUserMapper,
+    @Optional() protected override readonly signUpValidator?: CoreBetterAuthSignUpValidatorService,
+    @Optional() protected override readonly emailVerificationService?: CoreBetterAuthEmailVerificationService,
   ) {
-    super(betterAuthService, userMapper);
+    super(betterAuthService, userMapper, signUpValidator, emailVerificationService);
   }
 
   // ===========================================================================
@@ -112,7 +122,7 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   override async betterAuthSignIn(
     @Args('email') email: string,
     @Args('password') password: string,
-    @Context() ctx: { req: Request; res: Response },
+    @Context() ctx?: { req: Request; res: Response },
   ): Promise<CoreBetterAuthAuthModel> {
     return super.betterAuthSignIn(email, password, ctx);
   }
@@ -125,8 +135,9 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     @Args('email') email: string,
     @Args('password') password: string,
     @Args('name', { nullable: true }) name?: string,
+    @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
-    return super.betterAuthSignUp(email, password, name);
+    return super.betterAuthSignUp(email, password, name, termsAndPrivacyAccepted);
   }
 
   @Mutation(() => Boolean, { description: 'Sign out via Better-Auth' })

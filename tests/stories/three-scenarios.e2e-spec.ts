@@ -190,7 +190,7 @@ describe('Story: Three Authentication Scenarios', () => {
 
       const response = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Test User', password },
+        payload: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -205,7 +205,7 @@ describe('Story: Three Authentication Scenarios', () => {
       // Sign up first
       await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Test User', password },
+        payload: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -274,7 +274,7 @@ describe('Story: Three Authentication Scenarios', () => {
       // Sign up via IAM
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM JWT Limitation Test', password },
+        payload: { email, name: 'IAM JWT Limitation Test', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -319,7 +319,7 @@ describe('Story: Three Authentication Scenarios', () => {
       // Sign up via IAM
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM JWT UpdateUser Test', password },
+        payload: { email, name: 'IAM JWT UpdateUser Test', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
