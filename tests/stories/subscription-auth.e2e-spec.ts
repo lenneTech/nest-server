@@ -215,7 +215,7 @@ describe('Story: GraphQL Subscription Authentication', () => {
       // Sign up via IAM
       const signUpResult = await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM JWT User', password },
+        payload: { email, name: 'IAM JWT User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -244,7 +244,7 @@ describe('Story: GraphQL Subscription Authentication', () => {
       // Sign up via IAM
       await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'IAM Sub User', password },
+        payload: { email, name: 'IAM Sub User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 
@@ -282,7 +282,7 @@ describe('Story: GraphQL Subscription Authentication', () => {
       // Sign up via IAM
       await testHelper.rest('/iam/sign-up/email', {
         method: 'POST',
-        payload: { email, name: 'Cross Auth User', password },
+        payload: { email, name: 'Cross Auth User', password, termsAndPrivacyAccepted: true },
         statusCode: 201,
       });
 

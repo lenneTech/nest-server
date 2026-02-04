@@ -129,6 +129,17 @@ export interface TestGraphQLVariable {
  */
 export interface TestRestOptions {
   attachments?: Record<string, string>;
+
+  /**
+   * Cookies for the request. Three usage modes:
+   * - string (plain token without = or ;): Auto-detected as session token
+   *   and converted via buildBetterAuthCookies() to all relevant cookie names
+   *   (iam.session_token, token)
+   * - string (with = or ;): Used as-is as a cookie string
+   * - Record<string, string>: Key-value pairs joined into a cookie string
+   */
+  cookies?: Record<string, string> | string;
+
   headers?: Record<string, string>;
   log?: boolean;
   logError?: boolean;
@@ -404,10 +415,11 @@ export class TestHelper {
     };
 
     // Init vars
-    const { attachments, log, logError, returnResponse, statusCode, token } = config;
+    const { attachments, cookies, log, logError, returnResponse, statusCode, token } = config;
 
     // Request configuration
     const requestConfig: any = {
+      cookies,
       headers: config.headers,
       method: config.method,
       url,
@@ -558,6 +570,24 @@ export class TestHelper {
     let request = supertest((this.app as INestApplication).getHttpServer())[method](requestConfig.url as string);
     if (token) {
       request.set('Authorization', `bearer ${token}`);
+    }
+
+    // Cookies
+    if (requestConfig.cookies) {
+      let cookieString: string;
+      if (typeof requestConfig.cookies === 'string') {
+        // Auto-detect: plain token (no = or ;) vs formatted cookie string
+        if (!requestConfig.cookies.includes('=') && !requestConfig.cookies.includes(';')) {
+          // Plain session token -> auto-build BetterAuth cookies
+          const cookieRecord = TestHelper.buildBetterAuthCookies(requestConfig.cookies);
+          cookieString = Object.entries(cookieRecord).map(([k, v]) => `${k}=${v}`).join('; ');
+        } else {
+          cookieString = requestConfig.cookies;
+        }
+      } else {
+        cookieString = Object.entries(requestConfig.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+      }
+      request.set('Cookie', cookieString);
     }
 
     // Headers
@@ -722,6 +752,57 @@ export class TestHelper {
 
     // Return subscribed messages
     return messages;
+  }
+
+  /**
+   * Build a cookie Record for BetterAuth session authentication.
+   * Sets the token in all relevant cookie names for compatibility.
+   */
+  static buildBetterAuthCookies(sessionToken: string, basePath: string = 'iam'): Record<string, string> {
+    return {
+      [`${basePath}.session_token`]: sessionToken,
+      'token': sessionToken,
+    };
+  }
+
+  /**
+   * Extract all Set-Cookie values from a supertest response as a Record<name, value>.
+   */
+  static extractCookies(response: any): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    const setCookieHeaders = response?.headers?.['set-cookie'];
+    if (!setCookieHeaders) {
+      return cookies;
+    }
+    const headerArray = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+    for (const cookie of headerArray) {
+      const parts = cookie.split(';')[0];
+      const eqIndex = parts.indexOf('=');
+      if (eqIndex > 0) {
+        const name = parts.substring(0, eqIndex).trim();
+        const value = parts.substring(eqIndex + 1).trim();
+        cookies[name] = value;
+      }
+    }
+    return cookies;
+  }
+
+  /**
+   * Extract a session token from Set-Cookie headers of a supertest response.
+   * Handles signed cookies (value.signature format) by returning only the value part.
+   */
+  static extractSessionToken(response: any, cookieName: string = 'iam.session_token'): null | string {
+    const cookies = TestHelper.extractCookies(response);
+    const value = cookies[cookieName];
+    if (!value) {
+      return null;
+    }
+    // Handle signed cookies: value.signature -> return value
+    const dotIndex = value.lastIndexOf('.');
+    if (dotIndex > 0 && dotIndex < value.length - 1) {
+      return value.substring(0, dotIndex);
+    }
+    return value;
   }
 
   /**

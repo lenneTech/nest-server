@@ -1,5 +1,5 @@
 import { Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
-import { NextFunction, Request, Response } from 'express';
+import { Response as ExpressResponse, NextFunction, Request } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
@@ -20,7 +20,7 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  * All other paths (Passkey, 2FA, etc.) go directly to Better Auth's
  * native handler via this middleware for maximum compatibility.
  */
-const CONTROLLER_HANDLED_PATHS = ['/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
+const CONTROLLER_HANDLED_PATHS = ['/features', '/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
 
 /**
  * Passkey paths that generate challenges
@@ -96,7 +96,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
     return enabled;
   }
 
-  async use(req: Request, res: Response, next: NextFunction) {
+  async use(req: Request, res: ExpressResponse, next: NextFunction) {
     // Skip if Better-Auth is not enabled
     if (!this.betterAuthService.isEnabled()) {
       return next();
@@ -137,8 +137,17 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       const isPasskeyGenerate = useDbStorage && PASSKEY_GENERATE_PATHS.some((p) => relativePath === p);
       const isPasskeyVerify = useDbStorage && PASSKEY_VERIFY_PATHS.some((p) => relativePath === p);
 
-      // Extract session token from cookies or Authorization header
-      const sessionToken = extractSessionToken(req, basePath);
+      // Extract session token from cookies or Authorization header.
+      // In JWT mode, extractSessionToken correctly returns null for JWTs.
+      // Fall back to the session resolved by CoreBetterAuthMiddleware (which
+      // resolves JWTs to DB sessions via getActiveSessionForUser).
+      let sessionToken = extractSessionToken(req, basePath);
+      if (!sessionToken) {
+        const betterAuthReq = req as any;
+        if (betterAuthReq.betterAuthSession?.session?.token) {
+          sessionToken = betterAuthReq.betterAuthSession.session.token;
+        }
+      }
 
       // Get config for cookie signing
       const config = this.betterAuthService.getConfig();
@@ -268,11 +277,59 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         this.logger.debug(`Keeping challenge mapping after failed verification (status=${response.status}) for retry`);
       }
 
-      // For successful passkey verify-authentication, set session cookie
-      // Better-Auth's native handler sets its own cookies, but we extract and
-      // re-set them using our cookie helper for consistent cookie handling.
+      // For successful passkey verify-authentication:
+      // 1. Set session cookie for consistent cookie handling
+      // 2. Enrich response with user data (Better Auth's passkey plugin only returns { session })
       if (relativePath === '/passkey/verify-authentication' && response.ok) {
         this.getCookieHelper().setSessionCookiesFromWebResponse(res, response);
+
+        // Better Auth's @better-auth/passkey plugin returns { session } without user data
+        // (despite OpenAPI spec declaring both session and user in response).
+        // Enrich the response with user data so the frontend can set auth state.
+        try {
+          const responseClone = response.clone();
+          const responseBody = await responseClone.json();
+
+          if (responseBody?.session?.userId && !responseBody.user) {
+            const context = await authInstance.$context;
+            const user = await context.internalAdapter.findUserById(responseBody.session.userId);
+
+            if (user) {
+              const enrichedBody = {
+                ...responseBody,
+                user: {
+                  createdAt: user.createdAt,
+                  email: user.email,
+                  emailVerified: user.emailVerified,
+                  id: user.id,
+                  name: user.name,
+                },
+              };
+
+              // Create enriched response preserving original headers
+              const newHeaders = new Headers();
+              response.headers.forEach((value, key) => {
+                if (key.toLowerCase() !== 'content-encoding' && key.toLowerCase() !== 'transfer-encoding') {
+                  newHeaders.set(key, value);
+                }
+              });
+              newHeaders.set('content-type', 'application/json');
+
+              const enrichedResponse = new Response(JSON.stringify(enrichedBody), {
+                headers: newHeaders,
+                status: response.status,
+                statusText: response.statusText,
+              });
+
+              this.logger.debug('Enriched passkey verify response with user data');
+              await sendWebResponse(res, enrichedResponse);
+              return;
+            }
+          }
+        } catch (enrichError) {
+          this.logger.debug(`Could not enrich passkey response: ${enrichError instanceof Error ? enrichError.message : 'unknown'}`);
+          // Fall through to send original response
+        }
       }
 
       // Convert Web Standard Response to Express response using shared helper

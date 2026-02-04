@@ -256,6 +256,21 @@ export abstract class CoreUserModel extends CorePersistenceModel {
   })
   twoFactorEnabled: boolean = undefined;
 
+  /**
+   * Date when terms and privacy policy were accepted
+   * Set during sign-up when user accepts terms and privacy policy
+   *
+   * @since 11.13.0
+   */
+  @UnifiedField({
+    description: 'Date when terms and privacy policy were accepted',
+    isOptional: true,
+    mongoose: { type: Date },
+    roles: RoleEnum.S_EVERYONE,
+    type: () => Date,
+  })
+  termsAndPrivacyAcceptedAt: Date = undefined;
+
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================

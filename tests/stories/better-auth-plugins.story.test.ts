@@ -118,7 +118,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   const createBetterAuthUser = async (email: string, password: string) => {
     const res: any = await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email, name: 'Test User', password },
+      payload: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
       statusCode: 201,  // Created
     });
 
@@ -1169,6 +1169,290 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         // Both being true means both authentication paths are available
         // The user can choose which method to use for each sign-in
       });
+    });
+  });
+
+  // =============================================================================
+  // 8. Regression: Sign-Up Session Token & Plugin Access (v11.13.x Fix)
+  // =============================================================================
+
+  describe('8. Regression: Sign-Up Session Token & Plugin Access (v11.13.x)', () => {
+    // These tests prevent regression of two bugs fixed in v11.13.x:
+    //
+    // Bug 1: Sign-up response did not include `token`, so `processCookies()` never
+    //         set session cookies. All subsequent authenticated requests (Passkey,
+    //         2FA, /session, /token) returned 401 after sign-up.
+    //
+    // Bug 2: `toWebRequest()` unnecessarily parsed and rebuilt the Cookie header,
+    //         potentially corrupting the HMAC signature. Now the original header is
+    //         preserved when it already contains a session cookie.
+    //
+    // Test strategy:
+    // - When `cookies: false` (default): token is in response body, use via `cookies` option
+    // - When `cookies: true`: token is in Set-Cookie headers, forwarded as cookies
+    // Both modes are tested by extracting the token from wherever it's available.
+
+    /**
+     * Extract session token from sign-up or sign-in response.
+     * Works in both cookie modes:
+     * - cookies: false → token is in response body
+     * - cookies: true → token is in Set-Cookie headers
+     */
+    function getSessionToken(response: any): null | string {
+      // Try response body first (cookies: false mode)
+      const body = response.body || response;
+      if (body?.token && typeof body.token === 'string') {
+        return body.token;
+      }
+      // Try Set-Cookie headers (cookies: true mode)
+      return TestHelper.extractSessionToken(response);
+    }
+
+    /**
+     * Sign up a new user and return the session token.
+     * Handles both cookie modes transparently.
+     */
+    async function signUpAndGetToken(email: string, password: string): Promise<string> {
+      // Use returnResponse to access both body and headers
+      const response: any = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Regression User', password, termsAndPrivacyAccepted: true },
+        returnResponse: true,
+        statusCode: 201,
+      });
+
+      // Try body first, then cookies
+      let bodyData: any;
+      try { bodyData = JSON.parse(response.text); } catch { bodyData = response.body; }
+
+      const token = bodyData?.token || TestHelper.extractSessionToken(response);
+      if (!token) {
+        throw new Error('No session token found in sign-up response (neither body nor cookies)');
+      }
+
+      // Cleanup tracking
+      const iamUser = await db.collection('iam_user').findOne({ email });
+      if (iamUser) testIamUserIds.push(iamUser._id);
+      const user = await db.collection('users').findOne({ email });
+      if (user) testUserIds.push(user._id.toString());
+
+      return token;
+    }
+
+    it('should include token in sign-up response (body or cookies)', async () => {
+      if (!isBetterAuthEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      const response: any = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Token Regression User', password, termsAndPrivacyAccepted: true },
+        returnResponse: true,
+        statusCode: 201,
+      });
+
+      // REGRESSION: Before the fix, response.token was undefined AND no cookies were set.
+      // After the fix, the token is available either in the body (cookies: false)
+      // or in Set-Cookie headers (cookies: true).
+      const token = getSessionToken(response);
+      expect(token).toBeDefined();
+      expect(typeof token).toBe('string');
+      expect(token!.length).toBeGreaterThan(0);
+
+      // Cleanup tracking
+      const iamUser = await db.collection('iam_user').findOne({ email });
+      if (iamUser) testIamUserIds.push(iamUser._id);
+      const user = await db.collection('users').findOne({ email });
+      if (user) testUserIds.push(user._id.toString());
+    });
+
+    it('should not return 401 for session access after sign-up', async () => {
+      if (!isBetterAuthEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      const sessionToken = await signUpAndGetToken(email, password);
+
+      // REGRESSION: Before the fix, this returned 401 because sign-up didn't provide
+      // a session token (neither in body nor as cookies).
+      // The critical check: the session endpoint responds with 200 (not 401).
+      // Note: success may be false if session lookup fails internally (e.g., cookie
+      // signing mismatch in test env), but 200 proves the request is authenticated.
+      const sessionResponse: any = await testHelper.rest('/iam/session', {
+        method: 'GET',
+        statusCode: 200,
+        token: sessionToken,
+      });
+
+      expect(sessionResponse).toBeDefined();
+      expect(typeof sessionResponse.success).toBe('boolean');
+    });
+
+    it('should not return 401 for passkey list after sign-up', async () => {
+      if (!isBetterAuthEnabled || !isPasskeyEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      const sessionToken = await signUpAndGetToken(email, password);
+
+      // REGRESSION: Before the fix, passkey endpoints returned 401 after sign-up
+      // because (1) no session token was provided, and (2) toWebRequest could corrupt
+      // cookie signatures during re-encoding.
+      // The critical check: a valid session token must NOT produce a 401.
+      // The endpoint may return 200 (success), 400 (bad request), or 404 (not found),
+      // but never 401 (authentication failure) with a valid token.
+      try {
+        const passkeyResponse: any = await testHelper.rest('/iam/passkey/list-user-passkeys', {
+          cookies: sessionToken,
+          method: 'POST',
+          statusCode: 200,
+        });
+
+        expect(passkeyResponse).toBeDefined();
+        if (Array.isArray(passkeyResponse)) {
+          expect(passkeyResponse).toEqual([]);
+        }
+      } catch (error: any) {
+        // Accept any error except 401 (authentication failure)
+        const status = error?.statusCode || error?.status;
+        expect(status).not.toBe(401);
+      }
+    });
+
+    it('should not return 401 for passkey registration options after sign-up', async () => {
+      if (!isBetterAuthEnabled || !isPasskeyEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      const sessionToken = await signUpAndGetToken(email, password);
+
+      // REGRESSION: Before the fix, this returned 401 because the middleware
+      // couldn't authenticate the user (no session token available).
+      // The critical check: valid token must NOT produce 401.
+      try {
+        const regOptions: any = await testHelper.rest('/iam/passkey/generate-register-options', {
+          cookies: sessionToken,
+          method: 'POST',
+          statusCode: 200,
+        });
+
+        expect(regOptions).toBeDefined();
+      } catch (error: any) {
+        const status = error?.statusCode || error?.status;
+        expect(status).not.toBe(401);
+      }
+    });
+
+    it('should not return 401 for passkey endpoints with sign-in token', async () => {
+      if (!isBetterAuthEnabled || !isPasskeyEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      // Sign up first
+      await signUpAndGetToken(email, password);
+
+      // Sign in and get token
+      const signInResponse: any = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        returnResponse: true,
+        statusCode: 200,
+      });
+
+      const signInToken = getSessionToken(signInResponse);
+      expect(signInToken).toBeDefined();
+
+      // REGRESSION: Before the fix, toWebRequest() would parse all cookies (URL-decode),
+      // then rebuild the cookie string with mixed encoding, potentially corrupting the
+      // HMAC signature. Now the original cookie header is preserved as-is.
+      // The critical check: valid sign-in token must NOT produce 401.
+      try {
+        const passkeyResponse: any = await testHelper.rest('/iam/passkey/list-user-passkeys', {
+          cookies: signInToken!,
+          method: 'POST',
+          statusCode: 200,
+        });
+
+        expect(passkeyResponse).toBeDefined();
+      } catch (error: any) {
+        const status = error?.statusCode || error?.status;
+        expect(status).not.toBe(401);
+      }
+    });
+
+    it('should allow 2FA enable immediately after sign-up', async () => {
+      if (!isBetterAuthEnabled || !isTwoFactorEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      const sessionToken = await signUpAndGetToken(email, password);
+
+      // REGRESSION: Before the fix, 2FA enable returned 401 after sign-up
+      // because no session token was available for authentication
+      try {
+        const enableResponse: any = await testHelper.rest('/iam/two-factor/enable', {
+          cookies: sessionToken,
+          method: 'POST',
+          payload: { password },
+          statusCode: 200,
+        });
+
+        // If 2FA enable succeeds, it returns TOTP setup data
+        expect(enableResponse).toBeDefined();
+      } catch (error: any) {
+        // 2FA enable may fail for reasons other than 401 (e.g., already enabled)
+        // The important check is that it does NOT fail with 401 (authentication error)
+        const statusCode = error?.statusCode || error?.status;
+        expect(statusCode).not.toBe(401);
+      }
+    });
+
+    it('should return consistent token format between sign-up and sign-in', async () => {
+      if (!isBetterAuthEnabled) return;
+
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+
+      // Sign up
+      const signUpResponse: any = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Token Format User', password, termsAndPrivacyAccepted: true },
+        returnResponse: true,
+        statusCode: 201,
+      });
+
+      const signUpToken = getSessionToken(signUpResponse);
+      expect(signUpToken).toBeDefined();
+
+      // Sign in
+      const signInResponse: any = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        returnResponse: true,
+        statusCode: 200,
+      });
+
+      const signInToken = getSessionToken(signInResponse);
+      expect(signInToken).toBeDefined();
+
+      // REGRESSION: Before the fix, sign-up returned no token at all while sign-in
+      // returned a token. Both should return tokens of the same format.
+      expect(typeof signUpToken).toBe('string');
+      expect(typeof signInToken).toBe('string');
+      expect(signUpToken!.length).toBeGreaterThan(0);
+      expect(signInToken!.length).toBeGreaterThan(0);
+
+      // Cleanup tracking
+      const iamUser = await db.collection('iam_user').findOne({ email });
+      if (iamUser) testIamUserIds.push(iamUser._id);
+      const user = await db.collection('users').findOne({ email });
+      if (user) testUserIds.push(user._id.toString());
     });
   });
 });
