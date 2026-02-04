@@ -15,6 +15,16 @@ import { CoreBetterAuthSessionInfoModel, CoreBetterAuthUserModel } from './core-
 @Restricted(RoleEnum.S_EVERYONE)
 export class CoreBetterAuthAuthModel {
   /**
+   * Whether email verification is required before login
+   * When true, the user must verify their email address first
+   */
+  @Field(() => Boolean, {
+    description: 'Whether email verification is required before login',
+    nullable: true,
+  })
+  emailVerificationRequired?: boolean;
+
+  /**
    * Whether the authentication was successful
    */
   @Field(() => Boolean, { description: 'Whether authentication was successful' })

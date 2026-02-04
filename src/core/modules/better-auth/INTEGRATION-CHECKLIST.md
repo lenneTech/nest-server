@@ -294,6 +294,9 @@ After integration, verify:
 - [ ] User record contains `termsAndPrivacyAcceptedAt` timestamp after sign-up
 - [ ] Email verification link is sent after sign-up (check console in local mode)
 - [ ] After clicking verification link, `verifiedAt` is set on user
+- [ ] Passkey login returns user data in response (verify enrichment works)
+- [ ] Passkey login redirects to dashboard after successful authentication
+- [ ] Passkey can be registered, listed, and deleted from security settings
 
 ### Additional checks for Migration scenario:
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users
@@ -468,6 +471,8 @@ async function useBackupCode(code: string) {
 Handle passkey authentication with session validation fallback.
 
 **IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `authenticateWithPasskey()` function from the composable instead of `authClient.signIn.passkey()` directly. This is because JWT mode requires sending a `challengeId` to the server for challenge verification.
+
+**Note on Passkey Login Response (v11.13.0+):** The server enriches the passkey verify-authentication response with user data. Better Auth's passkey plugin only returns `{ session }`, but the server fetches the user from the database and adds it to the response. The composable handles both scenarios (user in response vs. fallback to get-session).
 
 ```typescript
 // login.vue - Passkey login (JWT-compatible)

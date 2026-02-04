@@ -3,11 +3,13 @@ import * as ejs from 'ejs';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { EmailService } from '../../common/services/email.service';
 import { TemplateService } from '../../common/services/template.service';
+import { formatProjectName } from './better-auth.config';
 
 /**
  * Resolved configuration type for email verification
@@ -22,6 +24,7 @@ type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 
  */
 const DEFAULT_CONFIG: ResolvedEmailVerificationConfig = {
   autoSignInAfterVerification: true,
+  callbackURL: '/auth/verify-email',
   enabled: true,
   expiresIn: 86400, // 24 hours in seconds
   locale: 'en',
@@ -353,16 +356,10 @@ export class CoreBetterAuthEmailVerificationService {
 
   /**
    * Format project name from package.json
+   * @deprecated Use the shared formatProjectName from better-auth.config.ts directly instead
    */
   protected formatProjectName(name: string): string {
-    // Remove scope (e.g., '@org/my-app' → 'my-app')
-    let formatted = name.replace(/^@[^/]+\//, '');
-    // Convert kebab-case to Title Case
-    formatted = formatted
-      .split(/[-_]/)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
-    return formatted;
+    return formatProjectName(name);
   }
 
   /**
@@ -428,13 +425,9 @@ export class CoreBetterAuthEmailVerificationService {
 
   /**
    * Mask email for logging (privacy)
+   * @deprecated Use the shared maskEmail from logging.helper.ts directly instead
    */
   protected maskEmail(email: string): string {
-    const [local, domain] = email.split('@');
-    if (!domain) return '***';
-    const maskedLocal = local.length > 2
-      ? `${local[0]}***${local[local.length - 1]}`
-      : '***';
-    return `${maskedLocal}@${domain}`;
+    return maskEmail(email);
   }
 }

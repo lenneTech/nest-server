@@ -291,22 +291,27 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
-   * Configure middleware for Better-Auth API handling, session validation, and rate limiting.
+   * Configure middleware for Better-Auth session validation, API handling, and rate limiting.
    *
    * Middleware order (important!):
-   * 1. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, etc.) to Better Auth's native handler
+   * 1. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
+   *    Must run FIRST so that req.betterAuthSession is available for downstream middleware.
+   *    In JWT mode, this resolves the JWT to a real DB session (via getActiveSessionForUser).
    * 2. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
-   * 3. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
+   * 3. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, 2FA, etc.) to Better Auth's native handler
+   *    Runs AFTER session middleware so it can use req.betterAuthSession.session.token
+   *    to authenticate requests in JWT mode.
    */
   configure(consumer: MiddlewareConsumer) {
     // Only apply middleware if Better-Auth is enabled
     if (CoreBetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
       const basePath = CoreBetterAuthModule.currentConfig?.basePath || '/iam';
 
-      // Apply API middleware to Better-Auth endpoints FIRST
-      // This handles plugin endpoints (passkey, social login, etc.) that are not defined in the controller
-      consumer.apply(CoreBetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
-      CoreBetterAuthModule.logger.debug(`CoreBetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
+      // Apply session middleware to all routes FIRST
+      // This resolves JWT tokens to DB sessions, making req.betterAuthSession available
+      // for the API middleware to use when forwarding to Better Auth's native handler.
+      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
+      CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
 
       // Apply rate limiting to Better-Auth endpoints only
       if (CoreBetterAuthModule.currentConfig?.rateLimit?.enabled) {
@@ -314,9 +319,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         CoreBetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
       }
 
-      // Apply session middleware to all routes
-      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
-      CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
+      // Apply API middleware to Better-Auth endpoints LAST
+      // This handles plugin endpoints (passkey, 2FA, social login, etc.) that are not defined in the controller.
+      // It uses req.betterAuthSession (set by session middleware above) for JWT mode authentication.
+      consumer.apply(CoreBetterAuthApiMiddleware).forRoutes(`${basePath}/*path`);
+      CoreBetterAuthModule.logger.debug(`CoreBetterAuthApiMiddleware registered for ${basePath}/*path endpoints`);
     }
   }
 

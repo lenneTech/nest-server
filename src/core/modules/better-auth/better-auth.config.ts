@@ -300,6 +300,28 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
 }
 
 /**
+ * Formats a package name to a human-readable display name.
+ * Converts kebab-case and snake_case to Title Case.
+ *
+ * @example
+ * formatProjectName('my-awesome-app')     // → 'My Awesome App'
+ * formatProjectName('@org/my-app')        // → 'My App'
+ * formatProjectName('nest_server_starter') // → 'Nest Server Starter'
+ */
+export function formatProjectName(name: string): string {
+  // Remove scope (e.g., '@org/my-app' → 'my-app')
+  let formatted = name.replace(/^@[^/]+\//, '');
+
+  // Split by hyphens and underscores, capitalize each word
+  formatted = formatted
+    .split(/[-_]/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+
+  return formatted;
+}
+
+/**
  * Builds the email verification configuration for Better-Auth.
  *
  * Email verification is enabled by default unless explicitly disabled.
@@ -612,28 +634,6 @@ function formatEnvSuffix(env?: string): string {
   // Capitalize first letter
   const formatted = env.charAt(0).toUpperCase() + env.slice(1).toLowerCase();
   return `(${formatted})`;
-}
-
-/**
- * Formats a package name to a human-readable display name.
- * Converts kebab-case and snake_case to Title Case.
- *
- * @example
- * formatProjectName('my-awesome-app')     // → 'My Awesome App'
- * formatProjectName('@org/my-app')        // → 'My App'
- * formatProjectName('nest_server_starter') // → 'Nest Server Starter'
- */
-function formatProjectName(name: string): string {
-  // Remove scope (e.g., '@org/my-app' → 'my-app')
-  let formatted = name.replace(/^@[^/]+\//, '');
-
-  // Split by hyphens and underscores, capitalize each word
-  formatted = formatted
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
-
-  return formatted;
 }
 
 /**

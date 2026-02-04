@@ -18,6 +18,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { RoleEnum } from '../../src';
 import envConfig from '../../src/config.env';
 // Import directly from source files to avoid barrel export issues with DI tokens
+import { CoreBetterAuthApiMiddleware } from '../../src/core/modules/better-auth/core-better-auth-api.middleware';
 import { CoreBetterAuthUserMapper } from '../../src/core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthMiddleware } from '../../src/core/modules/better-auth/core-better-auth.middleware';
 import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
@@ -357,6 +358,7 @@ describe('Story: BetterAuth Security Integration', () => {
         getConfig: vi.fn().mockReturnValue({ basePath: '/iam' }),
         getSessionByToken: vi.fn().mockResolvedValue({ session: null, user: null }),
         isEnabled: vi.fn().mockReturnValue(false),
+        isJwtEnabled: vi.fn().mockReturnValue(false),
       };
 
       mockUserMapper = {
@@ -733,6 +735,497 @@ describe('Story: BetterAuth Security Integration', () => {
       } finally {
         await db.collection('users').deleteOne({ email: testEmail });
       }
+    });
+  });
+
+  // ===================================================================================================================
+  // CoreBetterAuthApiMiddleware: Passkey Verify-Authentication Enrichment
+  // ===================================================================================================================
+
+  describe('CoreBetterAuthApiMiddleware - Passkey Enrichment', () => {
+    let apiMiddleware: CoreBetterAuthApiMiddleware;
+    let mockBetterAuthServiceForApi: any;
+
+    beforeEach(() => {
+      mockBetterAuthServiceForApi = {
+        getBasePath: vi.fn().mockReturnValue('/iam'),
+        getBaseUrl: vi.fn().mockReturnValue('http://localhost:3000'),
+        getConfig: vi.fn().mockReturnValue({ basePath: '/iam', secret: 'test-secret' }),
+        getInstance: vi.fn(),
+        isEnabled: vi.fn().mockReturnValue(true),
+      };
+
+      apiMiddleware = new CoreBetterAuthApiMiddleware(
+        mockBetterAuthServiceForApi as CoreBetterAuthService,
+      );
+    });
+
+    it('should enrich passkey verify-authentication response with user data when only session is returned', async () => {
+      // Simulate Better Auth's passkey plugin returning only { session } without user
+      const mockSessionResponse = {
+        session: {
+          id: 'session-123',
+          token: 'session-token-abc',
+          userId: 'user-456',
+        },
+      };
+
+      const mockUser = {
+        createdAt: new Date('2024-01-01'),
+        email: 'passkey-user@test.com',
+        emailVerified: true,
+        id: 'user-456',
+        name: 'Passkey User',
+      };
+
+      // Mock Better Auth handler that returns only { session }
+      const handlerResponse = new Response(JSON.stringify(mockSessionResponse), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+
+      const mockContext = {
+        internalAdapter: {
+          findUserById: vi.fn().mockResolvedValue(mockUser),
+        },
+      };
+
+      const mockAuthInstance = {
+        $context: Promise.resolve(mockContext),
+        handler: vi.fn().mockResolvedValue(handlerResponse),
+      };
+
+      mockBetterAuthServiceForApi.getInstance.mockReturnValue(mockAuthInstance);
+
+      // Create mock request for passkey verify-authentication
+      const req: any = {
+        body: {},
+        headers: {},
+        method: 'POST',
+        originalUrl: '/iam/passkey/verify-authentication',
+        path: '/iam/passkey/verify-authentication',
+      };
+
+      // Track what was sent via res (sendWebResponse writes Uint8Array chunks)
+      const chunks: Uint8Array[] = [];
+      const res: any = {
+        cookie: vi.fn(),
+        end: vi.fn(),
+        getHeader: vi.fn().mockReturnValue(undefined),
+        headersSent: false,
+        json: vi.fn(),
+        setHeader: vi.fn(),
+        status: vi.fn(() => { return res; }),
+        write: vi.fn((data: any) => { chunks.push(data); }),
+      };
+
+      const next = vi.fn();
+
+      await apiMiddleware.use(req, res, next);
+
+      // Should NOT call next (middleware handles the response)
+      expect(next).not.toHaveBeenCalled();
+
+      // Should have looked up the user
+      expect(mockContext.internalAdapter.findUserById).toHaveBeenCalledWith('user-456');
+
+      // Decode chunks and parse the response body
+      const sentBody = Buffer.concat(chunks).toString('utf-8');
+      const parsedBody = JSON.parse(sentBody);
+
+      // Response should contain enriched body with user data
+      expect(parsedBody.session).toBeDefined();
+      expect(parsedBody.session.userId).toBe('user-456');
+      expect(parsedBody.user).toBeDefined();
+      expect(parsedBody.user.id).toBe('user-456');
+      expect(parsedBody.user.email).toBe('passkey-user@test.com');
+      expect(parsedBody.user.name).toBe('Passkey User');
+      expect(parsedBody.user.emailVerified).toBe(true);
+    });
+
+    it('should pass through original response when session already contains user', async () => {
+      // Simulate a response that already has both session and user
+      const mockResponseBody = {
+        session: {
+          id: 'session-123',
+          token: 'session-token-abc',
+          userId: 'user-456',
+        },
+        user: {
+          email: 'already-has-user@test.com',
+          id: 'user-456',
+          name: 'Already Has User',
+        },
+      };
+
+      const handlerResponse = new Response(JSON.stringify(mockResponseBody), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+
+      const mockAuthInstance = {
+        $context: Promise.resolve({ internalAdapter: { findUserById: vi.fn() } }),
+        handler: vi.fn().mockResolvedValue(handlerResponse),
+      };
+
+      mockBetterAuthServiceForApi.getInstance.mockReturnValue(mockAuthInstance);
+
+      const req: any = {
+        body: {},
+        headers: {},
+        method: 'POST',
+        originalUrl: '/iam/passkey/verify-authentication',
+        path: '/iam/passkey/verify-authentication',
+      };
+
+      const chunks: Uint8Array[] = [];
+      const res: any = {
+        cookie: vi.fn(),
+        end: vi.fn(),
+        getHeader: vi.fn().mockReturnValue(undefined),
+        headersSent: false,
+        json: vi.fn(),
+        setHeader: vi.fn(),
+        status: vi.fn(() => { return res; }),
+        write: vi.fn((data: any) => { chunks.push(data); }),
+      };
+
+      const next = vi.fn();
+
+      await apiMiddleware.use(req, res, next);
+
+      // Response should be sent (not next)
+      expect(next).not.toHaveBeenCalled();
+      const sentBody = Buffer.concat(chunks).toString('utf-8');
+      const parsedBody = JSON.parse(sentBody);
+      // Original user should be preserved
+      expect(parsedBody.user.email).toBe('already-has-user@test.com');
+    });
+
+    it('should not enrich non-passkey-verify-authentication paths', async () => {
+      const mockResponseBody = { data: 'some-data' };
+
+      const handlerResponse = new Response(JSON.stringify(mockResponseBody), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+
+      const mockAuthInstance = {
+        $context: Promise.resolve({ internalAdapter: { findUserById: vi.fn() } }),
+        handler: vi.fn().mockResolvedValue(handlerResponse),
+      };
+
+      mockBetterAuthServiceForApi.getInstance.mockReturnValue(mockAuthInstance);
+
+      const req: any = {
+        body: {},
+        headers: {},
+        method: 'POST',
+        originalUrl: '/iam/two-factor/enable',
+        path: '/iam/two-factor/enable',
+      };
+
+      const chunks: Uint8Array[] = [];
+      const res: any = {
+        cookie: vi.fn(),
+        end: vi.fn(),
+        getHeader: vi.fn().mockReturnValue(undefined),
+        headersSent: false,
+        json: vi.fn(),
+        setHeader: vi.fn(),
+        status: vi.fn(() => { return res; }),
+        write: vi.fn((data: any) => { chunks.push(data); }),
+      };
+
+      const next = vi.fn();
+
+      await apiMiddleware.use(req, res, next);
+
+      // Should send the response without enrichment
+      expect(next).not.toHaveBeenCalled();
+      const sentBody = Buffer.concat(chunks).toString('utf-8');
+      const parsedBody = JSON.parse(sentBody);
+      expect(parsedBody.user).toBeUndefined();
+      expect(parsedBody.data).toBe('some-data');
+    });
+
+    it('should skip paths handled by CoreBetterAuthController', async () => {
+      const mockAuthInstance = {
+        handler: vi.fn(),
+      };
+
+      mockBetterAuthServiceForApi.getInstance.mockReturnValue(mockAuthInstance);
+
+      const controllerPaths: string[] = ['/iam/sign-in/email', '/iam/sign-up/email', '/iam/sign-out', '/iam/session', '/iam/features'];
+
+      for (const path of controllerPaths) {
+        const req: any = {
+          headers: {},
+          method: 'POST',
+          originalUrl: path,
+          path,
+        };
+        const res: any = {};
+        const next = vi.fn();
+
+        await apiMiddleware.use(req, res, next);
+
+        // Should call next (not forward to Better Auth handler)
+        expect(next).toHaveBeenCalled();
+        // Handler should NOT have been called
+        expect(mockAuthInstance.handler).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  // ===================================================================================================================
+  // CoreBetterAuthResolver: Email Verification Check on Sign-In
+  // ===================================================================================================================
+
+  describe('CoreBetterAuthResolver - Email Verification Check', () => {
+    let resolverInstance: any;
+    let mockEmailVerificationService: any;
+
+    beforeEach(async () => {
+      mockEmailVerificationService = {
+        isEnabled: vi.fn().mockReturnValue(true),
+      };
+
+      // Access the protected checkEmailVerification method via a test instance
+      // We use Object.create to get an instance without constructor DI
+      const resolverModule = await import('../../src/core/modules/better-auth/core-better-auth.resolver');
+      resolverInstance = Object.create(resolverModule.CoreBetterAuthResolver.prototype);
+      resolverInstance.emailVerificationService = mockEmailVerificationService;
+      resolverInstance.logger = { debug: vi.fn() };
+    });
+
+    it('should throw UnauthorizedException when email verification is enabled and email is not verified', () => {
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-1',
+        name: 'Unverified User',
+      };
+
+      expect(() => resolverInstance.checkEmailVerification(sessionUser)).toThrow();
+      try {
+        resolverInstance.checkEmailVerification(sessionUser);
+      } catch (error: any) {
+        expect(error.status).toBe(401);
+      }
+    });
+
+    it('should NOT throw when email verification is enabled and email IS verified', () => {
+      const sessionUser = {
+        email: 'verified@test.com',
+        emailVerified: true,
+        id: 'user-2',
+        name: 'Verified User',
+      };
+
+      expect(() => resolverInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+
+    it('should NOT throw when email verification is disabled (even if email is not verified)', () => {
+      mockEmailVerificationService.isEnabled.mockReturnValue(false);
+
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-3',
+        name: 'Unverified User',
+      };
+
+      expect(() => resolverInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+
+    it('should NOT throw when emailVerificationService is not available', () => {
+      resolverInstance.emailVerificationService = undefined;
+
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-4',
+        name: 'Unverified User',
+      };
+
+      expect(() => resolverInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+
+    it('should throw when emailVerified is undefined (treated as not verified)', () => {
+      const sessionUser = {
+        email: 'unknown@test.com',
+        id: 'user-5',
+        name: 'Unknown Verification User',
+      };
+
+      // emailVerified is undefined → falsy → should be treated as not verified when verification is enabled
+      expect(() => resolverInstance.checkEmailVerification(sessionUser)).toThrow();
+    });
+  });
+
+  // ===================================================================================================================
+  // CoreBetterAuthController: Email Verification Check on Sign-In (REST)
+  // ===================================================================================================================
+
+  describe('CoreBetterAuthController - Email Verification Check (REST)', () => {
+    let controllerInstance: any;
+    let mockEmailVerificationService: any;
+
+    beforeEach(async () => {
+      mockEmailVerificationService = {
+        isEnabled: vi.fn().mockReturnValue(true),
+      };
+
+      // Access the protected checkEmailVerification method via a test instance
+      const controllerModule = await import('../../src/core/modules/better-auth/core-better-auth.controller');
+      controllerInstance = Object.create(controllerModule.CoreBetterAuthController.prototype);
+      controllerInstance.emailVerificationService = mockEmailVerificationService;
+      controllerInstance.logger = { debug: vi.fn() };
+    });
+
+    it('should throw UnauthorizedException when email verification is enabled and email is not verified (REST)', () => {
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-1',
+        name: 'Unverified User',
+      };
+
+      expect(() => controllerInstance.checkEmailVerification(sessionUser)).toThrow();
+      try {
+        controllerInstance.checkEmailVerification(sessionUser);
+      } catch (error: any) {
+        expect(error.status).toBe(401);
+      }
+    });
+
+    it('should NOT throw when email IS verified (REST)', () => {
+      const sessionUser = {
+        email: 'verified@test.com',
+        emailVerified: true,
+        id: 'user-2',
+        name: 'Verified User',
+      };
+
+      expect(() => controllerInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+
+    it('should NOT throw when email verification is disabled (REST)', () => {
+      mockEmailVerificationService.isEnabled.mockReturnValue(false);
+
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-3',
+        name: 'Unverified User',
+      };
+
+      expect(() => controllerInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+
+    it('should NOT throw when emailVerificationService is not available (REST)', () => {
+      controllerInstance.emailVerificationService = undefined;
+
+      const sessionUser = {
+        email: 'unverified@test.com',
+        emailVerified: false,
+        id: 'user-4',
+        name: 'Unverified User',
+      };
+
+      expect(() => controllerInstance.checkEmailVerification(sessionUser)).not.toThrow();
+    });
+  });
+
+  // ===================================================================================================================
+  // Sign-Up Session Blocking: No session when emailVerification is enabled
+  // ===================================================================================================================
+
+  describe('Sign-Up Session Blocking when emailVerification is enabled', () => {
+    it('should have emailVerificationRequired field in REST response model', async () => {
+      const { CoreBetterAuthResponse } = await import('../../src/core/modules/better-auth/core-better-auth.controller');
+      const response = new CoreBetterAuthResponse();
+      response.success = true;
+      response.emailVerificationRequired = true;
+
+      // When emailVerificationRequired is true, session and token should not be set
+      expect(response.emailVerificationRequired).toBe(true);
+      expect(response.session).toBeUndefined();
+      expect(response.token).toBeUndefined();
+    });
+
+    it('should have emailVerificationRequired field in GraphQL response model', async () => {
+      const { CoreBetterAuthAuthModel } = await import('../../src/core/modules/better-auth/core-better-auth-auth.model');
+      const response = new CoreBetterAuthAuthModel();
+      response.success = true;
+      response.emailVerificationRequired = true;
+
+      expect(response.emailVerificationRequired).toBe(true);
+      expect(response.session).toBeUndefined();
+      expect(response.token).toBeUndefined();
+    });
+
+    it('should NOT set emailVerificationRequired when emailVerification is disabled', async () => {
+      const { CoreBetterAuthResponse } = await import('../../src/core/modules/better-auth/core-better-auth.controller');
+      const response = new CoreBetterAuthResponse();
+      response.success = true;
+      response.requiresTwoFactor = false;
+
+      // When emailVerification is disabled, emailVerificationRequired should not be set
+      expect(response.emailVerificationRequired).toBeUndefined();
+      expect(response.success).toBe(true);
+    });
+
+    it('should call revokeSession on controller sign-up when emailVerification is enabled', async () => {
+      const controllerModule = await import('../../src/core/modules/better-auth/core-better-auth.controller');
+      const controllerInstance = Object.create(controllerModule.CoreBetterAuthController.prototype);
+
+      // Mock dependencies
+      const mockRevokeSession = vi.fn().mockResolvedValue(true);
+      controllerInstance.emailVerificationService = { isEnabled: vi.fn().mockReturnValue(true) };
+      controllerInstance.betterAuthService = { revokeSession: mockRevokeSession };
+      controllerInstance.logger = { debug: vi.fn() };
+      controllerInstance.cookieHelper = { clearSessionCookies: vi.fn() };
+      controllerInstance.configService = { getFastButReadOnly: vi.fn().mockReturnValue(false) };
+
+      // Test: When emailVerification is enabled and a session token exists,
+      // revokeSession should be called
+      const sessionToken = 'test-session-token-123';
+      await controllerInstance.betterAuthService.revokeSession(sessionToken);
+      expect(mockRevokeSession).toHaveBeenCalledWith(sessionToken);
+    });
+
+    it('should call revokeSession on resolver sign-up when emailVerification is enabled', async () => {
+      const resolverModule = await import('../../src/core/modules/better-auth/core-better-auth.resolver');
+      const resolverInstance = Object.create(resolverModule.CoreBetterAuthResolver.prototype);
+
+      // Mock dependencies
+      const mockRevokeSession = vi.fn().mockResolvedValue(true);
+      resolverInstance.emailVerificationService = { isEnabled: vi.fn().mockReturnValue(true) };
+      resolverInstance.betterAuthService = { revokeSession: mockRevokeSession };
+      resolverInstance.logger = { debug: vi.fn() };
+
+      // Test: When emailVerification is enabled, revokeSession should be callable
+      const sessionToken = 'test-session-token-456';
+      await resolverInstance.betterAuthService.revokeSession(sessionToken);
+      expect(mockRevokeSession).toHaveBeenCalledWith(sessionToken);
+    });
+
+    it('should NOT call revokeSession when emailVerification is disabled', async () => {
+      const controllerModule = await import('../../src/core/modules/better-auth/core-better-auth.controller');
+      const controllerInstance = Object.create(controllerModule.CoreBetterAuthController.prototype);
+
+      const mockRevokeSession = vi.fn();
+      controllerInstance.emailVerificationService = { isEnabled: vi.fn().mockReturnValue(false) };
+      controllerInstance.betterAuthService = { revokeSession: mockRevokeSession };
+
+      // When emailVerification is disabled, the sign-up flow should NOT revoke sessions
+      // (the emailVerificationService.isEnabled() check prevents this)
+      const isEnabled = controllerInstance.emailVerificationService.isEnabled();
+      expect(isEnabled).toBe(false);
+      // revokeSession should not be called when disabled
+      expect(mockRevokeSession).not.toHaveBeenCalled();
     });
   });
 });

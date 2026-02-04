@@ -41,6 +41,27 @@ export interface ToWebRequestOptions {
 }
 
 /**
+ * Converts Express-style headers to Web API Headers.
+ *
+ * This is used across the module wherever we need to call Better-Auth APIs
+ * that expect Web Standard Headers (Resolver, Controller, Service, toWebRequest).
+ *
+ * @param headers - Express-style headers (Record with string or string[] values)
+ * @returns Web API Headers instance
+ */
+export function convertExpressHeaders(headers: Record<string, string | string[] | undefined>): Headers {
+  const result = new Headers();
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === 'string') {
+      result.set(key, value);
+    } else if (Array.isArray(value)) {
+      result.set(key, value.join(', '));
+    }
+  }
+  return result;
+}
+
+/**
  * Extracts the session token from Express request cookies or Authorization header.
  *
  * Cookie priority (v11.12+):
@@ -283,15 +304,8 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
   const { basePath, baseUrl, logger, secret, sessionToken } = options;
   const url = new URL(req.originalUrl || req.url, baseUrl);
 
-  // Build headers
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (typeof value === 'string') {
-      headers.set(key, value);
-    } else if (Array.isArray(value)) {
-      headers.set(key, value.join(', '));
-    }
-  }
+  // Build headers using shared helper
+  const headers = convertExpressHeaders(req.headers as Record<string, string | string[] | undefined>);
 
   // Inject session token into Authorization header if provided
   // This helps Better Auth find the session via bearer token lookup

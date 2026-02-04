@@ -122,7 +122,7 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
   override async betterAuthSignIn(
     @Args('email') email: string,
     @Args('password') password: string,
-    @Context() ctx: { req: Request; res: Response },
+    @Context() ctx?: { req: Request; res: Response },
   ): Promise<CoreBetterAuthAuthModel> {
     return super.betterAuthSignIn(email, password, ctx);
   }

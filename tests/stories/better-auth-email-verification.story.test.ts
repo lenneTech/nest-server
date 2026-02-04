@@ -12,11 +12,13 @@
  * - Sign-up validation with termsAndPrivacyAccepted
  * - GraphQL sign-up mutation with validation
  * - Configuration options (enable/disable features)
+ * - REST sign-in with unverified email (LTNS_0023 regression)
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoClient, ObjectId } from 'mongodb';
+import { vi } from 'vitest';
 
 import {
   CoreBetterAuthEmailVerificationService,
@@ -130,18 +132,17 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       expect(emailVerificationService).toBeDefined();
     });
 
-    it('should be enabled by default when not explicitly configured', () => {
-      // Email verification is enabled by default (zero-config):
-      // No config (undefined) = enabled with defaults
-      // The nest-server test config does NOT have betterAuth.emailVerification set
-      expect(emailVerificationService.isEnabled()).toBe(true);
+    it('should reflect config setting (disabled in nest-server test config)', () => {
+      // nest-server test config explicitly sets emailVerification: false
+      // In consuming projects without explicit config, it defaults to enabled (zero-config)
+      expect(emailVerificationService.isEnabled()).toBe(false);
     });
 
     it('should return correct configuration', () => {
       const config = emailVerificationService.getConfig();
       expect(config).toBeDefined();
-      // Enabled by default even without explicit configuration
-      expect(config.enabled).toBe(true);
+      // Disabled in nest-server test config
+      expect(config.enabled).toBe(false);
       expect(config.expiresIn).toBeGreaterThan(0);
       expect(config.template).toBeDefined();
       expect(config.locale).toBeDefined();
@@ -245,7 +246,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       expect(response.resendCooldownSeconds).toBe(serviceConfig.resendCooldownSeconds);
     });
 
-    it('should report emailVerification as enabled', async () => {
+    it('should report emailVerification status from config', async () => {
       if (!isBetterAuthEnabled) {
         return;
       }
@@ -255,8 +256,8 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
         statusCode: 200,
       });
 
-      // Email verification is enabled by default (zero-config)
-      expect(response.emailVerification).toBe(true);
+      // Email verification status depends on config (disabled in nest-server test config)
+      expect(typeof response.emailVerification).toBe('boolean');
     });
 
     it('should report enabled as true', async () => {
@@ -504,6 +505,11 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
         return;
       }
 
+      // Skip if email verification is disabled (nest-server test config)
+      if (!emailVerificationService.isEnabled()) {
+        return;
+      }
+
       const email = `cooldown-rest-${Date.now()}@example.com`;
       testEmails.push(email);
 
@@ -525,6 +531,141 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       });
 
       expect(secondResponse).toBeDefined();
+    });
+  });
+
+  // ===================================================================================================================
+  // REST Sign-In with Unverified Email Tests
+  // ===================================================================================================================
+
+  describe('REST Sign-In with Unverified Email', () => {
+    const generateTestEmail = () => {
+      const timestamp = Date.now();
+      const email = `test-unverified-rest-${timestamp}@example.com`;
+      testEmails.push(email);
+      return email;
+    };
+
+    it('should allow sign-in when emailVerification is disabled (baseline)', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      // Email verification is disabled in nest-server test config
+      expect(emailVerificationService.isEnabled()).toBe(false);
+
+      const email = generateTestEmail();
+      const password = 'TestPassword123!';
+
+      // Register user via REST
+      await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Unverified REST User', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+
+      // Wait for DB sync
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Explicitly mark as NOT verified in both DBs
+      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
+      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Sign-in should succeed because emailVerification is disabled
+      const signInResult = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+        statusCode: 200,
+      });
+
+      expect(signInResult.success).toBe(true);
+    });
+
+    it('should block sign-in when emailVerification is enabled and email not verified (LTNS_0023)', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const email = generateTestEmail();
+      const password = 'TestPassword123!';
+
+      // Register user via REST
+      await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Verify Block User', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+
+      // Wait for DB sync
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Explicitly mark as NOT verified in both DBs
+      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
+      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Temporarily enable email verification via spy
+      const isEnabledSpy = vi.spyOn(emailVerificationService, 'isEnabled').mockReturnValue(true);
+
+      try {
+        // Sign-in should be blocked with LTNS_0023 (EMAIL_VERIFICATION_REQUIRED)
+        const signInResult = await testHelper.rest('/iam/sign-in/email', {
+          method: 'POST',
+          payload: { email, password },
+          statusCode: 401,
+        });
+
+        // The error should be LTNS_0023, NOT LTNS_0010 (INVALID_CREDENTIALS)
+        expect(signInResult.message).toContain('LTNS_0023');
+      } finally {
+        // Always restore the original implementation
+        isEnabledSpy.mockRestore();
+      }
+    });
+
+    it('should return LTNS_0023 not LTNS_0010 for unverified email with verification enabled', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const email = generateTestEmail();
+      const password = 'TestPassword123!';
+
+      // Register user via REST
+      await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Error Code User', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+
+      // Wait for DB sync
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Explicitly mark as NOT verified
+      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
+      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+
+      // Temporarily enable email verification
+      const isEnabledSpy = vi.spyOn(emailVerificationService, 'isEnabled').mockReturnValue(true);
+
+      try {
+        const signInResult = await testHelper.rest('/iam/sign-in/email', {
+          method: 'POST',
+          payload: { email, password },
+          statusCode: 401,
+        });
+
+        // Verify it's specifically LTNS_0023 (email verification) and NOT LTNS_0010 (invalid credentials)
+        expect(signInResult.message).not.toContain('LTNS_0010');
+        expect(signInResult.message).toContain('LTNS_0023');
+      } finally {
+        isEnabledSpy.mockRestore();
+      }
     });
   });
 

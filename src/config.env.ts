@@ -125,6 +125,8 @@ const config: { [env: string]: IServerOptions } = {
     },
     automaticObjectIdFiltering: true,
     betterAuth: {
+      // Email verification disabled for test environment (no real mailbox available)
+      emailVerification: false,
       // JWT enabled by default (zero-config)
       jwt: { enabled: true, expiresIn: '15m' },
       // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
