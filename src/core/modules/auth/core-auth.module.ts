@@ -53,7 +53,7 @@ export class CoreAuthModule {
           return [{ provide: APP_GUARD, useClass: RolesGuard }];
         })();
 
-    let providers = [
+    let providers: any[] = [
       // [Global] The GraphQLAuthGuard integrates the user into context
       ...rolesGuardProvider,
       {
@@ -81,7 +81,7 @@ export class CoreAuthModule {
       LegacyAuthRateLimitGuard,
     ];
     if (Array.isArray(options?.providers)) {
-      providers = imports.concat(options.providers);
+      providers = providers.concat(options.providers);
     }
 
     // Return CoreAuthModule
