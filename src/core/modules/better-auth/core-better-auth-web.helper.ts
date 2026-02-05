@@ -73,16 +73,24 @@ export function convertExpressHeaders(headers: Record<string, string | string[] 
  * @param basePath - Base path for cookie names (e.g., '/iam' or 'iam')
  * @returns Session token or null if not found
  */
-export function extractSessionToken(req: Request, basePath: string = 'iam'): null | string {
+export function extractSessionToken(
+  req: Request,
+  basePath: string = 'iam',
+  options?: { skipAuthHeader?: boolean },
+): null | string {
   // Check Authorization header for session tokens (but NOT JWTs).
   // JWTs (3 dot-separated parts) are handled separately by the session middleware.
   // Returning a JWT here would cause toWebRequest() to overwrite valid session
   // cookies with the JWT, breaking Better Auth's session lookup.
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    const bearerToken = authHeader.substring(7);
-    if (isSessionToken(bearerToken)) {
-      return bearerToken;
+  // When skipAuthHeader is true, go directly to cookies (used by cookie fallback
+  // when the Authorization header token already failed verification).
+  if (!options?.skipAuthHeader) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const bearerToken = authHeader.substring(7);
+      if (isSessionToken(bearerToken)) {
+        return bearerToken;
+      }
     }
   }
 

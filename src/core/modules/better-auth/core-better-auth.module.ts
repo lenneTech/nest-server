@@ -303,8 +303,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    *    to authenticate requests in JWT mode.
    */
   configure(consumer: MiddlewareConsumer) {
-    // Only apply middleware if Better-Auth is enabled
-    if (CoreBetterAuthModule.betterAuthEnabled && this.betterAuthService?.isEnabled()) {
+    // Only apply middleware if Better-Auth is enabled.
+    // We rely on the service-level check (this.betterAuthService?.isEnabled()) because it checks
+    // the injected authInstance, which is the definitive source of truth. The static
+    // betterAuthEnabled field can be stale after reset() since the createDeferredModule()
+    // factory may not have re-set it before configure() is called.
+    if (this.betterAuthService?.isEnabled()) {
       const basePath = CoreBetterAuthModule.currentConfig?.basePath || '/iam';
 
       // Apply session middleware to all routes FIRST
@@ -768,6 +772,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             this.currentConfig = resolvedSecret2 && resolvedSecret2 !== config.secret
               ? { ...config, secret: resolvedSecret2 }
               : config;
+
+            // Keep static betterAuthEnabled in sync with the authInstance state.
+            // This is important because forRoot() sets it synchronously, but reset()
+            // clears it and this factory needs to re-establish it.
+            this.betterAuthEnabled = !!this.authInstance;
 
             if (this.authInstance && !this.initLogged) {
               this.initLogged = true;

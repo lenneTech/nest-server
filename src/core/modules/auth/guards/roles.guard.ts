@@ -292,6 +292,9 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    */
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
-    return ctx.getContext() ? ctx.getContext().req : context.switchToHttp().getRequest();
+    // For GraphQL: ctx.getContext() is the GQL context with `.req` property
+    // For REST/HTTP: ctx.getContext() returns the `next` function (truthy but without `.req`)
+    // Using `?.req ||` ensures we fall back to the HTTP request for REST controllers
+    return ctx.getContext()?.req || context.switchToHttp().getRequest();
   }
 }
