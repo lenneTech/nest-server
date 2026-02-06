@@ -253,13 +253,6 @@ export class CoreModule implements NestModule {
       imports.push(CoreHealthCheckModule);
     }
 
-    // Add CoreSystemSetupModule based on configuration
-    // Follows "presence implies enabled" pattern
-    const systemSetupConfig = config.systemSetup;
-    if (systemSetupConfig !== undefined && systemSetupConfig !== null && systemSetupConfig?.enabled !== false) {
-      imports.push(CoreSystemSetupModule);
-    }
-
     // Add CoreBetterAuthModule based on mode
     // IAM-only mode: BetterAuth is enabled by default (it's the only auth option)
     // Legacy mode: Only register if autoRegister is explicitly true
@@ -308,6 +301,19 @@ export class CoreModule implements NestModule {
           }),
         );
       }
+    }
+
+    // Add CoreSystemSetupModule based on configuration
+    // Requires BetterAuth to be enabled (uses CoreBetterAuthService internally)
+    // Follows "presence implies enabled" pattern
+    const systemSetupConfig = config.systemSetup;
+    if (
+      isBetterAuthEnabled &&
+      systemSetupConfig !== undefined &&
+      systemSetupConfig !== null &&
+      systemSetupConfig?.enabled !== false
+    ) {
+      imports.push(CoreSystemSetupModule);
     }
 
     // Set exports
