@@ -1430,6 +1430,33 @@ export interface IServerOptions {
   };
 
   /**
+   * System setup configuration for initial admin creation.
+   *
+   * When enabled, provides REST endpoints for creating the first admin user
+   * on a fresh deployment (zero users in the database).
+   *
+   * Follows the "presence implies enabled" pattern:
+   * - `undefined`: Disabled (default, backward compatible)
+   * - `{}`: Enabled with defaults
+   * - `{ enabled: false }`: Disabled explicitly
+   *
+   * @since 11.14.0
+   *
+   * @example
+   * ```typescript
+   * // Enable system setup (for fresh deployments)
+   * systemSetup: {},
+   *
+   * // Useful with disableSignUp to allow first admin creation
+   * systemSetup: {},
+   * betterAuth: {
+   *   emailAndPassword: { disableSignUp: true },
+   * },
+   * ```
+   */
+  systemSetup?: ISystemSetup;
+
+  /**
    * Templates
    */
   templates?: {
@@ -1474,6 +1501,24 @@ export interface IServerOptions {
    * @since 11.8.0
    */
   tus?: boolean | ITusConfig;
+}
+
+/**
+ * System setup configuration interface
+ *
+ * Follows the "presence implies enabled" pattern:
+ * - `undefined`: Disabled (default, backward compatible)
+ * - `{}`: Enabled with defaults
+ * - `{ enabled: false }`: Disabled explicitly
+ *
+ * @since 11.14.0
+ */
+export interface ISystemSetup {
+  /**
+   * Whether system setup is enabled.
+   * @default true (when config block is present)
+   */
+  enabled?: boolean;
 }
 
 /**

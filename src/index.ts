@@ -168,6 +168,14 @@ export * from './core/modules/health-check/core-health-check.service';
 export * from './core/modules/migrate';
 
 // =====================================================================================================================
+// Core - Modules - SystemSetup
+// =====================================================================================================================
+
+export * from './core/modules/system-setup/core-system-setup.controller';
+export * from './core/modules/system-setup/core-system-setup.module';
+export * from './core/modules/system-setup/core-system-setup.service';
+
+// =====================================================================================================================
 // Core - Modules - Tus
 // =====================================================================================================================
 

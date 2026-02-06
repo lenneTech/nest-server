@@ -24,6 +24,7 @@ import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-aut
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
+import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
 
 /**
  * Core module (dynamic)
@@ -143,9 +144,9 @@ export class CoreModule implements NestModule {
 
     // Build GraphQL driver configuration based on auth mode
     const graphQlDriverConfig = isIamOnlyMode
-      ? (isAutoRegisterDisabledEarly
+      ? isAutoRegisterDisabledEarly
         ? this.buildLazyIamGraphQlDriver(cors, options)
-        : this.buildIamOnlyGraphQlDriver(cors, options))
+        : this.buildIamOnlyGraphQlDriver(cors, options)
       : this.buildLegacyGraphQlDriver(AuthService, AuthModule, cors, options);
 
     const config: IServerOptions = merge(
@@ -252,6 +253,13 @@ export class CoreModule implements NestModule {
       imports.push(CoreHealthCheckModule);
     }
 
+    // Add CoreSystemSetupModule based on configuration
+    // Follows "presence implies enabled" pattern
+    const systemSetupConfig = config.systemSetup;
+    if (systemSetupConfig !== undefined && systemSetupConfig !== null && systemSetupConfig?.enabled !== false) {
+      imports.push(CoreSystemSetupModule);
+    }
+
     // Add CoreBetterAuthModule based on mode
     // IAM-only mode: BetterAuth is enabled by default (it's the only auth option)
     // Legacy mode: Only register if autoRegister is explicitly true
@@ -261,16 +269,14 @@ export class CoreModule implements NestModule {
     // Determine if BetterAuth is explicitly disabled
     // In IAM-only mode: enabled by default (undefined = true), only false or { enabled: false } disables
     // In Legacy mode: disabled by default (undefined = false), must be explicitly enabled
-    const isExplicitlyDisabled = betterAuthConfig === false ||
-      (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled === false);
-    const isExplicitlyEnabled = betterAuthConfig === true ||
-      (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled !== false);
+    const isExplicitlyDisabled =
+      betterAuthConfig === false || (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled === false);
+    const isExplicitlyEnabled =
+      betterAuthConfig === true || (typeof betterAuthConfig === 'object' && betterAuthConfig?.enabled !== false);
 
     // IAM-only mode: enabled unless explicitly disabled
     // Legacy mode: enabled only if explicitly enabled
-    const isBetterAuthEnabled = isIamOnlyMode
-      ? !isExplicitlyDisabled
-      : isExplicitlyEnabled;
+    const isBetterAuthEnabled = isIamOnlyMode ? !isExplicitlyDisabled : isExplicitlyEnabled;
 
     const isAutoRegister = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === true;
     // autoRegister: false means the project imports its own BetterAuthModule separately
