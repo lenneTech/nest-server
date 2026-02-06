@@ -410,10 +410,26 @@ export class CoreBetterAuthEmailVerificationService {
   }
 
   /**
+   * Maximum entries in the lastSendTimes map to prevent unbounded growth.
+   * At 10,000 entries with email strings as keys, this uses ~1-2 MB max.
+   */
+  private static readonly MAX_SEND_TIMES_ENTRIES = 10000;
+
+  /**
    * Track that a verification email was sent to this address
    */
   protected trackSend(email: string): void {
     const key = email.toLowerCase();
+
+    // Evict oldest entry if map is at capacity (before adding new one)
+    if (!this.lastSendTimes.has(key) && this.lastSendTimes.size >= CoreBetterAuthEmailVerificationService.MAX_SEND_TIMES_ENTRIES) {
+      // Map preserves insertion order - first key is the oldest
+      const oldestKey = this.lastSendTimes.keys().next().value;
+      if (oldestKey) {
+        this.lastSendTimes.delete(oldestKey);
+      }
+    }
+
     this.lastSendTimes.set(key, Date.now());
 
     // Schedule cleanup to prevent memory leak

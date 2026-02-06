@@ -370,27 +370,38 @@ export class CoreBetterAuthUserMapper {
         return false;
       }
 
+      // Better-Auth stores account.userId as ObjectId that references users._id
+      const userMongoId = legacyUser._id as ObjectId;
+
+      // FAST PATH: Check if credential account already exists BEFORE expensive bcrypt
+      // For already-migrated users this avoids ~130ms of bcrypt.compare() per sign-in
+      const existingAccount = await accountsCollection.findOne({
+        providerId: 'credential',
+        userId: userMongoId,
+      });
+
+      if (existingAccount) {
+        return true;
+      }
+
+      // No password provided - cannot verify, cannot migrate
+      if (!plainPassword) {
+        return false;
+      }
+
       // IMPORTANT: Verify the provided password matches the legacy hash
       // This prevents migration with a wrong password
       // Legacy Auth uses two formats for backwards compatibility:
       // 1. bcrypt(password) - direct hash
       // 2. bcrypt(sha256(password)) - sha256 then bcrypt
-      if (plainPassword) {
-        const directMatch = await bcrypt.compare(plainPassword, legacyUser.password);
-        const sha256Match = await bcrypt.compare(sha256(plainPassword), legacyUser.password);
-        if (!directMatch && !sha256Match) {
-          // Security: Wrong password provided for migration - reject
-          this.logger.warn(`Migration password verification failed for ${maskEmail(userEmail)}`);
-          return false;
-        }
-      } else {
-        // No password provided - cannot verify, cannot migrate
+      const directMatch = await bcrypt.compare(plainPassword, legacyUser.password);
+      const sha256Match = !directMatch ? await bcrypt.compare(sha256(plainPassword), legacyUser.password) : false;
+      if (!directMatch && !sha256Match) {
+        // Security: Wrong password provided for migration - reject
+        this.logger.warn(`Migration password verification failed for ${maskEmail(userEmail)}`);
         return false;
       }
 
-      // Better-Auth stores account.userId as ObjectId that references users._id
-      // The id field is a secondary string identifier used in API responses
-      const userMongoId = legacyUser._id as ObjectId;
       const userIdHex = userMongoId.toHexString();
 
       // Update user with Better-Auth fields if not already present
@@ -411,17 +422,6 @@ export class CoreBetterAuthUserMapper {
             },
           },
         );
-      }
-
-      // Check if credential account already exists
-      // Better-Auth stores userId as ObjectId referencing users._id
-      const existingAccount = await accountsCollection.findOne({
-        providerId: 'credential',
-        userId: userMongoId,
-      });
-
-      if (existingAccount) {
-        return true;
       }
 
       // Create the credential account with Better-Auth compatible scrypt hash

@@ -525,6 +525,13 @@ export interface IBetterAuthRateLimit {
   max?: number;
 
   /**
+   * Maximum number of entries in the in-memory rate limit store.
+   * When exceeded, the oldest entries are evicted to prevent unbounded memory growth.
+   * @default 10000
+   */
+  maxEntries?: number;
+
+  /**
    * Custom message when rate limit is exceeded
    * default: 'Too many requests, please try again later.'
    */
