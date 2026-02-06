@@ -22,6 +22,7 @@
  * - DefaultBetterAuthResolver: Default resolver implementation (use as fallback)
  */
 
+export * from './better-auth-roles.guard';
 export * from './better-auth-token.service';
 export * from './better-auth.config';
 export * from './better-auth.resolver';

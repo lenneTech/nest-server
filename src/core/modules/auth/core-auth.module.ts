@@ -46,14 +46,20 @@ export class CoreAuthModule {
 
     // Process providers
     // Only register RolesGuard if not already registered (prevents duplicate with CoreBetterAuthModule)
+    // Note: We register RolesGuard as a regular provider first, then use useExisting
+    // to reference it as APP_GUARD. This ensures proper DI resolution even when
+    // RolesGuard extends a mixin (AuthGuard), which can interfere with useClass DI.
     const rolesGuardProvider = RolesGuardRegistry.isRegistered()
       ? []
       : (() => {
           RolesGuardRegistry.markRegistered('CoreAuthModule');
-          return [{ provide: APP_GUARD, useClass: RolesGuard }];
+          return [
+            RolesGuard, // Register as regular provider first
+            { provide: APP_GUARD, useExisting: RolesGuard }, // Reference the registered provider
+          ];
         })();
 
-    let providers = [
+    let providers: any[] = [
       // [Global] The GraphQLAuthGuard integrates the user into context
       ...rolesGuardProvider,
       {
@@ -81,7 +87,7 @@ export class CoreAuthModule {
       LegacyAuthRateLimitGuard,
     ];
     if (Array.isArray(options?.providers)) {
-      providers = imports.concat(options.providers);
+      providers = providers.concat(options.providers);
     }
 
     // Return CoreAuthModule

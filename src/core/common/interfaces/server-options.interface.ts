@@ -1,4 +1,5 @@
 import { ApolloDriverConfig } from '@nestjs/apollo';
+import { Type } from '@nestjs/common';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import { JwtSignOptions } from '@nestjs/jwt/dist/interfaces';
@@ -1661,6 +1662,25 @@ interface IBetterAuthBase {
   baseUrl?: string;
 
   /**
+   * Custom controller class to use instead of the default CoreBetterAuthController.
+   * The class should extend CoreBetterAuthController.
+   *
+   * This allows projects to customize REST endpoints via config instead of creating
+   * a separate module. Use this with CoreModule.forRoot(envConfig) (IAM-only mode).
+   *
+   * @example
+   * ```typescript
+   * // config.env.ts
+   * betterAuth: {
+   *   controller: IamController,
+   * }
+   * ```
+   *
+   * @since 11.14.0
+   */
+  controller?: Type<any>;
+
+  /**
    * Email/password authentication configuration.
    * Enabled by default.
    * Set `enabled: false` to explicitly disable email/password auth.
@@ -1794,6 +1814,25 @@ interface IBetterAuthBase {
    * Protects against brute-force attacks
    */
   rateLimit?: IBetterAuthRateLimit;
+
+  /**
+   * Custom resolver class to use instead of the default DefaultBetterAuthResolver.
+   * The class should extend CoreBetterAuthResolver.
+   *
+   * This allows projects to customize GraphQL operations via config instead of creating
+   * a separate module. Use this with CoreModule.forRoot(envConfig) (IAM-only mode).
+   *
+   * @example
+   * ```typescript
+   * // config.env.ts
+   * betterAuth: {
+   *   resolver: IamResolver,
+   * }
+   * ```
+   *
+   * @since 11.14.0
+   */
+  resolver?: Type<any>;
 
   /**
    * Secret for better-auth session cookie signing.

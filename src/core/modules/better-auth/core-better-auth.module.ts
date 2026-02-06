@@ -17,7 +17,7 @@ import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { BetterAuthRolesGuard } from './better-auth-roles.guard';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
@@ -228,6 +228,13 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   // Static reference to email verification service for Better-Auth hooks (outside DI context)
   private static emailVerificationService: CoreBetterAuthEmailVerificationService | null = null;
   private static mongoConnection: Connection | null = null;
+  // Safety Net: Track if forRoot() has already been called to detect duplicate registration
+  private static forRootCalled = false;
+  private static cachedDynamicModule: DynamicModule | null = null;
+  // Static references for lazy GraphQL driver (autoRegister: false) and BetterAuthRolesGuard
+  private static serviceInstance: CoreBetterAuthService | null = null;
+  private static userMapperInstance: CoreBetterAuthUserMapper | null = null;
+  private static tokenServiceInstance: BetterAuthTokenService | null = null;
 
   /**
    * Gets the controller class to use (custom or default)
@@ -243,15 +250,55 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     return this.customResolver || DefaultBetterAuthResolver;
   }
 
+  /**
+   * Gets the static CoreBetterAuthService instance.
+   * Used by the lazy GraphQL driver when autoRegister: false.
+   * Safe because onConnect is called only after module initialization.
+   */
+  static getServiceInstance(): CoreBetterAuthService | null {
+    return this.serviceInstance;
+  }
+
+  /**
+   * Gets the static CoreBetterAuthUserMapper instance.
+   * Used by the lazy GraphQL driver when autoRegister: false.
+   * Safe because onConnect is called only after module initialization.
+   */
+  static getUserMapperInstance(): CoreBetterAuthUserMapper | null {
+    return this.userMapperInstance;
+  }
+
+  /**
+   * Gets the static BetterAuthTokenService instance.
+   * Used by BetterAuthRolesGuard for token verification when user isn't already on request.
+   * Safe because guards are invoked only after module initialization.
+   */
+  static getTokenServiceInstance(): BetterAuthTokenService | null {
+    return this.tokenServiceInstance;
+  }
+
   constructor(
     @Optional() private readonly betterAuthService?: CoreBetterAuthService,
     @Optional() private readonly rateLimiter?: CoreBetterAuthRateLimiter,
+    @Optional() private readonly userMapper?: CoreBetterAuthUserMapper,
+    @Optional() private readonly tokenService?: BetterAuthTokenService,
   ) {}
 
   onModuleInit() {
     if (CoreBetterAuthModule.authInstance && !CoreBetterAuthModule.initialized) {
       CoreBetterAuthModule.initialized = true;
       CoreBetterAuthModule.logger.log('CoreBetterAuthModule ready');
+    }
+
+    // Store static references for lazy GraphQL driver (autoRegister: false) and BetterAuthRolesGuard
+    if (this.betterAuthService) {
+      CoreBetterAuthModule.serviceInstance = this.betterAuthService;
+    }
+    if (this.userMapper) {
+      CoreBetterAuthModule.userMapperInstance = this.userMapper;
+    }
+    if (this.tokenService) {
+      CoreBetterAuthModule.tokenServiceInstance = this.tokenService;
     }
 
     // Configure rate limiter with stored config
@@ -368,6 +415,24 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: CoreBetterAuthModuleOptions): DynamicModule {
+    // Safety Net: Detect duplicate forRoot() calls
+    // NestJS deduplicates DynamicModules by module class — the FIRST import wins,
+    // subsequent imports are silently ignored. This means custom controller/resolver
+    // from the second call would be lost. Return cached module with a warning.
+    if (this.forRootCalled && !process.env.VITEST) {
+      this.logger.warn(
+        'CoreBetterAuthModule.forRoot() was called more than once. ' +
+        'The second call is ignored by NestJS (DynamicModule deduplication). ' +
+        'Custom controller/resolver from the second call will NOT be registered. ' +
+        'Solutions: (1) Use betterAuth.controller/resolver in config, or ' +
+        '(2) Set betterAuth.autoRegister: false and import your module separately.',
+      );
+      if (this.cachedDynamicModule) {
+        return this.cachedDynamicModule;
+      }
+    }
+    this.forRootCalled = true;
+
     const {
       config: rawConfig,
       controller,
@@ -423,7 +488,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     if (config === null || config?.enabled === false) {
       this.logger.debug('BetterAuth is disabled - skipping initialization');
       this.betterAuthEnabled = false;
-      return {
+      this.cachedDynamicModule = {
         exports: [BETTER_AUTH_INSTANCE, CoreBetterAuthService, CoreBetterAuthUserMapper, CoreBetterAuthRateLimiter, BetterAuthTokenService, CoreBetterAuthChallengeService],
         module: CoreBetterAuthModule,
         providers: [
@@ -442,6 +507,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           // because they require ConfigService and have no purpose when BetterAuth is disabled
         ],
       };
+      return this.cachedDynamicModule;
     }
 
     // Enable middleware registration
@@ -453,12 +519,13 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Always use deferred initialization to ensure MongoDB is ready
     // This prevents timing issues during application startup
     // Pass server-level URLs for Passkey auto-detection (using effective values from ConfigService fallback)
-    return this.createDeferredModule(config, {
+    this.cachedDynamicModule = this.createDeferredModule(config, {
       fallbackSecrets: effectiveFallbackSecrets,
       serverAppUrl: effectiveServerAppUrl,
       serverBaseUrl: effectiveServerBaseUrl,
       serverEnv: effectiveServerEnv,
     });
+    return this.cachedDynamicModule;
   }
 
   /**
@@ -622,6 +689,13 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.shouldRegisterRolesGuardGlobally = false;
     this.rolesGuardExplicitlyDisabled = false;
     this.emailVerificationService = null;
+    this.mongoConnection = null;
+    // Safety Net: Reset duplicate-call detection
+    this.forRootCalled = false;
+    this.cachedDynamicModule = null;
+    // Lazy GraphQL driver: Reset service references
+    this.serviceInstance = null;
+    this.userMapperInstance = null;
     // Reset shared RolesGuard registry (shared with CoreAuthModule)
     RolesGuardRegistry.reset();
   }
@@ -822,17 +896,20 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         },
         CoreBetterAuthChallengeService,
         this.getResolverClass(),
-        // Conditionally register RolesGuard globally for IAM-only setups
-        // In Legacy mode, RolesGuard is already registered globally via CoreAuthModule
+        // Conditionally register BetterAuthRolesGuard globally for IAM-only setups
+        // In Legacy mode, RolesGuard is registered globally via CoreAuthModule instead
         // Uses shared RolesGuardRegistry to prevent duplicate registration across modules
+        //
+        // Note: We use BetterAuthRolesGuard (not RolesGuard) in IAM-only mode because:
+        // - RolesGuard extends AuthGuard (a Passport mixin) which has DI metadata conflicts
+        // - BetterAuthRolesGuard is a simpler guard that only checks roles
+        // - Authentication is handled by CoreBetterAuthMiddleware (JWT/session validation)
         ...(this.shouldRegisterRolesGuardGlobally && !RolesGuardRegistry.isRegistered()
           ? (() => {
               RolesGuardRegistry.markRegistered('CoreBetterAuthModule');
               return [
-                {
-                  provide: APP_GUARD,
-                  useClass: RolesGuard,
-                },
+                BetterAuthRolesGuard,
+                { provide: APP_GUARD, useExisting: BetterAuthRolesGuard },
               ];
             })()
           : []),

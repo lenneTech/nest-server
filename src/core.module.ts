@@ -137,9 +137,15 @@ export class CoreModule implements NestModule {
       };
     }
 
+    // Check if autoRegister: false for IAM-only mode (project imports its own BetterAuth module)
+    const rawBetterAuth = options?.betterAuth;
+    const isAutoRegisterDisabledEarly = typeof rawBetterAuth === 'object' && rawBetterAuth?.autoRegister === false;
+
     // Build GraphQL driver configuration based on auth mode
     const graphQlDriverConfig = isIamOnlyMode
-      ? this.buildIamOnlyGraphQlDriver(cors, options)
+      ? (isAutoRegisterDisabledEarly
+        ? this.buildLazyIamGraphQlDriver(cors, options)
+        : this.buildIamOnlyGraphQlDriver(cors, options))
       : this.buildLegacyGraphQlDriver(AuthService, AuthModule, cors, options);
 
     const config: IServerOptions = merge(
@@ -267,17 +273,27 @@ export class CoreModule implements NestModule {
       : isExplicitlyEnabled;
 
     const isAutoRegister = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === true;
+    // autoRegister: false means the project imports its own BetterAuthModule separately
+    const isAutoRegisterDisabled = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === false;
+
+    // Extract custom controller/resolver from config (Pattern 2: Config-based)
+    const configController = typeof betterAuthConfig === 'object' ? betterAuthConfig?.controller : undefined;
+    const configResolver = typeof betterAuthConfig === 'object' ? betterAuthConfig?.resolver : undefined;
 
     if (isBetterAuthEnabled) {
-      if (isIamOnlyMode || isAutoRegister) {
+      if ((isIamOnlyMode && !isAutoRegisterDisabled) || isAutoRegister) {
         imports.push(
           CoreBetterAuthModule.forRoot({
             config: betterAuthConfig === true ? {} : betterAuthConfig || {},
+            // Pass custom controller/resolver from config (Pattern 2)
+            controller: configController,
             // Pass JWT secrets for backwards compatibility fallback
             fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
             // In IAM-only mode, register RolesGuard globally to enforce @Roles() decorators
             // In Legacy mode (autoRegister), RolesGuard is already registered via CoreAuthModule
             registerRolesGuardGlobally: isIamOnlyMode,
+            // Pass custom resolver from config (Pattern 2)
+            resolver: configResolver,
             // Pass server-level URLs for Passkey auto-detection
             // When env: 'local', defaults are: baseUrl=localhost:3000, appUrl=localhost:3001
             serverAppUrl: config.appUrl,
@@ -380,6 +396,108 @@ export class CoreModule implements NestModule {
                       }
 
                       // Map to full user with roles
+                      const user = await userMapper.mapSessionUser(sessionUser);
+                      if (!user) {
+                        throw new UnauthorizedException('User not found');
+                      }
+
+                      return { headers: connectionParams, user };
+                    }
+
+                    throw new UnauthorizedException('Missing authentication token');
+                  }
+                },
+              },
+            },
+          },
+          options?.graphQl?.driver,
+        ),
+    };
+  }
+
+  /**
+   * Build a lazy GraphQL driver for IAM-only mode with autoRegister: false.
+   *
+   * When autoRegister: false, CoreBetterAuthModule is NOT imported by CoreModule,
+   * so we cannot use `imports` or `inject` to get BetterAuth services.
+   * Instead, we resolve them lazily via static getters on CoreBetterAuthModule.
+   * This is safe because `onConnect` is only called when a WebSocket connection is made,
+   * which happens after all modules are initialized.
+   */
+  private static buildLazyIamGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
+    return {
+      useFactory: async () =>
+        Object.assign(
+          {
+            autoSchemaFile: 'schema.gql',
+            context: ({ req, res }) => ({ req, res }),
+            cors,
+            installSubscriptionHandlers: true,
+            subscriptions: {
+              'graphql-ws': {
+                context: ({ extra }) => extra,
+                onConnect: async (context: Context<any>) => {
+                  const { connectionParams, extra } = context;
+                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+
+                  if (enableAuth) {
+                    const betterAuthService = CoreBetterAuthModule.getServiceInstance();
+                    const userMapper = CoreBetterAuthModule.getUserMapperInstance();
+
+                    if (!betterAuthService || !userMapper) {
+                      throw new UnauthorizedException('BetterAuth not initialized');
+                    }
+
+                    const headers = CoreModule.getHeaderFromArray(extra.request?.rawHeaders);
+                    const authToken: string =
+                      connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
+
+                    if (authToken) {
+                      const { session, user: sessionUser } = await betterAuthService.getSession({
+                        headers: { authorization: `Bearer ${authToken}` },
+                      });
+
+                      if (!session || !sessionUser) {
+                        throw new UnauthorizedException('Invalid or expired session');
+                      }
+
+                      const user = await userMapper.mapSessionUser(sessionUser);
+                      if (!user) {
+                        throw new UnauthorizedException('User not found');
+                      }
+
+                      extra.user = user;
+                      extra.headers = connectionParams ?? headers;
+                      return extra;
+                    }
+
+                    throw new UnauthorizedException('Missing authentication token');
+                  }
+                },
+              },
+              'subscriptions-transport-ws': {
+                onConnect: async (connectionParams) => {
+                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+
+                  if (enableAuth) {
+                    const betterAuthService = CoreBetterAuthModule.getServiceInstance();
+                    const userMapper = CoreBetterAuthModule.getUserMapperInstance();
+
+                    if (!betterAuthService || !userMapper) {
+                      throw new UnauthorizedException('BetterAuth not initialized');
+                    }
+
+                    const authToken: string = connectionParams?.Authorization?.split(' ')[1];
+
+                    if (authToken) {
+                      const { session, user: sessionUser } = await betterAuthService.getSession({
+                        headers: { authorization: `Bearer ${authToken}` },
+                      });
+
+                      if (!session || !sessionUser) {
+                        throw new UnauthorizedException('Invalid or expired session');
+                      }
+
                       const user = await userMapper.mapSessionUser(sessionUser);
                       if (!user) {
                         throw new UnauthorizedException('User not found');

@@ -332,6 +332,12 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         }
       }
 
+      // If Better Auth returned 404, the path is not handled by Better Auth.
+      // Call next() to let NestJS controllers handle it (e.g., custom controller endpoints).
+      if (response.status === 404) {
+        return next();
+      }
+
       // Convert Web Standard Response to Express response using shared helper
       await sendWebResponse(res, response);
     } catch (error) {

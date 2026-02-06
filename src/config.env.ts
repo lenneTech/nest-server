@@ -265,11 +265,20 @@ const config: { [env: string]: IServerOptions } = {
     automaticObjectIdFiltering: true,
     baseUrl: process.env.BASE_URL,
     betterAuth: {
-      rateLimit: { enabled: process.env.RATE_LIMIT_ENABLED !== 'false', max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10) },
+      rateLimit: {
+        enabled: process.env.RATE_LIMIT_ENABLED !== 'false',
+        max: parseInt(process.env.RATE_LIMIT_MAX || '10', 10),
+      },
       secret: process.env.BETTER_AUTH_SECRET,
       socialProviders: {
-        github: { clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '', clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '' },
-        google: { clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '', clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '' },
+        github: {
+          clientId: process.env.SOCIAL_GITHUB_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GITHUB_CLIENT_SECRET || '',
+        },
+        google: {
+          clientId: process.env.SOCIAL_GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.SOCIAL_GOOGLE_CLIENT_SECRET || '',
+        },
       },
       twoFactor: { appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server' },
     },
