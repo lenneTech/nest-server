@@ -21,7 +21,7 @@ const config = {
 }
 ```
 
-**Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [REST API](#rest-api-endpoints) | [GraphQL API](#graphql-api) | [Configuration](#configuration)
+**Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [Customization Guide](./CUSTOMIZATION.md) | [REST API](#rest-api-endpoints) | [GraphQL API](#graphql-api) | [Configuration](#configuration)
 
 ---
 
@@ -34,6 +34,7 @@ const config = {
 - [REST API Endpoints](#rest-api-endpoints)
 - [GraphQL API](#graphql-api)
 - [CoreModule Signatures](#coremoduleforroot-signatures)
+- [Customization](#customization)
 - [Migration Roadmap](#migration-roadmap-legacy-auth--betterauth)
 - [Password Synchronization](#bidirectional-password-synchronization)
 - [Security Integration](#security-integration)
@@ -1383,6 +1384,28 @@ export class ServerModule {}
 - Both Legacy Auth and BetterAuth run in parallel
 - Bidirectional password synchronization
 - Gradual user migration to IAM
+
+---
+
+## Customization
+
+BetterAuth supports extensive customization through inheritance and configuration.
+
+**See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for the complete customization guide, including:**
+
+- **Module Registration Patterns** - Three ways to register BetterAuth (Zero-Config, Config-based, Separate Module)
+- **Customizing Controller** - Override REST endpoints, add new endpoints
+- **Customizing Resolver** - Override GraphQL mutations/queries (with critical decorator requirements)
+- **Customizing Services** - Extend `CoreBetterAuthService`, `CoreBetterAuthEmailVerificationService`
+- **Email Template Customization** - Override templates, use Brevo, localization
+
+### Quick Reference: Registration Patterns
+
+| Pattern | Use When | Configuration |
+|---------|----------|---------------|
+| **Zero-Config** | No customization | `CoreModule.forRoot(envConfig)` |
+| **Config-based** | Custom Controller/Resolver | `betterAuth: { controller, resolver }` |
+| **Separate Module** | Full control, additional providers | `betterAuth: { autoRegister: false }` |
 
 ---
 

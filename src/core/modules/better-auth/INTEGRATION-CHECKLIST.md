@@ -4,6 +4,11 @@
 
 > **Estimated time:** 10-15 minutes
 
+**Need customization?** See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for:
+- Module registration patterns (Zero-Config, Config-based, Separate Module)
+- Controller, Resolver, and Service customization
+- Email template customization
+
 ---
 
 ## Choose Your Scenario
@@ -14,6 +19,16 @@
 | **Existing Project (Migration)** | Have legacy users to migrate | `CoreModule.forRoot(AuthService, AuthModule, envConfig)` | 1-6 |
 
 **Key difference:** New projects disable Legacy endpoints, existing projects keep them enabled during migration.
+
+### Registration Patterns (Quick Reference)
+
+| Pattern | Use When | Configuration |
+|---------|----------|---------------|
+| **Zero-Config** | No customization needed | Just use `CoreModule.forRoot(envConfig)` |
+| **Config-based** | Custom Controller/Resolver | Add `controller`/`resolver` to `betterAuth` config |
+| **Separate Module** | Full control, additional providers | Set `autoRegister: false` in config |
+
+**Details:** See [CUSTOMIZATION.md](./CUSTOMIZATION.md#module-registration-patterns)
 
 ---
 

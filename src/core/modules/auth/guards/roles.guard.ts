@@ -1,4 +1,4 @@
-import { ExecutionContext, ForbiddenException, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { firstValueFrom, isObservable } from 'rxjs';
@@ -39,15 +39,50 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
   private betterAuthService: CoreBetterAuthService | null = null;
   private tokenService: BetterAuthTokenService | null = null;
   private servicesResolved = false;
+  private resolvedReflector: null | Reflector = null;
 
   /**
    * Integrate reflector and moduleRef for lazy service resolution
+   *
+   * Note: Due to mixin inheritance from AuthGuard, NestJS DI may not inject dependencies correctly
+   * because the mixin generates its own design:paramtypes metadata that can override
+   * the child class's parameter metadata. Using explicit @Inject() decorators ensures
+   * NestJS uses token-based injection rather than positional metadata lookup.
+   *
+   * The ensureReflector() method provides an additional fallback by lazily resolving
+   * Reflector from moduleRef if initial injection fails.
    */
   constructor(
-    protected readonly reflector: Reflector,
-    @Optional() private readonly moduleRef?: ModuleRef,
+    @Inject(Reflector) protected readonly reflector: Reflector,
+    @Optional() @Inject(ModuleRef) private readonly moduleRef?: ModuleRef,
   ) {
     super();
+  }
+
+  /**
+   * Ensure Reflector is available.
+   * Due to mixin inheritance from AuthGuard, NestJS DI may not inject Reflector correctly.
+   * This fallback resolves Reflector from moduleRef if not injected.
+   */
+  private ensureReflector(): Reflector {
+    if (this.reflector) {
+      return this.reflector;
+    }
+
+    if (this.resolvedReflector) {
+      return this.resolvedReflector;
+    }
+
+    if (this.moduleRef) {
+      try {
+        this.resolvedReflector = this.moduleRef.get(Reflector, { strict: false });
+        return this.resolvedReflector;
+      } catch {
+        this.logger.error('Failed to resolve Reflector from moduleRef');
+      }
+    }
+
+    throw new Error('Reflector not available - RolesGuard cannot function without it');
   }
 
   /**
@@ -87,7 +122,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    */
   override async canActivate(context: ExecutionContext): Promise<boolean> {
     // Get roles FIRST to check if authentication is even needed
-    const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles: string[] = reflectorRoles[0]
       ? reflectorRoles[1]
         ? [...reflectorRoles[0], ...reflectorRoles[1]]
@@ -244,7 +279,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    */
   override handleRequest(err: Error | null, user: any, info: any, context: ExecutionContext) {
     // Get roles
-    const reflectorRoles = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles: string[] = reflectorRoles[0]
       ? reflectorRoles[1]
         ? [...reflectorRoles[0], ...reflectorRoles[1]]
