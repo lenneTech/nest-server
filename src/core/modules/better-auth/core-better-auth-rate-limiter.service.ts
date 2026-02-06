@@ -46,6 +46,7 @@ interface RateLimitEntry {
 const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
   enabled: false,
   max: 10,
+  maxEntries: 10000,
   message: 'Too many requests, please try again later.',
   skipEndpoints: ['/session', '/callback'],
   strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
@@ -143,6 +144,11 @@ export class CoreBetterAuthRateLimiter {
     let entry = this.store.get(key);
 
     if (!entry || now >= entry.resetTime) {
+      // Evict oldest entries if store exceeds maxEntries
+      if (!entry && this.store.size >= this.config.maxEntries) {
+        this.evictOldest();
+      }
+
       // Create new entry or reset expired one
       entry = {
         count: 1,
@@ -231,6 +237,40 @@ export class CoreBetterAuthRateLimiter {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
+    }
+  }
+
+  /**
+   * Evict the oldest entries when the store exceeds maxEntries.
+   * First removes all expired entries, then removes entries closest to expiry
+   * until the store is at 90% capacity.
+   */
+  private evictOldest(): void {
+    const now = Date.now();
+    let evicted = 0;
+
+    // First pass: remove all expired entries
+    for (const [key, entry] of this.store.entries()) {
+      if (now >= entry.resetTime) {
+        this.store.delete(key);
+        evicted++;
+      }
+    }
+
+    // If still over limit, remove entries with earliest resetTime (oldest)
+    if (this.store.size >= this.config.maxEntries) {
+      const targetSize = Math.floor(this.config.maxEntries * 0.9);
+      const entries = [...this.store.entries()].sort((a, b) => a[1].resetTime - b[1].resetTime);
+
+      for (const [key] of entries) {
+        if (this.store.size <= targetSize) break;
+        this.store.delete(key);
+        evicted++;
+      }
+    }
+
+    if (evicted > 0) {
+      this.logger.warn(`Evicted ${evicted} rate limit entries (store was at capacity: ${this.config.maxEntries})`);
     }
   }
 

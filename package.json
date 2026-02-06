@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.13.2",
+  "version": "11.13.3",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -54,10 +54,10 @@
     "prepack": "npm run prestart:prod",
     "prepublishOnly": "npm run lint && npm run test:ci",
     "preversion": "npm run lint",
-    "vitest": "NODE_ENV=local vitest run --config vitest-e2e.config.ts",
+    "vitest": "NODE_ENV=e2e vitest run --config vitest-e2e.config.ts",
     "vitest:ci": "NODE_ENV=ci vitest run --config vitest-e2e.config.ts",
-    "vitest:cov": "NODE_ENV=local vitest run --coverage --config vitest-e2e.config.ts",
-    "vitest:watch": "NODE_ENV=local vitest --config vitest-e2e.config.ts",
+    "vitest:cov": "NODE_ENV=e2e vitest run --coverage --config vitest-e2e.config.ts",
+    "vitest:watch": "NODE_ENV=e2e vitest --config vitest-e2e.config.ts",
     "vitest:unit": "vitest run --config vitest.config.ts",
     "test:unit:watch": "vitest --config vitest.config.ts",
     "test:types": "tsc --noEmit --skipLibCheck -p tests/types/tsconfig.json",

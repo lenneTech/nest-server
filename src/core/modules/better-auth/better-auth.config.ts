@@ -14,6 +14,21 @@ import { IBetterAuth } from '../../common/interfaces/server-options.interface';
  */
 export type BetterAuthInstance = ReturnType<typeof betterAuth>;
 
+// ---------------------------------------------------------------------------
+// Performance-optimized password hashing using Node.js native crypto.scrypt
+//
+// Better-Auth's default uses @noble/hashes scrypt which runs on the main
+// event loop. Under concurrent load this blocks all requests while hashing.
+// Node.js crypto.scrypt() offloads the work to the libuv thread pool,
+// allowing the event loop to remain responsive.
+//
+// Parameters match Better-Auth's defaults exactly:
+//   N=16384, r=16, p=1, dkLen=64, 16-byte salt
+// ---------------------------------------------------------------------------
+
+const SCRYPT_PARAMS = { maxmem: 128 * 16384 * 16 * 2, N: 16384, p: 1, r: 16 };
+const SCRYPT_KEY_LENGTH = 64;
+
 /**
  * Generates a cryptographically secure random secret.
  * Used as fallback when no BETTER_AUTH_SECRET is configured.
@@ -25,6 +40,38 @@ export type BetterAuthInstance = ReturnType<typeof betterAuth>;
  */
 function generateSecureSecret(): string {
   return crypto.randomBytes(32).toString('base64');
+}
+
+/**
+ * Hash a password using Node.js native crypto.scrypt (libuv thread pool).
+ * Output format matches Better-Auth: "salt:hash" (both hex encoded).
+ */
+async function nativeScryptHash(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const normalized = password.normalize('NFKC');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(normalized, salt, SCRYPT_KEY_LENGTH, SCRYPT_PARAMS, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+  return `${salt}:${key.toString('hex')}`;
+}
+
+/**
+ * Verify a password against a Better-Auth scrypt hash using Node.js native crypto.scrypt.
+ */
+async function nativeScryptVerify(data: { hash: string; password: string }): Promise<boolean> {
+  const [salt, storedKey] = data.hash.split(':');
+  if (!salt || !storedKey) return false;
+  const normalized = data.password.normalize('NFKC');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(normalized, salt, SCRYPT_KEY_LENGTH, SCRYPT_PARAMS, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+  return crypto.timingSafeEqual(key, Buffer.from(storedKey, 'hex'));
 }
 
 /**
@@ -268,6 +315,10 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     // Can be disabled by setting config.emailAndPassword.enabled = false
     emailAndPassword: {
       enabled: config.emailAndPassword?.enabled !== false,
+      password: {
+        hash: nativeScryptHash,
+        verify: nativeScryptVerify,
+      },
     },
     plugins,
     secret: validation.resolvedSecret || config.secret,
