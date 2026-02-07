@@ -278,6 +278,15 @@ export const LtnsErrors = {
     },
   },
 
+  SIGNUP_DISABLED: {
+    code: 'LTNS_0026',
+    message: 'Sign-up is currently disabled',
+    translations: {
+      de: 'Die Registrierung ist derzeit deaktiviert.',
+      en: 'Sign-up is currently disabled.',
+    },
+  },
+
   // =====================================================
   // Authorization Errors (LTNS_0100-LTNS_0199)
   // =====================================================

@@ -1694,6 +1694,14 @@ interface IBetterAuthBase {
    */
   emailAndPassword?: {
     /**
+     * Disable user registration (sign-up) via BetterAuth.
+     * Passed through to better-auth's native emailAndPassword.disableSignUp.
+     * Custom endpoints (GraphQL + REST) also check this flag early.
+     * @default false
+     */
+    disableSignUp?: boolean;
+
+    /**
      * Whether email/password authentication is enabled.
      * @default true
      */
@@ -1993,10 +2001,7 @@ interface IBetterAuthBase {
  * };
  * ```
  */
-type IBetterAuthPasskeyDisabled =
-  | false
-  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled: false })
-  | undefined;
+type IBetterAuthPasskeyDisabled = false | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled: false }) | undefined;
 
 /**
  * Passkey configuration that is considered "enabled".
@@ -2006,9 +2011,7 @@ type IBetterAuthPasskeyDisabled =
  * - `{ enabled: true, ... }` (explicit enabled)
  * - `{ rpName: 'My App', ... }` (config without explicit enabled = defaults to true)
  */
-type IBetterAuthPasskeyEnabled =
-  | (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled?: true })
-  | true;
+type IBetterAuthPasskeyEnabled = (Omit<IBetterAuthPasskeyConfig, 'enabled'> & { enabled?: true }) | true;
 
 /**
  * BetterAuth configuration WITHOUT Passkey (or Passkey disabled).
