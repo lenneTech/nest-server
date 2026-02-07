@@ -426,7 +426,7 @@ function buildEmailVerificationConfig(
       _request?: Request,
     ) => {
       // Don't await to prevent timing attacks (as recommended by Better-Auth docs)
-       
+
       sendVerificationEmail(data);
     };
   }
@@ -918,7 +918,11 @@ function normalizePasskeyConfig(
   // Resolve values: explicit config > resolved URLs
   const finalRpId = rawConfig.rpId || resolvedUrls.rpId;
   const finalOrigin = rawConfig.origin || resolvedUrls.appUrl;
-  const finalTrustedOrigins = config.trustedOrigins?.length ? config.trustedOrigins : resolvedUrls.appUrl ? [resolvedUrls.appUrl] : undefined;
+  const finalTrustedOrigins = config.trustedOrigins?.length
+    ? config.trustedOrigins
+    : resolvedUrls.appUrl
+      ? [resolvedUrls.appUrl]
+      : undefined;
 
   // Check if we have all required values for Passkey
   const hasRequiredConfig = finalRpId && finalOrigin && finalTrustedOrigins?.length;

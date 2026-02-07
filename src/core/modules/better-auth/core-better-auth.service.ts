@@ -593,10 +593,7 @@ export class CoreBetterAuthService {
           {
             $match: {
               $expr: {
-                $or: [
-                  { $eq: ['$userId', userId] },
-                  { $eq: [{ $toString: '$userId' }, userId] },
-                ],
+                $or: [{ $eq: ['$userId', userId] }, { $eq: [{ $toString: '$userId' }, userId] }],
               },
               expiresAt: { $gt: new Date() },
             },
@@ -690,7 +687,9 @@ export class CoreBetterAuthService {
       }
       return !!result.user.emailVerified;
     } catch (error) {
-      this.logger.debug(`isUserEmailVerified error for ${maskEmail(email)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.debug(
+        `isUserEmailVerified error for ${maskEmail(email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return null;
     }
   }
@@ -867,7 +866,10 @@ export class CoreBetterAuthService {
    * @param token - Optional JWT token to verify directly (bypasses header extraction)
    * @returns The JWT payload with user info, or null if no valid token
    */
-  async verifyJwtFromRequest(req: Request, token?: string): Promise<null | {
+  async verifyJwtFromRequest(
+    req: Request,
+    token?: string,
+  ): Promise<null | {
     [key: string]: any;
     email?: string;
     sub: string;
