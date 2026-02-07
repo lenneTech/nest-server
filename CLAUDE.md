@@ -55,7 +55,7 @@ npm run reinit         # Clean reinstall + tests + build
 **Key Components:**
 - `CoreModule` - Dynamic module with GraphQL, MongoDB, security
 - `src/core/common/` - Decorators, helpers, interceptors, services
-- `src/core/modules/` - Auth, BetterAuth, File, User, HealthCheck
+- `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Migrate, SystemSetup, Tus, User
 
 See `.claude/rules/architecture.md` for detailed documentation.
 

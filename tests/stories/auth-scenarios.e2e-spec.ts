@@ -94,12 +94,17 @@ describe('Story: Authentication Scenarios', () => {
   });
 
   afterAll(async () => {
-    // Clean up test users
+    // Clean up test users (filtered by userId to avoid interfering with parallel tests)
     if (db) {
       for (const email of testEmails) {
-        await db.collection('users').deleteOne({ email });
-        await db.collection('account').deleteMany({});
-        await db.collection('session').deleteMany({});
+        const user = await db.collection('users').findOne({ email });
+        if (user) {
+          const userIds: any[] = [user._id, user._id.toString()];
+          if (user.iamId) userIds.push(user.iamId);
+          await db.collection('users').deleteOne({ _id: user._id });
+          await db.collection('account').deleteMany({ userId: { $in: userIds } });
+          await db.collection('session').deleteMany({ userId: { $in: userIds } });
+        }
       }
       for (const iamId of testIamUserIds) {
         await db.collection('users').deleteOne({ id: iamId });
