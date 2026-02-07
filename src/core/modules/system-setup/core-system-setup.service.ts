@@ -1,7 +1,9 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
+import { isEmail } from 'class-validator';
 import { Connection } from 'mongoose';
 
+import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthService } from '../better-auth/core-better-auth.service';
 import { ErrorCode } from '../error-code/error-codes';
@@ -45,14 +47,78 @@ export interface SystemSetupStatus {
  * - Race conditions handled by MongoDB unique email index
  */
 @Injectable()
-export class CoreSystemSetupService {
+export class CoreSystemSetupService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CoreSystemSetupService.name);
 
   constructor(
     @InjectConnection() private readonly connection: Connection,
     private readonly betterAuthService: CoreBetterAuthService,
     private readonly userMapper: CoreBetterAuthUserMapper,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Automatically create the initial admin on server start if configured via
+   * `systemSetup.initialAdmin` in config or ENV variables.
+   *
+   * Uses OnApplicationBootstrap (not OnModuleInit) to ensure BetterAuth
+   * is fully initialized before attempting user creation.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    const initialAdmin = this.configService.configFastButReadOnly?.systemSetup?.initialAdmin;
+
+    // No initialAdmin config at all → skip silently
+    if (!initialAdmin) {
+      return;
+    }
+
+    // Partial credentials → warn and skip
+    if (!initialAdmin.email || !initialAdmin.password) {
+      const missing = [
+        !initialAdmin.email && 'email',
+        !initialAdmin.password && 'password',
+      ].filter(Boolean).join(', ');
+      this.logger.warn(`Incomplete initialAdmin config - missing: ${missing}. Auto-creation skipped.`);
+      return;
+    }
+
+    // Validate email format (same validator as @IsEmail() decorator)
+    if (!isEmail(initialAdmin.email)) {
+      this.logger.warn(`Invalid initialAdmin email format: "${initialAdmin.email}". Auto-creation skipped.`);
+      return;
+    }
+
+    // Validate password is not empty/whitespace
+    if (!initialAdmin.password.trim()) {
+      this.logger.warn('Empty initialAdmin password. Auto-creation skipped.');
+      return;
+    }
+
+    const status = await this.getSetupStatus();
+    if (!status.needsSetup) {
+      return;
+    }
+
+    if (!status.betterAuthEnabled) {
+      this.logger.warn('Initial admin auto-creation skipped: BetterAuth not enabled');
+      return;
+    }
+
+    try {
+      const result = await this.createInitialAdmin({
+        email: initialAdmin.email,
+        name: initialAdmin.name,
+        password: initialAdmin.password,
+      });
+      this.logger.log(`Auto-created initial admin on startup: ${result.email}`);
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        this.logger.log('Initial admin auto-creation skipped (users already exist)');
+      } else {
+        this.logger.warn(`Initial admin auto-creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+  }
 
   /**
    * Check if the system needs initial setup (zero users)

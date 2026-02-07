@@ -4,14 +4,13 @@ Initial admin user creation for fresh deployments of @lenne.tech/nest-server.
 
 ## TL;DR
 
-```typescript
-// config.env.ts - enable system setup endpoints
-systemSetup: {},
+System setup is **enabled by default** when BetterAuth is active. No configuration needed.
 
-// Requires BetterAuth to be enabled
-betterAuth: {
-  // ...
-},
+For automated deployments (Docker, CI/CD), set initial admin credentials via ENV:
+
+```bash
+NSC__systemSetup__initialAdmin__email=admin@example.com
+NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
 ```
 
 **Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [Endpoints](#endpoints) | [Configuration](#configuration) | [Security](#security)
@@ -23,6 +22,7 @@ betterAuth: {
 - [Purpose](#purpose)
 - [Endpoints](#endpoints)
 - [Configuration](#configuration)
+- [Auto-Creation via Config/ENV](#auto-creation-via-configenv)
 - [Security](#security)
 - [Frontend Integration](#frontend-integration)
 - [Troubleshooting](#troubleshooting)
@@ -31,12 +31,12 @@ betterAuth: {
 
 ## Purpose
 
-When a system is freshly deployed (zero users in the database), there is no way to create an initial admin user - especially when BetterAuth's `disableSignUp` is enabled. This module provides two public REST endpoints:
+When a system is freshly deployed (zero users in the database), there is no way to create an initial admin user - especially when BetterAuth's `disableSignUp` is enabled. This module provides:
 
-1. **Status check** - Does the system need initial setup?
-2. **Init** - Create the first admin user
+1. **REST endpoints** - Manual admin creation via API call
+2. **Auto-creation** - Automatic admin creation on server start via config/ENV
 
-Once any user exists, the init endpoint is permanently locked (returns 403).
+Once any user exists, the init endpoint is permanently locked (returns 403) and auto-creation is skipped.
 
 ---
 
@@ -98,33 +98,83 @@ Creates the initial admin user. Only works when zero users exist.
 
 ## Configuration
 
-Follows the ["Presence implies enabled"](../../../.claude/rules/configurable-features.md) pattern:
+System setup is **enabled by default** when BetterAuth is active:
 
 | Config | Effect |
 |--------|--------|
-| `systemSetup: undefined` | Disabled (default, backward compatible) |
-| `systemSetup: {}` | Enabled |
+| *(not set)* | Enabled (when BetterAuth is active) |
 | `systemSetup: { enabled: false }` | Disabled explicitly |
+| `systemSetup: { initialAdmin: { ... } }` | Enabled with auto-creation |
 
 ```typescript
 // config.env.ts
-{
-  systemSetup: {},
 
-  betterAuth: {
-    emailAndPassword: {
-      disableSignUp: true, // System setup bypasses this
-    },
+// Enabled by default - no config needed
+
+// Disable explicitly
+systemSetup: { enabled: false },
+
+// Enable with auto-creation (for automated deployments)
+systemSetup: {
+  initialAdmin: {
+    email: process.env.INITIAL_ADMIN_EMAIL,
+    password: process.env.INITIAL_ADMIN_PASSWORD,
   },
-}
+},
 ```
+
+---
+
+## Auto-Creation via Config/ENV
+
+For automated deployments where no manual REST call is possible (Docker, CI/CD, Kubernetes), configure initial admin credentials via environment variables:
+
+### Via NSC Environment Variables
+
+```bash
+NSC__systemSetup__initialAdmin__email=admin@example.com
+NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
+NSC__systemSetup__initialAdmin__name=Admin  # optional
+```
+
+### Via config.env.ts
+
+```typescript
+systemSetup: {
+  initialAdmin: {
+    email: process.env.INITIAL_ADMIN_EMAIL,
+    password: process.env.INITIAL_ADMIN_PASSWORD,
+    name: 'Admin',
+  },
+},
+```
+
+### Via NEST_SERVER_CONFIG JSON
+
+```bash
+NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example.com", "password": "SecurePassword123!" } } }'
+```
+
+### Behavior
+
+- The admin is created automatically during application bootstrap (`OnApplicationBootstrap`)
+- Same zero-user guard applies: only works when no users exist
+- If users already exist, auto-creation is silently skipped (no error)
+- Race conditions between multiple instances are handled gracefully
+
+### Security Best Practices
+
+1. **Remove credentials after first deployment** - Once the admin exists, the ENV vars are unused
+2. **Use secrets management** - Docker Secrets, Kubernetes Secrets, Vault, etc.
+3. **Never commit credentials** - Use `.env` files (gitignored) or external secret stores
+4. **Use strong passwords** - Minimum 8 characters, recommended 16+
 
 ---
 
 ## Security
 
 1. **Zero-user guard** - Init only works when `countDocuments({}) === 0`
-2. **Opt-in only** - Module not loaded unless `systemSetup` is configured
+2. **Enabled by default** - Safe because endpoints are permanently locked once any user exists
 3. **Race condition protection** - MongoDB unique email index prevents duplicates
 4. **Permanent lock** - Once any user exists, init returns 403
 5. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
@@ -181,13 +231,22 @@ if (needsSetup) {
 1. Ensure `betterAuth` is configured in `config.env.ts`
 2. Verify BetterAuth is running (check server startup logs)
 
-### Endpoints return 404
+### Auto-creation not working
 
-**Cause:** System setup module is not loaded.
+**Cause:** Missing or incomplete ENV variables.
 
 **Solutions:**
-1. Add `systemSetup: {}` to `config.env.ts`
-2. Verify the module is imported (check server startup logs for `CoreSystemSetupController`)
+1. Verify both `email` and `password` are set
+2. Check server logs for `Auto-created initial admin on startup` or warning messages
+3. Ensure BetterAuth is fully initialized (check startup logs)
+
+### Endpoints return 404
+
+**Cause:** System setup module is disabled.
+
+**Solutions:**
+1. Check that BetterAuth is enabled (system setup requires it)
+2. Ensure `systemSetup` is not set to `{ enabled: false }`
 
 ---
 

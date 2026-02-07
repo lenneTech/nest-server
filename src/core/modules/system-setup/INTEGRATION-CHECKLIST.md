@@ -1,19 +1,19 @@
 # System Setup Integration Checklist
 
-**For enabling initial admin creation on fresh deployments in projects using `@lenne.tech/nest-server`.**
+**For initial admin creation on fresh deployments in projects using `@lenne.tech/nest-server`.**
 
-> **Note:** System setup is **disabled by default**. This checklist shows how to enable it. No custom code is needed unless you want to extend the controller.
+> **Note:** System setup is **enabled by default** when BetterAuth is active. No explicit configuration is needed for the REST endpoints to work.
 
 ---
 
 ## Do You Need This Checklist?
 
-| Scenario | Checklist Needed? |
-|----------|-------------------|
-| Fresh deployment needs initial admin creation | Yes - Step 1 |
-| Using `disableSignUp: true` and need first admin | Yes - Step 1 |
-| Custom setup logic (extra fields, notifications) | Yes - Steps 1 + 2 |
-| Don't need initial admin creation | No |
+| Scenario | Action Needed |
+|----------|---------------|
+| Fresh deployment needs initial admin creation | None - endpoints are available by default |
+| Automated deployment (Docker/CI) needs auto-creation | Set ENV variables (Step 1) |
+| Want to disable system setup | Set `systemSetup: { enabled: false }` in config |
+| Custom setup logic (extra fields, notifications) | Step 2 (Custom Controller) |
 
 ---
 
@@ -29,27 +29,31 @@ https://github.com/lenneTech/nest-server/tree/develop/src/core/modules/system-se
 
 ---
 
-## Step 1: Enable in Configuration (Required)
+## Step 1: Auto-Creation via ENV (Optional)
 
-**Edit:** `src/config.env.ts`
+For automated deployments where no manual REST call is possible:
 
-Add `systemSetup: {}` to your environment configuration:
-
-```typescript
-// config.env.ts
-{
-  // ... other config
-
-  systemSetup: {},
-
-  // BetterAuth must also be enabled
-  betterAuth: {
-    // ...
-  },
-}
+```bash
+# .env or Docker environment
+NSC__systemSetup__initialAdmin__email=admin@example.com
+NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
+NSC__systemSetup__initialAdmin__name=Admin  # optional
 ```
 
-That's it. The module is auto-registered when the config is present.
+Or in `config.env.ts`:
+
+```typescript
+systemSetup: {
+  initialAdmin: {
+    email: process.env.INITIAL_ADMIN_EMAIL,
+    password: process.env.INITIAL_ADMIN_PASSWORD,
+  },
+},
+```
+
+The admin is created automatically on server start when zero users exist.
+
+**Security:** Remove credentials from ENV after the first successful deployment.
 
 ---
 
@@ -70,7 +74,7 @@ export class SystemSetupController extends CoreSystemSetupController {
 }
 ```
 
-> **Note:** Unlike other modules, the SystemSetup module auto-registers its controller via CoreModule. To use a custom controller, you would need to disable auto-registration and register your own module.
+> **Note:** The SystemSetup module auto-registers its controller via CoreModule. To use a custom controller, you would need to disable auto-registration and register your own module.
 
 ---
 
@@ -89,10 +93,11 @@ export class SystemSetupController extends CoreSystemSetupController {
 
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
-| Missing `systemSetup` in config | 404 on `/api/system-setup/*` | Add `systemSetup: {}` to config.env.ts |
-| BetterAuth not enabled | 403 "System setup requires BetterAuth" | Ensure `betterAuth` is configured |
+| BetterAuth not enabled | 404 on endpoints or 403 on init | Ensure `betterAuth` is configured |
 | Calling init with existing users | 403 "System setup not available" | Init only works on empty database |
 | Password too short | 400 validation error | Password must be at least 8 characters |
+| Missing ENV password | Auto-creation silently skipped | Set both `email` and `password` ENV vars |
+| `systemSetup: { enabled: false }` in config | 404 on endpoints | Remove the explicit disable |
 
 ---
 

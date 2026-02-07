@@ -203,7 +203,7 @@ This pattern is currently applied to:
 | BetterAuth 2FA Plugin | `betterAuth.twoFactor` | Boolean Shorthand | `appName: 'Nest Server'` |
 | BetterAuth Passkey Plugin | `betterAuth.passkey` | Boolean Shorthand | `rpName: 'Nest Server'` |
 | BetterAuth Disable Sign-Up | `betterAuth.emailAndPassword.disableSignUp` | Explicit Boolean | `false` (sign-up enabled) |
-| System Setup | `systemSetup` | Presence Implies Enabled | (none) |
+| System Setup | `systemSetup` | Enabled by Default (when BetterAuth active) | `initialAdmin: undefined` |
 
 ## Checklist for New Configurable Features
 

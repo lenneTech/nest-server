@@ -303,16 +303,9 @@ export class CoreModule implements NestModule {
       }
     }
 
-    // Add CoreSystemSetupModule based on configuration
-    // Requires BetterAuth to be enabled (uses CoreBetterAuthService internally)
-    // Follows "presence implies enabled" pattern
-    const systemSetupConfig = config.systemSetup;
-    if (
-      isBetterAuthEnabled &&
-      systemSetupConfig !== undefined &&
-      systemSetupConfig !== null &&
-      systemSetupConfig?.enabled !== false
-    ) {
+    // Add CoreSystemSetupModule when BetterAuth is active
+    // Enabled by default - disable explicitly via systemSetup: { enabled: false }
+    if (isBetterAuthEnabled && config.systemSetup?.enabled !== false) {
       imports.push(CoreSystemSetupModule);
     }
 

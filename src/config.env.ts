@@ -144,7 +144,6 @@ const config: { [env: string]: IServerOptions } = {
       options: { prefix: '' },
       path: join(__dirname, '..', 'public'),
     },
-    systemSetup: {},
     templates: {
       engine: 'ejs',
       path: join(__dirname, 'templates'),
@@ -389,7 +388,6 @@ const config: { [env: string]: IServerOptions } = {
       options: { prefix: '' },
       path: join(__dirname, '..', 'public'),
     },
-    systemSetup: {},
     templates: {
       engine: 'ejs',
       path: join(__dirname, 'templates'),
