@@ -273,6 +273,7 @@ export class CoreBetterAuthController {
       passkey: this.betterAuthService.isPasskeyEnabled(),
       resendCooldownSeconds: this.emailVerificationService?.getConfig()?.resendCooldownSeconds ?? 60,
       signUpChecks: this.signUpValidator?.isEnabled() ?? false,
+      signUpEnabled: this.betterAuthService.isSignUpEnabled(),
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
@@ -478,6 +479,7 @@ export class CoreBetterAuthController {
     @Body() input: CoreBetterAuthSignUpInput,
   ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
+    this.betterAuthService.ensureSignUpEnabled();
 
     // Validate sign-up input (termsAndPrivacyAccepted is required by default)
     if (this.signUpValidator) {

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
@@ -7,6 +7,7 @@ import { Connection } from 'mongoose';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthInstance } from './better-auth.config';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
@@ -153,6 +154,26 @@ export class CoreBetterAuthService {
     if (this.config.passkey === false) return false;
     if (typeof this.config.passkey === 'object' && this.config.passkey?.enabled === false) return false;
     return true;
+  }
+
+  /**
+   * Checks if sign-up is enabled.
+   * Sign-up is enabled by default unless explicitly disabled via
+   * emailAndPassword.disableSignUp: true
+   */
+  isSignUpEnabled(): boolean {
+    if (!this.isEnabled()) return false;
+    return this.config.emailAndPassword?.disableSignUp !== true;
+  }
+
+  /**
+   * Throws BadRequestException if sign-up is disabled.
+   * Used by Controller and Resolver as a guard before sign-up logic.
+   */
+  ensureSignUpEnabled(): void {
+    if (!this.isSignUpEnabled()) {
+      throw new BadRequestException(ErrorCode.SIGNUP_DISABLED);
+    }
   }
 
   /**

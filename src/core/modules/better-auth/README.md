@@ -574,6 +574,32 @@ const config = {
 };
 ```
 
+### Disable Sign-Up
+
+Disable user registration while keeping sign-in active (e.g., invite-only apps, admin-created accounts):
+
+```typescript
+const config = {
+  betterAuth: {
+    emailAndPassword: {
+      disableSignUp: true, // Block new registrations (REST + GraphQL)
+    },
+  },
+};
+```
+
+When disabled:
+- REST `POST /iam/sign-up/email` returns `400 Bad Request` with error `LTNS_0026`
+- GraphQL `betterAuthSignUp` mutation returns error `LTNS_0026`
+- `betterAuthFeatures` reports `signUpEnabled: false`
+- Sign-in continues to work for existing users
+
+**Defense in Depth:** The flag is enforced at two layers:
+1. **Custom check** (`CoreBetterAuthService.ensureSignUpEnabled()`) runs in Controller/Resolver *before* any BetterAuth API call and returns a structured `LTNS_0026` error.
+2. **Native BetterAuth** `emailAndPassword.disableSignUp` acts as a safety net for any direct API access that bypasses the custom check.
+
+**Default:** `false` (sign-up enabled) - fully backward compatible.
+
 ### Additional User Fields
 
 Add custom fields to the Better-Auth user schema:
@@ -1049,6 +1075,7 @@ type CoreBetterAuthFeaturesModel {
   jwt: Boolean!
   twoFactor: Boolean!
   passkey: Boolean!
+  signUpEnabled: Boolean!
   socialProviders: [String!]!
 }
 ```
@@ -1100,6 +1127,7 @@ query {
     jwt
     twoFactor
     passkey
+    signUpEnabled
     socialProviders
   }
 }
@@ -1247,6 +1275,7 @@ export class MyService {
 | `isJwtEnabled()`                    | Check if JWT plugin is enabled               |
 | `isTwoFactorEnabled()`              | Check if 2FA is enabled                      |
 | `isPasskeyEnabled()`                | Check if Passkey is enabled                  |
+| `isSignUpEnabled()`                 | Check if sign-up is enabled                  |
 | `getEnabledSocialProviders()`       | Get list of enabled social providers         |
 | `getBasePath()`                     | Get the base path for endpoints              |
 | `getBaseUrl()`                      | Get the base URL                             |
@@ -1969,6 +1998,9 @@ These protected methods are available for use in your custom resolver:
 ```typescript
 // Check if Better-Auth is enabled (throws if not)
 this.ensureEnabled();
+
+// Check if sign-up is enabled (throws if not) - delegated to service
+this.betterAuthService.ensureSignUpEnabled();
 
 // Convert Express headers to Web API Headers
 const headers = this.convertHeaders(ctx.req.headers);

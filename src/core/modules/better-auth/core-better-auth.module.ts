@@ -1010,6 +1010,10 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       features.push('Sign-Up Checks');
     }
 
+    if (config.emailAndPassword?.disableSignUp) {
+      features.push('Sign-Up Disabled');
+    }
+
     if (features.length > 0) {
       this.logger.log(`Enabled features: ${features.join(', ')}`);
     }

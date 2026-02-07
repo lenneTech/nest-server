@@ -1694,6 +1694,14 @@ interface IBetterAuthBase {
    */
   emailAndPassword?: {
     /**
+     * Disable user registration (sign-up) via BetterAuth.
+     * Passed through to better-auth's native emailAndPassword.disableSignUp.
+     * Custom endpoints (GraphQL + REST) also check this flag early.
+     * @default false
+     */
+    disableSignUp?: boolean;
+
+    /**
      * Whether email/password authentication is enabled.
      * @default true
      */

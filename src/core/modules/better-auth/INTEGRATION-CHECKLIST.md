@@ -313,6 +313,12 @@ After integration, verify:
 - [ ] Passkey login redirects to dashboard after successful authentication
 - [ ] Passkey can be registered, listed, and deleted from security settings
 
+### Optional: Disable Sign-Up (`emailAndPassword.disableSignUp: true`)
+- [ ] REST `POST /iam/sign-up/email` returns `400` with error `LTNS_0026`
+- [ ] GraphQL `betterAuthSignUp` returns error `LTNS_0026`
+- [ ] `GET /iam/features` reports `signUpEnabled: false`
+- [ ] Sign-in still works for existing users
+
 ### Additional checks for Migration scenario:
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users
 - [ ] Sign-in via BetterAuth works for Legacy-created users

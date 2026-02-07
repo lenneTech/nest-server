@@ -190,6 +190,7 @@ export class CoreBetterAuthResolver {
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
+      signUpEnabled: this.betterAuthService.isSignUpEnabled(),
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
@@ -451,6 +452,7 @@ export class CoreBetterAuthResolver {
     @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
+    this.betterAuthService.ensureSignUpEnabled();
 
     // Validate sign-up input (termsAndPrivacyAccepted is required by default)
     if (this.signUpValidator) {
