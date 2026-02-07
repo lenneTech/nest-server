@@ -135,6 +135,9 @@ export class CoreBetterAuthFeaturesModel {
   @Field(() => Boolean, { description: 'Whether Passkey is enabled' })
   passkey: boolean;
 
+  @Field(() => Boolean, { description: 'Whether sign-up is enabled' })
+  signUpEnabled: boolean;
+
   @Field(() => [String], { description: 'List of enabled social providers' })
   socialProviders: string[];
 

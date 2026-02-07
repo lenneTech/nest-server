@@ -107,10 +107,7 @@ export class CoreBetterAuthResolver {
    * @throws UnauthorizedException if email is not verified and verification is required
    */
   protected checkEmailVerification(sessionUser: BetterAuthSessionUser): void {
-    if (
-      this.emailVerificationService?.isEnabled()
-      && !sessionUser.emailVerified
-    ) {
+    if (this.emailVerificationService?.isEnabled() && !sessionUser.emailVerified) {
       this.logger.debug(`[SignIn] Email not verified for ${maskEmail(sessionUser.email)}, blocking login`);
       throw new UnauthorizedException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
     }
@@ -193,6 +190,7 @@ export class CoreBetterAuthResolver {
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
+      signUpEnabled: this.betterAuthService.isSignUpEnabled(),
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
@@ -303,12 +301,16 @@ export class CoreBetterAuthResolver {
         body: { email, password },
       })) as BetterAuthSignInResponse | null;
 
-      this.logger.debug(`[SignIn] API response for ${maskEmail(email)}: ${JSON.stringify(response)?.substring(0, 200)}`);
+      this.logger.debug(
+        `[SignIn] API response for ${maskEmail(email)}: ${JSON.stringify(response)?.substring(0, 200)}`,
+      );
 
       // Check if response indicates an error (Better-Auth returns error objects, not throws)
       const responseAny = response as any;
       if (responseAny?.error || responseAny?.code === 'CREDENTIAL_ACCOUNT_NOT_FOUND') {
-        this.logger.debug(`[SignIn] API returned error for ${maskEmail(email)}: ${responseAny?.error || responseAny?.code}`);
+        this.logger.debug(
+          `[SignIn] API returned error for ${maskEmail(email)}: ${responseAny?.error || responseAny?.code}`,
+        );
         throw new Error(responseAny?.error || responseAny?.code || 'Credential account not found');
       }
 
@@ -341,7 +343,8 @@ export class CoreBetterAuthResolver {
         // 2. token (top-level, some BetterAuth versions)
         // 3. session.token (session-based fallback)
         const responseAny = response as any;
-        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const rawToken =
+          responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
         const token = await this.resolveJwtToken(rawToken);
 
         return {
@@ -410,7 +413,8 @@ export class CoreBetterAuthResolver {
     // 2. token (top-level, some BetterAuth versions)
     // 3. session.token (session-based fallback)
     const responseAny = response as any;
-    const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+    const rawToken =
+      responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
     const token = await this.resolveJwtToken(rawToken);
 
     return {
@@ -448,6 +452,7 @@ export class CoreBetterAuthResolver {
     @Args('termsAndPrivacyAccepted', { nullable: true }) termsAndPrivacyAccepted?: boolean,
   ): Promise<CoreBetterAuthAuthModel> {
     this.ensureEnabled();
+    this.betterAuthService.ensureSignUpEnabled();
 
     // Validate sign-up input (termsAndPrivacyAccepted is required by default)
     if (this.signUpValidator) {
@@ -487,7 +492,9 @@ export class CoreBetterAuthResolver {
           if (sessionToken) {
             await this.betterAuthService.revokeSession(sessionToken);
           }
-          this.logger.debug(`[SignUp] Email verification required for ${maskEmail(sessionUser.email)}, session revoked`);
+          this.logger.debug(
+            `[SignUp] Email verification required for ${maskEmail(sessionUser.email)}, session revoked`,
+          );
           return {
             emailVerificationRequired: true,
             requiresTwoFactor: false,

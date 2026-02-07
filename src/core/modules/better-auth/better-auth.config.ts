@@ -314,6 +314,12 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
     emailAndPassword: {
+      // Defense in Depth: This native Better-Auth flag is the second layer.
+      // The first layer is CoreBetterAuthService.ensureSignUpEnabled() which
+      // runs in Controller/Resolver BEFORE the BetterAuth API is called and
+      // returns a structured LTNS_0026 error. The native flag acts as a safety
+      // net in case the custom check is bypassed (e.g., direct API calls).
+      disableSignUp: config.emailAndPassword?.disableSignUp === true,
       enabled: config.emailAndPassword?.enabled !== false,
       password: {
         hash: nativeScryptHash,
@@ -426,7 +432,7 @@ function buildEmailVerificationConfig(
       _request?: Request,
     ) => {
       // Don't await to prevent timing attacks (as recommended by Better-Auth docs)
-       
+
       sendVerificationEmail(data);
     };
   }
@@ -918,7 +924,11 @@ function normalizePasskeyConfig(
   // Resolve values: explicit config > resolved URLs
   const finalRpId = rawConfig.rpId || resolvedUrls.rpId;
   const finalOrigin = rawConfig.origin || resolvedUrls.appUrl;
-  const finalTrustedOrigins = config.trustedOrigins?.length ? config.trustedOrigins : resolvedUrls.appUrl ? [resolvedUrls.appUrl] : undefined;
+  const finalTrustedOrigins = config.trustedOrigins?.length
+    ? config.trustedOrigins
+    : resolvedUrls.appUrl
+      ? [resolvedUrls.appUrl]
+      : undefined;
 
   // Check if we have all required values for Passkey
   const hasRequiredConfig = finalRpId && finalOrigin && finalTrustedOrigins?.length;

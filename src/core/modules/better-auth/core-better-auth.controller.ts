@@ -14,7 +14,15 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiBody, ApiCreatedResponse, ApiExcludeEndpoint, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiCreatedResponse,
+  ApiExcludeEndpoint,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -251,7 +259,10 @@ export class CoreBetterAuthController {
    * @since 11.13.0
    */
   @ApiOkResponse({ description: 'Better-Auth feature flags' })
-  @ApiOperation({ description: 'Get enabled Better-Auth features for client-side feature detection', summary: 'Get Features' })
+  @ApiOperation({
+    description: 'Get enabled Better-Auth features for client-side feature detection',
+    summary: 'Get Features',
+  })
   @Get('features')
   @Roles(RoleEnum.S_EVERYONE)
   getFeatures(): Record<string, boolean | number | string[]> {
@@ -262,6 +273,7 @@ export class CoreBetterAuthController {
       passkey: this.betterAuthService.isPasskeyEnabled(),
       resendCooldownSeconds: this.emailVerificationService?.getConfig()?.resendCooldownSeconds ?? 60,
       signUpChecks: this.signUpValidator?.isEnabled() ?? false,
+      signUpEnabled: this.betterAuthService.isSignUpEnabled(),
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
       twoFactor: this.betterAuthService.isTwoFactorEnabled(),
     };
@@ -345,7 +357,9 @@ export class CoreBetterAuthController {
         // Without this, users with 2FA enabled but unverified email could bypass verification
         await this.checkEmailVerificationByEmail(input.email);
 
-        this.logger.debug(`2FA required for ${maskEmail(input.email)}, forwarding to native handler for cookie handling`);
+        this.logger.debug(
+          `2FA required for ${maskEmail(input.email)}, forwarding to native handler for cookie handling`,
+        );
 
         // Forward to native Better Auth handler which sets the session cookie correctly
         // We need to modify the request body to use the normalized password
@@ -370,7 +384,7 @@ export class CoreBetterAuthController {
           body: modifiedBody,
           headers: new Headers({
             'Content-Type': 'application/json',
-            'Origin': req.headers.origin || baseUrl,
+            Origin: req.headers.origin || baseUrl,
           }),
           method: 'POST',
         });
@@ -407,7 +421,8 @@ export class CoreBetterAuthController {
         const mappedUser = await this.userMapper.mapSessionUser(response.user);
 
         // Get token: JWT accessToken > top-level token > session.token
-        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const rawToken =
+          responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
         const token = await this.resolveJwtToken(rawToken);
 
         const result: CoreBetterAuthResponse = {
@@ -464,6 +479,7 @@ export class CoreBetterAuthController {
     @Body() input: CoreBetterAuthSignUpInput,
   ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
+    this.betterAuthService.ensureSignUpEnabled();
 
     // Validate sign-up input (termsAndPrivacyAccepted is required by default)
     if (this.signUpValidator) {
@@ -494,7 +510,9 @@ export class CoreBetterAuthController {
       if (hasUser(response)) {
         // Link or create user in our database
         // Pass termsAndPrivacyAccepted to store the acceptance timestamp
-        await this.userMapper.linkOrCreateUser(response.user, { termsAndPrivacyAccepted: input.termsAndPrivacyAccepted });
+        await this.userMapper.linkOrCreateUser(response.user, {
+          termsAndPrivacyAccepted: input.termsAndPrivacyAccepted,
+        });
 
         // Sync password to legacy (enables IAM Sign-Up → Legacy Sign-In)
         // Pass the plain password so it can be hashed with bcrypt for Legacy Auth
@@ -506,7 +524,8 @@ export class CoreBetterAuthController {
         // Without this, no session cookies are set after sign-up, causing 401 on
         // subsequent authenticated requests (e.g., Passkey, 2FA, /token)
         const responseAny = response as any;
-        const rawToken = responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        const rawToken =
+          responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
         const token = await this.resolveJwtToken(rawToken);
 
         // If email verification is enabled, revoke the session and don't return session data
@@ -518,7 +537,9 @@ export class CoreBetterAuthController {
             await this.betterAuthService.revokeSession(sessionToken);
           }
           this.clearAuthCookies(res);
-          this.logger.debug(`[SignUp] Email verification required for ${maskEmail(response.user.email)}, session revoked`);
+          this.logger.debug(
+            `[SignUp] Email verification required for ${maskEmail(response.user.email)}, session revoked`,
+          );
           return {
             emailVerificationRequired: true,
             requiresTwoFactor: false,
@@ -692,10 +713,7 @@ export class CoreBetterAuthController {
    * @throws UnauthorizedException if email is not verified and verification is required
    */
   protected checkEmailVerification(sessionUser: BetterAuthSessionUser): void {
-    if (
-      this.emailVerificationService?.isEnabled()
-      && !sessionUser.emailVerified
-    ) {
+    if (this.emailVerificationService?.isEnabled() && !sessionUser.emailVerified) {
       this.logger.debug(`[SignIn] Email not verified for ${maskEmail(sessionUser.email)}, blocking login`);
       throw new UnauthorizedException(ErrorCode.EMAIL_VERIFICATION_REQUIRED);
     }
@@ -764,7 +782,9 @@ export class CoreBetterAuthController {
    * NOTE: The session token is intentionally NOT included in the response.
    * It is set as an httpOnly cookie for security.
    */
-  protected mapSession(session: null | undefined | { expiresAt: Date; id: string; token?: string }): CoreBetterAuthSessionInfo | undefined {
+  protected mapSession(
+    session: null | undefined | { expiresAt: Date; id: string; token?: string },
+  ): CoreBetterAuthSessionInfo | undefined {
     if (!session) return undefined;
     return {
       expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : String(session.expiresAt),
@@ -778,7 +798,7 @@ export class CoreBetterAuthController {
    * @param sessionUser - The user from Better-Auth session
    * @param _mappedUser - The synced user from legacy system (available for override customization)
    */
-   
+
   protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): CoreBetterAuthUserResponse {
     return {
       email: sessionUser.email,
@@ -802,7 +822,11 @@ export class CoreBetterAuthController {
    * @param result - The CoreBetterAuthResponse to return
    * @param sessionToken - Optional session token to set in cookies (if not provided, uses result.token)
    */
-  protected processCookies(res: Response, result: CoreBetterAuthResponse, sessionToken?: string): CoreBetterAuthResponse {
+  protected processCookies(
+    res: Response,
+    result: CoreBetterAuthResponse,
+    sessionToken?: string,
+  ): CoreBetterAuthResponse {
     const cookiesEnabled = this.configService.getFastButReadOnly('cookies') !== false;
 
     // If a specific session token is provided, use it directly
@@ -883,7 +907,11 @@ export class CoreBetterAuthController {
       this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 
       // Re-throw NestJS exceptions
-      if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof InternalServerErrorException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
 
