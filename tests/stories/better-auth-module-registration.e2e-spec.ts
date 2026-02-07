@@ -228,9 +228,8 @@ describe('Story: BetterAuth Module Registration', () => {
       const port = (httpServer.address() as any).port;
       testHelper = new TestHelper(app, `ws://127.0.0.1:${port}/graphql`);
 
-      mongoClient = new MongoClient('mongodb://127.0.0.1:27017');
-      await mongoClient.connect();
-      db = mongoClient.db('nest-server-local');
+      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
+      db = mongoClient.db();
 
       // Create a test user
       userEmail = generateTestEmail('config-pattern');
@@ -245,11 +244,19 @@ describe('Story: BetterAuth Module Registration', () => {
     }, 60000);
 
     afterAll(async () => {
-      // Cleanup test data
+      // Cleanup test data (filtered by userId to avoid interfering with parallel tests)
       if (db) {
+        const testUsers = await db.collection('users').find({ email: { $regex: /^reg-test-config-pattern/ } }).toArray();
+        const userIds = testUsers.flatMap((u) => {
+          const ids: any[] = [u._id, u._id.toString()];
+          if (u.iamId) ids.push(u.iamId);
+          return ids;
+        });
         await db.collection('users').deleteMany({ email: { $regex: /^reg-test-config-pattern/ } });
-        await db.collection('session').deleteMany({});
-        await db.collection('account').deleteMany({});
+        if (userIds.length > 0) {
+          await db.collection('session').deleteMany({ userId: { $in: userIds } });
+          await db.collection('account').deleteMany({ userId: { $in: userIds } });
+        }
       }
       if (mongoClient) {
         await mongoClient.close();

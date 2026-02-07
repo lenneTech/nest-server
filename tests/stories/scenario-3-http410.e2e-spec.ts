@@ -116,11 +116,19 @@ describe('Story: Scenario 3 - HTTP 410 for Disabled Legacy Endpoints', () => {
   });
 
   afterAll(async () => {
-    // Clean up test users
+    // Clean up test users (filtered by userId to avoid interfering with parallel tests)
     if (db && testEmails.length > 0) {
+      const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
+      const userIds = testUsers.flatMap((u) => {
+        const ids: any[] = [u._id, u._id.toString()];
+        if (u.iamId) ids.push(u.iamId);
+        return ids;
+      });
       await db.collection('users').deleteMany({ email: { $in: testEmails } });
-      await db.collection('account').deleteMany({});
-      await db.collection('session').deleteMany({});
+      if (userIds.length > 0) {
+        await db.collection('account').deleteMany({ userId: { $in: userIds } });
+        await db.collection('session').deleteMany({ userId: { $in: userIds } });
+      }
     }
     if (mongoClient) await mongoClient.close();
     if (app) await app.close();

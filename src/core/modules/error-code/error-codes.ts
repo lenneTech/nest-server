@@ -454,6 +454,37 @@ export const LtnsErrors = {
       en: 'Legacy authentication is disabled. Please use the new authentication.',
     },
   },
+
+  // =====================================================
+  // System Setup Errors (LTNS_0050-LTNS_0059)
+  // =====================================================
+
+  SYSTEM_SETUP_NOT_AVAILABLE: {
+    code: 'LTNS_0050',
+    message: 'System setup not available - users already exist',
+    translations: {
+      de: 'System-Setup nicht verfügbar - es existieren bereits Benutzer.',
+      en: 'System setup not available - users already exist.',
+    },
+  },
+
+  SYSTEM_SETUP_DISABLED: {
+    code: 'LTNS_0051',
+    message: 'System setup is disabled',
+    translations: {
+      de: 'System-Setup ist deaktiviert.',
+      en: 'System setup is disabled.',
+    },
+  },
+
+  SYSTEM_SETUP_BETTERAUTH_REQUIRED: {
+    code: 'LTNS_0052',
+    message: 'System setup requires BetterAuth',
+    translations: {
+      de: 'System-Setup erfordert BetterAuth.',
+      en: 'System setup requires BetterAuth.',
+    },
+  },
 } as const satisfies IErrorRegistry;
 /* eslint-enable perfectionist/sort-objects */
 

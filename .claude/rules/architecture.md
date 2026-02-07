@@ -45,9 +45,13 @@ Key areas: JWT, MongoDB, GraphQL, email, security, static assets
 |--------|---------|
 | **Auth** | JWT authentication, refresh tokens, role-based access |
 | **BetterAuth** | Modern auth integration (2FA, Passkey, Social) |
+| **ErrorCode** | Centralized error codes with unique identifiers |
 | **File** | File upload/download with GridFS storage |
-| **User** | Core user management functionality |
 | **HealthCheck** | Application health monitoring |
+| **Migrate** | Database migration utilities |
+| **SystemSetup** | Initial admin creation for fresh deployments |
+| **Tus** | Resumable file uploads via tus.io protocol |
+| **User** | Core user management functionality |
 
 ## Security Implementation
 

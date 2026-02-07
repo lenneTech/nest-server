@@ -1430,6 +1430,39 @@ export interface IServerOptions {
   };
 
   /**
+   * System setup configuration for initial admin creation.
+   *
+   * When enabled, provides REST endpoints for creating the first admin user
+   * on a fresh deployment (zero users in the database).
+   *
+   * Enabled by default when BetterAuth is active. Explicitly disable with:
+   * - `{ enabled: false }`: Disabled
+   *
+   * Auto-creation via config/ENV (no REST call needed):
+   * - `{ initialAdmin: { email: '...', password: '...' } }`
+   * - `NSC__systemSetup__initialAdmin__email` + `NSC__systemSetup__initialAdmin__password`
+   *
+   * @since 11.14.0
+   *
+   * @example
+   * ```typescript
+   * // Enabled by default (no config needed when BetterAuth is active)
+   *
+   * // Disable explicitly
+   * systemSetup: { enabled: false },
+   *
+   * // Auto-create admin on server start (useful for Docker/CI)
+   * systemSetup: {
+   *   initialAdmin: {
+   *     email: process.env.INITIAL_ADMIN_EMAIL,
+   *     password: process.env.INITIAL_ADMIN_PASSWORD,
+   *   },
+   * },
+   * ```
+   */
+  systemSetup?: ISystemSetup;
+
+  /**
    * Templates
    */
   templates?: {
@@ -1474,6 +1507,49 @@ export interface IServerOptions {
    * @since 11.8.0
    */
   tus?: boolean | ITusConfig;
+}
+
+export interface ISystemSetup {
+  /**
+   * Whether system setup is enabled.
+   * @default true (when BetterAuth is enabled)
+   */
+  enabled?: boolean;
+
+  /**
+   * Pre-configured initial admin credentials for automatic creation on server start.
+   *
+   * When set, the service will automatically create the initial admin user
+   * during application bootstrap if zero users exist. This is useful for
+   * automated deployments (Docker, CI/CD) where no manual REST call is possible.
+   *
+   * Can be provided via environment variables:
+   * - `NSC__systemSetup__initialAdmin__email`
+   * - `NSC__systemSetup__initialAdmin__password`
+   * - `NSC__systemSetup__initialAdmin__name` (optional)
+   *
+   * Security: Same zero-user guard applies - only works when no users exist.
+   */
+  initialAdmin?: ISystemSetupInitialAdmin;
+}
+
+/**
+ * System setup configuration interface
+ *
+ * Follows the "presence implies enabled" pattern:
+ * - `undefined`: Disabled (default, backward compatible)
+ * - `{}`: Enabled with defaults
+ * - `{ enabled: false }`: Disabled explicitly
+ *
+ * @since 11.14.0
+ */
+export interface ISystemSetupInitialAdmin {
+  /** Email address for the initial admin user */
+  email: string;
+  /** Name of the initial admin user (defaults to email prefix) */
+  name?: string;
+  /** Password for the initial admin user (minimum 8 characters) */
+  password: string;
 }
 
 /**
