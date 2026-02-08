@@ -69,13 +69,9 @@ export abstract class CoreFileService {
    * Duplicate file by name
    */
   async duplicateByName(name: string, newName: string): Promise<any> {
-    return new Promise(async (resolve) => {
-      resolve(
-        GridFSHelper.openDownloadStreamByName(this.files, name).pipe(
-          GridFSHelper.openUploadStream(this.files, newName),
-        ),
-      );
-    });
+    return GridFSHelper.openDownloadStreamByName(this.files, name).pipe(
+      GridFSHelper.openUploadStream(this.files, newName),
+    );
   }
 
   /**
@@ -221,8 +217,8 @@ export abstract class CoreFileService {
    * Can throw an exception if the rights do not fit
    */
   protected checkRights(
-    input: any,
-    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+    _input: any,
+    _options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): MaybePromise<boolean> {
     return true;
   }

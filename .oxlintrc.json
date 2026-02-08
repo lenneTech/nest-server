@@ -26,7 +26,8 @@
     "no-new": "off",
     "unicorn/consistent-function-scoping": "off",
     "unicorn/no-array-sort": "off",
-    "import/no-unassigned-import": "off"
+    "import/no-unassigned-import": "off",
+    "preserve-caught-error": "warn"
   },
   "overrides": [
     {

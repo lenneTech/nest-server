@@ -121,7 +121,7 @@ export abstract class CoreUserService<
   /**
    * Get verified state of user by token
    */
-    async getVerifiedState(token: string, serviceOptions?: ServiceOptions): Promise<boolean> {
+  async getVerifiedState(token: string, _serviceOptions?: ServiceOptions): Promise<boolean> {
     const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
 
     if (!user) {

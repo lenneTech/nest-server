@@ -23,18 +23,18 @@ const result = await testHelper.rest('/endpoint', options);
 
 ### TestRestOptions
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `method` | `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE'` | `'GET'` | HTTP method |
-| `token` | `string` | `null` | Bearer token via Authorization header |
-| `cookies` | `string \| Record<string, string>` | - | Cookie-based authentication (see below) |
-| `headers` | `Record<string, string>` | - | Custom request headers |
-| `payload` | `any` | `null` | Request body |
-| `statusCode` | `number` | `200` | Expected HTTP status code |
-| `returnResponse` | `boolean` | `false` | Return full response including headers |
-| `attachments` | `Record<string, string>` | - | File uploads (key: field name, value: file path) |
-| `log` | `boolean` | `false` | Log request config to console |
-| `logError` | `boolean` | `false` | Log error details when status >= 400 |
+| Option           | Type                                              | Default | Description                                      |
+| ---------------- | ------------------------------------------------- | ------- | ------------------------------------------------ |
+| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE'` | `'GET'` | HTTP method                                      |
+| `token`          | `string`                                          | `null`  | Bearer token via Authorization header            |
+| `cookies`        | `string \| Record<string, string>`                | -       | Cookie-based authentication (see below)          |
+| `headers`        | `Record<string, string>`                          | -       | Custom request headers                           |
+| `payload`        | `any`                                             | `null`  | Request body                                     |
+| `statusCode`     | `number`                                          | `200`   | Expected HTTP status code                        |
+| `returnResponse` | `boolean`                                         | `false` | Return full response including headers           |
+| `attachments`    | `Record<string, string>`                          | -       | File uploads (key: field name, value: file path) |
+| `log`            | `boolean`                                         | `false` | Log request config to console                    |
+| `logError`       | `boolean`                                         | `false` | Log error details when status >= 400             |
 
 ## Cookie Authentication
 
@@ -52,6 +52,7 @@ const result = await testHelper.rest('/endpoint', {
 ```
 
 This is equivalent to:
+
 ```typescript
 cookies: { 'iam.session_token': sessionToken, 'token': sessionToken }
 ```
@@ -76,10 +77,10 @@ const result = await testHelper.rest('/endpoint', {
 
 ### `token` vs `cookies`
 
-| Option | Transport | Use Case |
-|--------|-----------|----------|
-| `token` | `Authorization: Bearer <token>` header | JWT authentication |
-| `cookies` | `Cookie` header | Session-based authentication (BetterAuth) |
+| Option    | Transport                              | Use Case                                  |
+| --------- | -------------------------------------- | ----------------------------------------- |
+| `token`   | `Authorization: Bearer <token>` header | JWT authentication                        |
+| `cookies` | `Cookie` header                        | Session-based authentication (BetterAuth) |
 
 Both can be used simultaneously without conflict - `token` sets the Authorization header while `cookies` sets the Cookie header.
 
@@ -153,7 +154,7 @@ const session = await db.collection('session').findOne({ userId: user._id });
 
 // Use session token with auto-detection
 await testHelper.rest('/protected-endpoint', {
-  cookies: session.token,  // Auto -> iam.session_token=...; token=...
+  cookies: session.token, // Auto -> iam.session_token=...; token=...
 });
 ```
 
@@ -176,15 +177,18 @@ await testHelper.rest('/protected-endpoint', {
 ## GraphQL Testing (`testHelper.graphQl()`)
 
 ```typescript
-const result = await testHelper.graphQl({
-  name: 'findUsers',
-  type: TestGraphQLType.QUERY,
-  arguments: { filter: { email: { eq: 'test@test.com' } } },
-  fields: ['id', 'email', 'name'],
-}, {
-  token: jwtToken,
-  statusCode: 200,
-});
+const result = await testHelper.graphQl(
+  {
+    name: 'findUsers',
+    type: TestGraphQLType.QUERY,
+    arguments: { filter: { email: { eq: 'test@test.com' } } },
+    fields: ['id', 'email', 'name'],
+  },
+  {
+    token: jwtToken,
+    statusCode: 200,
+  },
+);
 ```
 
 See `TestGraphQLConfig` and `TestGraphQLOptions` interfaces in `test.helper.ts` for full configuration options.

@@ -22,15 +22,7 @@ export class AuthModule {
     return {
       controllers: [AuthController],
       exports: [AuthController, AuthResolver, CoreAuthModule, AuthService],
-      imports: [
-        CoreAuthModule.forRoot(UserModule, UserService, {
-          ...options,
-          ...{
-            // imports: [], // Integrate additional Services here to resolve dependencies
-            // providers: [] // Integrate additional Providers here to resolve dependencies
-          },
-        }),
-      ],
+      imports: [CoreAuthModule.forRoot(UserModule, UserService, { ...options })],
       module: AuthModule,
       providers: [AuthController, AuthResolver, AuthService, EmailService],
     };

@@ -8,11 +8,11 @@
 
 ## Choose Your Scenario
 
-| Scenario | Use When | Configuration | Complexity |
-|----------|----------|---------------|------------|
-| **A. additionalErrorRegistry** | Simple error code addition | Config in `config.env.ts` | Minimal |
-| **B. Custom Service** | Need custom locales or logic | Service inheritance | Low |
-| **C. Custom Controller** | Need custom controller/routes | Service + Controller | Medium |
+| Scenario                       | Use When                      | Configuration             | Complexity |
+| ------------------------------ | ----------------------------- | ------------------------- | ---------- |
+| **A. additionalErrorRegistry** | Simple error code addition    | Config in `config.env.ts` | Minimal    |
+| **B. Custom Service**          | Need custom locales or logic  | Service inheritance       | Low        |
+| **C. Custom Controller**       | Need custom controller/routes | Service + Controller      | Medium     |
 
 **Recommendation:** Start with **Scenario A**. Only use B or C if you need customization beyond adding error codes.
 
@@ -23,6 +23,7 @@
 All files are available as reference in the package:
 
 **Local (in your node_modules):**
+
 ```
 node_modules/@lenne.tech/nest-server/src/server/modules/error-code/
 ```
@@ -92,6 +93,7 @@ const config = {
 ## Scenario B: Custom Service (For Custom Locales)
 
 Use this when you need:
+
 - Additional locales (e.g., French, Spanish)
 - Custom logic in the service
 
@@ -105,6 +107,7 @@ Same as Scenario A, Step 1.
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/error-code/error-code.service.ts`
 
 **Optional customization - add locales:**
+
 ```typescript
 @Injectable()
 export class ErrorCodeService extends CoreErrorCodeService {
@@ -160,6 +163,7 @@ export class ServerModule {}
 ## Scenario C: Custom Controller (For Custom Routes)
 
 Use this when you need:
+
 - Custom controller endpoints (e.g., `/codes` listing)
 - Different route paths
 - Additional REST endpoints
@@ -171,6 +175,7 @@ Use this when you need:
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/error-code/`
 
 Files needed:
+
 - `error-codes.ts` - Your error definitions
 - `error-code.service.ts` - Service extending CoreErrorCodeService
 - `error-code.controller.ts` - Controller (**standalone**, not extending)
@@ -222,20 +227,21 @@ After integration, verify:
 - [ ] Translations include placeholders where needed (`{param}`)
 
 ### For Scenario C only:
+
 - [ ] `GET /api/i18n/errors/codes` returns all error codes (if implemented)
 
 ---
 
 ## Common Mistakes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| Forgot `autoRegister: false` | Project errors not appearing | Add `errorCode: { autoRegister: false }` to config |
-| Wrong error code format | Validation errors | Use `PREFIX_XXXX` format (4 digits) |
-| Missing translations | Runtime errors | Ensure all locales have translations |
-| Controller extends CoreErrorCodeController | `/codes` returns 404 | Use standalone controller |
-| Duplicate error codes | Unpredictable behavior | Ensure unique codes across all registries |
-| Forgot to import module | No error translations | Import ErrorCodeModule in ServerModule |
+| Mistake                                    | Symptom                      | Fix                                                |
+| ------------------------------------------ | ---------------------------- | -------------------------------------------------- |
+| Forgot `autoRegister: false`               | Project errors not appearing | Add `errorCode: { autoRegister: false }` to config |
+| Wrong error code format                    | Validation errors            | Use `PREFIX_XXXX` format (4 digits)                |
+| Missing translations                       | Runtime errors               | Ensure all locales have translations               |
+| Controller extends CoreErrorCodeController | `/codes` returns 404         | Use standalone controller                          |
+| Duplicate error codes                      | Unpredictable behavior       | Ensure unique codes across all registries          |
+| Forgot to import module                    | No error translations        | Import ErrorCodeModule in ServerModule             |
 
 ---
 
@@ -245,7 +251,7 @@ After integration, verify:
 import { ErrorCode, Errors } from '@lenne.tech/nest-server';
 
 // Type-safe error code access
-const code = ErrorCode.userNotFound;  // Returns '#LTNS_0001: User not found'
+const code = ErrorCode.userNotFound; // Returns '#LTNS_0001: User not found'
 
 // Factory functions with parameters
 throw new BadRequestException(Errors.userNotFound({ email: 'test@example.com' }));
@@ -254,7 +260,7 @@ throw new BadRequestException(Errors.userNotFound({ email: 'test@example.com' })
 // Project-specific errors (after registration)
 import { ErrorCode as ProjectErrorCode } from './common/errors/project-errors';
 
-const orderCode = ProjectErrorCode.ORDER_NOT_FOUND;  // '#PROJ_0001: Order not found'
+const orderCode = ProjectErrorCode.ORDER_NOT_FOUND; // '#PROJ_0001: Order not found'
 ```
 
 ---
@@ -263,10 +269,10 @@ const orderCode = ProjectErrorCode.ORDER_NOT_FOUND;  // '#PROJ_0001: Order not f
 
 ### REST Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/i18n/errors/:locale` | GET | Get translations for locale (de, en, ...) |
-| `/api/i18n/errors/codes` | GET | Get all error codes (Scenario C only) |
+| Endpoint                   | Method | Description                               |
+| -------------------------- | ------ | ----------------------------------------- |
+| `/api/i18n/errors/:locale` | GET    | Get translations for locale (de, en, ...) |
+| `/api/i18n/errors/codes`   | GET    | Get all error codes (Scenario C only)     |
 
 ### Response Format (Nuxt i18n compatible)
 
@@ -280,12 +286,13 @@ const orderCode = ProjectErrorCode.ORDER_NOT_FOUND;  // '#PROJ_0001: Order not f
 }
 ```
 
-> **Note:** Core LTNS_* translations are user-friendly messages without placeholders. Project-specific errors (PROJ_*) may include placeholders like `{orderId}` if defined in your `ProjectErrors` registry.
+> **Note:** Core LTNS*\* translations are user-friendly messages without placeholders. Project-specific errors (PROJ*\*) may include placeholders like `{orderId}` if defined in your `ProjectErrors` registry.
 
 ---
 
 ## Detailed Documentation
 
 For complete API reference and advanced topics:
+
 - **Core Error Codes:** `node_modules/@lenne.tech/nest-server/src/core/modules/error-code/error-codes.ts`
 - **Interfaces:** `node_modules/@lenne.tech/nest-server/src/core/modules/error-code/interfaces/error-code.interfaces.ts`

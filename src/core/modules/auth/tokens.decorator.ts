@@ -14,9 +14,9 @@ export const Tokens = createParamDecorator(
     const context = getContextData(ctx);
 
     // Get token from cookie or authorization header
-    const token
-      = context?.request?.cookies?.['token']
-      || context?.request
+    const token =
+      context?.request?.cookies?.['token'] ||
+      context?.request
         ?.get('Authorization')
         ?.replace(/bearer/i, '')
         .trim();

@@ -1,4 +1,12 @@
-import { ExecutionContext, ForbiddenException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { firstValueFrom, isObservable } from 'rxjs';
@@ -122,7 +130,10 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    */
   override async canActivate(context: ExecutionContext): Promise<boolean> {
     // Get roles FIRST to check if authentication is even needed
-    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     const roles: string[] = reflectorRoles[0]
       ? reflectorRoles[1]
         ? [...reflectorRoles[0], ...reflectorRoles[1]]
@@ -279,7 +290,10 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    */
   override handleRequest(err: Error | null, user: any, info: any, context: ExecutionContext) {
     // Get roles
-    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+    const reflectorRoles = this.ensureReflector().getAll<string[][]>('roles', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     const roles: string[] = reflectorRoles[0]
       ? reflectorRoles[1]
         ? [...reflectorRoles[0], ...reflectorRoles[1]]

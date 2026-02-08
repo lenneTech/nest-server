@@ -15,9 +15,10 @@ import { formatProjectName } from './better-auth.config';
  * Resolved configuration type for email verification
  * Uses Required for mandatory fields but preserves optional nature of brevoTemplateId
  */
-type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL'>
-  & Required<Omit<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL' | 'resendCooldownSeconds'>>
-  & { resendCooldownSeconds: number };
+type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL'> &
+  Required<Omit<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL' | 'resendCooldownSeconds'>> & {
+    resendCooldownSeconds: number;
+  };
 
 /**
  * Default configuration for email verification
@@ -109,7 +110,9 @@ export class CoreBetterAuthEmailVerificationService {
     protected readonly configService: ConfigService,
     @Optional() protected readonly emailService?: EmailService,
     @Optional() protected readonly templateService?: TemplateService,
-    @Optional() @Inject(CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN) protected readonly brevoService?: BrevoService | null,
+    @Optional()
+    @Inject(CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN)
+    protected readonly brevoService?: BrevoService | null,
   ) {
     this.configure();
   }
@@ -168,7 +171,6 @@ export class CoreBetterAuthEmailVerificationService {
     // Always log verification URL for development/testing (useful for capturing in tests)
     // Uses console.log directly to ensure reliable capture in test environments (Vitest)
     // NestJS Logger may buffer output which makes interception unreliable in tests
-    console.log(`[EMAIL VERIFICATION] User: ${user.email}, URL: ${url}`);
 
     // Brevo template path: send via Brevo transactional API if configured
     if (this.config.brevoTemplateId && this.brevoService) {
@@ -184,7 +186,9 @@ export class CoreBetterAuthEmailVerificationService {
         this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
         return;
       } catch (error) {
-        this.logger.error(`Failed to send verification email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.error(
+          `Failed to send verification email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
         throw error;
       }
     }
@@ -210,27 +214,21 @@ export class CoreBetterAuthEmailVerificationService {
         const templateContent = fs.readFileSync(`${resolved.path}.ejs`, 'utf-8');
         const html = ejs.render(templateContent, templateData);
 
-        await this.emailService.sendMail(
-          user.email,
-          this.getEmailSubject(appName),
-          { html },
-        );
+        await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
       } else {
         // Project template: use TemplateService (relative path)
-        await this.emailService.sendMail(
-          user.email,
-          this.getEmailSubject(appName),
-          {
-            htmlTemplate: resolved.path,
-            templateData,
-          },
-        );
+        await this.emailService.sendMail(user.email, this.getEmailSubject(appName), {
+          htmlTemplate: resolved.path,
+          templateData,
+        });
       }
 
       this.trackSend(user.email);
       this.logger.debug(`Verification email sent to ${this.maskEmail(user.email)}`);
     } catch (error) {
-      this.logger.error(`Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(
+        `Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       throw error;
     }
   }
@@ -245,7 +243,9 @@ export class CoreBetterAuthEmailVerificationService {
    * - If config is an object: enabled with merged settings (unless `enabled: false`)
    */
   protected configure(): void {
-    const rawConfig = this.configService.getFastButReadOnly<boolean | IBetterAuthEmailVerificationConfig>('betterAuth.emailVerification');
+    const rawConfig = this.configService.getFastButReadOnly<boolean | IBetterAuthEmailVerificationConfig>(
+      'betterAuth.emailVerification',
+    );
 
     // false = explicitly disabled
     if (rawConfig === false) {
@@ -302,7 +302,10 @@ export class CoreBetterAuthEmailVerificationService {
    * @param locale - The locale for the template
    * @returns Object with `path` (without .ejs) and `isAbsolute` flag
    */
-  protected async resolveTemplatePath(templateName: string, locale: string): Promise<{ isAbsolute: boolean; path: string }> {
+  protected async resolveTemplatePath(
+    templateName: string,
+    locale: string,
+  ): Promise<{ isAbsolute: boolean; path: string }> {
     const projectTemplatesPath = this.configService.getFastButReadOnly<string>('templates.path');
     const nestServerTemplatesPath = path.join(__dirname, '..', '..', '..', 'templates');
 
@@ -421,7 +424,10 @@ export class CoreBetterAuthEmailVerificationService {
     const key = email.toLowerCase();
 
     // Evict oldest entry if map is at capacity (before adding new one)
-    if (!this.lastSendTimes.has(key) && this.lastSendTimes.size >= CoreBetterAuthEmailVerificationService.MAX_SEND_TIMES_ENTRIES) {
+    if (
+      !this.lastSendTimes.has(key) &&
+      this.lastSendTimes.size >= CoreBetterAuthEmailVerificationService.MAX_SEND_TIMES_ENTRIES
+    ) {
       // Map preserves insertion order - first key is the oldest
       const oldestKey = this.lastSendTimes.keys().next().value;
       if (oldestKey) {

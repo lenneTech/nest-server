@@ -55,7 +55,7 @@ export function updateLanguage<T extends Record<string, any>, K extends readonly
   }
   input._translations = input._translations ?? {};
   input._translations[language] = {
-    ...(input._translations[language] ?? {}),
+    ...input._translations[language],
     ...changedFields,
   };
   return input;

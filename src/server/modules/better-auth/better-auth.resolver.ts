@@ -107,7 +107,9 @@ export class BetterAuthResolver extends CoreBetterAuthResolver {
     nullable: true,
   })
   @Roles(RoleEnum.S_USER)
-  override async betterAuthListPasskeys(@Context() ctx: { req: Request }): Promise<CoreBetterAuthPasskeyModel[] | null> {
+  override async betterAuthListPasskeys(
+    @Context() ctx: { req: Request },
+  ): Promise<CoreBetterAuthPasskeyModel[] | null> {
     return super.betterAuthListPasskeys(ctx);
   }
 

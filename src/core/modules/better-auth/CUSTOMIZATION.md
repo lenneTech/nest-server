@@ -29,13 +29,14 @@ There are **three ways** to register BetterAuth in a project. Choose based on yo
 // server.module.ts
 @Module({
   imports: [
-    CoreModule.forRoot(envConfig),  // Auto-imports CoreBetterAuthModule
+    CoreModule.forRoot(envConfig), // Auto-imports CoreBetterAuthModule
   ],
 })
 export class ServerModule {}
 ```
 
 **What happens:**
+
 - CoreModule automatically imports `CoreBetterAuthModule.forRoot()` with defaults
 - Default `CoreBetterAuthController` and `DefaultBetterAuthResolver` are registered
 - No additional configuration needed
@@ -51,8 +52,8 @@ import { IamResolver } from './server/modules/iam/iam.resolver';
 
 const config = {
   betterAuth: {
-    controller: IamController,  // Custom controller class
-    resolver: IamResolver,      // Custom resolver class
+    controller: IamController, // Custom controller class
+    resolver: IamResolver, // Custom resolver class
     // ... other betterAuth config
   },
 };
@@ -62,13 +63,14 @@ const config = {
 // server.module.ts
 @Module({
   imports: [
-    CoreModule.forRoot(envConfig),  // Uses custom controller/resolver from config
+    CoreModule.forRoot(envConfig), // Uses custom controller/resolver from config
   ],
 })
 export class ServerModule {}
 ```
 
 **What happens:**
+
 - CoreModule passes `controller`/`resolver` to `CoreBetterAuthModule.forRoot()`
 - Your custom classes are registered instead of defaults
 - Single registration point, no duplicate imports
@@ -81,7 +83,7 @@ export class ServerModule {}
 // config.env.ts
 const config = {
   betterAuth: {
-    autoRegister: false,  // CoreModule won't auto-import CoreBetterAuthModule
+    autoRegister: false, // CoreModule won't auto-import CoreBetterAuthModule
     // ... other betterAuth config
   },
 };
@@ -116,14 +118,15 @@ export class IamModule {
 // server.module.ts
 @Module({
   imports: [
-    CoreModule.forRoot(envConfig),  // Does NOT import CoreBetterAuthModule
-    IamModule.forRoot(),            // Your module is the single registration point
+    CoreModule.forRoot(envConfig), // Does NOT import CoreBetterAuthModule
+    IamModule.forRoot(), // Your module is the single registration point
   ],
 })
 export class ServerModule {}
 ```
 
 **What happens:**
+
 - CoreModule skips auto-import of CoreBetterAuthModule
 - Your IamModule is the only place CoreBetterAuthModule.forRoot() is called
 - Full control over module configuration and additional providers
@@ -195,12 +198,7 @@ export class IamController extends CoreBetterAuthController {
 
 ```typescript
 import { Mutation, Query, Resolver } from '@nestjs/graphql';
-import {
-  BetterAuthAuthModel,
-  CoreBetterAuthResolver,
-  RoleEnum,
-  Roles
-} from '@lenne.tech/nest-server';
+import { BetterAuthAuthModel, CoreBetterAuthResolver, RoleEnum, Roles } from '@lenne.tech/nest-server';
 
 @Resolver(() => BetterAuthAuthModel)
 export class IamResolver extends CoreBetterAuthResolver {
@@ -256,6 +254,7 @@ override async betterAuthSignUp(/* ... */) {
 ### CoreBetterAuthService
 
 The main service handling Better-Auth operations. Extend when you need to:
+
 - Modify token generation
 - Add custom session handling
 - Integrate with external auth providers
@@ -273,6 +272,7 @@ export class CustomBetterAuthService extends CoreBetterAuthService {
 ### CoreBetterAuthEmailVerificationService
 
 Handles email verification. Extend when you need to:
+
 - Customize verification email content
 - Change verification flow
 - Add custom logging/analytics
@@ -294,6 +294,7 @@ export class CustomEmailVerificationService extends CoreBetterAuthEmailVerificat
 ### CoreBetterAuthUserMapper
 
 Handles user mapping between BetterAuth and nest-server User model. Extend when you need to:
+
 - Sync additional fields
 - Custom user creation logic
 - Integration with external user systems
@@ -313,11 +314,11 @@ Email templates are resolved in this order:
 
 ### Available Templates
 
-| Template | Purpose | Default Locales |
-|----------|---------|-----------------|
-| `email-verification` | Email verification after sign-up | `en`, `de` |
-| `password-reset` | Password reset email | `en` |
-| `welcome` | Welcome email (not used by default) | `en` |
+| Template             | Purpose                             | Default Locales |
+| -------------------- | ----------------------------------- | --------------- |
+| `email-verification` | Email verification after sign-up    | `en`, `de`      |
+| `password-reset`     | Password reset email                | `en`            |
+| `welcome`            | Welcome email (not used by default) | `en`            |
 
 ### How to Override Templates
 
@@ -349,11 +350,11 @@ const config = {
 
 Available variables in email templates:
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `name` | string | User's name or email prefix |
-| `link` | string | Verification/reset URL |
-| `appName` | string | Application name from package.json |
+| Variable    | Type   | Description                                       |
+| ----------- | ------ | ------------------------------------------------- |
+| `name`      | string | User's name or email prefix                       |
+| `link`      | string | Verification/reset URL                            |
+| `appName`   | string | Application name from package.json                |
 | `expiresIn` | string | Human-readable expiration time (e.g., "24 hours") |
 
 ### Example Template
@@ -362,16 +363,16 @@ Available variables in email templates:
 <!-- src/templates/email-verification-en.ejs -->
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Verify your email - <%= appName %></title>
-</head>
-<body>
-  <h1>Hello <%= name %>,</h1>
-  <p>Please verify your email address by clicking the link below:</p>
-  <p><a href="<%= link %>">Verify Email</a></p>
-  <p>This link expires in <%= expiresIn %>.</p>
-  <p>Best regards,<br>The <%= appName %> Team</p>
-</body>
+  <head>
+    <title>Verify your email - <%= appName %></title>
+  </head>
+  <body>
+    <h1>Hello <%= name %>,</h1>
+    <p>Please verify your email address by clicking the link below:</p>
+    <p><a href="<%= link %>">Verify Email</a></p>
+    <p>This link expires in <%= expiresIn %>.</p>
+    <p>Best regards,<br />The <%= appName %> Team</p>
+  </body>
 </html>
 ```
 
@@ -384,7 +385,7 @@ For production, you can use Brevo (formerly Sendinblue) transactional templates:
 const config = {
   betterAuth: {
     emailVerification: {
-      brevoTemplateId: 123,  // Your Brevo template ID
+      brevoTemplateId: 123, // Your Brevo template ID
       locale: 'de',
     },
   },
@@ -395,6 +396,7 @@ const config = {
 ```
 
 **Brevo template parameters:**
+
 - `name` - User's name
 - `link` - Verification URL
 - `appName` - Application name
@@ -407,13 +409,13 @@ const config = {
 const config = {
   betterAuth: {
     emailVerification: {
-      enabled: true,                        // Default: true
-      locale: 'de',                         // Default: 'en'
-      template: 'email-verification',       // Default: 'email-verification'
-      expiresIn: 86400,                     // Default: 86400 (24 hours)
-      callbackURL: '/auth/verify-email',    // Frontend verification page
-      autoSignInAfterVerification: true,    // Default: true
-      resendCooldownSeconds: 60,            // Default: 60
+      enabled: true, // Default: true
+      locale: 'de', // Default: 'en'
+      template: 'email-verification', // Default: 'email-verification'
+      expiresIn: 86400, // Default: 86400 (24 hours)
+      callbackURL: '/auth/verify-email', // Frontend verification page
+      autoSignInAfterVerification: true, // Default: true
+      resendCooldownSeconds: 60, // Default: 60
     },
   },
 };
@@ -423,19 +425,20 @@ const config = {
 
 ## Pattern Selection Guide
 
-| Requirement | Recommended Pattern |
-|-------------|---------------------|
-| No customization needed | Pattern 1: Zero-Config |
-| Custom Controller only | Pattern 2: Config-based |
-| Custom Resolver only | Pattern 2: Config-based |
-| Custom Controller + Resolver | Pattern 2: Config-based |
-| Additional providers/services | Pattern 3: Separate Module |
-| Complex module with multiple exports | Pattern 3: Separate Module |
-| Need to avoid duplicate forRoot() warning | Pattern 2 or Pattern 3 |
+| Requirement                               | Recommended Pattern        |
+| ----------------------------------------- | -------------------------- |
+| No customization needed                   | Pattern 1: Zero-Config     |
+| Custom Controller only                    | Pattern 2: Config-based    |
+| Custom Resolver only                      | Pattern 2: Config-based    |
+| Custom Controller + Resolver              | Pattern 2: Config-based    |
+| Additional providers/services             | Pattern 3: Separate Module |
+| Complex module with multiple exports      | Pattern 3: Separate Module |
+| Need to avoid duplicate forRoot() warning | Pattern 2 or Pattern 3     |
 
 ### Avoiding the "forRoot() called twice" Warning
 
 If you see this warning:
+
 ```
 CoreBetterAuthModule.forRoot() was called more than once.
 ```
@@ -454,6 +457,7 @@ CoreBetterAuthModule.forRoot() was called more than once.
 All customization examples exist as working code in the package:
 
 **Local:**
+
 ```
 node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 ```
@@ -469,27 +473,29 @@ The BetterAuth module uses different RolesGuard implementations depending on you
 
 ### Which Guard is Used?
 
-| Mode | Guard Used | Registered By |
-|------|------------|---------------|
-| **Legacy Mode** (3-param CoreModule.forRoot) | `RolesGuard` | `CoreAuthModule` |
+| Mode                                           | Guard Used             | Registered By          |
+| ---------------------------------------------- | ---------------------- | ---------------------- |
+| **Legacy Mode** (3-param CoreModule.forRoot)   | `RolesGuard`           | `CoreAuthModule`       |
 | **IAM-Only Mode** (1-param CoreModule.forRoot) | `BetterAuthRolesGuard` | `CoreBetterAuthModule` |
 
 ```typescript
 // Legacy Mode → RolesGuard (extends Passport AuthGuard)
-CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(jwt), envConfig)
+CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(jwt), envConfig);
 
 // IAM-Only Mode → BetterAuthRolesGuard (no Passport dependency)
-CoreModule.forRoot(envConfig)
+CoreModule.forRoot(envConfig);
 ```
 
 ### Why Two Guards?
 
 **RolesGuard** (Legacy + Hybrid Mode):
+
 - Extends `AuthGuard(AuthGuardStrategy.JWT)` from Passport
 - Supports both Legacy JWT and BetterAuth tokens
 - Requires `CoreAuthModule` to register the JWT strategy
 
 **BetterAuthRolesGuard** (IAM-Only Mode):
+
 - Does NOT extend AuthGuard (no Passport dependency)
 - Uses BetterAuth exclusively for token verification
 - Avoids DI issues that occur with Passport AuthGuard mixin in certain module configurations
@@ -499,6 +505,7 @@ CoreModule.forRoot(envConfig)
 The `AuthGuard()` from `@nestjs/passport` is a **mixin** (a factory that returns a class). This mixin generates its own TypeScript `design:paramtypes` metadata, which can conflict with the child class's constructor parameters in certain NestJS DI contexts (specifically when registered as `APP_GUARD` in a dynamic module with `autoRegister: false`).
 
 `BetterAuthRolesGuard` avoids this by:
+
 1. Not extending any mixin
 2. Having no constructor dependencies (uses `Reflect.getMetadata` directly instead of NestJS Reflector)
 3. Accessing services via static module references
@@ -506,6 +513,7 @@ The `AuthGuard()` from `@nestjs/passport` is a **mixin** (a factory that returns
 ### What You Need to Know
 
 **Nothing changes for you as a developer:**
+
 - Use `@Roles()` decorator as always
 - The correct guard is selected automatically
 - Both guards process `@Roles()` identically

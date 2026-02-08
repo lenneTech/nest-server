@@ -162,7 +162,10 @@ export class BetterAuthTokenService {
    * @param payload - JWT payload with sub (user ID or iamId)
    * @returns User object with hasRole method, or null if not found
    */
-  private async loadUserFromPayload(payload: { [key: string]: unknown; sub: string }): Promise<BetterAuthenticatedUser | null> {
+  private async loadUserFromPayload(payload: {
+    [key: string]: unknown;
+    sub: string;
+  }): Promise<BetterAuthenticatedUser | null> {
     if (!this.connection) {
       return null;
     }
@@ -187,7 +190,9 @@ export class BetterAuthTokenService {
 
       return this.createUserWithHasRole(user);
     } catch (error) {
-      this.logger.debug(`Failed to load user from payload: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.debug(
+        `Failed to load user from payload: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return null;
     }
   }
@@ -231,7 +236,9 @@ export class BetterAuthTokenService {
 
       return this.createUserWithHasRole(user);
     } catch (error) {
-      this.logger.debug(`Failed to load user from session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.debug(
+        `Failed to load user from session: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return null;
     }
   }

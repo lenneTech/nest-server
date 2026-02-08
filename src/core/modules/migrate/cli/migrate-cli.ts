@@ -19,7 +19,6 @@
  *   --template-file, -t    Template file for creating migrations
  */
 
-
 import * as fs from 'fs';
 import * as path from 'path';
 

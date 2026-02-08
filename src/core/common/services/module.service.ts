@@ -96,7 +96,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       processFieldSelection: {},
       pubSub: true,
       setCreateOrUpdateUserId: false,
-      ...(options?.serviceOptions || {}),
+      ...options?.serviceOptions,
     };
 
     // Note raw configuration
@@ -143,8 +143,8 @@ export abstract class ModuleService<T extends CoreModel = any> {
       const preparedInput = await this.prepareInput(config.input, config);
       new Promise(() => {
         if (
-          inputJSON?.replace(/"password":\s*"[^"]*"/, '')
-          !== JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')
+          inputJSON?.replace(/"password":\s*"[^"]*"/, '') !==
+          JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')
         ) {
           console.debug(
             'CheckSecurityInterceptor: securityCheck changed input of type',

@@ -21,8 +21,8 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const status = exception.getStatus();
-    res.status(status).json(
-      exception instanceof ServiceUnavailableException ? ({ ...exception } as any).response : { ...exception },
-    );
+    res
+      .status(status)
+      .json(exception instanceof ServiceUnavailableException ? ({ ...exception } as any).response : { ...exception });
   }
 }

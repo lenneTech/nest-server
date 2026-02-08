@@ -55,10 +55,10 @@ export function addIds(
   if (ids.length) {
     // Add autoconverted ID
     if (
-      result.length
-      && convert === 'auto'
-      && ((result[0] instanceof Types.ObjectId && !(ids instanceof Types.ObjectId))
-        || (typeof result[0] === 'string' && typeof ids !== 'string'))
+      result.length &&
+      convert === 'auto' &&
+      ((result[0] instanceof Types.ObjectId && !(ids instanceof Types.ObjectId)) ||
+        (typeof result[0] === 'string' && typeof ids !== 'string'))
     ) {
       const converted = result[0] instanceof Types.ObjectId ? getObjectIds(ids) : getStringIds(ids);
       result.push(...(converted as any));
@@ -108,7 +108,7 @@ export function equalIds(...ids: IdsType[]): boolean {
   if (!compare) {
     return false;
   }
-  return ids.every(id => getStringIds(id) === compare);
+  return ids.every((id) => getStringIds(id) === compare);
 }
 
 /**
@@ -153,7 +153,7 @@ export function getElementsViaIds<T = any>(
   // Unique elements
   if (config.unique) {
     return elements.filter((value, index, self) => {
-      return self.findIndex(e => getStringIds(e)) === index;
+      return self.findIndex((e) => getStringIds(e)) === index;
     });
   }
 
@@ -259,7 +259,7 @@ export function getObjectIds(ids: any[]): Types.ObjectId[];
 export function getObjectIds(ids: any): Types.ObjectId;
 export function getObjectIds<T extends any | any[]>(ids: T): Types.ObjectId | Types.ObjectId[] {
   if (Array.isArray(ids)) {
-    return ids.map(id => new Types.ObjectId(getStringId(id)));
+    return ids.map((id) => new Types.ObjectId(getStringId(id)));
   }
   return new Types.ObjectId(getStringId(ids));
 }
@@ -421,7 +421,7 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
 
   // Process array
   if (Array.isArray(element)) {
-    return element.map(e => objectIdsToStrings(e, prepared));
+    return element.map((e) => objectIdsToStrings(e, prepared));
   }
 
   // Process object
@@ -458,8 +458,8 @@ export async function popAndMap<T extends CoreModel>(
   const ignoreSelections = options?.ignoreSelections;
   if (populate) {
     if (
-      Array.isArray(populate)
-      && (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
+      Array.isArray(populate) &&
+      (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
     ) {
       populateOptions = populate as PopulateOptions[];
     } else if (Array.isArray(populate) && typeof (populate as SelectionNode[])[0]?.kind === 'string') {
@@ -558,7 +558,7 @@ export function removeUnresolvedReferences<T = any>(
 
   // Process array
   if (Array.isArray(populated)) {
-    populated.forEach(p => removeUnresolvedReferences(p, populatedOptions, false));
+    populated.forEach((p) => removeUnresolvedReferences(p, populatedOptions, false));
     return populated;
   }
 
@@ -566,7 +566,7 @@ export function removeUnresolvedReferences<T = any>(
   if (typeof populated === 'object') {
     // populatedOptions is an array
     if (Array.isArray(populatedOptions)) {
-      populatedOptions.forEach(po =>
+      populatedOptions.forEach((po) =>
         removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false),
       );
       return populated;

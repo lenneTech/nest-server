@@ -2,7 +2,10 @@ import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { IErrorTranslationResponse, SupportedLocale } from '../../../core/modules/error-code/interfaces/error-code.interfaces';
+import {
+  IErrorTranslationResponse,
+  SupportedLocale,
+} from '../../../core/modules/error-code/interfaces/error-code.interfaces';
 import { ErrorCodeService } from './error-code.service';
 
 /**

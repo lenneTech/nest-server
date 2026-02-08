@@ -8,18 +8,19 @@
 
 ## Do You Need This Checklist?
 
-| Scenario | Action Needed |
-|----------|---------------|
-| Fresh deployment needs initial admin creation | None - endpoints are available by default |
-| Automated deployment (Docker/CI) needs auto-creation | Set ENV variables (Step 1) |
-| Want to disable system setup | Set `systemSetup: { enabled: false }` in config |
-| Custom setup logic (extra fields, notifications) | Step 2 (Custom Controller) |
+| Scenario                                             | Action Needed                                   |
+| ---------------------------------------------------- | ----------------------------------------------- |
+| Fresh deployment needs initial admin creation        | None - endpoints are available by default       |
+| Automated deployment (Docker/CI) needs auto-creation | Set ENV variables (Step 1)                      |
+| Want to disable system setup                         | Set `systemSetup: { enabled: false }` in config |
+| Custom setup logic (extra fields, notifications)     | Step 2 (Custom Controller)                      |
 
 ---
 
 ## Reference Implementation
 
 **Local (in your node_modules):**
+
 ```
 node_modules/@lenne.tech/nest-server/src/core/modules/system-setup/
 ```
@@ -91,13 +92,13 @@ export class SystemSetupController extends CoreSystemSetupController {
 
 ## Common Mistakes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| BetterAuth not enabled | 404 on endpoints or 403 on init | Ensure `betterAuth` is configured |
-| Calling init with existing users | 403 "System setup not available" | Init only works on empty database |
-| Password too short | 400 validation error | Password must be at least 8 characters |
-| Missing ENV password | Auto-creation silently skipped | Set both `email` and `password` ENV vars |
-| `systemSetup: { enabled: false }` in config | 404 on endpoints | Remove the explicit disable |
+| Mistake                                     | Symptom                          | Fix                                      |
+| ------------------------------------------- | -------------------------------- | ---------------------------------------- |
+| BetterAuth not enabled                      | 404 on endpoints or 403 on init  | Ensure `betterAuth` is configured        |
+| Calling init with existing users            | 403 "System setup not available" | Init only works on empty database        |
+| Password too short                          | 400 validation error             | Password must be at least 8 characters   |
+| Missing ENV password                        | Auto-creation silently skipped   | Set both `email` and `password` ENV vars |
+| `systemSetup: { enabled: false }` in config | 404 on endpoints                 | Remove the explicit disable              |
 
 ---
 

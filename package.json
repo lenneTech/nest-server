@@ -26,7 +26,7 @@
     "format": "oxfmt --write src/",
     "format:check": "oxfmt --check src/",
     "lint": "oxlint --ignore-path .oxlintignore src/ tests/",
-    "lint:fix": "oxlint --fix --ignore-path .oxlintignore src/ tests/",
+    "lint:fix": "oxlint --fix --fix-suggestions --ignore-path .oxlintignore src/ tests/",
     "prestart:prod": "npm run build",
     "reinit": "rimraf package-lock.json && rimraf node_modules && npm i && npm run lint && npm run test:e2e && npm run test:ci && npm run build",
     "reinit:clean": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test:e2e && npm run build",

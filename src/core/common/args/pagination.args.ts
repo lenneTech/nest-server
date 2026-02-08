@@ -75,7 +75,7 @@ export class PaginationArgs extends CoreInput {
   ): this {
     super.map(data, options);
     this.sort = maps(data.sort, SortInput, options.cloneDeep);
-    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }
 }

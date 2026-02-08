@@ -166,7 +166,7 @@ export class UserResolver {
     filter(this: UserResolver, payload, variables, context) {
       return context?.user?.hasRole?.(RoleEnum.ADMIN);
     },
-    resolve: user => user,
+    resolve: (user) => user,
   })
   async userCreated() {
     return this.pubSub.asyncIterableIterator('userCreated');
