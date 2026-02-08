@@ -15,8 +15,8 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('File (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const _log = true;
-  const _logError = true;
+  const log = true;
+  const logError = true;
 
   // Testenvironment properties
   let app;
