@@ -170,7 +170,7 @@ async relatedItems(@Parent() parent: YourModel): Promise<RelatedModel[]> {
 npm start              # Start local development
 npm run start:dev      # Start with file watching
 npm run build          # Build application
-npm run lint           # Run ESLint
+npm run lint           # Run oxlint
 npm run test:e2e       # Run E2E tests
 npm run docs           # Generate documentation
 ```

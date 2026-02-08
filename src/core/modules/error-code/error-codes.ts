@@ -73,7 +73,6 @@ export type IErrorRegistry = Record<string, IErrorDefinition>;
  * NOTE: Entries are grouped by error code range for maintainability.
  * Do not sort alphabetically - the numeric grouping is intentional.
  */
-/* eslint-disable perfectionist/sort-objects */
 export const LtnsErrors = {
   // =====================================================
   // Authentication Errors (LTNS_0001-LTNS_0099)
@@ -486,7 +485,6 @@ export const LtnsErrors = {
     },
   },
 } as const satisfies IErrorRegistry;
-/* eslint-enable perfectionist/sort-objects */
 
 // =====================================================
 // Generated ErrorCode Object

@@ -68,7 +68,6 @@ export abstract class CoreModel {
    * Initialize instance with default values instead of undefined
    * Should be overwritten in child class to organize the defaults
    */
-  // eslint-disable-next-line unused-imports/no-unused-vars
   public init(...args: any[]): this {
     return this;
   }
@@ -130,7 +129,6 @@ export abstract class CoreModel {
   /**
    * Verification of the user's rights to access the properties of this object
    */
-  // eslint-disable-next-line unused-imports/no-unused-vars
   public securityCheck(user: any, force?: boolean): this {
     return this;
   }

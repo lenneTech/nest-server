@@ -19,8 +19,6 @@
  *   --template-file, -t    Template file for creating migrations
  */
 
-/* eslint-disable no-console */
-// Console output is required for CLI functionality
 
 import * as fs from 'fs';
 import * as path from 'path';

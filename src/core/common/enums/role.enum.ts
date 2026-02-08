@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-enums */
 /**
  * Enums for Resolver @Role and Model @Restricted decorator and for roles property in ServiceOptions
  *

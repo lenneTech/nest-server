@@ -83,11 +83,9 @@ $ npm run test:cov
 Configuration for testing:
 ```
 Node interpreter: /user/local/bin/node
-Jest package: FULL_PATH_TO_PROJECT_DIR/node_modules/jest
 Working directory: FULL_PATH_TO_PROJECT_DIR
-Jest options: --config jest-e2e.json --forceExit
+Test command: npm run test:e2e
 ```
-see [E2E-Tests.run.xml](.run/E2E-Tests.run.xml)
 
 ## Debugging
 

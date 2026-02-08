@@ -166,9 +166,8 @@ export class CoreBetterAuthEmailVerificationService {
     }
 
     // Always log verification URL for development/testing (useful for capturing in tests)
-    // Uses console.log directly to ensure reliable capture in test environments (Vitest, Jest)
+    // Uses console.log directly to ensure reliable capture in test environments (Vitest)
     // NestJS Logger may buffer output which makes interception unreliable in tests
-    // eslint-disable-next-line no-console
     console.log(`[EMAIL VERIFICATION] User: ${user.email}, URL: ${url}`);
 
     // Brevo template path: send via Brevo transactional API if configured

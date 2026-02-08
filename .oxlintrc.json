@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "unicorn"],
+  "categories": {
+    "correctness": "warn",
+    "suspicious": "warn"
+  },
+  "env": {
+    "browser": false,
+    "node": true
+  },
+  "rules": {
+    "eqeqeq": "warn",
+    "no-console": ["warn", { "allow": ["warn", "error", "info", "debug", "trace", "time", "timeEnd", "group", "groupEnd"] }],
+    "no-unused-vars": ["warn", {
+      "argsIgnorePattern": "^_",
+      "caughtErrors": "none",
+      "varsIgnorePattern": "^_"
+    }],
+    "no-unused-expressions": "off",
+    "@typescript-eslint/no-unused-expressions": ["warn", {
+      "allowShortCircuit": true,
+      "allowTernary": true
+    }],
+    "no-extraneous-class": "off",
+    "no-new": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "import/no-unassigned-import": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/migrate/cli/**", "**/migrate/migration-runner.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

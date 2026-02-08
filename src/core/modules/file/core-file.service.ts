@@ -221,8 +221,8 @@ export abstract class CoreFileService {
    * Can throw an exception if the rights do not fit
    */
   protected checkRights(
-    input: any, // eslint-disable-line unused-imports/no-unused-vars
-    options?: FileServiceOptions & { checkInputType: FileInputCheckType }, // eslint-disable-line unused-imports/no-unused-vars
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): MaybePromise<boolean> {
     return true;
   }
