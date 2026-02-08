@@ -201,7 +201,7 @@ export function getArguments(ast: FieldNode) {
     const valueNode = argument.value;
     const argumentValue = !isListValueNode(valueNode)
       ? (valueNode as any).value
-      : (valueNode as any).values.map(value => value.value);
+      : (valueNode as any).values.map((value) => value.value);
 
     return {
       [argument.name.value]: {

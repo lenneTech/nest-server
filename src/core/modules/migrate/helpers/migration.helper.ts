@@ -99,29 +99,21 @@ export const uploadFileToGridFS = async (
     ...options,
   };
 
-  return new Promise<ObjectId>(async (resolve, reject) => {
-    let client: MongoClient | undefined;
-    try {
-      client = await MongoClient.connect(mongoUrl);
-      const db = client.db();
-      const bucket = new GridFSBucket(db, { bucketName });
-      const writeStream = bucket.openUploadStream(filename);
+  const client = await MongoClient.connect(mongoUrl);
+  const db = client.db();
+  const bucket = new GridFSBucket(db, { bucketName });
+  const writeStream = bucket.openUploadStream(filename);
 
-      const rs = fs.createReadStream(path.resolve(__dirname, relativePath)).pipe(writeStream);
+  const rs = fs.createReadStream(path.resolve(__dirname, relativePath)).pipe(writeStream);
 
-      rs.on('finish', () => {
-        resolve(writeStream.id as ObjectId);
-      });
+  return new Promise<ObjectId>((resolve, reject) => {
+    rs.on('finish', () => {
+      resolve(writeStream.id as ObjectId);
+    });
 
-      rs.on('error', (err) => {
-        reject(err);
-      });
-    } catch (err) {
+    rs.on('error', (err) => {
       reject(err);
-    } finally {
-      // Note: Connection will be closed when stream finishes
-      // but we keep the client reference for proper error handling
-    }
+    });
   });
 };
 

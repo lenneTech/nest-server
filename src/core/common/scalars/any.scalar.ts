@@ -38,7 +38,7 @@ export class Any implements CustomScalar<string, any> {
       case Kind.INT:
         return parseFloat(ast.value);
       case Kind.LIST:
-        return ast.values.map(n => this.parseLiteral(n, variables));
+        return ast.values.map((n) => this.parseLiteral(n, variables));
       case Kind.NULL:
         return null;
       case Kind.OBJECT: {

@@ -25,11 +25,13 @@ npm uninstall @nodepit/migrate-state-store-mongodb
 ### 2. Update your imports
 
 **Before:**
+
 ```typescript
 import { MongoStateStore, synchronizedUp } from '@nodepit/migrate-state-store-mongodb';
 ```
 
 **After:**
+
 ```typescript
 import { MongoStateStore, synchronizedUp } from '@lenne.tech/nest-server';
 ```
@@ -58,7 +60,7 @@ const stateStore = new MongoStateStore('mongodb://localhost/mydb');
 const stateStore = new MongoStateStore({
   uri: 'mongodb://localhost/mydb',
   collectionName: 'custom_migrations', // optional, defaults to 'migrations'
-  lockCollectionName: 'migration_lock' // optional, for cluster environments
+  lockCollectionName: 'migration_lock', // optional, for cluster environments
 });
 ```
 
@@ -76,10 +78,8 @@ stateStore.load((err, state) => {
 
 // Save migration state
 const migrationState = {
-  migrations: [
-    { title: '1234-my-migration.js', timestamp: Date.now() }
-  ],
-  lastRun: '1234-my-migration.js'
+  migrations: [{ title: '1234-my-migration.js', timestamp: Date.now() }],
+  lastRun: '1234-my-migration.js',
 };
 
 stateStore.save(migrationState, (err) => {
@@ -121,9 +121,9 @@ import { MongoStateStore, synchronizedMigration, synchronizedUp } from '@lenne.t
 const migrationOptions = {
   stateStore: new MongoStateStore({
     uri: 'mongodb://localhost/mydb',
-    lockCollectionName: 'migration_lock' // Required for synchronized migrations
+    lockCollectionName: 'migration_lock', // Required for synchronized migrations
   }),
-  migrationsDirectory: './migrations'
+  migrationsDirectory: './migrations',
 };
 
 // Custom migration logic
@@ -148,6 +148,7 @@ new MongoStateStore(options: string | MongoStateStoreOptions)
 ```
 
 **Parameters:**
+
 - `options`: MongoDB URI string or configuration object
   - `uri`: MongoDB connection URI (required)
   - `collectionName`: Name of the collection to store migration state (default: 'migrations')
@@ -196,8 +197,8 @@ Wraps migrations with a lock to prevent simultaneous execution in clustered envi
 ```typescript
 async function synchronizedMigration(
   opts: MigrationOptions,
-  callback: (set: MigrationSet) => Promise<void>
-): Promise<void>
+  callback: (set: MigrationSet) => Promise<void>,
+): Promise<void>;
 ```
 
 #### synchronizedUp
@@ -205,7 +206,7 @@ async function synchronizedMigration(
 Convenience function that executes all pending migrations in a synchronized manner.
 
 ```typescript
-async function synchronizedUp(opts: MigrationOptions): Promise<void>
+async function synchronizedUp(opts: MigrationOptions): Promise<void>;
 ```
 
 ## How It Works
@@ -260,10 +261,10 @@ module.exports.up = function (next) {
   callbackify(async () => {
     const client = await MongoClient.connect(mongoUrl);
     try {
-      await client.db().collection('users').updateMany(
-        { email: { $exists: false } },
-        { $set: { email: '' } }
-      );
+      await client
+        .db()
+        .collection('users')
+        .updateMany({ email: { $exists: false } }, { $set: { email: '' } });
     } finally {
       await client.close();
     }
@@ -274,10 +275,10 @@ module.exports.down = function (next) {
   callbackify(async () => {
     const client = await MongoClient.connect(mongoUrl);
     try {
-      await client.db().collection('users').updateMany(
-        {},
-        { $unset: { email: '' } }
-      );
+      await client
+        .db()
+        .collection('users')
+        .updateMany({}, { $unset: { email: '' } });
     } finally {
       await client.close();
     }
@@ -295,9 +296,9 @@ async function runMigrations() {
   const migrationOptions = {
     stateStore: new MongoStateStore({
       uri: process.env.MONGODB_URL || 'mongodb://localhost/mydb',
-      lockCollectionName: 'migration_lock'
+      lockCollectionName: 'migration_lock',
     }),
-    migrationsDirectory: path.join(__dirname, 'migrations')
+    migrationsDirectory: path.join(__dirname, 'migrations'),
   };
 
   try {
@@ -357,8 +358,8 @@ const config = require('../src/config.env');
 
 module.exports = createMigrationStore(
   config.default.mongoose.uri,
-  'migrations',        // optional collection name
-  'migration_lock'     // optional lock collection for clusters
+  'migrations', // optional collection name
+  'migration_lock', // optional lock collection for clusters
 );
 ```
 
@@ -380,11 +381,10 @@ Helper function to upload files to GridFS during migrations:
 ```typescript
 import { uploadFileToGridFS } from '@lenne.tech/nest-server';
 
-const fileId = await uploadFileToGridFS(
-  'mongodb://localhost/mydb',
-  '../assets/image.png',
-  { bucketName: 'images', filename: 'logo.png' }
-);
+const fileId = await uploadFileToGridFS('mongodb://localhost/mydb', '../assets/image.png', {
+  bucketName: 'images',
+  filename: 'logo.png',
+});
 ```
 
 ### Migration Templates
@@ -417,6 +417,7 @@ For a complete step-by-step guide on migrating from @nodepit/migrate-state-store
 4. Run migrations using the built-in CLI
 
 **Example package.json scripts:**
+
 ```json
 {
   "scripts": {
@@ -449,5 +450,6 @@ MIT
 ## Support
 
 For issues and questions:
+
 - GitHub: https://github.com/lenneTech/nest-server/issues
 - Documentation: https://nest-server.lenne.tech

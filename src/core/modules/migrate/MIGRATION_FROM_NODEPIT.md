@@ -5,6 +5,7 @@ This guide provides step-by-step instructions to migrate from `@nodepit/migrate-
 ## Prerequisites
 
 Current state of nest-server-starter projects:
+
 - Using `@nodepit/migrate-state-store-mongodb` for state storage
 - Using external `migrate` package for CLI
 - Custom migration utilities in `migrations-utils/`
@@ -16,11 +17,13 @@ Current state of nest-server-starter projects:
 **File:** `package.json`
 
 Remove old migration packages:
+
 ```bash
 npm uninstall migrate @nodepit/migrate-state-store-mongodb ts-migrate-mongoose
 ```
 
 Ensure latest nest-server is installed:
+
 ```bash
 npm install @lenne.tech/nest-server@latest
 ```
@@ -32,6 +35,7 @@ The `migrate` CLI is now provided by `@lenne.tech/nest-server` - no external pac
 **File:** `migrations-utils/migrate.js`
 
 **Before:**
+
 ```javascript
 import config from '../src/config.env';
 const migrate = require('migrate');
@@ -48,13 +52,14 @@ module.exports = class MyMongoStateStore extends MongoStateStore {
 ```
 
 **After:**
+
 ```javascript
 const { createMigrationStore } = require('@lenne.tech/nest-server');
 const config = require('../src/config.env');
 
 module.exports = createMigrationStore(
   config.default.mongoose.uri,
-  'migrations' // optional, default is 'migrations'
+  'migrations', // optional, default is 'migrations'
 );
 ```
 
@@ -79,6 +84,7 @@ export { createMigrationStore, getDb, uploadFileToGridFS } from '@lenne.tech/nes
 **Option B: Delete and update all migrations** (Not recommended)
 
 Delete the file and update all existing migration files to import directly from `@lenne.tech/nest-server`:
+
 ```typescript
 // Old (in migrations)
 import { getDb } from '../migrations-utils/db';
@@ -90,12 +96,15 @@ import { getDb } from '@lenne.tech/nest-server';
 **We recommend Option A** to maintain backwards compatibility with existing migrations.
 
 #### ❌ Delete `migrations-utils/template.ts`
+
 Use the built-in project template from nest-server instead.
 
 #### ❌ Delete `migrations-utils/ts-compiler.js`
+
 The TypeScript compiler is now provided by nest-server.
 
 **Files to keep:**
+
 - ✅ `migrations-utils/migrate.js` (project-specific configuration)
 - ✅ `migrations-utils/db.ts` (optional proxy for backwards compatibility)
 
@@ -106,6 +115,7 @@ The TypeScript compiler is now provided by nest-server.
 **IMPORTANT:** The CLI syntax has changed. The command must come FIRST, then the options.
 
 **Before (WRONG):**
+
 ```json
 {
   "scripts": {
@@ -116,6 +126,7 @@ The TypeScript compiler is now provided by nest-server.
 ```
 
 **After (CORRECT):**
+
 ```json
 {
   "scripts": {
@@ -132,6 +143,7 @@ The TypeScript compiler is now provided by nest-server.
 ```
 
 **Key changes:**
+
 - ✅ Command (`up`, `down`, `create`, `list`) comes FIRST
 - ✅ Use `ts:./path` instead of `"ts:./path"` for compiler
 - ✅ Remove quotes around paths (not needed)
@@ -177,18 +189,22 @@ rm migrations/*-test-migration.ts
 ## What Changes
 
 ### Files Removed (2 files)
+
 - ❌ `migrations-utils/template.ts` - **DELETED** (use nest-server template)
 - ❌ `migrations-utils/ts-compiler.js` - **DELETED** (use nest-server compiler)
 
 ### Files Updated (2 files)
+
 - ✅ `migrations-utils/migrate.js` - simplified from ~14 lines to ~7 lines
 - ✅ `migrations-utils/db.ts` - converted to simple re-export proxy (~5 lines)
 
 ### Files Kept
+
 - ✅ `migrations-utils/migrate.js` - **REQUIRED** (project-specific configuration)
 - ✅ `migrations-utils/db.ts` - **OPTIONAL** (backwards compatibility proxy)
 
 ### Other Changes
+
 - ✅ package.json scripts syntax updated
 - ✅ CLI comes from nest-server instead of external package
 
@@ -232,20 +248,14 @@ export const up = async () => {
   const db: Db = await getDb(MONGO_URL);
 
   // Your migration code here
-  await db.collection('users').updateMany(
-    { email: { $exists: false } },
-    { $set: { email: '' } }
-  );
+  await db.collection('users').updateMany({ email: { $exists: false } }, { $set: { email: '' } });
 };
 
 export const down = async () => {
   const db: Db = await getDb(MONGO_URL);
 
   // Your rollback code here
-  await db.collection('users').updateMany(
-    {},
-    { $unset: { email: '' } }
-  );
+  await db.collection('users').updateMany({}, { $unset: { email: '' } });
 };
 ```
 
@@ -254,6 +264,7 @@ export const down = async () => {
 ## Support
 
 If issues occur during migration:
+
 - Check that `@lenne.tech/nest-server` is at version 11.3.0 or higher
 - Verify `ts-node` is installed as devDependency
 - Ensure `migrations-utils/migrate.js` exports the state store correctly
@@ -293,6 +304,7 @@ migrate list --store <path> --migrations-dir <dir> --compiler ts:<path>
 ```
 
 **Key points:**
+
 - Command (`create`, `up`, `down`, `list`) comes FIRST
 - Options use `--option value` format (not `--option=value`)
 - Compiler format: `ts:./path` (not `"ts:./path"`)

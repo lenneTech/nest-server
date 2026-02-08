@@ -40,7 +40,7 @@ export class FilterArgs extends PaginationArgs {
   ): this {
     super.map(data, options);
     this.filter = data.filter ? FilterInput.map(data.filter, options) : undefined;
-    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }
 }

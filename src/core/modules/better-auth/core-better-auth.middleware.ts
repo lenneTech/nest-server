@@ -126,7 +126,9 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
           }
         }
       } catch (error) {
-        this.logger.debug(`Authorization header validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.debug(
+          `Authorization header validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
       }
     }
 
@@ -210,7 +212,9 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
           }
         }
       } catch (error) {
-        this.logger.debug(`Session cookie validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.debug(
+          `Session cookie validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
       }
     }
 

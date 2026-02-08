@@ -149,7 +149,9 @@ export class CoreBetterAuthSignUpValidatorService {
    * - If config is an object: enabled with merged settings (unless `enabled: false`)
    */
   protected configure(): void {
-    const rawConfig = this.configService.getFastButReadOnly<boolean | IBetterAuthSignUpChecksConfig>('betterAuth.signUpChecks');
+    const rawConfig = this.configService.getFastButReadOnly<boolean | IBetterAuthSignUpChecksConfig>(
+      'betterAuth.signUpChecks',
+    );
 
     // Sign-up checks are enabled by default
     if (rawConfig === undefined || rawConfig === null || rawConfig === true) {
