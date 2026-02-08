@@ -74,10 +74,7 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
 
     // Partial credentials → warn and skip
     if (!initialAdmin.email || !initialAdmin.password) {
-      const missing = [
-        !initialAdmin.email && 'email',
-        !initialAdmin.password && 'password',
-      ].filter(Boolean).join(', ');
+      const missing = [!initialAdmin.email && 'email', !initialAdmin.password && 'password'].filter(Boolean).join(', ');
       this.logger.warn(`Incomplete initialAdmin config - missing: ${missing}. Auto-creation skipped.`);
       return;
     }
@@ -115,7 +112,9 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       if (error instanceof ForbiddenException) {
         this.logger.log('Initial admin auto-creation skipped (users already exist)');
       } else {
-        this.logger.warn(`Initial admin auto-creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.warn(
+          `Initial admin auto-creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
       }
     }
   }

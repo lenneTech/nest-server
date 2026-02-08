@@ -404,7 +404,7 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
         const status = error?.statusCode || error?.status;
         if (status === 401) {
           throw new Error(
-            '2FA enable returned 401 with JWT cookie - middleware order or JWT cookie extraction is broken',
+            '2FA enable returned 401 with JWT cookie - middleware order or JWT cookie extraction is broken', { cause: error },
           );
         }
         // Other errors (e.g., config issue) are acceptable

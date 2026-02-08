@@ -69,8 +69,8 @@ export class SingleFilterInput extends CoreInput {
    */
   @UnifiedField({
     description:
-      '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for '
-      + '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
+      '[Options](https://docs.mongodb.com/manual/reference/operator/query/regex/#op._S_options) for ' +
+      '[REGEX](https://docs.mongodb.com/manual/reference/operator/query/regex/) operator',
     isOptional: true,
     roles: RoleEnum.S_EVERYONE,
   })

@@ -12,12 +12,12 @@ Integration of the [tus.io](https://tus.io) resumable upload protocol with @lenn
 TusModule.forRoot({
   config: {
     maxSize: 100 * 1024 * 1024, // 100 MB instead of 50 GB default
-    path: '/uploads',           // Custom path instead of /tus
+    path: '/uploads', // Custom path instead of /tus
   },
-})
+});
 
 // To disable:
-TusModule.forRoot({ config: false })
+TusModule.forRoot({ config: false });
 ```
 
 **Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [Endpoints](#endpoints) | [Configuration](#configuration) | [Client Usage](#client-usage)
@@ -47,14 +47,14 @@ TusModule.forRoot({ config: false })
 
 ### TUS Protocol Extensions (All Enabled by Default)
 
-| Extension | Description |
-|-----------|-------------|
-| **creation** | Create new uploads via POST |
-| **creation-with-upload** | Include data in creation request |
-| **termination** | Delete incomplete uploads |
-| **expiration** | Auto-cleanup of abandoned uploads |
-| **checksum** | Verify data integrity |
-| **concatenation** | Combine multiple uploads |
+| Extension                | Description                       |
+| ------------------------ | --------------------------------- |
+| **creation**             | Create new uploads via POST       |
+| **creation-with-upload** | Include data in creation request  |
+| **termination**          | Delete incomplete uploads         |
+| **expiration**           | Auto-cleanup of abandoned uploads |
+| **checksum**             | Verify data integrity             |
+| **concatenation**        | Combine multiple uploads          |
 
 ---
 
@@ -87,13 +87,13 @@ TUS is **enabled by default** with the following configuration:
 
 All endpoints are handled by the TUS protocol via `@tus/server`:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| OPTIONS | `/tus` | Get server capabilities |
-| POST | `/tus` | Create new upload |
-| HEAD | `/tus/:id` | Get upload status/offset |
-| PATCH | `/tus/:id` | Continue upload |
-| DELETE | `/tus/:id` | Terminate upload |
+| Method  | Endpoint   | Description              |
+| ------- | ---------- | ------------------------ |
+| OPTIONS | `/tus`     | Get server capabilities  |
+| POST    | `/tus`     | Create new upload        |
+| HEAD    | `/tus/:id` | Get upload status/offset |
+| PATCH   | `/tus/:id` | Continue upload          |
+| DELETE  | `/tus/:id` | Terminate upload         |
 
 ### CORS Headers
 
@@ -115,10 +115,10 @@ The TUS server automatically handles CORS headers for browser-based clients:
 
 ```typescript
 // In server.module.ts
-TusModule.forRoot({ config: false })
+TusModule.forRoot({ config: false });
 
 // Or via environment config
-tus: false
+tus: false;
 ```
 
 ### Custom Configuration
@@ -148,29 +148,30 @@ TusModule.forRoot({
       expiresIn: '12h', // Cleanup after 12 hours
     },
   },
-})
+});
 ```
 
 ### Configuration Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable TUS |
-| `path` | string | `/tus` | Endpoint path |
-| `maxSize` | number | 50 GB | Maximum file size in bytes |
-| `allowedTypes` | string[] | undefined | Allowed MIME types (all if undefined) |
-| `allowedHeaders` | string[] | `[]` | Additional custom headers (TUS headers already included) |
-| `uploadDir` | string | `uploads/tus` | Temporary upload directory |
-| `creation` | boolean | `true` | Enable creation extension |
-| `creationWithUpload` | boolean | `true` | Enable creation-with-upload extension |
-| `termination` | boolean | `true` | Enable termination extension |
-| `expiration` | boolean \| object | `{ expiresIn: '24h' }` | Expiration configuration |
-| `checksum` | boolean | `true` | Enable checksum extension |
-| `concatenation` | boolean | `true` | Enable concatenation extension |
+| Option               | Type              | Default                | Description                                              |
+| -------------------- | ----------------- | ---------------------- | -------------------------------------------------------- |
+| `enabled`            | boolean           | `true`                 | Enable/disable TUS                                       |
+| `path`               | string            | `/tus`                 | Endpoint path                                            |
+| `maxSize`            | number            | 50 GB                  | Maximum file size in bytes                               |
+| `allowedTypes`       | string[]          | undefined              | Allowed MIME types (all if undefined)                    |
+| `allowedHeaders`     | string[]          | `[]`                   | Additional custom headers (TUS headers already included) |
+| `uploadDir`          | string            | `uploads/tus`          | Temporary upload directory                               |
+| `creation`           | boolean           | `true`                 | Enable creation extension                                |
+| `creationWithUpload` | boolean           | `true`                 | Enable creation-with-upload extension                    |
+| `termination`        | boolean           | `true`                 | Enable termination extension                             |
+| `expiration`         | boolean \| object | `{ expiresIn: '24h' }` | Expiration configuration                                 |
+| `checksum`           | boolean           | `true`                 | Enable checksum extension                                |
+| `concatenation`      | boolean           | `true`                 | Enable concatenation extension                           |
 
 **Note on `allowedHeaders`:**
 
 `@tus/server` already includes all TUS protocol headers by default:
+
 - Authorization, Content-Type, Location, Tus-Extension, Tus-Max-Size
 - Tus-Resumable, Tus-Version, Upload-Concat, Upload-Defer-Length
 - Upload-Length, Upload-Metadata, Upload-Offset, X-HTTP-Method-Override
@@ -281,7 +282,7 @@ Then register with custom controller:
 // server.module.ts
 TusModule.forRoot({
   controller: TusController,
-})
+});
 ```
 
 ### Custom Upload Handler
@@ -346,13 +347,13 @@ query {
 
 The following metadata is stored with each GridFS file:
 
-| Field | Source |
-|-------|--------|
-| `filename` | From TUS `Upload-Metadata` header |
-| `contentType` | From TUS `filetype` metadata |
-| `tusUploadId` | Original TUS upload ID |
-| `originalMetadata` | All TUS metadata |
-| `uploadedAt` | Completion timestamp |
+| Field              | Source                            |
+| ------------------ | --------------------------------- |
+| `filename`         | From TUS `Upload-Metadata` header |
+| `contentType`      | From TUS `filetype` metadata      |
+| `tusUploadId`      | Original TUS upload ID            |
+| `originalMetadata` | All TUS metadata                  |
+| `uploadedAt`       | Completion timestamp              |
 
 ---
 
@@ -363,6 +364,7 @@ The following metadata is stored with each GridFS file:
 **Cause:** TUS server not initialized
 
 **Solutions:**
+
 1. Check if TUS is disabled in config (`tus: false`)
 2. Verify MongoDB connection is established
 3. Check server logs for initialization errors
@@ -372,6 +374,7 @@ The following metadata is stored with each GridFS file:
 **Cause:** Upload expired or server restarted
 
 **Solutions:**
+
 1. Check expiration configuration (default: 24h)
 2. Increase `expiration.expiresIn` if needed
 3. Client should handle `onError` and create new upload
@@ -381,6 +384,7 @@ The following metadata is stored with each GridFS file:
 **Cause:** Missing or incorrect CORS configuration
 
 **Solutions:**
+
 1. Verify client sends correct headers
 2. Check that `Tus-Resumable` header is included
 3. Ensure server CORS allows TUS headers
@@ -390,6 +394,7 @@ The following metadata is stored with each GridFS file:
 **Cause:** Upload incomplete or migration failed
 
 **Solutions:**
+
 1. Verify upload completed (check `onSuccess` callback)
 2. Check server logs for migration errors
 3. Verify MongoDB GridFS bucket exists (`fs.files`, `fs.chunks`)
@@ -399,6 +404,7 @@ The following metadata is stored with each GridFS file:
 **Cause:** File exceeds `maxSize` limit
 
 **Solutions:**
+
 1. Increase `maxSize` in configuration
 2. Check for proxy/nginx upload limits
 3. Verify client `chunkSize` is reasonable

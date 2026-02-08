@@ -51,7 +51,7 @@ export class CombinedFilterInput extends CoreInput {
   ): this {
     super.map(data, options);
     this.filters = maps(data.filters, FilterInput, options.cloneDeep);
-    Object.keys(this).forEach(key => this[key] === undefined && delete this[key]);
+    Object.keys(this).forEach((key) => this[key] === undefined && delete this[key]);
     return this;
   }
 }

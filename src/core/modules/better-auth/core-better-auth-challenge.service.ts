@@ -128,7 +128,9 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
 
       this.logger.log('WebAuthn challenge storage initialized (database mode)');
     } catch (error) {
-      this.logger.error(`Failed to initialize challenge storage: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(
+        `Failed to initialize challenge storage: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 

@@ -351,7 +351,7 @@ function applyTranslationsRecursively(obj: any, language: string, visited: WeakS
     const translation = obj._translations?.[language];
     if (typeof translation === 'object') {
       for (const key in translation) {
-        if (translation[key] != null) {
+        if (translation[key] !== null && translation[key] !== undefined) {
           obj[key] = translation[key];
         }
       }

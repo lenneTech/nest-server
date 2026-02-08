@@ -52,7 +52,7 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
     dotenv.config();
   }
 
-  const env = process.env['NODE' + '_ENV'] || defaultEnv;
+  const env = process.env['NODE_ENV'] || defaultEnv;
   const envConfig = config[env] || config.local || {};
 
   // Merge with localConfig (e.g. config.json)
@@ -139,7 +139,7 @@ export function getEnvironmentObject(options?: {
       const adjustedKey = key.slice(config.prefix?.length || 0);
 
       // Convert key to path
-      const path = adjustedKey.split('__').map(part =>
+      const path = adjustedKey.split('__').map((part) =>
         part
           .split('_')
           .map((s, i) => (i === 0 ? s.toLowerCase() : s[0].toUpperCase() + s.slice(1).toLowerCase()))

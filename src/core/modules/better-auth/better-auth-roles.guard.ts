@@ -1,4 +1,11 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { RoleEnum } from '../../common/enums/role.enum';

@@ -1,6 +1,3 @@
-/* eslint-disable no-console */
-// Console output is required for migration runner feedback
-
 import * as fs from 'fs';
 import * as path from 'path';
 

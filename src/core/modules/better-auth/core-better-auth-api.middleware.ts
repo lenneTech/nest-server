@@ -327,7 +327,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
             }
           }
         } catch (enrichError) {
-          this.logger.debug(`Could not enrich passkey response: ${enrichError instanceof Error ? enrichError.message : 'unknown'}`);
+          this.logger.debug(
+            `Could not enrich passkey response: ${enrichError instanceof Error ? enrichError.message : 'unknown'}`,
+          );
           // Fall through to send original response
         }
       }

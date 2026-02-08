@@ -313,7 +313,7 @@ export abstract class CrudService<
   async findAndCountForce(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number }> {
     serviceOptions.raw = true;
     return this.findAndCount(filter, serviceOptions);
   }
@@ -325,7 +325,7 @@ export abstract class CrudService<
   async findAndCountRaw(
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
-  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number; }> {
+  ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number }> {
     serviceOptions = serviceOptions || {};
     serviceOptions.raw = true;
     return this.findAndCountForce(filter, serviceOptions);
@@ -345,16 +345,7 @@ export abstract class CrudService<
     }
     const promises: Promise<Model>[] = [];
     for (const dbItem of dbItems) {
-      promises.push(
-        new Promise(async (resolve, reject) => {
-          try {
-            const item = await this.update(getStringIds(dbItem as any), update, serviceOptions);
-            resolve(item);
-          } catch (e) {
-            reject(e);
-          }
-        }),
-      );
+      promises.push(this.update(getStringIds(dbItem as any), update, serviceOptions));
     }
     return await Promise.all(promises);
   }

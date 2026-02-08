@@ -8,8 +8,10 @@ import { CronJobConfig } from './cron-job-config.interface';
  * This config can define timezone but not utcOffset,
  * if you want to use utcOffset, you have to use the CronJobConfigWithUtcOffset
  */
-export interface CronJobConfigWithTimeZone<OC extends CronOnCompleteCommand | null = null, C = null>
-  extends CronJobConfig {
+export interface CronJobConfigWithTimeZone<
+  OC extends CronOnCompleteCommand | null = null,
+  C = null,
+> extends CronJobConfig {
   /**
    * Specify the timezone for the execution. This will modify the actual time relative to your timezone.
    * If the timezone is invalid, an error is thrown. Can be any string accepted by luxon's `DateTime.setZone()`

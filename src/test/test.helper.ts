@@ -264,14 +264,18 @@ export class TestHelper {
 
     // Convert string to TestGraphQLConfig
     if (
-      (typeof graphql === 'string' || graphql instanceof String)
-      && /^(?![a-zA-Z]+$).*$/.test((graphql as string).trim())
+      (typeof graphql === 'string' ||
+        (typeof graphql === 'object' && graphql !== null && graphql.constructor === String)) &&
+      /^(?![a-zA-Z]+$).*$/.test((graphql as string).trim())
     ) {
       // Use input as query
       query = (graphql as string).trim();
     } else {
       // Use input as name
-      if (typeof graphql === 'string' || graphql instanceof String) {
+      if (
+        typeof graphql === 'string' ||
+        (typeof graphql === 'object' && graphql !== null && graphql.constructor === String)
+      ) {
         graphql = { name: (graphql as string).trim() } as any;
       }
 
@@ -336,7 +340,7 @@ export class TestHelper {
           });
         }
       } else {
-        query = query.replace(/(?<=[:\[,]\s*)"([A-Z0-9_]+)"(?=\s*[,\]\}])/g, (match, group1) => {
+        query = query.replace(/(?<=[:[,]\s*)"([A-Z0-9_]+)"(?=\s*[,\]}])/g, (match, group1) => {
           // If group1 only contains digits, the original string is returned
           if (/^\d+$/.test(group1)) {
             return match;
@@ -471,7 +475,7 @@ export class TestHelper {
     }
     if (Array.isArray(args)) {
       objects.set(args, args);
-      return args.map(item => this.prepareArguments(item, objects));
+      return args.map((item) => this.prepareArguments(item, objects));
     }
     if (typeof args === 'object') {
       objects.set(args, args);
@@ -542,7 +546,7 @@ export class TestHelper {
   ): Promise<any> {
     // Token
     if (token) {
-      requestConfig.headers = { authorization: `Bearer ${token}`, ...(requestConfig.headers || {}) };
+      requestConfig.headers = { authorization: `Bearer ${token}`, ...requestConfig.headers };
     }
 
     // Init response
@@ -580,12 +584,16 @@ export class TestHelper {
         if (!requestConfig.cookies.includes('=') && !requestConfig.cookies.includes(';')) {
           // Plain session token -> auto-build BetterAuth cookies
           const cookieRecord = TestHelper.buildBetterAuthCookies(requestConfig.cookies);
-          cookieString = Object.entries(cookieRecord).map(([k, v]) => `${k}=${v}`).join('; ');
+          cookieString = Object.entries(cookieRecord)
+            .map(([k, v]) => `${k}=${v}`)
+            .join('; ');
         } else {
           cookieString = requestConfig.cookies;
         }
       } else {
-        cookieString = Object.entries(requestConfig.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+        cookieString = Object.entries(requestConfig.cookies)
+          .map(([k, v]) => `${k}=${v}`)
+          .join('; ');
       }
       request.set('Cookie', cookieString);
     }
@@ -712,7 +720,7 @@ export class TestHelper {
   async getSubscription(graphql: TestGraphQLConfig, query: string, options?: TestGraphQLOptions) {
     // Check url
     if (!this.subscriptionUrl) {
-      throw new Error('Missing subscriptionUrl in TestHelper: new TestHelper(app, \'ws://localhost:3030/graphql\')');
+      throw new Error("Missing subscriptionUrl in TestHelper: new TestHelper(app, 'ws://localhost:3030/graphql')");
     }
 
     // Prepare subscription
@@ -761,7 +769,7 @@ export class TestHelper {
   static buildBetterAuthCookies(sessionToken: string, basePath: string = 'iam'): Record<string, string> {
     return {
       [`${basePath}.session_token`]: sessionToken,
-      'token': sessionToken,
+      token: sessionToken,
     };
   }
 

@@ -19,8 +19,8 @@ import { ServerModule } from '../src/server/server.module';
 
 describe('ServerModule (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
-  const log = true; // eslint-disable-line unused-imports/no-unused-vars
-  const logError = true; // eslint-disable-line unused-imports/no-unused-vars
+  const _log = true;
+  const _logError = true;
 
   // Test environment properties
   let app;
@@ -223,7 +223,7 @@ describe('ServerModule (e2e)', () => {
       type: TestGraphQLType.MUTATION,
     });
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(404);
-    expect(res.errors[0].message).toEqual('No user found with email: ' + `invalid${gEmail}`);
+    expect(res.errors[0].message).toEqual(`No user found with email: invalid${gEmail}`);
   });
 
   /**

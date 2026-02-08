@@ -5,6 +5,7 @@
 > **Estimated time:** 10-15 minutes
 
 **Need customization?** See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for:
+
 - Module registration patterns (Zero-Config, Config-based, Separate Module)
 - Controller, Resolver, and Service customization
 - Email template customization
@@ -13,20 +14,20 @@
 
 ## Choose Your Scenario
 
-| Scenario | Use When | CoreModule Signature | Steps |
-|----------|----------|---------------------|-------|
-| **New Project (IAM-Only)** | Starting fresh, no legacy users | `CoreModule.forRoot(envConfig)` | 1-6 |
-| **Existing Project (Migration)** | Have legacy users to migrate | `CoreModule.forRoot(AuthService, AuthModule, envConfig)` | 1-6 |
+| Scenario                         | Use When                        | CoreModule Signature                                     | Steps |
+| -------------------------------- | ------------------------------- | -------------------------------------------------------- | ----- |
+| **New Project (IAM-Only)**       | Starting fresh, no legacy users | `CoreModule.forRoot(envConfig)`                          | 1-6   |
+| **Existing Project (Migration)** | Have legacy users to migrate    | `CoreModule.forRoot(AuthService, AuthModule, envConfig)` | 1-6   |
 
 **Key difference:** New projects disable Legacy endpoints, existing projects keep them enabled during migration.
 
 ### Registration Patterns (Quick Reference)
 
-| Pattern | Use When | Configuration |
-|---------|----------|---------------|
-| **Zero-Config** | No customization needed | Just use `CoreModule.forRoot(envConfig)` |
-| **Config-based** | Custom Controller/Resolver | Add `controller`/`resolver` to `betterAuth` config |
-| **Separate Module** | Full control, additional providers | Set `autoRegister: false` in config |
+| Pattern             | Use When                           | Configuration                                      |
+| ------------------- | ---------------------------------- | -------------------------------------------------- |
+| **Zero-Config**     | No customization needed            | Just use `CoreModule.forRoot(envConfig)`           |
+| **Config-based**    | Custom Controller/Resolver         | Add `controller`/`resolver` to `betterAuth` config |
+| **Separate Module** | Full control, additional providers | Set `autoRegister: false` in config                |
 
 **Details:** See [CUSTOMIZATION.md](./CUSTOMIZATION.md#module-registration-patterns)
 
@@ -37,6 +38,7 @@
 All files you need to create are already implemented as reference in the package:
 
 **Local (in your node_modules):**
+
 ```
 node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 ```
@@ -45,6 +47,7 @@ node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/
 https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-auth
 
 **Also see the UserService integration:**
+
 - Local: `node_modules/@lenne.tech/nest-server/src/server/modules/user/user.service.ts`
 - GitHub: https://github.com/lenneTech/nest-server/blob/develop/src/server/modules/user/user.service.ts
 
@@ -53,18 +56,21 @@ https://github.com/lenneTech/nest-server/tree/develop/src/server/modules/better-
 ## Required Files (Create in Order)
 
 ### 1. BetterAuth Module
+
 **Create:** `src/server/modules/better-auth/better-auth.module.ts`
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/better-auth.module.ts`
 
 ---
 
 ### 2. BetterAuth Controller
+
 **Create:** `src/server/modules/better-auth/better-auth.controller.ts`
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/better-auth.controller.ts`
 
 ---
 
 ### 3. BetterAuth Resolver (CRITICAL!)
+
 **Create:** `src/server/modules/better-auth/better-auth.resolver.ts`
 **Copy from:** `node_modules/@lenne.tech/nest-server/src/server/modules/better-auth/better-auth.resolver.ts`
 
@@ -78,17 +84,20 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 ---
 
 ### 4. Update UserService (CRITICAL!)
+
 **Modify:** `src/server/modules/user/user.service.ts`
 **Reference:** `node_modules/@lenne.tech/nest-server/src/server/modules/user/user.service.ts`
 
 **Required changes:**
 
 1. Add import:
+
    ```typescript
    import { CoreBetterAuthUserMapper } from '@lenne.tech/nest-server';
    ```
 
 2. Add constructor parameter:
+
    ```typescript
    @Optional() private readonly betterAuthUserMapper?: CoreBetterAuthUserMapper,
    ```
@@ -100,6 +109,7 @@ GraphQL schema is built from decorators at compile time. The parent class (`Core
 
 **WHY is this critical?**
 The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
+
 - User signs up via BetterAuth → password synced to Legacy Auth (bcrypt hash)
 - User changes password → synced between both systems
 - **Without this, users can only authenticate via ONE system!**
@@ -107,14 +117,16 @@ The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
 ---
 
 ### 5. Update ServerModule
+
 **Modify:** `src/server/server.module.ts`
 **Reference:** `node_modules/@lenne.tech/nest-server/src/server/server.module.ts`
 
 #### For New Projects (IAM-Only) - Recommended:
+
 ```typescript
 @Module({
   imports: [
-    CoreModule.forRoot(envConfig),  // Simplified signature
+    CoreModule.forRoot(envConfig), // Simplified signature
     BetterAuthModule.forRoot({
       config: envConfig.betterAuth,
       fallbackSecrets: [envConfig.jwt?.secret],
@@ -129,6 +141,7 @@ export class ServerModule {}
 **Note:** Since 11.10.3, `registerRolesGuardGlobally` defaults to `true`. You don't need to set it explicitly.
 
 #### For Existing Projects (Migration):
+
 ```typescript
 @Module({
   imports: [
@@ -146,10 +159,12 @@ export class ServerModule {}
 ---
 
 ### 6. Update config.env.ts
+
 **Modify:** `src/config.env.ts`
 **Reference:** `node_modules/@lenne.tech/nest-server/src/config.env.ts`
 
 #### Zero-Config (Default):
+
 BetterAuth is **enabled by default** with JWT + 2FA. No configuration required!
 
 ```typescript
@@ -169,11 +184,12 @@ const config = {
 ```
 
 #### With Passkey (auto-detected from baseUrl):
+
 ```typescript
 const config = {
   // Passkey is auto-activated when URLs can be resolved
   // Option 1: Set root-level baseUrl (production)
-  baseUrl: 'https://api.example.com',  // rpId, origin, trustedOrigins auto-detected
+  baseUrl: 'https://api.example.com', // rpId, origin, trustedOrigins auto-detected
   env: 'production',
 
   // Option 2: Use env: 'local'/'ci'/'e2e' (development)
@@ -182,10 +198,11 @@ const config = {
 ```
 
 #### Disabling Features:
+
 ```typescript
 const config = {
   betterAuth: {
-    jwt: false,       // Disable JWT (use cookies only)
+    jwt: false, // Disable JWT (use cookies only)
     twoFactor: false, // Disable 2FA
   },
   // OR disable BetterAuth completely:
@@ -214,9 +231,9 @@ const config = {
     // Email verification is enabled by default
     // To customize:
     emailVerification: {
-      expiresIn: 86400,           // Token expiration in seconds (default: 24h)
-      template: 'custom-verify',  // Custom template name
-      locale: 'en',               // Template locale (default: 'de')
+      expiresIn: 86400, // Token expiration in seconds (default: 24h)
+      template: 'custom-verify', // Custom template name
+      locale: 'en', // Template locale (default: 'de')
     },
     // To disable:
     emailVerification: false,
@@ -227,6 +244,7 @@ const config = {
 ### Custom Email Templates
 
 Create custom templates in your project's templates directory:
+
 - `templates/email-verification-de.ejs` - German
 - `templates/email-verification-en.ejs` - English
 
@@ -252,10 +270,13 @@ mutation {
     email: "user@example.com"
     password: "hashedPassword"
     name: "User Name"
-    termsAndPrivacyAccepted: true  # Required by default
+    termsAndPrivacyAccepted: true # Required by default
   ) {
     success
-    user { id email }
+    user {
+      id
+      email
+    }
   }
 }
 ```
@@ -304,6 +325,7 @@ After integration, verify:
 - [ ] Sign-in via BetterAuth works correctly
 
 ### Additional checks for v11.13.0+ features:
+
 - [ ] Sign-up without `termsAndPrivacyAccepted` returns error `LTNS_0021`
 - [ ] Sign-up with `termsAndPrivacyAccepted: true` succeeds
 - [ ] User record contains `termsAndPrivacyAcceptedAt` timestamp after sign-up
@@ -314,12 +336,14 @@ After integration, verify:
 - [ ] Passkey can be registered, listed, and deleted from security settings
 
 ### Optional: Disable Sign-Up (`emailAndPassword.disableSignUp: true`)
+
 - [ ] REST `POST /iam/sign-up/email` returns `400` with error `LTNS_0026`
 - [ ] GraphQL `betterAuthSignUp` returns error `LTNS_0026`
 - [ ] `GET /iam/features` reports `signUpEnabled: false`
 - [ ] Sign-in still works for existing users
 
 ### Additional checks for Migration scenario:
+
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users
 - [ ] Sign-in via BetterAuth works for Legacy-created users
 - [ ] `betterAuthMigrationStatus` query shows correct counts
@@ -328,16 +352,16 @@ After integration, verify:
 
 ## Common Mistakes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| Forgot to re-declare decorators in Resolver | GraphQL endpoints missing (404) | Copy resolver from reference, keep ALL decorators |
-| Forgot `CoreBetterAuthUserMapper` in UserService | Auth systems not synced, users can't cross-authenticate | Add `@Optional()` parameter and pass to super() |
-| Missing `fallbackSecrets` in ServerModule | Session issues without explicit secret | Add `fallbackSecrets: [envConfig.jwt?.secret, ...]` |
-| Wrong `basePath` in config | 404 on BetterAuth endpoints | Ensure basePath matches controller (default: `/iam`) |
-| Using wrong CoreModule signature | Build errors or missing features | New projects: 1-parameter, Existing: 3-parameter |
-| AuthResolver override missing `checkLegacyGraphQLEnabled()` | Legacy endpoint disabling doesn't work (no HTTP 410) | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides |
-| Missing `signUpValidator` in custom Resolver (v11.13.0+) | Sign-up validation not working | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
-| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+) | GraphQL error "Unknown argument" | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method |
+| Mistake                                                             | Symptom                                                 | Fix                                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Forgot to re-declare decorators in Resolver                         | GraphQL endpoints missing (404)                         | Copy resolver from reference, keep ALL decorators                                                             |
+| Forgot `CoreBetterAuthUserMapper` in UserService                    | Auth systems not synced, users can't cross-authenticate | Add `@Optional()` parameter and pass to super()                                                               |
+| Missing `fallbackSecrets` in ServerModule                           | Session issues without explicit secret                  | Add `fallbackSecrets: [envConfig.jwt?.secret, ...]`                                                           |
+| Wrong `basePath` in config                                          | 404 on BetterAuth endpoints                             | Ensure basePath matches controller (default: `/iam`)                                                          |
+| Using wrong CoreModule signature                                    | Build errors or missing features                        | New projects: 1-parameter, Existing: 3-parameter                                                              |
+| AuthResolver override missing `checkLegacyGraphQLEnabled()`         | Legacy endpoint disabling doesn't work (no HTTP 410)    | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides                                                  |
+| Missing `signUpValidator` in custom Resolver (v11.13.0+)            | Sign-up validation not working                          | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
+| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+) | GraphQL error "Unknown argument"                        | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method                       |
 
 ---
 
@@ -374,7 +398,7 @@ import { sha256 } from '~/utils/crypto';
 
 const baseClient = createAuthClient({
   baseURL: import.meta.env.VITE_API_URL,
-  basePath: '/iam',  // Must match server config
+  basePath: '/iam', // Must match server config
   fetchOptions: {
     credentials: 'include', // Required for cross-origin cookie handling
   },
@@ -535,10 +559,10 @@ async function onPasskeyLogin() {
 
 In JWT mode (`cookies: false`), the server stores WebAuthn challenges in the database instead of cookies. The server returns a `challengeId` in the generate-options response, which must be sent back in the verify request. The `authenticateWithPasskey()` composable function handles this automatically.
 
-| Mode | Challenge Storage | Client Approach |
-|------|------------------|-----------------|
-| Cookie (`cookies: true` or not set) | Cookie (`better-auth.better-auth-passkey`) | Either approach works |
-| JWT (`cookies: false`) | Database with `challengeId` mapping (auto-enabled) | **Must use composable** |
+| Mode                                | Challenge Storage                                  | Client Approach         |
+| ----------------------------------- | -------------------------------------------------- | ----------------------- |
+| Cookie (`cookies: true` or not set) | Cookie (`better-auth.better-auth-passkey`)         | Either approach works   |
+| JWT (`cookies: false`)              | Database with `challengeId` mapping (auto-enabled) | **Must use composable** |
 
 **Note:** Database challenge storage is automatically enabled when `options.cookies: false` is set. No additional configuration is required.
 
@@ -610,17 +634,18 @@ nest-server implements custom REST endpoints instead of relying solely on Better
 
 ### Hook Limitations Summary
 
-| Limitation | Impact |
-|------------|--------|
-| **After-hooks cannot access plaintext password** | Cannot sync password to Legacy Auth after sign-up |
-| **Hooks cannot modify HTTP response** | Cannot customize response format or add custom fields |
-| **Hooks cannot set cookies** | Cannot implement multi-cookie auth strategy |
-| **No NestJS Dependency Injection** | Cannot access services like UserService, EmailService |
-| **Before-hooks cannot inject tokens** | Cannot add session tokens to request headers |
+| Limitation                                       | Impact                                                |
+| ------------------------------------------------ | ----------------------------------------------------- |
+| **After-hooks cannot access plaintext password** | Cannot sync password to Legacy Auth after sign-up     |
+| **Hooks cannot modify HTTP response**            | Cannot customize response format or add custom fields |
+| **Hooks cannot set cookies**                     | Cannot implement multi-cookie auth strategy           |
+| **No NestJS Dependency Injection**               | Cannot access services like UserService, EmailService |
+| **Before-hooks cannot inject tokens**            | Cannot add session tokens to request headers          |
 
 ### What You CAN Do with Hooks
 
 Better-Auth hooks are suitable for:
+
 - ✅ Logging and analytics (side effects only)
 - ✅ Sending notifications after events
 - ✅ Simple validation in before-hooks
@@ -629,6 +654,7 @@ Better-Auth hooks are suitable for:
 ### What You CANNOT Do with Hooks
 
 Do NOT try to implement these via hooks:
+
 - ❌ Password synchronization between auth systems
 - ❌ Custom response formats
 - ❌ Setting authentication cookies
@@ -683,5 +709,6 @@ See README.md section "Architecture: Why Custom Controllers?" for detailed expla
 ## Detailed Documentation
 
 For complete configuration options, API reference, and advanced topics:
+
 - **README.md:** `node_modules/@lenne.tech/nest-server/src/core/modules/better-auth/README.md`
 - **GitHub:** https://github.com/lenneTech/nest-server/blob/develop/src/core/modules/better-auth/README.md

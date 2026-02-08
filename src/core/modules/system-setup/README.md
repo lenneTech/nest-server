@@ -42,16 +42,17 @@ Once any user exists, the init endpoint is permanently locked (returns 403) and 
 
 ## Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/system-setup/status` | Check if system needs setup |
-| POST | `/api/system-setup/init` | Create initial admin user |
+| Method | Endpoint                   | Description                 |
+| ------ | -------------------------- | --------------------------- |
+| GET    | `/api/system-setup/status` | Check if system needs setup |
+| POST   | `/api/system-setup/init`   | Create initial admin user   |
 
 ### GET /api/system-setup/status
 
 Returns the current setup status.
 
 **Response:**
+
 ```json
 {
   "needsSetup": true,
@@ -64,6 +65,7 @@ Returns the current setup status.
 Creates the initial admin user. Only works when zero users exist.
 
 **Request Body:**
+
 ```json
 {
   "email": "admin@example.com",
@@ -72,13 +74,14 @@ Creates the initial admin user. Only works when zero users exist.
 }
 ```
 
-| Field | Type | Required | Validation |
-|-------|------|----------|------------|
-| `email` | string | Yes | Valid email format |
-| `password` | string | Yes | Minimum 8 characters |
-| `name` | string | No | Defaults to email prefix |
+| Field      | Type   | Required | Validation               |
+| ---------- | ------ | -------- | ------------------------ |
+| `email`    | string | Yes      | Valid email format       |
+| `password` | string | Yes      | Minimum 8 characters     |
+| `name`     | string | No       | Defaults to email prefix |
 
 **Success Response (201):**
+
 ```json
 {
   "success": true,
@@ -88,6 +91,7 @@ Creates the initial admin user. Only works when zero users exist.
 ```
 
 **Error Response (403):**
+
 ```json
 {
   "message": "LTNS_0050: System setup not available - users already exist"
@@ -100,11 +104,11 @@ Creates the initial admin user. Only works when zero users exist.
 
 System setup is **enabled by default** when BetterAuth is active:
 
-| Config | Effect |
-|--------|--------|
-| *(not set)* | Enabled (when BetterAuth is active) |
-| `systemSetup: { enabled: false }` | Disabled explicitly |
-| `systemSetup: { initialAdmin: { ... } }` | Enabled with auto-creation |
+| Config                                   | Effect                              |
+| ---------------------------------------- | ----------------------------------- |
+| _(not set)_                              | Enabled (when BetterAuth is active) |
+| `systemSetup: { enabled: false }`        | Disabled explicitly                 |
+| `systemSetup: { initialAdmin: { ... } }` | Enabled with auto-creation          |
 
 ```typescript
 // config.env.ts
@@ -220,6 +224,7 @@ if (needsSetup) {
 **Cause:** Users already exist in the database.
 
 **Solutions:**
+
 1. Check `GET /api/system-setup/status` - `needsSetup` should be `true`
 2. If this is a fresh deployment, verify the database is empty
 
@@ -228,6 +233,7 @@ if (needsSetup) {
 **Cause:** BetterAuth is not configured or not enabled.
 
 **Solutions:**
+
 1. Ensure `betterAuth` is configured in `config.env.ts`
 2. Verify BetterAuth is running (check server startup logs)
 
@@ -236,6 +242,7 @@ if (needsSetup) {
 **Cause:** Missing or incomplete ENV variables.
 
 **Solutions:**
+
 1. Verify both `email` and `password` are set
 2. Check server logs for `Auto-created initial admin on startup` or warning messages
 3. Ensure BetterAuth is fully initialized (check startup logs)
@@ -245,6 +252,7 @@ if (needsSetup) {
 **Cause:** System setup module is disabled.
 
 **Solutions:**
+
 1. Check that BetterAuth is enabled (system setup requires it)
 2. Ensure `systemSetup` is not set to `{ enabled: false }`
 
@@ -252,11 +260,11 @@ if (needsSetup) {
 
 ## Error Codes
 
-| Code | Key | Description |
-|------|-----|-------------|
-| LTNS_0050 | `SYSTEM_SETUP_NOT_AVAILABLE` | Users already exist, setup locked |
-| LTNS_0051 | `SYSTEM_SETUP_DISABLED` | System setup is disabled in config |
-| LTNS_0052 | `SYSTEM_SETUP_BETTERAUTH_REQUIRED` | BetterAuth must be enabled |
+| Code      | Key                                | Description                        |
+| --------- | ---------------------------------- | ---------------------------------- |
+| LTNS_0050 | `SYSTEM_SETUP_NOT_AVAILABLE`       | Users already exist, setup locked  |
+| LTNS_0051 | `SYSTEM_SETUP_DISABLED`            | System setup is disabled in config |
+| LTNS_0052 | `SYSTEM_SETUP_BETTERAUTH_REQUIRED` | BetterAuth must be enabled         |
 
 ---
 
