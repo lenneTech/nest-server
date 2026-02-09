@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.14.1",
+  "version": "11.15.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -53,6 +53,7 @@
     "vitest:unit": "vitest run --config vitest.config.ts",
     "test:unit:watch": "vitest --config vitest.config.ts",
     "test:types": "tsc --noEmit --skipLibCheck -p tests/types/tsconfig.json",
+    "test:cleanup": "find tests -type f \\( -name '*.txt' -o -name '*.bin' \\) -not -name '.gitkeep' -delete && echo 'Test artifacts cleaned up'",
     "watch": "npm-watch"
   },
   "repository": {

@@ -20,6 +20,9 @@ npm run test:ci
 
 # Debug open handles
 npm run test:e2e-doh
+
+# Clean up leftover test artifacts (.txt, .bin files from failed file upload tests)
+npm run test:cleanup
 ```
 
 ## Test Environment

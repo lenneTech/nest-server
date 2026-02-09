@@ -14,9 +14,9 @@
 ## Core Module (`src/core.module.ts`)
 
 - Dynamic module providing base functionality
-- Configures GraphQL with Apollo Server, MongoDB with Mongoose
+- Configures GraphQL with Apollo Server (can be disabled via `graphQl: false`), MongoDB with Mongoose
 - Provides global services: ConfigService, EmailService, TemplateService
-- Sets up security interceptors, validation pipes, complexity plugins
+- Sets up security interceptors, validation pipes, complexity plugins (when GraphQL enabled)
 - Handles GraphQL subscriptions with authentication
 
 ## Configuration System (`src/config.env.ts`)

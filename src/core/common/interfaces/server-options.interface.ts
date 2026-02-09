@@ -1099,28 +1099,32 @@ export interface IServerOptions {
    * Configuration of the GraphQL module
    * see https://docs.nestjs.com/graphql/quick-start
    * and https://www.apollographql.com/docs/apollo-server/api/apollo-server/
+   *
+   * Set to `false` to completely disable GraphQL (no GraphQLModule, no /graphql endpoint).
    */
-  graphQl?: {
-    /**
-     * Driver configuration for Apollo
-     */
-    driver?: ApolloDriverConfig;
+  graphQl?:
+    | false
+    | {
+        /**
+         * Driver configuration for Apollo
+         */
+        driver?: ApolloDriverConfig;
 
-    /**
-     * Subscription authentication
-     */
-    enableSubscriptionAuth?: boolean;
+        /**
+         * Subscription authentication
+         */
+        enableSubscriptionAuth?: boolean;
 
-    /**
-     * Maximum complexity of GraphQL requests
-     */
-    maxComplexity?: number;
+        /**
+         * Maximum complexity of GraphQL requests
+         */
+        maxComplexity?: number;
 
-    /**
-     * Module options (forRootAsync)
-     */
-    options?: GqlModuleAsyncOptions;
-  };
+        /**
+         * Module options (forRootAsync)
+         */
+        options?: GqlModuleAsyncOptions;
+      };
 
   /**
    * Whether to activate health check endpoints
