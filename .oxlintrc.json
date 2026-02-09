@@ -35,6 +35,12 @@
       "rules": {
         "no-console": "off"
       }
+    },
+    {
+      "files": ["tests/**", "**/*.spec.ts", "**/*.test.ts", "**/*.e2e-spec.ts"],
+      "rules": {
+        "no-unused-vars": "off"
+      }
     }
   ]
 }

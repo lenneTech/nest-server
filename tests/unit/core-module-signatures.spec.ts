@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreModule } from '../../src/core.module';
 import { IServerOptions } from '../../src/core/common/interfaces/server-options.interface';
+import { ComplexityPlugin } from '../../src/core/common/plugins/complexity.plugin';
+import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
 
 // Mock AuthModule for testing
@@ -385,6 +387,108 @@ describe('CoreModule.forRoot() Signatures', () => {
 
       expect(result).toBeDefined();
       expect(result.providers).toBeDefined();
+    });
+  });
+
+  // ===========================================================================================================
+  // GraphQL Disabled Tests (graphQl: false)
+  // ===========================================================================================================
+
+  describe('GraphQL Disabled (graphQl: false)', () => {
+    it('should accept graphQl: false in 1-param signature', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      expect(result).toBeDefined();
+      expect(result.module).toBe(CoreModule);
+    });
+
+    it('should not include GraphQLModule in imports when graphQl: false', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      // GraphQLModule should not be in imports
+      const importNames = (result.imports || []).map((imp: any) => {
+        if (typeof imp === 'function') return imp.name;
+        if (imp?.module) return typeof imp.module === 'function' ? imp.module.name : String(imp.module);
+        return String(imp);
+      });
+      expect(importNames).not.toContain('GraphQLModule');
+    });
+
+    it('should not include ComplexityPlugin in providers when graphQl: false', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      // ComplexityPlugin should not be in providers
+      const hasComplexityPlugin = (result.providers || []).some(
+        (p: any) => p === ComplexityPlugin || p?.useClass === ComplexityPlugin,
+      );
+      expect(hasComplexityPlugin).toBe(false);
+    });
+
+    it('should not include ComplexityPlugin in exports when graphQl: false', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      expect(result.exports).not.toContain(ComplexityPlugin);
+    });
+
+    it('should accept graphQl: false in 3-param signature', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        betterAuth: { enabled: false },
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(CoreAuthService, MockAuthModule.forRoot(), config);
+
+      expect(result).toBeDefined();
+      expect(result.module).toBe(CoreModule);
+    });
+
+    it('should still include MongooseModule when graphQl: false', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      // MongooseModule should still be in imports
+      const importNames = (result.imports || []).map((imp: any) => {
+        if (typeof imp === 'function') return imp.name;
+        if (imp?.module) return typeof imp.module === 'function' ? imp.module.name : String(imp.module);
+        return String(imp);
+      });
+      expect(importNames).toContain('MongooseModule');
+    });
+
+    it('should still include ConfigService when graphQl: false', () => {
+      const config: Partial<IServerOptions> = {
+        ...baseConfig,
+        graphQl: false,
+      };
+
+      const result: DynamicModule = CoreModule.forRoot(config);
+
+      expect(result.exports).toContain(ConfigService);
     });
   });
 

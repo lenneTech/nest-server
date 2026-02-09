@@ -34,6 +34,7 @@ npm run start:dev      # Development mode with watch
 npm test               # Run E2E tests (Vitest)
 npm run test:cov       # With coverage
 npm run test:e2e-doh   # Debug open handles
+npm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
 
 # Linting & Formatting
 npm run lint           # ESLint check
@@ -53,7 +54,7 @@ npm run reinit         # Clean reinstall + tests + build
 - `src/index.ts` - Public API exports
 
 **Key Components:**
-- `CoreModule` - Dynamic module with GraphQL, MongoDB, security
+- `CoreModule` - Dynamic module with GraphQL (optional, disable via `graphQl: false`), MongoDB, security
 - `src/core/common/` - Decorators, helpers, interceptors, services
 - `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Migrate, SystemSetup, Tus, User
 

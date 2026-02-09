@@ -204,6 +204,7 @@ This pattern is currently applied to:
 | BetterAuth Passkey Plugin | `betterAuth.passkey` | Boolean Shorthand | `rpName: 'Nest Server'` |
 | BetterAuth Disable Sign-Up | `betterAuth.emailAndPassword.disableSignUp` | Explicit Boolean | `false` (sign-up enabled) |
 | System Setup | `systemSetup` | Enabled by Default (when BetterAuth active) | `initialAdmin: undefined` |
+| GraphQL | `graphQl` | Explicit Disable (`false`) | Enabled (full GraphQL stack) |
 
 ## Checklist for New Configurable Features
 

@@ -99,6 +99,7 @@ globalConfig.json
 
 # Test artifacts
 tests/**/*.txt
+tests/**/*.bin
 
 # Keep .gitkeep files
 !/**/.gitkeep

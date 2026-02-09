@@ -42,11 +42,15 @@ import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-s
 @Global()
 @Module({})
 export class CoreModule implements NestModule {
+  private static graphQlEnabled = true;
+
   /**
    * Integrate middleware, e.g. GraphQL upload handing for express
    */
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+    if (CoreModule.graphQlEnabled) {
+      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+    }
   }
 
   /**
@@ -138,24 +142,35 @@ export class CoreModule implements NestModule {
       };
     }
 
+    // Determine if GraphQL is enabled (false means explicitly disabled)
+    const isGraphQlEnabled = options.graphQl !== false;
+    CoreModule.graphQlEnabled = isGraphQlEnabled;
+
     // Check if autoRegister: false for IAM-only mode (project imports its own BetterAuth module)
     const rawBetterAuth = options?.betterAuth;
     const isAutoRegisterDisabledEarly = typeof rawBetterAuth === 'object' && rawBetterAuth?.autoRegister === false;
 
-    // Build GraphQL driver configuration based on auth mode
-    const graphQlDriverConfig = isIamOnlyMode
-      ? isAutoRegisterDisabledEarly
-        ? this.buildLazyIamGraphQlDriver(cors, options)
-        : this.buildIamOnlyGraphQlDriver(cors, options)
-      : this.buildLegacyGraphQlDriver(AuthService, AuthModule, cors, options);
+    // Build GraphQL driver configuration based on auth mode (only if GraphQL is enabled)
+    let graphQlDriverConfig = {};
+    if (isGraphQlEnabled) {
+      graphQlDriverConfig = isIamOnlyMode
+        ? isAutoRegisterDisabledEarly
+          ? this.buildLazyIamGraphQlDriver(cors, options)
+          : this.buildIamOnlyGraphQlDriver(cors, options)
+        : this.buildLegacyGraphQlDriver(AuthService, AuthModule, cors, options);
+    }
 
     const config: IServerOptions = merge(
       {
         env: 'develop',
-        graphQl: {
-          driver: graphQlDriverConfig,
-          enableSubscriptionAuth: true,
-        },
+        ...(isGraphQlEnabled
+          ? {
+              graphQl: {
+                driver: graphQlDriverConfig,
+                enableSubscriptionAuth: true,
+              },
+            }
+          : {}),
         mongoose: {
           options: {
             connectionFactory: (connection) => {
@@ -190,8 +205,8 @@ export class CoreModule implements NestModule {
       MailjetService,
     ];
 
-    // Add ComplexityPlugin only if not in Vitest (Vitest has dual GraphQL loading issue)
-    if (!process.env.VITEST) {
+    // Add ComplexityPlugin only if not in Vitest (Vitest has dual GraphQL loading issue) and GraphQL is enabled
+    if (!process.env.VITEST && isGraphQlEnabled) {
       providers.push(ComplexityPlugin);
     }
 
@@ -228,12 +243,15 @@ export class CoreModule implements NestModule {
     // and: https://mongoosejs.com/docs/guide.html#strictQuery
     mongoose.set('strictQuery', config.mongoose.strictQuery || false);
 
-    const imports: any[] = [
-      MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
-      GraphQLModule.forRootAsync<ApolloDriverConfig>(
-        Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options),
-      ),
-    ];
+    const imports: any[] = [MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
+
+    if (isGraphQlEnabled && config.graphQl) {
+      imports.push(
+        GraphQLModule.forRootAsync<ApolloDriverConfig>(
+          Object.assign({ driver: ApolloDriver }, config.graphQl.driver, config.graphQl.options),
+        ),
+      );
+    }
 
     // Add ErrorCodeModule based on configuration
     // autoRegister defaults to true (backward compatible)
@@ -311,7 +329,7 @@ export class CoreModule implements NestModule {
 
     // Set exports
     const exports: any[] = [ConfigService, EmailService, TemplateService, MailjetService];
-    if (!process.env.VITEST) {
+    if (!process.env.VITEST && isGraphQlEnabled) {
       exports.push(ComplexityPlugin);
     }
 
@@ -335,6 +353,8 @@ export class CoreModule implements NestModule {
    * This is the recommended mode for new projects.
    */
   private static buildIamOnlyGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
+    // This method is only called when graphQl !== false, extract config with type narrowing
+    const graphQlOpts = typeof options?.graphQl === 'object' ? options.graphQl : undefined;
     return {
       imports: [CoreBetterAuthModule],
       inject: [CoreBetterAuthService, CoreBetterAuthUserMapper],
@@ -350,7 +370,7 @@ export class CoreModule implements NestModule {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any>) => {
                   const { connectionParams, extra } = context;
-                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
                     // Get headers from raw headers or connection params
@@ -385,7 +405,7 @@ export class CoreModule implements NestModule {
               },
               'subscriptions-transport-ws': {
                 onConnect: async (connectionParams) => {
-                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
                     const authToken: string = connectionParams?.Authorization?.split(' ')[1];
@@ -415,7 +435,7 @@ export class CoreModule implements NestModule {
               },
             },
           },
-          options?.graphQl?.driver,
+          graphQlOpts?.driver,
         ),
     };
   }
@@ -430,6 +450,8 @@ export class CoreModule implements NestModule {
    * which happens after all modules are initialized.
    */
   private static buildLazyIamGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
+    // This method is only called when graphQl !== false, extract config with type narrowing
+    const graphQlOpts = typeof options?.graphQl === 'object' ? options.graphQl : undefined;
     return {
       useFactory: async () =>
         Object.assign(
@@ -443,7 +465,7 @@ export class CoreModule implements NestModule {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any>) => {
                   const { connectionParams, extra } = context;
-                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
                     const betterAuthService = CoreBetterAuthModule.getServiceInstance();
@@ -482,7 +504,7 @@ export class CoreModule implements NestModule {
               },
               'subscriptions-transport-ws': {
                 onConnect: async (connectionParams) => {
-                  const enableAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
                     const betterAuthService = CoreBetterAuthModule.getServiceInstance();
@@ -517,7 +539,7 @@ export class CoreModule implements NestModule {
               },
             },
           },
-          options?.graphQl?.driver,
+          graphQlOpts?.driver,
         ),
     };
   }
@@ -536,8 +558,9 @@ export class CoreModule implements NestModule {
     cors: object,
     options: Partial<IServerOptions>,
   ) {
-    // Store config reference for use in callbacks
-    const enableSubscriptionAuth = options?.graphQl?.enableSubscriptionAuth ?? true;
+    // This method is only called when graphQl !== false, extract config with type narrowing
+    const graphQlOpts = typeof options?.graphQl === 'object' ? options.graphQl : undefined;
+    const enableSubscriptionAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
     return {
       imports: [AuthModule],
@@ -599,7 +622,7 @@ export class CoreModule implements NestModule {
               },
             },
           },
-          options?.graphQl?.driver,
+          graphQlOpts?.driver,
         ),
     };
   }
