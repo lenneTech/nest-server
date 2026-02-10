@@ -77,7 +77,7 @@ const config: { [env: string]: IServerOptions } = {
     errorCode: {
       autoRegister: false,
     },
-    execAfterInit: 'npm run docs:bootstrap',
+    execAfterInit: 'pnpm run docs:bootstrap',
     filter: {
       maxLimit: null,
     },
@@ -183,7 +183,7 @@ const config: { [env: string]: IServerOptions } = {
       verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'development',
-    execAfterInit: 'npm run docs:bootstrap',
+    execAfterInit: 'pnpm run docs:bootstrap',
     filter: {
       maxLimit: null,
     },
@@ -321,7 +321,7 @@ const config: { [env: string]: IServerOptions } = {
     errorCode: {
       autoRegister: false,
     },
-    execAfterInit: 'npm run docs:bootstrap',
+    execAfterInit: 'pnpm run docs:bootstrap',
     filter: {
       maxLimit: null,
     },
@@ -439,7 +439,7 @@ const config: { [env: string]: IServerOptions } = {
     errorCode: {
       autoRegister: false,
     },
-    execAfterInit: 'npm run docs:bootstrap',
+    execAfterInit: 'pnpm run docs:bootstrap',
     filter: {
       maxLimit: null,
     },
@@ -563,7 +563,7 @@ const config: { [env: string]: IServerOptions } = {
       verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'production',
-    execAfterInit: 'npm run docs:bootstrap',
+    execAfterInit: 'pnpm run docs:bootstrap',
     filter: {
       maxLimit: null,
     },

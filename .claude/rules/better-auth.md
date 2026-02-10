@@ -92,10 +92,10 @@ Before completing any Better-Auth changes:
 
 ```bash
 # All tests must pass
-npm test
+pnpm test
 
 # Specific test file for targeted changes
-npm test -- tests/stories/better-auth-*.ts
+pnpm test -- tests/stories/better-auth-*.ts
 ```
 
 ### Test Categories for Better-Auth

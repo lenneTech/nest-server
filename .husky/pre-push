@@ -1,1 +1,1 @@
-npm run test:e2e && npm run build
+pnpm run test:e2e && pnpm run build

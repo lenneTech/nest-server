@@ -17,10 +17,14 @@ jobs:
       - name: Git checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.11.0
@@ -28,13 +32,13 @@ jobs:
           mongodb-version: ${{ matrix.mongodb-version }}
 
       - name: Install dependencies
-        run: npm install
+        run: pnpm install
 
       - name: Optimize and check
-        run: npm run prepublishOnly
+        run: pnpm run prepublishOnly
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - uses: JS-DevTools/npm-publish@v3
         with:
