@@ -21,29 +21,30 @@ After significant development sessions, update with new learnings (patterns, pit
 - **GitHub**: https://github.com/lenneTech/nest-server
 - **Starter Project**: https://github.com/lenneTech/nest-server-starter (reference for migrations)
 - **CLI**: https://github.com/lenneTech/cli (`lt server module <Name>`)
+- **Package Manager**: pnpm (development only, published to npm registry)
 
 ## Common Development Commands
 
 ```bash
 # Building & Running
-npm run build          # Build (outputs to dist/)
-npm start              # Start in local mode
-npm run start:dev      # Development mode with watch
+pnpm run build          # Build (outputs to dist/)
+pnpm start              # Start in local mode
+pnpm run start:dev      # Development mode with watch
 
 # Testing (ALWAYS run before completing changes)
-npm test               # Run E2E tests (Vitest)
-npm run test:cov       # With coverage
-npm run test:e2e-doh   # Debug open handles
-npm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
+pnpm test               # Run E2E tests (Vitest)
+pnpm run test:cov       # With coverage
+pnpm run test:e2e-doh   # Debug open handles
+pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
 
 # Linting & Formatting
-npm run lint           # ESLint check
-npm run lint:fix       # Auto-fix
-npm run format         # Prettier format
+pnpm run lint           # ESLint check
+pnpm run lint:fix       # Auto-fix
+pnpm run format         # Prettier format
 
 # Package Development
-npm run build:dev      # Build + push to yalc
-npm run reinit         # Clean reinstall + tests + build
+pnpm run build:dev      # Build for local development (use with pnpm link)
+pnpm run reinit         # Clean reinstall + tests + build
 ```
 
 ## Code Architecture
@@ -71,7 +72,7 @@ See `.claude/rules/architecture.md` for detailed documentation.
 
 3. **Backward Compatibility** - Changes affect all consuming projects
 
-4. **Test Coverage** - All changes must pass `npm test`
+4. **Test Coverage** - All changes must pass `pnpm test`
 
 5. **Export Management** - New public components → `src/index.ts`
 
@@ -110,13 +111,13 @@ See `.claude/rules/versioning.md` for release process.
 |-------|----------|
 | Tests timeout | Ensure MongoDB running on localhost:27017 |
 | GraphQL introspection fails | Check `config.env.ts` introspection setting |
-| Module not found after adding | Verify export in `src/index.ts`, run `npm run build` |
-| Open handles in tests | Run `npm run test:e2e-doh` |
+| Module not found after adding | Verify export in `src/index.ts`, run `pnpm run build` |
+| Open handles in tests | Run `pnpm run test:e2e-doh` |
 
 ## Best Practices
 
 1. **All code, comments, documentation in English**
-2. **Run tests before completing changes** - `npm test`
+2. **Run tests before completing changes** - `pnpm test`
 3. **Follow existing patterns** for consistency
 4. **Never store S_ roles** in user.roles array
 5. **Use Module Inheritance Pattern** for core modules

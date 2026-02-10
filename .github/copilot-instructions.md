@@ -167,18 +167,18 @@ async relatedItems(@Parent() parent: YourModel): Promise<RelatedModel[]> {
 
 ### Development
 ```bash
-npm start              # Start local development
-npm run start:dev      # Start with file watching
-npm run build          # Build application
-npm run lint           # Run oxlint
-npm run test:e2e       # Run E2E tests
-npm run docs           # Generate documentation
+pnpm start              # Start local development
+pnpm run start:dev      # Start with file watching
+pnpm run build          # Build application
+pnpm run lint           # Run oxlint
+pnpm run test:e2e       # Run E2E tests
+pnpm run docs           # Generate documentation
 ```
 
 ### Package Development
 ```bash
-npm run build:dev      # Build and push to yalc
-npm run build:pack     # Create tarball for testing
+pnpm run build:dev      # Build for local development (use with pnpm link)
+pnpm run build:pack     # Create tarball for testing
 ```
 
 ## Anti-Patterns to Avoid

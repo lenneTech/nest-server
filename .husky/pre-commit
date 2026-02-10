@@ -1,1 +1,1 @@
-ts-node extras/sync-version.ts && npx lint-staged && echo "Husky pre-commit passed" || exit 1
+ts-node extras/sync-version.ts && pnpm dlx lint-staged && echo "Husky pre-commit passed" || exit 1

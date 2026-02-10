@@ -10,19 +10,19 @@
 
 ```bash
 # Run all E2E tests (default)
-npm test
+pnpm test
 
 # Run with coverage
-npm run test:cov
+pnpm run test:cov
 
 # Run in CI mode
-npm run test:ci
+pnpm run test:ci
 
 # Debug open handles
-npm run test:e2e-doh
+pnpm run test:e2e-doh
 
 # Clean up leftover test artifacts (.txt, .bin files from failed file upload tests)
-npm run test:cleanup
+pnpm run test:cleanup
 ```
 
 ## Test Environment
@@ -34,7 +34,7 @@ npm run test:cleanup
 
 ## Test Best Practices
 
-1. **Always run tests before completing changes**: `npm test`
+1. **Always run tests before completing changes**: `pnpm test`
 2. **Production-ready = all tests pass** without errors
 3. **Use TestHelper** for GraphQL and REST API testing
 4. **Clean up test data** in `afterAll` hooks
@@ -80,7 +80,7 @@ describe('Feature Name', () => {
 When testing GraphQL subscriptions, use `httpServer.listen(0)` instead of `app.listen()`:
 
 ```typescript
-// ✅ CORRECT: No startup log, dynamic port
+// CORRECT: No startup log, dynamic port
 await app.init();
 const httpServer = app.getHttpServer();
 await new Promise<void>((resolve) => {
@@ -97,13 +97,13 @@ await app.close();
 ```
 
 ```typescript
-// ❌ WRONG: Produces "Nest application successfully started" log
+// WRONG: Produces "Nest application successfully started" log
 await app.init();
 await app.listen(3030);
 ```
 
 **Why:**
-- `app.listen()` triggers NestJS startup log → noisy test output
+- `app.listen()` triggers NestJS startup log -> noisy test output
 - Dynamic port (`0`) avoids port conflicts between parallel tests
 - Explicit `httpServer.close()` prevents open handle warnings
 
@@ -115,6 +115,6 @@ Full documentation for TestHelper (REST, GraphQL, Cookie support):
 ## Common Test Issues
 
 - **Tests timeout**: Ensure MongoDB is running
-- **Open handles**: Use `npm run test:e2e-doh` to debug
+- **Open handles**: Use `pnpm run test:e2e-doh` to debug
 - **Data conflicts**: Use unique identifiers per test
 - **"NestApplication successfully started" log**: Use `httpServer.listen()` instead of `app.listen()`

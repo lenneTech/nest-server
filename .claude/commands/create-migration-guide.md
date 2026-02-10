@@ -88,8 +88,8 @@ Required sections:
 ### Step 7: Verify
 
 After creating the guide:
-1. Run `npm run build` to verify no build errors
-2. Run `npm test` to verify all tests pass
+1. Run `pnpm run build` to verify no build errors
+2. Run `pnpm test` to verify all tests pass
 3. Present summary to user
 
 ## Output Format

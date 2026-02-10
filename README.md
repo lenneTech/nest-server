@@ -57,13 +57,13 @@ There you will find a lot of things that will help you to extend your server, su
 
 ```bash
 # development
-$ npm start
+$ pnpm start
 
 # watch mode
-$ npm run start:dev
+$ pnpm run start:dev
 
 # production mode
-$ npm run start:prod
+$ pnpm run start:prod
 ```
 
 
@@ -71,20 +71,20 @@ $ npm run start:prod
 
 ```bash
 # unit tests
-$ npm test
+$ pnpm test
 
 # e2e tests
-$ npm run test:e2e
+$ pnpm run test:e2e
 
 # test coverage
-$ npm run test:cov
+$ pnpm run test:cov
 ```
 
 Configuration for testing:
 ```
 Node interpreter: /user/local/bin/node
 Working directory: FULL_PATH_TO_PROJECT_DIR
-Test command: npm run test:e2e
+Test command: pnpm run test:e2e
 ```
 
 ## Debugging
@@ -99,13 +99,13 @@ JavaScript file: src/main.ts
 see [Debug.run.xml](.run/Debug.run.xml)
 
 ### Debugging as package in a project
-Via [yalc](https://github.com/wclr/yalc) the NestJS Server can be linked into the project.
+Via `pnpm link` the NestJS Server can be linked into the project.
 
-In NestJS Server run `npm run watch` to watch for changes and build yalc package.
+In NestJS Server run `pnpm run watch` to watch for changes and rebuild automatically.
 Project use following scripts (via `package.json`):
 
-- `npm run link:nest-server` (for `yalc add @lenne.tech/nest-server && yalc link @lenne.tech/nest-server && npm install`)
-- `npm run unlink:nest-server` (for `yalc remove @lenne.tech/nest-server && npm install`)
+- `pnpm run link:nest-server` (for `pnpm link /path/to/nest-server`)
+- `pnpm run unlink:nest-server` (for `pnpm unlink @lenne.tech/nest-server && pnpm install`)
 
 ## Configuration
 
@@ -152,7 +152,7 @@ The API and developer documentation can automatically be generated.
 
 ```bash
 # generate and serve documentation
-$ npm run docs
+$ pnpm run docs
 ```
 
 ## Thanks

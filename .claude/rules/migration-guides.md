@@ -16,7 +16,7 @@ This document describes the process for creating migration guides when releasing
 - `11.7.0 → 11.7.1` - Required if new features need configuration changes
 - `11.7.1 → 11.7.2` - Not required if purely internal bugfixes with no user action needed
 
-**Rule of thumb:** If a developer needs to do anything beyond `npm update` to benefit from or accommodate the changes, create a migration guide.
+**Rule of thumb:** If a developer needs to do anything beyond `pnpm update` to benefit from or accommodate the changes, create a migration guide.
 
 ## Migration Guide Location
 

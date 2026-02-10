@@ -4,110 +4,43 @@ import * as fs from 'fs';
 
 /**
  * Update data class
+ *
+ * Stages the pnpm-lock.yaml file if it exists, so that the lock file
+ * is always committed alongside package.json version changes.
  */
 class UpdateData {
   /**
-   * Get file
+   * Get file path
    */
-  public async getFile(
+  public async getFilePath(
     fileName: string,
     options: { cwd?: string } = {},
-  ): Promise<{ path: string; data: any }> {
-    // Prepare options
-    const opts = Object.assign(
-      {
-        cwd: process.cwd(),
-      },
-      options,
-    );
-
-    // Find package.json
+  ): Promise<string> {
+    const opts = Object.assign({ cwd: process.cwd() }, options);
     const path = await find(fileName, opts.cwd);
-    if (!path) {
-      return { path: '', data: null };
-    }
-
-    // Everything ok
-    return { path, data: await this.readFile(path) };
-  }
-
-  /**
-   * Read a file
-   */
-  public readFile(path: string) {
-    return new Promise((resolve, reject) => {
-      fs.readFile(path, (err, data) => {
-        if (err) {
-          reject(err);
-        } else {
-          if (path.endsWith('.json')) {
-            resolve(JSON.parse(data.toString()));
-          } else {
-            resolve(data);
-          }
-        }
-      });
-    });
-  }
-
-  /**
-   * Set data in file
-   */
-  public async setFile(
-    fileName: string,
-    data: string | { [key: string]: any },
-    options: {
-      cwd?: string;
-    } = {},
-  ) {
-    if (typeof data === 'object') {
-      data = JSON.stringify(data, null, 2);
-    }
-
-    // Path to package.json
-    const { path } = await this.getFile(fileName, options);
-    if (!path) {
-      return;
-    }
-
-    // Write
-    try {
-      fs.unlinkSync(path);
-      fs.writeFileSync(path, data);
-    } catch (e) {
-      return '';
-    }
-
-    // Done
-    return;
+    return path || '';
   }
 
   /**
    * Runner
    */
   async run() {
-    // File to sync
-    const fileName = 'package-lock.json';
+    // Get current version from package.json
+    const packageJsonPath = await this.getFilePath('package.json');
+    if (!packageJsonPath) {
+      throw new Error('Missing package.json');
+    }
 
-    // Get current version
-    const {
-      data: { version },
-    } = await this.getFile('package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    const version = packageJson.version;
     if (!version) {
-      throw new Error('Missing version');
+      throw new Error('Missing version in package.json');
     }
 
-    // Get data
-    const { data, path } = await this.getFile(fileName);
-    if (!path) {
-      throw new Error(`Missing ${fileName}`);
-    }
-
-    // Compare and update
-    if (data.version !== version) {
-      data.version = version;
-      await this.setFile(fileName, data);
-      execSync(`git add ${path}`);
+    // Stage pnpm-lock.yaml if it exists
+    const lockFilePath = await this.getFilePath('pnpm-lock.yaml');
+    if (lockFilePath && fs.existsSync(lockFilePath)) {
+      execSync(`git add ${lockFilePath}`);
     }
 
     // Return version

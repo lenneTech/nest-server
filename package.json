@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.15.0",
+  "version": "11.15.1",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -14,25 +14,31 @@
   "homepage": "https://github.com/lenneTech/nest-server",
   "license": "MIT",
   "scripts": {
-    "build": "rimraf dist && nest build && npm run build:copy-types && npm run build:copy-templates && npm run build:add-type-references",
+    "build": "rimraf dist && nest build && pnpm run build:copy-types && pnpm run build:copy-templates && pnpm run build:add-type-references",
     "build:copy-types": "mkdir -p dist/types && cp src/types/*.d.ts dist/types/",
     "build:copy-templates": "mkdir -p dist/core/modules/migrate/templates && cp src/core/modules/migrate/templates/migration-project.template.ts dist/core/modules/migrate/templates/",
     "build:add-type-references": "node scripts/add-type-references.js",
-    "build:pack": "npm pack && echo 'use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package'",
-    "build:dev": "npm run build && yalc push --private",
-    "docs": "npm run docs:ci && open http://127.0.0.1:8080/ && open ./public/index.html && compodoc -p tsconfig.json -s ",
+    "build:pack": "pnpm pack && echo 'use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package'",
+    "build:dev": "pnpm run build",
+    "c": "pnpm run check",
+    "check": "pnpm audit && pnpm run format:check && pnpm run lint && pnpm test && pnpm run build && pnpm start",
+    "check:fix": "pnpm install && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && pnpm start",
+    "check:naf": "pnpm install && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && pnpm start",
+    "cf": "pnpm run check:fix",
+    "cnaf": "pnpm run check:naf",
+    "docs": "pnpm run docs:ci && open http://127.0.0.1:8080/ && open ./public/index.html && compodoc -p tsconfig.json -s ",
     "docs:bootstrap": "node extras/update-spectaql-version.mjs && node scripts/run-spectaql.mjs",
-    "docs:ci": "ts-node ./scripts/init-server.ts && npm run docs:bootstrap && compodoc -p tsconfig.json",
+    "docs:ci": "ts-node ./scripts/init-server.ts && pnpm run docs:bootstrap && compodoc -p tsconfig.json",
     "format": "oxfmt --write src/",
     "format:check": "oxfmt --check src/",
     "lint": "oxlint --ignore-path .oxlintignore src/ tests/",
     "lint:fix": "oxlint --fix --fix-suggestions --ignore-path .oxlintignore src/ tests/",
-    "prestart:prod": "npm run build",
-    "reinit": "rimraf package-lock.json && rimraf node_modules && npm i && npm run lint && npm run test:e2e && npm run test:ci && npm run build",
-    "reinit:clean": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test:e2e && npm run build",
-    "reinit:force": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i --force && npm run test:e2e",
-    "reinit:legacy": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i --legacy-peer-deps && npm run test:e2e",
-    "start": "npm run start:local",
+    "prestart:prod": "pnpm run build",
+    "reinit": "rimraf pnpm-lock.yaml && rimraf node_modules && pnpm install && pnpm run lint && pnpm run test:e2e && pnpm run test:ci && pnpm run build",
+    "reinit:clean": "rimraf pnpm-lock.yaml && rimraf node_modules && pnpm store prune && pnpm install && pnpm run test:e2e && pnpm run build",
+    "reinit:force": "rimraf pnpm-lock.yaml && rimraf node_modules && pnpm store prune && pnpm install --force && pnpm run test:e2e",
+    "reinit:legacy": "rimraf pnpm-lock.yaml && rimraf node_modules && pnpm store prune && pnpm install && pnpm run test:e2e",
+    "start": "pnpm run start:local",
     "start:prod": "NODE_ENV=production node dist/main.js",
     "start:nodemon": "ts-node -r tsconfig-paths/register src/main.ts",
     "start:debug": "nodemon --config nodemon-debug.json",
@@ -40,12 +46,12 @@
     "start:dev:swc": "nest start -b swc -w --type-check",
     "start:local": "NODE_ENV=local nodemon",
     "start:local:swc": "NODE_ENV=local nest start -b swc -w --type-check",
-    "test": "npm run vitest",
-    "test:ci": "npm run vitest:ci",
-    "test:e2e": "npm run vitest",
-    "prepack": "npm run prestart:prod",
-    "prepublishOnly": "npm run lint && npm run test:ci",
-    "preversion": "npm run lint",
+    "test": "pnpm run vitest",
+    "test:ci": "pnpm run vitest:ci",
+    "test:e2e": "pnpm run vitest",
+    "prepack": "pnpm run prestart:prod",
+    "prepublishOnly": "pnpm run lint && pnpm run test:ci",
+    "preversion": "pnpm run lint",
     "vitest": "NODE_ENV=e2e vitest run --config vitest-e2e.config.ts",
     "vitest:ci": "NODE_ENV=ci vitest run --config vitest-e2e.config.ts",
     "vitest:cov": "NODE_ENV=e2e vitest run --coverage --config vitest-e2e.config.ts",
@@ -153,8 +159,7 @@
     "vite": "7.3.1",
     "vite-plugin-node": "7.0.0",
     "vite-tsconfig-paths": "6.1.0",
-    "vitest": "4.0.18",
-    "yalc": "1.0.0-pre.53"
+    "vitest": "4.0.18"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -170,7 +175,18 @@
   "watch": {
     "build:dev": "src"
   },
-  "overrides": {
-    "lodash": "4.17.23"
+  "packageManager": "pnpm@10.29.2",
+  "pnpm": {
+    "overrides": {
+      "lodash": "4.17.23"
+    },
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "@swc/core",
+      "esbuild",
+      "@nestjs/core",
+      "@compodoc/compodoc",
+      "@apollo/protobufjs"
+    ]
   }
 }

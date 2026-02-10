@@ -10,9 +10,9 @@
 
 ## Examples
 
-- `11.0.0` → Initial release for NestJS 11
-- `11.1.0` → Breaking change or major restructuring within NestJS 11
-- `11.1.5` → Bugfix or new feature (backward compatible)
+- `11.0.0` -> Initial release for NestJS 11
+- `11.1.0` -> Breaking change or major restructuring within NestJS 11
+- `11.1.5` -> Bugfix or new feature (backward compatible)
 
 ## Important Rules
 
@@ -22,9 +22,9 @@
 
 ## Release Process
 
-1. Make changes and ensure all tests pass (`npm test`)
+1. Make changes and ensure all tests pass (`pnpm test`)
 2. Update version in `package.json`
-3. Build the package (`npm run build`)
+3. Build the package (`pnpm run build`)
 4. Publish to npm
 5. Update and test in [nest-server-starter](https://github.com/lenneTech/nest-server-starter)
 6. Commit changes to starter with migration notes
@@ -39,15 +39,15 @@
 ## Package Development Commands
 
 ```bash
-# Build and push to yalc for local testing
-npm run build:dev
+# Build for local development (use with pnpm link)
+pnpm run build:dev
 
 # Create tarball for integration testing
-npm run build:pack
+pnpm run build:pack
 
 # Clean reinstall with tests and build
-npm run reinit
+pnpm run reinit
 
 # Watch for changes
-npm run watch
+pnpm run watch
 ```
