@@ -348,7 +348,20 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
 
   // Merge with custom options passthrough
   // This allows projects to configure any Better-Auth option not explicitly defined
-  const finalConfig = config.options ? { ...betterAuthConfig, ...config.options } : betterAuthConfig;
+  // Deep-merge 'advanced' to preserve cookiePrefix when options.advanced is provided
+  let finalConfig: Record<string, unknown>;
+  if (config.options) {
+    const { advanced: optionsAdvanced, ...restOptions } = config.options as Record<string, unknown>;
+    finalConfig = { ...betterAuthConfig, ...restOptions };
+    if (optionsAdvanced && typeof optionsAdvanced === 'object') {
+      finalConfig.advanced = {
+        ...(betterAuthConfig.advanced as Record<string, unknown>),
+        ...(optionsAdvanced as Record<string, unknown>),
+      };
+    }
+  } else {
+    finalConfig = betterAuthConfig;
+  }
 
   // Create and return the better-auth instance
   // Type assertion needed for maximum flexibility - allows projects to use any Better-Auth option

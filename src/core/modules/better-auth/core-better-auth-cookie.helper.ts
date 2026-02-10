@@ -24,6 +24,7 @@ export const AUTH_COOKIE_NAMES = {
  * Cookie options for authentication cookies.
  */
 export interface AuthCookieOptions {
+  domain?: string;
   httpOnly: boolean;
   maxAge?: number;
   sameSite: 'lax' | 'none' | 'strict';
@@ -36,6 +37,14 @@ export interface AuthCookieOptions {
 export interface BetterAuthCookieHelperConfig {
   /** Base path for Better-Auth (e.g., '/iam' or 'iam') */
   basePath: string;
+  /**
+   * Cookie domain for cross-subdomain cookie sharing.
+   * When set, cookies are sent to all subdomains of this domain.
+   * Read from betterAuth.options.advanced.crossSubDomainCookies.domain.
+   *
+   * @example 'example.com' → cookies shared across api.example.com, ws.example.com, etc.
+   */
+  domain?: string;
   /**
    * Enable legacy 'token' cookie for backwards compatibility with < 11.7.0.
    * Only needed when Legacy Auth (Passport) is also active.
@@ -116,11 +125,17 @@ export class BetterAuthCookieHelper {
    * @returns Cookie options with httpOnly, sameSite, and secure settings
    */
   getDefaultCookieOptions(): AuthCookieOptions {
-    return {
+    const options: AuthCookieOptions = {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
     };
+
+    if (this.config.domain) {
+      options.domain = this.config.domain;
+    }
+
+    return options;
   }
 
   /**
@@ -311,11 +326,12 @@ export class BetterAuthCookieHelper {
  */
 export function createCookieHelper(
   basePath: string,
-  options?: { legacyCookieEnabled?: boolean; secret?: string },
+  options?: { domain?: string; legacyCookieEnabled?: boolean; secret?: string },
   logger?: Logger,
 ): BetterAuthCookieHelper {
   return new BetterAuthCookieHelper({
     basePath,
+    domain: options?.domain,
     legacyCookieEnabled: options?.legacyCookieEnabled ?? false,
     logger,
     secret: options?.secret,
