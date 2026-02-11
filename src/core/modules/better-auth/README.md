@@ -727,6 +727,67 @@ const config = {
 
 See [Better-Auth Options Reference](https://www.better-auth.com/docs/reference/options) for all available options.
 
+#### Cross-Subdomain Cookies (v11.15.1+)
+
+When your API and other services run on different subdomains (e.g., `api.example.com` and `ws.example.com`), authentication cookies need to be shared across subdomains.
+
+**Recommended: Boolean Shorthand (v11.15.1+)**
+
+```typescript
+const config = {
+  baseUrl: 'https://api.dev.example.com',
+  appUrl: 'https://dev.example.com',
+  betterAuth: {
+    crossSubDomainCookies: true, // Domain auto-derived → 'dev.example.com'
+  },
+};
+```
+
+**Domain resolution order:**
+
+1. `appUrl` hostname (if set) — e.g., `https://dev.example.com` → `dev.example.com`
+2. `baseUrl` hostname with `api.` prefix removed — e.g., `https://api.dev.example.com` → `dev.example.com`
+3. `baseUrl` hostname as-is (if no `api.` prefix) — e.g., `https://example.com` → `example.com`
+
+**Options:**
+
+| Value                           | Behavior                                                  |
+| ------------------------------- | --------------------------------------------------------- |
+| `undefined`                     | Disabled (default, backward compatible)                   |
+| `true` or `{}`                  | Enabled, domain auto-derived (see resolution order above) |
+| `{ domain: 'example.com' }`     | Enabled with explicit domain                              |
+| `false` or `{ enabled: false }` | Disabled                                                  |
+
+**Explicit domain:**
+
+```typescript
+betterAuth: {
+  crossSubDomainCookies: { domain: 'example.com' }, // Cookies shared across *.example.com
+}
+```
+
+This sets the `domain` attribute on all authentication cookies (both Better-Auth's native cookies and nest-server's cookie helper), allowing them to be sent to any subdomain of the configured domain.
+
+> **Important: `crossSubDomainCookies` + `trustedOrigins`**
+>
+> `crossSubDomainCookies` only configures cookie sharing (the `domain` attribute). Better-Auth also validates the **origin** of incoming requests via `trustedOrigins`. Both are required for cross-subdomain setups to work:
+>
+> - `crossSubDomainCookies` → Browser **sends** cookies to subdomains
+> - `trustedOrigins` → Server **accepts** requests from those subdomains
+>
+> `trustedOrigins` is auto-derived from `baseUrl` and `appUrl` (e.g., `https://api.example.com` and `https://example.com`). If you have **additional** subdomains (e.g., `https://ws.example.com`), add them explicitly:
+>
+> ```typescript
+> betterAuth: {
+>   crossSubDomainCookies: true,
+>   trustedOrigins: ['https://ws.example.com'], // Merged with auto-derived origins
+> }
+> ```
+
+> **Note:** For localhost environments, cross-subdomain cookies are automatically disabled even when `true` is set, since subdomains are not meaningful on localhost.
+
+**Legacy approach (still supported):** You can also configure cross-subdomain cookies via `options.advanced.crossSubDomainCookies` passthrough. However, the Boolean Shorthand above is recommended as it also sets the domain on nest-server's own cookie helper (middleware + controller).
+
 ## Plugins and Extensions
 
 Better-Auth provides a rich plugin ecosystem. This module uses a **hybrid approach**:
@@ -1290,23 +1351,24 @@ export class MyService {
 
 ### Available Methods
 
-| Method                               | Description                           |
-| ------------------------------------ | ------------------------------------- |
-| `isEnabled()`                        | Check if Better-Auth is enabled       |
-| `getInstance()`                      | Get the Better-Auth instance          |
-| `getApi()`                           | Get the Better-Auth API               |
-| `getConfig()`                        | Get the current configuration         |
-| `isJwtEnabled()`                     | Check if JWT plugin is enabled        |
-| `isTwoFactorEnabled()`               | Check if 2FA is enabled               |
-| `isPasskeyEnabled()`                 | Check if Passkey is enabled           |
-| `isSignUpEnabled()`                  | Check if sign-up is enabled           |
-| `getEnabledSocialProviders()`        | Get list of enabled social providers  |
-| `getBasePath()`                      | Get the base path for endpoints       |
-| `getBaseUrl()`                       | Get the base URL                      |
-| `getSession(req)`                    | Get current session from request      |
-| `revokeSession(token)`               | Revoke a session (logout)             |
-| `isSessionExpiringSoon(session, t?)` | Check if session is expiring soon     |
-| `getSessionTimeRemaining(session)`   | Get remaining session time in seconds |
+| Method                               | Description                                |
+| ------------------------------------ | ------------------------------------------ |
+| `isEnabled()`                        | Check if Better-Auth is enabled            |
+| `getInstance()`                      | Get the Better-Auth instance               |
+| `getApi()`                           | Get the Better-Auth API                    |
+| `getConfig()`                        | Get the current configuration              |
+| `isJwtEnabled()`                     | Check if JWT plugin is enabled             |
+| `isTwoFactorEnabled()`               | Check if 2FA is enabled                    |
+| `isPasskeyEnabled()`                 | Check if Passkey is enabled                |
+| `isSignUpEnabled()`                  | Check if sign-up is enabled                |
+| `getEnabledSocialProviders()`        | Get list of enabled social providers       |
+| `getBasePath()`                      | Get the base path for endpoints            |
+| `getBaseUrl()`                       | Get the base URL                           |
+| `getCookieDomain()`                  | Get resolved cross-subdomain cookie domain |
+| `getSession(req)`                    | Get current session from request           |
+| `revokeSession(token)`               | Revoke a session (logout)                  |
+| `isSessionExpiringSoon(session, t?)` | Check if session is expiring soon          |
+| `getSessionTimeRemaining(session)`   | Get remaining session time in seconds      |
 
 ## Security Integration
 

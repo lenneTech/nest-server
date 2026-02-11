@@ -74,6 +74,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       this.cookieHelper = createCookieHelper(
         this.betterAuthService.getBasePath(),
         {
+          domain: this.betterAuthService.getCookieDomain(),
           legacyCookieEnabled: false, // Middleware doesn't need legacy cookie
           secret: config?.secret, // Required for cookie signing
         },

@@ -202,6 +202,7 @@ This pattern is currently applied to:
 | BetterAuth JWT Plugin | `betterAuth.jwt` | Boolean Shorthand | `expiresIn: '15m'` |
 | BetterAuth 2FA Plugin | `betterAuth.twoFactor` | Boolean Shorthand | `appName: 'Nest Server'` |
 | BetterAuth Passkey Plugin | `betterAuth.passkey` | Boolean Shorthand | `rpName: 'Nest Server'` |
+| BetterAuth Cross-Subdomain Cookies | `betterAuth.crossSubDomainCookies` | Boolean Shorthand | `domain: auto (appUrl → baseUrl without api. prefix)` |
 | BetterAuth Disable Sign-Up | `betterAuth.emailAndPassword.disableSignUp` | Explicit Boolean | `false` (sign-up enabled) |
 | System Setup | `systemSetup` | Enabled by Default (when BetterAuth active) | `initialAdmin: undefined` |
 | GraphQL | `graphQl` | Explicit Disable (`false`) | Enabled (full GraphQL stack) |

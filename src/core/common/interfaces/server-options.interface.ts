@@ -1682,6 +1682,38 @@ export interface ITusExpirationConfig {
 }
 
 /**
+ * Configuration for cross-subdomain cookie sharing.
+ *
+ * When enabled, authentication cookies are set with a `domain` attribute
+ * so they are shared across all subdomains (e.g., `api.example.com` ↔ `ws.example.com`).
+ *
+ * Also configures Better-Auth's native `advanced.crossSubDomainCookies` setting
+ * and sets the domain on nest-server's own cookie helper.
+ *
+ * **Note:** This configures only the cookie `domain` attribute (browser sends cookies).
+ * For the server to accept cross-subdomain requests, `trustedOrigins` must also include
+ * the origins of all subdomains that make requests.
+ *
+ * @see IBetterAuthBase.crossSubDomainCookies
+ * @since 11.15.1
+ */
+export interface IBetterAuthCrossSubDomainCookiesConfig {
+  /**
+   * Cookie domain for cross-subdomain sharing.
+   * When omitted, auto-derived from `baseUrl` hostname.
+   *
+   * @example 'example.com' → cookies shared across *.example.com
+   */
+  domain?: string;
+
+  /**
+   * Whether cross-subdomain cookies are enabled.
+   * @default true (when object is provided)
+   */
+  enabled?: boolean;
+}
+
+/**
  * Base interface for better-auth configuration (shared properties)
  * This contains all properties except passkey and trustedOrigins,
  * which are handled by the discriminated union types below.
@@ -1766,6 +1798,62 @@ interface IBetterAuthBase {
    * @since 11.14.0
    */
   controller?: Type<any>;
+
+  /**
+   * Enable cross-subdomain cookie sharing.
+   *
+   * When your API and frontend (or other services) run on different subdomains
+   * (e.g., `api.example.com` and `app.example.com`), cookies are not shared by default.
+   * This option configures a cookie domain so authentication cookies work across subdomains.
+   *
+   * Accepts (Boolean Shorthand Pattern):
+   * - `undefined`: Disabled (default, backward compatible)
+   * - `true` or `{}`: Enable, domain auto-derived from `appUrl` or `baseUrl`
+   * - `{ domain: 'example.com' }`: Enable with explicit domain
+   * - `false` or `{ enabled: false }`: Disabled
+   *
+   * Domain auto-derivation priority:
+   * 1. `appUrl` hostname (e.g., `https://dev.example.com` → `dev.example.com`)
+   * 2. `baseUrl` hostname with `api.` prefix stripped (e.g., `https://api.dev.example.com` → `dev.example.com`)
+   * 3. `baseUrl` hostname as-is (if no `api.` prefix)
+   *
+   * When enabled, sets:
+   * - Better-Auth's native `advanced.crossSubDomainCookies`
+   * - Domain attribute on nest-server's own cookie helper
+   *
+   * **Important:** This only configures cookie sharing (browser sends cookies to subdomains).
+   * For cross-subdomain requests to be accepted by the server, `trustedOrigins` must also
+   * include the origins of all subdomains that make requests. `trustedOrigins` is auto-derived
+   * from `baseUrl` and `appUrl`, but additional subdomains must be added explicitly.
+   *
+   * @see trustedOrigins
+   * @default undefined (disabled)
+   * @since 11.15.1
+   *
+   * @example
+   * ```typescript
+   * // Recommended: appUrl + baseUrl for auto-derivation
+   * betterAuth: {
+   *   appUrl: 'https://dev.example.com',
+   *   baseUrl: 'https://api.dev.example.com',
+   *   crossSubDomainCookies: true,
+   *   // → domain = 'dev.example.com' (from appUrl)
+   * }
+   *
+   * // Without appUrl: strips api. prefix from baseUrl
+   * betterAuth: {
+   *   baseUrl: 'https://api.dev.example.com',
+   *   crossSubDomainCookies: true,
+   *   // → domain = 'dev.example.com'
+   * }
+   *
+   * // Explicit domain
+   * betterAuth: {
+   *   crossSubDomainCookies: { domain: 'example.com' },
+   * }
+   * ```
+   */
+  crossSubDomainCookies?: boolean | IBetterAuthCrossSubDomainCookiesConfig;
 
   /**
    * Email/password authentication configuration.
@@ -1881,9 +1969,16 @@ interface IBetterAuthBase {
    *   advanced: {
    *     cookiePrefix: 'my-app',
    *     useSecureCookies: true,
+   *     crossSubDomainCookies: {
+   *       domain: 'example.com', // Cookies shared across *.example.com
+   *     },
    *   },
    * }
    * ```
+   *
+   * **Note on `advanced` options:** The `advanced` object is deep-merged with internal defaults
+   * (e.g., `cookiePrefix` derived from `basePath`). You do not need to re-specify `cookiePrefix`
+   * when adding other `advanced` options like `crossSubDomainCookies`.
    */
   options?: Record<string, unknown>;
 
@@ -2125,10 +2220,23 @@ interface IBetterAuthWithoutPasskey extends IBetterAuthBase {
    * Optional when Passkey is disabled.
    * If not set, all origins are allowed (CORS `*`).
    *
+   * Auto-derived from `baseUrl` and `appUrl` when these are configured.
+   * Explicitly listed origins are merged with the auto-derived ones.
+   *
+   * **Important for cross-subdomain setups:** When using `crossSubDomainCookies`,
+   * cookies are shared across subdomains, but the server also needs to accept requests
+   * from those subdomains. `baseUrl` and `appUrl` are auto-added, but additional
+   * subdomains (e.g., `https://ws.example.com`) must be listed here explicitly.
+   *
+   * @see crossSubDomainCookies
+   *
    * @example
    * ```typescript
    * // Restrict origins even without Passkey
    * trustedOrigins: ['https://app.example.com'],
+   *
+   * // Cross-subdomain: add extra subdomains beyond baseUrl/appUrl
+   * trustedOrigins: ['https://ws.example.com', 'https://admin.example.com'],
    *
    * // Or leave undefined for open CORS
    * ```
@@ -2172,6 +2280,16 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
    * Passkey uses `credentials: 'include'` which requires explicit CORS origins.
    * Browsers don't allow wildcard `*` with credentials.
    *
+   * Auto-derived from `baseUrl` and `appUrl` when these are configured.
+   * Explicitly listed origins are merged with the auto-derived ones.
+   *
+   * **Important for cross-subdomain setups:** When using `crossSubDomainCookies`,
+   * cookies are shared across subdomains, but the server also needs to accept requests
+   * from those subdomains. `baseUrl` and `appUrl` are auto-added, but additional
+   * subdomains (e.g., `https://ws.example.com`) must be listed here explicitly.
+   *
+   * @see crossSubDomainCookies
+   *
    * @example
    * ```typescript
    * // Development
@@ -2179,6 +2297,9 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
    *
    * // Production
    * trustedOrigins: process.env.TRUSTED_ORIGINS?.split(',') || [],
+   *
+   * // Cross-subdomain: add extra subdomains beyond baseUrl/appUrl
+   * trustedOrigins: ['https://ws.example.com', 'https://admin.example.com'],
    * ```
    */
   trustedOrigins: string[];

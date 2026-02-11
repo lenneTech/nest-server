@@ -219,10 +219,11 @@ export class CoreBetterAuthController {
     // CRITICAL: Cookies must be signed for Passkey/2FA to work
     const betterAuthConfig = this.betterAuthService.getConfig();
 
-    // Initialize cookie helper with Legacy Auth detection and secret
+    // Initialize cookie helper with Legacy Auth detection, secret, and optional cross-subdomain domain
     this.cookieHelper = createCookieHelper(
       this.betterAuthService.getBasePath(),
       {
+        domain: this.betterAuthService.getCookieDomain(),
         legacyCookieEnabled: legacyAuthEnabled,
         secret: betterAuthConfig?.secret,
       },
