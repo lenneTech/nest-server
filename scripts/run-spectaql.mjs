@@ -9,7 +9,7 @@
 
 import { spawn } from 'child_process';
 
-const spectaql = spawn('npx', ['-y', 'spectaql', './spectaql.yml'], {
+const spectaql = spawn('pnpm', ['dlx', 'spectaql', './spectaql.yml'], {
   stdio: ['inherit', 'pipe', 'pipe'],
 });
 
