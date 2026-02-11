@@ -247,7 +247,14 @@ interface ValidationResult {
  * @returns Configured better-auth instance or null if not enabled
  * @throws Error if configuration validation fails
  */
-export function createBetterAuthInstance(options: CreateBetterAuthOptions): BetterAuthInstance | null {
+export interface CreateBetterAuthResult {
+  /** Resolved cookie domain for cross-subdomain cookies, or undefined if disabled */
+  cookieDomain: string | undefined;
+  /** The better-auth instance */
+  instance: BetterAuthInstance;
+}
+
+export function createBetterAuthInstance(options: CreateBetterAuthOptions): CreateBetterAuthResult | null {
   const logger = new Logger('BetterAuthConfig');
   const { config, db, fallbackSecrets, onEmailVerified, sendVerificationEmail, serverEnv } = options;
 
@@ -294,6 +301,12 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
   const trustedOrigins = buildTrustedOrigins(config, { passkeyNormalization, resolvedUrls });
   const additionalFields = buildUserFields(config);
 
+  // Resolve cross-subdomain cookies (Boolean Shorthand)
+  const crossSubDomain = resolveCrossSubDomainCookies(config, resolvedUrls);
+  if (crossSubDomain.enabled) {
+    logger.log(`Cross-subdomain cookies enabled (domain: ${crossSubDomain.domain})`);
+  }
+
   // Build email verification configuration
   const emailVerificationConfig = buildEmailVerificationConfig(config, { onEmailVerified, sendVerificationEmail });
 
@@ -307,6 +320,9 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
   const betterAuthConfig: Record<string, unknown> = {
     advanced: {
       cookiePrefix,
+      ...(crossSubDomain.enabled && {
+        crossSubDomainCookies: { domain: crossSubDomain.domain, enabled: true },
+      }),
     },
     basePath,
     baseURL: resolvedUrls.baseUrl || config.baseUrl || 'http://localhost:3000',
@@ -363,10 +379,13 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Bett
     finalConfig = betterAuthConfig;
   }
 
-  // Create and return the better-auth instance
+  // Create and return the better-auth instance with resolved metadata
   // Type assertion needed for maximum flexibility - allows projects to use any Better-Auth option
 
-  return betterAuth(finalConfig as any);
+  return {
+    cookieDomain: crossSubDomain.enabled ? crossSubDomain.domain : undefined,
+    instance: betterAuth(finalConfig as any),
+  };
 }
 
 /**
@@ -1012,6 +1031,118 @@ function normalizePasskeyConfig(
     trustedOrigins: finalTrustedOrigins,
     warnings,
   };
+}
+
+/**
+ * Result of cross-subdomain cookies resolution
+ */
+export interface ResolvedCrossSubDomainCookies {
+  /** The resolved cookie domain (e.g., 'example.com') */
+  domain: string | undefined;
+  /** Whether cross-subdomain cookies are enabled */
+  enabled: boolean;
+}
+
+/**
+ * Resolves the cross-subdomain cookies configuration.
+ *
+ * Follows the Boolean Shorthand Pattern:
+ * - `undefined` / `false` → disabled
+ * - `true` / `{}` → enabled, domain auto-derived from appUrl or baseUrl
+ * - `{ domain: 'x.com' }` → enabled with explicit domain
+ * - `{ enabled: false }` → disabled (allows pre-configuration)
+ *
+ * Domain auto-derivation priority:
+ * 1. Explicit `crossSubDomainCookies.domain`
+ * 2. `appUrl` hostname (e.g., `https://dev.example.com` → `dev.example.com`)
+ * 3. `baseUrl` hostname with `api.` prefix stripped (e.g., `https://api.dev.example.com` → `dev.example.com`)
+ * 4. `baseUrl` hostname as-is (if no `api.` prefix)
+ *
+ * The parent domain is preferred because cross-subdomain cookies need to cover
+ * both the API subdomain and the App domain (e.g., `api.dev.example.com` ↔ `dev.example.com`).
+ *
+ * @param config - Better-auth configuration
+ * @param resolvedUrls - Resolved URLs for domain auto-detection
+ * @returns Resolved cross-subdomain cookie settings
+ */
+export function resolveCrossSubDomainCookies(
+  config: IBetterAuth,
+  resolvedUrls: ResolvedUrls,
+): ResolvedCrossSubDomainCookies {
+  const csdc = config.crossSubDomainCookies;
+
+  // undefined or false → disabled
+  if (csdc === undefined || csdc === null || csdc === false) {
+    return { domain: undefined, enabled: false };
+  }
+
+  // Object with enabled: false → disabled (pre-configuration)
+  if (typeof csdc === 'object' && csdc.enabled === false) {
+    return { domain: undefined, enabled: false };
+  }
+
+  // true or {} or { domain: ... } → enabled
+  const explicitDomain = typeof csdc === 'object' ? csdc.domain : undefined;
+
+  if (explicitDomain) {
+    return { domain: explicitDomain, enabled: true };
+  }
+
+  // Auto-derive domain: prefer appUrl (= parent domain), then strip api. from baseUrl
+  const domain = deriveCookieDomainFromUrls(resolvedUrls.appUrl, resolvedUrls.baseUrl || config.baseUrl);
+  if (domain) {
+    return { domain, enabled: true };
+  }
+
+  // No usable URL available → cannot derive domain, disable
+  return { domain: undefined, enabled: false };
+}
+
+/**
+ * Derives the cookie domain from available URLs.
+ *
+ * For cross-subdomain cookies, the domain must be the PARENT domain that covers
+ * both the API and App subdomains. For example:
+ * - API: `api.dev.example.com`, App: `dev.example.com` → domain: `dev.example.com`
+ *
+ * Resolution:
+ * 1. Use appUrl hostname (if available and not localhost)
+ * 2. Strip `api.` prefix from baseUrl hostname
+ * 3. Use baseUrl hostname as-is
+ *
+ * Returns undefined for localhost (cross-subdomain not meaningful there).
+ */
+function deriveCookieDomainFromUrls(appUrl?: string, baseUrl?: string): string | undefined {
+  // Priority 1: appUrl hostname (this IS the parent domain in typical setups)
+  if (appUrl) {
+    try {
+      const hostname = new URL(appUrl).hostname;
+      if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        return hostname;
+      }
+    } catch {
+      // Fall through to baseUrl
+    }
+  }
+
+  // Priority 2: baseUrl hostname with api. prefix stripped
+  if (baseUrl) {
+    try {
+      const hostname = new URL(baseUrl).hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return undefined;
+      }
+      // Strip api. prefix to get parent domain
+      if (hostname.startsWith('api.')) {
+        return hostname.substring(4);
+      }
+      return hostname;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
 }
 
 function resolveUrls(options: CreateBetterAuthOptions): ResolvedUrls {

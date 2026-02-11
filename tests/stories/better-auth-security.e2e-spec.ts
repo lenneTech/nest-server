@@ -751,6 +751,7 @@ describe('Story: BetterAuth Security Integration', () => {
         getBasePath: vi.fn().mockReturnValue('/iam'),
         getBaseUrl: vi.fn().mockReturnValue('http://localhost:3000'),
         getConfig: vi.fn().mockReturnValue({ basePath: '/iam', secret: 'test-secret' }),
+        getCookieDomain: vi.fn().mockReturnValue(undefined),
         getInstance: vi.fn(),
         isEnabled: vi.fn().mockReturnValue(true),
       };

@@ -19,7 +19,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
 import { BetterAuthRolesGuard } from './better-auth-roles.guard';
 import { BetterAuthTokenService } from './better-auth-token.service';
-import { BetterAuthInstance, createBetterAuthInstance } from './better-auth.config';
+import { BetterAuthInstance, CreateBetterAuthResult, createBetterAuthInstance } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
@@ -31,7 +31,7 @@ import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthController } from './core-better-auth.controller';
 import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
-import { BETTER_AUTH_CONFIG, CoreBetterAuthService } from './core-better-auth.service';
+import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, CoreBetterAuthService } from './core-better-auth.service';
 
 /**
  * Token for injecting the better-auth instance
@@ -235,6 +235,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static serviceInstance: CoreBetterAuthService | null = null;
   private static userMapperInstance: CoreBetterAuthUserMapper | null = null;
   private static tokenServiceInstance: BetterAuthTokenService | null = null;
+  private static resolvedCookieDomain: string | undefined = undefined;
 
   /**
    * Gets the controller class to use (custom or default)
@@ -275,6 +276,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    */
   static getTokenServiceInstance(): BetterAuthTokenService | null {
     return this.tokenServiceInstance;
+  }
+
+  /**
+   * Gets the resolved cookie domain for cross-subdomain cookie sharing.
+   * Returns the domain resolved during Better-Auth instance creation, or undefined if disabled.
+   */
+  static getCookieDomain(): string | undefined {
+    return this.resolvedCookieDomain;
   }
 
   constructor(
@@ -614,13 +623,15 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
 
             // Note: Secret validation is now handled in createBetterAuthInstance
             // with fallback to jwt.secret, jwt.refresh.secret, or auto-generation
-            this.authInstance = createBetterAuthInstance({
+            const result = createBetterAuthInstance({
               config,
               db,
               fallbackSecrets,
               onEmailVerified,
               sendVerificationEmail,
             });
+            this.authInstance = result?.instance ?? null;
+            this.resolvedCookieDomain = result?.cookieDomain;
 
             // Store a config copy with the resolved secret so that consumers
             // (CoreBetterAuthService, CoreBetterAuthController) can sign cookies.
@@ -645,17 +656,25 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
+        // Provide the resolved cookie domain for cross-subdomain cookie sharing
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure resolvedCookieDomain is set
+        {
+          inject: [BETTER_AUTH_INSTANCE],
+          provide: BETTER_AUTH_COOKIE_DOMAIN,
+          useFactory: () => this.resolvedCookieDomain,
+        },
         // CoreBetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
-          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
+          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken(), BETTER_AUTH_COOKIE_DOMAIN],
           provide: CoreBetterAuthService,
           useFactory: (
             authInstance: BetterAuthInstance | null,
             resolvedConfig: IBetterAuth | null,
             connection: Connection,
+            cookieDomain: string | undefined,
           ) => {
-            return new CoreBetterAuthService(authInstance, connection, resolvedConfig);
+            return new CoreBetterAuthService(authInstance, connection, resolvedConfig, undefined, cookieDomain);
           },
         },
         CoreBetterAuthUserMapper,
@@ -714,6 +733,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Lazy GraphQL driver: Reset service references
     this.serviceInstance = null;
     this.userMapperInstance = null;
+    this.resolvedCookieDomain = undefined;
     // Reset shared RolesGuard registry (shared with CoreAuthModule)
     RolesGuardRegistry.reset();
   }
@@ -856,6 +876,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             };
 
             // Connection is now guaranteed to be established
+            let result: CreateBetterAuthResult | null;
             const db = connection.db;
             if (!db) {
               // Fallback to global mongoose if connection.db is not yet available
@@ -864,16 +885,18 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               if (!globalDb) {
                 throw new Error('MongoDB database not available');
               }
-              this.authInstance = createBetterAuthInstance({
+              result = createBetterAuthInstance({
                 ...sharedInstanceOptions,
                 db: globalDb,
               });
             } else {
-              this.authInstance = createBetterAuthInstance({
+              result = createBetterAuthInstance({
                 ...sharedInstanceOptions,
                 db,
               });
             }
+            this.authInstance = result?.instance ?? null;
+            this.resolvedCookieDomain = result?.cookieDomain;
 
             // Store a config copy with the resolved secret (same as first forRoot variant)
             const fallbacks = options?.fallbackSecrets;
@@ -902,17 +925,25 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           provide: BETTER_AUTH_CONFIG,
           useFactory: () => this.currentConfig,
         },
+        // Provide the resolved cookie domain for cross-subdomain cookie sharing
+        // IMPORTANT: Must depend on BETTER_AUTH_INSTANCE to ensure resolvedCookieDomain is set
+        {
+          inject: [BETTER_AUTH_INSTANCE],
+          provide: BETTER_AUTH_COOKIE_DOMAIN,
+          useFactory: () => this.resolvedCookieDomain,
+        },
         // CoreBetterAuthService needs to be a factory that explicitly depends on BETTER_AUTH_INSTANCE
         // to ensure proper initialization order
         {
-          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken()],
+          inject: [BETTER_AUTH_INSTANCE, BETTER_AUTH_CONFIG, getConnectionToken(), BETTER_AUTH_COOKIE_DOMAIN],
           provide: CoreBetterAuthService,
           useFactory: (
             authInstance: BetterAuthInstance | null,
             resolvedConfig: IBetterAuth | null,
             connection: Connection,
+            cookieDomain: string | undefined,
           ) => {
-            return new CoreBetterAuthService(authInstance, connection, resolvedConfig);
+            return new CoreBetterAuthService(authInstance, connection, resolvedConfig, undefined, cookieDomain);
           },
         },
         CoreBetterAuthUserMapper,

@@ -54,6 +54,12 @@ export interface SessionResult {
  */
 export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 
+/**
+ * Injection token for resolved cross-subdomain cookie domain.
+ * Set during Better-Auth instance creation, undefined if disabled.
+ */
+export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
+
 @Injectable()
 export class CoreBetterAuthService {
   private readonly logger = new Logger(CoreBetterAuthService.name);
@@ -65,6 +71,7 @@ export class CoreBetterAuthService {
     @Inject(BETTER_AUTH_CONFIG) @Optional() private readonly resolvedConfig?: IBetterAuth | null,
     // ConfigService is last because it's only needed as fallback when resolvedConfig is not provided
     @Optional() private readonly configService?: ConfigService,
+    @Inject(BETTER_AUTH_COOKIE_DOMAIN) @Optional() private readonly cookieDomain?: string | null,
   ) {
     // Use resolvedConfig if provided (has fallback secret applied), otherwise get fresh from ConfigService
     // Better-Auth is enabled by default (zero-config) - only disabled if explicitly set to false
@@ -218,6 +225,20 @@ export class CoreBetterAuthService {
    */
   getBaseUrl(): string {
     return this.config.baseUrl || 'http://localhost:3000';
+  }
+
+  /**
+   * Gets the resolved cookie domain for cross-subdomain cookie sharing.
+   *
+   * Returns the domain that was resolved during Better-Auth instance creation.
+   * The resolution follows the Boolean Shorthand Pattern and is performed once
+   * by `createBetterAuthInstance()` in `better-auth.config.ts`.
+   *
+   * @returns The cookie domain string, or undefined if cross-subdomain cookies are disabled
+   * @since 11.15.1
+   */
+  getCookieDomain(): string | undefined {
+    return this.cookieDomain ?? undefined;
   }
 
   /**
