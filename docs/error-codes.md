@@ -246,6 +246,22 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 
 ---
 
+### LTNS_0303: nonWhitelistedProperties
+
+**Message:** Non-whitelisted properties found
+
+**Description:** Thrown when request body contains properties not decorated with `@UnifiedField`. Only active when `nonWhitelistedFields: 'error'` is configured.
+
+**Solution:** Remove the non-whitelisted properties from the request, or decorate them with `@UnifiedField` in the input class. If using `'strip'` mode (default), these properties are silently removed instead of throwing an error.
+
+**Parameters:** `properties`
+
+**Translations:**
+- DE: Die folgenden Eigenschaften sind nicht erlaubt: {{properties}}. Nur mit @UnifiedField dekorierte Eigenschaften werden akzeptiert.
+- EN: The following properties are not allowed: {{properties}}. Only properties decorated with @UnifiedField are accepted.
+
+---
+
 ## Resource Errors (LTNS_0400-LTNS_0499)
 
 ### LTNS_0400: resourceNotFound

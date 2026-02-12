@@ -370,6 +370,15 @@ export const LtnsErrors = {
     },
   },
 
+  NON_WHITELISTED_PROPERTIES: {
+    code: 'LTNS_0303',
+    message: 'Non-whitelisted properties found',
+    translations: {
+      de: 'Die folgenden Eigenschaften sind nicht erlaubt: {{properties}}. Nur mit @UnifiedField dekorierte Eigenschaften werden akzeptiert.',
+      en: 'The following properties are not allowed: {{properties}}. Only properties decorated with @UnifiedField are accepted.',
+    },
+  },
+
   // =====================================================
   // Resource Errors (LTNS_0400-LTNS_0499)
   // =====================================================

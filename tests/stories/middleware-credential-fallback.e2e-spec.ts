@@ -61,7 +61,7 @@ class CredentialTestController {
 }
 
 // =================================================================================================
-// Test Module (IAM-only mode, no Legacy Auth)
+// Test Config (IAM-only mode, no Legacy Auth)
 // =================================================================================================
 
 const testConfig = {
@@ -71,21 +71,6 @@ const testConfig = {
     enabled: true,
   },
 };
-
-@Module({
-  controllers: [CredentialTestController],
-  exports: [CoreModule],
-  imports: [
-    // IAM-only mode: CoreModule.forRoot(testConfig) internally registers CoreBetterAuthModule
-    // with registerRolesGuardGlobally: true. Do NOT also import BetterAuthModule.forRoot()
-    // because it calls CoreBetterAuthModule.forRoot() again, which can cause NestJS to
-    // deduplicate and use the second DynamicModule (without RolesGuard provider).
-    CoreModule.forRoot(testConfig),
-    ScheduleModule.forRoot(),
-  ],
-  providers: [Any, CronJobs, DateScalar, JSONScalar],
-})
-class CredentialFallbackTestModule {}
 
 // =================================================================================================
 // Helper: Build fake JWT tokens for testing
@@ -224,6 +209,24 @@ describe('Story: Middleware Credential Fallback', () => {
       // and marks the RolesGuardRegistry as registered. Without this reset, the guard
       // would not be added to this test module's providers.
       CoreBetterAuthModule.reset();
+
+      // Define module inside beforeAll to defer @Module() decorator evaluation.
+      // If defined at module scope, CoreModule.forRoot() runs at ES import time,
+      // which can pollute static state before reset() is called.
+      @Module({
+        controllers: [CredentialTestController],
+        exports: [CoreModule],
+        imports: [
+          // IAM-only mode: CoreModule.forRoot(testConfig) internally registers CoreBetterAuthModule
+          // with registerRolesGuardGlobally: true. Do NOT also import BetterAuthModule.forRoot()
+          // because it calls CoreBetterAuthModule.forRoot() again, which can cause NestJS to
+          // deduplicate and use the second DynamicModule (without RolesGuard provider).
+          CoreModule.forRoot(testConfig),
+          ScheduleModule.forRoot(),
+        ],
+        providers: [Any, CronJobs, DateScalar, JSONScalar],
+      })
+      class CredentialFallbackTestModule {}
 
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [CredentialFallbackTestModule],

@@ -1407,7 +1407,22 @@ export interface IServerOptions {
      * See @lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts
      * default = true
      */
-    mapAndValidatePipe?: boolean;
+    mapAndValidatePipe?:
+      | boolean
+      | {
+          /**
+           * How to handle input properties not decorated with @UnifiedField.
+           * Applies recursively to nested objects.
+           * Only applies to classes with at least one @UnifiedField.
+           *
+           * - 'strip' (default): Silently remove non-whitelisted properties
+           * - 'error': Throw BadRequestException listing the forbidden properties
+           * - false: Disable check entirely (allow all properties)
+           *
+           * @default 'strip'
+           */
+          nonWhitelistedFields?: 'strip' | 'error' | false;
+        };
   };
 
   /**
