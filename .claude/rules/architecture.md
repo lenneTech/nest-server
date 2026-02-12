@@ -74,5 +74,6 @@ Key areas: JWT, MongoDB, GraphQL, email, security, static assets
 - `@UnifiedField({ exclude: true })` — explicitly exclude a property from input (hidden from schema, rejected at runtime)
 - `@UnifiedField({ exclude: false })` — explicitly re-enable a property excluded by a parent class
 - Configurable via `security.mapAndValidatePipe.nonWhitelistedFields`: `'strip'` (default), `'error'`, or `false`
+- Custom decorator parameters (`@CurrentUser()`, `@RESTServiceOptions()`, etc.) and basic types (`String`, `Number`, etc.) are skipped — no validation or whitelist check
 - Recursive nested object/array checking via `nestedTypeRegistry`
 - Core args classes for filtering/pagination
