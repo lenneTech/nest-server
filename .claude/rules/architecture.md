@@ -68,6 +68,11 @@ Key areas: JWT, MongoDB, GraphQL, email, security, static assets
 
 ## Input Validation
 
-- `MapAndValidatePipe` - Automatic validation
-- class-validator decorators on input classes
+- `MapAndValidatePipe` - Automatic validation with inheritance-aware checking
+- `@UnifiedField()` - Single decorator for GraphQL, Swagger, and validation (replaces separate `@Field`, `@ApiProperty`, `@IsOptional`, etc.)
+- Automatic input property whitelisting — properties without `@UnifiedField` are stripped (default) or rejected
+- `@UnifiedField({ exclude: true })` — explicitly exclude a property from input (hidden from schema, rejected at runtime)
+- `@UnifiedField({ exclude: false })` — explicitly re-enable a property excluded by a parent class
+- Configurable via `security.mapAndValidatePipe.nonWhitelistedFields`: `'strip'` (default), `'error'`, or `false`
+- Recursive nested object/array checking via `nestedTypeRegistry`
 - Core args classes for filtering/pagination

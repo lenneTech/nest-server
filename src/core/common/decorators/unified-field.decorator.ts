@@ -1,7 +1,7 @@
-import { Field, FieldOptions } from '@nestjs/graphql';
+import { Field, FieldOptions, HideField } from '@nestjs/graphql';
 import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage';
 import { Prop, PropOptions } from '@nestjs/mongoose';
-import { ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
 import { Type } from 'class-transformer';
 import {
@@ -34,9 +34,89 @@ export const nestedTypeRegistry = new Map<string, any>();
  */
 export const enumNameRegistry = new Map<any, string>();
 
+// Metadata keys for input whitelist tracking
+export const UNIFIED_FIELD_KEYS = Symbol('UNIFIED_FIELD_KEYS');
+export const EXCLUDED_FIELD_KEYS = Symbol('EXCLUDED_FIELD_KEYS');
+export const FORCE_INCLUDED_FIELD_KEYS = Symbol('FORCE_INCLUDED_FIELD_KEYS');
+
+/**
+ * Get whitelisted @UnifiedField keys for a class, respecting inheritance.
+ *
+ * Priority model (3 levels):
+ * 1. Explicit settings (exclude: true / exclude: false) — resolved by nearest class (child wins)
+ * 2. Implicit includes (@UnifiedField without exclude) — overridden by any explicit exclude: true
+ *
+ * Rules:
+ * - exclude: true → explicit exclusion, wins over implicit @UnifiedField from anywhere in chain
+ * - exclude: false → explicit re-enable, can override parent's exclude: true
+ * - @UnifiedField (no exclude) → implicit inclusion, CANNOT override parent's exclude: true
+ * - Among explicit settings, child class wins (first encountered while walking up the chain)
+ */
+export function getUnifiedFieldKeys(metatype: Function): Set<string> {
+  const cacheKey = Symbol.for('UNIFIED_FIELD_KEYS_RESOLVED');
+  const cached = Reflect.getOwnMetadata(cacheKey, metatype);
+  if (cached) return cached;
+
+  const implicitIncludes = new Set<string>();
+  const explicitExcludes = new Set<string>();
+  const explicitIncludes = new Set<string>();
+  const explicitlyResolved = new Set<string>();
+
+  // Walk from child (most specific) to parent
+  let current = metatype;
+  while (current && current !== Object && current !== Function && current.prototype) {
+    const included: string[] = Reflect.getOwnMetadata(UNIFIED_FIELD_KEYS, current.prototype) || [];
+    const excluded: string[] = Reflect.getOwnMetadata(EXCLUDED_FIELD_KEYS, current.prototype) || [];
+    const forceIncluded: string[] = Reflect.getOwnMetadata(FORCE_INCLUDED_FIELD_KEYS, current.prototype) || [];
+
+    for (const key of forceIncluded) {
+      if (!explicitlyResolved.has(key)) {
+        explicitIncludes.add(key);
+        explicitlyResolved.add(key);
+      }
+    }
+
+    for (const key of excluded) {
+      if (!explicitlyResolved.has(key)) {
+        explicitExcludes.add(key);
+        explicitlyResolved.add(key);
+      }
+    }
+
+    for (const key of included) {
+      implicitIncludes.add(key);
+    }
+
+    current = Object.getPrototypeOf(current);
+  }
+
+  // Build final set: start with implicit includes
+  const result = new Set(implicitIncludes);
+
+  // Add explicit includes (force re-enabled keys)
+  for (const key of explicitIncludes) {
+    result.add(key);
+  }
+
+  // Remove explicit excludes
+  for (const key of explicitExcludes) {
+    result.delete(key);
+  }
+
+  Reflect.defineMetadata(cacheKey, result, metatype);
+  return result;
+}
+
 export interface UnifiedFieldOptions {
   /** Description used for both Swagger & Gql */
   description?: string;
+  /**
+   * Control input whitelist behavior:
+   * - true: Exclude this property (reject via REST/GraphQL, no decorators applied)
+   * - false: Explicitly re-enable (can override parent's exclude: true)
+   * - undefined (default): Normal @UnifiedField behavior
+   */
+  exclude?: boolean;
   /** Enum for class-validator */
   enum?: { enum: EnumAllowedTypes; enumName?: string; options?: ValidationOptions };
   /** Example value for swagger api documentation */
@@ -83,6 +163,56 @@ export interface UnifiedFieldOptions {
 
 export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator {
   return (target: any, propertyKey: string | symbol) => {
+    const key = String(propertyKey);
+
+    if (opts.exclude === true) {
+      // ── EXPLICIT EXCLUSION ──
+      const excludedKeys: string[] = Reflect.getOwnMetadata(EXCLUDED_FIELD_KEYS, target) || [];
+      if (!excludedKeys.includes(key)) {
+        Reflect.defineMetadata(EXCLUDED_FIELD_KEYS, [...excludedKeys, key], target);
+      }
+      HideField()(target, propertyKey);
+      ApiHideProperty()(target, propertyKey);
+      return;
+    } else if (opts.exclude === false) {
+      // ── EXPLICIT RE-ENABLE ──
+      const forceKeys: string[] = Reflect.getOwnMetadata(FORCE_INCLUDED_FIELD_KEYS, target) || [];
+      if (!forceKeys.includes(key)) {
+        Reflect.defineMetadata(FORCE_INCLUDED_FIELD_KEYS, [...forceKeys, key], target);
+      }
+      // Fall through to register in UNIFIED_FIELD_KEYS AND apply normal decorators
+    } else {
+      // ── IMPLICIT INCLUSION ──
+      // Check if any parent has exclude: true for this key
+      let parentExcluded = false;
+      let proto = Object.getPrototypeOf(target.constructor);
+      while (proto && proto !== Object && proto !== Function && proto.prototype) {
+        const excluded: string[] = Reflect.getOwnMetadata(EXCLUDED_FIELD_KEYS, proto.prototype) || [];
+        if (excluded.includes(key)) {
+          parentExcluded = true;
+          break;
+        }
+        proto = Object.getPrototypeOf(proto);
+      }
+
+      if (parentExcluded) {
+        // Parent has exclude: true — register for tracking but skip schema decorators
+        const existingKeys: string[] = Reflect.getOwnMetadata(UNIFIED_FIELD_KEYS, target) || [];
+        if (!existingKeys.includes(key)) {
+          Reflect.defineMetadata(UNIFIED_FIELD_KEYS, [...existingKeys, key], target);
+        }
+        HideField()(target, propertyKey);
+        ApiHideProperty()(target, propertyKey);
+        return;
+      }
+    }
+
+    // Register in implicit includes (for both exclude: false and exclude: undefined without parent exclusion)
+    const existingKeys: string[] = Reflect.getOwnMetadata(UNIFIED_FIELD_KEYS, target) || [];
+    if (!existingKeys.includes(key)) {
+      Reflect.defineMetadata(UNIFIED_FIELD_KEYS, [...existingKeys, key], target);
+    }
+
     const metadataType = Reflect.getMetadata('design:type', target, propertyKey);
     const userType = opts.type;
     const isArrayField = opts.isArray === true || metadataType === Array;

@@ -25,8 +25,10 @@ import {
 import { ValidationMetadata } from 'class-validator/types/metadata/ValidationMetadata';
 import { inspect } from 'util';
 
-import { nestedTypeRegistry } from '../decorators/unified-field.decorator';
+import { getUnifiedFieldKeys, nestedTypeRegistry } from '../decorators/unified-field.decorator';
 import { isBasicType } from '../helpers/input.helper';
+import { ConfigService } from '../services/config.service';
+import { ErrorCode } from '../../modules/error-code/error-codes';
 
 // Debug mode can be enabled via environment variable: DEBUG_VALIDATION=true
 const DEBUG_VALIDATION = process.env.DEBUG_VALIDATION === 'true';
@@ -615,8 +617,77 @@ async function validateWithInheritance(object: any, originalPlainValue: any): Pr
   return errors;
 }
 
+/**
+ * Recursively process non-whitelisted @UnifiedField properties.
+ *
+ * @param mode - 'strip' removes forbidden keys from plainValue in-place,
+ *               'error' collects and returns their paths.
+ * @returns Array of forbidden key paths (only relevant in 'error' mode;
+ *          empty in 'strip' mode since keys are deleted immediately).
+ */
+function processNonWhitelistedFields(
+  plainValue: Record<string, any>,
+  metatype: Function,
+  mode: 'strip' | 'error',
+  path: string = '',
+): string[] {
+  const whitelistedKeys = getUnifiedFieldKeys(metatype);
+  // Skip classes without any @UnifiedField (e.g. raw class-validator usage)
+  if (whitelistedKeys.size === 0) return [];
+
+  const forbiddenKeys: string[] = [];
+
+  for (const key of Object.keys(plainValue)) {
+    const fullPath = path ? `${path}.${key}` : key;
+
+    if (!whitelistedKeys.has(key)) {
+      if (mode === 'strip') {
+        delete plainValue[key];
+      } else {
+        forbiddenKeys.push(fullPath);
+      }
+      continue;
+    }
+
+    // Recurse into nested objects using nestedTypeRegistry
+    if (plainValue[key] && typeof plainValue[key] === 'object') {
+      let nestedType: Function | undefined;
+      let current = metatype;
+      while (current && current !== Object) {
+        nestedType = nestedTypeRegistry.get(`${current.name}.${key}`);
+        if (nestedType) break;
+        current = Object.getPrototypeOf(current);
+      }
+
+      if (nestedType) {
+        if (Array.isArray(plainValue[key])) {
+          for (let i = 0; i < plainValue[key].length; i++) {
+            const item = plainValue[key][i];
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              forbiddenKeys.push(...processNonWhitelistedFields(item, nestedType, mode, `${fullPath}[${i}]`));
+            }
+          }
+        } else {
+          forbiddenKeys.push(...processNonWhitelistedFields(plainValue[key], nestedType, mode, fullPath));
+        }
+      }
+    }
+  }
+
+  return forbiddenKeys;
+}
+
 @Injectable()
 export class MapAndValidatePipe implements PipeTransform {
+  private readonly nonWhitelistedFieldsMode: 'strip' | 'error' | false = 'strip';
+
+  constructor() {
+    const pipeConfig = ConfigService.getFastButReadOnly('security.mapAndValidatePipe');
+    if (typeof pipeConfig === 'object' && pipeConfig?.nonWhitelistedFields !== undefined) {
+      this.nonWhitelistedFieldsMode = pipeConfig.nonWhitelistedFields;
+    }
+  }
+
   async transform(value: any, metadata: ArgumentMetadata) {
     const { metatype } = metadata;
 
@@ -664,6 +735,38 @@ export class MapAndValidatePipe implements PipeTransform {
       if (DEBUG_VALIDATION) {
         console.debug('Transformed value:', inspect(value, { colors: true, depth: 3 }));
         console.debug('Transformed value instance of:', value?.constructor?.name);
+      }
+    }
+
+    // Whitelist check: handle properties not decorated with @UnifiedField
+    if (this.nonWhitelistedFieldsMode && metatype && originalPlainKeys.length > 0) {
+      const plainObj = originalPlainValue || value;
+
+      if (this.nonWhitelistedFieldsMode === 'strip') {
+        processNonWhitelistedFields(plainObj, metatype, 'strip');
+
+        if (DEBUG_VALIDATION) {
+          console.debug('Stripped non-whitelisted properties. Remaining keys:', Object.keys(plainObj));
+        }
+
+        // Re-transform after stripping so the instance matches the cleaned plain object
+        if (originalPlainValue) {
+          originalPlainKeys = Object.keys(originalPlainValue);
+          value = plainToInstance(metatype, originalPlainValue, {
+            enableImplicitConversion: false,
+            excludeExtraneousValues: false,
+            exposeDefaultValues: false,
+            exposeUnsetFields: false,
+          });
+        }
+      } else if (this.nonWhitelistedFieldsMode === 'error') {
+        const forbiddenKeys = processNonWhitelistedFields(plainObj, metatype, 'error');
+        if (forbiddenKeys.length > 0) {
+          if (DEBUG_VALIDATION) {
+            console.debug(`Forbidden non-whitelisted properties: ${forbiddenKeys.join(', ')}`);
+          }
+          throw new BadRequestException(`${ErrorCode.NON_WHITELISTED_PROPERTIES} [${forbiddenKeys.join(', ')}]`);
+        }
       }
     }
 

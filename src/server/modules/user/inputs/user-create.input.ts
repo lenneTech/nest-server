@@ -1,7 +1,7 @@
-import { Field, InputType } from '@nestjs/graphql';
-import { IsOptional } from 'class-validator';
+import { InputType } from '@nestjs/graphql';
 
 import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
+import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../../core/common/enums/role.enum';
 import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-user-create.input';
 
@@ -12,11 +12,10 @@ import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-u
 @Restricted(RoleEnum.ADMIN)
 export class UserCreateInput extends CoreUserCreateInput {
   // Extend UserCreateInput here
-  @Field(() => String, {
+  @UnifiedField({
     description: 'Job Title of the user',
-    nullable: true,
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
   })
-  @IsOptional()
-  @Restricted(RoleEnum.ADMIN)
   jobTitle?: string = undefined;
 }
