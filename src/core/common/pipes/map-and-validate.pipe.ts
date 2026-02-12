@@ -689,6 +689,12 @@ export class MapAndValidatePipe implements PipeTransform {
   }
 
   async transform(value: any, metadata: ArgumentMetadata) {
+    // Skip custom decorator parameters (e.g. @CurrentUser()) — they are not user input
+    // and must not be mutated by whitelist stripping or validation
+    if (metadata.type === 'custom') {
+      return value;
+    }
+
     const { metatype } = metadata;
 
     if (DEBUG_VALIDATION) {

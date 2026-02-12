@@ -600,3 +600,220 @@ describe('MapAndValidatePipe - empty body & identity cases', () => {
     expect(keys).not.toContain('evil2');
   });
 });
+
+// ─── Custom Decorator Parameter Tests (metadata.type === 'custom') ───
+// These tests ensure the pipe skips parameters injected by custom decorators
+// like @CurrentUser(), which are NOT user input and must not be mutated.
+
+describe('MapAndValidatePipe - custom decorator parameters (e.g. @CurrentUser)', () => {
+  let pipe: any;
+
+  beforeEach(async () => {
+    const { ConfigService } = await import('../../src/core/common/services/config.service');
+    vi.spyOn(ConfigService, 'getFastButReadOnly').mockReturnValue(true);
+    const { MapAndValidatePipe } = await import('../../src/core/common/pipes/map-and-validate.pipe');
+    pipe = new MapAndValidatePipe();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should pass through custom parameters without any modification', async () => {
+    const customValue = { id: '123', name: 'Test User', extraProp: 'should-remain' };
+
+    const result = await pipe.transform(customValue, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    expect(result).toBe(customValue);
+    expect(result.id).toBe('123');
+    expect(result.name).toBe('Test User');
+    expect(result.extraProp).toBe('should-remain');
+  });
+
+  it('should not strip function properties from custom parameters', async () => {
+    // This simulates BetterAuthTokenService.createUserWithHasRole() output
+    const userWithHasRole = {
+      id: '507f1f77bcf86cd799439011',
+      email: 'test@example.com',
+      roles: ['admin'],
+      hasRole: (role: string) => ['admin'].includes(role),
+    };
+
+    const result = await pipe.transform(userWithHasRole, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    expect(result).toBe(userWithHasRole);
+    expect(typeof result.hasRole).toBe('function');
+    expect(result.hasRole('admin')).toBe(true);
+    expect(result.hasRole('user')).toBe(false);
+  });
+
+  it('should not mutate the original custom parameter object', async () => {
+    const original = { id: '123', name: 'Test', nonWhitelisted: 'value' };
+    const keysBefore = Object.keys(original);
+
+    await pipe.transform(original, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    const keysAfter = Object.keys(original);
+    expect(keysAfter).toEqual(keysBefore);
+    expect(original.nonWhitelisted).toBe('value');
+  });
+
+  it('should return the exact same reference for custom parameters', async () => {
+    const customObj = { id: '123' };
+
+    const result = await pipe.transform(customObj, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    expect(result).toBe(customObj);
+  });
+
+  it('should still strip non-whitelisted properties for body parameters', async () => {
+    // @Body() with Input DTOs is the primary use case for whitelist stripping
+    const result = await pipe.transform(
+      { name: 'John', evilProp: 'hack' },
+      { metatype: BaseInput, type: 'body', data: undefined },
+    );
+    expect(result.name).toBe('John');
+    expect(result.evilProp).toBeUndefined();
+  });
+
+  it('should still strip non-whitelisted properties for query DTOs', async () => {
+    // @Query() with DTO classes that use @UnifiedField
+    const result = await pipe.transform(
+      { name: 'John', evilProp: 'hack' },
+      { metatype: BaseInput, type: 'query', data: undefined },
+    );
+    expect(result.name).toBe('John');
+    expect(result.evilProp).toBeUndefined();
+  });
+
+  it('should still strip non-whitelisted properties for param DTOs', async () => {
+    // @Param() with DTO classes that use @UnifiedField
+    const result = await pipe.transform(
+      { name: 'John', evilProp: 'hack' },
+      { metatype: BaseInput, type: 'param', data: undefined },
+    );
+    expect(result.name).toBe('John');
+    expect(result.evilProp).toBeUndefined();
+  });
+
+  it('should skip basic types like string for param parameters', async () => {
+    // @Param('id') id: string — pipe returns early for basic types
+    const result = await pipe.transform('507f1f77bcf86cd799439011', {
+      metatype: String,
+      type: 'param',
+      data: 'id',
+    });
+    expect(result).toBe('507f1f77bcf86cd799439011');
+  });
+
+  it('should skip basic types like number for query parameters', async () => {
+    // @Query('limit') limit: number — pipe returns early for basic types
+    const result = await pipe.transform(10, {
+      metatype: Number,
+      type: 'query',
+      data: 'limit',
+    });
+    expect(result).toBe(10);
+  });
+
+  it('should skip Object metatype and pass through all properties', async () => {
+    // @Body() body: object — Object is a basic type, pipe returns early
+    const input = { anything: 'goes', nested: { deep: true }, fn: () => 42 };
+
+    const result = await pipe.transform(input, {
+      metatype: Object,
+      type: 'body',
+      data: undefined,
+    });
+
+    expect(result).toBe(input);
+    expect(result.anything).toBe('goes');
+    expect(result.nested.deep).toBe(true);
+    expect(typeof result.fn).toBe('function');
+  });
+
+  it('should process custom and body parameters independently in sequence', async () => {
+    // Simulates a real controller: @CurrentUser() user + @Body() input
+    // The custom parameter must survive even after body is processed
+    const currentUser = {
+      id: '507f1f77bcf86cd799439011',
+      email: 'admin@test.com',
+      hasRole: (role: string) => role === 'admin',
+    };
+
+    // First: pipe processes @CurrentUser() (type: 'custom')
+    const userResult = await pipe.transform(currentUser, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    // Second: pipe processes @Body() (type: 'body')
+    const bodyResult = await pipe.transform(
+      { name: 'New User', evilProp: 'hack' },
+      { metatype: BaseInput, type: 'body', data: undefined },
+    );
+
+    // Custom parameter unchanged
+    expect(userResult).toBe(currentUser);
+    expect(typeof userResult.hasRole).toBe('function');
+    expect(userResult.hasRole('admin')).toBe(true);
+
+    // Body correctly stripped
+    expect(bodyResult.name).toBe('New User');
+    expect(bodyResult.evilProp).toBeUndefined();
+  });
+});
+
+describe('MapAndValidatePipe - custom parameters in error mode', () => {
+  let pipe: any;
+
+  beforeEach(async () => {
+    const { ConfigService } = await import('../../src/core/common/services/config.service');
+    vi.spyOn(ConfigService, 'getFastButReadOnly').mockReturnValue({ nonWhitelistedFields: 'error' });
+    const { MapAndValidatePipe } = await import('../../src/core/common/pipes/map-and-validate.pipe');
+    pipe = new MapAndValidatePipe();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should not throw for custom parameters even with non-whitelisted properties', async () => {
+    const customValue = { id: '123', nonWhitelisted: 'value', hasRole: () => true };
+
+    const result = await pipe.transform(customValue, {
+      metatype: BaseInput,
+      type: 'custom',
+      data: undefined,
+    });
+
+    expect(result).toBe(customValue);
+    expect(typeof result.hasRole).toBe('function');
+  });
+
+  it('should still throw for body parameters with non-whitelisted properties', async () => {
+    await expect(
+      pipe.transform(
+        { name: 'John', evilProp: 'hack' },
+        { metatype: BaseInput, type: 'body', data: undefined },
+      ),
+    ).rejects.toThrow();
+  });
+});
