@@ -126,6 +126,7 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: true,
       uri: 'mongodb://127.0.0.1/nest-server-ci',
     },
+    permissions: true,
     port: 3000,
     security: {
       checkResponseInterceptor: {
@@ -231,6 +232,7 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: false,
       uri: 'mongodb://127.0.0.1/nest-server-dev',
     },
+    permissions: true,
     port: 3000,
     security: {
       checkResponseInterceptor: {
@@ -370,6 +372,7 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: true,
       uri: 'mongodb://127.0.0.1/nest-server-e2e',
     },
+    permissions: true,
     port: 3000,
     security: {
       checkResponseInterceptor: {
@@ -487,6 +490,9 @@ const config: { [env: string]: IServerOptions } = {
       },
       modelDocumentation: true,
       uri: 'mongodb://127.0.0.1/nest-server-local',
+    },
+    permissions: {
+      role: false,
     },
     port: 3000,
     security: {

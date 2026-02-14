@@ -24,6 +24,7 @@ import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-aut
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
+import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
 
 /**
@@ -269,6 +270,12 @@ export class CoreModule implements NestModule {
 
     if (config.healthCheck) {
       imports.push(CoreHealthCheckModule);
+    }
+
+    // Permissions report (development tool)
+    const permissionsConfig = config.permissions;
+    if (permissionsConfig === true || (typeof permissionsConfig === 'object' && permissionsConfig.enabled !== false)) {
+      imports.push(CorePermissionsModule.forRoot(permissionsConfig));
     }
 
     // Add CoreBetterAuthModule based on mode

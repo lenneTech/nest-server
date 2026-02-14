@@ -13,6 +13,7 @@ import { CollationOptions } from 'mongodb';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 import { Falsy } from '../types/falsy.type';
+import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface';
 import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface';
 import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface';
 import { MailjetOptions } from './mailjet-options.interface';
@@ -1316,6 +1317,31 @@ export interface IServerOptions {
      */
     uri: string;
   };
+
+  /**
+   * Permissions report module (development tool).
+   *
+   * When enabled, provides an interactive HTML report at /permissions
+   * showing all @Roles, @Restricted decorators, and security gaps.
+   *
+   * Follows the "presence implies enabled" pattern:
+   * - `true`: Enabled with defaults (admin-only access)
+   * - `{ role: 'S_EVERYONE' }`: Enabled with custom role for access
+   * - `{ role: false }`: Enabled without auth check
+   * - `{ enabled: false }`: Explicitly disabled
+   *
+   * @default undefined (disabled)
+   *
+   * @example
+   * ```typescript
+   * // Enable for local/development (admin-only)
+   * permissions: true,
+   *
+   * // Enable with public access (no auth needed)
+   * permissions: { role: false },
+   * ```
+   */
+  permissions?: boolean | IPermissions;
 
   /**
    * Port number of the server
