@@ -126,6 +126,7 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: true,
       uri: 'mongodb://127.0.0.1/nest-server-ci',
     },
+    permissions: true,
     port: 3000,
     security: {
       checkResponseInterceptor: {
