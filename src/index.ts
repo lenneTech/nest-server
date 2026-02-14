@@ -168,6 +168,16 @@ export * from './core/modules/health-check/core-health-check.service';
 export * from './core/modules/migrate';
 
 // =====================================================================================================================
+// Core - Modules - Permissions
+// =====================================================================================================================
+
+export * from './core/modules/permissions/core-permissions.controller';
+export * from './core/modules/permissions/core-permissions.module';
+export * from './core/modules/permissions/core-permissions.service';
+export * from './core/modules/permissions/interfaces/permissions.interface';
+export * from './core/modules/permissions/permissions-scanner';
+
+// =====================================================================================================================
 // Core - Modules - SystemSetup
 // =====================================================================================================================
 
