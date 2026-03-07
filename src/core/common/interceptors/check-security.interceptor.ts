@@ -15,12 +15,19 @@ export class CheckSecurityInterceptor implements NestInterceptor {
   config = {
     debug: false,
     noteCheckedObjects: true,
+    removeSecretFields: true,
+    secretFields: ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'],
   };
 
   constructor(private readonly configService: ConfigService) {
     const configuration = this.configService.getFastButReadOnly('security.checkSecurityInterceptor');
     if (typeof configuration === 'object') {
       this.config = { ...this.config, ...configuration };
+    }
+    // Allow overriding secretFields from security config
+    const globalSecretFields = this.configService.getFastButReadOnly('security.secretFields');
+    if (Array.isArray(globalSecretFields)) {
+      this.config.secretFields = globalSecretFields;
     }
   }
 
@@ -99,8 +106,25 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       );
     };
 
+    // Fallback: Remove known secret fields regardless of model type
+    const removeSecrets = (data: any) => {
+      if (!this.config.removeSecretFields || !data || typeof data !== 'object') {
+        return data;
+      }
+      if (Array.isArray(data)) {
+        data.forEach(removeSecrets);
+        return data;
+      }
+      for (const field of this.config.secretFields) {
+        if (field in data && data[field] !== undefined) {
+          data[field] = undefined;
+        }
+      }
+      return data;
+    };
+
     // Check response
-    const result = next.handle().pipe(map(check));
+    const result = next.handle().pipe(map(check), map(removeSecrets));
     if (this.config.debug && Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)) {
       console.warn(
         `Duration for CheckResponseInterceptor is too long: ${Date.now() - start}ms`,

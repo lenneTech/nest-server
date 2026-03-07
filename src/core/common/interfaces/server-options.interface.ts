@@ -1426,6 +1426,26 @@ export interface IServerOptions {
            * default = true
            */
           noteCheckedObjects?: boolean;
+
+          /**
+           * Whether to remove known secret fields as a fallback safety net.
+           * Applied after securityCheck() to catch any remaining secrets.
+           * default = true
+           *
+           * @since 11.18.0
+           */
+          removeSecretFields?: boolean;
+
+          /**
+           * List of field names to remove in the fallback secret removal.
+           * Only used when removeSecretFields is true.
+           * Note: security.secretFields (global) takes precedence over this setting if both are defined.
+           * Use this for interceptor-specific overrides, or security.secretFields for a global default.
+           * default = ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens']
+           *
+           * @since 11.18.0
+           */
+          secretFields?: string[];
         };
 
     /**
@@ -1449,6 +1469,146 @@ export interface IServerOptions {
            */
           nonWhitelistedFields?: 'strip' | 'error' | false;
         };
+
+    /**
+     * Mongoose password hashing plugin - automatically hashes passwords on save/update
+     * (save, findOneAndUpdate, updateOne, updateMany).
+     * Prevents plaintext passwords even when CrudService.process() is bypassed.
+     * Already-hashed values (BCrypt pattern /^\$2[aby]\$\d+\$/) are detected and skipped
+     * to prevent double-hashing.
+     *
+     * For sentinel/lock values (e.g. '!LOCKED:REQUIRES_PASSWORD_RESET'), configure
+     * skipPatterns so they are preserved as-is and not hashed.
+     *
+     * default = true (opt-out via false)
+     *
+     * @example
+     * ```typescript
+     * // Default: hash all passwords
+     * mongoosePasswordPlugin: true,
+     *
+     * // Skip sentinel values used for account locking
+     * mongoosePasswordPlugin: { skipPatterns: ['^!LOCKED:'] },
+     *
+     * // Disable entirely
+     * mongoosePasswordPlugin: false,
+     * ```
+     *
+     * @since 11.18.0
+     */
+    mongoosePasswordPlugin?:
+      | boolean
+      | {
+          /**
+           * Regex patterns for password values that should NOT be hashed.
+           * Use this for sentinel/lock values like '!LOCKED:REQUIRES_PASSWORD_RESET'
+           * that are intentionally invalid hashes to prevent login.
+           * Patterns are matched against the raw password value.
+           *
+           * @example ['^!LOCKED:', '^\\$NOHASH\\$']
+           */
+          skipPatterns?: (string | RegExp)[];
+        };
+
+    /**
+     * Mongoose audit fields plugin - automatically sets createdBy/updatedBy fields
+     * on save/update operations.
+     * Uses RequestContext (AsyncLocalStorage) to access the current user —
+     * requires RequestContextMiddleware to be active (registered automatically by CoreModule).
+     * Only activates on schemas that have createdBy and/or updatedBy fields defined.
+     * default = true (opt-out via false)
+     *
+     * @since 11.18.0
+     */
+    mongooseAuditFieldsPlugin?: boolean;
+
+    /**
+     * Mongoose role guard plugin - prevents unauthorized users from escalating roles
+     * via save/update operations.
+     * Uses RequestContext (AsyncLocalStorage) to access the current user —
+     * requires RequestContextMiddleware to be active (registered automatically by CoreModule).
+     * System operations without a request context (e.g. migrations) are allowed through.
+     *
+     * By default, only ADMIN users can assign roles. Use allowedRoles to permit
+     * additional roles (e.g. ORGA, COMPANY_ADMIN) to assign roles to other users.
+     *
+     * default = true (opt-out via false)
+     *
+     * @example
+     * ```typescript
+     * // Default: only ADMIN can assign roles
+     * mongooseRoleGuardPlugin: true,
+     *
+     * // Allow ADMIN and custom roles to assign roles
+     * mongooseRoleGuardPlugin: { allowedRoles: ['ORGA', 'COMPANY_ADMIN'] },
+     *
+     * // Disable entirely
+     * mongooseRoleGuardPlugin: false,
+     * ```
+     *
+     * @since 11.18.0
+     */
+    mongooseRoleGuardPlugin?:
+      | boolean
+      | {
+          /**
+           * Additional roles (beyond ADMIN) that are allowed to assign roles to other users.
+           * ADMIN is always implicitly allowed — no need to include it here.
+           */
+          allowedRoles?: string[];
+        };
+
+    /**
+     * ResponseModelInterceptor - auto-converts plain objects/Mongoose documents
+     * to model instances with securityCheck() and correct constructor metadata.
+     * Ensures @Restricted field filtering and securityCheck() work even when
+     * CrudService.process() is bypassed.
+     *
+     * Model class resolution order:
+     * 1. Explicit @ResponseModel(ModelClass) decorator
+     * 2. GraphQL TypeMetadataStorage (automatic for @Query/@Mutation return types)
+     * 3. Swagger @ApiOkResponse / @ApiCreatedResponse type (automatic for REST)
+     * 4. No conversion (existing interceptors work as before)
+     *
+     * Results are cached per route handler for zero-cost subsequent lookups.
+     * default = true (opt-out via false)
+     *
+     * @since 11.18.0
+     */
+    responseModelInterceptor?:
+      | boolean
+      | {
+          /**
+           * Log a warning when auto-conversion from plain object to model occurs.
+           * Useful for identifying services that bypass CrudService.
+           * default = false
+           */
+          debug?: boolean;
+        };
+
+    /**
+     * TranslateResponseInterceptor - automatically applies _translations
+     * to response objects based on the Accept-Language header of the request.
+     * Reads @Translatable field values from _translations and overwrites
+     * the base-language field with the requested translation.
+     * Includes early bailout: skips recursive traversal when no _translations
+     * are present in the response.
+     * Ensures translations work even when CrudService.process() is bypassed.
+     * default = true (opt-out via false)
+     *
+     * @since 11.18.0
+     */
+    translateResponseInterceptor?: boolean;
+
+    /**
+     * Global list of field names that should always be removed from responses.
+     * This is a fallback safety net applied after all other security checks.
+     * Takes precedence over checkSecurityInterceptor.secretFields if both are set.
+     * default = ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens']
+     *
+     * @since 11.18.0
+     */
+    secretFields?: string[];
   };
 
   /**
