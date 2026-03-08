@@ -336,7 +336,7 @@ export function prepareServiceOptions(
   return serviceOptions;
 }
 
-function applyTranslationsRecursively(obj: any, language: string, visited: WeakSet<object> = new WeakSet()) {
+export function applyTranslationsRecursively(obj: any, language: string, visited: WeakSet<object> = new WeakSet()) {
   if (typeof obj !== 'object' || obj === null) {
     return;
   }

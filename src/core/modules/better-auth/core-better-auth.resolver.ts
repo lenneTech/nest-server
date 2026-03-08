@@ -342,9 +342,9 @@ export class CoreBetterAuthResolver {
         // 1. accessToken (JWT plugin enriched response)
         // 2. token (top-level, some BetterAuth versions)
         // 3. session.token (session-based fallback)
-        const responseAny = response as any;
+        const tokenResponse = response as any;
         const rawToken =
-          responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+          tokenResponse.accessToken || tokenResponse.token || (hasSession(response) ? response.session.token : undefined);
         const token = await this.resolveJwtToken(rawToken);
 
         return {

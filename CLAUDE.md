@@ -13,6 +13,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 After significant development sessions, update with new learnings (patterns, pitfalls, best practices). Keep this file concise (~150 lines) and move detailed topics to `.claude/rules/`.
 
+## Living Documentation
+
+The following documents must be kept up to date when making changes that affect them:
+
+| Document | Update when... |
+|----------|---------------|
+| `docs/REQUEST-LIFECYCLE.md` | Adding/changing decorators, interceptors, guards, pipes, middleware, plugins, services, modules, or the request/response flow |
+| `migration-guides/` | Releasing MINOR or MAJOR versions (see `.claude/rules/migration-guides.md`) |
+| `.claude/rules/configurable-features.md` | Adding new configurable features |
+
+**Rule:** When a code change adds, removes, or modifies a feature listed in `docs/REQUEST-LIFECYCLE.md` (Features Overview, diagrams, decorator reference, configuration, etc.), update the document in the same commit or PR.
+
 ## Project Overview
 
 **@lenne.tech/nest-server** - An extension layer on top of NestJS for building server applications with GraphQL and MongoDB.
@@ -60,6 +72,7 @@ pnpm run reinit         # Clean reinstall + tests + build
 - `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Migrate, SystemSetup, Tus, User
 
 See `.claude/rules/architecture.md` for detailed documentation.
+See [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) for the complete request lifecycle, security architecture, and interceptor/decorator reference.
 
 ## Development Guidelines
 
@@ -151,3 +164,9 @@ Detailed documentation in `.claude/rules/`:
 | `migration-guides.md` | Process for creating version migration guides |
 | `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |
 | `package-management.md` | Fixed package versions only - no `^`, `~`, or ranges |
+
+## In-Depth Documentation
+
+| File | Content |
+|------|---------|
+| [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |

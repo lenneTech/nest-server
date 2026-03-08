@@ -5,10 +5,13 @@ import { ProcessType } from '../enums/process-type.enum';
 import { getStringIds, popAndMap } from '../helpers/db.helper';
 import { check } from '../helpers/input.helper';
 import { prepareInput, prepareOutput } from '../helpers/service.helper';
+import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator';
 import { ServiceOptions } from '../interfaces/service-options.interface';
 import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { ConfigService } from './config.service';
+import { ModelRegistry } from './model-registry.service';
+import { RequestContext } from './request-context.service';
 
 /**
  * Module service class to be extended by concrete module services
@@ -40,6 +43,11 @@ export abstract class ModuleService<T extends CoreModel = any> {
     this.configService = options?.configService;
     this.mainDbModel = options?.mainDbModel;
     this.mainModelConstructor = options?.mainModelConstructor;
+
+    // Auto-register model class for ResponseModelInterceptor lookups
+    if (options?.mainModelConstructor && options?.mainDbModel?.modelName) {
+      ModelRegistry.register(options.mainDbModel.modelName, options.mainModelConstructor);
+    }
   }
 
   /**
@@ -191,7 +199,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Run service function
-    let result = await serviceFunc(config);
+    // When force is enabled, bypass the Mongoose role guard plugin as well
+    let result = config.force
+      ? await RequestContext.runWithBypassRoleGuard(() => serviceFunc(config))
+      : await serviceFunc(config);
 
     // Pop and map main model
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
@@ -240,6 +251,85 @@ export abstract class ModuleService<T extends CoreModel = any> {
 
     // Return (prepared) result
     return result;
+  }
+
+  /**
+   * Simplified result processing for direct Mongoose queries.
+   * Handles population and output preparation without the full process() pipeline.
+   *
+   * Security (password hashing, role guard, createdBy/updatedBy, type mapping,
+   * field filtering, secret removal, translations) is handled automatically
+   * by the safety net (Mongoose plugins + interceptors).
+   *
+   * Use this when bypassing CrudService methods but still wanting
+   * population and custom prepareOutput() transformations.
+   *
+   * Note: This method does NOT perform authorization checks (checkRights).
+   * The caller is responsible for verifying permissions before calling this method.
+   *
+   * @example
+   * ```typescript
+   * // Direct Mongoose query with result processing
+   * const doc = await this.mainDbModel.findById(id).exec();
+   * return this.processResult(doc, serviceOptions);
+   *
+   * // Aggregate with result processing
+   * const results = await this.mainDbModel.aggregate(pipeline).exec();
+   * return this.processResult(results, serviceOptions);
+   * ```
+   */
+  async processResult(result: any, serviceOptions: ServiceOptions = {}): Promise<any> {
+    if (!result) {
+      return result;
+    }
+
+    // Population (if GraphQL field selection is available)
+    if (serviceOptions.fieldSelection && this.processFieldSelection) {
+      const populateOpts = serviceOptions.processFieldSelection || {};
+      const items = Array.isArray(result) ? result : [result];
+      for (const item of items) {
+        await this.processFieldSelection(item, serviceOptions.fieldSelection, populateOpts);
+      }
+    }
+
+    // Custom prepareOutput (type mapping, ObjectId conversion, custom overrides)
+    if (this.prepareOutput) {
+      result = await this.prepareOutput(result, serviceOptions);
+    }
+
+    return result;
+  }
+
+  /**
+   * Apply translation-aware input processing.
+   * Auto-detects @Translatable fields on the model and routes non-base-language
+   * values into _translations.
+   *
+   * @param input - The input data to transform
+   * @param oldDoc - The existing document from DB (needed for value comparison)
+   * @param language - Language code (defaults to RequestContext.getLanguage())
+   * @returns The transformed input with translations stored in _translations
+   *
+   * @example
+   * ```typescript
+   * // In a custom update method:
+   * const oldDoc = await this.mainDbModel.findById(id).lean();
+   * input = this.applyTranslationInput(input, oldDoc, serviceOptions.language);
+   * return this.mainDbModel.findByIdAndUpdate(id, input, { returnDocument: 'after' }).exec();
+   * ```
+   */
+  protected applyTranslationInput(input: any, oldDoc: any, language?: string): any {
+    language = language || RequestContext.getLanguage();
+    if (!language) {
+      return input;
+    }
+
+    const translatableFields = getTranslatablePropertyKeys(this.mainModelConstructor);
+    if (translatableFields.length === 0) {
+      return input;
+    }
+
+    return updateLanguage(language, input, oldDoc, translatableFields);
   }
 
   /**

@@ -626,8 +626,8 @@ export async function setPopulates<T = Document | Query<any, any>>(
 
   // Query => Chaining
   if (queryOrDocument instanceof Query) {
-    for (const options of populateOptions) {
-      queryOrDocument = (queryOrDocument as any).populate(options);
+    for (const populateOption of populateOptions) {
+      queryOrDocument = (queryOrDocument as any).populate(populateOption);
     }
 
     // Document => Non chaining

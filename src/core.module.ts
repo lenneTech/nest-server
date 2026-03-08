@@ -3,17 +3,23 @@ import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, Unauthor
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Context } from 'apollo-server-core';
+import type { Context } from 'graphql-ws';
 import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
+import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
+import { TranslateResponseInterceptor } from './core/common/interceptors/translate-response.interceptor';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
+import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
 import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
+import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
+import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
+import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
@@ -49,6 +55,8 @@ export class CoreModule implements NestModule {
    * Integrate middleware, e.g. GraphQL upload handing for express
    */
   configure(consumer: MiddlewareConsumer) {
+    // RequestContext middleware must run for all routes to provide AsyncLocalStorage context
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
     if (CoreModule.graphQlEnabled) {
       consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
     }
@@ -186,6 +194,29 @@ export class CoreModule implements NestModule {
       options,
     );
 
+    // Wrap connectionFactory to add security plugins (password hashing, role guard)
+    const originalConnectionFactory = config.mongoose?.options?.connectionFactory;
+    config.mongoose.options = config.mongoose.options || {};
+    config.mongoose.options.connectionFactory = (connection, name) => {
+      // Run original factory first (includes mongooseIdPlugin from defaults)
+      if (originalConnectionFactory) {
+        connection = originalConnectionFactory(connection, name);
+      }
+      // Add password hashing plugin (enabled by default, opt-out via config)
+      if (config.security?.mongoosePasswordPlugin !== false) {
+        connection.plugin(mongoosePasswordPlugin);
+      }
+      // Add role guard plugin (enabled by default, opt-out via config)
+      if (config.security?.mongooseRoleGuardPlugin !== false) {
+        connection.plugin(mongooseRoleGuardPlugin);
+      }
+      // Add audit fields plugin (enabled by default, opt-out via config)
+      if (config.security?.mongooseAuditFieldsPlugin !== false) {
+        connection.plugin(mongooseAuditFieldsPlugin);
+      }
+      return connection;
+    };
+
     // Check secrets
     const jwtConfig = config.jwt;
     if (jwtConfig?.secret && jwtConfig.secret && jwtConfig.refresh && jwtConfig.refresh.secret === jwtConfig.secret) {
@@ -232,6 +263,26 @@ export class CoreModule implements NestModule {
       providers.push({
         provide: APP_PIPE,
         useClass: MapAndValidatePipe,
+      });
+    }
+
+    // TranslateResponseInterceptor: Applies _translations based on Accept-Language header
+    // Registered after security interceptors → runs before them on response
+    // Translation happens before security checks strip restricted fields
+    if (config.security?.translateResponseInterceptor !== false) {
+      providers.push({
+        provide: APP_INTERCEPTOR,
+        useClass: TranslateResponseInterceptor,
+      });
+    }
+
+    // ResponseModelInterceptor: Auto-converts plain objects to model instances
+    // Registered last → runs first on response (NestJS reverse order for interceptors)
+    // This ensures plain objects get securityCheck() and @Restricted metadata before other interceptors check them
+    if (config.security?.responseModelInterceptor !== false) {
+      providers.push({
+        provide: APP_INTERCEPTOR,
+        useClass: ResponseModelInterceptor,
       });
     }
 
@@ -375,7 +426,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
@@ -470,7 +521,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
@@ -582,7 +633,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   if (enableSubscriptionAuth) {
                     // get authToken from authorization header
