@@ -40,8 +40,8 @@ const createPassportContext =
         try {
           request.authInfo = info;
           return resolve(callback(err, user, info));
-        } catch (err) {
-          reject(err);
+        } catch (callbackError) {
+          reject(callbackError);
         }
       })(request, response, (err: any) => (err ? reject(err) : resolve(undefined))),
     );

@@ -123,7 +123,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
-      modelDocumentation: true,
+      modelDocumentation: false,
       uri: 'mongodb://127.0.0.1/nest-server-ci',
     },
     permissions: true,
@@ -369,7 +369,7 @@ const config: { [env: string]: IServerOptions } = {
       collation: {
         locale: 'de',
       },
-      modelDocumentation: true,
+      modelDocumentation: false,
       uri: 'mongodb://127.0.0.1/nest-server-e2e',
     },
     permissions: true,

@@ -206,6 +206,12 @@ This pattern is currently applied to:
 | BetterAuth Disable Sign-Up | `betterAuth.emailAndPassword.disableSignUp` | Explicit Boolean | `false` (sign-up enabled) |
 | System Setup | `systemSetup` | Enabled by Default (when BetterAuth active) | `initialAdmin: undefined` |
 | GraphQL | `graphQl` | Explicit Disable (`false`) | Enabled (full GraphQL stack) |
+| Mongoose Password Plugin | `security.mongoosePasswordPlugin` | Boolean Shorthand | `true` (enabled), `skipPatterns: []` |
+| Mongoose Role Guard Plugin | `security.mongooseRoleGuardPlugin` | Boolean Shorthand | `true` (enabled), `allowedRoles: []`. Bypass: `RequestContext.runWithBypassRoleGuard()` or `force: true` |
+| Mongoose Audit Fields Plugin | `security.mongooseAuditFieldsPlugin` | Boolean Shorthand | `true` (enabled) |
+| Response Model Interceptor | `security.responseModelInterceptor` | Boolean Shorthand | `true` (enabled), `debug: false` |
+| Translate Response Interceptor | `security.translateResponseInterceptor` | Boolean Shorthand | `true` (enabled) |
+| Secret Fields Removal | `security.secretFields` | Array | `['password', 'verificationToken', ...]` |
 
 ## Checklist for New Configurable Features
 

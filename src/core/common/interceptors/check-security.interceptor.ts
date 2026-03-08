@@ -15,12 +15,19 @@ export class CheckSecurityInterceptor implements NestInterceptor {
   config = {
     debug: false,
     noteCheckedObjects: true,
+    removeSecretFields: true,
+    secretFields: ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'],
   };
 
   constructor(private readonly configService: ConfigService) {
     const configuration = this.configService.getFastButReadOnly('security.checkSecurityInterceptor');
     if (typeof configuration === 'object') {
       this.config = { ...this.config, ...configuration };
+    }
+    // Allow overriding secretFields from security config
+    const globalSecretFields = this.configService.getFastButReadOnly('security.secretFields');
+    if (Array.isArray(globalSecretFields)) {
+      this.config.secretFields = globalSecretFields;
     }
   }
 
@@ -99,8 +106,44 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       );
     };
 
+    // Fallback: Remove known secret fields regardless of model type (recursive into plain objects)
+    const isPlainLike = (val: any): boolean => {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) return false;
+      // Skip Streams, Buffers, Dates, RegExps and other special objects
+      if (typeof val.pipe === 'function') return false;
+      if (Buffer.isBuffer(val)) return false;
+      if (val instanceof Date || val instanceof RegExp) return false;
+      const proto = Object.getPrototypeOf(val);
+      return proto === null || proto === Object.prototype || typeof val.constructor === 'function';
+    };
+    const removeSecrets = (data: any) => {
+      if (!this.config.removeSecretFields || !data || typeof data !== 'object') {
+        return data;
+      }
+      if (Array.isArray(data)) {
+        data.forEach(removeSecrets);
+        return data;
+      }
+      if (!isPlainLike(data)) {
+        return data;
+      }
+      for (const field of this.config.secretFields) {
+        if (field in data && data[field] !== undefined) {
+          data[field] = undefined;
+        }
+      }
+      // Recurse into nested plain objects
+      for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (value && typeof value === 'object' && !this.config.secretFields.includes(key)) {
+          removeSecrets(value);
+        }
+      }
+      return data;
+    };
+
     // Check response
-    const result = next.handle().pipe(map(check));
+    const result = next.handle().pipe(map(check), map(removeSecrets));
     if (this.config.debug && Date.now() - start >= (typeof this.config.debug === 'number' ? this.config.debug : 100)) {
       console.warn(
         `Duration for CheckResponseInterceptor is too long: ${Date.now() - start}ms`,

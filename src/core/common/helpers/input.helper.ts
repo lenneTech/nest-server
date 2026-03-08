@@ -388,9 +388,9 @@ export function clone(object: any, options?: { checkResult?: boolean; circles?: 
           throw new Error('Cloned object differs from original object', { cause: e });
         }
         return clonedWithCircles;
-      } catch (e) {
+      } catch (innerError) {
         if (config.debug) {
-          console.debug(e, 'rfcd with circles did not work => automatic use of _.clone!');
+          console.debug(innerError, 'rfcd with circles did not work => automatic use of _.clone!');
         }
         return _.cloneDeep(object);
       }

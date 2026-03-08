@@ -74,8 +74,8 @@ export class ConfigService {
 
     // Init subject handling
     if (!isInitialized) {
-      ConfigService._configSubject$.subscribe((config) => {
-        ConfigService._frozenConfigSubject$.next(deepFreeze(cloneDeep(config)));
+      ConfigService._configSubject$.subscribe((value) => {
+        ConfigService._frozenConfigSubject$.next(deepFreeze(cloneDeep(value)));
       });
     }
 
