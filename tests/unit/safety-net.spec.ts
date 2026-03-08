@@ -549,6 +549,48 @@ describe('Role Guard Logic', () => {
       expect(user.roles).toContain('ORGA');
     });
   });
+
+  it('should allow role changes when bypassRoleGuard is active', () => {
+    const regularUser = {
+      id: 'user1',
+      roles: ['USER'],
+      hasRole: (roles: string[]) => roles.some((r) => ['USER'].includes(r)),
+    };
+    RequestContext.run({ currentUser: regularUser }, () => {
+      // Without bypass: user has no admin role
+      expect(RequestContext.getCurrentUser().hasRole(['ADMIN'])).toBe(false);
+      expect(RequestContext.isBypassRoleGuard()).toBe(false);
+
+      // With bypass: role guard should be skipped
+      RequestContext.runWithBypassRoleGuard(() => {
+        expect(RequestContext.isBypassRoleGuard()).toBe(true);
+        // currentUser is still the same
+        expect(RequestContext.getCurrentUser().id).toBe('user1');
+      });
+
+      // After bypass: should be back to normal
+      expect(RequestContext.isBypassRoleGuard()).toBe(false);
+    });
+  });
+
+  it('should allow role changes during signUp (no currentUser)', () => {
+    // signUp scenario: RequestContext exists (middleware ran) but no user is logged in
+    RequestContext.run({}, () => {
+      // No currentUser → getCurrentUser returns undefined → allowed
+      expect(RequestContext.getCurrentUser()).toBeUndefined();
+    });
+  });
+
+  it('should preserve context when using runWithBypassRoleGuard', () => {
+    const user = { id: 'admin-panel-user', roles: ['HR_MANAGER'] };
+    RequestContext.run({ currentUser: user, language: 'de' }, () => {
+      RequestContext.runWithBypassRoleGuard(() => {
+        expect(RequestContext.getCurrentUser().id).toBe('admin-panel-user');
+        expect(RequestContext.getLanguage()).toBe('de');
+        expect(RequestContext.isBypassRoleGuard()).toBe(true);
+      });
+    });
+  });
 });
 
 // =====================================================================================================================

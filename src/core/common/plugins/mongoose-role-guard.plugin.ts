@@ -64,6 +64,7 @@ export function mongooseRoleGuardPlugin(schema) {
  * Check if the current user is allowed to modify roles.
  * Returns true if:
  * - No user context (system operation)
+ * - bypassRoleGuard is active (via RequestContext.runWithBypassRoleGuard())
  * - User has ADMIN role
  * - User has one of the configured allowedRoles
  */
@@ -71,6 +72,10 @@ function isRoleChangeAllowed(): boolean {
   const currentUser = RequestContext.getCurrentUser();
   // No user context (system operation) → allow
   if (!currentUser) {
+    return true;
+  }
+  // Explicit bypass (e.g. signUp with default roles, authorized service operations)
+  if (RequestContext.isBypassRoleGuard()) {
     return true;
   }
   // Admin → always allow

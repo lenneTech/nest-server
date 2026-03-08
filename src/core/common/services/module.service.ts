@@ -199,7 +199,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Run service function
-    let result = await serviceFunc(config);
+    // When force is enabled, bypass the Mongoose role guard plugin as well
+    let result = config.force
+      ? await RequestContext.runWithBypassRoleGuard(() => serviceFunc(config))
+      : await serviceFunc(config);
 
     // Pop and map main model
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
