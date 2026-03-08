@@ -68,8 +68,9 @@ export class ResponseModelInterceptor implements NestInterceptor {
       return data.map((item) => this.convertSingleItem(item, modelClass, context));
     }
 
-    // Wrapper objects (e.g. { items: [...], totalCount, pagination })
-    if (data.items && Array.isArray(data.items) && !data.securityCheck) {
+    // Paginated wrapper objects from CrudService (e.g. { items: [...], totalCount, pagination })
+    // Identified by 'items' array + pagination markers to avoid false positives on models with 'items' field
+    if (Array.isArray(data.items) && ('totalCount' in data || 'pagination' in data)) {
       data.items = data.items.map((item: any) => this.convertSingleItem(item, modelClass, context));
       return data;
     }

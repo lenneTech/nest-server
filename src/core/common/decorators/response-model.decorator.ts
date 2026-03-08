@@ -2,7 +2,11 @@ import { SetMetadata } from '@nestjs/common';
 
 import { CoreModel } from '../models/core-model.model';
 
-const RESPONSE_MODEL_KEY = 'response_model_class';
+/**
+ * Metadata key used to store the explicit response model class on a handler.
+ * Shared between the @ResponseModel() decorator and interceptor.helper.ts.
+ */
+export const RESPONSE_MODEL_KEY = 'response_model_class';
 
 /**
  * Decorator to explicitly specify the model class for automatic response conversion.

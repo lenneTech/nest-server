@@ -1,9 +1,8 @@
 import { ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { RESPONSE_MODEL_KEY } from '../decorators/response-model.decorator';
 import { CoreModel } from '../models/core-model.model';
-
-const RESPONSE_MODEL_KEY = 'response_model_class';
 
 // Cache: handler function → resolved model class (or null)
 // Handler references are stable per route, so the cache is bounded by the number of routes.
@@ -67,7 +66,9 @@ function resolveResponseModelClassUncached(
  */
 function resolveFromGraphQlMetadata(context: ExecutionContext): (new (...args: any[]) => CoreModel) | null {
   try {
-    // Dynamic import to avoid hard dependency on @nestjs/graphql internals
+    // Uses @nestjs/graphql internal path to access TypeMetadataStorage — the only way to resolve
+    // @Query/@Mutation return types at runtime. This path has been stable since @nestjs/graphql v10.
+    // Wrapped in try/catch so a path change in a future version degrades gracefully (returns null).
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { TypeMetadataStorage } = require('@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage');
 
