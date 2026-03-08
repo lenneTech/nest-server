@@ -236,40 +236,37 @@ JWT-based authentication for existing projects:
 
 nest-server implements **defense-in-depth security** with three complementary layers:
 
-```mermaid
-block-beta
-  columns 1
-  block:request["HTTP Request"]
-    columns 1
-  end
-
-  block:layer1["Layer 1: Guardian Gates"]
-    columns 3
-    MW["RequestContext\nBetterAuth\nMiddleware"]
-    G["RolesGuard\n(@Roles)"]
-    P["MapAndValidate\nPipe"]
-  end
-
-  block:layer2["Layer 2: Application Logic"]
-    columns 2
-    CR["Controller /\nResolver"]
-    CS["CrudService.process()\nprepareInput → serviceFunc →\nprocessFieldSelection → prepareOutput"]
-  end
-
-  block:layer3["Layer 3: Safety Net"]
-    columns 2
-    MP["Mongoose Plugins\n- Password Hashing\n- Role Guard\n- Audit Fields"]
-    RI["Response Interceptors\n- ResponseModel\n- Translate\n- CheckSecurity\n- CheckResponse"]
-  end
-
-  block:response["HTTP Response"]
-    columns 1
-  end
-
-  request --> layer1
-  layer1 --> layer2
-  layer2 --> layer3
-  layer3 --> response
+```
++===================================================================+
+|                          HTTP Request                              |
++===================================================================+
+|                                                                   |
+|  Layer 1: Guardian Gates (Middleware -> Guards -> Pipes)           |
+|  +------------------+  +-----------+  +-----------------------+   |
+|  | RequestContext   |  | Roles     |  | MapAndValidatePipe    |   |
+|  | BetterAuth       |->| Guard     |->| (whitelist + valid.)  |   |
+|  | Middleware        |  |           |  |                       |   |
+|  +------------------+  +-----------+  +-----------------------+   |
+|                                                                   |
+|  Layer 2: Application Logic (Controllers/Resolvers -> Services)   |
+|  +----------------+  +---------------------------------------+   |
+|  | Controller /   |  | CrudService.process()                 |   |
+|  | Resolver       |->| prepareInput -> serviceFunc ->         |   |
+|  |                |  | processFieldSelection -> prepareOutput |   |
+|  +----------------+  +---------------------------------------+   |
+|                                                                   |
+|  Layer 3: Safety Net (Mongoose Plugins + Response Interceptors)   |
+|  +--------------------------+  +------------------------------+   |
+|  | Mongoose Plugins         |  | Response Interceptors        |   |
+|  |  - Password Hashing      |  |  - ResponseModelInterceptor  |   |
+|  |  - Role Guard            |  |  - TranslateResponse         |   |
+|  |  - Audit Fields          |  |  - CheckSecurity (secrets)   |   |
+|  |                          |  |  - CheckResponse (@Restrict) |   |
+|  +--------------------------+  +------------------------------+   |
+|                                                                   |
++===================================================================+
+|                          HTTP Response                            |
++===================================================================+
 ```
 
 **Key principle:** Layer 2 (CrudService) provides the primary security pipeline. Layer 3 (Safety Net) catches anything that bypasses Layer 2, ensuring security even when developers use direct Mongoose queries.
@@ -280,49 +277,100 @@ block-beta
 
 The following diagram shows the exact order of execution from HTTP request to response:
 
-```mermaid
-flowchart TD
-  REQ([HTTP Request<br>REST or GraphQL])
-
-  subgraph MW["1-3: Middleware Chain"]
-    direction TB
-    M1["1. RequestContextMiddleware<br><i>AsyncLocalStorage context<br>Lazy currentUser getter<br>Accept-Language</i>"]
-    M2["2. CoreBetterAuthMiddleware<br><i>Strategy 1: Auth header<br>Strategy 2: JWT cookie<br>Strategy 3: Session cookie<br>→ Sets req.user</i>"]
-    M3["3. graphqlUploadExpress<br><i>GraphQL only: multipart uploads</i>"]
-    M1 --> M2 --> M3
-  end
-
-  subgraph GD["4: Guards"]
-    G1["4. RolesGuard / BetterAuthRolesGuard<br><i>Reads @Roles metadata<br>Validates JWT / session token<br>Checks real roles (ADMIN)<br>Evaluates system roles (S_USER, ...)<br>→ 401 Unauthorized / 403 Forbidden</i>"]
-  end
-
-  subgraph PP["5: Pipes"]
-    P1["5. MapAndValidatePipe<br><i>Transform → class instance<br>Whitelist: strip/reject unknown<br>Validate via class-validator<br>Inheritance-aware</i>"]
-  end
-
-  subgraph HE["6: Handler Execution"]
-    direction TB
-    H1["6. Controller / Resolver method<br><i>@CurrentUser injects user<br>Calls service methods</i>"]
-    subgraph MG["Mongoose Plugins (on write)"]
-      MP1["mongoosePasswordPlugin<br><i>Hash password</i>"]
-      MP2["mongooseRoleGuardPlugin<br><i>Guard role changes</i>"]
-      MP3["mongooseAuditFieldsPlugin<br><i>Set createdBy/updatedBy</i>"]
-    end
-    H1 --> MG
-  end
-
-  subgraph RI["7-10: Response Interceptors (reverse order)"]
-    direction TB
-    I1["7. ResponseModelInterceptor<br><i>Plain object → CoreModel instance<br>Resolves via @ResponseModel, @Query type, @ApiOkResponse</i>"]
-    I2["8. TranslateResponseInterceptor<br><i>Apply _translations for Accept-Language<br>Early bailout when no translations</i>"]
-    I3["9. CheckSecurityInterceptor<br><i>Call securityCheck on models<br>Fallback: remove secret fields</i>"]
-    I4["10. CheckResponseInterceptor<br><i>Filter @Restricted fields<br>Role + membership checks</i>"]
-    I1 --> I2 --> I3 --> I4
-  end
-
-  RES([HTTP Response<br>filtered & secured])
-
-  REQ --> MW --> GD --> PP --> HE --> RI --> RES
+```
+                    +---------------------+
+                    |    HTTP Request      |
+                    |    (REST or GQL)     |
+                    +----------+----------+
+                               |
+  +----------------------------v----------------------------+
+  |                  MIDDLEWARE CHAIN                        |
+  |                                                         |
+  |  1. RequestContextMiddleware                            |
+  |     - AsyncLocalStorage context                         |
+  |     - Lazy currentUser getter (from req.user)           |
+  |     - Accept-Language for translations                  |
+  |                                                         |
+  |  2. CoreBetterAuthMiddleware                            |
+  |     - Strategy 1: Auth header (JWT/Session)             |
+  |     - Strategy 2: JWT cookie                            |
+  |     - Strategy 3: Session cookie                        |
+  |     - Sets req.user                                     |
+  |                                                         |
+  |  3. graphqlUploadExpress()  [GraphQL only]              |
+  |     - Handles multipart file uploads                    |
+  +----------------------------+----------------------------+
+                               |
+  +----------------------------v----------------------------+
+  |                      GUARDS                             |
+  |                                                         |
+  |  4. RolesGuard / BetterAuthRolesGuard                   |
+  |     - Reads @Roles() metadata                           |
+  |     - Validates JWT / session token                     |
+  |     - Checks real roles (ADMIN)                         |
+  |     - Evaluates system roles (S_USER, ...)              |
+  |     - Throws 401 (Unauthorized) or 403 (Forbidden)     |
+  +----------------------------+----------------------------+
+                               |
+  +----------------------------v----------------------------+
+  |                       PIPES                             |
+  |                                                         |
+  |  5. MapAndValidatePipe                                  |
+  |     - Transform plain object -> class instance          |
+  |     - Whitelist: strip/reject unknown fields            |
+  |     - Validate via class-validator decorators           |
+  |     - Inheritance-aware (child overrides)               |
+  +----------------------------+----------------------------+
+                               |
+  +----------------------------v----------------------------+
+  |                 HANDLER EXECUTION                       |
+  |                                                         |
+  |  6. Controller method / Resolver method                 |
+  |     - @CurrentUser() injects authenticated user         |
+  |     - Calls service methods                             |
+  |     - Service uses CrudService.process()                |
+  |       OR direct Mongoose queries                        |
+  |                                                         |
+  |     +-----------------------------------------------+   |
+  |     |  Mongoose Plugins (fire on write operations)  |   |
+  |     |   - mongoosePasswordPlugin (hash password)    |   |
+  |     |   - mongooseRoleGuardPlugin (block roles)     |   |
+  |     |   - mongooseAuditFieldsPlugin (set by/at)     |   |
+  |     +-----------------------------------------------+   |
+  +----------------------------+----------------------------+
+                               |
+                               |  <-- Response data flows back
+                               |
+  +----------------------------v----------------------------+
+  |              RESPONSE INTERCEPTORS                      |
+  |        (NestJS runs in REVERSE registration order)      |
+  |                                                         |
+  |  7. ResponseModelInterceptor              [runs 1st]    |
+  |     - Plain object -> CoreModel instance                |
+  |     - Enables securityCheck() on output                 |
+  |     - Resolves model via @Query/@Mutation type,         |
+  |       @ResponseModel(), or @ApiOkResponse()             |
+  |                                                         |
+  |  8. TranslateResponseInterceptor          [runs 2nd]    |
+  |     - Applies _translations for Accept-Language         |
+  |     - Skips when no _translations present               |
+  |                                                         |
+  |  9. CheckSecurityInterceptor              [runs 3rd]    |
+  |     - Calls securityCheck(user) on models               |
+  |     - Fallback: removes secret fields                   |
+  |       (password, tokens, etc.)                          |
+  |                                                         |
+  | 10. CheckResponseInterceptor              [runs 4th]    |
+  |     - Filters @Restricted() fields                      |
+  |     - Role-based: removes fields user can't see         |
+  |     - Membership-based: checks memberOf                 |
+  +----------------------------+----------------------------+
+                               |
+                    +----------v----------+
+                    |   HTTP Response      |
+                    |   (filtered &        |
+                    |    secured)          |
+                    +---------------------+
 ```
 
 ---
@@ -423,12 +471,8 @@ System roles are evaluated at runtime and must **never** be stored in `user.role
 
 The `MapAndValidatePipe` runs on every incoming argument/body:
 
-```mermaid
-flowchart LR
-  A["Plain Object"] --> B["Transform to\nClass Instance"]
-  B --> C["Whitelist\nCheck"]
-  C --> D["Validate via\nclass-validator"]
-  D --> E["Clean Input"]
+```
+Plain Object --> Transform to Class Instance --> Whitelist Check --> Validation --> Clean Input
 ```
 
 #### Whitelisting via @UnifiedField()
@@ -475,33 +519,37 @@ export class CreateUserInput extends CoreInput {
 
 ### Controllers (REST) vs Resolvers (GraphQL)
 
-```mermaid
-flowchart TD
-  subgraph REST["REST Controller"]
-    R1["@Controller('/users')"]
-    R2["@Get(':id') / @Post() / @Patch(':id') / @Delete(':id')"]
-    R3["Input: @Body(), @Param()"]
-    R4["Response type: @ApiOkResponse() / @ResponseModel()"]
-  end
-
-  subgraph GQL["GraphQL Resolver"]
-    G1["@Resolver(() => User)"]
-    G2["@Query(() => User) / @Mutation(() => User)"]
-    G3["Input: @Args()"]
-    G4["Response type: automatic from @Query/@Mutation"]
-  end
-
-  subgraph SVC["Service Layer"]
-    S1["Option A: CrudService.process() — Full pipeline"]
-    S2["Option B: Direct Mongoose query — Safety Net catches"]
-    S3["Option C: processResult() — Population + output"]
-  end
-
-  REST --> SVC
-  GQL --> SVC
 ```
-
-Both REST and GraphQL inject the authenticated user via `@CurrentUser()`.
++----------------------------+      +----------------------------+
+|     REST Controller        |      |     GraphQL Resolver       |
++----------------------------+      +----------------------------+
+| @Controller('/users')      |      | @Resolver(() => User)      |
+| @Get(':id')                |      | @Query(() => User)         |
+| @Post()                    |      | @Mutation(() => User)      |
+| @Patch(':id')              |      |                            |
+| @Delete(':id')             |      |                            |
++----------------------------+      +----------------------------+
+| Input: @Body(), @Param()   |      | Input: @Args()             |
+| User:  @CurrentUser()      |      | User:  @CurrentUser()      |
+| Type:  @ApiOkResponse()    |      | Type:  @Query(() => User)  |
+|        @ResponseModel()    |      |        @Mutation(() => User)|
++----------------------------+      +----------------------------+
+              |                                   |
+              +----------------+------------------+
+                               |
+              +----------------v------------------+
+              |          Service Layer            |
+              |                                   |
+              | A: CrudService.process()          |
+              |    Full pipeline with security     |
+              |                                   |
+              | B: Direct Mongoose query           |
+              |    Safety Net catches              |
+              |                                   |
+              | C: processResult()                |
+              |    Population + output only        |
+              +-----------------------------------+
+```
 
 ### @CurrentUser() Decorator
 
@@ -524,40 +572,91 @@ When the service performs write operations (save, update), Mongoose plugins fire
 
 #### Password Hashing Plugin
 
-```mermaid
-flowchart LR
-  A["Input password"] --> B{Already hashed?<br>BCrypt pattern}
-  B -->|Yes| E["Skip — pass through"]
-  B -->|No| C{Sentinel value?<br>skipPatterns}
-  C -->|Yes| E
-  C -->|No| D["SHA256 → BCrypt hash → MongoDB"]
+```
+                              +------------------+
+                              | Input password   |
+                              +--------+---------+
+                                       |
+                              +--------v---------+
+                              | Already hashed?  |
+                              | (BCrypt pattern) |
+                              +--------+---------+
+                              Yes /          \ No
+                                 /            \
+                   +------------+    +---------v---------+
+                   | Skip       |    | Sentinel value?   |
+                   | pass thru  |    | (skipPatterns)     |
+                   +------------+    +---------+---------+
+                                     Yes /          \ No
+                                        /            \
+                          +------------+    +---------v---------+
+                          | Skip       |    | SHA256 -> BCrypt  |
+                          | pass thru  |    | hash -> MongoDB   |
+                          +------------+    +-------------------+
 ```
 
 #### Role Guard Plugin
 
-```mermaid
-flowchart TD
-  A{"Write includes\nroles?"} -->|No| PASS["Pass through"]
-  A -->|Yes| B{"No currentUser?\n(system op)"}
-  B -->|Yes| ALLOW["Allow"]
-  B -->|No| C{"bypassRoleGuard\nactive?"}
-  C -->|Yes| ALLOW
-  C -->|No| D{"User is\nADMIN?"}
-  D -->|Yes| ALLOW
-  D -->|No| E{"User in\nallowedRoles?"}
-  E -->|Yes| ALLOW
-  E -->|No| BLOCK["Block\n(strip roles)"]
+```
+                        +---------------------+
+                        | Write includes      |
+                        | roles?              |
+                        +----------+----------+
+                       No /              \ Yes
+                         /                \
+           +------------+     +------------v-----------+
+           | Pass       |     | No currentUser?        |
+           | through    |     | (system operation)     |
+           +------------+     +------------+-----------+
+                              Yes /              \ No
+                                 /                \
+                   +------------+     +------------v-----------+
+                   | Allow      |     | bypassRoleGuard        |
+                   |            |     | active?                |
+                   +------------+     +------------+-----------+
+                                      Yes /              \ No
+                                         /                \
+                           +------------+     +------------v-----------+
+                           | Allow      |     | User is ADMIN?         |
+                           |            |     |                        |
+                           +------------+     +------------+-----------+
+                                              Yes /              \ No
+                                                 /                \
+                                   +------------+     +------------v-----------+
+                                   | Allow      |     | User in allowedRoles?  |
+                                   |            |     |                        |
+                                   +------------+     +------------+-----------+
+                                                      Yes /              \ No
+                                                         /                \
+                                           +------------+    +-------------+
+                                           | Allow      |    | Block       |
+                                           |            |    | (strip      |
+                                           +------------+    |  roles)     |
+                                                             +-------------+
 ```
 
 #### Audit Fields Plugin
 
-```mermaid
-flowchart TD
-  A["Write operation"] --> B{"currentUser\nexists?"}
-  B -->|No| SKIP["Skip"]
-  B -->|Yes| C{"New\ndocument?"}
-  C -->|Yes| D["Set createdBy\n+ updatedBy"]
-  C -->|No| E["Set updatedBy\nonly"]
+```
+                        +---------------------+
+                        | Write operation     |
+                        +----------+----------+
+                                   |
+                        +----------v----------+
+                        | currentUser exists? |
+                        +----------+----------+
+                       No /              \ Yes
+                         /                \
+           +------------+     +------------v-----------+
+           | Skip       |     | New document?          |
+           +------------+     +------------+-----------+
+                              Yes /              \ No
+                                 /                \
+                   +------------+     +------------v-----------+
+                   | Set         |     | Set updatedBy         |
+                   | createdBy + |     | only                  |
+                   | updatedBy   |     |                       |
+                   +-------------+     +-----------------------+
 ```
 
 > **NestJS docs:** [Custom decorators](https://docs.nestjs.com/custom-decorators), [Mongoose](https://docs.nestjs.com/techniques/mongodb)
@@ -568,31 +667,57 @@ flowchart TD
 
 NestJS runs interceptors in **reverse registration order** on the response. Since `ResponseModelInterceptor` is registered last in `CoreModule`, it runs **first** on the response:
 
-```mermaid
-flowchart TD
-  HV["Handler return value"]
-
-  subgraph I7["Step 7: ResponseModelInterceptor"]
-    I7A["Resolve model class:\n1. @ResponseModel(User)\n2. @Query/@Mutation return type\n3. @ApiOkResponse type"]
-    I7B["Convert plain objects → CoreModel via .map()\nSkip if already instanceof"]
-  end
-
-  subgraph I8["Step 8: TranslateResponseInterceptor"]
-    I8A["Check Accept-Language header\nApply _translations to fields\nEarly bailout: skip if no _translations"]
-  end
-
-  subgraph I9["Step 9: CheckSecurityInterceptor"]
-    I9A["Call securityCheck(user) on models\nRecursively process nested objects"]
-    I9B["Fallback: remove secret fields\n(password, tokens, etc.)\nEven for non-CoreModel objects"]
-  end
-
-  subgraph I10["Step 10: CheckResponseInterceptor"]
-    I10A["Read @Restricted metadata per field\nRole check → Membership check → System role check\nRemove unauthorized fields"]
-  end
-
-  RES["HTTP Response"]
-
-  HV --> I7 --> I8 --> I9 --> I10 --> RES
+```
+  Handler return value
+           |
+  +--------v-------------------------------------------------+
+  |  Step 7: ResponseModelInterceptor                         |
+  |                                                           |
+  |  Resolves the expected model class:                       |
+  |    1. @ResponseModel(User) decorator (explicit)           |
+  |    2. @Query(() => User) / @Mutation() return type (GQL)  |
+  |    3. @ApiOkResponse({ type: User }) (Swagger/REST)       |
+  |                                                           |
+  |  Converts plain objects -> CoreModel instances via .map() |
+  |  Skips if already instanceof or _objectAlreadyChecked     |
+  |  Enables securityCheck() and @Restricted on the result    |
+  +--------+--------------------------------------------------+
+           |
+  +--------v-------------------------------------------------+
+  |  Step 8: TranslateResponseInterceptor                     |
+  |                                                           |
+  |  Checks Accept-Language header                            |
+  |  If _translations exists on response objects:             |
+  |    -> Applies matching translation to base fields         |
+  |  Early bailout when no _translations present              |
+  +--------+--------------------------------------------------+
+           |
+  +--------v-------------------------------------------------+
+  |  Step 9: CheckSecurityInterceptor                         |
+  |                                                           |
+  |  Calls securityCheck(user, force) on model instances      |
+  |  Recursively processes nested objects                      |
+  |                                                           |
+  |  Fallback: Removes secret fields from ALL objects         |
+  |  (password, verificationToken, refreshTokens, etc.)       |
+  |  Even if object is NOT a CoreModel instance               |
+  +--------+--------------------------------------------------+
+           |
+  +--------v-------------------------------------------------+
+  |  Step 10: CheckResponseInterceptor                        |
+  |                                                           |
+  |  Reads @Restricted() metadata from each property          |
+  |  For each field:                                          |
+  |    - Role check: Does user have required role?            |
+  |    - Membership check: Is user.id in field's memberOf?    |
+  |    - System role check: S_CREATOR, S_SELF, etc.           |
+  |  Removes fields the user is not allowed to see            |
+  |  Sets _objectAlreadyCheckedForRestrictions = true         |
+  +--------+--------------------------------------------------+
+           |
+      +----v-----------+
+      | HTTP Response   |
+      +----------------+
 ```
 
 > **NestJS docs:** [Interceptors](https://docs.nestjs.com/interceptors)
@@ -603,22 +728,54 @@ flowchart TD
 
 The `process()` method in `ModuleService` is the **primary** way to handle CRUD operations with full security. It orchestrates input preparation, authorization, the database operation, and output preparation:
 
-```mermaid
-flowchart TD
-  subgraph PROCESS["CrudService.process()"]
-    direction TB
-    S1["1. prepareInput()\nHash password · Check roles · Convert ObjectIds\nMap to target model · Remove undefined"]
-    S2["2. checkRights(INPUT)\nEvaluate @Restricted on input\nVerify roles/memberships\nStrip unauthorized fields"]
-    S3["3. serviceFunc()\nYour database operation\nMongoose plugins fire here\nIf force: true → bypassRoleGuard"]
-    S4["4. processFieldSelection()\nPopulate referenced documents\n(GraphQL field selections)"]
-    S5["5. prepareOutput()\nMap Mongoose doc → model instance\nConvert ObjectIds · Remove secrets\nApply custom transformations"]
-    S6["6. checkRights(OUTPUT)\nFilter output by @Restricted\nNon-throwing: strips fields"]
-
-    S1 --> S2 --> S3 --> S4 --> S5 --> S6
-  end
-
-  INPUT["Input"] --> PROCESS
-  PROCESS --> OUTPUT["Processed Result"]
+```
+  +---------------------------------------------------------------+
+  |                    CrudService.process()                       |
+  |                                                               |
+  |  +----------------------------------------------------------+ |
+  |  |  1. prepareInput()                                        | |
+  |  |     - Hash password (SHA256 + BCrypt)                     | |
+  |  |     - Check roles (if checkRoles: true)                   | |
+  |  |     - Convert ObjectIds to strings                        | |
+  |  |     - Map to target model type                            | |
+  |  |     - Remove undefined properties                         | |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  +----------------------------v-----------------------------+  |
+  |  |  2. checkRights(INPUT)                                   |  |
+  |  |     - Evaluate @Restricted() on input properties         |  |
+  |  |     - Verify user has required roles/memberships         |  |
+  |  |     - Strip/reject unauthorized input fields             |  |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  +----------------------------v-----------------------------+  |
+  |  |  3. serviceFunc()   <-- Your database operation          |  |
+  |  |     - findById, create, findByIdAndUpdate, aggregate...  |  |
+  |  |     - Mongoose plugins fire here (password, roles, audit)|  |
+  |  |     - If force: true -> runs inside bypassRoleGuard      |  |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  +----------------------------v-----------------------------+  |
+  |  |  4. processFieldSelection()                              |  |
+  |  |     - Populate referenced documents (GraphQL selections) |  |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  +----------------------------v-----------------------------+  |
+  |  |  5. prepareOutput()                                      |  |
+  |  |     - Map Mongoose document -> model instance (.map())   |  |
+  |  |     - Convert ObjectIds to strings                       |  |
+  |  |     - Remove secrets (if removeSecrets: true)            |  |
+  |  |     - Apply custom transformations (overridable)         |  |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  +----------------------------v-----------------------------+  |
+  |  |  6. checkRights(OUTPUT, throwError: false)               |  |
+  |  |     - Filter output properties based on @Restricted()   |  |
+  |  |     - Non-throwing: strips fields instead of erroring    |  |
+  |  +----------------------------+-----------------------------+  |
+  |                               |                                |
+  |  Return processed result                                       |
+  +---------------------------------------------------------------+
 ```
 
 ### Key Options
@@ -649,24 +806,51 @@ return this.processResult(doc, serviceOptions);
 
 The Safety Net ensures security even when developers bypass `CrudService.process()` and use direct Mongoose queries. It consists of two complementary layers:
 
-```mermaid
-flowchart TD
-  DEV["Developer writes direct query\nthis.mainDbModel.findById(id).exec()"]
-
-  subgraph INPUT["Input Protection — Mongoose Plugins"]
-    IP1["mongoosePasswordPlugin\nAuto-hash passwords"]
-    IP2["mongooseRoleGuardPlugin\nBlock unauthorized role changes"]
-    IP3["mongooseAuditFieldsPlugin\nSet createdBy/updatedBy"]
-  end
-
-  subgraph OUTPUT["Output Protection — Response Interceptors"]
-    OP1["ResponseModelInterceptor\nPlain → CoreModel instance"]
-    OP2["TranslateResponseInterceptor\nApply translations"]
-    OP3["CheckSecurityInterceptor\nsecurityCheck() + secret removal"]
-    OP4["CheckResponseInterceptor\n@Restricted field filtering"]
-  end
-
-  DEV --> INPUT --> OUTPUT --> RES["Secure Response"]
+```
+  +-----------------------------------------------------------+
+  |  Developer writes direct query                            |
+  |                                                           |
+  |  const user = await this.mainDbModel.findById(id).exec(); |
+  |  return user;  // Plain Mongoose document                 |
+  +----------------------------+------------------------------+
+                               |
+           +-------------------v--------------------+
+           |  INPUT PROTECTION                      |
+           |  (Mongoose Plugins -- on write)        |
+           |                                        |
+           |  - Password auto-hashed                |
+           |    (mongoosePasswordPlugin)            |
+           |                                        |
+           |  - Roles guarded                       |
+           |    (mongooseRoleGuardPlugin)            |
+           |                                        |
+           |  - Audit fields set                    |
+           |    (mongooseAuditFieldsPlugin)          |
+           +-------------------+--------------------+
+                               |
+           +-------------------v--------------------+
+           |  OUTPUT PROTECTION                     |
+           |  (Response Interceptors)               |
+           |                                        |
+           |  - Plain -> Model conversion           |
+           |    (ResponseModelInterceptor)           |
+           |                                        |
+           |  - Translations applied                |
+           |    (TranslateResponseInterceptor)       |
+           |                                        |
+           |  - securityCheck() called              |
+           |    (CheckSecurityInterceptor)           |
+           |                                        |
+           |  - @Restricted fields filtered         |
+           |    (CheckResponseInterceptor)           |
+           |                                        |
+           |  - Secret fields removed (fallback)    |
+           |    (CheckSecurityInterceptor)           |
+           +-------------------+--------------------+
+                               |
+                      +--------v--------+
+                      | Secure Response |
+                      +-----------------+
 ```
 
 ### When is process() vs Safety Net used?
@@ -789,29 +973,12 @@ async getUser(@Param('id') id: string): Promise<User> { ... }
 
 ### Class Hierarchy
 
-```mermaid
-classDiagram
-  class CoreModel {
-    +map(data) Model$
-    +securityCheck(user, force) this
-    +hasRole(roles) boolean
-  }
-  class CorePersistenceModel {
-    +id: string
-    +createdAt: Date
-    +updatedAt: Date
-    +createdBy: string
-    +updatedBy: string
-  }
-  class User {
-    +email: string
-    +roles: string[]
-    +verified: boolean
-    +securityCheck(user, force) this
-  }
-
-  CoreModel <|-- CorePersistenceModel
-  CorePersistenceModel <|-- User
+```
+CoreModel                        Abstract base (map, securityCheck, hasRole)
+  |
+  +-- CorePersistenceModel       Adds id, createdAt, updatedAt, createdBy, updatedBy
+        |
+        +-- User                 Your concrete model
 ```
 
 ### Key Methods
