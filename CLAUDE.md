@@ -60,6 +60,7 @@ pnpm run reinit         # Clean reinstall + tests + build
 - `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Migrate, SystemSetup, Tus, User
 
 See `.claude/rules/architecture.md` for detailed documentation.
+See [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) for the complete request lifecycle, security architecture, and interceptor/decorator reference.
 
 ## Development Guidelines
 
@@ -151,3 +152,9 @@ Detailed documentation in `.claude/rules/`:
 | `migration-guides.md` | Process for creating version migration guides |
 | `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |
 | `package-management.md` | Fixed package versions only - no `^`, `~`, or ranges |
+
+## In-Depth Documentation
+
+| File | Content |
+|------|---------|
+| [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |
