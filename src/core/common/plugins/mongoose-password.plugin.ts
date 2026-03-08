@@ -40,7 +40,7 @@ export function mongoosePasswordPlugin(schema) {
   });
 }
 
-async function hashUpdatePassword(update: any) {
+export async function hashUpdatePassword(update: any) {
   if (!update) {
     return;
   }
@@ -54,6 +54,14 @@ async function hashUpdatePassword(update: any) {
 
 // Compiled RegExp cache (built once on first call)
 let compiledSkipPatterns: RegExp[] | null = null;
+
+/**
+ * Reset the compiled skip patterns cache.
+ * Use in test environments where ConfigService is reset between test suites.
+ */
+export function resetSkipPatternsCache(): void {
+  compiledSkipPatterns = null;
+}
 
 function getSkipPatterns(): RegExp[] {
   if (compiledSkipPatterns !== null) {
@@ -70,7 +78,7 @@ function getSkipPatterns(): RegExp[] {
   return compiledSkipPatterns;
 }
 
-async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   // Already BCrypt-hashed → skip
   if (/^\$2[aby]\$\d+\$/.test(password)) {
     return password;
@@ -78,7 +86,7 @@ async function hashPassword(password: string): Promise<string> {
 
   // Check configured skip patterns (e.g. sentinel/lock values)
   const skipPatterns = getSkipPatterns();
-  if (skipPatterns.length > 0 && skipPatterns.some((pattern) => pattern.test(password))) {
+  if (skipPatterns.some((pattern) => pattern.test(password))) {
     return password;
   }
 

@@ -261,6 +261,9 @@ export abstract class ModuleService<T extends CoreModel = any> {
    * Use this when bypassing CrudService methods but still wanting
    * population and custom prepareOutput() transformations.
    *
+   * Note: This method does NOT perform authorization checks (checkRights).
+   * The caller is responsible for verifying permissions before calling this method.
+   *
    * @example
    * ```typescript
    * // Direct Mongoose query with result processing

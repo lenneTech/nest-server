@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -21,6 +21,7 @@ import { ModelRegistry } from '../services/model-registry.service';
  */
 @Injectable()
 export class ResponseModelInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(ResponseModelInterceptor.name);
   private config = {
     debug: false,
   };
@@ -37,7 +38,7 @@ export class ResponseModelInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       map((data) => {
-        if (!modelClass || data == null || typeof data !== 'object') {
+        if (!modelClass || data === null || data === undefined || typeof data !== 'object') {
           return data;
         }
 
@@ -56,11 +57,7 @@ export class ResponseModelInterceptor implements NestInterceptor {
     );
   }
 
-  private convertToModel(
-    data: any,
-    modelClass: new (...args: any[]) => CoreModel,
-    context: ExecutionContext,
-  ): any {
+  private convertToModel(data: any, modelClass: new (...args: any[]) => CoreModel, context: ExecutionContext): any {
     // Scalars/primitives pass through
     if (typeof data !== 'object' || data === null) {
       return data;
@@ -81,12 +78,8 @@ export class ResponseModelInterceptor implements NestInterceptor {
     return this.convertSingleItem(data, modelClass, context);
   }
 
-  private convertSingleItem(
-    item: any,
-    modelClass: new (...args: any[]) => CoreModel,
-    context: ExecutionContext,
-  ): any {
-    if (item == null || typeof item !== 'object') {
+  private convertSingleItem(item: any, modelClass: new (...args: any[]) => CoreModel, context: ExecutionContext): any {
+    if (item === null || item === undefined || typeof item !== 'object') {
       return item;
     }
 
@@ -108,8 +101,8 @@ export class ResponseModelInterceptor implements NestInterceptor {
       if (this.config.debug) {
         const className = context.getClass()?.name;
         const methodName = context.getHandler()?.name;
-        console.warn(
-          `[nest-server] ResponseModelInterceptor: Auto-converted plain object to ${modelClass.name} in ${className}.${methodName}. Consider using CrudService methods.`,
+        this.logger.warn(
+          `Auto-converted plain object to ${modelClass.name} in ${className}.${methodName}. Consider using CrudService methods.`,
         );
       }
       return mapped;

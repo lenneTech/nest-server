@@ -106,7 +106,16 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       );
     };
 
-    // Fallback: Remove known secret fields regardless of model type
+    // Fallback: Remove known secret fields regardless of model type (recursive into plain objects)
+    const isPlainLike = (val: any): boolean => {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) return false;
+      // Skip Streams, Buffers, Dates, RegExps and other special objects
+      if (typeof val.pipe === 'function') return false;
+      if (Buffer.isBuffer(val)) return false;
+      if (val instanceof Date || val instanceof RegExp) return false;
+      const proto = Object.getPrototypeOf(val);
+      return proto === null || proto === Object.prototype || typeof val.constructor === 'function';
+    };
     const removeSecrets = (data: any) => {
       if (!this.config.removeSecretFields || !data || typeof data !== 'object') {
         return data;
@@ -115,9 +124,19 @@ export class CheckSecurityInterceptor implements NestInterceptor {
         data.forEach(removeSecrets);
         return data;
       }
+      if (!isPlainLike(data)) {
+        return data;
+      }
       for (const field of this.config.secretFields) {
         if (field in data && data[field] !== undefined) {
           data[field] = undefined;
+        }
+      }
+      // Recurse into nested plain objects
+      for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (value && typeof value === 'object' && !this.config.secretFields.includes(key)) {
+          removeSecrets(value);
         }
       }
       return data;

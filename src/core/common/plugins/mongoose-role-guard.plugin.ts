@@ -1,6 +1,10 @@
+import { Logger } from '@nestjs/common';
+
 import { RoleEnum } from '../enums/role.enum';
 import { ConfigService } from '../services/config.service';
 import { RequestContext } from '../services/request-context.service';
+
+const logger = new Logger('mongooseRoleGuardPlugin');
 
 /**
  * Mongoose plugin that prevents unauthorized users from escalating roles.
@@ -28,6 +32,10 @@ export function mongooseRoleGuardPlugin(schema) {
     }
 
     // Unauthorized: prevent role escalation
+    const currentUser = RequestContext.getCurrentUser();
+    logger.debug(
+      `[nest-server] mongooseRoleGuardPlugin: Blocked role change on ${this.isNew ? 'new' : 'existing'} document by user ${currentUser?.id || 'unknown'}`,
+    );
     if (this.isNew) {
       this['roles'] = [];
     } else {
@@ -96,7 +104,9 @@ function handleUpdateRoleGuard(update: any) {
     return;
   }
 
-  // Unauthorized: silently remove roles changes
+  // Unauthorized: remove roles changes with debug log
+  const currentUser = RequestContext.getCurrentUser();
+  logger.debug(`Stripped unauthorized roles change from user ${currentUser?.id || 'unknown'}`);
   delete update.roles;
   if (update.$set?.roles) {
     delete update.$set.roles;

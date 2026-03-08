@@ -19,9 +19,7 @@ const resolvedModelCache = new Map<Function, (new (...args: any[]) => CoreModel)
  * 3. Swagger @ApiOkResponse / @ApiCreatedResponse type (automatic for REST)
  * 4. null (no auto-mapping)
  */
-export function resolveResponseModelClass(
-  context: ExecutionContext,
-): (new (...args: any[]) => CoreModel) | null {
+export function resolveResponseModelClass(context: ExecutionContext): (new (...args: any[]) => CoreModel) | null {
   const handler = context.getHandler();
 
   // Return cached result (hit after first request per route)
@@ -67,9 +65,7 @@ function resolveResponseModelClassUncached(
 /**
  * Resolve model class from GraphQL @Query/@Mutation metadata
  */
-function resolveFromGraphQlMetadata(
-  context: ExecutionContext,
-): (new (...args: any[]) => CoreModel) | null {
+function resolveFromGraphQlMetadata(context: ExecutionContext): (new (...args: any[]) => CoreModel) | null {
   try {
     // Dynamic import to avoid hard dependency on @nestjs/graphql internals
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -80,18 +76,13 @@ function resolveFromGraphQlMetadata(
     const methodName = handler.name;
 
     // Search queries and mutations
-    const allMetadata = [
-      ...TypeMetadataStorage.getQueriesMetadata(),
-      ...TypeMetadataStorage.getMutationsMetadata(),
-    ];
+    const allMetadata = [...TypeMetadataStorage.getQueriesMetadata(), ...TypeMetadataStorage.getMutationsMetadata()];
 
-    const meta = allMetadata.find(
-      (m: any) => m.target === target && m.methodName === methodName,
-    );
+    const meta = allMetadata.find((m: any) => m.target === target && m.methodName === methodName);
 
     if (meta?.typeFn) {
       const resolvedType = meta.typeFn();
-      if (resolvedType && typeof resolvedType === 'function' && isCorModelSubclass(resolvedType)) {
+      if (resolvedType && typeof resolvedType === 'function' && isCoreModelSubclass(resolvedType)) {
         return resolvedType as new (...args: any[]) => CoreModel;
       }
     }
@@ -106,9 +97,7 @@ function resolveFromGraphQlMetadata(
  * Resolve model class from Swagger @ApiOkResponse / @ApiCreatedResponse metadata.
  * Reads the `type` from the response metadata stored by @nestjs/swagger decorators.
  */
-function resolveFromSwaggerMetadata(
-  handler: Function,
-): (new (...args: any[]) => CoreModel) | null {
+function resolveFromSwaggerMetadata(handler: Function): (new (...args: any[]) => CoreModel) | null {
   try {
     const SWAGGER_API_RESPONSE_KEY = 'swagger/apiResponse';
     const responses = Reflect.getMetadata(SWAGGER_API_RESPONSE_KEY, handler);
@@ -119,7 +108,7 @@ function resolveFromSwaggerMetadata(
     // Check common success status codes (200 OK, 201 Created)
     for (const statusCode of [200, 201]) {
       const responseMeta = responses[statusCode];
-      if (responseMeta?.type && typeof responseMeta.type === 'function' && isCorModelSubclass(responseMeta.type)) {
+      if (responseMeta?.type && typeof responseMeta.type === 'function' && isCoreModelSubclass(responseMeta.type)) {
         return responseMeta.type as new (...args: any[]) => CoreModel;
       }
     }
@@ -130,7 +119,7 @@ function resolveFromSwaggerMetadata(
   return null;
 }
 
-function isCorModelSubclass(cls: Function): boolean {
+function isCoreModelSubclass(cls: Function): boolean {
   let proto = cls.prototype;
   while (proto) {
     if (proto.constructor === CoreModel || proto.constructor?.name === 'CoreModel') {

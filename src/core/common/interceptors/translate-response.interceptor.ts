@@ -74,7 +74,9 @@ export class TranslateResponseInterceptor implements NestInterceptor {
       return data.length > 0 && data[0] && typeof data[0] === 'object' && '_translations' in data[0];
     }
     if (data.items && Array.isArray(data.items)) {
-      return data.items.length > 0 && data.items[0] && typeof data.items[0] === 'object' && '_translations' in data.items[0];
+      return (
+        data.items.length > 0 && data.items[0] && typeof data.items[0] === 'object' && '_translations' in data.items[0]
+      );
     }
     return '_translations' in data;
   }
