@@ -177,7 +177,7 @@ export function generateFilterQuery<T = any>(
   // Process single filter
   if (filter.singleFilter) {
     // Init variables
-    const { convertToObjectId, isReference, not, options } = filter.singleFilter;
+    const { convertToObjectId, isReference, not, options: filterOptions } = filter.singleFilter;
     let field = filter.singleFilter.field;
     let value = filter.singleFilter.value;
 
@@ -232,11 +232,11 @@ export function generateFilterQuery<T = any>(
         result[field] = not
           ? {
               $not: {
-                $options: options || '',
+                $options: filterOptions || '',
                 $regex: new RegExp(value),
               },
             }
-          : { $options: options || '', $regex: new RegExp(value) };
+          : { $options: filterOptions || '', $regex: new RegExp(value) };
         break;
     }
   }

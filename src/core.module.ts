@@ -3,7 +3,7 @@ import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, Unauthor
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Context } from 'apollo-server-core';
+import type { Context } from 'graphql-ws';
 import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
@@ -426,7 +426,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
@@ -521,7 +521,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
@@ -633,7 +633,7 @@ export class CoreModule implements NestModule {
             subscriptions: {
               'graphql-ws': {
                 context: ({ extra }) => extra,
-                onConnect: async (context: Context<any>) => {
+                onConnect: async (context: Context<any, any>) => {
                   const { connectionParams, extra } = context;
                   if (enableSubscriptionAuth) {
                     // get authToken from authorization header

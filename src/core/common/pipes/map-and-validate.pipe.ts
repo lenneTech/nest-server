@@ -244,10 +244,10 @@ async function validateWithInheritance(object: any, originalPlainValue: any): Pr
                     // Special handling for validators with arrays when 'each' option is set
                     // The 'each' property indicates validation should be applied to each array element
                     const isArrayValue = Array.isArray(propertyValue);
-                    const shouldValidateEach =
+                    const shouldValidateEachItem =
                       metadata.each === true || (metadata as any).validationOptions?.each === true;
 
-                    if (isArrayValue && shouldValidateEach) {
+                    if (isArrayValue && shouldValidateEachItem) {
                       // Validate each array element individually
                       const results: boolean[] = [];
                       for (const item of propertyValue) {
