@@ -10,15 +10,40 @@ const logger = new Logger('mongooseRoleGuardPlugin');
  * Mongoose plugin that prevents unauthorized users from escalating roles.
  * Uses RequestContext (AsyncLocalStorage) to access the current user.
  *
- * Behavior:
- * - No user context (system operations, seeding): roles changes are allowed
- * - Users with allowed roles: roles changes are allowed
- * - Other users on save: new documents get empty roles, existing documents keep original roles
- * - Other users on update: roles changes are silently removed
+ * **When are role changes allowed?**
+ * 1. No user context (system operations, seeding, CLI scripts) → allowed
+ * 2. No currentUser on request (e.g. signUp — user not logged in) → allowed
+ * 3. User has ADMIN role → allowed
+ * 4. User has one of the configured `allowedRoles` → allowed
+ * 5. `RequestContext.runWithBypassRoleGuard()` is active → allowed
+ * 6. `CrudService.process()` with `force: true` → allowed (auto-bypasses)
  *
- * Configuration via security.mongooseRoleGuardPlugin:
- * - true: Only ADMIN can assign roles (default)
- * - { allowedRoles: ['ADMIN', 'ORGA'] }: ADMIN and ORGA can assign roles
+ * **When are role changes blocked?**
+ * - Logged-in non-admin user without bypass → blocked
+ * - On save (new): roles set to `[]`
+ * - On save (existing): roles reverted to original
+ * - On update: roles stripped from update object
+ *
+ * **Configuration** via `security.mongooseRoleGuardPlugin`:
+ * - `true` — Only ADMIN can assign roles (default)
+ * - `{ allowedRoles: ['ORGA', 'HR_MANAGER'] }` — Additional roles that can assign roles
+ * - `false` — Plugin disabled entirely
+ *
+ * **Bypass for authorized service code** (e.g. HR system creating users with roles):
+ * ```typescript
+ * import { RequestContext } from '@lenne.tech/nest-server';
+ *
+ * // Wrap the database operation in runWithBypassRoleGuard
+ * await RequestContext.runWithBypassRoleGuard(async () => {
+ *   await this.mainDbModel.create({ email, roles: ['EMPLOYEE'] });
+ * });
+ *
+ * // Or use CrudService.process() with force: true
+ * return this.process(
+ *   async () => this.mainDbModel.findByIdAndUpdate(id, { roles }),
+ *   { serviceOptions, force: true },
+ * );
+ * ```
  */
 export function mongooseRoleGuardPlugin(schema) {
   // Pre-save hook
