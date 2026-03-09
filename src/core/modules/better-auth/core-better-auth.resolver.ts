@@ -344,7 +344,9 @@ export class CoreBetterAuthResolver {
         // 3. session.token (session-based fallback)
         const tokenResponse = response as any;
         const rawToken =
-          tokenResponse.accessToken || tokenResponse.token || (hasSession(response) ? response.session.token : undefined);
+          tokenResponse.accessToken ||
+          tokenResponse.token ||
+          (hasSession(response) ? response.session.token : undefined);
         const token = await this.resolveJwtToken(rawToken);
 
         return {

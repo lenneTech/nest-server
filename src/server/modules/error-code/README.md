@@ -33,9 +33,9 @@ Demonstrates **Scenario C: Custom Service + Controller via forRoot()** where a p
 │  │  ErrorCodeService   │    │   ErrorCodeController       │  │
 │  │  extends Core...    │    │   (standalone - see below)  │  │
 │  │                     │    │                             │  │
-│  │  - LTNS_* (core)    │    │   GET /api/i18n/errors/codes│  │
-│  │  - SRV_* (server)   │    │   GET /api/i18n/errors/de   │  │
-│  │                     │    │   GET /api/i18n/errors/en   │  │
+│  │  - LTNS_* (core)    │    │   GET /i18n/errors/codes    │  │
+│  │  - SRV_* (server)   │    │   GET /i18n/errors/de       │  │
+│  │                     │    │   GET /i18n/errors/en       │  │
 │  └─────────────────────┘    └─────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -107,7 +107,7 @@ static routes (`/codes`), even if you re-declare the methods.
 
 ```typescript
 // DOES NOT WORK - parent route registered first!
-@Controller('api/i18n/errors')
+@Controller('i18n/errors')
 export class ErrorCodeController extends CoreErrorCodeController {
   @Get('codes') // Registered AFTER parent's :locale
   getAllCodes(): string[] {}
@@ -117,7 +117,7 @@ export class ErrorCodeController extends CoreErrorCodeController {
 }
 
 // WORKS - standalone ensures correct order
-@Controller('api/i18n/errors')
+@Controller('i18n/errors')
 export class ErrorCodeController {
   @Get('codes') // Registered first
   getAllCodes(): string[] {}

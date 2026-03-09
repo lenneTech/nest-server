@@ -36,7 +36,7 @@ export interface IErrorCodeModuleConfig {
    * @example
    * ```typescript
    * // Standalone controller (RECOMMENDED)
-   * @Controller('api/i18n/errors')
+   * @Controller('i18n/errors')
    * export class ErrorCodeController {
    *   constructor(protected readonly errorCodeService: ErrorCodeService) {}
    *

@@ -68,7 +68,7 @@ Only needed if you want to add extra validation, logging, or custom fields.
 import { Controller } from '@nestjs/common';
 import { CoreSystemSetupController, Roles, RoleEnum } from '@lenne.tech/nest-server';
 
-@Controller('api/system-setup')
+@Controller('system-setup')
 @Roles(RoleEnum.ADMIN)
 export class SystemSetupController extends CoreSystemSetupController {
   // Override methods here for custom logic
@@ -83,10 +83,10 @@ export class SystemSetupController extends CoreSystemSetupController {
 
 - [ ] `npm run build` succeeds
 - [ ] `npm test` passes
-- [ ] `GET /api/system-setup/status` returns `{ needsSetup: true }` on empty database
-- [ ] `POST /api/system-setup/init` creates admin user with correct role
-- [ ] `GET /api/system-setup/status` returns `{ needsSetup: false }` after init
-- [ ] `POST /api/system-setup/init` returns 403 when users already exist
+- [ ] `GET /system-setup/status` returns `{ needsSetup: true }` on empty database
+- [ ] `POST /system-setup/init` creates admin user with correct role
+- [ ] `GET /system-setup/status` returns `{ needsSetup: false }` after init
+- [ ] `POST /system-setup/init` returns 403 when users already exist
 
 ---
 

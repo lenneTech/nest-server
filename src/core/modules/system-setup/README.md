@@ -42,12 +42,12 @@ Once any user exists, the init endpoint is permanently locked (returns 403) and 
 
 ## Endpoints
 
-| Method | Endpoint                   | Description                 |
-| ------ | -------------------------- | --------------------------- |
-| GET    | `/api/system-setup/status` | Check if system needs setup |
-| POST   | `/api/system-setup/init`   | Create initial admin user   |
+| Method | Endpoint               | Description                 |
+| ------ | ---------------------- | --------------------------- |
+| GET    | `/system-setup/status` | Check if system needs setup |
+| POST   | `/system-setup/init`   | Create initial admin user   |
 
-### GET /api/system-setup/status
+### GET /system-setup/status
 
 Returns the current setup status.
 
@@ -60,7 +60,7 @@ Returns the current setup status.
 }
 ```
 
-### POST /api/system-setup/init
+### POST /system-setup/init
 
 Creates the initial admin user. Only works when zero users exist.
 
@@ -195,12 +195,12 @@ Typical frontend flow:
 
 ```typescript
 // 1. Check if setup is needed
-const status = await fetch('/api/system-setup/status');
+const status = await fetch('/system-setup/status');
 const { needsSetup } = await status.json();
 
 if (needsSetup) {
   // 2. Show setup form and submit
-  const result = await fetch('/api/system-setup/init', {
+  const result = await fetch('/system-setup/init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -225,7 +225,7 @@ if (needsSetup) {
 
 **Solutions:**
 
-1. Check `GET /api/system-setup/status` - `needsSetup` should be `true`
+1. Check `GET /system-setup/status` - `needsSetup` should be `true`
 2. If this is a fresh deployment, verify the database is empty
 
 ### Init returns 403 "System setup requires BetterAuth"
