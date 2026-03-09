@@ -1122,7 +1122,13 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         if (!isBetterAuthEnabled) return;
 
         // Find our test user in the database
-        const user = await db.collection('users').findOne({ email: parallelTestEmail });
+        // BetterAuth dual-write (sign-up + linkOrCreateUser) may have write-consistency delays,
+        // so retry the query a few times before failing
+        let user: any = null;
+        for (let attempt = 0; attempt < 5 && !user; attempt++) {
+          user = await db.collection('users').findOne({ email: parallelTestEmail });
+          if (!user) await new Promise((r) => setTimeout(r, 100));
+        }
 
         expect(user).toBeDefined();
         expect(user.email).toBe(parallelTestEmail);

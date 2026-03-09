@@ -12,10 +12,10 @@ import { IErrorTranslationResponse, SupportedLocale } from './interfaces/error-c
  * This controller is publicly accessible (no authentication required).
  *
  * @example
- * GET /api/i18n/errors/de - Get German translations
- * GET /api/i18n/errors/en - Get English translations
+ * GET /i18n/errors/de - Get German translations
+ * GET /i18n/errors/en - Get English translations
  */
-@Controller('api/i18n/errors')
+@Controller('i18n/errors')
 export class CoreErrorCodeController {
   constructor(protected readonly errorCodeService: CoreErrorCodeService) {}
 

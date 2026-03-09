@@ -26,7 +26,7 @@
  * - Parameters of factory functions are checked at compile time
  * - `CoreErrorCodeService` manages the LTNS registry and is extensible through inheritance
  * - Projects can add their own error registries that merge with core
- * - REST endpoint `GET /api/i18n/errors/:locale` delivers combined translations
+ * - REST endpoint `GET /i18n/errors/:locale` delivers combined translations
  * - Translations support placeholders (`{param}`) that are replaced at runtime
  * - Translation files for German and English are complete for all core error codes
  * - All existing throw/Error locations in the project use the new format
@@ -119,12 +119,12 @@ describe('Story: Unified Error Code System with Translation Support', () => {
   });
 
   // =================================================================================================================
-  // REST Endpoint: GET /api/i18n/errors/:locale
+  // REST Endpoint: GET /i18n/errors/:locale
   // =================================================================================================================
 
-  describe('REST Endpoint: GET /api/i18n/errors/:locale', () => {
+  describe('REST Endpoint: GET /i18n/errors/:locale', () => {
     it('should return German translations for locale "de"', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/de', {
+      const response = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
@@ -151,7 +151,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should return English translations for locale "en"', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -169,12 +169,12 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should return same error codes for both locales', async () => {
-      const deResponse = await testHelper.rest('/api/i18n/errors/de', {
+      const deResponse = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
 
-      const enResponse = await testHelper.rest('/api/i18n/errors/en', {
+      const enResponse = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -187,7 +187,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should support placeholder format {param} in translations', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/de', {
+      const response = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
@@ -205,7 +205,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should return 404 for unsupported locale', async () => {
-      await testHelper.rest('/api/i18n/errors/xyz', {
+      await testHelper.rest('/i18n/errors/xyz', {
         method: 'GET',
         statusCode: 404,
       });
@@ -213,7 +213,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should be publicly accessible without authentication', async () => {
       // No token provided - should still work
-      const response = await testHelper.rest('/api/i18n/errors/de', {
+      const response = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
@@ -222,7 +222,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should return Nuxt i18n compatible JSON format', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/de', {
+      const response = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
@@ -246,7 +246,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
   describe('Error Format: #PREFIX_XXXX: Description', () => {
     it('should have error codes defined in the registry that follow the correct format', async () => {
       // Verify all error codes in the registry follow the PREFIX_XXXX pattern
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -264,7 +264,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should have authentication error codes defined', async () => {
       // Verify authentication-related error codes exist
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -278,7 +278,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should have authorization error codes defined', async () => {
       // Verify authorization-related error codes exist
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -295,7 +295,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
   describe('LTNS Core Error Codes', () => {
     it('should have LTNS_0001 for user not found', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -306,7 +306,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should have LTNS_0002 for invalid password', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -317,7 +317,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should have all core error codes with LTNS prefix', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -341,7 +341,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
   describe('Error Factory Functions', () => {
     it('should have error factory for userNotFound that follows the correct format', async () => {
       // Verify the registry contains the userNotFound error with correct format
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -354,7 +354,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should have error factory for invalidPassword that follows the correct format', async () => {
       // Verify the registry contains the invalidPassword error with correct format
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -367,7 +367,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should have error factory for unauthorized access that follows the correct format', async () => {
       // Verify the registry contains authorization errors with correct format
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -392,7 +392,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     it('should allow projects to extend with custom prefix', async () => {
       // The translation endpoint should be able to include project-specific codes
       // This is tested by verifying the endpoint accepts any valid PREFIX_XXXX format
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -410,7 +410,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should include project-specific SRV_* error codes', async () => {
       // The ErrorCodeModule.forRoot() should register project-specific SRV_* codes
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -427,7 +427,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should merge LTNS_* and SRV_* codes in the same response', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });
@@ -446,7 +446,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
     it('should expose /codes endpoint from extended controller', async () => {
       // The extended ErrorCodeController adds a /codes endpoint
-      const response = await testHelper.rest('/api/i18n/errors/codes', {
+      const response = await testHelper.rest('/i18n/errors/codes', {
         method: 'GET',
         statusCode: 200,
       });
@@ -469,7 +469,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
 
   describe('Translation Completeness', () => {
     it('should have German translations for all error codes', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/de', {
+      const response = await testHelper.rest('/i18n/errors/de', {
         method: 'GET',
         statusCode: 200,
       });
@@ -482,7 +482,7 @@ describe('Story: Unified Error Code System with Translation Support', () => {
     });
 
     it('should have English translations for all error codes', async () => {
-      const response = await testHelper.rest('/api/i18n/errors/en', {
+      const response = await testHelper.rest('/i18n/errors/en', {
         method: 'GET',
         statusCode: 200,
       });

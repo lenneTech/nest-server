@@ -53,7 +53,7 @@ export interface IAuth {
    *
    * Legacy endpoints include:
    * - GraphQL: signIn, signUp, signOut, refreshToken mutations
-   * - REST: /api/auth/* endpoints
+   * - REST: /auth/* endpoints
    *
    * These can be disabled once all users have migrated to BetterAuth (IAM).
    *
@@ -156,7 +156,7 @@ export interface IAuthLegacyEndpoints {
 
   /**
    * Whether legacy REST auth endpoints are enabled.
-   * Affects: /api/auth/sign-in, /api/auth/sign-up, etc.
+   * Affects: /auth/sign-in, /auth/sign-up, etc.
    *
    * @default true (inherits from `enabled`)
    */
