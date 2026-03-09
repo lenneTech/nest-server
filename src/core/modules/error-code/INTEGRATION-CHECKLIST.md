@@ -86,7 +86,7 @@ const config = {
 };
 ```
 
-**Done!** Your project errors are now available via `/api/i18n/errors/:locale`.
+**Done!** Your project errors are now available via `/i18n/errors/:locale`.
 
 ---
 
@@ -221,14 +221,14 @@ After integration, verify:
 
 - [ ] `npm run build` succeeds without errors
 - [ ] `npm test` passes
-- [ ] `GET /api/i18n/errors/de` returns your project error codes
-- [ ] `GET /api/i18n/errors/en` returns English translations
+- [ ] `GET /i18n/errors/de` returns your project error codes
+- [ ] `GET /i18n/errors/en` returns English translations
 - [ ] Error codes follow format `PREFIX_XXXX` (e.g., `PROJ_0001`)
 - [ ] Translations include placeholders where needed (`{param}`)
 
 ### For Scenario C only:
 
-- [ ] `GET /api/i18n/errors/codes` returns all error codes (if implemented)
+- [ ] `GET /i18n/errors/codes` returns all error codes (if implemented)
 
 ---
 
@@ -269,10 +269,10 @@ const orderCode = ProjectErrorCode.ORDER_NOT_FOUND; // '#PROJ_0001: Order not fo
 
 ### REST Endpoints
 
-| Endpoint                   | Method | Description                               |
-| -------------------------- | ------ | ----------------------------------------- |
-| `/api/i18n/errors/:locale` | GET    | Get translations for locale (de, en, ...) |
-| `/api/i18n/errors/codes`   | GET    | Get all error codes (Scenario C only)     |
+| Endpoint               | Method | Description                               |
+| ---------------------- | ------ | ----------------------------------------- |
+| `/i18n/errors/:locale` | GET    | Get translations for locale (de, en, ...) |
+| `/i18n/errors/codes`   | GET    | Get all error codes (Scenario C only)     |
 
 ### Response Format (Nuxt i18n compatible)
 

@@ -16,8 +16,8 @@ import { ErrorCodeService } from './error-code.service';
  * correct route registration order.
  *
  * Endpoints:
- * - GET /api/i18n/errors/codes - Get all available error codes (custom)
- * - GET /api/i18n/errors/:locale - Get translations for a locale
+ * - GET /i18n/errors/codes - Get all available error codes (custom)
+ * - GET /i18n/errors/:locale - Get translations for a locale
  *
  * **WHY standalone instead of extending CoreErrorCodeController?**
  * NestJS registers routes from parent classes first, regardless of method declaration
@@ -33,7 +33,7 @@ import { ErrorCodeService } from './error-code.service';
  * })
  * ```
  */
-@Controller('api/i18n/errors')
+@Controller('i18n/errors')
 export class ErrorCodeController {
   constructor(protected readonly errorCodeService: ErrorCodeService) {}
 

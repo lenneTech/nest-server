@@ -129,10 +129,10 @@ describe('Story: System Setup', () => {
   // Tests
   // ===================================================================================================================
 
-  describe('GET /api/system-setup/status', () => {
+  describe('GET /system-setup/status', () => {
     it('should return needsSetup: true when zero users exist', async () => {
       // Separate DB starts empty - no need to clear anything
-      const result = await testHelper.rest('/api/system-setup/status', {
+      const result = await testHelper.rest('/system-setup/status', {
         method: 'GET',
         statusCode: 200,
       });
@@ -150,7 +150,7 @@ describe('Story: System Setup', () => {
         roles: [],
       });
 
-      const result = await testHelper.rest('/api/system-setup/status', {
+      const result = await testHelper.rest('/system-setup/status', {
         method: 'GET',
         statusCode: 200,
       });
@@ -163,10 +163,10 @@ describe('Story: System Setup', () => {
     });
   });
 
-  describe('POST /api/system-setup/init', () => {
+  describe('POST /system-setup/init', () => {
     it('should create initial admin successfully when zero users exist', async () => {
       // DB is empty again after previous test cleanup
-      const result = await testHelper.rest('/api/system-setup/init', {
+      const result = await testHelper.rest('/system-setup/init', {
         method: 'POST',
         payload: {
           email: SETUP_ADMIN_EMAIL,
@@ -225,7 +225,7 @@ describe('Story: System Setup', () => {
     });
 
     it('should return needsSetup: false after init', async () => {
-      const result = await testHelper.rest('/api/system-setup/status', {
+      const result = await testHelper.rest('/system-setup/status', {
         method: 'GET',
         statusCode: 200,
       });
@@ -235,7 +235,7 @@ describe('Story: System Setup', () => {
     });
 
     it('should return 403 when users already exist', async () => {
-      const result = await testHelper.rest('/api/system-setup/init', {
+      const result = await testHelper.rest('/system-setup/init', {
         method: 'POST',
         payload: {
           email: `setup-second-${Date.now()}@test.com`,
@@ -346,7 +346,7 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
   });
 
   it('should report needsSetup: false after auto-creation', async () => {
-    const result = await testHelper.rest('/api/system-setup/status', {
+    const result = await testHelper.rest('/system-setup/status', {
       method: 'GET',
       statusCode: 200,
     });
@@ -382,7 +382,7 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
   });
 
   it('should return 403 on manual init after auto-creation', async () => {
-    const result = await testHelper.rest('/api/system-setup/init', {
+    const result = await testHelper.rest('/system-setup/init', {
       method: 'POST',
       payload: {
         email: `another-admin-${Date.now()}@test.com`,

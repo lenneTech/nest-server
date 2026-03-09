@@ -35,7 +35,7 @@ export class SystemSetupInitDto {
  * that no users exist before allowing creation.
  */
 @ApiTags('System Setup')
-@Controller('api/system-setup')
+@Controller('system-setup')
 @Roles(RoleEnum.ADMIN)
 export class CoreSystemSetupController {
   constructor(protected readonly systemSetupService: CoreSystemSetupService) {}

@@ -160,7 +160,7 @@ describe('Scenario A: additionalErrorRegistry', () => {
   });
 
   it('should include core LTNS_* error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -171,7 +171,7 @@ describe('Scenario A: additionalErrorRegistry', () => {
   });
 
   it('should include additional SCNA_* error codes from config', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -183,7 +183,7 @@ describe('Scenario A: additionalErrorRegistry', () => {
   });
 
   it('should merge LTNS_* and SCNA_* codes correctly', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -197,11 +197,11 @@ describe('Scenario A: additionalErrorRegistry', () => {
   });
 
   it('should provide translations in both locales', async () => {
-    const deResponse = await testHelper.rest('/api/i18n/errors/de', {
+    const deResponse = await testHelper.rest('/i18n/errors/de', {
       method: 'GET',
       statusCode: 200,
     });
-    const enResponse = await testHelper.rest('/api/i18n/errors/en', {
+    const enResponse = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -216,7 +216,7 @@ describe('Scenario A: additionalErrorRegistry', () => {
   });
 
   it('should support placeholder format in additional errors', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -269,7 +269,7 @@ describe('Scenario B: Custom Service', () => {
   });
 
   it('should include core LTNS_* error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -278,7 +278,7 @@ describe('Scenario B: Custom Service', () => {
   });
 
   it('should include custom service SCNB_* error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -288,7 +288,7 @@ describe('Scenario B: Custom Service', () => {
   });
 
   it('should merge LTNS_* and SCNB_* codes correctly', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -336,7 +336,7 @@ describe('Scenario C: Core Only (No Extensions)', () => {
   });
 
   it('should include only core LTNS_* error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -354,7 +354,7 @@ describe('Scenario C: Core Only (No Extensions)', () => {
   });
 
   it('should have all core authentication error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -367,7 +367,7 @@ describe('Scenario C: Core Only (No Extensions)', () => {
   });
 
   it('should have all core authorization error codes', async () => {
-    const response = await testHelper.rest('/api/i18n/errors/en', {
+    const response = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
@@ -378,11 +378,11 @@ describe('Scenario C: Core Only (No Extensions)', () => {
   });
 
   it('should provide translations in both locales', async () => {
-    const deResponse = await testHelper.rest('/api/i18n/errors/de', {
+    const deResponse = await testHelper.rest('/i18n/errors/de', {
       method: 'GET',
       statusCode: 200,
     });
-    const enResponse = await testHelper.rest('/api/i18n/errors/en', {
+    const enResponse = await testHelper.rest('/i18n/errors/en', {
       method: 'GET',
       statusCode: 200,
     });
