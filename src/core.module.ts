@@ -20,6 +20,7 @@ import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
 import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
 import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
+import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
@@ -213,6 +214,10 @@ export class CoreModule implements NestModule {
       // Add audit fields plugin (enabled by default, opt-out via config)
       if (config.security?.mongooseAuditFieldsPlugin !== false) {
         connection.plugin(mongooseAuditFieldsPlugin);
+      }
+      // Add tenant isolation plugin (opt-in via multiTenancy config)
+      if (config.multiTenancy && config.multiTenancy.enabled !== false) {
+        connection.plugin(mongooseTenantPlugin);
       }
       return connection;
     };
