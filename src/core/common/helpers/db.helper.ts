@@ -550,6 +550,7 @@ export function removeUnresolvedReferences<T = any>(
   populated: T,
   populatedOptions: (PopulateOptions | string)[] | PopulateOptions | PopulateOptions[] | string,
   ignoreFirst = true,
+  visited: WeakSet<object> = new WeakSet(),
 ): T {
   // Check parameter
   if (!populated || !populatedOptions) {
@@ -558,21 +559,24 @@ export function removeUnresolvedReferences<T = any>(
 
   // Process array
   if (Array.isArray(populated)) {
-    populated.forEach((p) => removeUnresolvedReferences(p, populatedOptions, false));
+    if (visited.has(populated)) return populated;
+    visited.add(populated);
+    populated.forEach((p) => removeUnresolvedReferences(p, populatedOptions, false, visited));
     return populated;
   }
 
   // Process object
   if (typeof populated === 'object') {
-    // populatedOptions is an array
+    // populatedOptions is an array — iterate options for the same object
+    // Each option targets a different property path, so do not mark populated as visited here
     if (Array.isArray(populatedOptions)) {
       populatedOptions.forEach((po) =>
-        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false),
+        removeUnresolvedReferences(populated, ignoreFirst && typeof po === 'object' ? po.populate : po, false, visited),
       );
       return populated;
     }
 
-    // populatedOptions is a string
+    // populatedOptions is a string — leaf operation, no deep recursion risk
     if (typeof populatedOptions === 'string') {
       if (!['_id', 'id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
         populated[populatedOptions] = null;
@@ -580,13 +584,16 @@ export function removeUnresolvedReferences<T = any>(
       return populated;
     }
 
-    // populatedOptions is an PopulateOptions object
+    // populatedOptions is a PopulateOptions object
     if (populatedOptions.path) {
       const key = populatedOptions.path;
       if (!['_id', 'id'].includes(key) && populated[key] instanceof Types.ObjectId) {
         populated[key] = null;
       } else if (populatedOptions.populate) {
-        removeUnresolvedReferences(populated[key], populatedOptions.populate, false);
+        // Prevent circular reference loops when descending into nested populates
+        if (visited.has(populated as object)) return populated;
+        visited.add(populated as object);
+        removeUnresolvedReferences(populated[key], populatedOptions.populate, false, visited);
       }
     }
   }

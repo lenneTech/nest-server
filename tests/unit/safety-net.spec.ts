@@ -631,31 +631,59 @@ describe('Role Guard Update Operations', () => {
 // =====================================================================================================================
 
 describe('removeSecrets recursion', () => {
-  // Test the removeSecrets logic extracted from CheckSecurityInterceptor
+  // Test the removeSecrets logic matching CheckSecurityInterceptor (with WeakSet circular reference protection)
   const secretFields = ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'];
 
-  function removeSecrets(data: any): any {
-    if (!data || typeof data !== 'object') {
-      return data;
-    }
-    if (Array.isArray(data)) {
-      data.forEach(removeSecrets);
-      return data;
-    }
-    for (const field of secretFields) {
-      if (field in data && data[field] !== undefined) {
-        data[field] = undefined;
+  const isPlainLike = (val: any): boolean => {
+    if (!val || typeof val !== 'object' || Array.isArray(val)) return false;
+    if (typeof val.pipe === 'function') return false;
+    if (Buffer.isBuffer(val)) return false;
+    if (val instanceof Date || val instanceof RegExp) return false;
+    const proto = Object.getPrototypeOf(val);
+    return proto === null || proto === Object.prototype || typeof val.constructor === 'function';
+  };
+
+  function createRemoveSecrets() {
+    const visited = new WeakSet();
+    const removeSecrets = (data: any): any => {
+      if (!data || typeof data !== 'object') {
+        return data;
       }
-    }
-    // Recurse into nested objects
-    for (const key of Object.keys(data)) {
-      const value = data[key];
-      if (value && typeof value === 'object' && !secretFields.includes(key)) {
-        removeSecrets(value);
+      if (Array.isArray(data)) {
+        if (visited.has(data)) return data;
+        visited.add(data);
+        data.forEach(removeSecrets);
+        return data;
       }
-    }
-    return data;
+      if (!isPlainLike(data)) {
+        return data;
+      }
+      if (visited.has(data)) {
+        return data;
+      }
+      visited.add(data);
+      for (const field of secretFields) {
+        if (field in data && data[field] !== undefined) {
+          data[field] = undefined;
+        }
+      }
+      // Recurse into nested objects
+      for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (value && typeof value === 'object' && !secretFields.includes(key)) {
+          removeSecrets(value);
+        }
+      }
+      return data;
+    };
+    return removeSecrets;
   }
+
+  // Helper that creates a fresh removeSecrets per test (matching interceptor behavior: one WeakSet per request)
+  let removeSecrets: (data: any) => any;
+  beforeEach(() => {
+    removeSecrets = createRemoveSecrets();
+  });
 
   it('should remove secret fields at root level', () => {
     const data = { name: 'test', password: 'secret', email: 'test@test.com' };
@@ -743,6 +771,133 @@ describe('removeSecrets recursion', () => {
     removeSecrets(data);
     expect(data.refreshTokens).toBeUndefined();
     expect(data.name).toBe('test');
+  });
+
+  it('should handle circular object references without stack overflow', () => {
+    const obj: any = { name: 'test', password: 'secret' };
+    obj.self = obj; // circular reference
+    expect(() => removeSecrets(obj)).not.toThrow();
+    expect(obj.password).toBeUndefined();
+    expect(obj.name).toBe('test');
+    expect(obj.self).toBe(obj); // reference preserved
+  });
+
+  it('should handle circular array references without stack overflow', () => {
+    const arr: any[] = [{ password: 'secret', name: 'test' }];
+    arr.push(arr); // self-referential array
+    expect(() => removeSecrets(arr)).not.toThrow();
+    expect(arr[0].password).toBeUndefined();
+    expect(arr[0].name).toBe('test');
+  });
+
+  it('should handle mutual circular references between objects', () => {
+    const a: any = { name: 'a', password: 'pw-a' };
+    const b: any = { name: 'b', password: 'pw-b' };
+    a.ref = b;
+    b.ref = a; // mutual cycle
+    expect(() => removeSecrets(a)).not.toThrow();
+    expect(a.password).toBeUndefined();
+    expect(b.password).toBeUndefined();
+  });
+
+  it('should still remove secrets from all reachable nodes in a cycle', () => {
+    const parent: any = { name: 'parent', verificationToken: 'token-parent' };
+    const child: any = { name: 'child', passwordResetToken: 'token-child' };
+    parent.child = child;
+    child.parent = parent; // cycle
+    expect(() => removeSecrets(parent)).not.toThrow();
+    expect(parent.verificationToken).toBeUndefined();
+    expect(child.passwordResetToken).toBeUndefined();
+    expect(parent.name).toBe('parent');
+    expect(child.name).toBe('child');
+  });
+});
+
+// =====================================================================================================================
+// deepFreeze circular reference Tests
+// =====================================================================================================================
+
+describe('deepFreeze circular reference protection', () => {
+  // Import the real function
+  let deepFreeze: typeof import('../../src/core/common/helpers/input.helper').deepFreeze;
+
+  beforeEach(async () => {
+    deepFreeze = (await import('../../src/core/common/helpers/input.helper')).deepFreeze;
+  });
+
+  it('should deep freeze a normal object', () => {
+    const obj = { a: 1, nested: { b: 2 } };
+    const frozen = deepFreeze(obj);
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.isFrozen(frozen.nested)).toBe(true);
+  });
+
+  it('should handle circular object references without stack overflow', () => {
+    const obj: any = { name: 'test' };
+    obj.self = obj;
+    expect(() => deepFreeze(obj)).not.toThrow();
+    expect(Object.isFrozen(obj)).toBe(true);
+  });
+
+  it('should handle mutual circular references', () => {
+    const a: any = { name: 'a' };
+    const b: any = { name: 'b' };
+    a.ref = b;
+    b.ref = a;
+    expect(() => deepFreeze(a)).not.toThrow();
+    expect(Object.isFrozen(a)).toBe(true);
+    expect(Object.isFrozen(b)).toBe(true);
+  });
+
+  it('should handle null and primitive values', () => {
+    expect(deepFreeze(null)).toBeNull();
+    expect(deepFreeze(undefined)).toBeUndefined();
+    expect(deepFreeze(42)).toBe(42);
+    expect(deepFreeze('str')).toBe('str');
+  });
+});
+
+// =====================================================================================================================
+// removeUnresolvedReferences circular reference Tests
+// =====================================================================================================================
+
+describe('removeUnresolvedReferences circular reference protection', () => {
+  let removeUnresolvedReferences: typeof import('../../src/core/common/helpers/db.helper').removeUnresolvedReferences;
+  let Types: typeof import('mongoose').Types;
+
+  beforeEach(async () => {
+    removeUnresolvedReferences = (await import('../../src/core/common/helpers/db.helper')).removeUnresolvedReferences;
+    Types = (await import('mongoose')).Types;
+  });
+
+  it('should handle circular references without stack overflow', () => {
+    const obj: any = { name: 'test', ref: new Types.ObjectId() };
+    obj.self = obj;
+    expect(() => removeUnresolvedReferences(obj, 'ref', false)).not.toThrow();
+    expect(obj.ref).toBeNull(); // unresolved ObjectId should be nulled
+  });
+
+  it('should process all options in a populate options array on the same object', () => {
+    const id1 = new Types.ObjectId();
+    const id2 = new Types.ObjectId();
+    const obj: any = { field1: id1, field2: id2, name: 'test' };
+    // Both populate options target the same object — both should be processed
+    removeUnresolvedReferences(obj, ['field1', 'field2'], false);
+    expect(obj.field1).toBeNull();
+    expect(obj.field2).toBeNull();
+    expect(obj.name).toBe('test');
+  });
+
+  it('should handle arrays with circular references', () => {
+    const arr: any[] = [{ ref: new Types.ObjectId() }];
+    arr.push(arr as any);
+    expect(() => removeUnresolvedReferences(arr, 'ref', false)).not.toThrow();
+    expect(arr[0].ref).toBeNull();
+  });
+
+  it('should handle null and undefined gracefully', () => {
+    expect(removeUnresolvedReferences(null, 'field')).toBeNull();
+    expect(removeUnresolvedReferences(undefined, 'field')).toBeUndefined();
   });
 });
 

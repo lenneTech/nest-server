@@ -116,17 +116,25 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       const proto = Object.getPrototypeOf(val);
       return proto === null || proto === Object.prototype || typeof val.constructor === 'function';
     };
+    const visited = new WeakSet();
     const removeSecrets = (data: any) => {
       if (!this.config.removeSecretFields || !data || typeof data !== 'object') {
         return data;
       }
       if (Array.isArray(data)) {
+        if (visited.has(data)) return data;
+        visited.add(data);
         data.forEach(removeSecrets);
         return data;
       }
       if (!isPlainLike(data)) {
         return data;
       }
+      // Prevent infinite recursion on circular references
+      if (visited.has(data)) {
+        return data;
+      }
+      visited.add(data);
       for (const field of this.config.secretFields) {
         if (field in data && data[field] !== undefined) {
           data[field] = undefined;
