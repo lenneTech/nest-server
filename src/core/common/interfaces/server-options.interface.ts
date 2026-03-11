@@ -817,6 +817,50 @@ export interface IJwt {
 }
 
 /**
+ * Multi-tenancy configuration
+ *
+ * Follows the "presence implies enabled" pattern:
+ * - `undefined`: Feature disabled (no overhead)
+ * - `{}`: Feature enabled with defaults
+ * - `{ enabled: false }`: Pre-configured but disabled
+ */
+/**
+ * Multi-tenancy configuration for automatic tenant-based data isolation.
+ *
+ * @since 11.20.0
+ */
+export interface IMultiTenancy {
+  /**
+   * Explicitly disable multi-tenancy even when config is present.
+   * When undefined/true and the config object exists, the feature is enabled.
+   * @default true (when config object is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Field name on `req.user` that contains the tenant identifier.
+   *
+   * **Important:** This only controls which property on `req.user` is read.
+   * The document schema field name is always `tenantId` and is not configurable.
+   * Example: `userField: 'organizationId'` reads `req.user.organizationId` but
+   * filters/sets the `tenantId` field on documents.
+   *
+   * **Falsy values:** If the resolved value is falsy (undefined, null, or empty string ''),
+   * the user is treated as having no tenant — they will only see documents with `tenantId: null`.
+   *
+   * @default 'tenantId'
+   */
+  userField?: string;
+
+  /**
+   * Model names (NOT collection names) to exclude from tenant filtering.
+   * These schemas will not have tenant isolation applied.
+   * @example ['User', 'Session']
+   */
+  excludeSchemas?: string[];
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
@@ -1317,6 +1361,42 @@ export interface IServerOptions {
      */
     uri: string;
   };
+
+  /**
+   * Multi-tenancy configuration for tenant-based data isolation.
+   *
+   * When enabled, a global Mongoose plugin automatically filters all queries
+   * by `tenantId`, ensuring tenant isolation in a shared database.
+   *
+   * Follows the "presence implies enabled" pattern:
+   * - `undefined`: Disabled (no overhead, backward compatible)
+   * - `{}`: Enabled with defaults
+   * - `{ userField: 'organizationId' }`: Enabled with custom user field
+   * - `{ enabled: false }`: Pre-configured but disabled
+   *
+   * The plugin activates automatically on any schema that has a `tenantId` field.
+   * Schemas without `tenantId` are not affected.
+   *
+   * @since 11.20.0
+   * @default undefined (disabled)
+   *
+   * @example
+   * ```typescript
+   * // Enable with defaults
+   * multiTenancy: {},
+   *
+   * // Enable with excluded schemas
+   * multiTenancy: {
+   *   excludeSchemas: ['User', 'Session'],
+   * },
+   *
+   * // Custom user field
+   * multiTenancy: {
+   *   userField: 'organizationId',
+   * },
+   * ```
+   */
+  multiTenancy?: IMultiTenancy;
 
   /**
    * Permissions report module (development tool).

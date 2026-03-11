@@ -9,6 +9,10 @@ export interface IRequestContext {
   language?: string;
   /** When true, mongooseRoleGuardPlugin allows role changes regardless of user permissions */
   bypassRoleGuard?: boolean;
+  /** When true, mongooseTenantPlugin skips tenant filtering */
+  bypassTenantGuard?: boolean;
+  /** Tenant ID resolved from the current user */
+  tenantId?: string;
 }
 
 /**
@@ -63,6 +67,39 @@ export class RequestContext {
     const context: IRequestContext = {
       ...currentStore,
       bypassRoleGuard: true,
+    };
+    return this.storage.run(context, fn);
+  }
+
+  static getTenantId(): string | undefined {
+    return this.storage.getStore()?.tenantId;
+  }
+
+  static isBypassTenantGuard(): boolean {
+    return this.storage.getStore()?.bypassTenantGuard === true;
+  }
+
+  /**
+   * Run a function with tenant guard bypass enabled.
+   * The current context is preserved; only bypassTenantGuard is added.
+   *
+   * Use this for cross-tenant operations, e.g.:
+   * - Admin dashboards viewing all tenants
+   * - Cron jobs processing data across tenants
+   * - Migration scripts
+   *
+   * @example
+   * ```typescript
+   * const allOrders = await RequestContext.runWithBypassTenantGuard(async () => {
+   *   return this.orderService.find();
+   * });
+   * ```
+   */
+  static runWithBypassTenantGuard<T>(fn: () => T): T {
+    const currentStore = this.storage.getStore();
+    const context: IRequestContext = {
+      ...currentStore,
+      bypassTenantGuard: true,
     };
     return this.storage.run(context, fn);
   }
