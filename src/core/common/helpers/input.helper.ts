@@ -413,12 +413,16 @@ export function combinePlain(...args: Record<any, any>[]): any {
 /**
  * Get deep frozen object
  */
-export function deepFreeze(object: any) {
+export function deepFreeze(object: any, visited: WeakSet<object> = new WeakSet()) {
   if (!object || typeof object !== 'object') {
     return object;
   }
+  if (visited.has(object)) {
+    return object;
+  }
+  visited.add(object);
   for (const [key, value] of Object.entries(object)) {
-    object[key] = deepFreeze(value);
+    object[key] = deepFreeze(value, visited);
   }
   return Object.freeze(object);
 }
