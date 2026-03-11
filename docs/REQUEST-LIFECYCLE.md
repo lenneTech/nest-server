@@ -332,10 +332,11 @@ The following diagram shows the exact order of execution from HTTP request to re
   |       OR direct Mongoose queries                        |
   |                                                         |
   |     +-----------------------------------------------+   |
-  |     |  Mongoose Plugins (fire on write operations)  |   |
+  |     |  Mongoose Plugins (fire on DB operations)     |   |
   |     |   - mongoosePasswordPlugin (hash password)    |   |
   |     |   - mongooseRoleGuardPlugin (block roles)     |   |
   |     |   - mongooseAuditFieldsPlugin (set by/at)     |   |
+  |     |   - mongooseTenantPlugin (tenant isolation)   |   |
   |     +-----------------------------------------------+   |
   +----------------------------+----------------------------+
                                |
@@ -658,6 +659,57 @@ When the service performs write operations (save, update), Mongoose plugins fire
                    | updatedBy   |     |                       |
                    +-------------+     +-----------------------+
 ```
+
+#### Tenant Isolation Plugin (opt-in)
+
+Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a `tenantId` field.
+
+```
+                        +---------------------+
+                        | DB operation         |
+                        | (query/save/agg)     |
+                        +----------+----------+
+                                   |
+                        +----------v----------+
+                        | multiTenancy config |
+                        | enabled?            |
+                        +----------+----------+
+                       No /              \ Yes
+                         /                \
+           +------------+     +------------v-----------+
+           | Skip       |     | RequestContext exists?  |
+           +------------+     +------------+-----------+
+                              No /              \ Yes
+                                 /                \
+                   +------------+     +------------v-----------+
+                   | No filter  |     | bypassTenantGuard?     |
+                   | (system op)|     |                        |
+                   +------------+     +------------+-----------+
+                                      Yes /              \ No
+                                         /                \
+                           +------------+     +------------v-----------+
+                           | No filter  |     | Schema in              |
+                           |            |     | excludeSchemas?        |
+                           +------------+     +------------+-----------+
+                                              Yes /              \ No
+                                                 /                \
+                                   +------------+     +------------v-----------+
+                                   | No filter  |     | User has tenantId?     |
+                                   +------------+     +------------+-----------+
+                                                      Yes /              \ No
+                                                         /                \
+                                           +------------+     +------------v-----------+
+                                           | Filter by  |     | User logged in?        |
+                                           | tenantId   |     +------------+-----------+
+                                           +------------+     Yes /              \ No
+                                                                 /                \
+                                                   +------------+     +------------+
+                                                   | Filter by  |     | No filter  |
+                                                   | null       |     | (public)   |
+                                                   +------------+     +------------+
+```
+
+**Important:** ADMIN-role users are also filtered by their own tenantId. For cross-tenant admin operations, use `RequestContext.runWithBypassTenantGuard()`.
 
 > **NestJS docs:** [Custom decorators](https://docs.nestjs.com/custom-decorators), [Mongoose](https://docs.nestjs.com/techniques/mongodb)
 
@@ -1092,6 +1144,7 @@ All security features are configured in `config.env.ts` under the `security` key
 | `security.mongoosePasswordPlugin` | `boolean \| { skipPatterns }` | `true` | Auto password hashing |
 | `security.mongooseRoleGuardPlugin` | `boolean \| { allowedRoles }` | `true` | Role escalation prevention |
 | `security.mongooseAuditFieldsPlugin` | `boolean` | `true` | Auto createdBy/updatedBy |
+| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation |
 
 ### Safety Net — Response Interceptors
 
@@ -1118,6 +1171,22 @@ this.process(serviceFunc, { serviceOptions, force: true });
 // Option 3: Config-based (permanently allow roles)
 security: {
   mongooseRoleGuardPlugin: { allowedRoles: ['HR_MANAGER'] },
+}
+```
+
+### Tenant Guard Bypass
+
+```typescript
+// Cross-tenant admin operations
+import { RequestContext } from '@lenne.tech/nest-server';
+
+const allOrders = await RequestContext.runWithBypassTenantGuard(async () => {
+  return this.orderService.find(); // sees all tenants
+});
+
+// Exclude specific schemas from tenant filtering
+multiTenancy: {
+  excludeSchemas: ['User', 'Session'], // model names, not collection names
 }
 ```
 
