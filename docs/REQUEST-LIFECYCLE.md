@@ -104,6 +104,8 @@ JWT-based authentication for existing projects:
 | **Secret Fields Removal** | Configurable fallback removal of password, tokens, etc. |
 | **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
+| **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
+| **Tenant Guard** | `@TenantRoles()` decorator + `CoreTenantGuard` for tenant access control |
 
 ### Data & CRUD
 
@@ -310,6 +312,14 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Checks real roles (ADMIN)                         |
   |     - Evaluates system roles (S_USER, ...)              |
   |     - Throws 401 (Unauthorized) or 403 (Forbidden)     |
+  |                                                         |
+  |  4b. CoreTenantGuard  [if multiTenancy enabled]          |
+  |     - Reads X-Tenant-Id header                          |
+  |     - If @TenantRoles(): validates membership           |
+  |     - Checks tenant role hierarchy                      |
+  |     - Admin bypass (system admins skip membership)      |
+  |     - Sets req.tenantId + req.tenantRole                |
+  |     - Throws 403 (Forbidden) on failure                |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -663,6 +673,7 @@ When the service performs write operations (save, update), Mongoose plugins fire
 #### Tenant Isolation Plugin (opt-in)
 
 Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a `tenantId` field.
+The `tenantId` is read from the `X-Tenant-Id` request header (configurable via `headerName`).
 
 ```
                         +---------------------+
@@ -694,22 +705,17 @@ Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a 
                                               Yes /              \ No
                                                  /                \
                                    +------------+     +------------v-----------+
-                                   | No filter  |     | User has tenantId?     |
+                                   | No filter  |     | X-Tenant-Id header?    |
                                    +------------+     +------------+-----------+
                                                       Yes /              \ No
                                                          /                \
-                                           +------------+     +------------v-----------+
-                                           | Filter by  |     | User logged in?        |
-                                           | tenantId   |     +------------+-----------+
-                                           +------------+     Yes /              \ No
-                                                                 /                \
-                                                   +------------+     +------------+
-                                                   | Filter by  |     | No filter  |
-                                                   | null       |     | (public)   |
-                                                   +------------+     +------------+
+                                           +------------+     +------------+
+                                           | Filter by  |     | No filter  |
+                                           | tenantId   |     |            |
+                                           +------------+     +------------+
 ```
 
-**Important:** ADMIN-role users are also filtered by their own tenantId. For cross-tenant admin operations, use `RequestContext.runWithBypassTenantGuard()`.
+**Important:** When `multiTenancy.adminBypass` is `true` (default), system admins bypass the tenant membership check in the guard but are still filtered by the `X-Tenant-Id` header if provided. For cross-tenant admin operations, use `RequestContext.runWithBypassTenantGuard()`.
 
 > **NestJS docs:** [Custom decorators](https://docs.nestjs.com/custom-decorators), [Mongoose](https://docs.nestjs.com/techniques/mongodb)
 
@@ -1144,7 +1150,7 @@ All security features are configured in `config.env.ts` under the `security` key
 | `security.mongoosePasswordPlugin` | `boolean \| { skipPatterns }` | `true` | Auto password hashing |
 | `security.mongooseRoleGuardPlugin` | `boolean \| { allowedRoles }` | `true` | Role escalation prevention |
 | `security.mongooseAuditFieldsPlugin` | `boolean` | `true` | Auto createdBy/updatedBy |
-| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation |
+| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation (header + membership) |
 
 ### Safety Net — Response Interceptors
 

@@ -11,8 +11,12 @@ export interface IRequestContext {
   bypassRoleGuard?: boolean;
   /** When true, mongooseTenantPlugin skips tenant filtering */
   bypassTenantGuard?: boolean;
-  /** Tenant ID resolved from the current user */
+  /** Tenant ID resolved from X-Tenant-Id header */
   tenantId?: string;
+  /** Tenant IDs from user's active tenant memberships (used when no specific header is set) */
+  tenantIds?: string[];
+  /** Tenant role of the current user in the active tenant */
+  tenantRole?: string;
 }
 
 /**

@@ -23,8 +23,14 @@ export class RequestContextMiddleware implements NestMiddleware {
       get tenantId() {
         const config = ConfigService.configFastButReadOnly?.multiTenancy;
         if (!config || config.enabled === false) return undefined;
-        const field = config.userField ?? 'tenantId';
-        return (req as any).user?.[field] ?? undefined;
+        const headerName = (config.headerName ?? 'x-tenant-id').toLowerCase();
+        return (req.headers?.[headerName] as string) ?? undefined;
+      },
+      get tenantIds() {
+        return (req as any).tenantIds ?? undefined;
+      },
+      get tenantRole() {
+        return (req as any).tenantRole ?? undefined;
       },
     };
     RequestContext.run(context, () => next());

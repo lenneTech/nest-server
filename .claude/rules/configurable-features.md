@@ -212,7 +212,7 @@ This pattern is currently applied to:
 | Response Model Interceptor | `security.responseModelInterceptor` | Boolean Shorthand | `true` (enabled), `debug: false` |
 | Translate Response Interceptor | `security.translateResponseInterceptor` | Boolean Shorthand | `true` (enabled) |
 | Secret Fields Removal | `security.secretFields` | Array | `['password', 'verificationToken', ...]` |
-| Multi-Tenancy Plugin | `multiTenancy` | Presence Implies Enabled | `userField: 'tenantId'`, `excludeSchemas: []`. Bypass: `RequestContext.runWithBypassTenantGuard()` |
+| Multi-Tenancy | `multiTenancy` | Presence Implies Enabled | `headerName: 'x-tenant-id'`, `membershipModel: 'TenantMember'`, `adminBypass: true`, `excludeSchemas: []`. Bypass: `RequestContext.runWithBypassTenantGuard()` |
 
 ## Checklist for New Configurable Features
 

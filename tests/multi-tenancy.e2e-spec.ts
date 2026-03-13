@@ -291,15 +291,14 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   });
 
   // =========================================================================
-  // Test 14: User without tenantId sees only unassigned data
+  // Test 14: User without tenant header sees all data (no filter)
   // =========================================================================
-  it('should filter by null tenantId when user has no tenantId', async () => {
+  it('should not filter when user has no tenantId (no tenant header)', async () => {
     await tenantItemModel.create({ name: 'assigned', tenantId: 'tenant-a' });
     await tenantItemModel.create({ name: 'unassigned', tenantId: null });
 
     const items = await runAsUserWithoutTenant(() => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(1);
-    expect(items[0].name).toBe('unassigned');
+    expect(items).toHaveLength(2);
   });
 
   // =========================================================================
@@ -343,9 +342,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   it('should not find documents of other tenants via findOne', async () => {
     await tenantItemModel.create({ name: 'secret', tenantId: 'tenant-b' });
 
-    const result = await runAsTenant('tenant-a', () =>
-      tenantItemModel.findOne({ name: 'secret' }).lean().exec(),
-    );
+    const result = await runAsTenant('tenant-a', () => tenantItemModel.findOne({ name: 'secret' }).lean().exec());
 
     expect(result).toBeNull();
   });
@@ -444,17 +441,15 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   // Test 24: User without tenant creates via insertMany — no tenantId set
   // =========================================================================
   it('should not auto-set tenantId when user has no tenantId (insertMany)', async () => {
-    const docs = await runAsUserWithoutTenant(() =>
-      tenantItemModel.insertMany([{ name: 'no-tenant-bulk' }]),
-    );
+    const docs = await runAsUserWithoutTenant(() => tenantItemModel.insertMany([{ name: 'no-tenant-bulk' }]));
 
     expect(docs[0].tenantId).toBeFalsy();
   });
 
   // =========================================================================
-  // Test 25: Empty string tenantId treated as falsy (sees only unassigned)
+  // Test 25: Empty string tenantId treated as falsy (no filter applied)
   // =========================================================================
-  it('should treat empty string tenantId as falsy (sees only null-tenantId data)', async () => {
+  it('should treat empty string tenantId as falsy (no filter)', async () => {
     await tenantItemModel.create({ name: 'assigned', tenantId: 'tenant-a' });
     await tenantItemModel.create({ name: 'unassigned', tenantId: null });
 
@@ -463,8 +458,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
       tenantId: '',
     };
     const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(1);
-    expect(items[0].name).toBe('unassigned');
+    expect(items).toHaveLength(2);
   });
 
   // =========================================================================
@@ -477,6 +471,54 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
     const context: IRequestContext = {};
     const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
     expect(items).toHaveLength(2);
+  });
+
+  // =========================================================================
+  // Test 26b: User with tenantIds (multiple memberships) sees only their workspaces
+  // =========================================================================
+  it('should filter by tenantIds ($in) when user has multiple tenant memberships', async () => {
+    await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
+    await tenantItemModel.create({ name: 'ws-b', tenantId: 'workspace-b' });
+    await tenantItemModel.create({ name: 'ws-c', tenantId: 'workspace-c' });
+
+    const context: IRequestContext = {
+      currentUser: { id: 'multi-ws-user' },
+      tenantIds: ['workspace-a', 'workspace-b'],
+    };
+    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
+    expect(items).toHaveLength(2);
+    expect(items.map((i: any) => i.name).sort()).toEqual(['ws-a', 'ws-b']);
+  });
+
+  // =========================================================================
+  // Test 26c: User with empty tenantIds array sees no tenant-scoped data
+  // =========================================================================
+  it('should filter to no results when tenantIds is empty array', async () => {
+    await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
+
+    const context: IRequestContext = {
+      currentUser: { id: 'no-membership-user' },
+      tenantIds: [],
+    };
+    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
+    expect(items).toHaveLength(0);
+  });
+
+  // =========================================================================
+  // Test 26d: tenantId (single) takes precedence over tenantIds (array)
+  // =========================================================================
+  it('should use single tenantId over tenantIds when both are set', async () => {
+    await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
+    await tenantItemModel.create({ name: 'ws-b', tenantId: 'workspace-b' });
+
+    const context: IRequestContext = {
+      currentUser: { id: 'both-set-user' },
+      tenantId: 'workspace-a',
+      tenantIds: ['workspace-a', 'workspace-b'],
+    };
+    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
+    expect(items).toHaveLength(1);
+    expect((items[0] as any).name).toBe('ws-a');
   });
 
   // =========================================================================
@@ -499,9 +541,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
     await tenantItemModel.create({ name: 'target', tenantId: 'tenant-b' });
 
     await runAsTenant('tenant-a', () =>
-      tenantItemModel.bulkWrite([
-        { updateOne: { filter: { name: 'target' }, update: { $set: { name: 'hacked' } } } },
-      ]),
+      tenantItemModel.bulkWrite([{ updateOne: { filter: { name: 'target' }, update: { $set: { name: 'hacked' } } } }]),
     );
 
     const doc = await tenantItemModel.findOne({ tenantId: 'tenant-b' }).lean().exec();
@@ -514,9 +554,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   it('should not delete other tenant documents via bulkWrite deleteOne', async () => {
     await tenantItemModel.create({ name: 'protected', tenantId: 'tenant-b' });
 
-    await runAsTenant('tenant-a', () =>
-      tenantItemModel.bulkWrite([{ deleteOne: { filter: { name: 'protected' } } }]),
-    );
+    await runAsTenant('tenant-a', () => tenantItemModel.bulkWrite([{ deleteOne: { filter: { name: 'protected' } } }]));
 
     const doc = await tenantItemModel.findOne({ name: 'protected' }).lean().exec();
     expect(doc).toBeTruthy();
@@ -555,15 +593,15 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
 });
 
 // =============================================================================
-// Custom userField tests
+// Header-based tenantId tests (tenantId from X-Workspace-Id header)
 // =============================================================================
-describe('Multi-Tenancy Plugin — custom userField (e2e)', () => {
+describe('Multi-Tenancy Plugin — header-based tenantId (e2e)', () => {
   let tenantItemModel: Model<TenantItem>;
   let app: import('@nestjs/common').INestApplication;
 
   beforeAll(async () => {
-    // Configure with custom userField
-    new ConfigService({ multiTenancy: { userField: 'organizationId' } } as any);
+    // Configure with defaults (header-based)
+    new ConfigService({ multiTenancy: {} } as any);
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [TestModule],
@@ -583,26 +621,35 @@ describe('Multi-Tenancy Plugin — custom userField (e2e)', () => {
     await tenantItemModel.deleteMany({});
     await app.close();
     // Restore default config
-    new ConfigService({ multiTenancy: { userField: 'tenantId' } } as any);
+    new ConfigService({ multiTenancy: {} } as any);
   });
 
-  it('should resolve tenantId from custom userField via middleware lazy getter', async () => {
-    await tenantItemModel.create({ name: 'org-a', tenantId: 'org-a' });
-    await tenantItemModel.create({ name: 'org-b', tenantId: 'org-b' });
+  it('should filter by tenantId set directly in RequestContext (simulates header)', async () => {
+    await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
+    await tenantItemModel.create({ name: 'ws-b', tenantId: 'workspace-b' });
 
-    // Simulate the middleware's lazy getter behavior with custom userField
-    const config = ConfigService.configFastButReadOnly?.multiTenancy;
-    const field = config?.userField ?? 'tenantId';
-    const mockUser = { id: 'user-1', [field]: 'org-a' };
-
+    // Simulate RequestContext with tenantId set from header
     const context: IRequestContext = {
-      currentUser: mockUser,
-      tenantId: mockUser[field],
+      currentUser: { id: 'user-1' },
+      tenantId: 'workspace-a',
     };
 
     const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
     expect(items).toHaveLength(1);
-    expect(items[0].name).toBe('org-a');
+    expect(items[0].name).toBe('ws-a');
+  });
+
+  it('should not filter when no tenantId in context (no header)', async () => {
+    await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
+    await tenantItemModel.create({ name: 'ws-b', tenantId: 'workspace-b' });
+
+    // Context without tenantId = no tenant header sent
+    const context: IRequestContext = {
+      currentUser: { id: 'user-1' },
+    };
+
+    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
+    expect(items).toHaveLength(2);
   });
 });
 
@@ -697,13 +744,23 @@ describe('Mongoose Hook Coverage Safety Net', () => {
     // Hooks covered by mongooseTenantPlugin
     const covered = new Set([
       // Query hooks
-      'find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace',
-      'countDocuments', 'distinct', 'updateOne', 'updateMany',
-      'deleteOne', 'deleteMany', 'replaceOne',
+      'find',
+      'findOne',
+      'findOneAndUpdate',
+      'findOneAndDelete',
+      'findOneAndReplace',
+      'countDocuments',
+      'distinct',
+      'updateOne',
+      'updateMany',
+      'deleteOne',
+      'deleteMany',
+      'replaceOne',
       // Document hooks
       'save',
       // Model hooks
-      'insertMany', 'bulkWrite',
+      'insertMany',
+      'bulkWrite',
       // Aggregate
       'aggregate',
     ]);
@@ -711,9 +768,9 @@ describe('Mongoose Hook Coverage Safety Net', () => {
     // Hooks explicitly excluded (not relevant for tenant filtering)
     const excluded = new Set([
       'estimatedDocumentCount', // MongoDB limitation: uses collection metadata, cannot apply query filters
-      'validate',               // Document validation only, no data access or modification
-      'createCollection',       // DDL operation, no data access
-      'init',                   // Post-load document hydration, document already loaded from DB
+      'validate', // Document validation only, no data access or modification
+      'createCollection', // DDL operation, no data access
+      'init', // Post-load document hydration, document already loaded from DB
     ]);
 
     const allKnown = new Set([...covered, ...excluded]);

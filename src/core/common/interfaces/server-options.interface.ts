@@ -838,26 +838,33 @@ export interface IMultiTenancy {
   enabled?: boolean;
 
   /**
-   * Field name on `req.user` that contains the tenant identifier.
-   *
-   * **Important:** This only controls which property on `req.user` is read.
-   * The document schema field name is always `tenantId` and is not configurable.
-   * Example: `userField: 'organizationId'` reads `req.user.organizationId` but
-   * filters/sets the `tenantId` field on documents.
-   *
-   * **Falsy values:** If the resolved value is falsy (undefined, null, or empty string ''),
-   * the user is treated as having no tenant — they will only see documents with `tenantId: null`.
-   *
-   * @default 'tenantId'
-   */
-  userField?: string;
-
-  /**
    * Model names (NOT collection names) to exclude from tenant filtering.
    * These schemas will not have tenant isolation applied.
+   * The TenantMember model is always excluded automatically.
    * @example ['User', 'Session']
    */
   excludeSchemas?: string[];
+
+  /**
+   * Header name for tenant selection.
+   * The header value contains the tenant ID for the current request.
+   * @default 'x-tenant-id'
+   */
+  headerName?: string;
+
+  /**
+   * Mongoose model name for the membership collection.
+   * Must be registered via MongooseModule.forFeature().
+   * @default 'TenantMember'
+   */
+  membershipModel?: string;
+
+  /**
+   * Whether system admins (RoleEnum.ADMIN) bypass the membership check.
+   * When true, admins can access any tenant without being a member.
+   * @default true
+   */
+  adminBypass?: boolean;
 }
 
 /**
@@ -1365,19 +1372,19 @@ export interface IServerOptions {
   /**
    * Multi-tenancy configuration for tenant-based data isolation.
    *
-   * When enabled, a global Mongoose plugin automatically filters all queries
-   * by `tenantId`, ensuring tenant isolation in a shared database.
+   * When enabled, provides header-based tenant selection with membership validation.
+   * The active tenant is determined by the X-Tenant-Id header on each request.
+   * A global Mongoose plugin automatically filters all queries by `tenantId`.
    *
    * Follows the "presence implies enabled" pattern:
    * - `undefined`: Disabled (no overhead, backward compatible)
-   * - `{}`: Enabled with defaults
-   * - `{ userField: 'organizationId' }`: Enabled with custom user field
+   * - `{}`: Enabled with defaults (X-Tenant-Id header, admin bypass)
    * - `{ enabled: false }`: Pre-configured but disabled
    *
    * The plugin activates automatically on any schema that has a `tenantId` field.
    * Schemas without `tenantId` are not affected.
    *
-   * @since 11.20.0
+   * @since 11.21.0
    * @default undefined (disabled)
    *
    * @example
@@ -1385,14 +1392,10 @@ export interface IServerOptions {
    * // Enable with defaults
    * multiTenancy: {},
    *
-   * // Enable with excluded schemas
+   * // Enable with excluded schemas and custom header
    * multiTenancy: {
    *   excludeSchemas: ['User', 'Session'],
-   * },
-   *
-   * // Custom user field
-   * multiTenancy: {
-   *   userField: 'organizationId',
+   *   headerName: 'x-tenant-id',
    * },
    * ```
    */
