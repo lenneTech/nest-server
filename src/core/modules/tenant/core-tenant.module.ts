@@ -1,4 +1,4 @@
-import { DynamicModule, Global, Module, Type } from '@nestjs/common';
+import { CanActivate, DynamicModule, Global, Module, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule, SchemaFactory } from '@nestjs/mongoose';
 
@@ -7,15 +7,19 @@ import { CoreTenantGuard } from './core-tenant.guard';
 import { CoreTenantService } from './core-tenant.service';
 
 /**
- * Options for CoreTenantModule.forRoot()
+ * Options for CoreTenantModule.forRoot().
+ *
+ * Projects using auto-registration via `multiTenancy: {}` get default implementations.
+ * For custom model/guard/service, use `CoreTenantModule.forRoot({ ... })` directly
+ * in your ServerModule instead of auto-registration.
  */
 export interface CoreTenantModuleOptions {
   /** Custom TenantMember model class (must extend CoreTenantMemberModel) */
-  memberModel?: Type<any>;
+  memberModel?: Type<CoreTenantMemberModel>;
   /** Custom guard class (must implement CanActivate) */
-  guard?: Type<any>;
+  guard?: Type<CanActivate>;
   /** Custom service class (must extend CoreTenantService) */
-  service?: Type<any>;
+  service?: Type<CoreTenantService>;
 }
 
 /**
@@ -52,7 +56,7 @@ export class CoreTenantModule {
     memberSchema.index({ user: 1, tenant: 1 }, { unique: true });
 
     return {
-      exports: [Service],
+      exports: [CoreTenantService],
       global: true,
       imports: [MongooseModule.forFeature([{ name: 'TenantMember', schema: memberSchema }])],
       module: CoreTenantModule,

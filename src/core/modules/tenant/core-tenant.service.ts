@@ -154,21 +154,25 @@ export class CoreTenantService {
   /**
    * Ensure the given user is not the last OWNER of the tenant.
    * Throws BadRequestException if removing/demoting them would leave the tenant without an owner.
+   *
+   * Note: This uses a read-check-act pattern which has a theoretical TOCTOU race under
+   * concurrent requests. For production environments with high concurrency, consider using
+   * MongoDB transactions (requires replica set) in your extended service.
    */
   async assertNotLastOwner(tenantId: string, userId: string): Promise<void> {
-    const ownerCount = await RequestContext.runWithBypassTenantGuard(async () => {
-      return this.memberModel.countDocuments({
+    return RequestContext.runWithBypassTenantGuard(async () => {
+      const ownerCount = await this.memberModel.countDocuments({
         role: TenantRole.OWNER,
         status: TenantMemberStatus.ACTIVE,
         tenant: tenantId,
       });
-    });
 
-    if (ownerCount <= 1) {
-      const membership = await this.getMembership(tenantId, userId);
-      if (membership?.role === TenantRole.OWNER) {
-        throw new BadRequestException('Cannot remove or demote the last owner of a tenant');
+      if (ownerCount <= 1) {
+        const membership = await this.getMembership(tenantId, userId);
+        if (membership?.role === TenantRole.OWNER) {
+          throw new BadRequestException('Cannot remove or demote the last owner of a tenant');
+        }
       }
-    }
+    });
   }
 }

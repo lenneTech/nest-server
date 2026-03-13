@@ -26,7 +26,10 @@ import { RequestContext } from '../services/request-context.service';
  * - Schema's model name is in `excludeSchemas` config
  */
 export function mongooseTenantPlugin(schema) {
-  // Only activate on schemas with a tenantId path
+  // Only activate on schemas with a tenantId path.
+  // CoreTenantMemberModel uses 'tenant' (not 'tenantId') intentionally, so this check
+  // excludes it at registration time. Additionally, 'TenantMember' is auto-added to
+  // excludeSchemas in CoreModule as defense-in-depth (see shouldBypass()).
   if (!schema.path('tenantId')) {
     return;
   }

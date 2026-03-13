@@ -5,7 +5,8 @@ import { Schema } from '@nestjs/mongoose';
 import { UnifiedField } from '../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { TenantMemberStatus, TenantRole } from './core-tenant.enums';
+import { RequestContext } from '../../common/services/request-context.service';
+import { TENANT_ROLE_HIERARCHY, TenantMemberStatus, TenantRole } from './core-tenant.enums';
 
 /**
  * Core tenant member model (join table: User <-> Tenant).
@@ -90,9 +91,23 @@ export class CoreTenantMemberModel extends CorePersistenceModel {
    * - force mode is enabled
    * - the requesting user owns this membership (user.id === this.user)
    * - the requesting user is a system admin
+   * - the requesting user is a tenant ADMIN/OWNER of the same tenant
    */
   override securityCheck(user: any, force?: boolean): this {
-    if (force || (user && (user.id === this.user || user.hasRole?.(RoleEnum.ADMIN)))) {
+    if (force) return this;
+    if (!user) throw new UnauthorizedException('Access to tenant membership denied');
+
+    // Own membership or system admin
+    if (user.id === this.user || user.hasRole?.(RoleEnum.ADMIN)) return this;
+
+    // Tenant ADMIN/OWNER of the same tenant can view members
+    const context = RequestContext.get();
+    const tenantRole = context?.tenantRole as TenantRole | undefined;
+    if (
+      tenantRole &&
+      TENANT_ROLE_HIERARCHY[tenantRole] >= TENANT_ROLE_HIERARCHY[TenantRole.ADMIN] &&
+      context?.tenantId === this.tenant
+    ) {
       return this;
     }
 

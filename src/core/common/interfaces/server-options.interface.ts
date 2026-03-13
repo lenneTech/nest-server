@@ -817,15 +817,12 @@ export interface IJwt {
 }
 
 /**
- * Multi-tenancy configuration
+ * Multi-tenancy configuration for automatic tenant-based data isolation.
  *
  * Follows the "presence implies enabled" pattern:
  * - `undefined`: Feature disabled (no overhead)
  * - `{}`: Feature enabled with defaults
  * - `{ enabled: false }`: Pre-configured but disabled
- */
-/**
- * Multi-tenancy configuration for automatic tenant-based data isolation.
  *
  * @since 11.20.0
  */
@@ -849,6 +846,7 @@ export interface IMultiTenancy {
    * Header name for tenant selection.
    * The header value contains the tenant ID for the current request.
    * @default 'x-tenant-id'
+   * @since 11.21.0
    */
   headerName?: string;
 
@@ -856,6 +854,7 @@ export interface IMultiTenancy {
    * Mongoose model name for the membership collection.
    * Must be registered via MongooseModule.forFeature().
    * @default 'TenantMember'
+   * @since 11.21.0
    */
   membershipModel?: string;
 
@@ -863,6 +862,7 @@ export interface IMultiTenancy {
    * Whether system admins (RoleEnum.ADMIN) bypass the membership check.
    * When true, admins can access any tenant without being a member.
    * @default true
+   * @since 11.21.0
    */
   adminBypass?: boolean;
 }

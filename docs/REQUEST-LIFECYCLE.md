@@ -318,7 +318,7 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - If @TenantRoles(): validates membership           |
   |     - Checks tenant role hierarchy                      |
   |     - Admin bypass (system admins skip membership)      |
-  |     - Sets req.tenantId + req.tenantRole                |
+  |     - Sets req.activeTenantId + req.tenantRole           |
   |     - Throws 403 (Forbidden) on failure                |
   +----------------------------+----------------------------+
                                |

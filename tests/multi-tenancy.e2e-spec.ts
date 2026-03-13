@@ -111,6 +111,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
     await tenantItemModel.deleteMany({});
     await globalItemModel.deleteMany({});
     await app.close();
+    new ConfigService({} as any);
   });
 
   // =========================================================================

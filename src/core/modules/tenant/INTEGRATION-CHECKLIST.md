@@ -16,6 +16,8 @@ multiTenancy: {},
 
 That's it. CoreModule auto-registers the tenant module, guard, and service.
 
+> **Note:** Auto-registration uses default model/guard/service. For custom implementations, use manual registration with `CoreTenantModule.forRoot({ service: CustomTenantService })` in your ServerModule.
+
 ## Custom Integration (Manual Registration)
 
 ### 1. Create TenantMember Model
@@ -38,7 +40,28 @@ export class TenantMember extends CoreTenantMemberModel {
 
 Extend `CoreTenantService` to add custom logic (notifications, tenant creation, etc.).
 
-### 3. Add Tenant Header to API Calls
+### 3. Register in ServerModule
+
+**Modify:** `src/server/server.module.ts`
+
+```typescript
+import { CoreTenantModule } from '@lenne.tech/nest-server';
+import { TenantMember } from './modules/tenant/tenant-member.model';
+import { TenantService } from './modules/tenant/tenant.service';
+
+@Module({
+  imports: [
+    CoreTenantModule.forRoot({
+      memberModel: TenantMember,
+      service: TenantService,
+    }),
+    // ...
+  ],
+})
+export class ServerModule {}
+```
+
+### 4. Add Tenant Header to API Calls
 
 All tenant-scoped requests must include:
 
@@ -46,7 +69,7 @@ All tenant-scoped requests must include:
 X-Tenant-Id: <tenant-id>
 ```
 
-### 4. Add tenantId to Scoped Models
+### 5. Add tenantId to Scoped Models
 
 Models that should be tenant-scoped need a `tenantId` field:
 
@@ -57,7 +80,7 @@ tenantId: string;
 
 The tenant plugin automatically filters and populates this field.
 
-### 5. Use @TenantRoles() on Protected Endpoints
+### 6. Use @TenantRoles() on Protected Endpoints
 
 ```typescript
 @TenantRoles(TenantRole.MEMBER)
@@ -72,6 +95,10 @@ async listItems(@CurrentTenant() tenantId: string) { ... }
 - [ ] Request without header on tenant route returns 403
 - [ ] Admin user can access any tenant (if adminBypass: true)
 - [ ] Non-member gets 403
+
+## Security
+
+> **IMPORTANT:** All endpoints returning tenant-scoped data MUST use `@TenantRoles(TenantRole.MEMBER)`. Without this decorator, any client sending an `X-Tenant-Id` header can access that tenant's data without membership validation.
 
 ## Common Mistakes
 

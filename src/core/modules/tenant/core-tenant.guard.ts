@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { InjectModel } from '@nestjs/mongoose';
@@ -27,6 +27,8 @@ import { TENANT_ROLE_HIERARCHY, TenantMemberStatus, TenantRole } from './core-te
  */
 @Injectable()
 export class CoreTenantGuard implements CanActivate {
+  private readonly logger = new Logger(CoreTenantGuard.name);
+
   constructor(
     private readonly reflector: Reflector,
     @InjectModel('TenantMember') private readonly memberModel: Model<CoreTenantMemberModel>,
@@ -60,7 +62,9 @@ export class CoreTenantGuard implements CanActivate {
     // The tenant plugin still reads the header directly from the middleware.
     if (!requiredRoles) {
       // When no header is set but user is authenticated, resolve their tenant memberships
-      // so the tenant plugin can filter by { tenantId: { $in: tenantIds } }
+      // so the tenant plugin can filter by { tenantId: { $in: tenantIds } }.
+      // The !request.tenantIds check prevents double-resolution when the guard runs
+      // multiple times in the same request chain (e.g., multiple route handlers).
       if (!tenantId && request.user && !request.tenantIds) {
         await this.resolveUserTenantIds(request);
       }
@@ -82,6 +86,7 @@ export class CoreTenantGuard implements CanActivate {
     // Intentional escalation: admins need full tenant access for cross-tenant operations.
     const adminBypass = config.adminBypass !== false;
     if (adminBypass && user.roles?.includes(RoleEnum.ADMIN)) {
+      this.logger.warn(`Admin bypass: user ${user.id} accessing tenant ${tenantId} as OWNER (no membership)`);
       request.activeTenantId = tenantId;
       request.tenantRole = TenantRole.OWNER;
       return true;
@@ -117,7 +122,10 @@ export class CoreTenantGuard implements CanActivate {
       }
     }
 
-    // Set tenant context on request
+    // Set tenant context on request.
+    // Uses 'activeTenantId' (not 'tenantId') to distinguish validated tenant from
+    // the raw header value in context.tenantId (set by RequestContextMiddleware).
+    // The Mongoose plugin reads context.tenantId (header); @CurrentTenant() reads activeTenantId (validated).
     request.activeTenantId = tenantId;
     request.tenantRole = memberRole;
 

@@ -24,7 +24,9 @@ export class RequestContextMiddleware implements NestMiddleware {
         const config = ConfigService.configFastButReadOnly?.multiTenancy;
         if (!config || config.enabled === false) return undefined;
         const headerName = (config.headerName ?? 'x-tenant-id').toLowerCase();
-        return (req.headers?.[headerName] as string) ?? undefined;
+        const raw = req.headers?.[headerName] as string | undefined;
+        // Same validation as CoreTenantGuard: max 128 chars, trimmed
+        return raw && raw.length <= 128 ? raw.trim() : undefined;
       },
       get tenantIds() {
         return (req as any).tenantIds ?? undefined;

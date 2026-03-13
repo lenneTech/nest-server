@@ -114,6 +114,35 @@ export class TenantService extends CoreTenantService {
 CoreTenantModule.forRoot({ service: TenantService });
 ```
 
+## Security Notes
+
+> **IMPORTANT:** The Mongoose tenant plugin filters data by `tenantId` based on the raw request header. On routes **without** `@TenantRoles()`, any client that sends an `X-Tenant-Id` header can access that tenant's data without membership validation. **Always use `@TenantRoles(TenantRole.MEMBER)` on any endpoint that returns tenant-scoped data.**
+
+> **Explicit tenantId on writes:** The plugin only auto-sets `tenantId` on new documents when no explicit value is provided. Service-layer code that accepts user-supplied `tenantId` as a creation parameter could allow cross-tenant writes. Never pass user-supplied `tenantId` directly to `create()` or `new Model()`.
+
+### Secured Membership Controller Example
+
+When building a tenant management UI, protect membership endpoints with both system and tenant roles:
+
+```typescript
+@Controller('tenants/:tenantId/members')
+export class TenantMemberController {
+  @Get()
+  @Roles(RoleEnum.S_USER)
+  @TenantRoles(TenantRole.ADMIN)
+  async listMembers(@CurrentTenant() tenantId: string) {
+    return this.tenantService.findMemberships(tenantId);
+  }
+
+  @Post()
+  @Roles(RoleEnum.S_USER)
+  @TenantRoles(TenantRole.OWNER)
+  async addMember(@CurrentTenant() tenantId: string, @Body() body: AddMemberDto) {
+    return this.tenantService.addMember(tenantId, body.userId, body.role);
+  }
+}
+```
+
 ## Related
 
 - [Integration Checklist](./INTEGRATION-CHECKLIST.md)

@@ -285,6 +285,8 @@ describe('CoreTenantGuard (e2e)', () => {
       .expect(200);
 
     expect(res.body.ok).toBe(true);
+    // Without @TenantRoles(), @CurrentTenant() should return undefined (no membership validation)
+    expect(res.body.tenantId).toBeUndefined();
   });
 
   // =========================================================================
