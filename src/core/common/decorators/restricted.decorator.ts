@@ -5,7 +5,9 @@ import _ = require('lodash');
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
 import { equalIds, getIncludedIds } from '../helpers/db.helper';
+import { RequestContext } from '../services/request-context.service';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
+import { checkRoleAccess } from '../../modules/tenant/core-tenant.helpers';
 
 /**
  * Restricted meta key
@@ -61,7 +63,14 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
  */
 export const checkRestricted = (
   data: any,
-  user: { emailVerified?: any; hasRole: (roles: string[]) => boolean; id: any; verified?: any; verifiedAt?: any },
+  user: {
+    emailVerified?: any;
+    hasRole: (roles: string[]) => boolean;
+    id: any;
+    roles?: string[];
+    verified?: any;
+    verifiedAt?: any;
+  },
   options: {
     allowCreatorOfParent?: boolean;
     checkObjectItself?: boolean;
@@ -163,7 +172,8 @@ export const checkRestricted = (
         (roles.includes(RoleEnum.S_CREATOR) &&
           (('createdBy' in data && equalIds(data.createdBy, user)) ||
             (config.allowCreatorOfParent && !('createdBy' in data) && config.isCreatorOfParent))) ||
-        (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified))
+        (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified)) ||
+        (user?.id && checkRoleAccess(roles, user?.roles, RequestContext.get()?.tenantRole))
       ) {
         valid = true;
       }

@@ -1,3 +1,5 @@
+import { ForbiddenException } from '@nestjs/common';
+
 import { ConfigService } from '../services/config.service';
 import { RequestContext } from '../services/request-context.service';
 
@@ -152,26 +154,37 @@ function shouldBypass(modelName?: string): boolean {
 /**
  * Resolve tenant filter from RequestContext for read operations (queries, aggregates).
  *
+ * Defense-in-depth: If a schema has tenantId but there is no valid tenant context,
+ * throws ForbiddenException instead of returning unfiltered data (Safety Net).
+ *
  * @returns
- * - `undefined` → no filter should be applied
- * - `{ tenantId: string }` → filter by single tenant (header set)
- * - `{ tenantId: { $in: string[] } }` → filter by user's tenant memberships (no header)
+ * - `undefined` → no filter should be applied (bypass active or plugin disabled)
+ * - `{}` → empty filter (admin bypass without header — sees all data)
+ * - `{ tenantId: string }` → filter by single validated tenant
+ * - `{ tenantId: { $in: string[] } }` → filter by user's tenant memberships
+ * @throws ForbiddenException when tenantId-schema is accessed without valid tenant context
  */
 function resolveTenantFilter(modelName?: string): Record<string, any> | undefined {
   if (shouldBypass(modelName)) return undefined;
 
   const context = RequestContext.get();
-  const tenantId = context?.tenantId;
 
-  // Specific tenant header → filter by it
+  // Validated tenant ID (set by CoreTenantGuard) → filter by it
+  const tenantId = context?.tenantId;
   if (tenantId) return { tenantId };
 
-  // No header but user has resolved memberships → filter by their tenants
+  // User has resolved memberships → filter by their tenants
   const tenantIds = context?.tenantIds;
   if (tenantIds) return { tenantId: { $in: tenantIds } };
 
-  // No header, no user / no memberships → no filter
-  return undefined;
+  // Admin bypass without header → no filter, sees all data
+  if (context?.isAdminBypass) return {};
+
+  // SAFETY NET: Schema has tenantId but no valid tenant context.
+  // Throw instead of returning unfiltered data to prevent data leaks.
+  throw new ForbiddenException(
+    'Tenant context required: this data is tenant-scoped but no valid tenant context was provided',
+  );
 }
 
 /**

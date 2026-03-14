@@ -402,7 +402,7 @@ export class CoreModule implements NestModule {
         config.multiTenancy.excludeSchemas.push(membershipModelName);
       }
 
-      imports.push(CoreTenantModule.forRoot({}));
+      imports.push(CoreTenantModule.forRoot({ modelName: membershipModelName }));
     }
 
     // Set exports

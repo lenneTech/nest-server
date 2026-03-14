@@ -2,9 +2,10 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { ConfigService } from '../../common/services/config.service';
 import { RequestContext } from '../../common/services/request-context.service';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
-import { TenantMemberStatus, TenantRole } from './core-tenant.enums';
+import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
 
 /**
  * Core service for tenant membership operations.
@@ -16,7 +17,7 @@ import { TenantMemberStatus, TenantRole } from './core-tenant.enums';
  * ```typescript
  * @Injectable()
  * export class TenantService extends CoreTenantService {
- *   override async addMember(tenantId: string, userId: string, role: TenantRole) {
+ *   override async addMember(tenantId: string, userId: string, role?: string) {
  *     const member = await super.addMember(tenantId, userId, role);
  *     // Custom: send notification email
  *     await this.notificationService.sendInvite(userId, tenantId);
@@ -29,7 +30,34 @@ import { TenantMemberStatus, TenantRole } from './core-tenant.enums';
 export class CoreTenantService {
   protected readonly logger = new Logger(CoreTenantService.name);
 
-  constructor(@InjectModel('TenantMember') protected readonly memberModel: Model<CoreTenantMemberModel>) {}
+  constructor(@InjectModel(TENANT_MEMBER_MODEL_TOKEN) protected readonly memberModel: Model<CoreTenantMemberModel>) {}
+
+  /**
+   * Get the configured role hierarchy.
+   */
+  protected getHierarchy(): Record<string, number> {
+    return ConfigService.configFastButReadOnly?.multiTenancy?.roleHierarchy ?? DEFAULT_ROLE_HIERARCHY;
+  }
+
+  /**
+   * Get the default (lowest) role name from the hierarchy.
+   */
+  protected getDefaultRole(): string {
+    const hierarchy = this.getHierarchy();
+    const entries = Object.entries(hierarchy);
+    if (entries.length === 0) return 'member';
+    return entries.reduce((a, b) => (a[1] <= b[1] ? a : b))[0];
+  }
+
+  /**
+   * Get the highest role name from the hierarchy.
+   */
+  protected getHighestRole(): string {
+    const hierarchy = this.getHierarchy();
+    const entries = Object.entries(hierarchy);
+    if (entries.length === 0) return 'owner';
+    return entries.reduce((a, b) => (a[1] >= b[1] ? a : b))[0];
+  }
 
   /**
    * Find all active tenant memberships for a user.
@@ -53,13 +81,23 @@ export class CoreTenantService {
   /**
    * Add a member to a tenant.
    * Uses bypassTenantGuard to avoid tenant filtering on the membership collection itself.
+   *
+   * @param role - Role name from the configured hierarchy. Defaults to the lowest role.
    */
   async addMember(
     tenantId: string,
     userId: string,
-    role: TenantRole = TenantRole.MEMBER,
+    role?: string,
     invitedById?: string,
   ): Promise<CoreTenantMemberModel> {
+    if (!tenantId?.trim()) {
+      throw new BadRequestException('tenantId must not be empty');
+    }
+    if (!userId?.trim()) {
+      throw new BadRequestException('userId must not be empty');
+    }
+    const effectiveRole = role ?? this.getDefaultRole();
+
     // Check for existing membership
     const existing = await this.getMembership(tenantId, userId);
     if (existing) {
@@ -74,7 +112,7 @@ export class CoreTenantService {
             {
               invitedBy: invitedById,
               joinedAt: new Date(),
-              role,
+              role: effectiveRole,
               status: TenantMemberStatus.ACTIVE,
             },
             { new: true },
@@ -88,7 +126,7 @@ export class CoreTenantService {
       const doc = await this.memberModel.create({
         invitedBy: invitedById,
         joinedAt: new Date(),
-        role,
+        role: effectiveRole,
         status: TenantMemberStatus.ACTIVE,
         tenant: tenantId,
         user: userId,
@@ -99,9 +137,15 @@ export class CoreTenantService {
 
   /**
    * Remove a member from a tenant (sets status to SUSPENDED).
-   * Prevents removing the last OWNER.
+   * Prevents removing the last owner (highest role).
    */
   async removeMember(tenantId: string, userId: string): Promise<CoreTenantMemberModel> {
+    if (!tenantId?.trim()) {
+      throw new BadRequestException('tenantId must not be empty');
+    }
+    if (!userId?.trim()) {
+      throw new BadRequestException('userId must not be empty');
+    }
     await this.assertNotLastOwner(tenantId, userId);
 
     return RequestContext.runWithBypassTenantGuard(async () => {
@@ -124,12 +168,23 @@ export class CoreTenantService {
 
   /**
    * Update a member's role within a tenant.
-   * Prevents demoting the last OWNER.
+   * Prevents demoting the last owner (highest role).
    */
-  async updateMemberRole(tenantId: string, userId: string, role: TenantRole): Promise<CoreTenantMemberModel> {
-    // If demoting from OWNER, ensure it's not the last one
+  async updateMemberRole(tenantId: string, userId: string, role: string): Promise<CoreTenantMemberModel> {
+    if (!tenantId?.trim()) {
+      throw new BadRequestException('tenantId must not be empty');
+    }
+    if (!userId?.trim()) {
+      throw new BadRequestException('userId must not be empty');
+    }
+    if (!role?.trim()) {
+      throw new BadRequestException('role must not be empty');
+    }
+    const highestRole = this.getHighestRole();
+
+    // If demoting from highest role, ensure it's not the last one
     const existing = await this.getMembership(tenantId, userId);
-    if (existing?.role === TenantRole.OWNER && role !== TenantRole.OWNER) {
+    if (existing?.role === highestRole && role !== highestRole) {
       await this.assertNotLastOwner(tenantId, userId);
     }
 
@@ -152,7 +207,7 @@ export class CoreTenantService {
   }
 
   /**
-   * Ensure the given user is not the last OWNER of the tenant.
+   * Ensure the given user is not the last owner (highest role) of the tenant.
    * Throws BadRequestException if removing/demoting them would leave the tenant without an owner.
    *
    * Note: This uses a read-check-act pattern which has a theoretical TOCTOU race under
@@ -160,16 +215,18 @@ export class CoreTenantService {
    * MongoDB transactions (requires replica set) in your extended service.
    */
   async assertNotLastOwner(tenantId: string, userId: string): Promise<void> {
+    const highestRole = this.getHighestRole();
+
     return RequestContext.runWithBypassTenantGuard(async () => {
       const ownerCount = await this.memberModel.countDocuments({
-        role: TenantRole.OWNER,
+        role: highestRole,
         status: TenantMemberStatus.ACTIVE,
         tenant: tenantId,
       });
 
       if (ownerCount <= 1) {
         const membership = await this.getMembership(tenantId, userId);
-        if (membership?.role === TenantRole.OWNER) {
+        if (membership?.role === highestRole) {
           throw new BadRequestException('Cannot remove or demote the last owner of a tenant');
         }
       }

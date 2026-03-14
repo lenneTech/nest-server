@@ -1,49 +1,46 @@
-import { createParamDecorator, ExecutionContext, SetMetadata } from '@nestjs/common';
-import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
+import { createParamDecorator, SetMetadata } from '@nestjs/common';
 
-import { TenantRole } from './core-tenant.enums';
+import { RequestContext } from '../../common/services/request-context.service';
 
 /**
- * Metadata key for tenant roles requirement.
+ * Metadata key for @SkipTenantCheck() decorator.
  */
-export const TENANT_ROLES_KEY = 'tenantRoles';
+export const SKIP_TENANT_CHECK_KEY = 'skipTenantCheck';
 
 /**
- * Method decorator that sets the required tenant role for the endpoint.
- * When present, the CoreTenantGuard enforces:
- * - X-Tenant-Id header must be provided
- * - User must be an active member of the tenant
- * - User's tenant role must meet the minimum required level
+ * Method/class decorator that opts out of tenant checks for a specific endpoint.
+ * When present, CoreTenantGuard skips all tenant validation and does not set
+ * tenantId or isAdminBypass on the request.
  *
- * Role hierarchy: OWNER > ADMIN > MEMBER
+ * Use this for endpoints that intentionally work without tenant context,
+ * e.g., listing available tenants, user profile endpoints, etc.
  *
  * @example
  * ```typescript
- * @TenantRoles(TenantRole.ADMIN)
- * async updateProject(@CurrentTenant() tenantId: string) { ... }
- *
- * @TenantRoles(TenantRole.MEMBER)
- * async listProjects(@CurrentTenant() tenantId: string) { ... }
+ * @SkipTenantCheck()
+ * @Roles(RoleEnum.S_USER)
+ * async listMyTenants() { ... }
  * ```
  */
-export const TenantRoles = (...roles: TenantRole[]) => SetMetadata(TENANT_ROLES_KEY, roles);
+export const SkipTenantCheck = () => SetMetadata(SKIP_TENANT_CHECK_KEY, true);
 
 /**
  * Parameter decorator that extracts the validated tenant ID from the current request.
- * Returns `undefined` if no tenant header is set or route is not protected by @TenantRoles().
+ * Returns `undefined` if no tenant header is set or the endpoint has @SkipTenantCheck().
+ *
+ * Reads from RequestContext (set by CoreTenantGuard → req.tenantId →
+ * RequestContextMiddleware lazy getter → context.tenantId), so it works
+ * consistently across HTTP and GraphQL without context-type switching.
  *
  * @example
  * ```typescript
  * @Get('projects')
+ * @Roles(DefaultHR.MEMBER)
  * async listProjects(@CurrentTenant() tenantId: string | undefined) {
- *   // tenantId comes from X-Tenant-Id header, validated by guard
+ *   // tenantId comes from X-Tenant-Id header, validated by CoreTenantGuard
  * }
  * ```
  */
-export const CurrentTenant = createParamDecorator((_data: unknown, ctx: ExecutionContext): string | undefined => {
-  if (ctx.getType<GqlContextType>() === 'graphql') {
-    const gqlContext = GqlExecutionContext.create(ctx);
-    return gqlContext.getContext().req?.activeTenantId;
-  }
-  return ctx.switchToHttp().getRequest()?.activeTenantId;
+export const CurrentTenant = createParamDecorator((): string | undefined => {
+  return RequestContext.get()?.tenantId;
 });

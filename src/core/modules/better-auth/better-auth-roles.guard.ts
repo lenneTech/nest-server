@@ -10,6 +10,7 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ErrorCode } from '../error-code';
+import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthenticatedUser } from './better-auth.types';
 import { CoreBetterAuthModule } from './core-better-auth.module';
@@ -79,12 +80,7 @@ export class BetterAuthRolesGuard implements CanActivate {
     const classRoles = Reflect.getMetadata('roles', context.getClass()) as string[] | undefined;
 
     // Combine handler and class roles (handler takes precedence, like Reflector.getAll)
-    const reflectorRoles: (string[] | undefined)[] = [handlerRoles, classRoles];
-    const roles: string[] = reflectorRoles[0]
-      ? reflectorRoles[1]
-        ? [...reflectorRoles[0], ...reflectorRoles[1]]
-        : reflectorRoles[0]
-      : reflectorRoles[1];
+    const roles = mergeRolesMetadata([handlerRoles, classRoles]);
 
     // Check if locked - always deny
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
@@ -117,6 +113,13 @@ export class BetterAuthRolesGuard implements CanActivate {
 
     // Check S_USER role - any authenticated user is allowed
     if (roles.includes(RoleEnum.S_USER)) {
+      return true;
+    }
+
+    // When multiTenancy active: pass through ALL non-system roles to CoreTenantGuard.
+    // CoreTenantGuard handles hierarchy (level) and non-hierarchy (exact) checks
+    // against membership.role (tenant) or user.roles (no tenant).
+    if (isMultiTenancyActive() && roles.some((r) => !isSystemRole(r))) {
       return true;
     }
 

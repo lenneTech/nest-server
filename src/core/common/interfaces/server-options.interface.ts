@@ -865,6 +865,36 @@ export interface IMultiTenancy {
    * @since 11.21.0
    */
   adminBypass?: boolean;
+
+  /**
+   * Custom role hierarchy for tenant membership roles.
+   * Keys = role names (stored in membership documents), values = numeric levels.
+   * Higher value = more privileges. Multiple roles can share the same level.
+   *
+   * Hierarchy roles use level comparison: a higher level includes all lower levels.
+   * Roles NOT in this config are treated as "normal roles" with exact match semantics.
+   *
+   * Use `createHierarchyRoles(hierarchy)` to generate type-safe constants for decorators.
+   *
+   * @default { member: 1, manager: 2, owner: 3 }
+   * @since 11.21.0
+   *
+   * @example
+   * ```typescript
+   * // config.env.ts
+   * multiTenancy: {
+   *   roleHierarchy: { viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 }
+   * }
+   *
+   * // roles.ts
+   * import { createHierarchyRoles } from '@lenne.tech/nest-server';
+   * export const HR = createHierarchyRoles({ viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 });
+   *
+   * // resolver.ts
+   * @Roles(HR.EDITOR) // requires level >= 2 (editor, manager, admin, owner)
+   * ```
+   */
+  roleHierarchy?: Record<string, number>;
 }
 
 /**

@@ -16,6 +16,7 @@ import { BetterAuthTokenService } from '../../better-auth/better-auth-token.serv
 import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
 import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
 import { ErrorCode } from '../../error-code';
+import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../../tenant/core-tenant.helpers';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { ExpiredTokenException } from '../exceptions/expired-token.exception';
 import { InvalidTokenException } from '../exceptions/invalid-token.exception';
@@ -134,11 +135,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
       context.getHandler(),
       context.getClass(),
     ]);
-    const roles: string[] = reflectorRoles[0]
-      ? reflectorRoles[1]
-        ? [...reflectorRoles[0], ...reflectorRoles[1]]
-        : reflectorRoles[0]
-      : reflectorRoles[1];
+    const roles = mergeRolesMetadata(reflectorRoles);
 
     // Check if locked - always deny
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
@@ -294,11 +291,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
       context.getHandler(),
       context.getClass(),
     ]);
-    const roles: string[] = reflectorRoles[0]
-      ? reflectorRoles[1]
-        ? [...reflectorRoles[0], ...reflectorRoles[1]]
-        : reflectorRoles[0]
-      : reflectorRoles[1];
+    const roles = mergeRolesMetadata(reflectorRoles);
 
     // Check if locked
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
@@ -314,6 +307,13 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     if (!user?.hasRole?.(roles)) {
       // Check special user roles (user is logged in or access is free for any)
       if ((user && roles.includes(RoleEnum.S_USER)) || roles.includes(RoleEnum.S_EVERYONE)) {
+        return user;
+      }
+
+      // When multiTenancy active: pass through ALL non-system roles to CoreTenantGuard.
+      // CoreTenantGuard handles hierarchy (level) and non-hierarchy (exact) checks
+      // against membership.role (tenant) or user.roles (no tenant).
+      if (user && isMultiTenancyActive() && roles.some((r) => !isSystemRole(r))) {
         return user;
       }
 

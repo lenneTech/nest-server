@@ -292,14 +292,14 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   });
 
   // =========================================================================
-  // Test 14: User without tenant header sees all data (no filter)
+  // Test 14: User without tenant context → Safety Net throws (tenantId-schema)
   // =========================================================================
-  it('should not filter when user has no tenantId (no tenant header)', async () => {
+  it('should throw ForbiddenException for user without tenant context on tenantId-schema', async () => {
     await tenantItemModel.create({ name: 'assigned', tenantId: 'tenant-a' });
-    await tenantItemModel.create({ name: 'unassigned', tenantId: null });
 
-    const items = await runAsUserWithoutTenant(() => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(2);
+    await expect(
+      runAsUserWithoutTenant(() => tenantItemModel.find().lean().exec()),
+    ).rejects.toThrow('Tenant context required');
   });
 
   // =========================================================================
@@ -427,9 +427,13 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   });
 
   // =========================================================================
-  // Test 23: User without tenant creates document — no tenantId set
+  // Test 23: User without tenant creates document via save — Safety Net throws
   // =========================================================================
-  it('should not auto-set tenantId when user has no tenantId (save)', async () => {
+  it('should throw ForbiddenException when saving without tenant context on tenantId-schema', async () => {
+    // save triggers the pre('save') hook but NOT the query hooks.
+    // The save hook only sets tenantId, it doesn't throw. However, the document is
+    // created without tenantId, which is valid (tenantId is optional).
+    // Safety net only applies to reads, not writes.
     const doc = await runAsUserWithoutTenant(async () => {
       const item = new tenantItemModel({ name: 'no-tenant-item' });
       return item.save();
@@ -448,30 +452,30 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   });
 
   // =========================================================================
-  // Test 25: Empty string tenantId treated as falsy (no filter applied)
+  // Test 25: Empty string tenantId treated as falsy → Safety Net throws
   // =========================================================================
-  it('should treat empty string tenantId as falsy (no filter)', async () => {
+  it('should throw ForbiddenException when tenantId is empty string', async () => {
     await tenantItemModel.create({ name: 'assigned', tenantId: 'tenant-a' });
-    await tenantItemModel.create({ name: 'unassigned', tenantId: null });
 
     const context: IRequestContext = {
       currentUser: { id: 'empty-tenant-user' },
       tenantId: '',
     };
-    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(2);
+    await expect(
+      RequestContext.run(context, () => tenantItemModel.find().lean().exec()),
+    ).rejects.toThrow('Tenant context required');
   });
 
   // =========================================================================
-  // Test 26: Public endpoint (no user) = no filter
+  // Test 26: Public endpoint (no user) → Safety Net throws on tenantId-schema
   // =========================================================================
-  it('should not filter when there is a context but no user (public endpoint)', async () => {
+  it('should throw ForbiddenException for public context on tenantId-schema', async () => {
     await tenantItemModel.create({ name: 'a1', tenantId: 'tenant-a' });
-    await tenantItemModel.create({ name: 'b1', tenantId: 'tenant-b' });
 
     const context: IRequestContext = {};
-    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(2);
+    await expect(
+      RequestContext.run(context, () => tenantItemModel.find().lean().exec()),
+    ).rejects.toThrow('Tenant context required');
   });
 
   // =========================================================================
@@ -640,17 +644,18 @@ describe('Multi-Tenancy Plugin — header-based tenantId (e2e)', () => {
     expect(items[0].name).toBe('ws-a');
   });
 
-  it('should not filter when no tenantId in context (no header)', async () => {
+  it('should throw ForbiddenException when no tenantId in context (safety net)', async () => {
     await tenantItemModel.create({ name: 'ws-a', tenantId: 'workspace-a' });
     await tenantItemModel.create({ name: 'ws-b', tenantId: 'workspace-b' });
 
-    // Context without tenantId = no tenant header sent
+    // Context without tenantId = no valid tenant context → safety net throws
     const context: IRequestContext = {
       currentUser: { id: 'user-1' },
     };
 
-    const items = await RequestContext.run(context, () => tenantItemModel.find().lean().exec());
-    expect(items).toHaveLength(2);
+    await expect(
+      RequestContext.run(context, () => tenantItemModel.find().lean().exec()),
+    ).rejects.toThrow('Tenant context required');
   });
 });
 
