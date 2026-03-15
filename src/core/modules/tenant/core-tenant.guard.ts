@@ -115,9 +115,7 @@ export class CoreTenantGuard implements CanActivate {
         request.tenantId = headerTenantId;
         request.isAdminBypass = true;
         const requiredRole = checkableRoles.length > 0 ? checkableRoles.join(',') : 'none';
-        this.logger.log(
-          `Admin bypass: user ${user.id} accessing tenant ${headerTenantId} (required: ${requiredRole})`,
-        );
+        this.logger.log(`Admin bypass: user ${user.id} accessing tenant ${headerTenantId} (required: ${requiredRole})`);
         return true;
       }
 
