@@ -33,6 +33,7 @@ import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
+import { CoreTenantModule } from './core/modules/tenant/core-tenant.module';
 
 /**
  * Core module (dynamic)
@@ -388,6 +389,20 @@ export class CoreModule implements NestModule {
     // Enabled by default - disable explicitly via systemSetup: { enabled: false }
     if (isBetterAuthEnabled && config.systemSetup?.enabled !== false) {
       imports.push(CoreSystemSetupModule);
+    }
+
+    // Add CoreTenantModule when multiTenancy is configured (presence implies enabled)
+    if (config.multiTenancy && config.multiTenancy.enabled !== false) {
+      // Auto-add TenantMember to excludeSchemas (membership is tenant-spanning)
+      const membershipModelName = config.multiTenancy.membershipModel ?? 'TenantMember';
+      if (!config.multiTenancy.excludeSchemas) {
+        config.multiTenancy.excludeSchemas = [];
+      }
+      if (!config.multiTenancy.excludeSchemas.includes(membershipModelName)) {
+        config.multiTenancy.excludeSchemas.push(membershipModelName);
+      }
+
+      imports.push(CoreTenantModule.forRoot({ modelName: membershipModelName }));
     }
 
     // Set exports

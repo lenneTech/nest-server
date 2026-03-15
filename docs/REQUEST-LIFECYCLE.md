@@ -83,6 +83,7 @@ JWT-based authentication for existing projects:
 |---------|-------------|
 | **Real Roles** | `ADMIN` (stored in `user.roles`) |
 | **System Roles** | `S_USER`, `S_VERIFIED`, `S_CREATOR`, `S_SELF`, `S_EVERYONE`, `S_NO_ONE` (runtime-only, never stored) |
+| **Hierarchy Roles** | Configurable via `multiTenancy.roleHierarchy` (default: `member`, `manager`, `owner`). Level comparison: higher includes lower. Use `DefaultHR` or `createHierarchyRoles()`. |
 | **Method-Level Auth** | `@Roles()` decorator on resolvers/controllers |
 | **Field-Level Auth** | `@Restricted()` decorator on model properties |
 | **Membership Checks** | `@Restricted({ memberOf: 'teamMembers' })` |
@@ -104,6 +105,9 @@ JWT-based authentication for existing projects:
 | **Secret Fields Removal** | Configurable fallback removal of password, tokens, etc. |
 | **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
+| **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
+| **Tenant Guard** | `CoreTenantGuard` validates tenant membership via hierarchy roles (`@Roles(DefaultHR.MEMBER)`) or `@SkipTenantCheck()` |
+| **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
 
 ### Data & CRUD
 
@@ -145,6 +149,7 @@ JWT-based authentication for existing projects:
 | `@ResponseModel(Model)` | REST response type hint for auto-conversion |
 | `@Translatable()` | Multi-language field metadata |
 | `@CommonError(code)` | Error code registration |
+| `@SkipTenantCheck()` | Opt out of CoreTenantGuard validation on a method |
 
 ### File Handling
 
@@ -242,11 +247,11 @@ nest-server implements **defense-in-depth security** with three complementary la
 +===================================================================+
 |                                                                   |
 |  Layer 1: Guardian Gates (Middleware -> Guards -> Pipes)           |
-|  +------------------+  +-----------+  +-----------------------+   |
-|  | RequestContext   |  | Roles     |  | MapAndValidatePipe    |   |
-|  | BetterAuth       |->| Guard     |->| (whitelist + valid.)  |   |
-|  | Middleware        |  |           |  |                       |   |
-|  +------------------+  +-----------+  +-----------------------+   |
+|  +------------------+  +-----------+  +--------+  +------------+  |
+|  | RequestContext   |  | Roles     |  | Tenant |  | MapAndValid|  |
+|  | BetterAuth       |->| Guard     |->| Guard  |->| atePipe    |  |
+|  | Middleware        |  |           |  |        |  |            |  |
+|  +------------------+  +-----------+  +--------+  +------------+  |
 |                                                                   |
 |  Layer 2: Application Logic (Controllers/Resolvers -> Services)   |
 |  +----------------+  +---------------------------------------+   |
@@ -261,7 +266,8 @@ nest-server implements **defense-in-depth security** with three complementary la
 |  |  - Password Hashing      |  |  - ResponseModelInterceptor  |   |
 |  |  - Role Guard            |  |  - TranslateResponse         |   |
 |  |  - Audit Fields          |  |  - CheckSecurity (secrets)   |   |
-|  |                          |  |  - CheckResponse (@Restrict) |   |
+|  |  - Tenant Isolation      |  |  - CheckResponse (@Restrict) |   |
+|  |    (Safety Net: 403)     |  |                              |   |
 |  +--------------------------+  +------------------------------+   |
 |                                                                   |
 +===================================================================+
@@ -310,6 +316,16 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Checks real roles (ADMIN)                         |
   |     - Evaluates system roles (S_USER, ...)              |
   |     - Throws 401 (Unauthorized) or 403 (Forbidden)     |
+  |                                                         |
+  |  4b. CoreTenantGuard  [if multiTenancy enabled]          |
+  |     - Reads X-Tenant-Id header                          |
+  |     - Validates membership via hierarchy roles (level comparison)  |
+  |     - Non-admin + header + no membership = always 403   |
+  |     - Checks configurable roleHierarchy levels          |
+  |     - Admin bypass: sets isAdminBypass (sees all data)  |
+  |     - Sets tenantId in RequestContext                    |
+  |     - @SkipTenantCheck() opts out of tenant validation  |
+  |     - Throws 403 (Forbidden) on failure                |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -465,6 +481,11 @@ System roles are evaluated at runtime and must **never** be stored in `user.role
 | `S_VERIFIED` | `user.verified \|\| user.emailVerified` | Email-verified users |
 | `S_CREATOR` | `object.createdBy === user.id` | Creator of the resource |
 | `S_SELF` | `object.id === user.id` | User accessing own data |
+| `DefaultHR.MEMBER` (`'member'`) | Active membership in current tenant (level >= 1) | Tenant member access |
+| `DefaultHR.MANAGER` (`'manager'`) | At least manager-level role (level >= 2) | Tenant manager access |
+| `DefaultHR.OWNER` (`'owner'`) | Highest role level (level >= 3) | Tenant owner access |
+| Custom hierarchy roles | Configurable via `createHierarchyRoles()` | Level comparison |
+| Normal (non-hierarchy) roles | Exact match against membership.role or user.roles | No level compensation |
 
 > **NestJS docs:** [Guards](https://docs.nestjs.com/guards), [Authorization](https://docs.nestjs.com/security/authorization)
 
@@ -663,6 +684,9 @@ When the service performs write operations (save, update), Mongoose plugins fire
 #### Tenant Isolation Plugin (opt-in)
 
 Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a `tenantId` field.
+The `tenantId` is read from RequestContext (set by CoreTenantGuard via `req.tenantId`), not the raw header.
+
+**Safety Net:** If a tenant-schema is accessed without a valid tenant context (no `tenantId` and no bypass), the plugin throws a `ForbiddenException`. This prevents accidental cross-tenant data leaks when developers forget to set the tenant header or bypass.
 
 ```
                         +---------------------+
@@ -694,22 +718,22 @@ Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a 
                                               Yes /              \ No
                                                  /                \
                                    +------------+     +------------v-----------+
-                                   | No filter  |     | User has tenantId?     |
+                                   | No filter  |     | isAdminBypass?         |
                                    +------------+     +------------+-----------+
                                                       Yes /              \ No
                                                          /                \
                                            +------------+     +------------v-----------+
-                                           | Filter by  |     | User logged in?        |
-                                           | tenantId   |     +------------+-----------+
-                                           +------------+     Yes /              \ No
-                                                                 /                \
-                                                   +------------+     +------------+
-                                                   | Filter by  |     | No filter  |
-                                                   | null       |     | (public)   |
-                                                   +------------+     +------------+
+                                           | No filter  |     | tenantId?              |
+                                           | (admin sees|     +------------+-----------+
+                                           |  all data) |     Yes /              \ No
+                                           +------------+        /                \
+                                                   +------------+    +-------------+
+                                                   | Filter by  |    | FORBIDDEN   |
+                                                   | tenantId   |    | (Safety Net)|
+                                                   +------------+    +-------------+
 ```
 
-**Important:** ADMIN-role users are also filtered by their own tenantId. For cross-tenant admin operations, use `RequestContext.runWithBypassTenantGuard()`.
+**Important:** When `multiTenancy.adminBypass` is `true` (default), system admins without a tenant header get `isAdminBypass` set in RequestContext and see all data (no tenant filter). Non-admin users with a tenant header but no membership always get 403. For cross-tenant admin operations, use `RequestContext.runWithBypassTenantGuard()`.
 
 > **NestJS docs:** [Custom decorators](https://docs.nestjs.com/custom-decorators), [Mongoose](https://docs.nestjs.com/techniques/mongodb)
 
@@ -878,6 +902,10 @@ The Safety Net ensures security even when developers bypass `CrudService.process
            |                                        |
            |  - Audit fields set                    |
            |    (mongooseAuditFieldsPlugin)          |
+           |                                        |
+           |  - Tenant isolation enforced           |
+           |    (mongooseTenantPlugin)              |
+           |    403 if no valid tenant context       |
            +-------------------+--------------------+
                                |
            +-------------------v--------------------+
@@ -935,9 +963,15 @@ Controls who can access a resolver/controller method. Evaluated by the RolesGuar
 
 // Multiple roles (OR logic — user needs at least one)
 @Roles(RoleEnum.ADMIN, 'MANAGER')
+
+// Tenant roles — validated by CoreTenantGuard when multiTenancy is enabled
+@Roles(DefaultHR.MEMBER)   // Any active tenant member (level >= 1)
+@Roles(DefaultHR.MANAGER)  // At least manager-level (level >= 2)
+@Roles(DefaultHR.OWNER)    // Highest role level (level >= 3)
+@Roles('auditor')           // Normal role: exact match only
 ```
 
-**Note:** `@Roles()` includes JWT authentication. Do NOT add `@UseGuards(AuthGuard(JWT))`.
+**Note:** `@Roles()` includes JWT authentication. Do NOT add `@UseGuards(AuthGuard(JWT))`. Hierarchy roles are evaluated by `CoreTenantGuard` using level comparison. Normal (non-hierarchy) roles use exact match. When `X-Tenant-Id` header is present, only `membership.role` is checked (user.roles ignored, except ADMIN bypass).
 
 ### @Restricted() — Field-Level Access Control
 
@@ -1144,7 +1178,7 @@ All security features are configured in `config.env.ts` under the `security` key
 | `security.mongoosePasswordPlugin` | `boolean \| { skipPatterns }` | `true` | Auto password hashing |
 | `security.mongooseRoleGuardPlugin` | `boolean \| { allowedRoles }` | `true` | Role escalation prevention |
 | `security.mongooseAuditFieldsPlugin` | `boolean` | `true` | Auto createdBy/updatedBy |
-| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation |
+| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation (header + membership) |
 
 ### Safety Net — Response Interceptors
 

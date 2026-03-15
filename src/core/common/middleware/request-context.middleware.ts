@@ -1,7 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { ConfigService } from '../services/config.service';
 import { IRequestContext, RequestContext } from '../services/request-context.service';
 
 /**
@@ -21,10 +20,18 @@ export class RequestContextMiddleware implements NestMiddleware {
         return req.headers?.['accept-language'] || undefined;
       },
       get tenantId() {
-        const config = ConfigService.configFastButReadOnly?.multiTenancy;
-        if (!config || config.enabled === false) return undefined;
-        const field = config.userField ?? 'tenantId';
-        return (req as any).user?.[field] ?? undefined;
+        // Only return tenant ID set by CoreTenantGuard (after membership validation).
+        // The raw header is NEVER used for plugin filtering.
+        return (req as any).tenantId ?? undefined;
+      },
+      get tenantIds() {
+        return (req as any).tenantIds ?? undefined;
+      },
+      get tenantRole() {
+        return (req as any).tenantRole ?? undefined;
+      },
+      get isAdminBypass() {
+        return (req as any).isAdminBypass ?? false;
       },
     };
     RequestContext.run(context, () => next());

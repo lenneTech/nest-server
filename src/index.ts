@@ -203,6 +203,18 @@ export * from './core/modules/system-setup/core-system-setup.service';
 export * from './core/modules/tus';
 
 // =====================================================================================================================
+// Core - Modules - Tenant
+// =====================================================================================================================
+
+export * from './core/modules/tenant/core-tenant-member.model';
+export * from './core/modules/tenant/core-tenant.decorators';
+export * from './core/modules/tenant/core-tenant.enums';
+export * from './core/modules/tenant/core-tenant.guard';
+export * from './core/modules/tenant/core-tenant.helpers';
+export * from './core/modules/tenant/core-tenant.module';
+export * from './core/modules/tenant/core-tenant.service';
+
+// =====================================================================================================================
 // Core - Modules - User
 // =====================================================================================================================
 
