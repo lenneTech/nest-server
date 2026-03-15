@@ -43,10 +43,37 @@ The `S_` prefix indicates a **system check**, not an actual role. These are eval
 - `@Roles(RoleEnum.ADMIN)` - Method-level authorization
 - `@Restricted(RoleEnum.S_VERIFIED)` - Field-level access control
 
+## Hierarchy Roles (Multi-Tenancy)
+
+When `multiTenancy` is configured, hierarchy roles replace the old `S_TENANT_*` system roles:
+
+```typescript
+import { DefaultHR, createHierarchyRoles } from '@lenne.tech/nest-server';
+
+// Default hierarchy
+@Roles(DefaultHR.MEMBER)   // any active member (level >= 1)
+@Roles(DefaultHR.MANAGER)  // at least manager level (level >= 2)
+@Roles(DefaultHR.OWNER)    // highest level (level >= 3)
+
+// Custom hierarchy
+const HR = createHierarchyRoles({ viewer: 1, editor: 2, admin: 3, owner: 4 });
+@Roles(HR.EDITOR)           // requires level >= 2
+
+// Normal (non-hierarchy) roles
+@Roles('auditor')           // exact match only, no level compensation
+```
+
+**Tenant context rule:** When `X-Tenant-Id` header is present, only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass). Without header, `user.roles` is checked.
+
+Hierarchy roles use **level comparison** (higher includes lower). Normal roles use **exact match**.
+
+Both work in `@Roles()` (method-level) and `@Restricted()` (field-level) via unified `checkRoleAccess()`.
+
 ## Role Check Implementation
 
 The role system is evaluated in:
-- `RolesGuard` - Checks method-level `@Roles()` decorators
+- `RolesGuard` / `BetterAuthRolesGuard` - Checks method-level `@Roles()` decorators (passes through non-system roles to `CoreTenantGuard` when multiTenancy active)
+- `CoreTenantGuard` - Validates tenant membership and checks hierarchy/normal roles
 - `CheckResponseInterceptor` - Filters fields based on `@Restricted()` decorators
 - `CheckSecurityInterceptor` - Processes `securityCheck()` methods
 

@@ -109,12 +109,19 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     // Fallback: Remove known secret fields regardless of model type (recursive into plain objects)
     const isPlainLike = (val: any): boolean => {
       if (!val || typeof val !== 'object' || Array.isArray(val)) return false;
-      // Skip Streams, Buffers, Dates, RegExps and other special objects
+      // Skip Streams, Buffers, Dates, RegExps, Maps, Sets
       if (typeof val.pipe === 'function') return false;
       if (Buffer.isBuffer(val)) return false;
       if (val instanceof Date || val instanceof RegExp) return false;
+      if (val instanceof Map || val instanceof Set) return false;
+      // Skip Mongoose documents and BSON types (they have circular internal references)
+      if (val.$__ !== undefined || val._bsontype !== undefined) return false;
       const proto = Object.getPrototypeOf(val);
-      return proto === null || proto === Object.prototype || typeof val.constructor === 'function';
+      // Only recurse into actual plain objects (created via {} or Object.create(null)).
+      // Previously used `typeof val.constructor === 'function'` which was too broad and
+      // caused infinite recursion on Mongoose Schema.Types.Mixed fields whose internal
+      // objects (Schema, SchemaType) have circular references.
+      return proto === null || proto === Object.prototype;
     };
     const visited = new WeakSet();
     const removeSecrets = (data: any) => {
