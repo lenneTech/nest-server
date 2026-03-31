@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
@@ -61,7 +61,7 @@ export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
 
 @Injectable()
-export class CoreBetterAuthService {
+export class CoreBetterAuthService implements OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
   private readonly config: IBetterAuth;
 
@@ -76,6 +76,31 @@ export class CoreBetterAuthService {
     // Use resolvedConfig if provided (has fallback secret applied), otherwise get fresh from ConfigService
     // Better-Auth is enabled by default (zero-config) - only disabled if explicitly set to false
     this.config = this.resolvedConfig || this.configService?.get<IBetterAuth>('betterAuth') || {};
+  }
+
+  /**
+   * Ensure performance indices exist on session and users collections.
+   * Indices are idempotent — calling createIndex on an existing index is a no-op.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.isEnabled() || !this.connection?.db) return;
+
+    try {
+      const db = this.connection.db;
+
+      // Session collection: token lookup (getSessionByToken) and user+expiry lookup (getActiveSessionForUser)
+      await db.collection('session').createIndex({ token: 1 });
+      await db.collection('session').createIndex({ userId: 1, expiresAt: 1 });
+
+      // Users collection: iamId lookup (mapSessionUser uses $or with email and iamId)
+      // email is typically already indexed by Mongoose schema, but iamId may not be
+      await db.collection('users').createIndex({ iamId: 1 }, { sparse: true });
+
+      this.logger.debug('Performance indices ensured on session and users collections');
+    } catch (error) {
+      // Non-fatal: indices improve performance but are not required for correctness
+      this.logger.warn(`Could not create performance indices: ${error instanceof Error ? error.message : 'unknown'}`);
+    }
   }
 
   /**

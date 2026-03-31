@@ -895,6 +895,25 @@ export interface IMultiTenancy {
    * ```
    */
   roleHierarchy?: Record<string, number>;
+
+  /**
+   * TTL in milliseconds for the tenant guard's in-memory membership cache.
+   * The cache avoids repeated DB lookups when the same user accesses the same tenant.
+   * Set to 0 to disable caching (useful for testing or security-critical deployments).
+   *
+   * **Important:** This cache is process-local. In horizontally scaled deployments
+   * (multiple server instances), membership changes on one instance are not reflected
+   * on other instances until the TTL expires. For security-sensitive deployments,
+   * reduce the TTL or set to 0 to disable.
+   *
+   * Note: `CoreBetterAuthUserMapper` has an independent 15-second user cache for
+   * roles and verified status. Both caches affect revocation latency. To control both,
+   * set this to 0 and override `USER_CACHE_TTL_MS` in a custom mapper.
+   *
+   * @default 30000 (30 seconds)
+   * @since 11.21.1
+   */
+  cacheTtlMs?: number;
 }
 
 /**

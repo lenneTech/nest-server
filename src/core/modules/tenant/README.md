@@ -43,6 +43,7 @@ multiTenancy: {
   membershipModel: 'TenantMember',  // Mongoose model name (default)
   adminBypass: true,                 // System admins bypass membership (default: true)
   excludeSchemas: ['User', 'Session'], // Schemas without tenant filtering
+  cacheTtlMs: 30000,                // Membership cache TTL in ms (default: 30s, 0 = disabled)
   roleHierarchy: {                   // Custom role hierarchy (default below)
     member: 1,
     manager: 2,
@@ -194,9 +195,44 @@ CoreTenantModule.forRoot({ service: TenantService });
 
 ## Performance Considerations
 
-The `CoreTenantGuard` resolves tenant memberships (`resolveUserTenantIds()`) on every authenticated request that does not include an `X-Tenant-Id` header. This is necessary so the Mongoose plugin can filter by `{ tenantId: { $in: tenantIds } }`.
+### Membership Cache (since 11.21.1)
 
-For high-frequency endpoints that don't access tenant-scoped data, use `@SkipTenantCheck()` to avoid the membership lookup.
+The `CoreTenantGuard` uses an in-memory TTL cache for membership lookups and tenant ID resolution. This avoids repeated DB queries when the same user accesses the same tenant across multiple requests.
+
+```typescript
+// config.env.ts — configure or disable the cache
+multiTenancy: {
+  cacheTtlMs: 30000, // default: 30s. Set to 0 to disable.
+}
+```
+
+**Cache behavior:**
+- **Positive-only:** Only active memberships are cached. Non-member lookups always hit the DB (security-first).
+- **Auto-invalidation:** `CoreTenantService.addMember/removeMember/updateMemberRole` automatically invalidate the cache.
+- **Config-change detection:** Cache is flushed when `multiTenancy` config changes (e.g., `roleHierarchy` update).
+- **Bounded:** Max 500 entries with FIFO eviction. Memory overhead: ~100-250 KB.
+
+**Important:** The cache is process-local. In horizontally scaled deployments (multiple instances), membership changes on one instance are not reflected on other instances until the TTL expires. Set `cacheTtlMs: 0` for security-sensitive deployments.
+
+### Manual Cache Invalidation
+
+When extending `CoreTenantService` with custom membership mutation methods, call `invalidateUser()` after changes:
+
+```typescript
+@Injectable()
+export class TenantService extends CoreTenantService {
+  async customMembershipChange(tenantId: string, userId: string) {
+    // ... your logic ...
+    this.tenantGuard?.invalidateUser(userId);
+  }
+}
+```
+
+Use `invalidateAll()` to flush the entire cache (e.g., after bulk operations).
+
+### SkipTenantCheck
+
+For high-frequency endpoints that don't access tenant-scoped data, use `@SkipTenantCheck()` to avoid the membership lookup entirely.
 
 ## Security Notes
 

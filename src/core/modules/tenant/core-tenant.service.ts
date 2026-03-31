@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
@@ -6,6 +6,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { RequestContext } from '../../common/services/request-context.service';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
 import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
+import { CoreTenantGuard } from './core-tenant.guard';
 
 /**
  * Core service for tenant membership operations.
@@ -30,7 +31,10 @@ import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus }
 export class CoreTenantService {
   protected readonly logger = new Logger(CoreTenantService.name);
 
-  constructor(@InjectModel(TENANT_MEMBER_MODEL_TOKEN) protected readonly memberModel: Model<CoreTenantMemberModel>) {}
+  constructor(
+    @InjectModel(TENANT_MEMBER_MODEL_TOKEN) protected readonly memberModel: Model<CoreTenantMemberModel>,
+    @Optional() protected readonly tenantGuard?: CoreTenantGuard,
+  ) {}
 
   /**
    * Get the configured role hierarchy.
@@ -106,7 +110,7 @@ export class CoreTenantService {
       }
       // Reactivate suspended/invited membership
       return RequestContext.runWithBypassTenantGuard(async () => {
-        return this.memberModel
+        const result = (await this.memberModel
           .findOneAndUpdate(
             { tenant: tenantId, user: userId },
             {
@@ -118,7 +122,9 @@ export class CoreTenantService {
             { new: true },
           )
           .lean()
-          .exec() as Promise<CoreTenantMemberModel>;
+          .exec()) as CoreTenantMemberModel;
+        this.tenantGuard?.invalidateUser(userId);
+        return result;
       });
     }
 
@@ -131,6 +137,7 @@ export class CoreTenantService {
         tenant: tenantId,
         user: userId,
       });
+      this.tenantGuard?.invalidateUser(userId);
       return doc.toObject() as CoreTenantMemberModel;
     });
   }
@@ -162,6 +169,7 @@ export class CoreTenantService {
         throw new NotFoundException('Membership not found');
       }
 
+      this.tenantGuard?.invalidateUser(userId);
       return result as CoreTenantMemberModel;
     });
   }
@@ -202,6 +210,7 @@ export class CoreTenantService {
         throw new NotFoundException('Active membership not found');
       }
 
+      this.tenantGuard?.invalidateUser(userId);
       return result as CoreTenantMemberModel;
     });
   }

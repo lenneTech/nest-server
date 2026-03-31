@@ -783,14 +783,29 @@ export function processDeep(
     specialProperties?: string[];
   },
 ): any {
-  // Set options
-  const { processedObjects, specialClasses, specialFunctions, specialProperties } = {
-    processedObjects: new WeakMap(),
-    specialClasses: [],
-    specialFunctions: [],
-    specialProperties: [],
-    ...options,
+  // Set options once and reuse for all recursive calls (avoids creating new objects per property)
+  const resolvedOptions = {
+    processedObjects: options?.processedObjects ?? new WeakMap(),
+    specialClasses: options?.specialClasses ?? [],
+    specialFunctions: options?.specialFunctions ?? [],
+    specialProperties: options?.specialProperties ?? [],
   };
+
+  return processDeepInternal(data, func, resolvedOptions);
+}
+
+/** Internal recursive implementation that reuses the resolved options object */
+function processDeepInternal(
+  data: any,
+  func: (data: any) => any,
+  options: {
+    processedObjects: WeakMap<any, boolean>;
+    specialClasses: ((new (args: any[]) => any) | string)[];
+    specialFunctions: string[];
+    specialProperties: string[];
+  },
+): any {
+  const { processedObjects, specialClasses, specialFunctions, specialProperties } = options;
 
   // Check for falsifiable values
   if (!data) {
@@ -806,7 +821,7 @@ export function processDeep(
 
   // Process array
   if (Array.isArray(data)) {
-    return func(data.map((item) => processDeep(item, func, { processedObjects, specialClasses })));
+    return func(data.map((item) => processDeepInternal(item, func, options)));
   }
 
   // Process object
@@ -826,7 +841,7 @@ export function processDeep(
       }
     }
     for (const [key, value] of Object.entries(data)) {
-      data[key] = processDeep(value, func, { processedObjects, specialClasses });
+      data[key] = processDeepInternal(value, func, options);
     }
     return func(data);
   }

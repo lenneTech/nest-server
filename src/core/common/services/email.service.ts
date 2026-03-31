@@ -1,6 +1,7 @@
 import type SMTPPool = require('nodemailer/lib/smtp-pool');
 
-import { Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 
@@ -12,7 +13,14 @@ import { TemplateService } from './template.service';
  * Email service
  */
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleDestroy {
+  /**
+   * Cached transporter to avoid creating new SMTP connections per email.
+   * Reused as long as the SMTP config hasn't changed.
+   */
+  private cachedTransporter: nodemailer.Transporter | null = null;
+  private cachedSmtpConfig: string | null = null;
+
   /**
    * Inject services
    */
@@ -20,6 +28,14 @@ export class EmailService {
     protected configService: ConfigService,
     protected templateService: TemplateService,
   ) {}
+
+  onModuleDestroy(): void {
+    if (this.cachedTransporter) {
+      this.cachedTransporter.close();
+      this.cachedTransporter = null;
+      this.cachedSmtpConfig = null;
+    }
+  }
 
   /**
    * Send a mail
@@ -74,11 +90,16 @@ export class EmailService {
       isNonEmptyString(html);
     }
 
-    // Init transporter
-    const transporter = nodemailer.createTransport(smtp);
+    // Reuse transporter if SMTP config hasn't changed (avoids creating new connections per email)
+    // Use hash instead of raw JSON to avoid keeping credentials as a string in memory
+    const smtpKey = createHash('sha256').update(JSON.stringify(smtp)).digest('hex');
+    if (!this.cachedTransporter || this.cachedSmtpConfig !== smtpKey) {
+      this.cachedTransporter = nodemailer.createTransport(smtp);
+      this.cachedSmtpConfig = smtpKey;
+    }
 
     // Send mail
-    return transporter.sendMail({
+    return this.cachedTransporter.sendMail({
       attachments,
       from: `"${senderName}" <${senderEmail}>`,
       html,
