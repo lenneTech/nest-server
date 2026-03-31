@@ -97,9 +97,31 @@ export interface SyncedUserDocument {
  * - IAM → Legacy: Copies password from `accounts` to `users.password`
  * - Legacy → IAM: Creates account entry in `accounts` from `users.password`
  */
+/**
+ * Cached user data for mapSessionUser (lightweight: only the fields needed for MappedUser)
+ */
+interface CachedUserData {
+  expiresAt: number;
+  id: string;
+  roles: string[];
+  verified: boolean;
+}
+
 @Injectable()
 export class CoreBetterAuthUserMapper {
   private readonly logger = new Logger(CoreBetterAuthUserMapper.name);
+
+  /**
+   * Lightweight TTL cache for user DB lookups.
+   * Key: iamId (BetterAuth user ID), Value: minimal user data (id, roles, verified).
+   * Only caches ~100 bytes per entry (no full documents). Max 500 entries = ~50KB.
+   */
+  private readonly userCache = new Map<string, CachedUserData>();
+  private static readonly USER_CACHE_MAX = 500;
+
+  /** Cache TTL: 15s in production, disabled in test environments */
+  private static readonly USER_CACHE_TTL_MS =
+    process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'e2e' ? 0 : 15_000;
 
   constructor(@Optional() @InjectConnection() private readonly connection?: Connection) {}
 
@@ -135,6 +157,23 @@ export class CoreBetterAuthUserMapper {
     }
 
     try {
+      // Check lightweight cache first (only stores id, roles, verified — ~100 bytes per entry)
+      const ttl = CoreBetterAuthUserMapper.USER_CACHE_TTL_MS;
+      const now = Date.now();
+      const cached = ttl > 0 ? this.userCache.get(sessionUser.id) : undefined;
+      if (cached && now < cached.expiresAt) {
+        return this.createMappedUser({
+          email: sessionUser.email,
+          emailVerified: sessionUser.emailVerified,
+          iamId: sessionUser.id,
+          id: cached.id,
+          image: sessionUser.image,
+          name: sessionUser.name,
+          roles: cached.roles,
+          verified: cached.verified,
+        });
+      }
+
       // Look up the user in our database by email OR iamId
       // This ensures we find the user regardless of which system they signed up with
       const userCollection = this.connection.collection('users');
@@ -147,6 +186,11 @@ export class CoreBetterAuthUserMapper {
         const roles = Array.isArray(dbUser.roles) ? dbUser.roles : [];
         // Use database verified status, fallback to Better-Auth emailVerified
         const verified = dbUser.verified === true || sessionUser.emailVerified === true;
+
+        // Cache only the minimal data needed (not the full document)
+        if (CoreBetterAuthUserMapper.USER_CACHE_TTL_MS > 0) {
+          this.cacheUserData(sessionUser.id, { id: dbUser._id.toString(), roles, verified });
+        }
 
         return this.createMappedUser({
           email: sessionUser.email,
@@ -190,32 +234,53 @@ export class CoreBetterAuthUserMapper {
     return {
       ...userData,
       _authenticatedViaBetterAuth: true,
-      hasRole: (checkRoles: string | string[]): boolean => {
-        const rolesToCheck = Array.isArray(checkRoles) ? checkRoles : [checkRoles];
-
-        // Check for special roles
-        if (rolesToCheck.includes(RoleEnum.S_EVERYONE)) {
-          return true;
-        }
-
-        if (rolesToCheck.includes(RoleEnum.S_USER)) {
-          return true; // User is authenticated via Better-Auth
-        }
-
-        if (rolesToCheck.includes(RoleEnum.S_NO_ONE)) {
-          return false;
-        }
-
-        // S_VERIFIED check - uses verified field (from DB or Better-Auth emailVerified)
-        if (rolesToCheck.includes(RoleEnum.S_VERIFIED)) {
-          return userData.verified === true;
-        }
-
-        // Check actual roles
-        return rolesToCheck.some((role) => roles.includes(role));
-      },
+      // Bind to static method to avoid creating a new closure per request
+      hasRole: CoreBetterAuthUserMapper.createHasRole(roles, userData.verified === true),
       roles,
     };
+  }
+
+  /**
+   * Creates a hasRole function. Uses a shared factory to minimize per-request closure size.
+   * The returned function only captures `roles` (string[]) and `verified` (boolean) — no large objects.
+   */
+  private static createHasRole(roles: string[], verified: boolean): (checkRoles: string | string[]) => boolean {
+    return (checkRoles: string | string[]): boolean => {
+      const rolesToCheck = Array.isArray(checkRoles) ? checkRoles : [checkRoles];
+
+      if (rolesToCheck.includes(RoleEnum.S_EVERYONE)) return true;
+      if (rolesToCheck.includes(RoleEnum.S_USER)) return true;
+      if (rolesToCheck.includes(RoleEnum.S_NO_ONE)) return false;
+      if (rolesToCheck.includes(RoleEnum.S_VERIFIED)) return verified;
+
+      return rolesToCheck.some((role) => roles.includes(role));
+    };
+  }
+
+  /**
+   * Store minimal user data in the lightweight cache.
+   * Only stores id, roles, verified — no full documents or large objects.
+   */
+  private cacheUserData(iamId: string, data: Omit<CachedUserData, 'expiresAt'>): void {
+    // Evict oldest if at capacity (simple FIFO)
+    if (this.userCache.size >= CoreBetterAuthUserMapper.USER_CACHE_MAX) {
+      const firstKey = this.userCache.keys().next().value;
+      if (firstKey) this.userCache.delete(firstKey);
+    }
+    this.userCache.set(iamId, {
+      ...data,
+      expiresAt: Date.now() + CoreBetterAuthUserMapper.USER_CACHE_TTL_MS,
+    });
+  }
+
+  /**
+   * Invalidate cached user data. Call when user roles or verified status change.
+   * Called automatically from `CoreUserService.setRoles()` and `CoreUserService.update()`.
+   *
+   * @param iamId - The BetterAuth user ID (from session/account, not MongoDB _id)
+   */
+  invalidateUserCache(iamId: string): void {
+    this.userCache.delete(iamId);
   }
 
   // ===================================================================================================================

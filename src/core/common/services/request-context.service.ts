@@ -70,6 +70,10 @@ export class RequestContext {
    */
   static runWithBypassRoleGuard<T>(fn: () => T): T {
     const currentStore = this.storage.getStore();
+    // Skip context creation if already bypassed (avoids redundant object spread)
+    if (currentStore?.bypassRoleGuard) {
+      return fn();
+    }
     const context: IRequestContext = {
       ...currentStore,
       bypassRoleGuard: true,
@@ -103,6 +107,10 @@ export class RequestContext {
    */
   static runWithBypassTenantGuard<T>(fn: () => T): T {
     const currentStore = this.storage.getStore();
+    // Skip context creation if already bypassed (avoids redundant object spread)
+    if (currentStore?.bypassTenantGuard) {
+      return fn();
+    }
     const context: IRequestContext = {
       ...currentStore,
       bypassTenantGuard: true,

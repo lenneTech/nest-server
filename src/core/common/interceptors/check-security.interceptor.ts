@@ -62,18 +62,17 @@ export class CheckSecurityInterceptor implements NestInterceptor {
 
       // Check data
       if (data && typeof data === 'object' && typeof data.securityCheck === 'function') {
-        const dataJson = JSON.stringify(data);
+        // Only capture pre-check state when debug is active (JSON.stringify is expensive)
+        const dataJson = this.config.debug ? JSON.stringify(data) : undefined;
         const response = data.securityCheck(user, force);
-        new Promise(() => {
-          if (this.config.debug && dataJson !== JSON.stringify(response)) {
-            const id = getStringIds(data);
-            console.debug(
-              'CheckSecurityInterceptor: securityCheck changed data of type',
-              data.constructor.name,
-              id && !Array.isArray(id) ? `with ID: ${id}` : '',
-            );
-          }
-        });
+        if (this.config.debug && dataJson !== JSON.stringify(response)) {
+          const id = getStringIds(data);
+          console.debug(
+            'CheckSecurityInterceptor: securityCheck changed data of type',
+            data.constructor.name,
+            id && !Array.isArray(id) ? `with ID: ${id}` : '',
+          );
+        }
         if (response && !data._doNotCheckSecurityDeep) {
           for (const key of Object.keys(response)) {
             response[key] = check(response[key]);

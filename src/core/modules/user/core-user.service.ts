@@ -253,7 +253,14 @@ export abstract class CoreUserService<
     // Update and return user
     return this.process(
       async () => {
-        return await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
+        const user = await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
+
+        // Invalidate BetterAuth user cache so changed roles take effect immediately
+        if (this.options?.betterAuthUserMapper && (user as any)?.iamId) {
+          this.options.betterAuthUserMapper.invalidateUserCache((user as any).iamId);
+        }
+
+        return user;
       },
       { serviceOptions },
     );
@@ -310,6 +317,15 @@ export abstract class CoreUserService<
           `Failed to sync password change to IAM for ${oldUser.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         // Don't throw - password sync failure shouldn't block the update
+      }
+    }
+
+    // Invalidate BetterAuth user cache when roles or verified status may have changed
+    if (this.options?.betterAuthUserMapper && (oldUser as any)?.iamId) {
+      const rolesChanged = 'roles' in (input as any);
+      const verifiedChanged = 'verified' in (input as any) || 'emailVerified' in (input as any);
+      if (rolesChanged || verifiedChanged) {
+        this.options.betterAuthUserMapper.invalidateUserCache((oldUser as any).iamId);
       }
     }
 

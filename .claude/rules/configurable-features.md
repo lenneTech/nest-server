@@ -212,7 +212,7 @@ This pattern is currently applied to:
 | Response Model Interceptor | `security.responseModelInterceptor` | Boolean Shorthand | `true` (enabled), `debug: false` |
 | Translate Response Interceptor | `security.translateResponseInterceptor` | Boolean Shorthand | `true` (enabled) |
 | Secret Fields Removal | `security.secretFields` | Array | `['password', 'verificationToken', ...]` |
-| Multi-Tenancy | `multiTenancy` | Presence Implies Enabled | `headerName: 'x-tenant-id'`, `membershipModel: 'TenantMember'`, `adminBypass: true`, `excludeSchemas: []`, `roleHierarchy: { member: 1, manager: 2, owner: 3 }`. Hierarchy roles use level comparison, normal roles use exact match. Use `DefaultHR` or `createHierarchyRoles()` for type-safe role constants. Bypass: `RequestContext.runWithBypassTenantGuard()` |
+| Multi-Tenancy | `multiTenancy` | Presence Implies Enabled | `headerName: 'x-tenant-id'`, `membershipModel: 'TenantMember'`, `adminBypass: true`, `excludeSchemas: []`, `roleHierarchy: { member: 1, manager: 2, owner: 3 }`, `cacheTtlMs: 30000` (0 disables, process-local). Hierarchy roles use level comparison, normal roles use exact match. Use `DefaultHR` or `createHierarchyRoles()` for type-safe role constants. Bypass: `RequestContext.runWithBypassTenantGuard()`. Cache invalidation: `CoreTenantGuard.invalidateUser(userId)` / `invalidateAll()` |
 
 ## Checklist for New Configurable Features
 
