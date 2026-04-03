@@ -2138,3 +2138,22 @@ For frontend integration with Better-Auth, see the **[Integration Checklist](./I
 2. **2FA Redirect**: Check for `twoFactorRedirect: true` in sign-in response
 3. **Passkey Session**: Passkey auth returns session without user - call `validateSession()` to fetch user data
 4. **Credentials**: Use `credentials: 'include'` for cross-origin cookie handling
+
+---
+
+## Multi-Tenancy Integration
+
+When both BetterAuth and Multi-Tenancy (`multiTenancy: {}`) are active, IAM endpoints
+automatically skip tenant validation by default (`skipTenantCheck: true`). This is the
+correct default — authentication happens before tenant context is established.
+
+For tenant-aware authentication scenarios (subdomain-based tenancy, invite links, etc.),
+set `skipTenantCheck: false`:
+
+```typescript
+betterAuth: {
+  skipTenantCheck: false, // IAM endpoints require valid X-Tenant-Id header
+}
+```
+
+See the [CoreTenantModule README](../tenant/README.md#betterauth-iam-integration) for details.

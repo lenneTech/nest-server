@@ -2402,6 +2402,32 @@ interface IBetterAuthBase {
   secret?: string;
 
   /**
+   * Skip tenant validation on IAM endpoints.
+   *
+   * When true (default), IAM endpoints (sign-up, sign-in, sign-out, session, etc.)
+   * skip the CoreTenantGuard tenant membership check. This is the correct default
+   * because authentication typically happens BEFORE tenant context is established.
+   *
+   * Set to false for scenarios where tenant context is known at login time:
+   * - Subdomain-based tenancy (tenant-a.crm.example.com)
+   * - Invite links with embedded tenant (crm.example.com/invite/abc123)
+   * - Tenant-specific login pages (crm.example.com/login?org=tenant-a)
+   * - Tenant-specific auth policies (e.g., one tenant requires SSO)
+   *
+   * @default true
+   *
+   * @example
+   * ```typescript
+   * // Default: IAM endpoints skip tenant validation (correct for most cases)
+   * betterAuth: { skipTenantCheck: true }
+   *
+   * // Tenant-aware authentication (subdomain-based tenancy, invite links, etc.)
+   * betterAuth: { skipTenantCheck: false }
+   * ```
+   */
+  skipTenantCheck?: boolean;
+
+  /**
    * Sign-up checks configuration.
    *
    * **Enabled by Default:** Sign-up checks are enabled by default with

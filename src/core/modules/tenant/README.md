@@ -207,6 +207,7 @@ multiTenancy: {
 ```
 
 **Cache behavior:**
+
 - **Positive-only:** Only active memberships are cached. Non-member lookups always hit the DB (security-first).
 - **Auto-invalidation:** `CoreTenantService.addMember/removeMember/updateMemberRole` automatically invalidate the cache.
 - **Config-change detection:** Cache is flushed when `multiTenancy` config changes (e.g., `roleHierarchy` update).
@@ -261,8 +262,40 @@ export class TenantMemberController {
 }
 ```
 
+### BetterAuth (IAM) Integration
+
+When both Multi-Tenancy and BetterAuth are active, IAM endpoints (sign-up, sign-in, sign-out,
+session, etc.) automatically skip tenant validation by default. This is because authentication
+typically happens before tenant context is established.
+
+**Behavior with `skipTenantCheck: true` (default):**
+
+- No `X-Tenant-Id` header → skip tenant validation, proceed without tenant context
+- `X-Tenant-Id` header IS provided → validate normally (membership check, tenant context set)
+
+The tenant is optional but respected when present. This allows tenant-aware auth flows
+(subdomain-based, invite links, etc.) to coexist with the default cross-tenant behavior.
+
+**Configuration:**
+
+```typescript
+// config.env.ts — Default: skip tenant validation on IAM endpoints (most projects)
+betterAuth: {
+  skipTenantCheck: true, // (default) No X-Tenant-Id header → skip; header present → validate
+}
+
+// config.env.ts — Tenant-aware auth (subdomain-based, invite links, SSO per tenant)
+betterAuth: {
+  skipTenantCheck: false, // IAM endpoints ALWAYS require valid X-Tenant-Id header
+}
+```
+
+When `skipTenantCheck: false`, IAM endpoints will require a valid `X-Tenant-Id` header
+and the user must be a member of that tenant for protected endpoints.
+
 ## Related
 
 - [Integration Checklist](./INTEGRATION-CHECKLIST.md)
 - [Configurable Features](../../../.claude/rules/configurable-features.md)
+
 - [Request Lifecycle](../../../docs/REQUEST-LIFECYCLE.md)

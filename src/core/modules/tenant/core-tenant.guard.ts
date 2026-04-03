@@ -52,11 +52,18 @@ interface CachedTenantIds {
  * - Tenant context (header present): checks against membership.role only (user.roles ignored)
  * - No tenant context: checks against user.roles
  *
+ * BetterAuth (IAM) auto-skip behavior (skipTenantCheck config, default: true):
+ * - No X-Tenant-Id header: skip tenant validation entirely (auth before tenant is the expected case)
+ * - X-Tenant-Id header IS present: fall through to normal validation (membership check + context)
+ * This allows tenant-aware auth flows (subdomain-based, invite links, etc.) to coexist with
+ * the default cross-tenant behavior. The tenant is optional but respected when provided.
+ *
  * Flow:
  * 1. Config check: multiTenancy enabled?
  * 2. Parse header (X-Tenant-Id, max 128 chars, trimmed)
  * 3. @SkipTenantCheck → role check against user.roles, no tenant context
  * 4. Read @Roles() metadata, filter out system roles
+ * 5. BetterAuth auto-skip (betterAuth.skipTenantCheck config + no header) → skip, no tenant context
  *
  * HEADER PRESENT:
  *   - System ADMIN (adminBypass: true) → set req.tenantId + isAdminBypass
@@ -190,18 +197,35 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     const checkableRoles = hasNonSystemRoles ? roles.filter((r) => !isSystemRole(r)) : [];
     const minRequiredLevel = checkableRoles.length > 0 ? getMinRequiredLevel(checkableRoles) : undefined;
 
-    // @SkipTenantCheck → no tenant context, but role check against user.roles
-    const skipTenantCheck = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_CHECK_KEY, [
+    // @SkipTenantCheck decorator → no tenant context, but role check against user.roles
+    const hasSkipDecorator = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_CHECK_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (skipTenantCheck) {
-      if (checkableRoles.length > 0 && user) {
-        if (!isAdmin && !checkRoleAccess(checkableRoles, user.roles, undefined)) {
-          throw new ForbiddenException('Insufficient role');
-        }
+    if (hasSkipDecorator) {
+      return this.skipWithUserRoleCheck(checkableRoles, user, isAdmin);
+    }
+
+    // Auto-skip tenant check for BetterAuth (IAM) handlers when configured,
+    // but ONLY when no X-Tenant-Id header is present.
+    // - No header: skip tenant validation (auth before tenant is the expected case for most projects)
+    // - Header present: fall through to normal validation (membership check, tenant context set)
+    // This allows tenant-aware auth scenarios to coexist with the default cross-tenant behavior.
+    // Default config: betterAuth.skipTenantCheck = true (note: distinct from @SkipTenantCheck decorator above).
+    if (!hasSkipDecorator && !headerTenantId && this.isBetterAuthHandler(context)) {
+      const betterAuthConfig = ConfigService.configFastButReadOnly?.betterAuth;
+      // Boolean shorthand: `betterAuth: true` → skip, `betterAuth: false` → no skip
+      const shouldSkip =
+        betterAuthConfig !== null && betterAuthConfig !== undefined && typeof betterAuthConfig === 'object'
+          ? betterAuthConfig.skipTenantCheck !== false // default: true
+          : betterAuthConfig !== false; // true/undefined → skip; false → no skip
+
+      if (shouldSkip) {
+        this.logger.debug(
+          `BetterAuth auto-skip: ${context.getClass().name}::${context.getHandler().name} — no X-Tenant-Id header, skipping tenant validation`,
+        );
+        return this.skipWithUserRoleCheck(checkableRoles, user, isAdmin);
       }
-      return true;
     }
 
     // === HEADER PRESENT ===
@@ -212,7 +236,9 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
         request.tenantId = headerTenantId;
         request.isAdminBypass = true;
         const requiredRole = checkableRoles.length > 0 ? checkableRoles.join(',') : 'none';
-        this.logger.log(`Admin bypass: user ${user.id} accessing tenant ${headerTenantId} (required: ${requiredRole})`);
+        // Sanitize control characters to prevent log injection
+        const safeTenantId = headerTenantId.replace(/[\r\n\t]/g, '_');
+        this.logger.log(`Admin bypass: user ${user.id} accessing tenant ${safeTenantId} (required: ${requiredRole})`);
         return true;
       }
 
@@ -437,5 +463,55 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
         this.tenantIdsCache.delete(key);
       }
     }
+  }
+
+  /**
+   * Skip tenant validation but still check non-system roles against user.roles.
+   * Shared by @SkipTenantCheck decorator path and BetterAuth auto-skip path.
+   */
+  private skipWithUserRoleCheck(checkableRoles: string[], user: any, isAdmin: boolean): true {
+    if (checkableRoles.length > 0) {
+      // Defense-in-depth: reject unauthenticated access even if RolesGuard is absent
+      if (!user) {
+        throw new ForbiddenException('Authentication required');
+      }
+      if (!isAdmin && !checkRoleAccess(checkableRoles, user.roles, undefined)) {
+        throw new ForbiddenException('Insufficient role');
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Check if the current request is handled by a BetterAuth (IAM) handler
+   * (controller or resolver). Used for auto-skip tenant check on IAM endpoints.
+   *
+   * Uses require() instead of import to avoid a circular dependency:
+   * tenant module → better-auth module (which may depend on tenant module indirectly).
+   * The require() is lazy and resolved only when needed (Node.js caches the result).
+   */
+  private isBetterAuthHandler(context: ExecutionContext): boolean {
+    const handler = context.getClass();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CoreBetterAuthController } =
+        require('../better-auth/core-better-auth.controller') as typeof import('../better-auth/core-better-auth.controller');
+      if (handler === CoreBetterAuthController || handler.prototype instanceof CoreBetterAuthController) {
+        return true;
+      }
+    } catch {
+      /* BetterAuth controller not available */
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CoreBetterAuthResolver } =
+        require('../better-auth/core-better-auth.resolver') as typeof import('../better-auth/core-better-auth.resolver');
+      if (handler === CoreBetterAuthResolver || handler.prototype instanceof CoreBetterAuthResolver) {
+        return true;
+      }
+    } catch {
+      /* BetterAuth resolver not available */
+    }
+    return false;
   }
 }
