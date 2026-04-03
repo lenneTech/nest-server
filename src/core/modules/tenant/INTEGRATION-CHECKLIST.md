@@ -133,6 +133,23 @@ import { SkipTenantCheck, Roles, RoleEnum } from '@lenne.tech/nest-server';
 async listMyTenants() { ... }
 ```
 
+### 9. BetterAuth (IAM) Coexistence
+
+When both `multiTenancy` and `betterAuth` are active, IAM endpoints (sign-in, sign-up, session, etc.)
+automatically skip tenant validation when no `X-Tenant-Id` header is sent (`betterAuth.skipTenantCheck: true`, default).
+If a header IS present, normal membership validation runs.
+
+For tenant-aware authentication (subdomain-based, invite links, SSO per tenant), opt out:
+
+```typescript
+// config.env.ts
+betterAuth: {
+  skipTenantCheck: false, // IAM endpoints require valid X-Tenant-Id header
+}
+```
+
+See [Tenant README — BetterAuth Integration](./README.md#betterauth-iam-integration) for details.
+
 ## Verification Checklist
 
 - [ ] `pnpm run build` succeeds
@@ -143,6 +160,7 @@ async listMyTenants() { ... }
 - [ ] Non-member gets 403 "Not a member of this tenant"
 - [ ] Unauthenticated + header → 403 "Authentication required for tenant access"
 - [ ] Public endpoint accessing tenantId-schema without context throws 403 (Safety Net)
+- [ ] IAM endpoints work without `X-Tenant-Id` header when `skipTenantCheck: true` (default)
 
 ## Security
 
@@ -163,3 +181,4 @@ async listMyTenants() { ... }
 | Public endpoint accessing tenantId-schema        | 403 Safety Net exception           | Use `@SkipTenantCheck()` + `RequestContext.runWithBypassTenantGuard()`     |
 | Passing user-supplied tenantId to create()       | Cross-tenant write possible        | Let plugin auto-set tenantId from context                                  |
 | Custom hierarchy doesn't match config            | Roles fail unexpectedly            | Ensure `createHierarchyRoles()` input matches `multiTenancy.roleHierarchy` |
+| `@SkipTenantCheck()` on BetterAuth handler       | Redundant since v11.21.2           | Remove — auto-skip handles this via `betterAuth.skipTenantCheck` (default) |

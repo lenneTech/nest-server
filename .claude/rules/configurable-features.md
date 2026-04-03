@@ -213,6 +213,7 @@ This pattern is currently applied to:
 | Translate Response Interceptor | `security.translateResponseInterceptor` | Boolean Shorthand | `true` (enabled) |
 | Secret Fields Removal | `security.secretFields` | Array | `['password', 'verificationToken', ...]` |
 | Multi-Tenancy | `multiTenancy` | Presence Implies Enabled | `headerName: 'x-tenant-id'`, `membershipModel: 'TenantMember'`, `adminBypass: true`, `excludeSchemas: []`, `roleHierarchy: { member: 1, manager: 2, owner: 3 }`, `cacheTtlMs: 30000` (0 disables, process-local). Hierarchy roles use level comparison, normal roles use exact match. Use `DefaultHR` or `createHierarchyRoles()` for type-safe role constants. Bypass: `RequestContext.runWithBypassTenantGuard()`. Cache invalidation: `CoreTenantGuard.invalidateUser(userId)` / `invalidateAll()` |
+| BetterAuth Tenant Skip | `betterAuth.skipTenantCheck` | Explicit Boolean | `true` (default). When `true` and no `X-Tenant-Id` header is sent, IAM endpoints (controller + resolver) skip `CoreTenantGuard` tenant validation. When header IS present, normal membership validation runs regardless. Set `false` for tenant-aware auth scenarios (subdomain-based, invite links, SSO per tenant) |
 
 ## Checklist for New Configurable Features
 

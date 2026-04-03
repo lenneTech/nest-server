@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 import { Trend, Counter } from 'k6/metrics';
 
 /**
@@ -56,9 +56,6 @@ export const options = {
 // ============================================================================
 
 export function setup() {
-  console.log(`Testing against ${BASE_URL}`);
-  console.log(`VUs: ${__ENV.VUS || '15'}, Duration: ${__ENV.DURATION || '60s'}`);
-
   let token = null;
   const email = __ENV.K6_EMAIL;
   const password = __ENV.K6_PASSWORD;
@@ -86,8 +83,6 @@ export function setup() {
       token = signInRes.cookies['iam.session_token'][0].value;
     }
   }
-
-  console.log(`Auth token: ${token ? 'obtained' : 'MISSING (check credentials)'}`);
 
   return { token };
 }
@@ -161,16 +156,12 @@ export function sampleMemory() {
 // ============================================================================
 
 export function teardown(data) {
-  console.log('\n=== Memory Load Test Complete ===');
-  console.log('Check the metrics above for:');
-  console.log('  - memory_heap_used_mb: Should stay flat, not grow linearly');
-  console.log('  - memory_rss_mb: Should stay under 1GB');
-  console.log('  - http_req_duration p(95): Should be under 500ms');
-  console.log('  - http_req_failed: Should be under 1%');
-  console.log('\nTo compare before/after fixes:');
-  console.log('  1. Checkout the branch before fixes');
-  console.log('  2. Run: k6 run tests/k6/memory-test.js 2>&1 | tee k6-before.txt');
-  console.log('  3. Checkout the fix branch');
-  console.log('  4. Run: k6 run tests/k6/memory-test.js 2>&1 | tee k6-after.txt');
-  console.log('  5. Compare the metrics');
+  if (__ENV.VERBOSE) {
+    console.info('=== k6 Memory Test Complete ===');
+    console.info('Check the k6 summary above for:');
+    console.info('  - memory_heap_used_mb: heap should stay under 512MB');
+    console.info('  - memory_rss_mb: RSS should stay under 1GB');
+    console.info('  - http_req_duration p(95): should be under 500ms');
+    console.info('  - http_req_failed rate: should be under 1%');
+  }
 }

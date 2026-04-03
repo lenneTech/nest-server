@@ -735,6 +735,16 @@ describe('CoreTenantGuard (e2e)', () => {
     expect(res.body.tenantId).toBeUndefined();
   });
 
+  it('should deny @SkipTenantCheck + non-system role when user is unauthenticated (defense-in-depth)', async () => {
+    // No X-Test-User-Id → req.user is undefined
+    // skipWithUserRoleCheck: checkableRoles.length > 0 && !user → 403 'Authentication required'
+    const res = await request(app.getHttpServer())
+      .get('/test/skip-tenant-with-normal-role')
+      .expect(403);
+
+    expect(res.body.message).toContain('Authentication required');
+  });
+
   // =========================================================================
   // F) Config tests
   // =========================================================================
@@ -2333,5 +2343,584 @@ describe('CoreTenantMemberModel.securityCheck()', () => {
   it('should deny access for unauthenticated user without tenant context', () => {
     const member = createMember();
     expect(() => member.securityCheck(memberUser)).toThrow('Access to tenant membership denied');
+  });
+});
+
+// =============================================================================
+// Regression: BetterAuth auto-skip respects X-Tenant-Id header
+//
+// Bug: When skipTenantCheck: true (default) and a BetterAuth controller is used,
+// the guard was skipping tenant validation even when X-Tenant-Id header was present.
+// Fix: The skip only fires when NO header is sent. If a header is present, normal
+// membership validation runs.
+// =============================================================================
+describe('CoreTenantGuard: BetterAuth auto-skip with header present (regression)', () => {
+  let app: import('@nestjs/common').INestApplication;
+  let memberModel: Model<TenantMember>;
+  let tenantService: CoreTenantService;
+
+  const TENANT_A = 'tenant-ba-skip-aaa';
+  const USER_ID = 'user-ba-skip-123';
+
+  beforeAll(async () => {
+    // skipTenantCheck: true is the default — auto-skip fires only when NO header is sent
+    new ConfigService({
+      multiTenancy: {},
+      betterAuth: { skipTenantCheck: true },
+    } as any);
+
+    const { CoreBetterAuthController } = await import(
+      '../src/core/modules/better-auth/core-better-auth.controller'
+    );
+    const { CoreBetterAuthService } = await import(
+      '../src/core/modules/better-auth/core-better-auth.service'
+    );
+    const { CoreBetterAuthUserMapper } = await import(
+      '../src/core/modules/better-auth/core-better-auth-user.mapper'
+    );
+
+    // Minimal mock for CoreBetterAuthService constructor dependencies
+    const mockBetterAuthService = {
+      getConfig: () => ({ secret: 'test-secret' }),
+      getBasePath: () => '/api/auth',
+      getCookieDomain: () => undefined,
+    };
+    const mockUserMapper = {};
+
+    // Minimal mock for ConfigService instance methods used in CoreBetterAuthController constructor
+    const mockConfigService = {
+      getFastButReadOnly: () => undefined,
+    };
+
+    // Create a minimal controller that extends CoreBetterAuthController.
+    // This makes isBetterAuthController() return true for this controller class.
+    @Controller('iam-test')
+    @Roles(RoleEnum.S_EVERYONE)
+    class IamTestController extends CoreBetterAuthController {
+      constructor() {
+        super(
+          mockBetterAuthService as unknown as InstanceType<typeof CoreBetterAuthService>,
+          mockUserMapper as unknown as InstanceType<typeof CoreBetterAuthUserMapper>,
+          mockConfigService as unknown as ConfigService,
+        );
+      }
+
+      @Get('profile')
+      @Roles(RoleEnum.S_USER)
+      getProfile(@CurrentTenant() tenantId: string | undefined) {
+        return { ok: true, tenantId };
+      }
+    }
+
+    @Module({
+      controllers: [IamTestController],
+      imports: [
+        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-skip-test', {
+          connectionFactory: (connection) => {
+            connection.plugin(mongooseTenantPlugin);
+            return connection;
+          },
+        }),
+        MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
+      ],
+      providers: [
+        CoreTenantService,
+        { provide: APP_GUARD, useClass: CoreTenantGuard },
+      ],
+    })
+    class IamTestModule {}
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [IamTestModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.use(createAuthMiddleware());
+    await app.init();
+
+    memberModel = moduleFixture.get<Model<TenantMember>>(getModelToken('TenantMember'));
+    tenantService = moduleFixture.get(CoreTenantService);
+  });
+
+  beforeEach(async () => {
+    await memberModel.deleteMany({});
+  });
+
+  afterAll(async () => {
+    await memberModel.deleteMany({});
+    await app.close();
+    new ConfigService({} as any);
+  });
+
+  it('should skip tenant validation when no X-Tenant-Id header is sent (skipTenantCheck: true)', async () => {
+    // No header → BetterAuth auto-skip fires → 200 without tenant context
+    const res = await request(app.getHttpServer())
+      .get('/iam-test/profile')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBeUndefined();
+  });
+
+  it('should validate membership when X-Tenant-Id header IS present (regression: was incorrectly skipping)', async () => {
+    // User is NOT a member of TENANT_A → should get 403
+    // Before fix: guard would skip validation even with header → 200 (BUG)
+    // After fix: guard validates membership → 403 (CORRECT)
+    const res = await request(app.getHttpServer())
+      .get('/iam-test/profile')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+
+    expect(res.body.message).toContain('Not a member');
+  });
+
+  it('should set tenant context when user IS a member and header is present', async () => {
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/iam-test/profile')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+});
+
+// =============================================================================
+// skipTenantCheck: false — opt-out of auto-skip
+//
+// When betterAuth.skipTenantCheck is explicitly set to false, IAM endpoints
+// should NOT auto-skip tenant validation, even without X-Tenant-Id header.
+// The request falls through to the normal "NO HEADER" path.
+// =============================================================================
+describe('CoreTenantGuard: BetterAuth skipTenantCheck: false (opt-out)', () => {
+  let app: import('@nestjs/common').INestApplication;
+  let memberModel: Model<TenantMember>;
+
+  const USER_ID = 'user-ba-optout-456';
+
+  beforeAll(async () => {
+    new ConfigService({
+      multiTenancy: {},
+      betterAuth: { skipTenantCheck: false },
+    } as any);
+
+    const { CoreBetterAuthController } = await import(
+      '../src/core/modules/better-auth/core-better-auth.controller'
+    );
+    const { CoreBetterAuthService } = await import(
+      '../src/core/modules/better-auth/core-better-auth.service'
+    );
+    const { CoreBetterAuthUserMapper } = await import(
+      '../src/core/modules/better-auth/core-better-auth-user.mapper'
+    );
+
+    const mockBetterAuthService = {
+      getConfig: () => ({ secret: 'test-secret' }),
+      getBasePath: () => '/api/auth',
+      getCookieDomain: () => undefined,
+    };
+
+    const mockConfigService = {
+      getFastButReadOnly: () => undefined,
+    };
+
+    @Controller('iam-optout')
+    @Roles(RoleEnum.S_EVERYONE)
+    class IamOptOutController extends CoreBetterAuthController {
+      constructor() {
+        super(
+          mockBetterAuthService as unknown as InstanceType<typeof CoreBetterAuthService>,
+          {} as unknown as InstanceType<typeof CoreBetterAuthUserMapper>,
+          mockConfigService as unknown as ConfigService,
+        );
+      }
+
+      @Get('profile')
+      @Roles(RoleEnum.S_USER)
+      getProfile(@CurrentTenant() tenantId: string | undefined) {
+        return { ok: true, tenantId };
+      }
+    }
+
+    @Module({
+      controllers: [IamOptOutController],
+      imports: [
+        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-optout-test', {
+          connectionFactory: (connection) => {
+            connection.plugin(mongooseTenantPlugin);
+            return connection;
+          },
+        }),
+        MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
+      ],
+      providers: [
+        CoreTenantService,
+        { provide: APP_GUARD, useClass: CoreTenantGuard },
+      ],
+    })
+    class IamOptOutModule {}
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [IamOptOutModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.use(createAuthMiddleware());
+    await app.init();
+
+    memberModel = moduleFixture.get<Model<TenantMember>>(getModelToken('TenantMember'));
+  });
+
+  afterAll(async () => {
+    await memberModel.deleteMany({});
+    await app.close();
+    new ConfigService({} as any);
+  });
+
+  it('should NOT auto-skip when skipTenantCheck: false — proceeds to normal no-header path', async () => {
+    // With skipTenantCheck: false, the auto-skip does not fire.
+    // The normal "NO HEADER" path runs: user exists → resolveUserTenantIds → 200
+    const res = await request(app.getHttpServer())
+      .get('/iam-optout/profile')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('should enforce membership when skipTenantCheck: false and header IS present', async () => {
+    // Opt-out + header + non-member → normal membership validation → 403
+    const res = await request(app.getHttpServer())
+      .get('/iam-optout/profile')
+      .set('X-Tenant-Id', 'tenant-ba-optout-aaa')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+
+    expect(res.body.message).toContain('Not a member');
+  });
+});
+
+// =============================================================================
+// Non-BetterAuth controller: auto-skip must NOT fire
+//
+// A regular controller (not extending CoreBetterAuthController) should never
+// benefit from the BetterAuth auto-skip, even when skipTenantCheck: true.
+// =============================================================================
+describe('CoreTenantGuard: Non-BetterAuth controller does not auto-skip', () => {
+  let app: import('@nestjs/common').INestApplication;
+  let memberModel: Model<TenantMember>;
+
+  const TENANT_B = 'tenant-nonskip-bbb';
+  const USER_ID = 'user-nonskip-789';
+
+  beforeAll(async () => {
+    new ConfigService({
+      multiTenancy: {},
+      betterAuth: { skipTenantCheck: true },
+    } as any);
+
+    // Regular controller — does NOT extend CoreBetterAuthController
+    @Controller('regular')
+    class RegularController {
+      @Get('data')
+      @Roles(RoleEnum.S_USER)
+      getData(@CurrentTenant() tenantId: string | undefined) {
+        return { ok: true, tenantId };
+      }
+    }
+
+    @Module({
+      controllers: [RegularController],
+      imports: [
+        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-nonskip-test', {
+          connectionFactory: (connection) => {
+            connection.plugin(mongooseTenantPlugin);
+            return connection;
+          },
+        }),
+        MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
+      ],
+      providers: [
+        CoreTenantService,
+        { provide: APP_GUARD, useClass: CoreTenantGuard },
+      ],
+    })
+    class RegularModule {}
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [RegularModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.use(createAuthMiddleware());
+    await app.init();
+
+    memberModel = moduleFixture.get<Model<TenantMember>>(getModelToken('TenantMember'));
+  });
+
+  afterAll(async () => {
+    await memberModel.deleteMany({});
+    await app.close();
+    new ConfigService({} as any);
+  });
+
+  it('should NOT auto-skip for non-BetterAuth controller even with skipTenantCheck: true', async () => {
+    // Regular controller + no header + authenticated user → normal "NO HEADER" path
+    // resolveUserTenantIds runs (no auto-skip) → 200
+    const res = await request(app.getHttpServer())
+      .get('/regular/data')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    // tenantId is undefined because no header was sent (normal behavior)
+    expect(res.body.tenantId).toBeUndefined();
+  });
+
+  it('should still validate membership for non-BetterAuth controller when header IS present', async () => {
+    // Non-member with header → 403
+    await request(app.getHttpServer())
+      .get('/regular/data')
+      .set('X-Tenant-Id', TENANT_B)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+  });
+});
+
+// =============================================================================
+// BetterAuth config not set at all — safe default (skip)
+//
+// When betterAuth is not configured at all (undefined), the auto-skip should
+// still fire as a safe default (auth before tenant).
+// =============================================================================
+describe('CoreTenantGuard: BetterAuth config missing — safe default skip', () => {
+  let app: import('@nestjs/common').INestApplication;
+  let memberModel: Model<TenantMember>;
+
+  const USER_ID = 'user-ba-noconfig-321';
+
+  beforeAll(async () => {
+    // multiTenancy enabled, but NO betterAuth config at all
+    new ConfigService({
+      multiTenancy: {},
+    } as any);
+
+    const { CoreBetterAuthController } = await import(
+      '../src/core/modules/better-auth/core-better-auth.controller'
+    );
+    const { CoreBetterAuthService } = await import(
+      '../src/core/modules/better-auth/core-better-auth.service'
+    );
+    const { CoreBetterAuthUserMapper } = await import(
+      '../src/core/modules/better-auth/core-better-auth-user.mapper'
+    );
+
+    const mockBetterAuthService = {
+      getConfig: () => ({ secret: 'test-secret' }),
+      getBasePath: () => '/api/auth',
+      getCookieDomain: () => undefined,
+    };
+
+    const mockConfigService = {
+      getFastButReadOnly: () => undefined,
+    };
+
+    @Controller('iam-noconfig')
+    @Roles(RoleEnum.S_EVERYONE)
+    class IamNoConfigController extends CoreBetterAuthController {
+      constructor() {
+        super(
+          mockBetterAuthService as unknown as InstanceType<typeof CoreBetterAuthService>,
+          {} as unknown as InstanceType<typeof CoreBetterAuthUserMapper>,
+          mockConfigService as unknown as ConfigService,
+        );
+      }
+
+      @Get('profile')
+      @Roles(RoleEnum.S_USER)
+      getProfile(@CurrentTenant() tenantId: string | undefined) {
+        return { ok: true, tenantId };
+      }
+    }
+
+    @Module({
+      controllers: [IamNoConfigController],
+      imports: [
+        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-noconfig-test', {
+          connectionFactory: (connection) => {
+            connection.plugin(mongooseTenantPlugin);
+            return connection;
+          },
+        }),
+        MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
+      ],
+      providers: [
+        CoreTenantService,
+        { provide: APP_GUARD, useClass: CoreTenantGuard },
+      ],
+    })
+    class IamNoConfigModule {}
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [IamNoConfigModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.use(createAuthMiddleware());
+    await app.init();
+
+    memberModel = moduleFixture.get<Model<TenantMember>>(getModelToken('TenantMember'));
+  });
+
+  afterAll(async () => {
+    await memberModel.deleteMany({});
+    await app.close();
+    new ConfigService({} as any);
+  });
+
+  it('should auto-skip even when betterAuth config is not set (safe default)', async () => {
+    // No betterAuth config + IAM controller + no header → auto-skip fires → 200
+    const res = await request(app.getHttpServer())
+      .get('/iam-noconfig/profile')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// BetterAuth Resolver auto-skip
+//
+// isBetterAuthHandler() checks both CoreBetterAuthController and
+// CoreBetterAuthResolver. This test verifies that a class extending
+// CoreBetterAuthResolver is also recognized and benefits from auto-skip.
+// Uses a REST @Controller that extends CoreBetterAuthResolver to test the
+// prototype chain check without requiring a full GraphQL module setup.
+// =============================================================================
+describe('CoreTenantGuard: BetterAuth resolver subclass auto-skip', () => {
+  let app: import('@nestjs/common').INestApplication;
+  let memberModel: Model<TenantMember>;
+  let tenantService: CoreTenantService;
+
+  const TENANT_R = 'tenant-ba-resolver-rrr';
+  const USER_ID = 'user-ba-resolver-555';
+
+  beforeAll(async () => {
+    new ConfigService({
+      multiTenancy: {},
+      betterAuth: { skipTenantCheck: true },
+    } as any);
+
+    const { CoreBetterAuthResolver } = await import(
+      '../src/core/modules/better-auth/core-better-auth.resolver'
+    );
+    const { CoreBetterAuthService } = await import(
+      '../src/core/modules/better-auth/core-better-auth.service'
+    );
+    const { CoreBetterAuthUserMapper } = await import(
+      '../src/core/modules/better-auth/core-better-auth-user.mapper'
+    );
+
+    const mockBetterAuthService = {
+      getConfig: () => ({ secret: 'test-secret' }),
+      getBasePath: () => '/api/auth',
+    };
+
+    // REST controller extending CoreBetterAuthResolver to test the
+    // `handler.prototype instanceof CoreBetterAuthResolver` branch in isBetterAuthHandler().
+    @Controller('iam-resolver-test')
+    @Roles(RoleEnum.S_EVERYONE)
+    class IamResolverTestController extends CoreBetterAuthResolver {
+      constructor() {
+        super(
+          mockBetterAuthService as unknown as InstanceType<typeof CoreBetterAuthService>,
+          {} as unknown as InstanceType<typeof CoreBetterAuthUserMapper>,
+        );
+      }
+
+      @Get('profile')
+      @Roles(RoleEnum.S_USER)
+      getProfile(@CurrentTenant() tenantId: string | undefined) {
+        return { ok: true, tenantId };
+      }
+    }
+
+    @Module({
+      controllers: [IamResolverTestController],
+      imports: [
+        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-resolver-test', {
+          connectionFactory: (connection) => {
+            connection.plugin(mongooseTenantPlugin);
+            return connection;
+          },
+        }),
+        MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
+      ],
+      providers: [
+        CoreTenantService,
+        { provide: APP_GUARD, useClass: CoreTenantGuard },
+      ],
+    })
+    class IamResolverTestModule {}
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [IamResolverTestModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.use(createAuthMiddleware());
+    await app.init();
+
+    memberModel = moduleFixture.get<Model<TenantMember>>(getModelToken('TenantMember'));
+    tenantService = moduleFixture.get(CoreTenantService);
+  });
+
+  beforeEach(async () => {
+    await memberModel.deleteMany({});
+  });
+
+  afterAll(async () => {
+    await memberModel.deleteMany({});
+    await app.close();
+    new ConfigService({} as any);
+  });
+
+  it('should auto-skip for CoreBetterAuthResolver subclass when no header is sent', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/iam-resolver-test/profile')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBeUndefined();
+  });
+
+  it('should validate membership for resolver subclass when header IS present', async () => {
+    // Non-member with header → 403 (same behavior as controller path)
+    await request(app.getHttpServer())
+      .get('/iam-resolver-test/profile')
+      .set('X-Tenant-Id', TENANT_R)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+  });
+
+  it('should set tenant context for resolver subclass when user is a member', async () => {
+    await tenantService.addMember(TENANT_R, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/iam-resolver-test/profile')
+      .set('X-Tenant-Id', TENANT_R)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBe(TENANT_R);
   });
 });

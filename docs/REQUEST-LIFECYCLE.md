@@ -106,7 +106,7 @@ JWT-based authentication for existing projects:
 | **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
 | **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
-| **Tenant Guard** | `CoreTenantGuard` validates tenant membership via hierarchy roles (`@Roles(DefaultHR.MEMBER)`) or `@SkipTenantCheck()` |
+| **Tenant Guard** | `CoreTenantGuard` validates tenant membership via hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, or BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
 | **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
 
 ### Data & CRUD
@@ -325,6 +325,9 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Admin bypass: sets isAdminBypass (sees all data)  |
   |     - Sets tenantId in RequestContext                    |
   |     - @SkipTenantCheck() opts out of tenant validation  |
+  |     - BetterAuth auto-skip: IAM handlers skip tenant    |
+  |       validation when no X-Tenant-Id header is present  |
+  |       (betterAuth.skipTenantCheck, default: true)       |
   |     - Throws 403 (Forbidden) on failure                |
   +----------------------------+----------------------------+
                                |

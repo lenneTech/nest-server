@@ -20,20 +20,18 @@
 - `mongodb` and `mongoose` must be updated TOGETHER. Mongoose bundles its own mongodb version internally, so they must match.
 - `mongoose@9.3.0` bundles `~mongodb@7.1.x`, so `mongodb@7.1.0` must be updated simultaneously.
 
-### Overrides Status (updated 2026-03-31)
-- All overrides still needed: minimatch (3.x, 9.x, 10.x), rollup, ajv
-- `file-type@>=13.0.0 <21.3.2` → `21.3.2` override: @nestjs/common 11.1.17 now bundles `file-type: 21.3.2` — this override can be removed when ALL nestjs packages are at >=11.1.17
-- `undici@>=7.0.0 <7.24.0` → `7.24.3` override (via @compodoc/compodoc>cheerio)
-- `yauzl@<3.2.1` → `3.2.1` override: @swc/cli 0.8.0 now bundles yauzl 3.2.1 directly — override still safe to keep
-- NEW overrides added 2026-03-31 (security):
-  - `flatted@<=3.4.1` → `3.4.2` (GHSA-rf6f-7fwh-wjgh via @vitest/ui)
-  - `srvx@<0.11.13` → `0.11.13` (middleware bypass via @tus/server)
-  - `handlebars@>=4.0.0 <4.7.9` → `4.7.9` (JS injection via @compodoc/compodoc)
-  - `brace-expansion@<1.1.13` → `1.1.13` and `brace-expansion@>=4.0.0 <5.0.5` → `5.0.5`
-  - `picomatch@<2.3.2` → `2.3.2` and `picomatch@>=4.0.0 <4.0.4` → `4.0.4`
-  - `path-to-regexp@>=8.0.0 <8.4.0` → `8.4.1` (DoS via @nestjs/core)
-  - `kysely@>=0.26.0 <0.28.15` → `0.28.15` (SQL injection via better-auth)
-- `rollup` override updated to `4.60.1` (latest)
+### Overrides Status (updated 2026-04-03)
+- All minimatch overrides still needed (3.x, 9.x, 10.x)
+- `rollup@>=4.0.0 <4.60.1` → `4.60.1` override: still needed (4.60.1 is current latest)
+- `ajv` overrides still needed
+- `undici@>=7.0.0 <7.24.0` → `7.24.3` override: @compodoc/compodoc>cheerio requires `^7.12.0` — still needed
+- `srvx@<0.11.13` → `0.11.13` override: @tus/server 2.3.0 requires `~0.8.2` — still needed
+- `handlebars@>=4.0.0 <4.7.9` → `4.7.9` override: @compodoc/compodoc requires `^4.7.8` — still needed for safety
+- `brace-expansion`, `picomatch`, `path-to-regexp`, `kysely` overrides: still needed
+- `lodash@>=4.0.0 <4.18.0` → `4.18.1` override: NEW (2026-04-03) — fixes GHSA-r5fr-rjxr-66jc and GHSA-f23m-r3pf-42rh via @nestjs/graphql which pins lodash@4.17.23
+- **REMOVED 2026-04-03**: `file-type@>=13.0.0 <21.3.2` → all nestjs packages now at 11.1.17 with file-type 21.3.2 natively
+- **REMOVED 2026-04-03**: `yauzl@<3.2.1` → @swc/cli 0.8.1 bundles yauzl 3.2.1 directly
+- **REMOVED 2026-04-03**: `flatted@<=3.4.1` → @vitest/ui 4.1.2 requires `^3.4.2` already
 
 ### json-to-graphql-query in dependencies (not devDependencies)
 - Used in `src/test/test.helper.ts` which is EXPORTED via `src/index.ts`. Must remain in `dependencies`.
