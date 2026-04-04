@@ -6,7 +6,7 @@
  * So that I can determine when all users have migrated and Legacy Auth could be disabled.
  *
  * Scenarios covered:
- * 1. Query returns correct counts for unmigrated users
+ * 1. Query returns correct structure and counts for unmigrated users
  * 2. Query returns correct counts after user migration
  * 3. canDisableLegacyAuth is true only when ALL users are migrated
  * 4. Query requires ADMIN role
@@ -119,13 +119,28 @@ describe('Story: BetterAuth Migration Status', () => {
   // Test Cases
   // ===================================================================================================================
 
-  describe('1. Migration Status Query', () => {
-    it('should return migration status with correct structure', async () => {
+  describe('1. Structure, Counts, and Percentage (single query)', () => {
+    it('should return correct structure, counts, and percentage for unmigrated users', async () => {
       if (!isBetterAuthEnabled) {
         console.debug('Better-Auth is not enabled, skipping test');
         return;
       }
 
+      // Create a legacy-only user (no iamId) to ensure there's at least one pending user
+      const legacyEmail = generateTestEmail('legacy-only');
+      await testHelper.graphQl({
+        arguments: { input: { email: legacyEmail, password: 'TestPassword123!' } },
+        fields: [{ user: ['id'] }],
+        name: 'signUp',
+        type: TestGraphQLType.MUTATION,
+      });
+
+      // Verify user was created without iamId (unmigrated)
+      const user = await db.collection('users').findOne({ email: legacyEmail });
+      expect(user).toBeDefined();
+      expect(user?.iamId).toBeUndefined();
+
+      // Single query — validates structure, counts, canDisableLegacyAuth, and percentage
       const res = await testHelper.graphQl(
         {
           fields: [
@@ -144,52 +159,29 @@ describe('Story: BetterAuth Migration Status', () => {
         { token: adminToken },
       );
 
-      expect(res.totalUsers).toBeDefined();
+      // Structure checks
       expect(typeof res.totalUsers).toBe('number');
       expect(res.usersWithIamId).toBeDefined();
       expect(res.usersWithIamAccount).toBeDefined();
       expect(res.fullyMigratedUsers).toBeDefined();
-      expect(res.pendingMigrationUsers).toBeDefined();
-      expect(res.migrationPercentage).toBeDefined();
       expect(typeof res.canDisableLegacyAuth).toBe('boolean');
       expect(Array.isArray(res.pendingUserEmails)).toBe(true);
-    });
 
-    it('should count unmigrated users correctly', async () => {
-      if (!isBetterAuthEnabled) {
-        console.debug('Better-Auth is not enabled, skipping test');
-        return;
-      }
-
-      // Create a legacy-only user (no iamId)
-      const legacyEmail = generateTestEmail('legacy-only');
-      await testHelper.graphQl({
-        arguments: { input: { email: legacyEmail, password: 'TestPassword123!' } },
-        fields: [{ user: ['id'] }],
-        name: 'signUp',
-        type: TestGraphQLType.MUTATION,
-      });
-
-      // Verify user was created without iamId (unmigrated)
-      const user = await db.collection('users').findOne({ email: legacyEmail });
-      expect(user).toBeDefined();
-      expect(user?.iamId).toBeUndefined();
-
-      // Get migration status and verify there are pending users
-      const res = await testHelper.graphQl(
-        {
-          fields: ['pendingMigrationUsers', 'totalUsers'],
-          name: 'betterAuthMigrationStatus',
-          type: TestGraphQLType.QUERY,
-        },
-        { token: adminToken },
-      );
-
-      // There should be at least one pending user (the one we just created)
-      expect(res.pendingMigrationUsers).toBeGreaterThan(0);
+      // Count checks — at least one pending user (the one we just created)
       expect(res.totalUsers).toBeGreaterThan(0);
-    });
+      expect(res.pendingMigrationUsers).toBeGreaterThan(0);
 
+      // canDisableLegacyAuth must be false when there are pending users
+      expect(res.canDisableLegacyAuth).toBe(false);
+
+      // Percentage calculation
+      const expectedPercentage =
+        res.totalUsers > 0 ? Math.round((res.fullyMigratedUsers / res.totalUsers) * 100 * 100) / 100 : 0;
+      expect(res.migrationPercentage).toBe(expectedPercentage);
+    });
+  });
+
+  describe('2. Migration via IAM Sign-In', () => {
     it('should update counts after user migrates via IAM sign-in', async () => {
       if (!isBetterAuthEnabled) {
         console.debug('Better-Auth is not enabled, skipping test');
@@ -228,36 +220,6 @@ describe('Story: BetterAuth Migration Status', () => {
     });
   });
 
-  describe('2. canDisableLegacyAuth Flag', () => {
-    it('should return false when there are unmigrated users', async () => {
-      if (!isBetterAuthEnabled) {
-        console.debug('Better-Auth is not enabled, skipping test');
-        return;
-      }
-
-      // Create unmigrated user
-      const unmigratedEmail = generateTestEmail('unmigrated');
-      await testHelper.graphQl({
-        arguments: { input: { email: unmigratedEmail, password: 'TestPassword123!' } },
-        fields: [{ user: ['id'] }],
-        name: 'signUp',
-        type: TestGraphQLType.MUTATION,
-      });
-
-      const res = await testHelper.graphQl(
-        {
-          fields: ['canDisableLegacyAuth', 'pendingMigrationUsers'],
-          name: 'betterAuthMigrationStatus',
-          type: TestGraphQLType.QUERY,
-        },
-        { token: adminToken },
-      );
-
-      expect(res.pendingMigrationUsers).toBeGreaterThan(0);
-      expect(res.canDisableLegacyAuth).toBe(false);
-    });
-  });
-
   describe('3. Authorization', () => {
     it('should reject unauthenticated requests', async () => {
       if (!isBetterAuthEnabled) {
@@ -265,13 +227,18 @@ describe('Story: BetterAuth Migration Status', () => {
         return;
       }
 
-      const res = await testHelper.graphQl({
-        fields: ['totalUsers'],
-        name: 'betterAuthMigrationStatus',
-        type: TestGraphQLType.QUERY,
-      });
+      const res = await testHelper.graphQl(
+        {
+          fields: ['totalUsers'],
+          name: 'betterAuthMigrationStatus',
+          type: TestGraphQLType.QUERY,
+        },
+        { statusCode: 200 },
+      );
 
+      // Unauthenticated → query returns error (401 Unauthorized)
       expect(res.errors).toBeDefined();
+      expect(res.errors[0].message).toMatch(/Unauthorized|not authenticated/i);
     });
 
     it('should reject non-admin users', async () => {
@@ -307,7 +274,9 @@ describe('Story: BetterAuth Migration Status', () => {
         { token: signIn.token },
       );
 
+      // Non-admin → query returns error (403 Forbidden)
       expect(res.errors).toBeDefined();
+      expect(res.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient/i);
     });
 
     it('should allow admin users', async () => {
@@ -327,29 +296,6 @@ describe('Story: BetterAuth Migration Status', () => {
 
       expect(res.errors).toBeUndefined();
       expect(res.totalUsers).toBeDefined();
-    });
-  });
-
-  describe('4. Migration Percentage Calculation', () => {
-    it('should calculate percentage correctly', async () => {
-      if (!isBetterAuthEnabled) {
-        console.debug('Better-Auth is not enabled, skipping test');
-        return;
-      }
-
-      const res = await testHelper.graphQl(
-        {
-          fields: ['totalUsers', 'fullyMigratedUsers', 'migrationPercentage'],
-          name: 'betterAuthMigrationStatus',
-          type: TestGraphQLType.QUERY,
-        },
-        { token: adminToken },
-      );
-
-      const expectedPercentage =
-        res.totalUsers > 0 ? Math.round((res.fullyMigratedUsers / res.totalUsers) * 100 * 100) / 100 : 0;
-
-      expect(res.migrationPercentage).toBe(expectedPercentage);
     });
   });
 });

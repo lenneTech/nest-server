@@ -47,6 +47,10 @@ interface CachedTenantIds {
  * - Plugin level: Safety net — ForbiddenException when tenantId-schema accessed without context
  *
  * Role check semantics:
+ * - System roles are OR alternatives, checked in order before real roles:
+ *   S_EVERYONE → immediate pass; S_USER → pass if authenticated; S_VERIFIED → pass if verified
+ * - When a system role grants access and X-Tenant-Id header is present, membership is still
+ *   validated to set tenant context (tenantId + tenantRole) on the request.
  * - Hierarchy roles (in roleHierarchy config): level comparison — higher includes lower
  * - Normal roles (not in roleHierarchy): exact match — no compensation by higher role
  * - Tenant context (header present): checks against membership.role only (user.roles ignored)
@@ -61,9 +65,13 @@ interface CachedTenantIds {
  * Flow:
  * 1. Config check: multiTenancy enabled?
  * 2. Parse header (X-Tenant-Id, max 128 chars, trimmed)
- * 3. @SkipTenantCheck → role check against user.roles, no tenant context
- * 4. Read @Roles() metadata, filter out system roles
- * 5. BetterAuth auto-skip (betterAuth.skipTenantCheck config + no header) → skip, no tenant context
+ * 3. Read @Roles() metadata (method + class level)
+ * 4. System role early-exit checks (OR alternatives):
+ *    S_EVERYONE → pass immediately
+ *    S_USER → pass if authenticated (+ optional membership check when header present)
+ *    S_VERIFIED → pass if user is verified (+ optional membership check when header present)
+ * 5. @SkipTenantCheck → role check against user.roles, no tenant context
+ * 6. BetterAuth auto-skip (betterAuth.skipTenantCheck config + no header) → skip, no tenant context
  *
  * HEADER PRESENT:
  *   - System ADMIN (adminBypass: true) → set req.tenantId + isAdminBypass
@@ -184,24 +192,111 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     const headerTenantId =
       rawHeader && typeof rawHeader === 'string' && rawHeader.length <= 128 ? rawHeader.trim() : undefined;
 
-    // Read @Roles() metadata and filter to non-system roles
+    // Two role sets for different purposes:
+    //
+    // 1. systemCheckRoles (method-takes-precedence): Used for system role early-returns.
+    //    Method-level system roles override class-level ones to prevent e.g. class @Roles(S_EVERYONE)
+    //    from making a method @Roles(S_USER) endpoint public.
+    //
+    // 2. roles (OR/merged): Used for real role checks (checkableRoles).
+    //    Class-level roles serve as a base that method-level roles extend.
+    //    E.g., class @Roles(ADMIN) + method @Roles('editor') → both are alternatives.
+    //
+    // S_EVERYONE check — access is always granted; no authentication or membership required.
+    //
+    // Header handling for S_EVERYONE:
+    //   - No header → return true immediately (no tenant context needed)
+    //   - Header present + authenticated user that IS a member → optionally enrich with tenant
+    //     context (sets request.tenantId/tenantRole) so downstream consumers can use it.
+    //     Access is NOT blocked if user is not a member — S_EVERYONE means public access.
     const rolesMetadata = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
     const roles = mergeRolesMetadata(rolesMetadata);
+    const methodRoles: string[] = rolesMetadata[0] ?? [];
+    const systemCheckRoles = methodRoles.length > 0 ? methodRoles : roles;
+
+    // Defense-in-depth: S_NO_ONE is normally caught by RolesGuard/BetterAuthRolesGuard upstream,
+    // but guard it here too in case CoreTenantGuard runs standalone (e.g., custom guard chains).
+    if (roles.includes(RoleEnum.S_NO_ONE)) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const sEveryoneGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_EVERYONE);
+    if (sEveryoneGrantsAccess) {
+      // Optionally enrich with tenant context when header is present and user is an active member.
+      // Never block access — S_EVERYONE endpoints are always public.
+      if (headerTenantId && request.user?.id) {
+        const membership = await this.findMembershipCached(request.user.id, headerTenantId);
+        if (membership) {
+          request.tenantId = headerTenantId;
+          request.tenantRole = membership.role as string;
+        }
+      }
+      return true;
+    }
 
     const user = request.user;
     const adminBypass = config.adminBypass !== false;
     const isAdmin = adminBypass && user?.roles?.includes(RoleEnum.ADMIN);
 
-    // Filter to checkable (non-system) roles only when needed (avoids array allocation on fast paths)
-    const hasNonSystemRoles = roles.some((r) => !isSystemRole(r));
-    const checkableRoles = hasNonSystemRoles ? roles.filter((r) => !isSystemRole(r)) : [];
-    const minRequiredLevel = checkableRoles.length > 0 ? getMinRequiredLevel(checkableRoles) : undefined;
-
-    // @SkipTenantCheck decorator → no tenant context, but role check against user.roles
+    // Read @SkipTenantCheck early — it suppresses tenant membership validation for system roles too.
+    // When set, S_USER and S_VERIFIED still enforce authentication/verification, but no membership
+    // check is performed even when a tenant header is present.
     const hasSkipDecorator = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_CHECK_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
+
+    // S_USER check — any authenticated user satisfies this system role.
+    //
+    // OR semantics: if S_USER is in the active role set, a logged-in user gets through.
+    // Real roles in the same @Roles() are ignored when S_USER is satisfied (they are alternatives).
+    // Example: @Roles(S_USER, 'owner') → a plain logged-in user passes (owner is an alternative, not required).
+    //
+    // Tenant header behavior: when X-Tenant-Id is present and @SkipTenantCheck is NOT set,
+    // membership is validated so that tenant context (tenantId, tenantRole) is set on the request.
+    // A non-member will still get 403 when a tenant header is provided (unless @SkipTenantCheck).
+    const sUserGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_USER);
+    if (sUserGrantsAccess) {
+      if (!user) {
+        throw new ForbiddenException('Authentication required');
+      }
+      if (headerTenantId && !hasSkipDecorator) {
+        return this.handleSystemRoleWithTenantHeader(user, headerTenantId, request, isAdmin);
+      }
+      return true;
+    }
+
+    // S_VERIFIED check — any verified authenticated user satisfies this system role.
+    //
+    // A user is considered verified when any of these properties is truthy:
+    //   user.verified, user.verifiedAt, user.emailVerified
+    //
+    // Tenant header behavior: same as S_USER — membership is validated when header is present
+    // (unless @SkipTenantCheck is set).
+    const sVerifiedGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_VERIFIED);
+    if (sVerifiedGrantsAccess) {
+      if (!user) {
+        throw new ForbiddenException('Authentication required');
+      }
+      const isVerified = !!(user.verified || user.verifiedAt || user.emailVerified);
+      if (!isVerified) {
+        throw new ForbiddenException('Verification required');
+      }
+      if (headerTenantId && !hasSkipDecorator) {
+        return this.handleSystemRoleWithTenantHeader(user, headerTenantId, request, isAdmin);
+      }
+      return true;
+    }
+
+    // Extract checkable (non-system) roles from the merged set.
+    // System roles that grant access (S_EVERYONE, S_USER, S_VERIFIED) have been
+    // early-returned above. Remaining system roles (S_SELF, S_CREATOR) are object-level
+    // and handled by interceptors.
+    const checkableRoles = roles.filter((r: string) => !isSystemRole(r));
+
+    const minRequiredLevel = checkableRoles.length > 0 ? getMinRequiredLevel(checkableRoles) : undefined;
+
+    // @SkipTenantCheck decorator → no tenant context, but role check against user.roles
     if (hasSkipDecorator) {
       return this.skipWithUserRoleCheck(checkableRoles, user, isAdmin);
     }
@@ -238,7 +333,7 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
         const requiredRole = checkableRoles.length > 0 ? checkableRoles.join(',') : 'none';
         // Sanitize control characters to prevent log injection
         const safeTenantId = headerTenantId.replace(/[\r\n\t]/g, '_');
-        this.logger.log(`Admin bypass: user ${user.id} accessing tenant ${safeTenantId} (required: ${requiredRole})`);
+        this.logger.debug(`Admin bypass: user ${user.id} accessing tenant ${safeTenantId} (required: ${requiredRole})`);
         return true;
       }
 
@@ -463,6 +558,42 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
         this.tenantIdsCache.delete(key);
       }
     }
+  }
+
+  /**
+   * Validate tenant membership for a request that was granted access via a system role
+   * (S_USER or S_VERIFIED). When a tenant header is present, the user must be an active member
+   * of that tenant — unless the user is an admin with adminBypass enabled.
+   *
+   * On success, sets request.tenantId and request.tenantRole for downstream consumers.
+   *
+   * @param user - The authenticated request user
+   * @param headerTenantId - The validated, non-empty tenant ID from the request header
+   * @param request - The HTTP/GraphQL request object
+   * @param isAdmin - Whether the user has admin bypass privileges
+   */
+  private async handleSystemRoleWithTenantHeader(
+    user: any,
+    headerTenantId: string,
+    request: any,
+    isAdmin: boolean,
+  ): Promise<true> {
+    // Admin bypass: same behavior as the HEADER PRESENT admin path below
+    if (isAdmin) {
+      request.tenantId = headerTenantId;
+      request.isAdminBypass = true;
+      const safeTenantId = headerTenantId.replace(/[\r\n\t]/g, '_');
+      this.logger.debug(`Admin bypass (system-role path): user ${user.id} accessing tenant ${safeTenantId}`);
+      return true;
+    }
+
+    const membership = await this.findMembershipCached(user.id, headerTenantId);
+    if (!membership) {
+      throw new ForbiddenException('Not a member of this tenant');
+    }
+    request.tenantId = headerTenantId;
+    request.tenantRole = membership.role as string;
+    return true;
   }
 
   /**

@@ -155,6 +155,25 @@ export interface TestRestOptions {
 }
 
 /**
+ * Options for download/downloadBuffer requests
+ */
+export interface TestDownloadOptions {
+  /**
+   * Cookie-based authentication. Pass a plain session token string
+   * which is converted via buildBetterAuthCookies() to all relevant cookie names
+   * (iam.session_token, token).
+   */
+  cookies?: string;
+
+  /**
+   * Bearer token via Authorization header (JWT authentication).
+   * Can be used simultaneously with `cookies` — token sets the Authorization header
+   * while cookies sets the Cookie header.
+   */
+  token?: string;
+}
+
+/**
  * Test helper
  */
 export class TestHelper {
@@ -176,13 +195,28 @@ export class TestHelper {
   /**
    * Download file from URL
    * To compare content data via string comparison
+   * @param url - URL to download from
+   * @param tokenOrOptions - Bearer token string, or {@link TestDownloadOptions} with `cookies` and/or `token`
    * @return Superagent response with additional data field containing the content of the file
    */
-  download(url: string, token?: string): Promise<any> {
+  download(url: string, tokenOrOptions?: string | TestDownloadOptions): Promise<any> {
     return new Promise((resolve, reject) => {
       const request = supertest((this.app as INestApplication).getHttpServer()).get(url);
-      if (token) {
-        request.set('Authorization', `bearer ${token}`);
+      if (typeof tokenOrOptions === 'string') {
+        request.set('Authorization', `bearer ${tokenOrOptions}`);
+      } else if (tokenOrOptions) {
+        if (tokenOrOptions.cookies) {
+          const cookieRecord = TestHelper.buildBetterAuthCookies(tokenOrOptions.cookies);
+          request.set(
+            'Cookie',
+            Object.entries(cookieRecord)
+              .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+              .join('; '),
+          );
+        }
+        if (tokenOrOptions.token) {
+          request.set('Authorization', `bearer ${tokenOrOptions.token}`);
+        }
       }
       let data = '';
       request
@@ -207,12 +241,27 @@ export class TestHelper {
   /**
    * Download file from URL and get buffer
    * To compare content data via buffer comparison and with the possibility to save the file
+   * @param url - URL to download from
+   * @param tokenOrOptions - Bearer token string, or {@link TestDownloadOptions} with `cookies` and/or `token`
    */
-  downloadBuffer(url: string, token?: string): Promise<Buffer> {
+  downloadBuffer(url: string, tokenOrOptions?: string | TestDownloadOptions): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const request = supertest(this.app.getHttpServer()).get(url);
-      if (token) {
-        request.set('Authorization', `bearer ${token}`);
+      if (typeof tokenOrOptions === 'string') {
+        request.set('Authorization', `bearer ${tokenOrOptions}`);
+      } else if (tokenOrOptions) {
+        if (tokenOrOptions.cookies) {
+          const cookieRecord = TestHelper.buildBetterAuthCookies(tokenOrOptions.cookies);
+          request.set(
+            'Cookie',
+            Object.entries(cookieRecord)
+              .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+              .join('; '),
+          );
+        }
+        if (tokenOrOptions.token) {
+          request.set('Authorization', `bearer ${tokenOrOptions.token}`);
+        }
       }
 
       // Array to store the data chunks
