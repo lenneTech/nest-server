@@ -141,17 +141,32 @@ NestJS @Global() modules use "first wins" for provider registration. Without thi
 
 **Update:** `src/server/server.module.ts`
 
+Use the `overrides` parameter of `CoreModule.forRoot()` (recommended since v11.22.0):
+
+```typescript
+import { ErrorCodeService } from './modules/error-code/error-code.service';
+
+@Module({
+  imports: [
+    CoreModule.forRoot(envConfig, {
+      errorCode: { service: ErrorCodeService },
+    }),
+    // ... other modules
+  ],
+})
+export class ServerModule {}
+```
+
+**Alternative** (for complex setups): disable auto-registration and import separately:
+
 ```typescript
 import { ErrorCodeModule as CoreErrorCodeModule } from '@lenne.tech/nest-server';
 import { ErrorCodeService } from './modules/error-code/error-code.service';
 
 @Module({
   imports: [
-    CoreModule.forRoot(...),
-    // Register with custom service
-    CoreErrorCodeModule.forRoot({
-      service: ErrorCodeService,
-    }),
+    CoreModule.forRoot({ ...envConfig, errorCode: { autoRegister: false } }),
+    CoreErrorCodeModule.forRoot({ service: ErrorCodeService }),
     // ... other modules
   ],
 })
@@ -168,7 +183,7 @@ Use this when you need:
 - Different route paths
 - Additional REST endpoints
 
-**No custom module needed!** Use Core `ErrorCodeModule.forRoot()` with your custom controller and service.
+**No custom module needed!** Use the `overrides` parameter of `CoreModule.forRoot()`.
 
 ### 1. Create Files
 
@@ -183,13 +198,29 @@ Files needed:
 
 **No `error-code.module.ts` needed!**
 
-### 2. Disable Auto-Registration
-
-Same as Scenario B, Step 3.
-
-### 3. Register via Core ErrorCodeModule
+### 2. Register via CoreModule.forRoot() Overrides (Recommended)
 
 **Update:** `src/server/server.module.ts`
+
+```typescript
+import { ErrorCodeController } from './modules/error-code/error-code.controller';
+import { ErrorCodeService } from './modules/error-code/error-code.service';
+
+@Module({
+  imports: [
+    CoreModule.forRoot(envConfig, {
+      errorCode: {
+        controller: ErrorCodeController,
+        service: ErrorCodeService,
+      },
+    }),
+    // ... other modules
+  ],
+})
+export class ServerModule {}
+```
+
+**Alternative** (for complex setups): disable auto-registration and import separately:
 
 ```typescript
 import { ErrorCodeModule } from '@lenne.tech/nest-server';
@@ -198,8 +229,7 @@ import { ErrorCodeService } from './modules/error-code/error-code.service';
 
 @Module({
   imports: [
-    CoreModule.forRoot(...),
-    // Use Core ErrorCodeModule with custom service and controller
+    CoreModule.forRoot({ ...envConfig, errorCode: { autoRegister: false } }),
     ErrorCodeModule.forRoot({
       controller: ErrorCodeController,
       service: ErrorCodeService,

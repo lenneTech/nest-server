@@ -22,6 +22,25 @@ These rules apply when working in `src/core/modules/`.
 
 ## Module Registration
 
+### Override Pattern (Recommended)
+
+Core modules that support customization should accept `controller`/`resolver`/`service` parameters
+in their `forRoot()` method. `CoreModule.forRoot()` passes these through via the `ICoreModuleOverrides` parameter:
+
+```typescript
+// In core module
+static forRoot(config?: { controller?: Type; service?: Type }): DynamicModule {
+  const ControllerClass = config?.controller || CoreDefaultController;
+  const ServiceClass = config?.service || CoreDefaultService;
+  return { module: MyModule, controllers: [ControllerClass], providers: [...] };
+}
+```
+
+New modules must add their override fields to `ICoreModuleOverrides` in `server-options.interface.ts`
+and pass them through in `CoreModule.forRoot()`.
+
+### Auto-Registration
+
 Always support both registration modes:
 
 ```typescript

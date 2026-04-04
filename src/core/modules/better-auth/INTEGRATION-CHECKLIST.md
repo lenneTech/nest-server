@@ -23,11 +23,11 @@
 
 ### Registration Patterns (Quick Reference)
 
-| Pattern             | Use When                           | Configuration                                      |
-| ------------------- | ---------------------------------- | -------------------------------------------------- |
-| **Zero-Config**     | No customization needed            | Just use `CoreModule.forRoot(envConfig)`           |
-| **Config-based**    | Custom Controller/Resolver         | Add `controller`/`resolver` to `betterAuth` config |
-| **Separate Module** | Full control, additional providers | Set `autoRegister: false` in config                |
+| Pattern                     | Use When                           | Configuration                                                                                 |
+| --------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Zero-Config**             | No customization needed            | Just use `CoreModule.forRoot(envConfig)`                                                      |
+| **Overrides** (recommended) | Custom Controller/Resolver         | Pass `overrides` to `CoreModule.forRoot(envConfig, { betterAuth: { controller, resolver } })` |
+| **Separate Module**         | Full control, additional providers | Set `autoRegister: false` in config                                                           |
 
 **Details:** See [CUSTOMIZATION.md](./CUSTOMIZATION.md#module-registration-patterns)
 
