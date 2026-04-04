@@ -1019,32 +1019,36 @@ export class CoreBetterAuthUserMapper {
       const migrationPercentage = totalUsers > 0 ? Math.round((fullyMigratedUsers / totalUsers) * 100 * 100) / 100 : 0;
 
       // Get emails of pending users (limit to 100)
-      const pendingUsers = await usersCollection
-        .aggregate([
-          {
-            $lookup: {
-              as: 'accounts',
-              foreignField: 'userId',
-              from: 'account',
-              localField: '_id',
-            },
-          },
-          {
-            $match: {
-              $or: [
-                { iamId: { $exists: false } },
-                { iamId: null },
-                {
-                  $and: [{ iamId: { $exists: true, $ne: null } }, { 'accounts.providerId': { $ne: 'credential' } }],
-                },
-              ],
-            },
-          },
-          { $limit: 100 },
-          { $project: { email: 1 } },
-        ])
+      // Two-phase approach: first get users without iamId (no $lookup needed),
+      // then check users with iamId but missing credential account
+      const usersWithoutIamId = await usersCollection
+        .find({ $or: [{ iamId: { $exists: false } }, { iamId: null }] })
+        .limit(100)
+        .project({ email: 1 })
         .toArray();
-      const pendingUserEmails = pendingUsers.map((u) => u.email).filter(Boolean);
+
+      const remaining = 100 - usersWithoutIamId.length;
+      let usersWithIamButNoAccount: { email?: string }[] = [];
+      if (remaining > 0) {
+        usersWithIamButNoAccount = await usersCollection
+          .aggregate([
+            { $match: { iamId: { $exists: true, $ne: null } } },
+            {
+              $lookup: {
+                as: 'accounts',
+                foreignField: 'userId',
+                from: 'account',
+                localField: '_id',
+              },
+            },
+            { $match: { 'accounts.providerId': { $ne: 'credential' } } },
+            { $limit: remaining },
+            { $project: { email: 1 } },
+          ])
+          .toArray();
+      }
+
+      const pendingUserEmails = [...usersWithoutIamId, ...usersWithIamButNoAccount].map((u) => u.email).filter(Boolean);
 
       // Can disable legacy auth only if ALL users are fully migrated
       const canDisableLegacyAuth = totalUsers > 0 && fullyMigratedUsers === totalUsers;

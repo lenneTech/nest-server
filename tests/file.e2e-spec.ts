@@ -313,6 +313,42 @@ describe('File (e2e)', () => {
     expect(res.data).toEqual(fileContent);
   });
 
+  it('downloadRESTFileWithTokenOption', async () => {
+    // Verify options-object form of token auth works (same as string form)
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[0].token });
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('downloadRESTFileWithCookies', async () => {
+    // Verify cookie auth path sets Cookie header without breaking the request
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, { cookies: 'test-session-token' });
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('downloadRESTFileWithBothTokenAndCookies', async () => {
+    // Verify both cookies and token can be set simultaneously (like rest())
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, {
+      cookies: 'test-session-token',
+      token: users[0].token,
+    });
+    expect(res.statusCode).toEqual(200);
+    expect(res.data).toEqual(fileContent);
+  });
+
+  it('downloadBufferWithTokenOption', async () => {
+    const buffer = await testHelper.downloadBuffer(`/files/id/${fileInfo.id}`, { token: users[0].token });
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.toString()).toEqual(fileContent);
+  });
+
+  it('downloadBufferWithCookies', async () => {
+    const buffer = await testHelper.downloadBuffer(`/files/id/${fileInfo.id}`, { cookies: 'test-session-token' });
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.toString()).toEqual(fileContent);
+  });
+
   it('deleteRESTFile', async () => {
     const res = await testHelper.rest(`/files/${fileInfo.id}`, { method: 'DELETE', token: users[0].token });
     expect(res.id).toEqual(fileInfo.id);

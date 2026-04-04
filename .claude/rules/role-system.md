@@ -63,7 +63,9 @@ const HR = createHierarchyRoles({ viewer: 1, editor: 2, admin: 3, owner: 4 });
 @Roles('auditor')           // exact match only, no level compensation
 ```
 
-**Tenant context rule:** When `X-Tenant-Id` header is present, only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass). Without header, `user.roles` is checked.
+**System role OR semantics in CoreTenantGuard:** System roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives **before** real roles. Method-level system roles take precedence over class-level ones (e.g., class `S_EVERYONE` + method `S_USER` → `S_USER` applies). When a system role grants access and `X-Tenant-Id` header is present, membership is still validated to set tenant context — a non-member gets 403 with `S_USER`/`S_VERIFIED` (admin bypass applies).
+
+**Tenant context rule for real roles:** When `X-Tenant-Id` header is present, only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass). Without header, `user.roles` is checked.
 
 Hierarchy roles use **level comparison** (higher includes lower). Normal roles use **exact match**.
 

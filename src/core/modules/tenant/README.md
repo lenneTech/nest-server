@@ -138,9 +138,33 @@ Roles not in `roleHierarchy` use exact match — no higher role can compensate:
 async auditLog(@CurrentTenant() tenantId: string) { ... }
 ```
 
+### System Roles as OR Alternatives
+
+When `@Roles()` includes system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`), `CoreTenantGuard` checks them **before** real roles in priority order. If a system role is satisfied, access is granted immediately — real roles in the same decorator are OR alternatives, not additional requirements.
+
+```typescript
+@Roles(RoleEnum.ADMIN)    // Class: admin can always access all methods
+@Controller('users')
+class UserController {
+  @Roles(RoleEnum.S_USER)  // Method: any authenticated user (extends class ADMIN via OR)
+  getProfile() { ... }     // → admin OR authenticated user can access
+
+  @Roles(RoleEnum.S_EVERYONE) // Method: public endpoint (extends class ADMIN via OR)
+  getPublicInfo() { ... }     // → anyone can access
+}
+```
+
+**Method-level system roles take precedence** for the system role check. Class `@Roles(S_EVERYONE)` does not make a method `@Roles(S_USER)` endpoint public — the method's `S_USER` applies.
+
+| System Role | No Header             | Header Present                                     |
+| ----------- | --------------------- | -------------------------------------------------- |
+| S_EVERYONE  | Pass (public)         | Pass + optional tenant context enrichment          |
+| S_USER      | Pass if authenticated | Pass if authenticated member; admin bypass applies |
+| S_VERIFIED  | Pass if verified      | Pass if verified member; admin bypass applies      |
+
 ### Tenant Context Rule
 
-**When a tenant header is present:** Only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass).
+**When a tenant header is present:** For real role checks, only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass). For system role checks (`S_USER`, `S_VERIFIED`), membership is validated to set tenant context (`tenantId`, `tenantRole`), but access depends on membership existence, not role level.
 
 **When no tenant header:** `user.roles` is checked instead. Hierarchy roles use level comparison, normal roles use exact match.
 
@@ -161,6 +185,7 @@ async listMyTenants() { ... }
 ```
 
 Note: `@SkipTenantCheck()` with hierarchy roles still checks `user.roles` (no tenant context).
+It also suppresses tenant membership validation for `S_USER`/`S_VERIFIED` system role paths — when set, these roles still enforce authentication/verification but skip the membership check even when a tenant header is present.
 
 ### Admin Bypass
 

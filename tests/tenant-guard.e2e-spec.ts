@@ -65,6 +65,65 @@ class GlobalItem {
 const GlobalItemSchema = SchemaFactory.createForClass(GlobalItem);
 
 // =============================================================================
+// AdminFallback Controller — has class-level @Roles(ADMIN) fallback
+// Used to test that method-level system roles are not shadowed by class-level roles
+// =============================================================================
+@Roles(RoleEnum.ADMIN)
+@Controller('admin-fallback')
+class AdminFallbackController {
+  // Method has @Roles(S_EVERYONE) → class ADMIN fallback must NOT block public access
+  @Get('public')
+  @Roles(RoleEnum.S_EVERYONE)
+  publicEndpoint(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has @Roles(S_USER) → class ADMIN fallback must NOT block authenticated non-admin users
+  @Get('user-only')
+  @Roles(RoleEnum.S_USER)
+  userOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has @Roles(S_USER) → unauthenticated user must be blocked (401/403)
+  // (The guard returns 403 for unauthenticated, RolesGuard would return 401 — guard returns 403 here)
+  @Get('user-only-no-auth')
+  @Roles(RoleEnum.S_USER)
+  userOnlyNoAuth(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has @Roles(S_VERIFIED) → verified users can access
+  @Get('verified-only')
+  @Roles(RoleEnum.S_VERIFIED)
+  verifiedOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has @Roles(S_USER, DefaultHR.OWNER) — mixed: system + real role
+  // OR semantics: S_USER fires first → any logged-in user passes (owner is alternative, not required)
+  @Get('user-or-owner')
+  @Roles(RoleEnum.S_USER, DefaultHR.OWNER)
+  userOrOwner(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has no @Roles → class-level ADMIN fallback applies
+  @Get('admin-only')
+  adminOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  // Method has @Roles(DefaultHR.OWNER) — real role only
+  // → class ADMIN fallback is irrelevant — should still require owner
+  @Get('owner-only')
+  @Roles(DefaultHR.OWNER)
+  ownerOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+}
+
+// =============================================================================
 // Test Controller — uses hierarchy roles (DefaultHR) and system roles
 // =============================================================================
 @Controller('test')
@@ -96,6 +155,12 @@ class TestController {
   @Get('public')
   @Roles(RoleEnum.S_EVERYONE)
   publicEndpoint(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
+  @Get('verified-only')
+  @Roles(RoleEnum.S_VERIFIED)
+  verifiedOnly(@CurrentTenant() tenantId: string) {
     return { ok: true, tenantId };
   }
 
@@ -153,7 +218,7 @@ class TestController {
 const TEST_DB_URI = 'mongodb://127.0.0.1/nest-server-tenant-guard-test';
 
 @Module({
-  controllers: [TestController],
+  controllers: [TestController, AdminFallbackController],
   imports: [
     MongooseModule.forRoot(TEST_DB_URI, {
       connectionFactory: (connection) => {
@@ -186,10 +251,13 @@ function createAuthMiddleware() {
   return (req, _res, next) => {
     const userId = req.headers['x-test-user-id'] as string;
     const userRoles = req.headers['x-test-user-roles'] as string;
+    const userVerified = req.headers['x-test-user-verified'] as string;
     if (userId) {
       req.user = {
         id: userId,
         roles: userRoles ? userRoles.split(',') : [],
+        // verified=true when X-Test-User-Verified header is 'true'
+        verified: userVerified === 'true',
         hasRole: (roles: string[]) => {
           const r = userRoles ? userRoles.split(',') : [];
           return roles.some((role) => r.includes(role));
@@ -935,6 +1003,304 @@ describe('CoreTenantGuard (e2e)', () => {
   it('should have correct default role hierarchy', () => {
     expect(DEFAULT_ROLE_HIERARCHY.member).toBeLessThan(DEFAULT_ROLE_HIERARCHY.manager);
     expect(DEFAULT_ROLE_HIERARCHY.manager).toBeLessThan(DEFAULT_ROLE_HIERARCHY.owner);
+  });
+
+  // =========================================================================
+  // I) System role shadowing by class-level ADMIN fallback (regression)
+  //
+  // Bug: When class has @Roles(ADMIN) and method has @Roles(S_USER), merged
+  // roles become [S_USER, ADMIN]. After filtering system roles, checkableRoles
+  // = [ADMIN]. CoreTenantGuard then requires ADMIN, blocking non-admin users
+  // even though the method explicitly allows S_USER.
+  //
+  // Fix: method-level system roles must override class-level real roles.
+  // =========================================================================
+
+  it('[regression] S_EVERYONE on method with ADMIN on class: unauthenticated user should get 200', async () => {
+    // Bug: merged [S_EVERYONE, ADMIN] → S_EVERYONE caught at line 195, returns true — was already OK
+    // But this test confirms the early-return path continues to work
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/public')
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('[regression] S_USER on method with ADMIN on class: authenticated non-admin user should get 200', async () => {
+    // Bug: Without fix, merged [S_USER, ADMIN] → checkableRoles=[ADMIN] → non-admin user gets 403
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-only')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('[regression] S_USER on method with ADMIN on class: unauthenticated user should get 403', async () => {
+    // S_USER means "must be logged in" — unauthenticated access must be blocked.
+    // With the corrected OR-semantics: S_USER is checked as an alternative BEFORE real roles.
+    // When S_USER is in the active role set and no user is present, the guard throws 403.
+    // (In production, RolesGuard would block unauthenticated requests earlier with 401.)
+    await request(app.getHttpServer())
+      .get('/admin-fallback/user-only-no-auth')
+      .expect(403);
+  });
+
+  it('[regression] no @Roles on method with ADMIN on class: non-admin user should get 403', async () => {
+    // No method roles → class-level ADMIN applies → non-admin must be blocked
+    // Without fix: already worked (no method roles → class roles as fallback)
+    // With fix: must still work (fallback only suppressed when method has only system roles)
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/admin-only')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+
+    expect(res.body.message).toContain('Insufficient role');
+  });
+
+  it('[regression] no @Roles on method with ADMIN on class: admin user should get 200', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/admin-only')
+      .set('X-Test-User-Id', ADMIN_USER_ID)
+      .set('X-Test-User-Roles', RoleEnum.ADMIN)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('[regression] real role on method with ADMIN on class: requires real role (not blocked by class fallback)', async () => {
+    // @Roles(DefaultHR.OWNER) on method with @Roles(ADMIN) on class
+    // → effectiveCheckableRoles should be ['owner'] (method has only non-system roles, no override)
+    // → member user (level 1) cannot access owner (level 3) endpoint
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    await request(app.getHttpServer())
+      .get('/admin-fallback/owner-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+  });
+
+  it('[regression] mixed S_USER+owner on method with ADMIN on class: owner-member can access (S_USER satisfied)', async () => {
+    // @Roles(S_USER, DefaultHR.OWNER) on method with @Roles(ADMIN) on class.
+    // OR semantics: S_USER fires first for any authenticated user → access granted.
+    // The owner role is an alternative — not required when S_USER is already satisfied.
+    // With header present: membership is still validated for tenant context (any role suffices).
+    await tenantService.addMember(TENANT_A, USER_ID, 'owner');
+
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-or-owner')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  it('[regression] S_USER on method with ADMIN on class + X-Tenant-Id: admin non-member gets admin bypass', async () => {
+    // Admin user sends X-Tenant-Id to a tenant they're NOT a member of.
+    // S_USER early-return fires → handleSystemRoleWithTenantHeader → admin bypass → 200.
+    // Without admin bypass in handleSystemRoleWithTenantHeader, this would be 403 (regression).
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', ADMIN_USER_ID)
+      .set('X-Test-User-Roles', RoleEnum.ADMIN)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  it('[regression] mixed S_USER+owner on method with ADMIN on class: member-user can access (S_USER satisfied)', async () => {
+    // @Roles(S_USER, DefaultHR.OWNER) → S_USER is an alternative — authenticated member passes.
+    // Previously (old filter logic): effectiveCheckableRoles=['owner'] → member was blocked.
+    // Now (OR semantics): S_USER fires before the real-role check → member gets through.
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-or-owner')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  // =========================================================================
+  // J) System roles as OR alternatives (S_USER, S_VERIFIED, S_EVERYONE)
+  //
+  // System roles are checked BEFORE real roles. When a system role in the
+  // active role set is satisfied, access is granted immediately (OR semantics).
+  // Real roles in the same @Roles() decorator are alternatives, not conjunctions.
+  // =========================================================================
+
+  // J1: Covered by regression test above: '[regression] S_EVERYONE on method with ADMIN on class'
+
+  // J2: S_EVERYONE + X-Tenant-Id header → 200 without auth (header is ignored for S_EVERYONE)
+  it('S_EVERYONE on method + ADMIN on class + X-Tenant-Id header: unauthenticated user gets 200', async () => {
+    // S_EVERYONE fires before any tenant check → tenant header is ignored entirely
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/public')
+      .set('X-Tenant-Id', TENANT_A)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  // J3: S_USER on method + ADMIN on class → 200 for authenticated non-admin (no header)
+  it('S_USER on method + ADMIN on class: authenticated non-admin without header gets 200', async () => {
+    // S_USER fires and user is authenticated → pass (no tenant context expected)
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-only')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBeUndefined();
+  });
+
+  // J4: S_USER on method + ADMIN on class → 403 for unauthenticated
+  it('S_USER on method + ADMIN on class: unauthenticated user gets 403', async () => {
+    // S_USER present, no user → throws ForbiddenException('Authentication required')
+    await request(app.getHttpServer())
+      .get('/admin-fallback/user-only')
+      .expect(403);
+  });
+
+  // J5: S_USER on method + X-Tenant-Id header → 200 for tenant member
+  it('S_USER on method + X-Tenant-Id header: member gets 200 with tenant context set', async () => {
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/test/user-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  // J6: S_USER on method + X-Tenant-Id header → 403 for non-member (tenant membership required with header)
+  it('S_USER on method + X-Tenant-Id header: non-member gets 403', async () => {
+    // S_USER fires + user present → header present → membership check → non-member → 403
+    await request(app.getHttpServer())
+      .get('/test/user-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+  });
+
+  // J7: S_VERIFIED on method → 200 for verified user (no header)
+  it('S_VERIFIED on method: verified user (verified=true) gets 200', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .set('X-Test-User-Id', USER_ID)
+      .set('X-Test-User-Verified', 'true')
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  // J8: S_VERIFIED on method → 403 for unverified user
+  it('S_VERIFIED on method: unverified user gets 403', async () => {
+    await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
+  });
+
+  // J9: S_VERIFIED on method → 403 for unauthenticated user
+  it('S_VERIFIED on method: unauthenticated user gets 403', async () => {
+    await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .expect(403);
+  });
+
+  // J10: S_VERIFIED + X-Tenant-Id header → 200 for verified tenant member
+  it('S_VERIFIED on method + X-Tenant-Id header: verified member gets 200 with tenant context', async () => {
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .set('X-Test-User-Verified', 'true')
+      .expect(200);
+
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  // J11: S_VERIFIED + X-Tenant-Id header → 403 for verified non-member
+  it('S_VERIFIED on method + X-Tenant-Id header: verified non-member gets 403', async () => {
+    // S_VERIFIED fires + user is verified → header present → membership check → non-member → 403
+    await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .set('X-Test-User-Verified', 'true')
+      .expect(403);
+  });
+
+  // J12: S_EVERYONE + header + authenticated member → tenant context enrichment
+  it('S_EVERYONE on method + X-Tenant-Id header + authenticated member: tenant context enriched', async () => {
+    await tenantService.addMember(TENANT_A, USER_ID, 'member');
+
+    const res = await request(app.getHttpServer())
+      .get('/test/public')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    // S_EVERYONE returns true (public), but when header + user + member, tenant context is enriched
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  // J13: S_EVERYONE + header + authenticated non-member → 200 but no tenant context
+  it('S_EVERYONE on method + X-Tenant-Id header + authenticated non-member: no tenant context', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/test/public')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    // S_EVERYONE = public, non-member is not blocked, but tenant context is not set
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBeUndefined();
+  });
+
+  // J14: S_VERIFIED + header + admin non-member → admin bypass
+  it('S_VERIFIED on method + X-Tenant-Id header: admin non-member gets admin bypass', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/test/verified-only')
+      .set('X-Tenant-Id', TENANT_A)
+      .set('X-Test-User-Id', ADMIN_USER_ID)
+      .set('X-Test-User-Roles', RoleEnum.ADMIN)
+      .set('X-Test-User-Verified', 'true')
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.tenantId).toBe(TENANT_A);
+  });
+
+  // J15: S_USER + owner on method → S_USER satisfied for any logged-in user (OR alternative)
+  it('S_USER + owner on method: any authenticated user passes (S_USER is OR alternative, no header)', async () => {
+    // OR semantics: S_USER fires before owner check → any logged-in user passes
+    const res = await request(app.getHttpServer())
+      .get('/admin-fallback/user-or-owner')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+  });
+
+  // J16: No method @Roles + class-level ADMIN → requires ADMIN (class-level fallback still works)
+  it('no method @Roles + ADMIN on class: non-admin user gets 403 (class fallback applies)', async () => {
+    await request(app.getHttpServer())
+      .get('/admin-fallback/admin-only')
+      .set('X-Test-User-Id', USER_ID)
+      .expect(403);
   });
 
 });

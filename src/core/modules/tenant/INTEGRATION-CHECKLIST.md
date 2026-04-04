@@ -121,7 +121,18 @@ Normal (non-hierarchy) roles also work:
 async viewAuditLog(...) { ... }
 ```
 
-### 8. Skip Tenant Check for Non-Tenant Endpoints
+### 8. System Roles as OR Alternatives
+
+System roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives **before** real role checks in `CoreTenantGuard`. If a system role grants access, real roles in the same `@Roles()` are alternatives, not requirements.
+
+When `X-Tenant-Id` header is present and a system role grants access:
+
+- `S_EVERYONE`: public — membership is optionally enriched but never blocks
+- `S_USER`/`S_VERIFIED`: membership is validated (403 if not a member; admin bypass applies)
+
+`@SkipTenantCheck()` suppresses membership validation for `S_USER`/`S_VERIFIED` paths — authentication/verification is still enforced, but no membership check runs even with a header present.
+
+### 9. Skip Tenant Check for Non-Tenant Endpoints
 
 Use `@SkipTenantCheck()` for endpoints that intentionally work without tenant context:
 
@@ -133,7 +144,7 @@ import { SkipTenantCheck, Roles, RoleEnum } from '@lenne.tech/nest-server';
 async listMyTenants() { ... }
 ```
 
-### 9. BetterAuth (IAM) Coexistence
+### 10. BetterAuth (IAM) Coexistence
 
 When both `multiTenancy` and `betterAuth` are active, IAM endpoints (sign-in, sign-up, session, etc.)
 automatically skip tenant validation when no `X-Tenant-Id` header is sent (`betterAuth.skipTenantCheck: true`, default).

@@ -106,7 +106,7 @@ JWT-based authentication for existing projects:
 | **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
 | **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
-| **Tenant Guard** | `CoreTenantGuard` validates tenant membership via hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, or BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
+| **Tenant Guard** | `CoreTenantGuard` validates tenant membership; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
 | **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
 
 ### Data & CRUD
@@ -474,16 +474,22 @@ async getPublicUsers(): Promise<User[]> { ... }
 
 #### System Roles (S_ prefix)
 
-System roles are evaluated at runtime and must **never** be stored in `user.roles`:
+System roles are evaluated at runtime and must **never** be stored in `user.roles`.
+
+**OR semantics in CoreTenantGuard:** When multiTenancy is active, system roles are checked as OR alternatives in priority order (`S_EVERYONE` → `S_USER` → `S_VERIFIED`) before real roles. If ANY system role in `@Roles()` is satisfied, access is granted immediately — real roles in the same `@Roles()` are treated as alternatives, not additional requirements.
+
+Example: `@Roles(RoleEnum.S_USER, DefaultHR.OWNER)` — any authenticated user passes (owner is an alternative).
+
+When `X-Tenant-Id` header is present and a system role grants access, membership is still validated to set tenant context (`tenantId`, `tenantRole`). A non-member gets 403 even with `S_USER` or `S_VERIFIED` satisfied.
 
 | System Role | Check Logic | Use Case |
 |-------------|-------------|----------|
 | `S_EVERYONE` | Always true | Public endpoints |
 | `S_NO_ONE` | Always false | Permanently locked |
 | `S_USER` | `currentUser` exists | Any authenticated user |
-| `S_VERIFIED` | `user.verified \|\| user.emailVerified` | Email-verified users |
-| `S_CREATOR` | `object.createdBy === user.id` | Creator of the resource |
-| `S_SELF` | `object.id === user.id` | User accessing own data |
+| `S_VERIFIED` | `user.verified \|\| user.verifiedAt \|\| user.emailVerified` | Email-verified users |
+| `S_CREATOR` | `object.createdBy === user.id` | Creator of the resource (object-level, checked by interceptor) |
+| `S_SELF` | `object.id === user.id` | User accessing own data (object-level, checked by interceptor) |
 | `DefaultHR.MEMBER` (`'member'`) | Active membership in current tenant (level >= 1) | Tenant member access |
 | `DefaultHR.MANAGER` (`'manager'`) | At least manager-level role (level >= 2) | Tenant manager access |
 | `DefaultHR.OWNER` (`'owner'`) | Highest role level (level >= 3) | Tenant owner access |
@@ -974,7 +980,7 @@ Controls who can access a resolver/controller method. Evaluated by the RolesGuar
 @Roles('auditor')           // Normal role: exact match only
 ```
 
-**Note:** `@Roles()` includes JWT authentication. Do NOT add `@UseGuards(AuthGuard(JWT))`. Hierarchy roles are evaluated by `CoreTenantGuard` using level comparison. Normal (non-hierarchy) roles use exact match. When `X-Tenant-Id` header is present, only `membership.role` is checked (user.roles ignored, except ADMIN bypass).
+**Note:** `@Roles()` includes JWT authentication. Do NOT add `@UseGuards(AuthGuard(JWT))`. When multiTenancy is enabled, `CoreTenantGuard` checks system roles as OR alternatives first (`S_EVERYONE` → `S_USER` → `S_VERIFIED`). Hierarchy roles use level comparison. Normal (non-hierarchy) roles use exact match. When `X-Tenant-Id` header is present, only `membership.role` is checked (user.roles ignored, except ADMIN bypass). With a system role granting access + header present, membership is still validated to set tenant context.
 
 ### @Restricted() — Field-Level Access Control
 

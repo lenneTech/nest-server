@@ -5,7 +5,10 @@ const SYSTEM_ROLE_PREFIX = 's_';
 
 /**
  * Merge handler-level and class-level @Roles() metadata arrays into a single flat array.
- * Used by RolesGuard, BetterAuthRolesGuard, and CoreTenantGuard to avoid code duplication.
+ * Used by RolesGuard, BetterAuthRolesGuard, and CoreTenantGuard.
+ *
+ * OR semantics: class-level roles serve as a base that method-level roles extend.
+ * Example: class @Roles(ADMIN) + method @Roles(S_USER) → [S_USER, ADMIN] — both are alternatives.
  *
  * @param meta - Two-element tuple [handlerRoles, classRoles] from Reflector.getAll or Reflect.getMetadata
  */
@@ -22,7 +25,8 @@ export function getRoleHierarchy(): Record<string, number> {
 
 /**
  * Check if a role is a system role (S_USER, S_EVERYONE, etc.).
- * System roles are handled by RolesGuard, not CoreTenantGuard.
+ * System roles are checked by RolesGuard/BetterAuthRolesGuard for authentication
+ * and by CoreTenantGuard as OR alternatives before real role checks.
  */
 export function isSystemRole(role: string): boolean {
   return role.startsWith(SYSTEM_ROLE_PREFIX);

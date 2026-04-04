@@ -88,15 +88,19 @@ export class CoreBetterAuthService implements OnModuleInit {
     try {
       const db = this.connection.db;
 
-      // Session collection: token lookup (getSessionByToken) and user+expiry lookup (getActiveSessionForUser)
-      await db.collection('session').createIndex({ token: 1 });
-      await db.collection('session').createIndex({ userId: 1, expiresAt: 1 });
+      // All indices are idempotent (no-op if already exists) and independent — run in parallel
+      await Promise.all([
+        // Session: token lookup (getSessionByToken) and user+expiry lookup (getActiveSessionForUser)
+        db.collection('session').createIndex({ token: 1 }),
+        db.collection('session').createIndex({ userId: 1, expiresAt: 1 }),
+        // Users: iamId lookup (mapSessionUser uses $or with email and iamId)
+        db.collection('users').createIndex({ iamId: 1 }, { sparse: true }),
+        // Account: userId lookup ($lookup in getMigrationStatus) and providerId filtering
+        db.collection('account').createIndex({ userId: 1 }),
+        db.collection('account').createIndex({ providerId: 1, userId: 1 }),
+      ]);
 
-      // Users collection: iamId lookup (mapSessionUser uses $or with email and iamId)
-      // email is typically already indexed by Mongoose schema, but iamId may not be
-      await db.collection('users').createIndex({ iamId: 1 }, { sparse: true });
-
-      this.logger.debug('Performance indices ensured on session and users collections');
+      this.logger.debug('Performance indices ensured on session, users, and account collections');
     } catch (error) {
       // Non-fatal: indices improve performance but are not required for correctness
       this.logger.warn(`Could not create performance indices: ${error instanceof Error ? error.message : 'unknown'}`);

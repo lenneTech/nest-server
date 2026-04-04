@@ -174,6 +174,53 @@ await testHelper.rest('/protected-endpoint', {
 });
 ```
 
+## File Download Testing (`testHelper.download()` / `testHelper.downloadBuffer()`)
+
+### `download(url, tokenOrOptions?)`
+
+Download a file and return the response with a `data` string property for content comparison.
+
+```typescript
+// No authentication
+const res = await testHelper.download('/files/id/abc123');
+expect(res.statusCode).toEqual(200);
+expect(res.data).toEqual('file content');
+```
+
+### `downloadBuffer(url, tokenOrOptions?)`
+
+Download a file and return a `Buffer` for binary comparison or saving.
+
+```typescript
+const buffer = await testHelper.downloadBuffer('/files/id/abc123', jwtToken);
+await fs.promises.writeFile('/tmp/downloaded.bin', buffer);
+```
+
+### TestDownloadOptions
+
+The second parameter accepts either a plain token string or a `TestDownloadOptions` object:
+
+| Option    | Type     | Description                                                   |
+| --------- | -------- | ------------------------------------------------------------- |
+| `token`   | `string` | Bearer token via Authorization header (JWT)                   |
+| `cookies` | `string` | Plain session token, converted via `buildBetterAuthCookies()` |
+
+Both can be used simultaneously — `token` sets the Authorization header while `cookies` sets the Cookie header.
+
+```typescript
+// String form (backward compatible) — sets Authorization: bearer <token>
+await testHelper.download('/files/id/abc123', jwtToken);
+
+// Options object with JWT token
+await testHelper.download('/files/id/abc123', { token: jwtToken });
+
+// Options object with cookie-based session auth
+await testHelper.download('/files/id/abc123', { cookies: sessionToken });
+
+// Both simultaneously
+await testHelper.download('/files/id/abc123', { cookies: sessionToken, token: jwtToken });
+```
+
 ## GraphQL Testing (`testHelper.graphQl()`)
 
 ```typescript
