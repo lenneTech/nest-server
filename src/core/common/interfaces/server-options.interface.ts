@@ -2117,16 +2117,12 @@ interface IBetterAuthBase {
    * Custom controller class to use instead of the default CoreBetterAuthController.
    * The class should extend CoreBetterAuthController.
    *
-   * This allows projects to customize REST endpoints via config instead of creating
-   * a separate module. Use this with CoreModule.forRoot(envConfig) (IAM-only mode).
-   *
-   * @example
+   * @deprecated Since 11.22.0 — Use the `overrides` parameter on `CoreModule.forRoot()` instead:
    * ```typescript
-   * // config.env.ts
-   * betterAuth: {
-   *   controller: IamController,
-   * }
+   * CoreModule.forRoot(envConfig, { betterAuth: { controller: IamController } })
    * ```
+   * This separates class references from environment configuration. The config field
+   * still works for backward compatibility but `overrides` takes precedence.
    *
    * @since 11.14.0
    */
@@ -2342,16 +2338,12 @@ interface IBetterAuthBase {
    * Custom resolver class to use instead of the default DefaultBetterAuthResolver.
    * The class should extend CoreBetterAuthResolver.
    *
-   * This allows projects to customize GraphQL operations via config instead of creating
-   * a separate module. Use this with CoreModule.forRoot(envConfig) (IAM-only mode).
-   *
-   * @example
+   * @deprecated Since 11.22.0 — Use the `overrides` parameter on `CoreModule.forRoot()` instead:
    * ```typescript
-   * // config.env.ts
-   * betterAuth: {
-   *   resolver: IamResolver,
-   * }
+   * CoreModule.forRoot(envConfig, { betterAuth: { resolver: IamResolver } })
    * ```
+   * This separates class references from environment configuration. The config field
+   * still works for backward compatibility but `overrides` takes precedence.
    *
    * @since 11.14.0
    */
@@ -2662,4 +2654,79 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
    * ```
    */
   trustedOrigins: string[];
+}
+
+/**
+ * Override default implementations of core module components.
+ *
+ * Use this as the second parameter of `CoreModule.forRoot()` to replace
+ * default controllers, resolvers, or services with project-specific implementations.
+ *
+ * This keeps class references (code) separate from environment configuration (strings/numbers)
+ * and ensures each module's `forRoot()` is called exactly once — preventing duplicate
+ * controller registration.
+ *
+ * Each core module that supports customization has a typed entry here.
+ * Only specified components are overridden — unset fields use defaults.
+ *
+ * @example
+ * ```typescript
+ * // IAM-only mode with overrides
+ * CoreModule.forRoot(envConfig, {
+ *   errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+ *   betterAuth: { resolver: BetterAuthResolver },
+ * })
+ *
+ * // Legacy mode with overrides
+ * CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig, {
+ *   errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+ *   betterAuth: { controller: BetterAuthController, resolver: BetterAuthResolver },
+ * })
+ * ```
+ *
+ * @since 11.22.0
+ */
+export interface ICoreModuleOverrides {
+  /**
+   * Override BetterAuth controller and/or resolver.
+   *
+   * The custom controller must extend `CoreBetterAuthController`.
+   * The custom resolver must extend `CoreBetterAuthResolver` and re-declare
+   * all GraphQL decorators (`@Mutation`, `@Query`, `@Roles`).
+   *
+   * @example
+   * ```typescript
+   * {
+   *   betterAuth: {
+   *     controller: BetterAuthController,
+   *     resolver: BetterAuthResolver,
+   *   },
+   * }
+   * ```
+   */
+  betterAuth?: {
+    controller?: Type<any>;
+    resolver?: Type<any>;
+  };
+
+  /**
+   * Override ErrorCode controller and/or service.
+   *
+   * The custom controller can be standalone (recommended) or extend `CoreErrorCodeController`.
+   * The custom service must extend `CoreErrorCodeService`.
+   *
+   * @example
+   * ```typescript
+   * {
+   *   errorCode: {
+   *     controller: ErrorCodeController,
+   *     service: ErrorCodeService,
+   *   },
+   * }
+   * ```
+   */
+  errorCode?: {
+    controller?: Type<any>;
+    service?: Type<any>;
+  };
 }

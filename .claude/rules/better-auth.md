@@ -126,7 +126,7 @@ When a project needs custom BetterAuth behavior, follow these patterns:
 | Pattern | Use When | Configuration |
 |---------|----------|---------------|
 | **Zero-Config** | No customization needed | `CoreModule.forRoot(envConfig)` |
-| **Config-based** | Custom Controller/Resolver | `betterAuth: { controller, resolver }` in config |
+| **Overrides Parameter** (recommended) | Custom Controller/Resolver | `CoreModule.forRoot(envConfig, { betterAuth: { controller, resolver } })` |
 | **Separate Module** | Full control, additional providers | `betterAuth: { autoRegister: false }` |
 
 ### Pattern Selection Decision Tree
@@ -136,7 +136,7 @@ When a project needs custom BetterAuth behavior, follow these patterns:
    - Yes → Continue to 2
 
 2. Does the project need additional providers or complex module structure?
-   - No → Use Config-based (Pattern 2) - add `controller`/`resolver` to `betterAuth` config
+   - No → Use Overrides Parameter (Pattern 2) - pass `{ betterAuth: { controller, resolver } }` as second arg to `CoreModule.forRoot()`
    - Yes → Use Separate Module (Pattern 3) - set `autoRegister: false`
 
 ### Critical: Resolver Decorator Re-declaration
@@ -174,7 +174,7 @@ To override: Create `src/templates/email-verification-de.ejs` in the project.
 If you see this warning, the project has duplicate registration:
 
 **Solutions:**
-1. Move `controller`/`resolver` to `config.betterAuth` (Pattern 2)
+1. Use the `overrides` parameter on `CoreModule.forRoot()` (Pattern 2): `CoreModule.forRoot(envConfig, { betterAuth: { controller, resolver } })`
 2. Set `betterAuth.autoRegister: false` (Pattern 3)
 
 **See:** `src/core/modules/better-auth/CUSTOMIZATION.md` for complete documentation.

@@ -62,7 +62,7 @@ Modern OAuth-compatible authentication with plugin architecture:
 | **Rate Limiting** | Per-endpoint rate limits (configurable) |
 | **Cross-Subdomain Cookies** | Automatic cookie domain configuration |
 | **Organization / Multi-Tenant** | Teams and organization management (plugin) |
-| **3 Registration Patterns** | Zero-config, config-based, or manual (`autoRegister: false`) |
+| **3 Registration Patterns** | Zero-config, overrides parameter, or manual (`autoRegister: false`) |
 
 #### Legacy Auth Module (backward compatible)
 
