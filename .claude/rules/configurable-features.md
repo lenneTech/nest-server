@@ -215,6 +215,65 @@ This pattern is currently applied to:
 | Multi-Tenancy | `multiTenancy` | Presence Implies Enabled | `headerName: 'x-tenant-id'`, `membershipModel: 'TenantMember'`, `adminBypass: true`, `excludeSchemas: []`, `roleHierarchy: { member: 1, manager: 2, owner: 3 }`, `cacheTtlMs: 30000` (0 disables, process-local). System roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; method-level system roles take precedence; membership validated for context when system role grants access + header present. Hierarchy roles use level comparison, normal roles use exact match. Use `DefaultHR` or `createHierarchyRoles()` for type-safe role constants. Bypass: `RequestContext.runWithBypassTenantGuard()`. Cache invalidation: `CoreTenantGuard.invalidateUser(userId)` / `invalidateAll()` |
 | BetterAuth Tenant Skip | `betterAuth.skipTenantCheck` | Explicit Boolean | `true` (default). When `true` and no `X-Tenant-Id` header is sent, IAM endpoints (controller + resolver) skip `CoreTenantGuard` tenant validation. When header IS present, normal membership validation runs regardless. Set `false` for tenant-aware auth scenarios (subdomain-based, invite links, SSO per tenant) |
 
+## Module Override Pattern (via `ICoreModuleOverrides`)
+
+For replacing default controllers, resolvers, or services of auto-registered core modules.
+
+### Why a separate `overrides` parameter?
+
+NestJS registers controllers at module scan time — there is no mechanism to replace them after registration.
+When `CoreModule.forRoot()` auto-registers a module (e.g., ErrorCodeModule), the only way to use a custom controller
+is to pass it **before** registration happens. A separate `overrides` parameter on `CoreModule.forRoot()` keeps
+class references (code) cleanly separated from environment configuration (strings/numbers).
+
+### Usage
+
+```typescript
+// IAM-only mode
+CoreModule.forRoot(envConfig, {
+  errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+  betterAuth: { resolver: BetterAuthResolver },
+})
+
+// Legacy mode
+CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig, {
+  errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+})
+```
+
+### Available Override Fields
+
+| Module | Fields | Description |
+|--------|--------|-------------|
+| `errorCode` | `controller`, `service` | Custom error code endpoint and/or service |
+| `betterAuth` | `controller`, `resolver` | Custom IAM REST controller and/or GraphQL resolver |
+
+### Rules
+
+1. Overrides take precedence over `betterAuth.controller`/`resolver` in config (backward compatible)
+2. Only auto-registered modules are affected — `autoRegister: false` modules are imported separately
+3. The `ICoreModuleOverrides` interface enforces type safety per module
+
+### Alternative: `autoRegister: false`
+
+For complex setups requiring additional providers or a custom module structure, disable auto-registration
+and import the module separately:
+
+```typescript
+// config.env.ts
+errorCode: { autoRegister: false }
+betterAuth: { autoRegister: false }
+
+// server.module.ts
+@Module({
+  imports: [
+    CoreModule.forRoot(envConfig),
+    ErrorCodeModule.forRoot({ controller: MyController, service: MyService }),
+    BetterAuthModule.forRoot({ controller: MyController, resolver: MyResolver }),
+  ],
+})
+```
+
 ## Checklist for New Configurable Features
 
 When adding a new configurable feature:
@@ -234,6 +293,14 @@ When adding a new configurable feature:
 - [ ] Implement `isPluginEnabled()` helper for boolean/object handling
 - [ ] Implement `getPluginConfig()` helper to normalize to object
 - [ ] Add tests for: `true`, `false`, `{}`, `{ option: value }`, `{ enabled: false }`, `undefined`
+
+### For "Module Override" Pattern:
+
+- [ ] Add override fields to `ICoreModuleOverrides` interface
+- [ ] Pass overrides through in `CoreModule.forRoot()` to the module's `forRoot()`
+- [ ] Ensure the module's `forRoot()` accepts controller/resolver/service parameters
+- [ ] Update this document with the new override fields
+- [ ] Update module's INTEGRATION-CHECKLIST.md
 
 ### For Both Patterns:
 

@@ -41,29 +41,23 @@ export class ServerModule {}
 - Default `CoreBetterAuthController` and `DefaultBetterAuthResolver` are registered
 - No additional configuration needed
 
-### Pattern 2: Config-based Controller/Resolver (Recommended for Customization)
+### Pattern 2: Overrides Parameter (Recommended for Customization)
 
 **Use when:** Need custom Controller or Resolver, but don't need a separate module.
 
 ```typescript
-// config.env.ts
-import { IamController } from './server/modules/iam/iam.controller';
-import { IamResolver } from './server/modules/iam/iam.resolver';
-
-const config = {
-  betterAuth: {
-    controller: IamController, // Custom controller class
-    resolver: IamResolver, // Custom resolver class
-    // ... other betterAuth config
-  },
-};
-```
-
-```typescript
 // server.module.ts
+import { IamController } from './modules/iam/iam.controller';
+import { IamResolver } from './modules/iam/iam.resolver';
+
 @Module({
   imports: [
-    CoreModule.forRoot(envConfig), // Uses custom controller/resolver from config
+    CoreModule.forRoot(envConfig, {
+      betterAuth: {
+        controller: IamController,
+        resolver: IamResolver,
+      },
+    }),
   ],
 })
 export class ServerModule {}
@@ -71,9 +65,22 @@ export class ServerModule {}
 
 **What happens:**
 
-- CoreModule passes `controller`/`resolver` to `CoreBetterAuthModule.forRoot()`
+- CoreModule passes overrides to `CoreBetterAuthModule.forRoot()`
 - Your custom classes are registered instead of defaults
 - Single registration point, no duplicate imports
+- Class references stay separate from environment config
+
+**Alternative:** Set `controller`/`resolver` directly in config (backward compatible):
+
+```typescript
+// config.env.ts — still works but overrides parameter is preferred
+const config = {
+  betterAuth: {
+    controller: IamController,
+    resolver: IamResolver,
+  },
+};
+```
 
 ### Pattern 3: Separate Module (autoRegister: false)
 

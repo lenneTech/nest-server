@@ -1,22 +1,25 @@
 /**
  * Unit Tests: CoreModule.forRoot() Signatures
  *
- * Tests the three CoreModule.forRoot() signatures without full E2E setup.
+ * Tests the CoreModule.forRoot() signatures without full E2E setup.
  * Verifies that each signature is correctly detected and configured.
  *
  * Scenario 1: Legacy Only - 3-param signature with betterAuth.enabled: false
  * Scenario 2: Legacy + IAM - 3-param signature with betterAuth.enabled: true
  * Scenario 3: IAM Only - 1-param signature (new projects)
+ * Scenario 4: ICoreModuleOverrides - overrides parameter for both signatures
  */
 
-import { DynamicModule } from '@nestjs/common';
+import { DynamicModule, Injectable } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreModule } from '../../src/core.module';
-import { IServerOptions } from '../../src/core/common/interfaces/server-options.interface';
+import { ICoreModuleOverrides, IServerOptions } from '../../src/core/common/interfaces/server-options.interface';
 import { ComplexityPlugin } from '../../src/core/common/plugins/complexity.plugin';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
+import { CoreBetterAuthModule } from '../../src/core/modules/better-auth/core-better-auth.module';
+import { ErrorCodeModule } from '../../src/core/modules/error-code/error-code.module';
 
 // Mock AuthModule for testing
 const MockAuthModule = {
@@ -524,6 +527,272 @@ describe('CoreModule.forRoot() Signatures', () => {
       );
 
       expect(result).toBeDefined();
+    });
+  });
+
+  // ===========================================================================================================
+  // Scenario 4: ICoreModuleOverrides
+  // ===========================================================================================================
+
+  describe('Scenario 4: ICoreModuleOverrides', () => {
+    // Mock classes for override testing
+    @Injectable()
+    class MockErrorCodeController {}
+
+    @Injectable()
+    class MockErrorCodeService {}
+
+    @Injectable()
+    class MockBetterAuthController {}
+
+    @Injectable()
+    class MockBetterAuthResolver {}
+
+    // Helper to find an ErrorCodeModule DynamicModule in the imports array
+    function findErrorCodeImport(result: DynamicModule): DynamicModule | undefined {
+      return (result.imports || []).find(
+        (imp: any) => imp?.module === ErrorCodeModule,
+      ) as DynamicModule | undefined;
+    }
+
+    describe('IAM-only mode with overrides (2-param signature)', () => {
+      it('should accept overrides as second parameter', () => {
+        const config: Partial<IServerOptions> = { ...baseConfig };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: { controller: MockErrorCodeController },
+        };
+
+        const result = CoreModule.forRoot(config, overrides);
+
+        expect(result).toBeDefined();
+        expect(result.module).toBe(CoreModule);
+      });
+
+      it('should pass errorCode overrides to ErrorCodeModule.forRoot()', () => {
+        const config: Partial<IServerOptions> = { ...baseConfig };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: {
+            controller: MockErrorCodeController,
+            service: MockErrorCodeService,
+          },
+        };
+
+        const result = CoreModule.forRoot(config, overrides);
+        const errorCodeImport = findErrorCodeImport(result);
+
+        expect(errorCodeImport).toBeDefined();
+        // The custom controller should be registered
+        expect(errorCodeImport?.controllers).toContain(MockErrorCodeController);
+      });
+
+      it('should correctly detect IAM-only mode when overrides are passed', () => {
+        const config: Partial<IServerOptions> = {
+          ...baseConfig,
+          betterAuth: {
+            enabled: true,
+            secret: 'betterauth-secret-32-chars-min!!',
+          },
+        };
+
+        // With the old detection (authModuleOrUndefined === undefined),
+        // this would have been misdetected as Legacy mode because overrides
+        // as 2nd arg would make authModuleOrUndefined !== undefined
+        const result = CoreModule.forRoot(config, {
+          errorCode: { controller: MockErrorCodeController },
+        });
+
+        expect(result).toBeDefined();
+        expect(result.module).toBe(CoreModule);
+
+        // Verify IAM-only mode: Legacy Auth module should NOT be in imports
+        const importModuleNames = (result.imports || []).map((imp: any) =>
+          typeof imp === 'function' ? imp.name : imp?.module?.name || '',
+        );
+        expect(importModuleNames).not.toContain('MockAuthModuleClass');
+      });
+    });
+
+    describe('Legacy mode with overrides (4-param signature)', () => {
+      it('should accept overrides as fourth parameter', () => {
+        const config: Partial<IServerOptions> = {
+          ...baseConfig,
+          betterAuth: { enabled: false },
+        };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: { controller: MockErrorCodeController },
+        };
+
+        const result = CoreModule.forRoot(CoreAuthService, MockAuthModule.forRoot(), config, overrides);
+
+        expect(result).toBeDefined();
+        expect(result.module).toBe(CoreModule);
+      });
+
+      it('should pass errorCode overrides in Legacy mode', () => {
+        const config: Partial<IServerOptions> = {
+          ...baseConfig,
+          betterAuth: { enabled: false },
+        };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: {
+            controller: MockErrorCodeController,
+            service: MockErrorCodeService,
+          },
+        };
+
+        const result = CoreModule.forRoot(CoreAuthService, MockAuthModule.forRoot(), config, overrides);
+        const errorCodeImport = findErrorCodeImport(result);
+
+        expect(errorCodeImport).toBeDefined();
+        expect(errorCodeImport?.controllers).toContain(MockErrorCodeController);
+      });
+    });
+
+    describe('Override precedence', () => {
+      it('should use overrides.betterAuth.controller over config.betterAuth.controller', () => {
+        // Spy on CoreBetterAuthModule.forRoot to capture the options it receives
+        const originalForRoot = CoreBetterAuthModule.forRoot.bind(CoreBetterAuthModule);
+        let capturedOptions: any = null;
+        vi.spyOn(CoreBetterAuthModule, 'forRoot').mockImplementation((options: any) => {
+          capturedOptions = options;
+          return originalForRoot(options);
+        });
+
+        try {
+          const config: Partial<IServerOptions> = {
+            ...baseConfig,
+            betterAuth: {
+              controller: MockErrorCodeController, // wrong class intentionally
+              enabled: true,
+              secret: 'betterauth-secret-32-chars-min!!',
+            },
+          };
+          const overrides: ICoreModuleOverrides = {
+            betterAuth: { controller: MockBetterAuthController },
+          };
+
+          CoreModule.forRoot(config, overrides);
+
+          // The override controller should have been passed, not the config one
+          expect(capturedOptions).not.toBeNull();
+          expect(capturedOptions.controller).toBe(MockBetterAuthController);
+          expect(capturedOptions.controller).not.toBe(MockErrorCodeController);
+        } finally {
+          vi.restoreAllMocks();
+        }
+      });
+
+      it('should forward overrides.betterAuth.resolver to CoreBetterAuthModule.forRoot()', () => {
+        const originalForRoot = CoreBetterAuthModule.forRoot.bind(CoreBetterAuthModule);
+        let capturedOptions: any = null;
+        vi.spyOn(CoreBetterAuthModule, 'forRoot').mockImplementation((options: any) => {
+          capturedOptions = options;
+          return originalForRoot(options);
+        });
+
+        try {
+          const config: Partial<IServerOptions> = {
+            ...baseConfig,
+            betterAuth: {
+              enabled: true,
+              secret: 'betterauth-secret-32-chars-min!!',
+            },
+          };
+          const overrides: ICoreModuleOverrides = {
+            betterAuth: { resolver: MockBetterAuthResolver },
+          };
+
+          CoreModule.forRoot(config, overrides);
+
+          expect(capturedOptions).not.toBeNull();
+          expect(capturedOptions.resolver).toBe(MockBetterAuthResolver);
+        } finally {
+          vi.restoreAllMocks();
+        }
+      });
+    });
+
+    describe('autoRegister: false + overrides warnings', () => {
+      it('should warn when errorCode overrides are provided with autoRegister: false', () => {
+        const warnSpy = vi.spyOn(console, 'warn');
+        const config: Partial<IServerOptions> = {
+          ...baseConfig,
+          errorCode: { autoRegister: false },
+        };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: { controller: MockErrorCodeController },
+        };
+
+        CoreModule.forRoot(config, overrides);
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('errorCode overrides are ignored'),
+        );
+      });
+
+      it('should warn when betterAuth overrides are provided with autoRegister: false', () => {
+        const warnSpy = vi.spyOn(console, 'warn');
+        const config: Partial<IServerOptions> = {
+          ...baseConfig,
+          betterAuth: {
+            autoRegister: false,
+            enabled: true,
+            secret: 'betterauth-secret-32-chars-min!!',
+          },
+        };
+        const overrides: ICoreModuleOverrides = {
+          betterAuth: { resolver: MockBetterAuthResolver },
+        };
+
+        CoreModule.forRoot(config, overrides);
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('betterAuth overrides are ignored'),
+        );
+      });
+
+      it('should NOT warn when overrides are provided without autoRegister: false', () => {
+        const warnSpy = vi.spyOn(console, 'warn');
+        const config: Partial<IServerOptions> = { ...baseConfig };
+        const overrides: ICoreModuleOverrides = {
+          errorCode: { controller: MockErrorCodeController },
+        };
+
+        CoreModule.forRoot(config, overrides);
+
+        // Should not contain errorCode warning (other warnings like JWT are OK)
+        const errorCodeWarns = (warnSpy as any).mock.calls.filter(
+          (call: any[]) => typeof call[0] === 'string' && call[0].includes('errorCode overrides are ignored'),
+        );
+        expect(errorCodeWarns).toHaveLength(0);
+      });
+    });
+
+    describe('No overrides (backward compatibility)', () => {
+      it('should use default CoreErrorCodeController when no overrides provided', () => {
+        const result = CoreModule.forRoot({ ...baseConfig });
+        const errorCodeImport = findErrorCodeImport(result);
+
+        expect(errorCodeImport).toBeDefined();
+        // Default controller should be registered, not a custom one
+        expect(errorCodeImport?.controllers).toBeDefined();
+        expect(errorCodeImport?.controllers).toHaveLength(1);
+        expect(errorCodeImport?.controllers?.[0]).not.toBe(MockErrorCodeController);
+      });
+
+      it('should work without overrides in Legacy mode', () => {
+        const result = CoreModule.forRoot(CoreAuthService, MockAuthModule.forRoot(), {
+          ...baseConfig,
+          betterAuth: { enabled: false },
+        });
+        const errorCodeImport = findErrorCodeImport(result);
+
+        expect(result.module).toBe(CoreModule);
+        expect(errorCodeImport).toBeDefined();
+        expect(errorCodeImport?.controllers).toBeDefined();
+        expect(errorCodeImport?.controllers).toHaveLength(1);
+        expect(errorCodeImport?.controllers?.[0]).not.toBe(MockErrorCodeController);
+      });
     });
   });
 });

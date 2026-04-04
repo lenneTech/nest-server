@@ -7,7 +7,6 @@ import { Any } from '../core/common/scalars/any.scalar';
 import { DateScalar } from '../core/common/scalars/date.scalar';
 import { JSON } from '../core/common/scalars/json.scalar';
 import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
-import { ErrorCodeModule } from '../core/modules/error-code/error-code.module';
 import { TusModule } from '../core/modules/tus';
 import { CronJobs } from './common/services/cron-jobs.service';
 import { AuthController } from './modules/auth/auth.controller';
@@ -35,7 +34,13 @@ import { ServerController } from './server.controller';
   imports: [
     // Include CoreModule for standard processes
     // Note: BetterAuthModule is imported manually below (autoRegister defaults to false)
-    CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
+    // ErrorCodeModule is auto-registered by CoreModule with overrides for custom controller/service
+    CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig, {
+      errorCode: {
+        controller: ErrorCodeController,
+        service: ErrorCodeService,
+      },
+    }),
 
     // Include cron job handling
     ScheduleModule.forRoot(),
@@ -48,13 +53,6 @@ import { ServerController } from './server.controller';
     // Zero-Config: All values are auto-read from ConfigService (set by CoreModule.forRoot)
     // This allows project-specific customization via BetterAuthResolver
     BetterAuthModule.forRoot({}),
-
-    // Include ErrorCodeModule with project-specific error codes
-    // Uses Core ErrorCodeModule.forRoot() with custom service and controller
-    ErrorCodeModule.forRoot({
-      controller: ErrorCodeController,
-      service: ErrorCodeService,
-    }),
 
     // Include FileModule for file handling
     FileModule,

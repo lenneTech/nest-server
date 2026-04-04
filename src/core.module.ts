@@ -12,7 +12,7 @@ import { CheckResponseInterceptor } from './core/common/interceptors/check-respo
 import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
 import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
 import { TranslateResponseInterceptor } from './core/common/interceptors/translate-response.interceptor';
-import { IServerOptions } from './core/common/interfaces/server-options.interface';
+import { ICoreModuleOverrides, IServerOptions } from './core/common/interfaces/server-options.interface';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
@@ -95,6 +95,12 @@ export class CoreModule implements NestModule {
    *
    * ```typescript
    * CoreModule.forRoot(envConfig)
+   *
+   * // With module overrides (custom controllers/resolvers/services)
+   * CoreModule.forRoot(envConfig, {
+   *   errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+   *   betterAuth: { resolver: BetterAuthResolver },
+   * })
    * ```
    *
    * Use this for new projects that only use BetterAuth (IAM) for authentication.
@@ -109,6 +115,11 @@ export class CoreModule implements NestModule {
    *
    * ```typescript
    * CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig)
+   *
+   * // With module overrides
+   * CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig, {
+   *   errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+   * })
    * ```
    *
    * @deprecated This 3-parameter signature is deprecated for new projects.
@@ -127,22 +138,36 @@ export class CoreModule implements NestModule {
    *
    * @see https://github.com/lenneTech/nest-server/blob/develop/.claude/rules/module-deprecation.md
    */
-  static forRoot(options: Partial<IServerOptions>): DynamicModule;
+  static forRoot(options: Partial<IServerOptions>, overrides?: ICoreModuleOverrides): DynamicModule;
   /**
    * @deprecated Use the single-parameter signature `CoreModule.forRoot(envConfig)` for new projects.
    * This 3-parameter signature is for existing projects during migration to IAM.
    */
-  static forRoot(AuthService: any, AuthModule: any, options: Partial<IServerOptions>): DynamicModule;
+  static forRoot(
+    AuthService: any,
+    AuthModule: any,
+    options: Partial<IServerOptions>,
+    overrides?: ICoreModuleOverrides,
+  ): DynamicModule;
   static forRoot(
     authServiceOrOptions: any,
     authModuleOrUndefined?: any,
     optionsOrUndefined?: Partial<IServerOptions>,
+    overridesOrUndefined?: ICoreModuleOverrides,
   ): DynamicModule {
-    // Detect which signature was used
-    const isIamOnlyMode = authModuleOrUndefined === undefined && optionsOrUndefined === undefined;
+    // Detect which signature was used:
+    // IAM-only: forRoot(config, overrides?) — first arg is a plain object (config)
+    // Legacy:   forRoot(AuthService, AuthModule, config, overrides?) — first arg is a class (function)
+    const isIamOnlyMode = typeof authServiceOrOptions !== 'function';
     const AuthService = isIamOnlyMode ? null : authServiceOrOptions;
     const AuthModule = isIamOnlyMode ? null : authModuleOrUndefined;
     const options: Partial<IServerOptions> = isIamOnlyMode ? authServiceOrOptions : optionsOrUndefined;
+    // For IAM-only mode: overrides is the 2nd param; for legacy mode: it's the 4th param.
+    // The cast is safe: the public overloads guarantee the 2nd arg is ICoreModuleOverrides | undefined
+    // in IAM-only mode (typeof first arg !== 'function'), never a DynamicModule (AuthModule).
+    const overrides: ICoreModuleOverrides | undefined = isIamOnlyMode
+      ? (authModuleOrUndefined as ICoreModuleOverrides | undefined)
+      : overridesOrUndefined;
 
     // Process config
     let cors = {};
@@ -316,11 +341,21 @@ export class CoreModule implements NestModule {
     const errorCodeConfig = config.errorCode;
     const isErrorCodeAutoRegister = errorCodeConfig?.autoRegister !== false;
 
+    if (!isErrorCodeAutoRegister && (overrides?.errorCode?.controller || overrides?.errorCode?.service)) {
+      console.warn(
+        'CoreModule: errorCode overrides are ignored because errorCode.autoRegister is false. ' +
+          'Either remove autoRegister: false or pass controller/service to your own ErrorCodeModule.forRoot() call.',
+      );
+    }
+
     if (isErrorCodeAutoRegister) {
       // Always use forRoot() - it registers the controller and handles configuration
+      // Overrides take precedence over config for controller/service
       imports.push(
         ErrorCodeModule.forRoot({
           additionalErrorRegistry: errorCodeConfig?.additionalErrorRegistry,
+          controller: overrides?.errorCode?.controller,
+          service: overrides?.errorCode?.service,
         }),
       );
     }
@@ -357,24 +392,31 @@ export class CoreModule implements NestModule {
     // autoRegister: false means the project imports its own BetterAuthModule separately
     const isAutoRegisterDisabled = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === false;
 
-    // Extract custom controller/resolver from config (Pattern 2: Config-based)
+    // Extract custom controller/resolver: overrides take precedence over config fields
     const configController = typeof betterAuthConfig === 'object' ? betterAuthConfig?.controller : undefined;
     const configResolver = typeof betterAuthConfig === 'object' ? betterAuthConfig?.resolver : undefined;
+
+    if (isAutoRegisterDisabled && (overrides?.betterAuth?.controller || overrides?.betterAuth?.resolver)) {
+      console.warn(
+        'CoreModule: betterAuth overrides are ignored because betterAuth.autoRegister is false. ' +
+          'Either remove autoRegister: false or pass controller/resolver to your own BetterAuthModule.forRoot() call.',
+      );
+    }
 
     if (isBetterAuthEnabled) {
       if ((isIamOnlyMode && !isAutoRegisterDisabled) || isAutoRegister) {
         imports.push(
           CoreBetterAuthModule.forRoot({
             config: betterAuthConfig === true ? {} : betterAuthConfig || {},
-            // Pass custom controller/resolver from config (Pattern 2)
-            controller: configController,
+            // Overrides take precedence over config fields (backward compatible)
+            controller: overrides?.betterAuth?.controller || configController,
             // Pass JWT secrets for backwards compatibility fallback
             fallbackSecrets: [config.jwt?.secret, config.jwt?.refresh?.secret],
             // In IAM-only mode, register RolesGuard globally to enforce @Roles() decorators
             // In Legacy mode (autoRegister), RolesGuard is already registered via CoreAuthModule
             registerRolesGuardGlobally: isIamOnlyMode,
-            // Pass custom resolver from config (Pattern 2)
-            resolver: configResolver,
+            // Overrides take precedence over config fields (backward compatible)
+            resolver: overrides?.betterAuth?.resolver || configResolver,
             // Pass server-level URLs for Passkey auto-detection
             // When env: 'local', defaults are: baseUrl=localhost:3000, appUrl=localhost:3001
             serverAppUrl: config.appUrl,

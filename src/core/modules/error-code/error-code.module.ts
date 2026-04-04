@@ -12,8 +12,10 @@ import { IErrorCodeModuleConfig } from './interfaces/error-code.interfaces';
  *
  * @example
  * ```typescript
- * // Basic usage (auto-register in CoreModule)
- * // No explicit import needed - included in CoreModule
+ * // Basic usage (auto-register in CoreModule via overrides)
+ * CoreModule.forRoot(envConfig, {
+ *   errorCode: { controller: ErrorCodeController, service: ErrorCodeService },
+ * })
  *
  * // Extended usage (with custom error registry - RECOMMENDED)
  * const ProjectErrors = {
@@ -25,13 +27,6 @@ import { IErrorCodeModuleConfig } from './interfaces/error-code.interfaces';
  * } as const satisfies IErrorRegistry;
  *
  * ErrorCodeModule.forRoot({ additionalErrorRegistry: ProjectErrors })
- *
- * // Extended usage (with custom controller and service)
- * ErrorCodeModule.forRoot({
- *   additionalErrorRegistry: ProjectErrors,
- *   controller: ErrorCodeController,
- *   service: ErrorCodeService,
- * })
  * ```
  */
 @Global()
