@@ -45,16 +45,55 @@ export const Restricted = (...rolesOrMember: RestrictedType): ClassDecorator & P
 };
 
 /**
+ * Cache for Restricted metadata — decorators are static, metadata never changes at runtime.
+ * WeakMap<CacheTarget, Map<propertyKey | '__class__', RestrictedType>>
+ *
+ * Uses WeakMap so that dynamically-generated or hot-reloaded class constructors can be GC'd
+ * when no longer reachable (prevents unbounded growth in test suites and dev watch mode).
+ *
+ * CacheTarget is the class constructor (for instances) or the class itself (when object IS a constructor).
+ * This distinction is critical: getRestricted(data.constructor) passes a class as `object`,
+ * and (classFunction).constructor === Function for ALL classes — so we must use the class itself.
+ */
+const restrictedMetadataCache = new WeakMap<object, Map<string, RestrictedType>>();
+
+/**
  * Get restricted data for (property of) object
  */
 export const getRestricted = (object: unknown, propertyKey?: string): RestrictedType => {
   if (!object) {
     return null;
   }
-  if (!propertyKey) {
-    return Reflect.getMetadata(restrictedMetaKey, object);
+
+  // Determine cache target: use the class constructor for instances, the object itself for classes.
+  // When object IS a constructor (typeof === 'function'), using object.constructor would give Function
+  // for ALL classes, causing cache collisions.
+  const cacheTarget: object | undefined =
+    typeof object === 'function' ? (object as object) : (object as any).constructor;
+  if (!cacheTarget) {
+    return propertyKey
+      ? Reflect.getMetadata(restrictedMetaKey, object, propertyKey)
+      : Reflect.getMetadata(restrictedMetaKey, object);
   }
-  return Reflect.getMetadata(restrictedMetaKey, object, propertyKey);
+
+  let classCache = restrictedMetadataCache.get(cacheTarget);
+  if (!classCache) {
+    classCache = new Map();
+    restrictedMetadataCache.set(cacheTarget, classCache);
+  }
+
+  const cacheKey = propertyKey || '__class__';
+  if (classCache.has(cacheKey)) {
+    return classCache.get(cacheKey);
+  }
+
+  // Cache miss: perform Reflect lookup and cache the result
+  const metadata = propertyKey
+    ? Reflect.getMetadata(restrictedMetaKey, object, propertyKey)
+    : Reflect.getMetadata(restrictedMetaKey, object);
+
+  classCache.set(cacheKey, metadata);
+  return metadata;
 };
 
 /**
@@ -257,7 +296,8 @@ export const checkRestricted = (
 
     // Check restricted
     const restricted = getRestricted(data, propertyKey) || [];
-    const concatenatedRestrictions = config.mergeRoles ? _.uniq(objectRestrictions.concat(restricted)) : restricted;
+    const concatenatedRestrictions =
+      config.mergeRoles && objectRestrictions.length ? _.uniq(objectRestrictions.concat(restricted)) : restricted;
     const valid = validateRestricted(concatenatedRestrictions);
 
     // Check rights

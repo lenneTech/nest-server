@@ -552,3 +552,280 @@ describe('CoreBetterAuthUserMapper user cache', () => {
     });
   });
 });
+
+// ─── 5. RequestContext processDepth Tracking ───
+
+describe('RequestContext processDepth', () => {
+  let RequestContext: typeof import('../../src/core/common/services/request-context.service').RequestContext;
+
+  beforeEach(async () => {
+    const mod = await import('../../src/core/common/services/request-context.service');
+    RequestContext = mod.RequestContext;
+  });
+
+  it('should return 0 when no context exists', () => {
+    expect(RequestContext.getProcessDepth()).toBe(0);
+  });
+
+  it('should return 0 for a context without processDepth', () => {
+    const result = RequestContext.run({}, () => {
+      return RequestContext.getProcessDepth();
+    });
+    expect(result).toBe(0);
+  });
+
+  it('should increment depth in runWithIncrementedProcessDepth', () => {
+    const result = RequestContext.run({}, () => {
+      expect(RequestContext.getProcessDepth()).toBe(0);
+
+      return RequestContext.runWithIncrementedProcessDepth(() => {
+        return RequestContext.getProcessDepth();
+      });
+    });
+    expect(result).toBe(1);
+  });
+
+  it('should support nested depth increments', () => {
+    const depths: number[] = [];
+
+    RequestContext.run({}, () => {
+      depths.push(RequestContext.getProcessDepth()); // 0
+
+      RequestContext.runWithIncrementedProcessDepth(() => {
+        depths.push(RequestContext.getProcessDepth()); // 1
+
+        RequestContext.runWithIncrementedProcessDepth(() => {
+          depths.push(RequestContext.getProcessDepth()); // 2
+        });
+
+        depths.push(RequestContext.getProcessDepth()); // 1 (restored)
+      });
+
+      depths.push(RequestContext.getProcessDepth()); // 0 (restored)
+    });
+
+    expect(depths).toEqual([0, 1, 2, 1, 0]);
+  });
+
+  it('should preserve existing context when incrementing depth', () => {
+    const result = RequestContext.run(
+      { currentUser: { id: 'user-1' }, language: 'en', bypassRoleGuard: true },
+      () => {
+        return RequestContext.runWithIncrementedProcessDepth(() => {
+          const ctx = RequestContext.get();
+          return {
+            bypassRoleGuard: ctx?.bypassRoleGuard,
+            depth: ctx?.processDepth,
+            language: ctx?.language,
+            userId: ctx?.currentUser?.id,
+          };
+        });
+      },
+    );
+
+    expect(result).toEqual({
+      bypassRoleGuard: true,
+      depth: 1,
+      language: 'en',
+      userId: 'user-1',
+    });
+  });
+
+  it('should compose with runWithBypassRoleGuard', () => {
+    const result = RequestContext.run({}, () => {
+      return RequestContext.runWithBypassRoleGuard(() => {
+        return RequestContext.runWithIncrementedProcessDepth(() => {
+          const ctx = RequestContext.get();
+          return {
+            bypassRoleGuard: ctx?.bypassRoleGuard,
+            depth: ctx?.processDepth,
+          };
+        });
+      });
+    });
+
+    expect(result).toEqual({ bypassRoleGuard: true, depth: 1 });
+  });
+});
+
+// ─── 6. Restricted Metadata Cache ───
+
+describe('Restricted metadata cache', () => {
+  let getRestricted: typeof import('../../src/core/common/decorators/restricted.decorator').getRestricted;
+  let Restricted: typeof import('../../src/core/common/decorators/restricted.decorator').Restricted;
+
+  beforeEach(async () => {
+    const mod = await import('../../src/core/common/decorators/restricted.decorator');
+    getRestricted = mod.getRestricted;
+    Restricted = mod.Restricted;
+  });
+
+  it('should return null for falsy objects', () => {
+    expect(getRestricted(null)).toBeNull();
+    expect(getRestricted(undefined)).toBeNull();
+  });
+
+  it('should return cached metadata on repeated calls for the same class', () => {
+    @Restricted('ADMIN')
+    class TestModel {
+      @Restricted('ADMIN', 'S_CREATOR')
+      email: string;
+    }
+
+    const instance1 = new TestModel();
+    const instance2 = new TestModel();
+
+    // First call — cache miss
+    const result1 = getRestricted(instance1, 'email');
+    // Second call — cache hit (same class, same property)
+    const result2 = getRestricted(instance2, 'email');
+
+    expect(result1).toEqual(['ADMIN', 'S_CREATOR']);
+    expect(result2).toEqual(['ADMIN', 'S_CREATOR']);
+    // Both should be the exact same cached reference
+    expect(result1).toBe(result2);
+  });
+
+  it('should not collide between different classes', () => {
+    @Restricted('ADMIN')
+    class ModelA {}
+
+    class ModelB {}
+
+    const resultA = getRestricted(ModelA);
+    const resultB = getRestricted(ModelB);
+
+    expect(resultA).toEqual(['ADMIN']);
+    expect(resultB).toBeUndefined();
+  });
+
+  it('should handle class-level metadata correctly when passed as constructor', () => {
+    @Restricted('S_USER')
+    class RestrictedClass {}
+
+    class UnrestrictedClass {}
+
+    // getRestricted is called with data.constructor in checkRestricted
+    const result1 = getRestricted(RestrictedClass);
+    const result2 = getRestricted(UnrestrictedClass);
+
+    expect(result1).toEqual(['S_USER']);
+    expect(result2).toBeUndefined();
+    // Ensure they don't share cache entries (the bug this test prevents)
+    expect(result1).not.toBe(result2);
+  });
+});
+
+// ─── 7. getNativeCollection / getNativeConnection Security Gate ───
+
+describe('Native access security gates', () => {
+  let CrudService: any;
+  let Logger: any;
+
+  beforeEach(async () => {
+    CrudService = (await import('../../src/core/common/services/crud.service')).CrudService;
+    Logger = (await import('@nestjs/common')).Logger;
+  });
+
+  function createTestService(mockModel: any) {
+    class TestService extends CrudService {
+      override get() { return null; }
+      callCollection(reason: string) { return this.getNativeCollection(reason); }
+      callConnection(reason: string) { return this.getNativeConnection(reason); }
+    }
+    return new (TestService as any)({ mainDbModel: mockModel });
+  }
+
+  describe('getNativeCollection', () => {
+    it('should throw on empty, whitespace, null, undefined reason', () => {
+      const service = createTestService({ collection: {}, modelName: 'T' });
+
+      expect(() => service.callCollection('')).toThrow('meaningful reason');
+      expect(() => service.callCollection('  ')).toThrow('meaningful reason');
+      expect(() => service.callCollection(null)).toThrow('meaningful reason');
+      expect(() => service.callCollection(undefined)).toThrow('meaningful reason');
+    });
+
+    it('should throw on reason shorter than 20 chars', () => {
+      const service = createTestService({ collection: {}, modelName: 'T' });
+
+      expect(() => service.callCollection('too short')).toThrow('min 20 chars');
+    });
+
+    it('should return collection and log warning for valid reason', () => {
+      const mockCollection = { insertOne: vi.fn() };
+      const service = createTestService({ collection: mockCollection, modelName: 'UserModel' });
+      const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+      const col = service.callCollection('Migration: bulk-import historical user data');
+
+      expect(col).toBe(mockCollection);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SECURITY] Native collection access: Migration: bulk-import'),
+        expect.any(String),
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('getNativeConnection', () => {
+    it('should throw on empty, whitespace, null, undefined reason', () => {
+      const service = createTestService({ db: {}, modelName: 'T' });
+
+      expect(() => service.callConnection('')).toThrow('meaningful reason');
+      expect(() => service.callConnection('  ')).toThrow('meaningful reason');
+      expect(() => service.callConnection(null)).toThrow('meaningful reason');
+      expect(() => service.callConnection(undefined)).toThrow('meaningful reason');
+    });
+
+    it('should throw on reason shorter than 20 chars', () => {
+      const service = createTestService({ db: {}, modelName: 'T' });
+
+      expect(() => service.callConnection('short reason')).toThrow('min 20 chars');
+    });
+
+    it('should return connection and log warning for valid reason', () => {
+      const mockDb = { db: { collection: vi.fn() } };
+      const service = createTestService({ db: mockDb, modelName: 'StatsModel' });
+      const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+      const conn = service.callConnection('Statistics: count chatmessages across all tenants');
+
+      expect(conn).toBe(mockDb);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SECURITY] Native connection access: Statistics: count chatmessages'),
+        expect.any(String),
+      );
+      warnSpy.mockRestore();
+    });
+  });
+});
+
+// ─── 8. checkRestricted mergeRoles guard ───
+
+describe('checkRestricted mergeRoles with empty objectRestrictions', () => {
+  it('should apply property-level restriction when class has no @Restricted and mergeRoles is true', async () => {
+    const { checkRestricted } = await import('../../src/core/common/decorators/restricted.decorator');
+    const { Restricted } = await import('../../src/core/common/decorators/restricted.decorator');
+
+    // Class without @Restricted, property with @Restricted('ADMIN')
+    class NoClassRestriction {
+      @Restricted('ADMIN')
+      secretField: string;
+      publicField: string;
+    }
+
+    const data = Object.assign(new NoClassRestriction(), { secretField: 'secret', publicField: 'visible' });
+    const regularUser = { id: 'user-1', hasRole: (roles: string[]) => false, roles: [] };
+
+    const result = checkRestricted(data, regularUser, {
+      mergeRoles: true,
+      throwError: false,
+    });
+
+    // secretField should be removed (user has no ADMIN role)
+    expect(result.secretField).toBeUndefined();
+    // publicField should remain
+    expect(result.publicField).toBe('visible');
+  });
+});

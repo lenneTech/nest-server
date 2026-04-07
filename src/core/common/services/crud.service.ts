@@ -1,6 +1,8 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import {
   AggregateOptions,
+  Collection,
+  Connection,
   Document,
   Model as MongooseModel,
   PipelineStage,
@@ -76,7 +78,11 @@ export abstract class CrudService<
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
-        return new this.mainDbModel({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId }).save();
+        return new (this.mainDbModel as MongooseModel<Document & Model>)({
+          ...data.input,
+          createdBy: currentUserId,
+          updatedBy: currentUserId,
+        }).save();
       },
       { input, serviceOptions },
     );
@@ -314,7 +320,7 @@ export abstract class CrudService<
     filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; samples?: number },
     serviceOptions: ServiceOptions = {},
   ): Promise<{ items: Model[]; pagination: PaginationInfo; totalCount: number }> {
-    serviceOptions.raw = true;
+    serviceOptions.force = true;
     return this.findAndCount(filter, serviceOptions);
   }
 
@@ -443,11 +449,77 @@ export abstract class CrudService<
   }
 
   /**
-   * Get service model to process queries directly
+   * Get service model to process queries directly.
    * See https://mongoosejs.com/docs/api/model.html
+   *
+   * Note: Returns the full Mongoose Model (including `.collection`).
+   * Prefer using CrudService methods or Mongoose Model methods directly
+   * to ensure plugins (Tenant, Audit, RoleGuard) fire correctly.
    */
   getModel(): MongooseModel<Document & Model> {
-    return this.mainDbModel;
+    return this.mainDbModel as unknown as MongooseModel<Document & Model>;
+  }
+
+  /**
+   * Get the native MongoDB Collection, bypassing all Mongoose plugins.
+   *
+   * **WARNING:** Native driver access bypasses Tenant-Isolation, Audit-Fields,
+   * RoleGuard, and Password-Hashing plugins. Only use this when Mongoose
+   * Model methods cannot achieve the goal (e.g., bulk imports, migrations).
+   *
+   * Every call logs a `[SECURITY]` warning with the provided reason.
+   *
+   * @param reason - Mandatory justification for native access (logged for audit trail)
+   * @throws Error if reason is empty
+   *
+   * @example
+   * ```typescript
+   * const col = this.getNativeCollection('Migration: bulk-import historical data without tenant context');
+   * await col.insertMany(legacyDocs);
+   * ```
+   */
+  protected getNativeCollection(reason: string): Collection {
+    this.validateNativeAccessReason(reason, 'getNativeCollection');
+
+    const modelName = (this.mainDbModel as any)?.modelName || 'Unknown';
+    Logger.warn(`[SECURITY] Native collection access: ${reason} (Model: ${modelName})`, this.constructor.name);
+
+    return (this.mainDbModel as unknown as MongooseModel<Document & Model>).collection;
+  }
+
+  /**
+   * Get the Mongoose Connection (which provides access to the native MongoDB Db and MongoClient).
+   *
+   * **WARNING:** Via `connection.db` you get the native MongoDB Db instance,
+   * and via `connection.getClient()` the native MongoClient. Both bypass ALL
+   * Mongoose plugins (Tenant-Isolation, Audit-Fields, RoleGuard, Password-Hashing).
+   *
+   * Every call logs a `[SECURITY]` warning with the provided reason.
+   *
+   * @param reason - Mandatory justification (min 20 chars) for native access (logged for audit trail)
+   * @throws Error if reason is empty or too short
+   *
+   * @example
+   * ```typescript
+   * // Read-only cross-collection count (no Mongoose schema for target collection)
+   * const conn = this.getNativeConnection('Statistics: count chatmessages across all tenants');
+   * const count = await conn.db.collection('chatmessages').countDocuments({ ... });
+   * ```
+   */
+  protected getNativeConnection(reason: string): Connection {
+    this.validateNativeAccessReason(reason, 'getNativeConnection');
+
+    const modelName = (this.mainDbModel as any)?.modelName || 'Unknown';
+    Logger.warn(`[SECURITY] Native connection access: ${reason} (Model: ${modelName})`, this.constructor.name);
+
+    return (this.mainDbModel as unknown as MongooseModel<Document & Model>).db;
+  }
+
+  private validateNativeAccessReason(reason: string, method: string): void {
+    const trimmed = reason?.trim();
+    if (!trimmed || trimmed.length < 20) {
+      throw new Error(`${method} requires a meaningful reason (min 20 chars) — explain why native access is needed`);
+    }
   }
 
   /**

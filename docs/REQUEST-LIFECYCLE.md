@@ -863,6 +863,28 @@ The `process()` method in `ModuleService` is the **primary** way to handle CRUD 
   +---------------------------------------------------------------+
 ```
 
+### Depth-Based Optimization (v11.23.0+)
+
+When `process()` is called from within another `process()` call (service cascades like A.create → B.create → C.create), steps 4–6 are **conditionally skipped** on inner calls to avoid redundant work:
+
+| Step | Depth 0 (outermost) | Depth > 0 (nested) |
+|------|---------------------|---------------------|
+| 1. prepareInput | Runs | Runs |
+| 2. checkRights (INPUT) | Runs | Runs |
+| 3. serviceFunc | Runs | Runs |
+| 4. processFieldSelection | Runs | **Skipped** (unless `populate` explicitly set) |
+| 5. prepareOutput (model mapping) | Runs | **Skipped** (secret removal still active) |
+| 6. checkRights (OUTPUT) | Runs | **Skipped** |
+
+**Security is maintained** because:
+1. Input authorization (step 2) always runs at every depth
+2. Output authorization (step 6) runs at the outermost call
+3. `CheckSecurityInterceptor` (Safety Net) runs on the final HTTP response
+
+**Important:** Code running at depth > 0 (cron jobs, queue consumers, event handlers outside the HTTP cycle) must NOT return data directly to external consumers without either an outer depth-0 `process()` call or manual `checkRights` — the output rights check is skipped at depth > 0.
+
+See [process() Performance Optimization](process-performance-optimization.md) for details.
+
 ### Key Options
 
 | Option | Type | Default | Effect |
@@ -870,8 +892,9 @@ The `process()` method in `ModuleService` is the **primary** way to handle CRUD 
 | `force` | boolean | `false` | Disables checkRights, checkRoles, removeSecrets, bypasses role guard plugin |
 | `raw` | boolean | `false` | Disables prepareInput and prepareOutput entirely |
 | `checkRights` | boolean | `true` | Enable/disable authorization checks |
-| `populate` | object | - | Field selection for population |
+| `populate` | object | - | Field selection for population (overrides nested skip) |
 | `currentUser` | object | from request | Override the current user |
+| `debugProcessInput` | boolean | `false` | Config flag: log when prepareInput changes the input type (performance cost) |
 
 ### Alternative: processResult()
 
@@ -883,7 +906,7 @@ const doc = await this.mainDbModel.findById(id).exec();
 return this.processResult(doc, serviceOptions);
 ```
 
-`processResult()` handles population and `prepareOutput()` only. Security is handled by the Safety Net (Mongoose plugins for input, interceptors for output).
+`processResult()` handles population and `prepareOutput()` only. It does **not** perform authorization checks (`checkRights`). Security is handled by the Safety Net (Mongoose plugins for input, interceptors for output). If called outside an HTTP request cycle (cron, queue), call `checkRights` manually before returning data to external consumers.
 
 ---
 

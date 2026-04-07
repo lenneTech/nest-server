@@ -14,6 +14,19 @@ import { ModelRegistry } from './model-registry.service';
 import { RequestContext } from './request-context.service';
 
 /**
+ * Mongoose Model with native driver access paths removed to prevent
+ * accidental bypass of Mongoose plugins (Tenant, Audit, RoleGuard, Password).
+ *
+ * Blocked:
+ * - `.collection` — native MongoDB Collection (bypasses ALL plugins)
+ * - `.db` — Mongoose Connection → `.db` (native Db) → `.getClient()` (native MongoClient)
+ *
+ * Use `getNativeCollection(reason)` or `getNativeConnection(reason)` in CrudService
+ * for legitimate native access (logged, requires justification).
+ */
+export type SafeModel<T> = Omit<Model<T>, 'collection' | 'db'>;
+
+/**
  * Module service class to be extended by concrete module services
  */
 export abstract class ModuleService<T extends CoreModel = any> {
@@ -28,9 +41,15 @@ export abstract class ModuleService<T extends CoreModel = any> {
   protected mainModelConstructor: new (...args: any[]) => T;
 
   /**
-   * Main DB model of the service, will be used as default for populate and mapping
+   * Main DB model of the service, will be used as default for populate and mapping.
+   *
+   * Typed as SafeModel to prevent direct access to the native MongoDB driver
+   * via `.collection`. All Mongoose plugins (Tenant, Audit, RoleGuard, Password)
+   * only fire on Model methods — native driver access bypasses them all.
+   *
+   * For legitimate native access, use `getNativeCollection(reason)` in CrudService.
    */
-  protected mainDbModel: Model<Document & T>;
+  protected mainDbModel: SafeModel<Document & T>;
 
   /**
    * Set main properties
@@ -41,7 +60,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     mainModelConstructor?: new (...args: any[]) => T;
   }) {
     this.configService = options?.configService;
-    this.mainDbModel = options?.mainDbModel;
+    this.mainDbModel = options?.mainDbModel as SafeModel<Document & T>;
     this.mainModelConstructor = options?.mainModelConstructor;
 
     // Auto-register model class for ResponseModelInterceptor lookups
@@ -107,6 +126,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
       ...options?.serviceOptions,
     };
 
+    // Detect nested process() calls
+    const currentDepth = RequestContext.getProcessDepth();
+    const isNested = currentDepth > 0;
+
     // Note raw configuration
     if (config.raw) {
       config.prepareInput = null;
@@ -146,31 +169,53 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.inputType) {
         opts.targetModel = config.inputType;
       }
-      const originalInput = config.input;
-      const inputJSON = JSON.stringify(originalInput);
       const preparedInput = await this.prepareInput(config.input, config);
-      new Promise(() => {
-        if (
-          inputJSON?.replace(/"password":\s*"[^"]*"/, '') !==
-          JSON.stringify(preparedInput)?.replace(/"password":\s*"[^"]*"/, '')
-        ) {
-          console.debug(
-            'CheckSecurityInterceptor: securityCheck changed input of type',
-            originalInput.constructor.name,
-            'to type',
-            preparedInput.constructor.name,
-          );
+
+      if (this.configService?.getFastButReadOnly('debugProcessInput', false)) {
+        try {
+          const secretFields: string[] = this.configService?.getFastButReadOnly('security.secretFields', [
+            'password',
+            'verificationToken',
+            'passwordResetToken',
+            'refreshTokens',
+            'tempTokens',
+          ]);
+          const redact = (json: string) =>
+            secretFields.reduce(
+              (s, field) => s.replace(new RegExp(`"${field}":\\s*"[^"]*"`, 'g'), `"${field}":"[REDACTED]"`),
+              json || '',
+            );
+          const originalJSON = redact(JSON.stringify(config.input));
+          const preparedJSON = redact(JSON.stringify(preparedInput));
+          if (originalJSON !== preparedJSON) {
+            console.debug(
+              'process: prepareInput changed input of type',
+              config.input?.constructor?.name,
+              'to type',
+              preparedInput?.constructor?.name,
+            );
+          }
+        } catch {
+          // JSON.stringify can fail on circular references — ignore
         }
-      });
+      }
+
       config.input = preparedInput;
     }
 
-    // Get DB object
+    // Get DB object for rights checking — lean query to avoid recursive process() call.
+    // Using lean preserves ALL fields (including createdBy) which is needed for
+    // S_CREATOR and S_SELF checks. The full process() pipeline would remove
+    // restricted fields, potentially breaking these checks.
     if (config.dbObject && config.checkRights && this.checkRights) {
       if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
-        const dbObject = await this.get(getStringIds(config.dbObject));
-        if (dbObject) {
-          config.dbObject = dbObject;
+        if (this.mainDbModel) {
+          const rawDoc = await this.mainDbModel.findById(getStringIds(config.dbObject)).lean().exec();
+          if (rawDoc) {
+            config.dbObject = (this.mainModelConstructor as any)?.map
+              ? (this.mainModelConstructor as any).map(rawDoc)
+              : rawDoc;
+          }
         }
       }
     }
@@ -198,21 +243,27 @@ export abstract class ModuleService<T extends CoreModel = any> {
       (config.input as Record<string, any>).updatedBy = config.currentUser.id;
     }
 
-    // Run service function
-    // When force is enabled, bypass the Mongoose role guard plugin as well
+    // Run service function with incremented depth
+    // When force is enabled, also bypass the Mongoose role guard plugin
+    const executeServiceFunc = () => RequestContext.runWithIncrementedProcessDepth(() => serviceFunc(config));
+
     let result = config.force
-      ? await RequestContext.runWithBypassRoleGuard(() => serviceFunc(config))
-      : await serviceFunc(config);
+      ? await RequestContext.runWithBypassRoleGuard(executeServiceFunc)
+      : await executeServiceFunc();
 
     // Pop and map main model
+    // Skip on nested calls UNLESS populate was explicitly requested —
+    // the outermost call handles population for the final response.
     if (config.processFieldSelection && config.fieldSelection && this.processFieldSelection) {
-      let temps = result;
-      if (!Array.isArray(result)) {
-        temps = [result];
-      }
-      for (const temp of temps) {
-        const field = config.outputPath ? _.get(temp, config.outputPath) : temp;
-        await this.processFieldSelection(field, config.fieldSelection, config.processFieldSelection);
+      if (!isNested || config.populate) {
+        let temps = result;
+        if (!Array.isArray(result)) {
+          temps = [result];
+        }
+        for (const temp of temps) {
+          const field = config.outputPath ? _.get(temp, config.outputPath) : temp;
+          await this.processFieldSelection(field, config.fieldSelection, config.processFieldSelection);
+        }
       }
     }
 
@@ -222,6 +273,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
       if (!opts.targetModel && config.outputType) {
         opts.targetModel = config.outputType;
       }
+
+      // On nested calls without explicit populate: skip model mapping
+      // (the outermost call and CheckSecurityInterceptor handle final mapping).
+      // Secret removal (removeSecrets) stays active at ALL depths.
+      if (isNested && !config.populate && typeof opts === 'object') {
+        opts.targetModel = undefined;
+      }
+
       if (config.outputPath) {
         let temps = result;
         if (!Array.isArray(result)) {
@@ -236,7 +295,9 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
 
     // Check output rights
-    if (config.checkRights && (await this.checkRights(undefined, config.currentUser as any, config))) {
+    // Skip on nested calls — the outermost process() and CheckSecurityInterceptor
+    // perform the final output rights check on the complete response.
+    if (!isNested && config.checkRights && (await this.checkRights(undefined, config.currentUser as any, config))) {
       const opts: any = {
         dbObject: config.dbObject,
         processType: ProcessType.OUTPUT,
@@ -362,7 +423,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     data: any,
     fieldsSelection: FieldSelection,
     options: {
-      dbModel?: Model<Document & T>;
+      dbModel?: Model<Document & T> | SafeModel<Document & T>;
       ignoreSelections?: boolean;
       model?: new (...args: any[]) => T;
     } = {},
@@ -372,7 +433,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
       model: this.mainModelConstructor,
       ...options,
     };
-    return popAndMap(data, fieldsSelection, config.model, config.dbModel, {
+    return popAndMap(data, fieldsSelection, config.model, config.dbModel as Model<Document & T>, {
       ignoreSelections: config.ignoreSelections,
     });
   }

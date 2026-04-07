@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-04-04 (v11.22.1)
+> Auto-generated from source code on 2026-04-07 (v11.23.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -21,6 +21,7 @@
   - `compression?`: `boolean | compression.CompressionOptions` — Whether to use the compression middleware package to enable gzip compression.
   - `cookies?`: `boolean` — Whether to use cookies for authentication handling
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
+  - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
   - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
   - `env?`: `string` — Environment
   - `errorCode?`: `IErrorCode` — Configuration for the error code module
@@ -183,7 +184,10 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async findOne(filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; }, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Find one item via filter
 - `async findOneForce(filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; s..., serviceOptions?: ServiceOptions)`: `Promise<Model>` — Find one item via filter without checks or restrictions
 - `async findOneRaw(filter?: FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryOptions; s..., serviceOptions?: ServiceOptions)`: `Promise<Model>` — Find one item via filter without checks, restrictions or preparations
-- `getModel()`: `MongooseModel<Document<Types.ObjectId, any, any, Record<string, any>, {}> & M...` — Get service model to process queries directly
+- `getModel()`: `MongooseModel<Document<Types.ObjectId, any, any, Record<string, any>, {}> & M...` — Get service model to process queries directly.
+- `getNativeCollection(reason: string)`: `Collection<Document>` — Get the native MongoDB Collection, bypassing all Mongoose plugins.
+- `getNativeConnection(reason: string)`: `Connection` — Get the Mongoose Connection (which provides access to the native MongoDB Db and MongoClient).
+- `validateNativeAccessReason(reason: string, method: string)`: `void`
 - `async read(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for get or find
 - `async readForce(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for getForce or findForce
 - `async readRaw(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for getRaw or findRaw
