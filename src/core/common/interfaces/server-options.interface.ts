@@ -1110,6 +1110,14 @@ export interface IServerOptions {
   >;
 
   /**
+   * When true, logs a debug message when prepareInput() changes the input type during process().
+   * Enable only for debugging — has performance cost due to JSON.stringify on every process() call.
+   *
+   * @default false
+   */
+  debugProcessInput?: boolean;
+
+  /**
    * SMTP and template configuration for sending emails
    */
   email?: {

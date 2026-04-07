@@ -19,6 +19,13 @@ export interface IRequestContext {
   tenantRole?: string;
   /** When true, indicates admin bypass is active (admin without header sees all data) */
   isAdminBypass?: boolean;
+  /**
+   * Tracks the nesting depth of process() calls.
+   * 0 = outermost call (full pipeline), > 0 = nested call (reduced pipeline).
+   * Used to skip redundant populate, output mapping, and output rights checks
+   * on inner calls — the outermost call and CheckSecurityInterceptor handle these.
+   */
+  processDepth?: number;
 }
 
 /**
@@ -77,6 +84,46 @@ export class RequestContext {
     const context: IRequestContext = {
       ...currentStore,
       bypassRoleGuard: true,
+    };
+    return this.storage.run(context, fn);
+  }
+
+  /**
+   * Get the current process() nesting depth.
+   * Returns 0 if not inside a process() call.
+   */
+  static getProcessDepth(): number {
+    return this.storage.getStore()?.processDepth || 0;
+  }
+
+  /**
+   * Run a function with incremented process depth.
+   *
+   * Used internally by `ModuleService.process()` to wrap the serviceFunc call.
+   * At depth > 0, the built-in pipeline skips redundant populate, model mapping,
+   * and output rights checks — the outermost call (depth 0) and
+   * CheckSecurityInterceptor handle these for the final response.
+   *
+   * Also available for custom pipeline implementations that wrap `process()`.
+   *
+   * **Security contract:** Code running at depth > 0 must NOT return data
+   * directly to external consumers without an outer depth-0 `process()` call
+   * or manual `checkRights` — the output rights check is skipped at depth > 0.
+   *
+   * @example
+   * ```typescript
+   * // Custom pipeline that wraps a service call with depth tracking
+   * const result = await RequestContext.runWithIncrementedProcessDepth(async () => {
+   *   return this.innerService.create(input, serviceOptions);
+   * });
+   * ```
+   */
+  static runWithIncrementedProcessDepth<T>(fn: () => T): T {
+    const currentStore = this.storage.getStore();
+    const currentDepth = currentStore?.processDepth || 0;
+    const context: IRequestContext = {
+      ...currentStore,
+      processDepth: currentDepth + 1,
     };
     return this.storage.run(context, fn);
   }

@@ -167,8 +167,66 @@ Detailed documentation in `.claude/rules/`:
 | `package-management.md` | Fixed package versions only - no `^`, `~`, or ranges |
 | `framework-compatibility.md` | Maintenance obligations for FRAMEWORK-API.md, shipped docs, cross-repo dependencies |
 
+## Native MongoDB Driver — Security Rules
+
+### model.collection / model.db — BLOCKED
+
+Access to `this.mainDbModel.collection` and `this.mainDbModel.db` is blocked via TypeScript type (`SafeModel = Omit<Model, 'collection' | 'db'>`).
+For additionally injected models (`@InjectModel`): **NEVER** use `.collection.*` or `.db.*`.
+All Mongoose plugins (Tenant, Audit, RoleGuard, Password) are bypassed.
+
+**Use Mongoose Model methods instead:**
+
+| Forbidden | Allowed |
+|-----------|---------|
+| `collection.insertOne(doc)` | `Model.insertMany([doc])` |
+| `collection.bulkWrite(ops)` | `Model.bulkWrite(ops)` |
+| `collection.updateOne(f, u)` | `Model.updateOne(f, u)` |
+| `collection.updateMany(f, u)` | `Model.updateMany(f, u)` |
+| `collection.deleteOne(f)` | `Model.deleteOne(f)` |
+| `collection.deleteMany(f)` | `Model.deleteMany(f)` |
+| `collection.find(f)` | `Model.find(f)` or `Model.find(f).lean()` |
+| `collection.aggregate(p)` | `Model.aggregate(p)` |
+
+If native access is unavoidable: use `this.getNativeCollection(reason)` or `this.getNativeConnection(reason)` from CrudService.
+
+### connection.db.collection() — Use With Caution
+
+Allowed for:
+- Collections without Mongoose schema (OAuth, BetterAuth, MCP)
+- Read-only aggregations/counts on other collections
+- Admin operations (indexes, drops, backups)
+
+**NOT allowed for:**
+- Write operations on tenant-scoped collections → use Mongoose Model instead
+- CRUD on collections that have a Mongoose schema → use CrudService instead
+
+Details: [`docs/native-driver-security.md`](docs/native-driver-security.md)
+
+### CrudService process() Pipeline — Memory Considerations
+
+The `process()` pipeline (prepareInput → checkRights → serviceFunc → processFieldSelection → prepareOutput → checkRights) adds memory overhead per call through object cloning, Mongoose hydration, and populate operations. For typical API usage this is negligible, but it can become significant in:
+
+- **High-frequency operations** (e.g. monitor checks running every 10-60 seconds)
+- **Service cascades** (Service A → Service B → Service C, each going through process())
+- **Populate chains** (3-5 levels of nested population)
+
+**If a project experiences memory issues under high traffic**, check whether `process()` wrapping is the cause. Alternatives that preserve security:
+
+| Instead of | Use | Security |
+|-----------|-----|----------|
+| `CrudService.create(input)` | `Model.insertMany([input])` — triggers all Mongoose plugins | Tenant, Audit, RoleGuard, Password all active |
+| `CrudService.update(id, input)` | `Model.findByIdAndUpdate(id, input)` — triggers all Mongoose plugins | Tenant filter, Audit, RoleGuard all active |
+| `CrudService.updateForce(id, input)` | `Model.findByIdAndUpdate(id, { $set: input }).lean()` — for system-internal updates | Plugins active, no process() overhead |
+
+**NEVER** bypass Mongoose entirely via `collection.*` — see section above. The CheckSecurityInterceptor acts as a safety net on HTTP responses regardless of how data was written.
+
+Details: [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md)
+
 ## In-Depth Documentation
 
 | File | Content |
 |------|---------|
 | [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |
+| [`docs/native-driver-security.md`](docs/native-driver-security.md) | Native MongoDB Driver restrictions, secure alternatives, review checklist |
+| [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations |
