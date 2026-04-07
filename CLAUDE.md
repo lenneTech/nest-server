@@ -207,19 +207,38 @@ Details: [`docs/native-driver-security.md`](docs/native-driver-security.md)
 
 The `process()` pipeline (prepareInput → checkRights → serviceFunc → processFieldSelection → prepareOutput → checkRights) adds memory overhead per call through object cloning, Mongoose hydration, and populate operations. For typical API usage this is negligible, but it can become significant in:
 
-- **High-frequency operations** (e.g. monitor checks running every 10-60 seconds)
+- **High-frequency operations** (e.g. monitor checks running every 10-60 seconds per monitor)
 - **Service cascades** (Service A → Service B → Service C, each going through process())
 - **Populate chains** (3-5 levels of nested population)
 
 **If a project experiences memory issues under high traffic**, check whether `process()` wrapping is the cause. Alternatives that preserve security:
 
-| Instead of | Use | Security |
-|-----------|-----|----------|
-| `CrudService.create(input)` | `Model.insertMany([input])` — triggers all Mongoose plugins | Tenant, Audit, RoleGuard, Password all active |
-| `CrudService.update(id, input)` | `Model.findByIdAndUpdate(id, input)` — triggers all Mongoose plugins | Tenant filter, Audit, RoleGuard all active |
-| `CrudService.updateForce(id, input)` | `Model.findByIdAndUpdate(id, { $set: input }).lean()` — for system-internal updates | Plugins active, no process() overhead |
+| Instead of | Use | Speed | Memory | Security |
+|-----------|-----|-------|--------|----------|
+| `CrudService.create(input)` | `Model.create(input)` — fastest for single docs | 0.19ms | 98 KB | All plugins active |
+| `CrudService.create(input)` (batch N) | `Model.insertMany(docs)` — fastest for N>1 docs | 0.89ms/20 | 196 KB/20 | All plugins active |
+| `CrudService.update(id, input)` | `Model.findByIdAndUpdate(id, input).lean()` | 0.16ms | 64 KB | All plugins active |
+| `CrudService.get(id)` / `getForce(id)` | `Model.findById(id).lean()` — 5x less memory | 0.33ms | 51 KB | Tenant filter active |
+
+> **Note:** `new Model().save()` (0.57ms, 867 KB) is 3x slower and 9x more memory than `Model.create()`.
+> `findById().lean()` is 2x slower than hydrated `findById()` but uses 5x less memory — prefer lean in high-frequency paths where memory stability matters more than per-call latency.
+> `Model.create()` internally calls `new Model().save()` but is optimized by Mongoose — it triggers all `pre('save')` hooks (Tenant, Audit, RoleGuard, Password).
 
 **NEVER** bypass Mongoose entirely via `collection.*` — see section above. The CheckSecurityInterceptor acts as a safety net on HTTP responses regardless of how data was written.
+
+### High-Frequency Path Design Rules
+
+These rules apply when building features that execute many times per minute (monitoring, metrics, queue processors):
+
+1. **`Model.create(doc)` over `new Model().save()`** for single documents — `create()` is 3x faster (0.19ms vs 0.57ms) and uses 9x less memory (98 KB vs 867 KB). For batch inserts (N>1), use `Model.insertMany(docs)` — a single call with N documents is 2.5x faster than N parallel `save()` calls.
+
+2. **`Model.findById().lean()` over `getForce()`** for read-only lookups in high-frequency paths — lean uses 5x less memory (51 KB vs 250 KB) but is 2x slower per call (0.33ms vs 0.16ms). In hot paths, the memory savings outweigh the latency cost because reduced GC pressure improves overall throughput. For low-frequency paths, hydrated `findById()` is faster.
+
+3. **Defer complex logic to cron/queue** — high-frequency paths should only write data (checks, metrics). Processing that data (incident creation, notifications, escalation) belongs in low-frequency cron jobs or separate queue processors that run in bounded batches.
+
+4. **Avoid service cascades in hot paths** — if Service A calls Service B which calls Service C, each with `process()`, the objects from all three levels live in the heap simultaneously. In hot paths, call Mongoose directly instead of going through other services.
+
+5. **WebSocket emits should use lean data** — `emitUpdated()` with `getForce()` triggers a full `process()` pipeline per emit. Use `Model.findById().lean()` instead — WebSocket clients receive JSON, not Mongoose Documents.
 
 Details: [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md)
 
