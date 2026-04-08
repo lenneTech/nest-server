@@ -7,6 +7,7 @@ export interface PrepareInputOptions {
   clone?: boolean;
   convertObjectIdsToString?: boolean;
   create?: boolean;
+  /** @deprecated No longer used — array processing always returns a new array to prevent mutation bugs */
   getNewArray?: boolean;
   removeUndefined?: boolean;
   targetModel?: new (...args: any[]) => any;

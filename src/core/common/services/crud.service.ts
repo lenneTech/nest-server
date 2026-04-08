@@ -693,6 +693,85 @@ export abstract class CrudService<
   }
 
   /**
+   * Append items to an array field without loading the full array.
+   * Uses MongoDB $push — bypasses the process() pipeline entirely.
+   * Mongoose plugins (Tenant, Audit, RoleGuard) fire via pre('findOneAndUpdate').
+   *
+   * Use this instead of loading the full array and passing it through update():
+   * @example
+   * // WRONG — OOM risk on large arrays:
+   * // entity.logs.push(newLog);
+   * // await this.update(id, { logs: entity.logs });
+   *
+   * // CORRECT — atomic append:
+   * await this.pushToArray(id, 'logs', newLog);
+   * await this.pushToArray(id, 'logs', newLog, { $slice: -500 }); // Keep last 500
+   *
+   * @param id - Document ID
+   * @param field - Array field name. MUST be a compile-time constant — never pass user-controlled input.
+   * @param items - Item(s) to append
+   * @param options - MongoDB $push modifiers ($slice, $position, $sort)
+   */
+  async pushToArray(
+    id: string,
+    field: string,
+    items: any | any[],
+    options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1> },
+  ): Promise<void> {
+    if (typeof field !== 'string' || field.startsWith('$') || field.includes('\0')) {
+      throw new Error(`pushToArray: invalid field name "${field}"`);
+    }
+
+    const itemsArray = Array.isArray(items) ? items : [items];
+    if (itemsArray.length === 0) {
+      return;
+    }
+
+    const pushOp: any = { $each: itemsArray };
+    if (options?.$slice !== undefined) {
+      pushOp.$slice = options.$slice;
+    }
+    if (options?.$position !== undefined) {
+      pushOp.$position = options.$position;
+    }
+    if (options?.$sort) {
+      pushOp.$sort = options.$sort;
+    }
+
+    await this.mainDbModel
+      .findByIdAndUpdate(id, { $push: { [field]: pushOp } } as any)
+      .lean()
+      .exec();
+  }
+
+  /**
+   * Remove items from an array field.
+   * Uses MongoDB $pull — bypasses the process() pipeline entirely.
+   * Mongoose plugins (Tenant, Audit, RoleGuard) fire via pre('findOneAndUpdate').
+   *
+   * @example
+   * // Remove by exact match
+   * await this.pullFromArray(id, 'tags', 'obsolete');
+   *
+   * // Remove by condition
+   * await this.pullFromArray(id, 'logs', { level: 'DEBUG' });
+   *
+   * @param id - Document ID
+   * @param field - Array field name. MUST be a compile-time constant — never pass user-controlled input.
+   * @param condition - Match condition for removal. MUST be application-controlled.
+   */
+  async pullFromArray(id: string, field: string, condition: any): Promise<void> {
+    if (typeof field !== 'string' || field.startsWith('$') || field.includes('\0')) {
+      throw new Error(`pullFromArray: invalid field name "${field}"`);
+    }
+
+    await this.mainDbModel
+      .findByIdAndUpdate(id, { $pull: { [field]: condition } } as any)
+      .lean()
+      .exec();
+  }
+
+  /**
    * Execute, populate and map Mongoose query or document(s) with serviceOptions
    * Generic T is the type of the returned object(s)
    *

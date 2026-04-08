@@ -181,7 +181,13 @@ function isRoleChangeAllowed(): boolean {
 }
 
 function hasRolesInUpdate(update: any): boolean {
-  return !!(update?.roles || update?.$set?.roles || update?.$push?.roles || update?.$addToSet?.roles);
+  return !!(
+    update?.roles ||
+    update?.$set?.roles ||
+    update?.$push?.roles ||
+    update?.$addToSet?.roles ||
+    update?.$pull?.roles
+  );
 }
 
 function handleUpdateRoleGuard(update: any) {
@@ -189,7 +195,8 @@ function handleUpdateRoleGuard(update: any) {
     return;
   }
 
-  const hasRolesUpdate = update.roles || update.$set?.roles || update.$push?.roles || update.$addToSet?.roles;
+  const hasRolesUpdate =
+    update.roles || update.$set?.roles || update?.$push?.roles || update.$addToSet?.roles || update.$pull?.roles;
   if (!hasRolesUpdate) {
     return;
   }
@@ -210,5 +217,8 @@ function handleUpdateRoleGuard(update: any) {
   }
   if (update.$addToSet?.roles) {
     delete update.$addToSet.roles;
+  }
+  if (update.$pull?.roles) {
+    delete update.$pull.roles;
   }
 }

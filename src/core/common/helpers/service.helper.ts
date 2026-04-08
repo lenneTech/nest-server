@@ -13,6 +13,13 @@ import { ConfigService } from '../services/config.service';
 import { getStringIds } from './db.helper';
 import { clone, plainToInstanceClean, processDeep } from './input.helper';
 
+// Secret field names for recursive removal in prepareOutput — allocated once, never change.
+// Only fields that are NEVER needed internally (hashed passwords, one-time tokens).
+// Fields like refreshTokens/tempTokens are kept — they are needed for token validation
+// and process flows (password reset, email verification). The CheckSecurityInterceptor
+// removes those from HTTP responses as a separate layer.
+const SECRET_FIELD_NAMES = Object.freeze(['password', 'verificationToken', 'passwordResetToken']);
+
 /**
  * Helper class for services
  * @deprecated use functions directly
@@ -84,7 +91,6 @@ export async function prepareInput<T = any>(
     clone: false,
     convertObjectIdsToString: true,
     create: false,
-    getNewArray: false,
     proto: false,
     removeUndefined: true,
     sha256: ConfigService.configFastButReadOnly.sha256,
@@ -98,14 +104,14 @@ export async function prepareInput<T = any>(
 
   // Process array
   if (Array.isArray(input)) {
-    const processedArray = config.getNewArray ? ([] as any[] & T) : input;
-    for (let i = 0; i <= input.length - 1; i++) {
-      processedArray[i] = await prepareInput(input[i], currentUser, options);
-      if (processedArray[i] === undefined && config.removeUndefined) {
-        processedArray.splice(i, 1);
+    const result = [] as any[] & T;
+    for (let i = 0; i < input.length; i++) {
+      const processed = await prepareInput(input[i], currentUser, options);
+      if (processed !== undefined || !config.removeUndefined) {
+        result.push(processed);
       }
     }
-    return processedArray;
+    return result;
   }
 
   // Clone input
@@ -197,7 +203,6 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
   const config = {
     circles: false,
     clone: false,
-    getNewArray: false,
     objectIdsToStrings: true,
     proto: false,
     removeSecrets: true,
@@ -213,14 +218,14 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
 
   // Process array
   if (Array.isArray(output)) {
-    const processedArray = config.getNewArray ? [] : output;
-    for (let i = 0; i <= output.length - 1; i++) {
-      processedArray[i] = await prepareOutput(output[i], options);
-      if (processedArray[i] === undefined && config.removeUndefined) {
-        processedArray.splice(i, 1);
+    const result = [];
+    for (let i = 0; i < output.length; i++) {
+      const processed = await prepareOutput(output[i], options);
+      if (processed !== undefined || !config.removeUndefined) {
+        result.push(processed);
       }
     }
-    return processedArray;
+    return result;
   }
 
   // Clone output
@@ -241,21 +246,6 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     }
   }
 
-  // Remove password if exists
-  if (config.removeSecrets && output.password) {
-    output.password = undefined;
-  }
-
-  // Remove verification token if exists
-  if (config.removeSecrets && output.verificationToken) {
-    output.verificationToken = undefined;
-  }
-
-  // Remove password reset token if exists
-  if (config.removeSecrets && output.passwordResetToken) {
-    output.passwordResetToken = undefined;
-  }
-
   // Remove undefined properties to avoid unwanted overwrites
   if (config.removeUndefined) {
     for (const [key, value] of Object.entries(output)) {
@@ -263,13 +253,29 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     }
   }
 
-  // Convert ObjectIds into strings
-  if (config.objectIdsToStrings) {
-    for (const [key, value] of Object.entries(output)) {
-      if (value instanceof Types.ObjectId) {
-        output[key] = value.toHexString();
-      }
-    }
+  // Single-pass DFS: convert ObjectIds to strings AND remove secret fields recursively.
+  // Merging both operations into one processDeep traversal halves the object graph walk
+  // compared to separate removeSecretsDeep + processDeep calls.
+  if (config.objectIdsToStrings || config.removeSecrets) {
+    const doSecrets = config.removeSecrets;
+    const doObjectIds = config.objectIdsToStrings;
+    output = processDeep(
+      output,
+      (property) => {
+        if (doObjectIds && property instanceof Types.ObjectId) {
+          return property.toHexString();
+        }
+        if (doSecrets && property && typeof property === 'object' && !Array.isArray(property)) {
+          for (const field of SECRET_FIELD_NAMES) {
+            if (field in property && property[field] !== undefined) {
+              property[field] = undefined;
+            }
+          }
+        }
+        return property;
+      },
+      { specialClasses: ['ObjectId'] },
+    );
   }
 
   // Add translated values of current selected language if _translations object exists
