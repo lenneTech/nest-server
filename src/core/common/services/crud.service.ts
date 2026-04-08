@@ -9,6 +9,7 @@ import {
   Query,
   QueryFilter,
   QueryOptions,
+  Types,
 } from 'mongoose';
 
 import { FilterArgs } from '../args/filter.args';
@@ -707,13 +708,13 @@ export abstract class CrudService<
    * await this.pushToArray(id, 'logs', newLog);
    * await this.pushToArray(id, 'logs', newLog, { $slice: -500 }); // Keep last 500
    *
-   * @param id - Document ID
+   * @param id - Document ID (string, ObjectId, or object with id/_id property)
    * @param field - Array field name. MUST be a compile-time constant — never pass user-controlled input.
    * @param items - Item(s) to append
    * @param options - MongoDB $push modifiers ($slice, $position, $sort)
    */
   async pushToArray(
-    id: string,
+    id: string | Types.ObjectId | { id?: any; _id?: any },
     field: string,
     items: any | any[],
     options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1> },
@@ -727,6 +728,7 @@ export abstract class CrudService<
       return;
     }
 
+    const stringId = getStringIds(id);
     const pushOp: any = { $each: itemsArray };
     if (options?.$slice !== undefined) {
       pushOp.$slice = options.$slice;
@@ -739,7 +741,7 @@ export abstract class CrudService<
     }
 
     await this.mainDbModel
-      .findByIdAndUpdate(id, { $push: { [field]: pushOp } } as any)
+      .findByIdAndUpdate(stringId, { $push: { [field]: pushOp } } as any)
       .lean()
       .exec();
   }
@@ -756,17 +758,22 @@ export abstract class CrudService<
    * // Remove by condition
    * await this.pullFromArray(id, 'logs', { level: 'DEBUG' });
    *
-   * @param id - Document ID
+   * @param id - Document ID (string, ObjectId, or object with id/_id property)
    * @param field - Array field name. MUST be a compile-time constant — never pass user-controlled input.
    * @param condition - Match condition for removal. MUST be application-controlled.
    */
-  async pullFromArray(id: string, field: string, condition: any): Promise<void> {
+  async pullFromArray(
+    id: string | Types.ObjectId | { id?: any; _id?: any },
+    field: string,
+    condition: any,
+  ): Promise<void> {
     if (typeof field !== 'string' || field.startsWith('$') || field.includes('\0')) {
       throw new Error(`pullFromArray: invalid field name "${field}"`);
     }
 
+    const stringId = getStringIds(id);
     await this.mainDbModel
-      .findByIdAndUpdate(id, { $pull: { [field]: condition } } as any)
+      .findByIdAndUpdate(stringId, { $pull: { [field]: condition } } as any)
       .lean()
       .exec();
   }
