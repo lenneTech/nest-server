@@ -356,6 +356,31 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
   // ===========================================================================================
 
   describe('edge cases', () => {
+    it('should accept ObjectId instances as id parameter', async () => {
+      const userId = await createTestUser('objectid');
+
+      await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { roles: [] } },
+      );
+
+      // Pass ObjectId instead of string
+      await RequestContext.runWithBypassRoleGuard(() =>
+        userService.pushToArray(new ObjectId(userId), 'roles', 'via-objectid'),
+      );
+
+      let user = await getRawUser(userId);
+      expect(user.roles).toEqual(['via-objectid']);
+
+      // Same for pullFromArray
+      await RequestContext.runWithBypassRoleGuard(() =>
+        userService.pullFromArray(new ObjectId(userId), 'roles', 'via-objectid'),
+      );
+
+      user = await getRawUser(userId);
+      expect(user.roles).toEqual([]);
+    });
+
     it('should handle nonexistent document ID gracefully (silent no-op)', async () => {
       const fakeId = new ObjectId().toHexString();
 
