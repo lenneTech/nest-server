@@ -124,7 +124,7 @@ export const checkRestricted = (
     removeUndefinedFromResultArray?: boolean;
     throwError?: boolean;
   } = {},
-  processedObjects: any[] = [],
+  processedObjects: WeakSet<object> = new WeakSet(),
 ) => {
   // Act like Roles handling: checkObjectItself = false & mergeRoles = true
   // For Input: throwError = true
@@ -147,15 +147,81 @@ export const checkRestricted = (
     return data;
   }
 
-  // Prevent infinite recourse
-  if (processedObjects.includes(data)) {
+  // Prevent infinite recursion
+  if (processedObjects.has(data)) {
     return data;
   }
-  processedObjects.push(data);
+  processedObjects.add(data);
 
   // Array
   if (Array.isArray(data)) {
-    // Check array items
+    if (data.length === 0) {
+      return data;
+    }
+
+    // Optimization for typed arrays: all items share the same class → same @Restricted metadata.
+    // Validate restrictions on the first item, then apply the result to all items.
+    // Per-item checks are only needed when S_CREATOR or S_SELF restrictions exist
+    // (because createdBy/id differ per item).
+    const sample = data[0];
+    if (
+      sample &&
+      typeof sample === 'object' &&
+      !Array.isArray(sample) &&
+      sample.constructor &&
+      sample.constructor !== Object
+    ) {
+      // Check class-level restrictions once
+      const classRestrictions = getRestricted(sample.constructor) || [];
+      if (classRestrictions.length) {
+        const hasCreatorOrSelf = classRestrictions.some(
+          (r) =>
+            // Bare role string: @Restricted(RoleEnum.S_CREATOR)
+            r === RoleEnum.S_CREATOR ||
+            r === RoleEnum.S_SELF ||
+            // Role array: @Restricted([RoleEnum.S_CREATOR, RoleEnum.ADMIN])
+            (Array.isArray(r) && (r.includes(RoleEnum.S_CREATOR) || r.includes(RoleEnum.S_SELF))) ||
+            // Object with roles: @Restricted({ roles: RoleEnum.S_CREATOR }) or { roles: [...] }
+            (typeof r === 'object' &&
+              !Array.isArray(r) &&
+              'roles' in r &&
+              r.roles &&
+              ((Array.isArray(r.roles) &&
+                (r.roles.includes(RoleEnum.S_CREATOR) || r.roles.includes(RoleEnum.S_SELF))) ||
+                r.roles === RoleEnum.S_CREATOR ||
+                r.roles === RoleEnum.S_SELF)),
+        );
+
+        if (!hasCreatorOrSelf) {
+          // No per-item ownership checks needed — validate one sample, apply to all.
+          // The sample check recurses into properties. With checkObjectItself=true, it
+          // also validates the class-level restriction as a standalone gate. With the
+          // default checkObjectItself=false, class restrictions are merged into each
+          // property's restrictions (properties get stripped if the class restriction denies).
+          const sampleResult = checkRestricted(sample, user, config, processedObjects);
+          if (sampleResult === undefined || sampleResult === null) {
+            // Class-level restriction blocks access → entire array is blocked
+            if (config.throwError) {
+              return data; // Exception was already thrown in sampleResult
+            }
+            return config.removeUndefinedFromResultArray ? [] : data.map(() => undefined);
+          }
+          // Sample passed — process remaining items with the same (cached) restriction lookups.
+          // Since getRestricted() uses a WeakMap cache, subsequent calls for the same class
+          // are O(1) lookups, but we still need to recurse into nested properties per item.
+          const result = [sampleResult];
+          for (let i = 1; i < data.length; i++) {
+            result.push(checkRestricted(data[i], user, config, processedObjects));
+          }
+          if (!config.throwError && config.removeUndefinedFromResultArray) {
+            return result.filter((item) => item !== undefined);
+          }
+          return result;
+        }
+      }
+    }
+
+    // Fallback: plain objects, mixed types, or S_CREATOR/S_SELF checks needed
     let result = data.map((item) => checkRestricted(item, user, config, processedObjects));
     if (!config.throwError && config.removeUndefinedFromResultArray) {
       result = result.filter((item) => item !== undefined);
@@ -243,7 +309,7 @@ export const checkRestricted = (
             const items = config.dbObject?.[property];
             if (items) {
               if (Array.isArray(items)) {
-                members.concat(items);
+                members.push(...items);
               } else {
                 members.push(items);
               }

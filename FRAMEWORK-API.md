@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-04-07 (v11.23.1)
+> Auto-generated from source code on 2026-04-08 (v11.24.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -197,6 +197,8 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async delete(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID
 - `async deleteForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks or restrictions
 - `async deleteRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks, restrictions or preparations
+- `async pushToArray(id: string, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.
+- `async pullFromArray(id: string, field: string, condition: any)`: `Promise<void>` — Remove items from an array field.
 - `async processQueryOrDocument(queryOrDocument: Document<Types.ObjectId, any, any, Record<string, any>, {}> | Document<Types...., serviceOptions?: ServiceOptions)`: `Promise<T>` — Execute, populate and map Mongoose query or document(s) with serviceOptions
 
 **Variants:** Each method has three variants:

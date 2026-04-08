@@ -211,28 +211,54 @@ The `process()` pipeline (prepareInput → checkRights → serviceFunc → proce
 - **Service cascades** (Service A → Service B → Service C, each going through process())
 - **Populate chains** (3-5 levels of nested population)
 
-**If a project experiences memory issues under high traffic**, check whether `process()` wrapping is the cause. Alternatives that preserve security:
+### When to Use CrudService vs Direct Mongoose
 
-| Instead of | Use | Speed | Memory | Security |
-|-----------|-----|-------|--------|----------|
-| `CrudService.create(input)` | `Model.create(input)` — fastest for single docs | 0.19ms | 98 KB | All plugins active |
-| `CrudService.create(input)` (batch N) | `Model.insertMany(docs)` — fastest for N>1 docs | 0.89ms/20 | 196 KB/20 | All plugins active |
-| `CrudService.update(id, input)` | `Model.findByIdAndUpdate(id, input).lean()` | 0.16ms | 64 KB | All plugins active |
-| `CrudService.get(id)` / `getForce(id)` | `Model.findById(id).lean()` — 5x less memory | 0.33ms | 51 KB | Tenant filter active |
+`CrudService.create/update/get()` wraps every operation in `process()` which provides:
+- **Input validation** (prepareInput: type mapping, ObjectId conversion)
+- **Authorization** (checkRights: `@Restricted`, `S_CREATOR`, `S_SELF`, field-level permissions)
+- **Output filtering** (prepareOutput: recursive secret removal, recursive ObjectId→string conversion, strip restricted fields)
 
-> **Note:** `new Model().save()` (0.57ms, 867 KB) is 3x slower and 9x more memory than `Model.create()`.
-> `findById().lean()` is 2x slower than hydrated `findById()` but uses 5x less memory — prefer lean in high-frequency paths where memory stability matters more than per-call latency.
-> `Model.create()` internally calls `new Model().save()` but is optimized by Mongoose — it triggers all `pre('save')` hooks (Tenant, Audit, RoleGuard, Password).
+**Use CrudService** when the caller is a **user-facing API** (Controller → Service → Response to User) — authorization and field filtering are required.
+
+**Use direct Mongoose** when the caller is **system-internal** (Processor, Cron, Service-to-Service) — no user context exists, no response is sent to a user, and input is internally controlled.
+
+| Context | Use | Why |
+|---------|-----|-----|
+| Controller handling user request | `CrudService.update()` | User needs authorization + field filtering |
+| Cron job updating internal state | `Model.findByIdAndUpdate()` | No user context, no response to user |
+| Queue processor writing results | `Model.create()` | System-internal, plugins provide tenant/audit |
+| WebSocket emit loading data | `Model.findById().lean()` | Read-only, clients receive JSON |
+| Appending to subdoc array | `CrudService.pushToArray()` | Always — even in controllers (see rule 6 below) |
+| Removing from subdoc array | `CrudService.pullFromArray()` | Atomic removal, bypasses process() |
+
+### Performance Alternatives (System-Internal Only)
+
+These alternatives bypass `process()` but keep Mongoose plugins (Tenant, Audit, RoleGuard) active. **Only use in system-internal contexts** where no user authorization or output filtering is needed.
+
+| Instead of | Use | Relative Speed | Relative Memory |
+|-----------|-----|---------------|-----------------|
+| `CrudService.create(input)` | `Model.create(input)` | ~3x faster than `save()` | ~9x less than `save()` |
+| `CrudService.create(input)` (batch N) | `Model.insertMany(docs)` | ~2.5x faster than N× `save()` | ~3x less than N× `save()` |
+| `CrudService.update(id, input)` | `Model.findByIdAndUpdate(id, input).lean()` | Fastest update pattern | Lowest memory |
+| `CrudService.get(id)` / `getForce(id)` | `Model.findById(id).lean()` | ~2x slower per call | ~5x less memory |
+
+> **Note:** `Model.create()` is significantly faster and lighter than `new Model().save()` for single documents.
+> `findById().lean()` trades per-call speed for much lower memory — prefer lean in high-frequency paths where memory stability matters more than per-call latency. For low-frequency user-facing paths, hydrated reads via CrudService are preferred.
+> `Model.create()` internally calls `save()` but is optimized by Mongoose — it triggers all `pre('save')` hooks (Tenant, Audit, RoleGuard, Password).
 
 **NEVER** bypass Mongoose entirely via `collection.*` — see section above. The CheckSecurityInterceptor acts as a safety net on HTTP responses regardless of how data was written.
 
+> **Secret removal happens in two layers:**
+> - **`prepareOutput`** (service-level, in `process()`): Recursively removes `password`, `verificationToken`, `passwordResetToken` — fields that are NEVER needed internally after hashing/use.
+> - **`CheckSecurityInterceptor`** (HTTP-level, Safety Net): Removes the full configurable `security.secretFields` list (additionally `refreshTokens`, `tempTokens`) — these are needed internally for token validation and process flows but must not reach HTTP clients.
+
 ### High-Frequency Path Design Rules
 
-These rules apply when building features that execute many times per minute (monitoring, metrics, queue processors):
+These rules apply when building features that execute many times per minute (monitoring, metrics, queue processors). These paths are always system-internal — no user context, no authorization needed.
 
-1. **`Model.create(doc)` over `new Model().save()`** for single documents — `create()` is 3x faster (0.19ms vs 0.57ms) and uses 9x less memory (98 KB vs 867 KB). For batch inserts (N>1), use `Model.insertMany(docs)` — a single call with N documents is 2.5x faster than N parallel `save()` calls.
+1. **`Model.create(doc)` over `new Model().save()`** for single documents — `create()` is ~3x faster and uses ~9x less memory. For batch inserts (N>1), use `Model.insertMany(docs)` — a single call with N documents is ~2.5x faster than N parallel `save()` calls.
 
-2. **`Model.findById().lean()` over `getForce()`** for read-only lookups in high-frequency paths — lean uses 5x less memory (51 KB vs 250 KB) but is 2x slower per call (0.33ms vs 0.16ms). In hot paths, the memory savings outweigh the latency cost because reduced GC pressure improves overall throughput. For low-frequency paths, hydrated `findById()` is faster.
+2. **`Model.findById().lean()` over `getForce()`** for read-only lookups — lean uses ~5x less memory but is ~2x slower per call. In hot paths, the memory savings outweigh the latency cost because reduced GC pressure improves overall throughput. For low-frequency user-facing paths, hydrated reads via CrudService are preferred (faster + authorization).
 
 3. **Defer complex logic to cron/queue** — high-frequency paths should only write data (checks, metrics). Processing that data (incident creation, notifications, escalation) belongs in low-frequency cron jobs or separate queue processors that run in bounded batches.
 
@@ -240,7 +266,34 @@ These rules apply when building features that execute many times per minute (mon
 
 5. **WebSocket emits should use lean data** — `emitUpdated()` with `getForce()` triggers a full `process()` pipeline per emit. Use `Model.findById().lean()` instead — WebSocket clients receive JSON, not Mongoose Documents.
 
+6. **NEVER pass Mongoose SubDocument Arrays through `CrudService.update()`** — this applies in ALL contexts (user-facing AND system-internal). Mongoose subdocument arrays (e.g. `entity.logs`, `entity.comments`, `entity.history`) are Proxy-wrapped objects. When passed through `process()`, `clone()` (rfdc) and `processDeep()` trigger Proxy getters/setters on every property of every subdocument, and `mergePlain()` clones the entire array again. On long-lived documents with hundreds of entries this causes OOM (3GB+ heap). Use `CrudService.pushToArray()` / `pullFromArray()` or direct `$push` / `$set`:
+   ```typescript
+   // WRONG — even in a controller, this causes OOM on large arrays
+   entity.logs.push(newLog);
+   await this.entityService.update(id, { logs: entity.logs });
+
+   // CORRECT — use CrudService helper (preferred)
+   await this.entityService.pushToArray(id, 'logs', newLog);
+   await this.entityService.pushToArray(id, 'logs', newLog, { $slice: -500 }); // cap at 500
+
+   // CORRECT — direct Mongoose for combined operations
+   await entityModel.findByIdAndUpdate(id, {
+     $push: { logs: newLog },
+     $set: { status: 'RESOLVED', resolvedAt: new Date() },
+   }).lean().exec();
+
+   // CORRECT — remove items by condition
+   await this.entityService.pullFromArray(id, 'tags', 'obsolete');
+   ```
+
+7. **Clear timers in Promise.race patterns** — if using `Promise.race([operation, timeout])`, always clear the timeout after the race resolves. Leaked timers accumulate memory and cause unhandled rejections in high-frequency paths.
+
+8. **In-memory buffers need eviction** — any `Map` or array used as a buffer (error tracking, dedup, cache) must have a size cap and periodic cleanup. Without eviction, buffers grow unbounded and are never GC'd.
+
+9. **Queue-based crons must prevent re-enqueue of in-progress items** — if a cron adds jobs to a BullMQ queue faster than the processor consumes them, the queue grows unbounded. Guard with `getWaitingCount()` check before enqueuing.
+
 Details: [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md)
+Details: [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md)
 
 ## In-Depth Documentation
 
@@ -249,3 +302,4 @@ Details: [`docs/process-performance-optimization.md`](docs/process-performance-o
 | [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |
 | [`docs/native-driver-security.md`](docs/native-driver-security.md) | Native MongoDB Driver restrictions, secure alternatives, review checklist |
 | [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations |
+| [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md) | SubDocument array handling (implemented): pushToArray/pullFromArray, checkRestricted optimization, bug fixes |
