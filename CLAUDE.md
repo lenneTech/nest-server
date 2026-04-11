@@ -36,6 +36,67 @@ The following documents must be kept up to date when making changes that affect 
 - **CLI**: https://github.com/lenneTech/cli (`lt server module <Name>`)
 - **Package Manager**: pnpm (development only, published to npm registry)
 
+### Consumption in downstream projects — npm vs vendor
+
+Consumer projects (created via `lt fullstack init` / `lt server create`)
+can consume this framework in one of two modes. As a framework author
+working in THIS repo, you should understand both so your changes are
+compatible with either downstream layout:
+
+- **npm mode (classic)** — consumers install `@lenne.tech/nest-server`
+  as an npm dependency. They read framework code from
+  `node_modules/@lenne.tech/nest-server/` and import via the bare
+  specifier `from '@lenne.tech/nest-server'`. This repo's `dist/` is
+  what they actually see at runtime.
+
+- **vendor mode (pilot)** — consumers copy this repo's `src/core/`
+  (plus `src/index.ts`, `src/core.module.ts`, `src/test/`,
+  `src/templates/`, `src/types/`, `LICENSE`, `bin/migrate.js`) directly
+  into their project at `<api>/src/core/` as first-class project code.
+  No npm dependency. Imports use relative paths. Consumers apply a
+  **flatten-fix** that moves `src/index.ts` and `src/core.module.ts`
+  under `src/core/` and rewrites `./core/…` → `./…`. Update flow is
+  via the `lt-dev:nest-server-core-updater` Claude Code agent, which
+  clones this repo at a target ref, computes a structured delta
+  against the consumer's baseline, and presents a curated review.
+
+**Implications for framework authors:**
+
+- **Keep `src/core/` self-contained.** Any new import in `src/core/**`
+  that points OUTSIDE `src/core/` (e.g. `../server/...`, `../main`)
+  breaks vendor consumers, whose `src/server/` is unrelated to this
+  repo's. The `src/server/` here is a framework-testing example, not
+  a shipping component.
+
+- **Keep top-level `src/index.ts` and `src/core.module.ts` consistent**
+  with the core directory structure. The flatten-fix strips `./core/`
+  from specifiers in these two files, so if you add re-exports there,
+  use `export * from './core/common/...'` (not absolute paths).
+
+- **Top-level meta files** like `FRAMEWORK-API.md`, `SHOWCASE.md`,
+  `CHANGELOG.md`, and `load-tests/` are stripped from vendor consumer
+  projects during `convertCloneToVendored`. They're framework-author-
+  only content. `migration-guides/` is kept because the updater agent
+  reads it at sync time — keep the migration guides readable outside
+  of an npm-install context (no `node_modules/…` path references).
+
+- **`package.json` devDeps** used at runtime by framework code (e.g.
+  `find-file-up` in the config loader) must be listed in the CLI's
+  `src/config/vendor-runtime-deps.json` as a runtime helper, otherwise
+  vendor consumers miss them at install time. Prefer putting
+  runtime-used packages in `dependencies` directly, not `devDependencies`.
+
+- **Vendor-mode projects never run `pnpm update @lenne.tech/nest-server`.**
+  They use `/lt-dev:backend:update-nest-server-core` instead, which
+  does NOT bump a `package.json` entry but rewrites `src/core/**` in
+  place. Do not assume version-bump telemetry from npm for vendored
+  installs.
+
+See the CLI's `convertCloneToVendored()` in
+`lenneTech/cli/src/extensions/server.ts` for the full vendor
+transformation, and the `lt-dev:nest-server-core-updater` agent for
+the update-agent contract.
+
 ## Common Development Commands
 
 ```bash
@@ -294,6 +355,22 @@ These rules apply when building features that execute many times per minute (mon
 
 Details: [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md)
 Details: [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md)
+
+## Mongoose Index Placement
+
+**Rule:** Single-field indexes live on the property. `Schema.index()` is reserved for compound (multi-field) indexes only.
+
+1. **Single-field indexes** → declare directly on the property via `@Prop({ index: true })` or `@UnifiedField({ mongoose: { index: true } })`. Keeps all property info in one place and visible during code review.
+
+2. **Framework-managed indexes** → do NOT set manually. Example: `tenantId` is automatically indexed by the `mongooseTenantPlugin` (`src/core/common/plugins/mongoose-tenant.plugin.ts` → `schema.index({ tenantId: 1 })`). Adding `index: true` on `tenantId` in a consumer project triggers Mongoose `"Duplicate schema index"` warnings. Any future plugin that auto-indexes a field must be documented here.
+
+3. **Compound (multi-field) indexes** → only these belong in `Schema.index({ field1: 1, field2: 1 })` after `SchemaFactory.createForClass(...)`. This is the only acceptable use of `Schema.index()`.
+
+4. **TTL indexes** → declare inline: `@Prop({ required: true, index: { expireAfterSeconds: 3600 } })`. Do NOT duplicate with a separate `Schema.index()` call — the single-field TTL belongs on the property.
+
+5. **`unique: true` implies an index** → Mongoose auto-creates a unique index for `@Prop({ unique: true })`. Do not additionally declare `Schema.index({ field: 1 }, { unique: true })`.
+
+**Why:** Property-local indexes are immediately visible when reviewing a field. Hidden `Schema.index()` calls at the bottom of the file are easy to miss, leading to duplicate definitions and Mongoose warnings when multiple developers touch the same model. When building plugins that auto-index fields, always emit a warning in the plugin's docstring so consumers know not to set the index manually.
 
 ## In-Depth Documentation
 

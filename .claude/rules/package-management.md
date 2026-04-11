@@ -99,14 +99,73 @@ The `pnpm-lock.yaml` file must always be committed. It provides additional repro
 
 ## Overrides
 
-Package overrides are configured in the `pnpm.overrides` section of `package.json`:
+Package overrides are configured in the `pnpm.overrides` section of `package.json` and are typically used to force transitive dependencies to a security-patched version.
+
+### Rule: Override Targets MUST Be Fixed Versions
+
+The **target** of an override (the value on the right-hand side) MUST be a fixed version — the **same exact-versioning rule that applies to direct dependencies applies here**. Never use range selectors (`>=`, `^`, `~`, `*`) as override targets.
+
+| Allowed | Not Allowed | Reason |
+|---------|-------------|--------|
+| `"lodash": "4.17.23"` | `"lodash": ">=4.17.23"` | `>=` is unbounded — pnpm installs the latest, possibly crossing a major version |
+| `"vite": "7.3.2"` | `"vite": ">=7.3.2"` | Would allow `vite@8.x.y` to be installed |
+| `"@apollo/server": "5.5.0"` | `"@apollo/server": "^5.5.0"` | Defeats the purpose of an override |
+
+### Key Selector Forms
+
+The **key** (left-hand side) of an override entry selects which installed versions the override applies to. Both forms are valid:
 
 ```json
 {
   "pnpm": {
     "overrides": {
-      "lodash": "4.17.23"
+      // Form 1: Replace ALL versions of a package with a fixed one
+      "lodash": "4.17.23",
+
+      // Form 2: Replace only vulnerable versions with a fixed patched one
+      "minimatch@<3.1.4": "3.1.4",
+      "path-to-regexp@>=8.0.0 <8.4.0": "8.4.2"
     }
   }
 }
+```
+
+Form 2 is preferred for security-driven overrides because it leaves non-vulnerable versions untouched, which reduces the blast radius of the override.
+
+### Never Use Unbounded Range Targets
+
+**Incident (TurboOps, April 2026):** A security audit added the override `"vite@>=7.0.0 <=7.3.1": ">=7.3.2"` intending to force `vite` onto the 7.3.2 patched version. Because the target `">=7.3.2"` is unbounded on the upper end, pnpm resolved it to the latest matching version — `vite@8.0.8` — silently performing a major version upgrade. This cascaded into broken peer dependencies in `@nuxt/test-utils`, `better-auth` (drizzle-orm peer dropped), and vitest, and caused 13 e2e test regressions in the `server` module.
+
+The fix was to change every override target to a fixed version:
+
+```json
+// WRONG — unbounded, allows major jumps
+"vite@>=7.0.0 <=7.3.1": ">=7.3.2"
+"drizzle-orm@<0.45.2": ">=0.45.2"
+"@apollo/server@<5.5.0": ">=5.5.0"
+
+// RIGHT — fixed target, no surprise upgrades
+"vite": "7.3.2"
+"drizzle-orm": "0.45.2"
+"@apollo/server": "5.5.0"
+```
+
+### Safe Override Workflow
+
+When adding an override to fix a vulnerability:
+
+1. Identify the exact patched version from the advisory (e.g. `vite >= 7.3.2`)
+2. Check the latest fixed version **within the same major** (e.g. `7.x.y`) via `pnpm view <pkg> versions`
+3. Use that specific version as the override target: `"pkg@<7.3.2": "7.3.2"` (or just `"pkg": "7.3.2"`)
+4. Run `pnpm install && pnpm run build && pnpm test` — verify nothing regresses
+5. Run `pnpm audit` — verify the vulnerability is gone
+6. Commit both `package.json` and `pnpm-lock.yaml`
+
+### Document Why Each Override Exists
+
+Override entries without context become unmaintainable over time. Add a brief comment-style key or keep a parallel `OVERRIDES.md` documenting for each entry: which CVE/advisory, which package pulls in the vulnerable version, and when the override can be removed. Example:
+
+```json
+// brace-expansion@1 — RegExp DoS (GHSA-v6h2-p8h4-qcjw), pulled in by @nestjs/cli>fork-ts-checker-webpack-plugin>minimatch
+"brace-expansion@<1.1.13": "1.1.13"
 ```
