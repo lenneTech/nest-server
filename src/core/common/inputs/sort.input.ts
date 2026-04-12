@@ -26,7 +26,7 @@ export class SortInput extends CoreInput {
    */
   @UnifiedField({
     description: 'SortInput order of the field',
-    enum: { enum: SortOrderEnum },
+    enum: SortOrderEnum,
     roles: RoleEnum.S_EVERYONE,
   })
   order: SortOrderEnum = undefined;

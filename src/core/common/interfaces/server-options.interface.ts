@@ -10,7 +10,12 @@ import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicato
 import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
 import compression from 'compression';
 import { CollationOptions } from 'mongodb';
+import type * as JSONTransport from 'nodemailer/lib/json-transport';
+import type * as SendmailTransport from 'nodemailer/lib/sendmail-transport';
+import type * as SESTransport from 'nodemailer/lib/ses-transport';
+import type * as SMTPPool from 'nodemailer/lib/smtp-pool';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
+import type * as StreamTransport from 'nodemailer/lib/stream-transport';
 
 import { Falsy } from '../types/falsy.type';
 import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface';
@@ -23,6 +28,29 @@ import { MailjetOptions } from './mailjet-options.interface';
  * Matches the DBFieldType from better-auth
  */
 export type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'number[]' | 'string' | 'string[]';
+
+/**
+ * All transport configurations accepted by `nodemailer.createTransport()`.
+ *
+ * Covers every built-in transport nodemailer ships with. `JSONTransport` is
+ * particularly useful in CI / e2e tests: `{ jsonTransport: true }` serializes
+ * outgoing mail to a JSON string and returns a valid response without any
+ * network I/O — no SMTP server, no credentials, no flakiness.
+ */
+export type MailTransportOptions =
+  | JSONTransport
+  | JSONTransport.Options
+  | SendmailTransport
+  | SendmailTransport.Options
+  | SESTransport
+  | SESTransport.Options
+  | SMTPPool
+  | SMTPPool.Options
+  | SMTPTransport
+  | SMTPTransport.Options
+  | StreamTransport
+  | StreamTransport.Options
+  | string;
 
 /**
  * Interface for Auth configuration
@@ -1147,9 +1175,13 @@ export interface IServerOptions {
     passwordResetLink?: string;
 
     /**
-     * SMTP configuration for nodemailer
+     * Mail transport configuration for nodemailer.
+     *
+     * Accepts any transport type supported by `nodemailer.createTransport()`.
+     * See {@link MailTransportOptions} for the full list including
+     * `JSONTransport` / `{ jsonTransport: true }` for CI and e2e tests.
      */
-    smtp?: SMTPTransport | SMTPTransport.Options | string;
+    smtp?: MailTransportOptions;
 
     /**
      * Verification link for email
