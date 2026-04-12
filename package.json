@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.24.3",
+  "version": "11.24.4",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -22,9 +22,9 @@
     "build:pack": "pnpm pack && echo 'use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package'",
     "build:dev": "pnpm run build",
     "c": "pnpm run check",
-    "check": "pnpm audit && pnpm run format:check && pnpm run lint && pnpm test && pnpm run build && pnpm start",
-    "check:fix": "pnpm install && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && pnpm start",
-    "check:naf": "pnpm install && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && pnpm start",
+    "check": "pnpm audit && pnpm run format:check && pnpm run lint && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
+    "check:fix": "pnpm install && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
+    "check:naf": "pnpm install && pnpm run format && pnpm run lint:fix && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
     "cf": "pnpm run check:fix",
     "cnaf": "pnpm run check:naf",
     "docs": "pnpm run docs:ci && open http://127.0.0.1:8080/ && open ./public/index.html && compodoc -p tsconfig.json -s ",
