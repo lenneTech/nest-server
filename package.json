@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.24.2",
+  "version": "11.24.3",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -15,7 +15,7 @@
   "license": "MIT",
   "scripts": {
     "build": "rimraf dist && nest build && pnpm run build:copy-types && pnpm run build:copy-templates && pnpm run build:add-type-references && pnpm run build:framework-api",
-    "build:framework-api": "npx tsx scripts/generate-framework-api.ts",
+    "build:framework-api": "tsx scripts/generate-framework-api.ts",
     "build:copy-types": "mkdir -p dist/types && cp src/types/*.d.ts dist/types/",
     "build:copy-templates": "mkdir -p dist/core/modules/migrate/templates && cp src/core/modules/migrate/templates/migration-project.template.ts dist/core/modules/migrate/templates/",
     "build:add-type-references": "node scripts/add-type-references.js",
@@ -152,6 +152,7 @@
     "rimraf": "6.1.3",
     "ts-node": "10.9.2",
     "tsconfig-paths": "4.2.0",
+    "tsx": "4.21.0",
     "tus-js-client": "4.3.1",
     "typescript": "5.9.3",
     "unplugin-swc": "1.5.9",

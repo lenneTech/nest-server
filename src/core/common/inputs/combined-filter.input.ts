@@ -18,7 +18,7 @@ export class CombinedFilterInput extends CoreInput {
    */
   @UnifiedField({
     description: 'Logical Operator to combine filters',
-    enum: { enum: LogicalOperatorEnum },
+    enum: LogicalOperatorEnum,
     roles: RoleEnum.S_EVERYONE,
   })
   logicalOperator: LogicalOperatorEnum = undefined;

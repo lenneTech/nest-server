@@ -1,11 +1,10 @@
-import type SMTPPool = require('nodemailer/lib/smtp-pool');
-
 import { createHash } from 'crypto';
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
+import { MailTransportOptions } from '../interfaces/server-options.interface';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
 
@@ -49,7 +48,7 @@ export class EmailService implements OnModuleDestroy {
       htmlTemplate?: string;
       senderEmail?: string;
       senderName?: string;
-      smtp?: SMTPPool | SMTPPool.Options;
+      smtp?: MailTransportOptions;
       templateData?: { [key: string]: any };
       text?: string;
       textTemplate?: string;
@@ -88,6 +87,21 @@ export class EmailService implements OnModuleDestroy {
     }
     if (!isNonEmptyString(text, returnFalse)) {
       isNonEmptyString(html);
+    }
+
+    // Guard: JSONTransport silently discards all mail — block in production / staging
+    // to prevent accidental misconfiguration that causes password-reset, 2FA, and
+    // verification emails to vanish without error.
+    // Uses truthy check (not strict === true) because nodemailer activates
+    // JSONTransport for any truthy value of options.jsonTransport.
+    const env = this.configService.getFastButReadOnly<string>('env');
+    if (env === 'production' || env === 'staging') {
+      if (typeof smtp === 'object' && smtp !== null && !!(smtp as Record<string, unknown>).jsonTransport) {
+        throw new Error(
+          'JSONTransport (jsonTransport: true) is not permitted in production/staging environments. ' +
+            'It silently discards all outgoing email. Check email.smtp in your config.',
+        );
+      }
     }
 
     // Reuse transporter if SMTP config hasn't changed (avoids creating new connections per email)

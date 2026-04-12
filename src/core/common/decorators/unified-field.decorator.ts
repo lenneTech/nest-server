@@ -117,8 +117,47 @@ export interface UnifiedFieldOptions {
    * - undefined (default): Normal @UnifiedField behavior
    */
   exclude?: boolean;
-  /** Enum for class-validator */
-  enum?: { enum: EnumAllowedTypes; enumName?: string; options?: ValidationOptions };
+  /**
+   * Enum for class-validator.
+   *
+   * **Recommended form:**
+   * ```typescript
+   * @UnifiedField({ enum: MyEnum })
+   * @UnifiedField({ enum: MyEnum, enumName: 'MyEnum' })
+   * ```
+   *
+   * **Deprecated long form** (still works, emits a deprecation warning):
+   * ```typescript
+   * @UnifiedField({ enum: { enum: MyEnum, enumName: 'MyEnum' } })
+   * ```
+   * The long form will be removed in a future MINOR version. Use the shortcut
+   * form with the top-level `enumName` property instead.
+   *
+   * Why not auto-detect from the property type? TypeScript's `emitDecoratorMetadata`
+   * reflects enum types as their base primitive in `design:type` — required string
+   * enums become `String`, numeric enums become `Number`. Optional enum fields
+   * (`status?: MyEnum`) are reflected as `Object` because TS sees the union
+   * `MyEnum | undefined`. In all cases the original enum object reference is lost
+   * at compile time, so the decorator cannot recover it without an explicit
+   * `enum:` option.
+   */
+  enum?: EnumAllowedTypes | { enum: EnumAllowedTypes; enumName?: string; options?: ValidationOptions };
+  /**
+   * Explicit name for the enum in Swagger/GraphQL schema.
+   *
+   * When set, this name is used in the generated API schema. When omitted,
+   * the decorator auto-detects the name via `registerEnum()`, GraphQL metadata,
+   * or the enum's runtime name.
+   *
+   * Set to `null` to explicitly disable auto-detection (swagger receives `undefined`).
+   *
+   * **Note:** In the deprecated long-form, `enum: { enum: X, enumName: null }` passes
+   * `null` directly to swagger (not `undefined`). The top-level `enumName: null` normalizes
+   * to `undefined` for consistency. Both forms disable auto-detection effectively.
+   *
+   * Takes precedence over `enumName` inside a long-form `enum: { ... }` object.
+   */
+  enumName?: string | null;
   /** Example value for swagger api documentation */
   example?: any;
   /** Options for graphql */
@@ -161,9 +200,98 @@ export interface UnifiedFieldOptions {
   validator?: (opts: ValidationOptions) => PropertyDecorator[];
 }
 
+type NormalizedEnumOptions = { enum: EnumAllowedTypes; enumName?: string; options?: ValidationOptions };
+
+/**
+ * Detect whether `value` is the long-form `{ enum: MyEnum, ... }` options
+ * object. If it is not, we treat `value` itself as the enum (shortcut form).
+ *
+ * Discrimination strategy (three layers):
+ *
+ * 1. **Own `enum` key** — a plain TS keyword enum (`enum Foo { ... }`) never
+ *    has a member named `enum` (reserved keyword). Const-object enums CAN,
+ *    but it's rare.
+ *
+ * 2. **Inner value is an object** — in the long form, `value.enum` holds an
+ *    enum object (typeof 'object'). A const-object enum member named `enum`
+ *    with a primitive value (string / number) is ruled out here.
+ *
+ * 3. **Inner value looks like an enum** — all of the inner object's own
+ *    values must be strings or numbers. This guards against the theoretical
+ *    case where a const-object enum has `enum: { nested: true }` as a member
+ *    — that inner object's values are booleans, so it fails this check and
+ *    the outer object is correctly treated as the shortcut form.
+ */
+function isEnumOptionsObject(value: unknown): value is NormalizedEnumOptions {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!Object.prototype.hasOwnProperty.call(value, 'enum')) return false;
+  const inner = (value as Record<string, unknown>).enum;
+  if (typeof inner !== 'object' || inner === null) return false;
+  // A valid enum object contains only string or number values (enum members).
+  // If the inner object has non-primitive values it cannot be an enum, so the
+  // outer object is the enum itself (shortcut form with a member named 'enum').
+  const vals = Object.values(inner as Record<string, unknown>);
+  return vals.length > 0 && vals.every((v) => typeof v === 'string' || typeof v === 'number');
+}
+
+/**
+ * Detect likely misconfiguration: an object with `enumName` or `options` keys
+ * but no `enum` key. This pattern looks like a long-form options object where
+ * the required `enum` property was forgotten. Without this guard the object
+ * would be silently treated as the enum itself (shortcut form), leading to
+ * incorrect validation (e.g. only accepting the string "Status" instead of
+ * actual enum members).
+ */
+function warnIfLikelyMisconfiguredEnumOptions(value: unknown, propertyHint: string): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
+  const obj = value as Record<string, unknown>;
+  if (
+    !Object.prototype.hasOwnProperty.call(obj, 'enum') &&
+    (Object.prototype.hasOwnProperty.call(obj, 'enumName') || Object.prototype.hasOwnProperty.call(obj, 'options'))
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[@UnifiedField] Probable misconfiguration on "${propertyHint}": the enum option has ` +
+        `"enumName" or "options" but no "enum" key. Did you mean { enum: MyEnum, enumName: ... }? ` +
+        `The object will be treated as the enum itself (shortcut form), which is likely wrong.`,
+    );
+  }
+}
+
 export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator {
+  // Normalize the shortcut form `enum: MyEnum` into the long form
+  // `enum: { enum: MyEnum }` so the rest of the decorator can assume a uniform
+  // object shape. Single `isEnumOptionsObject` call, result reused for both variables.
+  const isLongForm = opts.enum ? isEnumOptionsObject(opts.enum) : false;
+  const normalizedEnum: NormalizedEnumOptions | undefined = opts.enum
+    ? isLongForm
+      ? (opts.enum as NormalizedEnumOptions)
+      : { enum: opts.enum as EnumAllowedTypes }
+    : undefined;
+
+  // The original long-form object (if provided) — needed to distinguish
+  // `enum: { enum: MyEnum, enumName: undefined }` (explicit disable) from
+  // `enum: MyEnum` (shortcut: auto-detect).
+  const originalEnumOpts = isLongForm ? (opts.enum as NormalizedEnumOptions) : undefined;
+
   return (target: any, propertyKey: string | symbol) => {
     const key = String(propertyKey);
+
+    // Warn if the enum option looks like a long-form object with a missing `enum` key
+    if (opts.enum && !originalEnumOpts) {
+      warnIfLikelyMisconfiguredEnumOptions(opts.enum, `${target.constructor?.name || '?'}.${key}`);
+    }
+
+    // Deprecation warning for long-form enum: { enum: MyEnum, ... }
+    if (originalEnumOpts) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[@UnifiedField] Deprecated long-form enum on "${target.constructor?.name || '?'}.${key}": ` +
+          `enum: { enum: ... } is deprecated. Use enum: MyEnum` +
+          (originalEnumOpts.enumName ? `, enumName: '${originalEnumOpts.enumName}'` : '') +
+          ` instead. The long-form will be removed in a future version.`,
+      );
+    }
 
     if (opts.exclude === true) {
       // ── EXPLICIT EXCLUSION ──
@@ -282,7 +410,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
 
     // Set type for swagger
     if (baseType) {
-      if (opts.enum) {
+      if (normalizedEnum) {
         swaggerOpts.type = () => String;
       } else {
         swaggerOpts.type = baseType;
@@ -300,28 +428,34 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     }
 
     // Set enum options
-    if (opts.enum && opts.enum.enum) {
-      swaggerOpts.enum = opts.enum.enum;
+    if (normalizedEnum && normalizedEnum.enum) {
+      swaggerOpts.enum = normalizedEnum.enum;
 
-      // Set enumName with auto-detection:
-      // - If enumName property doesn't exist at all, auto-detect the name
-      // - If enumName is explicitly set (even to null/undefined), use that value
-      // This allows explicit opts.enum.enumName = undefined to disable auto-detection
-      if (!('enumName' in opts.enum)) {
-        // Property doesn't exist, try auto-detection
-        const autoDetectedName = getEnumName(opts.enum.enum);
+      // Resolve enumName with priority chain:
+      // 1. Top-level opts.enumName (new recommended form) — highest priority
+      //    - string → use it
+      //    - null → explicitly disable auto-detection
+      //    - undefined → fall through to next level
+      // 2. Long-form originalEnumOpts.enumName (deprecated) — backwards compat
+      //    - present (even if undefined/null) → use it (preserves old semantics)
+      //    - absent → fall through
+      // 3. Auto-detection via registerEnum / GraphQL metadata / runtime name
+      if ('enumName' in opts && opts.enumName !== undefined) {
+        // Top-level enumName: string → use, null → disable auto-detection
+        swaggerOpts.enumName = opts.enumName ?? undefined;
+      } else if (originalEnumOpts && 'enumName' in originalEnumOpts) {
+        // Deprecated long-form enumName
+        swaggerOpts.enumName = originalEnumOpts.enumName;
+      } else {
+        // Auto-detection
+        const autoDetectedName = getEnumName(normalizedEnum.enum);
         if (autoDetectedName) {
           swaggerOpts.enumName = autoDetectedName;
         }
-      } else {
-        // Property exists (even if undefined/null), use its value
-        swaggerOpts.enumName = opts.enum.enumName;
       }
-
-      IsEnum(opts.enum.enum, opts.enum.options)(target, propertyKey);
     }
 
-    // Array handling
+    // Array handling — must run BEFORE IsEnum so `each` is resolved
     if (isArrayField) {
       swaggerOpts.isArray = true;
       IsArray(valOpts)(target, propertyKey);
@@ -331,16 +465,27 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       valOpts.each = false;
     }
 
+    // Apply IsEnum after array handling so `each` from isArray is available.
+    // Merge isArray's `each` into the enum options automatically — the user
+    // no longer needs to pass `options: { each: true }` redundantly.
+    if (normalizedEnum && normalizedEnum.enum && !opts.isAny && !opts.validator) {
+      const enumValOpts: ValidationOptions = { ...normalizedEnum.options };
+      if (isArrayField && enumValOpts.each === undefined) {
+        enumValOpts.each = true;
+      }
+      IsEnum(normalizedEnum.enum, enumValOpts)(target, propertyKey);
+    }
+
     // Type function for gql
     // We need to keep the factory pattern (calling resolvedTypeFn inside the arrow function)
     // to support circular references. But we also need to extract array item types to avoid double-nesting.
     const gqlTypeFn = isArrayField
       ? () => {
-          const resolved = opts.enum?.enum || opts.gqlType || resolvedTypeFn();
+          const resolved = normalizedEnum?.enum || opts.gqlType || resolvedTypeFn();
           // Extract item type if user provided [ItemType] syntax to avoid [[ItemType]]
           return [Array.isArray(resolved) && resolved.length === 1 ? resolved[0] : resolved];
         }
-      : () => opts.enum?.enum || opts.gqlType || resolvedTypeFn();
+      : () => normalizedEnum?.enum || opts.gqlType || resolvedTypeFn();
 
     // Gql decorator
     Field(gqlTypeFn, gqlOpts)(target, propertyKey);
@@ -356,7 +501,12 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     // Completely skip validation if its any
     if (opts.validator) {
       opts.validator(valOpts).forEach((d) => d(target, propertyKey));
-    } else if (!opts.isAny) {
+    } else if (!opts.isAny && !normalizedEnum) {
+      // Skip the built-in validator when an enum is set: IsEnum has already been
+      // applied above and is the authoritative validator for enum values. Without this
+      // guard, fields declared as `foo?: MyEnum` emit `design:type = Object` (because
+      // `MyEnum | undefined` is not primitive), which maps to IsObject() here and
+      // rejects perfectly valid enum string values with "foo must be an object".
       const validator = getBuiltInValidator(baseType, valOpts, isArrayField, target);
       if (validator) {
         validator(target, propertyKey);
@@ -370,7 +520,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
         Type(() => Date)(target, propertyKey);
       }
       // Check if it's a primitive, if not apply transform
-      else if (!isPrimitive(baseType) && !opts.enum && !isGraphQLScalar(baseType)) {
+      else if (!isPrimitive(baseType) && !normalizedEnum && !isGraphQLScalar(baseType)) {
         Type(() => baseType)(target, propertyKey);
         ValidateNested({ each: isArrayField })(target, propertyKey);
 

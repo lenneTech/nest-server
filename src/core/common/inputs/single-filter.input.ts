@@ -58,7 +58,7 @@ export class SingleFilterInput extends CoreInput {
    */
   @UnifiedField({
     description: '[Comparison operator](https://docs.mongodb.com/manual/reference/operator/query-comparison/)',
-    enum: { enum: ComparisonOperatorEnum },
+    enum: ComparisonOperatorEnum,
     roles: RoleEnum.S_EVERYONE,
   })
   operator: ComparisonOperatorEnum = undefined;
