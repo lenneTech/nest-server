@@ -14,9 +14,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     // Exclude type-only test files (run these with `npx tsc --noEmit` instead)
-    exclude: ['tests/types/**/*.ts'],
+    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts'],
     // Enable parallel file execution for speed
     fileParallelism: true,
+    globalSetup: ['tests/global-setup.ts'],
     globals: true,
     hookTimeout: 60000,
     include: ['tests/**/*.ts'],
