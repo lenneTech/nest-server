@@ -474,6 +474,21 @@ pnpm run build
 pnpm run docs
 ```
 
+### Docker Production Build
+
+The [starter project](https://github.com/lenneTech/nest-server-starter) includes a production-ready multi-stage Dockerfile. It works both as a standalone project and inside a monorepo created with `lt fullstack init`:
+
+```bash
+# Standalone
+docker build -t api .
+docker run -e NSC__MONGOOSE__URI=mongodb://host:27017/mydb -p 3000:3000 api
+
+# Monorepo (build context = monorepo root)
+docker build --build-arg API_DIR=projects/api -t api .
+```
+
+The `docker-entrypoint.sh` runs database migrations before starting the server. The migration store reads `NSC__MONGOOSE__URI` for the MongoDB connection.
+
 ### Debugging as package
 
 Link into a consuming project for local development:

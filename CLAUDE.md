@@ -107,6 +107,19 @@ See `.claude/rules/role-system.md` for complete documentation.
 
 See `.claude/rules/versioning.md` for release process.
 
+## Docker Production Build
+
+The starter includes a multi-stage `Dockerfile` that works standalone and in monorepos:
+
+```bash
+docker build -t api .                                    # Standalone
+docker build --build-arg API_DIR=projects/api -t api .   # Monorepo
+```
+
+Key files: `Dockerfile`, `docker-entrypoint.sh` (migrations + server start), `.dockerignore`
+
+The migration store uses `NSC__MONGOOSE__URI` env var (not `config.env.ts`) for Docker compatibility.
+
 ## Environment Configuration
 
 ```typescript
