@@ -11,12 +11,23 @@ import { Db, ObjectId } from 'mongodb';
  * - getDb(uri): Get MongoDB connection
  * - uploadFileToGridFS(uri, filePath, options): Upload file to GridFS
  *
- * The MongoDB URI is read from the NSC__MONGOOSE__URI environment variable
- * so migrations work in Docker production where config.env.ts is not available
- * as a TypeScript source file.
+ * MongoDB URI resolution (in order):
+ * 1. config.env.ts (local development via ts-node)
+ * 2. NSC__MONGOOSE__URI environment variable (Docker production)
  */
 
-const MONGO_URL = process.env.NSC__MONGOOSE__URI || 'mongodb://127.0.0.1/test';
+let MONGO_URL: string;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const config = require('../src/config.env');
+  MONGO_URL = (config.default || config).mongoose.uri;
+} catch {
+  // Fallback for Docker production where config.env.ts is not available as TypeScript source
+  if (!process.env.NSC__MONGOOSE__URI) {
+    throw new Error('MongoDB URI not available. Set NSC__MONGOOSE__URI or ensure config.env.ts is loadable.');
+  }
+  MONGO_URL = process.env.NSC__MONGOOSE__URI;
+}
 
 /**
  * Run migration
