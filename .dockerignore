@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+dist
+.nuxt
+.output
+.turbo
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+# Testing
+tests
+coverage
+test-results
+playwright-report
+.nyc_output
+
+# Docker (prevent recursive copy)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# CI/CD
+.gitlab-ci.yml
+.gitlab
+
+# Misc
+.DS_Store
+*.tgz
+.husky
+.claude

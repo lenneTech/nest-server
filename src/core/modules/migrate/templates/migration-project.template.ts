@@ -1,6 +1,5 @@
 import { getDb, uploadFileToGridFS } from '@lenne.tech/nest-server';
 import { Db, ObjectId } from 'mongodb';
-import config from '../src/config.env';
 
 /**
  * Migration template for nest-server projects
@@ -11,9 +10,24 @@ import config from '../src/config.env';
  * Available helpers:
  * - getDb(uri): Get MongoDB connection
  * - uploadFileToGridFS(uri, filePath, options): Upload file to GridFS
+ *
+ * MongoDB URI resolution (in order):
+ * 1. config.env.ts (local development via ts-node)
+ * 2. NSC__MONGOOSE__URI environment variable (Docker production)
  */
 
-const MONGO_URL = config.mongoose.uri;
+let MONGO_URL: string;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const config = require('../src/config.env');
+  MONGO_URL = (config.default || config).mongoose.uri;
+} catch {
+  // Fallback for Docker production where config.env.ts is not available as TypeScript source
+  if (!process.env.NSC__MONGOOSE__URI) {
+    throw new Error('MongoDB URI not available. Set NSC__MONGOOSE__URI or ensure config.env.ts is loadable.');
+  }
+  MONGO_URL = process.env.NSC__MONGOOSE__URI;
+}
 
 /**
  * Run migration
