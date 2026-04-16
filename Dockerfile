@@ -1,3 +1,6 @@
+# Context: repository root (pnpm monorepo)
+# Build: docker compose build api
+
 # Stage 1: Install dependencies
 FROM node:22-alpine@sha256:8094c002d08262dba12645a3b4a15cd6cd627d30bc782f53229a2ec13ee22a00 AS deps
 WORKDIR /app
@@ -44,7 +47,8 @@ RUN mkdir -p /app/uploads && chown -R nodejs:nodejs /app
 COPY --from=builder --chown=nodejs:nodejs /app/projects/api/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/projects/api/package.json ./
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --chown=nodejs:nodejs --chmod=755 ./projects/api/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 USER nodejs
 EXPOSE 3000
-CMD ["node", "dist/src/main.js"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
