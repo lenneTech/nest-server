@@ -79,6 +79,19 @@ export interface TestGraphQLOptions {
   convertEnums?: boolean | string[];
 
   /**
+   * Cookies for the request. Three usage modes (same as `TestRestOptions.cookies`):
+   * - string (plain token without = or ;): Auto-detected as session token
+   *   and converted via `buildBetterAuthCookies()` to all relevant cookie names
+   *   (iam.session_token, token)
+   * - string (with = or ;): Used as-is as a cookie string
+   * - Record<string, string>: Key-value pairs joined into a cookie string
+   *
+   * Use this for cookie-based authentication (default since 11.25.0). Can be
+   * combined with `token` — both headers will be sent.
+   */
+  cookies?: Record<string, string> | string;
+
+  /**
    * Count of subscription messages, specifies how many messages are to be received on subscription
    */
   countOfSubscriptionMessages?: number;
@@ -305,7 +318,7 @@ export class TestHelper {
     };
 
     // Init vars
-    const { language, log, logError, statusCode, token, variables } = config;
+    const { cookies, language, log, logError, statusCode, token, variables } = config;
 
     // Init
     let query = '';
@@ -402,6 +415,7 @@ export class TestHelper {
 
     // Request configuration
     const requestConfig: any = {
+      cookies,
       method: 'POST',
       payload: { query },
       url: '/graphql',
