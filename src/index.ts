@@ -30,6 +30,7 @@ export * from './core/common/filters/http-exception-log.filter';
 export * from './core/common/helpers/common.helper';
 export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/context.helper';
+export * from './core/common/helpers/cookies.helper';
 export * from './core/common/helpers/db.helper';
 export * from './core/common/helpers/decorator.helper';
 export * from './core/common/helpers/file.helper';

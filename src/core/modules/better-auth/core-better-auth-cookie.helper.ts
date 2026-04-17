@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Response } from 'express';
 
+import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
 import { signCookieValue } from './core-better-auth-web.helper';
 
 /**
@@ -45,6 +46,14 @@ export interface BetterAuthCookieHelperConfig {
    * @example 'example.com' → cookies shared across api.example.com, ws.example.com, etc.
    */
   domain?: string;
+  /**
+   * App-level environment from `IServerOptions.env` (e.g. `'production'`, `'staging'`).
+   * Used to derive the `secure` flag for cookies in conjunction with `process.env.NODE_ENV`.
+   *
+   * @since 11.25.0 Covers staging deployments where `config.env === 'staging'` but
+   *                `NODE_ENV !== 'production'`.
+   */
+  env?: string;
   /**
    * Enable legacy 'token' cookie for backwards compatibility with < 11.7.0.
    * Only needed when Legacy Auth (Passport) is also active.
@@ -122,13 +131,17 @@ export class BetterAuthCookieHelper {
   /**
    * Gets the default cookie options for authentication cookies.
    *
+   * The `secure` flag is `true` when either `config.env` is production-like
+   * (`production` / `staging`) or `NODE_ENV === 'production'`. This covers
+   * staging deployments where only one of the two signals is set.
+   *
    * @returns Cookie options with httpOnly, sameSite, and secure settings
    */
   getDefaultCookieOptions(): AuthCookieOptions {
     const options: AuthCookieOptions = {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProductionLikeEnv(this.config.env),
     };
 
     if (this.config.domain) {
@@ -286,18 +299,28 @@ export class BetterAuthCookieHelper {
   }
 
   /**
-   * Processes a result object by setting appropriate cookies and removing token from body.
+   * Processes a result object by setting appropriate cookies and optionally keeping token in body.
    *
    * This method handles the common pattern of:
    * 1. Setting cookies if cookie handling is enabled
-   * 2. Removing the token from the response body (it's now in cookies)
+   * 2. Removing the token from the response body (unless exposeTokenInBody is true)
+   *
+   * When exposeTokenInBody is false (default), the token is removed from the response
+   * body because the httpOnly cookie provides XSS protection — exposing the token in
+   * the body would negate this security benefit.
    *
    * @param res - Express Response object
    * @param result - The result object to process (modified in place)
    * @param cookiesEnabled - Whether cookie handling is enabled (from config)
+   * @param exposeTokenInBody - Whether to keep the token in the response body (default: false)
    * @returns The modified result (same reference as input)
    */
-  processAuthResult<T extends CookieProcessingResult>(res: Response, result: T, cookiesEnabled: boolean): T {
+  processAuthResult<T extends CookieProcessingResult>(
+    res: Response,
+    result: T,
+    cookiesEnabled: boolean,
+    exposeTokenInBody: boolean = false,
+  ): T {
     if (!cookiesEnabled) {
       return result;
     }
@@ -306,8 +329,10 @@ export class BetterAuthCookieHelper {
       // Set cookies
       this.setSessionCookies(res, result.token);
 
-      // Remove token from response body (it's now in cookies)
-      delete result.token;
+      // Remove token from response body unless exposeTokenInBody is enabled
+      if (!exposeTokenInBody) {
+        delete result.token;
+      }
     }
 
     return result;
@@ -326,12 +351,13 @@ export class BetterAuthCookieHelper {
  */
 export function createCookieHelper(
   basePath: string,
-  options?: { domain?: string; legacyCookieEnabled?: boolean; secret?: string },
+  options?: { domain?: string; env?: string; legacyCookieEnabled?: boolean; secret?: string },
   logger?: Logger,
 ): BetterAuthCookieHelper {
   return new BetterAuthCookieHelper({
     basePath,
     domain: options?.domain,
+    env: options?.env,
     legacyCookieEnabled: options?.legacyCookieEnabled ?? false,
     logger,
     secret: options?.secret,

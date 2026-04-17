@@ -7,7 +7,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 
 /**
  * Type for better-auth instance with plugins
@@ -138,6 +138,14 @@ export interface CreateBetterAuthOptions {
    * Used as fallback for betterAuth.baseUrl.
    */
   serverBaseUrl?: string;
+
+  /**
+   * Server-level CORS configuration (from IServerOptions.cors).
+   * Used to align BetterAuth's trustedOrigins with the server-level CORS config.
+   *
+   * @since 11.25.0
+   */
+  serverCorsConfig?: boolean | ICorsConfig;
 
   /**
    * Server environment (from IServerOptions.env).
@@ -298,7 +306,11 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   // Build configuration components (pass normalized passkey config and resolved URLs)
   const plugins = buildPlugins(config, { passkeyNormalization, serverEnv });
   const socialProviders = buildSocialProviders(config);
-  const trustedOrigins = buildTrustedOrigins(config, { passkeyNormalization, resolvedUrls });
+  const trustedOrigins = buildTrustedOrigins(config, {
+    passkeyNormalization,
+    resolvedUrls,
+    serverCorsConfig: options.serverCorsConfig,
+  });
   const additionalFields = buildUserFields(config);
 
   // Resolve cross-subdomain cookies (Boolean Shorthand)
@@ -598,40 +610,66 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
 /**
  * Builds the trusted origins array for CORS configuration.
  *
- * Behavior:
- * - If trustedOrigins is explicitly configured → use those origins
- * - If Passkey is enabled → use trustedOrigins from normalizePasskeyConfig()
- * - Fallback to resolved appUrl
- * - Otherwise → return undefined (allows all origins via Better-Auth's default)
+ * Behavior (in priority order):
+ * 1. Explicit betterAuth.trustedOrigins → use those (always takes precedence)
+ * 2. Server CORS disabled → empty array (BetterAuth CORS also disabled)
+ * 3. Server CORS allowAll → undefined (BetterAuth allows all origins)
+ * 4. Server CORS allowedOrigins → merge with appUrl/baseUrl
+ * 5. Passkey trustedOrigins → use from normalizePasskeyConfig()
+ * 6. Fallback to resolved appUrl
+ * 7. Otherwise → undefined (allows all origins via Better-Auth's default)
  *
  * @param config - Better-auth configuration
- * @param options - Passkey normalization and resolved URLs context
+ * @param options - Passkey normalization, resolved URLs, and server CORS context
  */
-function buildTrustedOrigins(
+export function buildTrustedOrigins(
   config: IBetterAuth,
   options: {
     passkeyNormalization: PasskeyNormalizationResult;
     resolvedUrls: ResolvedUrls;
+    serverCorsConfig?: boolean | ICorsConfig;
   },
 ): string[] | undefined {
-  const { passkeyNormalization, resolvedUrls } = options;
-  // If trustedOrigins is explicitly configured, use it
+  const { passkeyNormalization, resolvedUrls, serverCorsConfig } = options;
+
+  // 1. Explicit betterAuth.trustedOrigins always takes precedence (backward compatible)
   if (config.trustedOrigins?.length) {
     return config.trustedOrigins;
   }
 
-  // If Passkey is enabled, use the trustedOrigins from normalization
+  // 2. Server CORS disabled → BetterAuth CORS also disabled
+  if (serverCorsConfig === false || (typeof serverCorsConfig === 'object' && serverCorsConfig?.enabled === false)) {
+    return [];
+  }
+
+  // 3. Server CORS allowAll → BetterAuth allows all origins
+  if (typeof serverCorsConfig === 'object' && serverCorsConfig?.allowAll) {
+    return undefined;
+  }
+
+  // 4. Server allowedOrigins → merge with appUrl/baseUrl.
+  // Order (appUrl, baseUrl, allowedOrigins) mirrors buildCorsConfig() in cookies.helper.ts
+  // for consistency — the final Set is order-equivalent, but the array order helps readers
+  // trace which value came from which source.
+  if (typeof serverCorsConfig === 'object' && serverCorsConfig?.allowedOrigins?.length) {
+    const origins: string[] = [];
+    if (resolvedUrls.appUrl) origins.push(resolvedUrls.appUrl);
+    if (resolvedUrls.baseUrl) origins.push(resolvedUrls.baseUrl);
+    origins.push(...serverCorsConfig.allowedOrigins);
+    return [...new Set(origins)];
+  }
+
+  // 5. If Passkey is enabled, use the trustedOrigins from normalization
   if (passkeyNormalization.enabled && passkeyNormalization.trustedOrigins?.length) {
     return passkeyNormalization.trustedOrigins;
   }
 
-  // Fallback to resolved appUrl (for CORS even without Passkey)
+  // 6. Fallback to resolved appUrl (for CORS even without Passkey)
   if (resolvedUrls.appUrl) {
     return [resolvedUrls.appUrl];
   }
 
-  // Otherwise, let Better-Auth handle CORS with its default behavior
-  // This allows all origins for requests without credentials
+  // 7. Otherwise, let Better-Auth handle CORS with its default behavior
   return undefined;
 }
 

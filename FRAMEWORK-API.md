@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-04-12 (v11.24.4)
+> Auto-generated from source code on 2026-04-17 (v11.25.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -19,7 +19,8 @@
   - `betterAuth?`: `boolean | IBetterAuth` (default: `undefined (enabled with defaults)`) — Configuration for better-auth authentication framework.
   - `brevo?`: `{ apiKey: string; exclude?: RegExp; sender: { email: string; name: string; }; }` — Configuration for Brevo
   - `compression?`: `boolean | compression.CompressionOptions` — Whether to use the compression middleware package to enable gzip compression.
-  - `cookies?`: `boolean` — Whether to use cookies for authentication handling
+  - `cookies?`: `boolean | ICookiesConfig` (default: `true`) — Cookie configuration for authentication handling.
+  - `cors?`: `boolean | ICorsConfig` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
   - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
   - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
@@ -81,6 +82,17 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `secretOrKeyProvider?`: `(request: Record<string, any>, rawJwtToken: string, done: (err: any, secret: ...` — JWT Provider
   - `secretOrPrivateKey?`: `string` — Alias of secret (for backwards compatibility)
   - `signInOptions?`: `JwtSignOptions` — SignIn Options like expiresIn
+
+### ICookiesConfig
+
+  - `enabled?`: `boolean` (default: `true`) — Whether cookies are enabled.
+  - `exposeTokenInBody?`: `boolean` (default: `false`) — Whether to include the session token in the response body when cookies are enabled.
+
+### ICorsConfig
+
+  - `allowAll?`: `boolean` (default: `false`) — Allow all origins by mirroring the request Origin header back.
+  - `allowedOrigins?`: `string[]` — Additional allowed origins beyond `appUrl` and `baseUrl`.
+  - `enabled?`: `boolean` (default: `true`) — Whether CORS is enabled.
 
 ### ICoreModuleOverrides
 

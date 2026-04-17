@@ -180,6 +180,8 @@ function main() {
     'IMultiTenancy',
     'IErrorCode',
     'IJwt',
+    'ICookiesConfig',
+    'ICorsConfig',
     'ICoreModuleOverrides',
   ];
 

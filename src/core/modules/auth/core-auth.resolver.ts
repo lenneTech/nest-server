@@ -6,6 +6,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { GraphQLServiceOptions } from '../../common/decorators/graphql-service-options.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { setLegacyAuthCookies } from '../../common/helpers/cookies.helper';
+import type { ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
@@ -169,30 +171,16 @@ export class CoreAuthResolver {
   // ===================================================================================================================
 
   /**
-   * Process cookies
+   * Process cookies — sets legacy auth cookies (token, refreshToken) with secure defaults
+   * and optionally strips tokens from the response body per `cookies.exposeTokenInBody`.
+   *
+   * Delegates to the shared `setLegacyAuthCookies()` helper to ensure consistent
+   * security options (httpOnly, sameSite=lax, secure in production) between the REST
+   * controller and GraphQL resolver.
    */
   protected processCookies(ctx: { res: ResponseType }, result: any) {
-    // Check if cookie handling is activated (enabled by default, unless explicitly set to false)
-    if (this.configService.getFastButReadOnly('cookies') !== false) {
-      // Set cookies
-      if (!result || typeof result !== 'object') {
-        ctx.res.cookie('token', '', { httpOnly: true });
-        ctx.res.cookie('refreshToken', '', { httpOnly: true });
-        return result;
-      }
-      ctx.res.cookie('token', result?.token || '', { httpOnly: true });
-      ctx.res.cookie('refreshToken', result?.refreshToken || '', { httpOnly: true });
-
-      // Remove tokens from result
-      if (result.token) {
-        delete result.token;
-      }
-      if (result.refreshToken) {
-        delete result.refreshToken;
-      }
-    }
-
-    // Return prepared result
-    return result;
+    const cookiesConfig = this.configService.getFastButReadOnly<boolean | ICookiesConfig>('cookies');
+    const env = this.configService.getFastButReadOnly<string>('env');
+    return setLegacyAuthCookies(ctx.res, result, cookiesConfig, env);
   }
 }

@@ -13,7 +13,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
-import { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
@@ -160,6 +160,14 @@ export interface CoreBetterAuthModuleOptions {
    * @example 'https://api.example.com'
    */
   serverBaseUrl?: string;
+
+  /**
+   * Server-level CORS configuration (from IServerOptions.cors).
+   * Used to align BetterAuth's trustedOrigins with the server-level CORS config.
+   *
+   * @since 11.25.0
+   */
+  serverCorsConfig?: boolean | ICorsConfig;
 
   /**
    * Server environment (from IServerOptions.env).
@@ -452,6 +460,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       resolver,
       serverAppUrl,
       serverBaseUrl,
+      serverCorsConfig,
       serverEnv,
     } = options;
 
@@ -535,10 +544,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     // Always use deferred initialization to ensure MongoDB is ready
     // This prevents timing issues during application startup
     // Pass server-level URLs for Passkey auto-detection (using effective values from ConfigService fallback)
+    // Auto-detect server CORS config from ConfigService if not explicitly provided
+    const effectiveServerCorsConfig = serverCorsConfig ?? globalConfig?.cors;
+
     this.cachedDynamicModule = this.createDeferredModule(config, {
       fallbackSecrets: effectiveFallbackSecrets,
       serverAppUrl: effectiveServerAppUrl,
       serverBaseUrl: effectiveServerBaseUrl,
+      serverCorsConfig: effectiveServerCorsConfig,
       serverEnv: effectiveServerEnv,
     });
     return this.cachedDynamicModule;
@@ -816,6 +829,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       fallbackSecrets?: (string | undefined)[];
       serverAppUrl?: string;
       serverBaseUrl?: string;
+      serverCorsConfig?: boolean | ICorsConfig;
       serverEnv?: string;
     },
   ): DynamicModule {
@@ -872,6 +886,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               sendVerificationEmail,
               serverAppUrl: options?.serverAppUrl,
               serverBaseUrl: options?.serverBaseUrl,
+              serverCorsConfig: options?.serverCorsConfig,
               serverEnv: options?.serverEnv,
             };
 

@@ -12,7 +12,18 @@ import { CheckResponseInterceptor } from './core/common/interceptors/check-respo
 import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
 import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
 import { TranslateResponseInterceptor } from './core/common/interceptors/translate-response.interceptor';
-import { ICoreModuleOverrides, IServerOptions } from './core/common/interfaces/server-options.interface';
+import {
+  assertCookiesProductionSafe,
+  buildCorsConfig,
+  isCookiesEnabled,
+  isCorsDisabled,
+  isExposeTokenInBodyEnabled,
+} from './core/common/helpers/cookies.helper';
+import {
+  ICookiesConfig,
+  ICoreModuleOverrides,
+  IServerOptions,
+} from './core/common/interfaces/server-options.interface';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
@@ -169,14 +180,15 @@ export class CoreModule implements NestModule {
       ? (authModuleOrUndefined as ICoreModuleOverrides | undefined)
       : overridesOrUndefined;
 
-    // Process config
-    let cors = {};
-    if (options?.cookies) {
-      cors = {
-        credentials: true,
-        origin: true,
-      };
-    }
+    // Guard against unsafe cookie configuration in production/staging.
+    // Throws if `cookies.exposeTokenInBody: true` is set in a production-like environment.
+    assertCookiesProductionSafe(options?.cookies, options?.env);
+
+    // Process CORS config (unified across GraphQL, REST, and BetterAuth).
+    // When CORS is explicitly disabled, pass `false` to Apollo — not `{}`.
+    // Apollo treats `cors: {}` as "open CORS with no credentials" (via Express cors() defaults),
+    // so we must distinguish the "disabled" case from the "no origins configured" case.
+    const cors: false | object = isCorsDisabled(options?.cors) ? false : buildCorsConfig(options);
 
     // Determine if GraphQL is enabled (false means explicitly disabled)
     const isGraphQlEnabled = options.graphQl !== false;
@@ -421,6 +433,8 @@ export class CoreModule implements NestModule {
             // When env: 'local', defaults are: baseUrl=localhost:3000, appUrl=localhost:3001
             serverAppUrl: config.appUrl,
             serverBaseUrl: config.baseUrl,
+            // Pass server-level CORS config so BetterAuth trustedOrigins aligns
+            serverCorsConfig: config.cors,
             serverEnv: config.env,
           }),
         );
@@ -472,7 +486,7 @@ export class CoreModule implements NestModule {
    * Uses CoreBetterAuthService for subscription authentication via JWT tokens.
    * This is the recommended mode for new projects.
    */
-  private static buildIamOnlyGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
+  private static buildIamOnlyGraphQlDriver(cors: false | object, options: Partial<IServerOptions>) {
     // This method is only called when graphQl !== false, extract config with type narrowing
     const graphQlOpts = typeof options?.graphQl === 'object' ? options.graphQl : undefined;
     return {
@@ -569,7 +583,7 @@ export class CoreModule implements NestModule {
    * This is safe because `onConnect` is only called when a WebSocket connection is made,
    * which happens after all modules are initialized.
    */
-  private static buildLazyIamGraphQlDriver(cors: object, options: Partial<IServerOptions>) {
+  private static buildLazyIamGraphQlDriver(cors: false | object, options: Partial<IServerOptions>) {
     // This method is only called when graphQl !== false, extract config with type narrowing
     const graphQlOpts = typeof options?.graphQl === 'object' ? options.graphQl : undefined;
     return {
@@ -675,7 +689,7 @@ export class CoreModule implements NestModule {
   private static buildLegacyGraphQlDriver(
     AuthService: any,
     AuthModule: any,
-    cors: object,
+    cors: false | object,
     options: Partial<IServerOptions>,
   ) {
     // This method is only called when graphQl !== false, extract config with type narrowing
@@ -745,5 +759,19 @@ export class CoreModule implements NestModule {
           graphQlOpts?.driver,
         ),
     };
+  }
+
+  /**
+   * @deprecated Use `isCookiesEnabled` from `core/common/helpers/cookies.helper` instead.
+   */
+  static isCookiesEnabled(cookies: boolean | ICookiesConfig | undefined): boolean {
+    return isCookiesEnabled(cookies);
+  }
+
+  /**
+   * @deprecated Use `isExposeTokenInBodyEnabled` from `core/common/helpers/cookies.helper` instead.
+   */
+  static isExposeTokenInBodyEnabled(cookies: boolean | ICookiesConfig | undefined): boolean {
+    return isExposeTokenInBodyEnabled(cookies);
   }
 }

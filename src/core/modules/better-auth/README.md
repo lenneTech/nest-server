@@ -260,6 +260,13 @@ Read the security section below for production deployments.
 | `basePath`       | Endpoint routing   | 404 on API calls            |
 | `passkey.origin` | WebAuthn security  | Passkey auth fails          |
 
+**Global server-level settings that affect BetterAuth behavior (since v11.25.0):**
+
+| Setting (top-level `IServerOptions`)                                          | Technical Purpose                                                                                                                                                                      | Impact of Wrong Value                                                                                                         |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `cookies` (`boolean \| ICookiesConfig`, default: `true`)                      | Controls cookie-parser middleware and session cookie setting. `cookies.exposeTokenInBody` additionally returns the token in the response body (test-only; **forbidden in production**) | Tokens missing from response body surprises test clients; `exposeTokenInBody` in prod = XSS-risk, framework throws at startup |
+| `cors` (`boolean \| ICorsConfig`, default: enabled with auto-derived origins) | Unified CORS config — propagates to GraphQL (Apollo), REST (Express), and BetterAuth `trustedOrigins` from a single source                                                             | `cors.enabled: false` disables all three layers; `cors.allowAll` allows any origin (dev only)                                 |
+
 **For Development:** The defaults (`http://localhost:3000`, `/iam`) are correct.
 
 ### Passkey Auto-Detection (Recommended)

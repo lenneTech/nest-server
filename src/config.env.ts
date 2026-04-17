@@ -7,7 +7,14 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 
 /**
  * Configuration for the different environments
+ *
+ * IMPORTANT: All secrets (passwords, API keys, signing secrets) MUST come from
+ * environment variables. Test environments use fallback values so tests work
+ * without a .env file. Production has no fallbacks — missing secrets will cause
+ * startup errors.
+ *
  * @see IServerOptions for documentation of all options
+ * @see .env.example for all available environment variables
  */
 dotenv.config();
 const config: { [env: string]: IServerOptions } = {
@@ -27,7 +34,7 @@ const config: { [env: string]: IServerOptions } = {
       // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
       passkey: { enabled: true, origin: 'http://localhost:3001', rpId: 'localhost', rpName: 'Nest Server Local' },
       rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
-      secret: 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
+      secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
       socialProviders: {
         apple: { clientId: '', clientSecret: '', enabled: false },
@@ -40,7 +47,8 @@ const config: { [env: string]: IServerOptions } = {
       twoFactor: { appName: 'Nest Server Local', enabled: true },
     },
     compression: true,
-    cookies: false,
+    cookies: { exposeTokenInBody: true },
+    cors: { allowAll: true },
     cronJobs: {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
@@ -53,24 +61,19 @@ const config: { [env: string]: IServerOptions } = {
     },
     email: {
       defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Local',
+        email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
+        name: 'Nest Server CI',
       },
-      mailjet: {
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-      },
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          pass: 'K4DvD8U31VKseT7vQC',
-          user: 'oren.satterfield@ethereal.email',
+          pass: process.env.SMTP_PASS || '',
+          user: process.env.SMTP_USER || '',
         },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
+        host: process.env.SMTP_HOST || 'mailhog.lenne.tech',
+        jsonTransport: !process.env.SMTP_HOST || undefined,
+        port: parseInt(process.env.SMTP_PORT || '1025', 10),
         secure: false,
       },
-      verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'ci',
     // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
@@ -98,21 +101,15 @@ const config: { [env: string]: IServerOptions } = {
     hostname: '127.0.0.1',
     ignoreSelectionsForPopulate: true,
     jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
       refresh: {
         renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        secret: process.env.JWT_REFRESH_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      secret: process.env.JWT_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
         expiresIn: '15m',
       },
@@ -124,7 +121,7 @@ const config: { [env: string]: IServerOptions } = {
         locale: 'de',
       },
       modelDocumentation: false,
-      uri: 'mongodb://127.0.0.1/nest-server-ci',
+      uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-ci',
     },
     permissions: true,
     port: 3000,
@@ -159,29 +156,44 @@ const config: { [env: string]: IServerOptions } = {
       legacyEndpoints: { enabled: true },
     },
     automaticObjectIdFiltering: true,
-    baseUrl: 'http://localhost:3000',
+    baseUrl: process.env.BASE_URL || 'http://localhost:3000',
+    betterAuth: {
+      emailVerification: false,
+      jwt: { enabled: true, expiresIn: '15m' },
+      rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
+      secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
+      twoFactor: { appName: 'Nest Server Dev', enabled: true },
+    },
+    // Brevo transactional API — optional overlay for template-based emails.
+    // Activated only when BREVO_API_KEY is set; otherwise SMTP handles everything.
+    ...(process.env.BREVO_API_KEY
+      ? {
+          brevo: {
+            apiKey: process.env.BREVO_API_KEY,
+            sender: {
+              email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
+              name: process.env.EMAIL_DEFAULT_SENDER_NAME || 'Nest Server Development',
+            },
+          },
+        }
+      : {}),
     compression: true,
-    cookies: false,
+    cors: { allowAll: true },
     email: {
       defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
+        email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
         name: 'Nest Server Development',
       },
-      mailjet: {
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-      },
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          pass: 'K4DvD8U31VKseT7vQC',
-          user: 'oren.satterfield@ethereal.email',
+          pass: process.env.SMTP_PASS || '',
+          user: process.env.SMTP_USER || '',
         },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
+        host: process.env.SMTP_HOST || 'mailhog.lenne.tech',
+        jsonTransport: !process.env.SMTP_HOST || undefined,
+        port: parseInt(process.env.SMTP_PORT || '1025', 10),
         secure: false,
       },
-      verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'development',
     execAfterInit: 'pnpm run docs:bootstrap',
@@ -204,21 +216,15 @@ const config: { [env: string]: IServerOptions } = {
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
       refresh: {
         renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        secret: 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
+        secret: process.env.JWT_REFRESH_SECRET || 'SECRET_OR_PRIVATE_KEY_DEV_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      secret: 'SECRET_OR_PRIVATE_KEY_DEV',
+      secret: process.env.JWT_SECRET || 'SECRET_OR_PRIVATE_KEY_DEV',
       signInOptions: {
         expiresIn: '15m',
       },
@@ -230,7 +236,7 @@ const config: { [env: string]: IServerOptions } = {
         locale: 'de',
       },
       modelDocumentation: false,
-      uri: 'mongodb://127.0.0.1/nest-server-dev',
+      uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-dev',
     },
     permissions: true,
     port: 3000,
@@ -273,7 +279,7 @@ const config: { [env: string]: IServerOptions } = {
       // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
       passkey: { enabled: true, origin: 'http://localhost:3001', rpId: 'localhost', rpName: 'Nest Server Local' },
       rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
-      secret: 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
+      secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
       socialProviders: {
         apple: { clientId: '', clientSecret: '', enabled: false },
@@ -286,7 +292,8 @@ const config: { [env: string]: IServerOptions } = {
       twoFactor: { appName: 'Nest Server Local', enabled: true },
     },
     compression: true,
-    cookies: false,
+    cookies: { exposeTokenInBody: true },
+    cors: { allowAll: true },
     cronJobs: {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
@@ -299,24 +306,19 @@ const config: { [env: string]: IServerOptions } = {
     },
     email: {
       defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Local',
+        email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
+        name: 'Nest Server E2E',
       },
-      mailjet: {
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-      },
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          pass: 'K4DvD8U31VKseT7vQC',
-          user: 'oren.satterfield@ethereal.email',
+          pass: process.env.SMTP_PASS || '',
+          user: process.env.SMTP_USER || '',
         },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
+        host: process.env.SMTP_HOST || 'mailhog.lenne.tech',
+        jsonTransport: !process.env.SMTP_HOST || undefined,
+        port: parseInt(process.env.SMTP_PORT || '1025', 10),
         secure: false,
       },
-      verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'e2e',
     // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
@@ -344,21 +346,15 @@ const config: { [env: string]: IServerOptions } = {
     hostname: '127.0.0.1',
     ignoreSelectionsForPopulate: true,
     jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
       refresh: {
         renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        secret: process.env.JWT_REFRESH_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      secret: process.env.JWT_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
         expiresIn: '15m',
       },
@@ -370,7 +366,7 @@ const config: { [env: string]: IServerOptions } = {
         locale: 'de',
       },
       modelDocumentation: false,
-      uri: 'mongodb://127.0.0.1/nest-server-e2e',
+      uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-e2e',
     },
     permissions: true,
     port: 3000,
@@ -405,7 +401,21 @@ const config: { [env: string]: IServerOptions } = {
       legacyEndpoints: { enabled: true },
     },
     automaticObjectIdFiltering: true,
+    // Brevo transactional API — optional overlay for template-based emails.
+    // Activated only when BREVO_API_KEY is set; otherwise SMTP handles everything.
+    ...(process.env.BREVO_API_KEY
+      ? {
+          brevo: {
+            apiKey: process.env.BREVO_API_KEY,
+            sender: {
+              email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
+              name: process.env.EMAIL_DEFAULT_SENDER_NAME || 'Nest Server Local',
+            },
+          },
+        }
+      : {}),
     compression: true,
+    cors: { allowAll: true },
     cronJobs: {
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
@@ -418,24 +428,19 @@ const config: { [env: string]: IServerOptions } = {
     },
     email: {
       defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
+        email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@test.local',
         name: 'Nest Server Local',
       },
-      mailjet: {
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-      },
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          pass: 'K4DvD8U31VKseT7vQC',
-          user: 'oren.satterfield@ethereal.email',
+          pass: process.env.SMTP_PASS || '',
+          user: process.env.SMTP_USER || '',
         },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
+        host: process.env.SMTP_HOST || 'mailhog.lenne.tech',
+        jsonTransport: !process.env.SMTP_HOST || undefined,
+        port: parseInt(process.env.SMTP_PORT || '1025', 10),
         secure: false,
       },
-      verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'local',
     // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
@@ -463,21 +468,15 @@ const config: { [env: string]: IServerOptions } = {
     hostname: '127.0.0.1',
     ignoreSelectionsForPopulate: true,
     jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
       refresh: {
         renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        secret: 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+        secret: process.env.JWT_REFRESH_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      secret: 'SECRET_OR_PRIVATE_KEY_LOCAL',
+      secret: process.env.JWT_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL',
       signInOptions: {
         expiresIn: '15m',
       },
@@ -489,7 +488,7 @@ const config: { [env: string]: IServerOptions } = {
         locale: 'de',
       },
       modelDocumentation: true,
-      uri: 'mongodb://127.0.0.1/nest-server-local',
+      uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-local',
     },
     permissions: {
       role: false,
@@ -545,28 +544,38 @@ const config: { [env: string]: IServerOptions } = {
       },
       twoFactor: { appName: process.env.TWO_FACTOR_APP_NAME || 'Nest Server' },
     },
+    // Brevo transactional API (optional overlay for template-based emails).
+    // Activated only when BREVO_API_KEY is set — otherwise remains undefined
+    // and all emails flow through the SMTP transport below.
+    ...(process.env.BREVO_API_KEY
+      ? {
+          brevo: {
+            apiKey: process.env.BREVO_API_KEY,
+            sender: {
+              email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@example.com',
+              name: process.env.EMAIL_DEFAULT_SENDER_NAME || 'Nest Server',
+            },
+          },
+        }
+      : {}),
     compression: true,
-    cookies: false,
+    cors: {
+      allowedOrigins: process.env.CORS_ALLOWED_ORIGINS?.split(',').filter(Boolean),
+    },
     email: {
       defaultSender: {
-        email: 'oren.satterfield@ethereal.email',
-        name: 'Nest Server Production',
+        email: process.env.EMAIL_DEFAULT_SENDER || 'noreply@example.com',
+        name: process.env.EMAIL_DEFAULT_SENDER_NAME || 'Nest Server',
       },
-      mailjet: {
-        api_key_private: 'MAILJET_API_KEY_PRIVATE',
-        api_key_public: 'MAILJET_API_KEY_PUBLIC',
-      },
-      passwordResetLink: 'http://localhost:4200/user/password-reset',
       smtp: {
         auth: {
-          pass: 'K4DvD8U31VKseT7vQC',
-          user: 'oren.satterfield@ethereal.email',
+          pass: process.env.SMTP_PASS,
+          user: process.env.SMTP_USER,
         },
-        host: 'mailhog.lenne.tech',
-        port: 1025,
-        secure: false,
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587', 10),
+        secure: process.env.SMTP_SECURE !== 'false',
       },
-      verificationLink: 'http://localhost:4200/user/verification',
     },
     env: 'production',
     execAfterInit: 'pnpm run docs:bootstrap',
@@ -589,21 +598,15 @@ const config: { [env: string]: IServerOptions } = {
     },
     ignoreSelectionsForPopulate: true,
     jwt: {
-      // Each secret should be unique and not reused in other environments,
-      // also the JWT secret should be different from the Refresh secret!
-      // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
       refresh: {
         renewal: true,
-        // Each secret should be unique and not reused in other environments,
-        // also the JWT secret should be different from the Refresh secret!
-        // crypto.randomBytes(512).toString('base64') (see https://nodejs.org/api/crypto.html#crypto)
-        secret: 'SECRET_OR_PRIVATE_KEY_PROD_REFRESH',
+        secret: process.env.JWT_REFRESH_SECRET,
         signInOptions: {
           expiresIn: '7d',
         },
       },
       sameTokenIdPeriod: 2000,
-      secret: 'SECRET_OR_PRIVATE_KEY_PROD',
+      secret: process.env.JWT_SECRET,
       signInOptions: {
         expiresIn: '15m',
       },
@@ -615,7 +618,9 @@ const config: { [env: string]: IServerOptions } = {
         locale: 'de',
       },
       modelDocumentation: false,
-      uri: 'mongodb://127.0.0.1/nest-server-prod',
+      // No fallback in production — missing MONGODB_URI must cause immediate startup failure
+      // to prevent accidental connection to localhost (silent data-integrity risk).
+      uri: process.env.MONGODB_URI,
     },
     port: 3000,
     security: {

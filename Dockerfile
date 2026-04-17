@@ -63,4 +63,13 @@ COPY --chown=nodejs:nodejs --chmod=755 ./${API_DIR}/docker-entrypoint.sh /app/do
 
 USER nodejs
 EXPOSE 3000
+
+# Container healthcheck — uses the framework's HealthCheckModule (enabled via config.healthCheck).
+# Orchestrators (Docker Swarm, Kubernetes, docker-compose) can leverage this to detect
+# unhealthy containers and restart them. Adjust interval/timeout via --health-* flags at runtime.
+# The endpoint is GET /health-check (see CoreHealthCheckController).
+# start-period=60s accommodates cold-start with migrations, Mongo connection, and index creation.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/health-check || exit 1
+
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
