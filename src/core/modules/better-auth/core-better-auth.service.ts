@@ -4,8 +4,9 @@ import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
 
+import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
-import { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import { IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { BetterAuthInstance } from './better-auth.config';
@@ -288,20 +289,32 @@ export class CoreBetterAuthService implements OnModuleInit {
   // ===================================================================================================================
 
   /**
-   * Resolves a session token to a JWT when cookies are disabled and JWT is enabled.
+   * Resolves a session token to a JWT when JWT conversion is needed.
    *
-   * When cookies are disabled, BetterAuth's internal API may return a session token
-   * (opaque string like "TVRRtiL19h9q...") instead of a JWT. This method detects
-   * non-JWT tokens and converts them to proper JWTs via the BetterAuth JWT plugin.
+   * JWT conversion is performed when:
+   * - Cookies are disabled (JWT-only mode) — clients need a JWT in the response body
+   * - exposeTokenInBody is true — clients need a JWT alongside cookies for parallel auth
+   *
+   * When cookies are enabled WITHOUT exposeTokenInBody, the token stays as a session token
+   * (it's delivered via cookie, not the response body).
+   *
+   * On conversion failure (BetterAuth JWT plugin not warmed up, transient error, etc.),
+   * this method returns `undefined` rather than the raw session token. Returning the raw
+   * session token in a body meant for a JWT would expose a database-backed opaque identifier
+   * outside the httpOnly cookie boundary (see SEC-005, v11.25.0). Callers must handle
+   * `undefined` by forcing client retry / re-authentication.
    *
    * @param token - The token from BetterAuth response (may be session token or JWT)
-   * @returns A proper JWT token, or the original token if conversion is not needed/possible
+   * @returns A proper JWT, the original token if conversion is not needed, or `undefined`
+   *          when conversion was needed but failed.
    */
   async resolveJwtToken(token: string | undefined): Promise<string | undefined> {
     if (!token) return undefined;
 
-    const cookiesEnabled = ConfigService.configFastButReadOnly?.cookies !== false;
-    if (cookiesEnabled || !this.isJwtEnabled()) {
+    const cookiesConfig = ConfigService.configFastButReadOnly?.cookies as boolean | ICookiesConfig | undefined;
+
+    // Skip conversion when cookies-only mode or JWT plugin disabled
+    if (!shouldConvertSessionTokenToJwt(cookiesConfig, this.isJwtEnabled())) {
       return token;
     }
 
@@ -325,8 +338,11 @@ export class CoreBetterAuthService implements OnModuleInit {
       return jwt;
     }
 
-    this.logger.warn('Failed to resolve session token to JWT - returning session token as fallback');
-    return token;
+    // Do NOT return the raw session token as fallback — that would leak an opaque
+    // DB identifier into the response body where clients expect a JWT. Force the
+    // caller to either retry or surface an auth error to the client.
+    this.logger.warn('Failed to resolve session token to JWT - returning undefined to avoid session token exposure');
+    return undefined;
   }
 
   /**

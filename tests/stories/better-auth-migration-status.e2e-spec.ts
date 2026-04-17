@@ -31,9 +31,12 @@ describe('Story: BetterAuth Migration Status', () => {
   let isBetterAuthEnabled: boolean;
   let adminToken: string;
 
-  // Test data
+  // Test data — unique suffix guards against collisions with parallel test files
+  // (process.pid + Date.now() + random salt — not Date.now() alone, which can collide
+  // across forks that start in the same millisecond).
   const testEmails: string[] = [];
-  const adminEmail = `migration-admin-${Date.now()}@test.com`;
+  const uniqueSuffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+  const adminEmail = `migration-admin-${uniqueSuffix}@test.com`;
   const adminPassword = 'AdminPassword123!';
 
   const generateTestEmail = (prefix: string): string => {
@@ -85,6 +88,16 @@ describe('Story: BetterAuth Migration Status', () => {
         type: TestGraphQLType.MUTATION,
       });
       adminToken = adminSignIn.token;
+
+      // Fail-fast: if admin token is missing (e.g. rate-limited signIn, config drift to
+      // cookies-only mode by a parallel test, etc.), subsequent tests would fail with
+      // cryptic "Invalid token" or "totalUsers is undefined" errors. Surface the root
+      // cause here instead.
+      if (!adminToken) {
+        throw new Error(
+          `beforeAll: adminSignIn returned no token. Response: ${JSON.stringify(adminSignIn)}`,
+        );
+      }
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -159,11 +172,15 @@ describe('Story: BetterAuth Migration Status', () => {
         { token: adminToken },
       );
 
-      // Structure checks
+      // Structure checks — all counters are non-negative numbers
       expect(typeof res.totalUsers).toBe('number');
-      expect(res.usersWithIamId).toBeDefined();
-      expect(res.usersWithIamAccount).toBeDefined();
-      expect(res.fullyMigratedUsers).toBeDefined();
+      expect(res.totalUsers).toBeGreaterThanOrEqual(0);
+      expect(typeof res.usersWithIamId).toBe('number');
+      expect(res.usersWithIamId).toBeGreaterThanOrEqual(0);
+      expect(typeof res.usersWithIamAccount).toBe('number');
+      expect(res.usersWithIamAccount).toBeGreaterThanOrEqual(0);
+      expect(typeof res.fullyMigratedUsers).toBe('number');
+      expect(res.fullyMigratedUsers).toBeGreaterThanOrEqual(0);
       expect(typeof res.canDisableLegacyAuth).toBe('boolean');
       expect(Array.isArray(res.pendingUserEmails)).toBe(true);
 

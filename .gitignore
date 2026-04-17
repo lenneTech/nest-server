@@ -74,8 +74,10 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# dotenv environment variables files (but keep .env.example tracked)
 .env
+.env.*
+!.env.example
 
 # next.js build output
 .next

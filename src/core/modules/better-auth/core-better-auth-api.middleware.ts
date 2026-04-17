@@ -2,6 +2,7 @@ import { Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
 import { Response as ExpressResponse, NextFunction, Request } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
+import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
@@ -64,17 +65,19 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
    * Gets or creates the cookie helper instance.
    * Lazy initialization because betterAuthService may not be fully initialized in constructor.
    *
-   * Note: Legacy cookie is not enabled in middleware since we can't access ConfigService.
-   * The middleware only needs to set the native Better-Auth cookie.
-   * Secret is required for cookie signing (Passkey/2FA).
+   * Note: Legacy cookie is not enabled in middleware. The middleware only needs to set
+   * the native Better-Auth cookie. Secret is required for cookie signing (Passkey/2FA).
+   * `env` is read via the frozen ConfigService snapshot so the `secure` flag covers staging.
    */
   private getCookieHelper(): BetterAuthCookieHelper {
     if (!this.cookieHelper) {
       const config = this.betterAuthService.getConfig();
+      const env = ConfigService.configFastButReadOnly?.env as string | undefined;
       this.cookieHelper = createCookieHelper(
         this.betterAuthService.getBasePath(),
         {
           domain: this.betterAuthService.getCookieDomain(),
+          env,
           legacyCookieEnabled: false, // Middleware doesn't need legacy cookie
           secret: config?.secret, // Required for cookie signing
         },

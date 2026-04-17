@@ -42,6 +42,8 @@ The `CoreModule` is a dynamic module that bootstraps the entire framework:
 | **Mongoose Plugins** | Auto-registration of ID, password, audit, and role guard plugins |
 | **GraphQL Subscriptions** | WebSocket support with JWT/session authentication |
 | **Configuration System** | `config.env.ts` with ENV variables, `NEST_SERVER_CONFIG` JSON, `NSC__*` prefixes |
+| **Cookie Handling** | Enabled by default (`cookies: true`), configurable via `ICookiesConfig` with `exposeTokenInBody` option |
+| **Unified CORS** | Single `cors` config propagates to GraphQL, REST, and BetterAuth layers |
 | **Dual Auth Modes** | IAM-Only (BetterAuth) or Legacy+IAM for migration periods |
 
 ### Authentication & Authorization
@@ -290,7 +292,25 @@ The following diagram shows the exact order of execution from HTTP request to re
                     +----------+----------+
                                |
   +----------------------------v----------------------------+
-  |                  MIDDLEWARE CHAIN                        |
+  |              EXPRESS-LEVEL MIDDLEWARE                    |
+  |              (registered in main.ts)                    |
+  |                                                         |
+  |  0a. cookie-parser  [if cookies enabled, default: yes]  |
+  |      - Parses Cookie header into req.cookies            |
+  |      - Required for session cookie authentication       |
+  |                                                         |
+  |  0b. compression  [if configured]                       |
+  |      - gzip response compression                        |
+  |                                                         |
+  |  0c. CORS  [if not disabled]                            |
+  |      - credentials: true when cookies enabled           |
+  |      - Origins from appUrl/baseUrl/cors.allowedOrigins  |
+  |      - Propagated to BetterAuth trustedOrigins          |
+  +----------------------------+----------------------------+
+                               |
+  +----------------------------v----------------------------+
+  |              NESTJS MIDDLEWARE CHAIN                     |
+  |              (registered in CoreModule.configure())     |
   |                                                         |
   |  1. RequestContextMiddleware                            |
   |     - AsyncLocalStorage context                         |
@@ -397,9 +417,45 @@ The following diagram shows the exact order of execution from HTTP request to re
 
 ## Phase 1: Incoming Request
 
-### Middleware Chain
+### Express-Level Middleware (main.ts)
 
-Middleware runs for **every request** before any NestJS component. Registration happens in `CoreModule.configure()`:
+These run **before NestJS** processes the request. They are registered in the application bootstrap (`main.ts`), not in `CoreModule`:
+
+#### 0a. cookie-parser
+
+Parses the `Cookie` header into `req.cookies`. Loaded when cookies are enabled (default: `true` since v11.25.0).
+
+```typescript
+// main.ts
+if (isCookiesEnabled(envConfig.cookies)) {
+  server.use(cookieParser());
+}
+```
+
+Without `cookie-parser`, session cookie authentication in `CoreBetterAuthMiddleware` falls back to manual header parsing. With it, `req.cookies` is a parsed object — more reliable and required for signed cookie verification.
+
+#### 0b. CORS
+
+CORS headers are configured based on the unified `cors` config (since v11.25.0). The same origin list is propagated to GraphQL (Apollo), REST (Express), and BetterAuth (`trustedOrigins`).
+
+```typescript
+// main.ts — uses helpers from cookies.helper.ts
+if (!isCorsDisabled(envConfig.cors)) {
+  server.enableCors({ credentials: cookiesEnabled, origin: resolvedOrigins });
+}
+```
+
+| Config | REST (Express) | GraphQL (Apollo) | BetterAuth |
+|--------|----------------|-------------------|------------|
+| `cors: { allowAll: true }` | `origin: true` | `origin: true` | `trustedOrigins: undefined` |
+| `cors: { allowedOrigins: [...] }` | `origin: [merged list]` | `origin: [merged list]` | `trustedOrigins: [merged list]` |
+| `cors: { enabled: false }` | No CORS headers | No CORS headers | `trustedOrigins: []` |
+
+> **Note:** GraphQL CORS is configured in `CoreModule.buildCorsConfig()` using raw config values. BetterAuth derives `trustedOrigins` using resolved URLs (auto-derived from `baseUrl`). In edge cases (no explicit `appUrl`), these may differ slightly. Set `appUrl` explicitly for consistent behavior across all layers.
+
+### NestJS Middleware Chain (CoreModule)
+
+NestJS middleware runs for every request after Express-level middleware. Registration happens in `CoreModule.configure()`:
 
 ```typescript
 // src/core.module.ts
@@ -1193,6 +1249,25 @@ const request = gqlContext?.req || context.switchToHttp().getRequest();
 ## Configuration Reference
 
 All security features are configured in `config.env.ts` under the `security` key:
+
+### Cookies & CORS (since v11.25.0)
+
+| Config Path | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `cookies` | `boolean \| ICookiesConfig` | `true` | Enable cookie-parser and session cookies |
+| `cookies.exposeTokenInBody` | `boolean` | `false` | Keep token in response body alongside cookies |
+| `cors` | `boolean \| ICorsConfig` | `undefined` (enabled) | Unified CORS across GraphQL, REST, BetterAuth |
+| `cors.allowAll` | `boolean` | `false` | Allow all origins (mirrors request origin) |
+| `cors.allowedOrigins` | `string[]` | `[]` | Additional origins beyond appUrl/baseUrl |
+| `cors.enabled` | `boolean` | `true` | Enable/disable CORS on all layers |
+
+**Cookie modes:**
+
+| Mode | Config | Token in body | Cookie set | JWT via header |
+|------|--------|:---:|:---:|:---:|
+| Cookie-only (default) | `cookies: true` | No | Yes | Yes (always) |
+| JWT-only | `cookies: false` | Yes | No | Yes |
+| Hybrid | `cookies: { exposeTokenInBody: true }` | Yes | Yes | Yes |
 
 ### Guardian Gates
 

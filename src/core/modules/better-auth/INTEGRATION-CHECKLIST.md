@@ -163,6 +163,24 @@ export class ServerModule {}
 **Modify:** `src/config.env.ts`
 **Reference:** `node_modules/@lenne.tech/nest-server/src/config.env.ts`
 
+> **Since v11.25.0 — Cookie & CORS Defaults**
+>
+> Cookies are now **enabled by default** (`cookies: true`). Authentication responses
+> set signed httpOnly session cookies and **remove the token from the response body**.
+>
+> For test environments where `TestHelper` reads the token from the response body
+> (signIn → token → subsequent requests with `Authorization: Bearer`), set:
+>
+> ```typescript
+> ci: { cookies: { exposeTokenInBody: true }, cors: { allowAll: true } },
+> e2e: { cookies: { exposeTokenInBody: true }, cors: { allowAll: true } },
+> ```
+>
+> **Never set `exposeTokenInBody: true` in production** — the framework throws at
+> startup if this is detected in `production` or `staging` environments (XSS-risk guard).
+>
+> To keep the old behavior (cookies off, tokens in body everywhere), set `cookies: false`.
+
 #### Zero-Config (Default):
 
 BetterAuth is **enabled by default** with JWT + 2FA. No configuration required!

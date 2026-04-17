@@ -27,6 +27,8 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { isCookiesEnabled, isExposeTokenInBodyEnabled } from '../../common/helpers/cookies.helper';
+import type { ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
@@ -224,6 +226,7 @@ export class CoreBetterAuthController {
       this.betterAuthService.getBasePath(),
       {
         domain: this.betterAuthService.getCookieDomain(),
+        env: this.configService.getFastButReadOnly<string>('env'),
         legacyCookieEnabled: legacyAuthEnabled,
         secret: betterAuthConfig?.secret,
       },
@@ -828,19 +831,25 @@ export class CoreBetterAuthController {
     result: CoreBetterAuthResponse,
     sessionToken?: string,
   ): CoreBetterAuthResponse {
-    const cookiesEnabled = this.configService.getFastButReadOnly('cookies') !== false;
+    // Cookies config is read per-request (not cached in the constructor) because tests
+    // and runtime config changes (e.g. `ConfigService.setProperty('cookies', ...)`) must
+    // take effect immediately. The `getFastButReadOnly` call is a single property access
+    // on a frozen snapshot — overhead is negligible.
+    const cookiesConfig = this.configService.getFastButReadOnly<boolean | ICookiesConfig>('cookies');
+    const cookiesEnabled = isCookiesEnabled(cookiesConfig);
+    const exposeTokenInBody = isExposeTokenInBodyEnabled(cookiesConfig);
 
     // If a specific session token is provided, use it directly
     if (sessionToken && cookiesEnabled) {
       this.cookieHelper.setSessionCookies(res, sessionToken, result.session?.id);
-      if (result.token) {
+      if (!exposeTokenInBody && result.token) {
         delete result.token;
       }
       return result;
     }
 
     // Otherwise, use the cookie helper's standard processing
-    return this.cookieHelper.processAuthResult(res, result, cookiesEnabled);
+    return this.cookieHelper.processAuthResult(res, result, cookiesEnabled, exposeTokenInBody);
   }
 
   /**

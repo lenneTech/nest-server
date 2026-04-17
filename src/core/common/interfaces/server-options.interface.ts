@@ -945,6 +945,107 @@ export interface IMultiTenancy {
 }
 
 /**
+ * Cookie configuration for authentication handling.
+ *
+ * Follows the Boolean Shorthand Pattern:
+ * - `undefined` / `true`: Cookies enabled with default settings
+ * - `false`: Cookies disabled (JWT-only mode)
+ * - `{ exposeTokenInBody: true }`: Cookies enabled AND token returned in response body
+ *
+ * When cookies are enabled, the server:
+ * - Loads `cookie-parser` middleware
+ * - Sets `credentials: true` in CORS configuration
+ * - Sets signed httpOnly session cookies on authentication responses
+ *
+ * JWT authentication via `Authorization: Bearer` header works independently
+ * of the cookie configuration — it is always available regardless of this setting.
+ *
+ * @default true (cookies enabled, exposeTokenInBody disabled)
+ * @since 11.25.0
+ */
+export interface ICookiesConfig {
+  /**
+   * Whether cookies are enabled.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Whether to include the session token in the response body when cookies are enabled.
+   *
+   * By default, when cookies are active, the token is removed from the response body
+   * because the httpOnly cookie protects against XSS — exposing the token in the body
+   * would negate this security benefit.
+   *
+   * Enable this only when clients need both JWT (via response body) AND cookies
+   * in parallel (e.g., hybrid mobile/web apps).
+   *
+   * @default false
+   */
+  exposeTokenInBody?: boolean;
+}
+
+/**
+ * CORS (Cross-Origin Resource Sharing) configuration.
+ *
+ * Controls which origins can access the API. This configuration propagates to
+ * all three CORS layers: GraphQL (Apollo), REST (Express), and BetterAuth (trustedOrigins).
+ *
+ * Follows the Boolean Shorthand Pattern:
+ * - `undefined` / `true` / `{}`: CORS enabled with auto-derived origins from `appUrl`/`baseUrl`
+ * - `false`: CORS disabled on all layers (including BetterAuth)
+ * - `{ allowedOrigins: [...] }`: Additional origins beyond `appUrl`/`baseUrl`
+ * - `{ allowAll: true }`: Allow all origins (mirrors request origin — NOT recommended for production)
+ *
+ * When cookies are enabled (default), CORS automatically includes `credentials: true`.
+ * Browsers reject `Access-Control-Allow-Origin: *` with credentials, so origins must
+ * be explicitly listed or `allowAll` must be set (which mirrors the request origin).
+ *
+ * @default undefined (enabled, origins auto-derived from appUrl/baseUrl)
+ * @since 11.25.0
+ */
+export interface ICorsConfig {
+  /**
+   * Allow all origins by mirroring the request Origin header back.
+   *
+   * This effectively allows any website to make credentialed requests to the API.
+   * Convenient for development but NOT recommended for production as it enables
+   * CSRF-like attacks from any domain.
+   *
+   * When true, overrides `allowedOrigins`. Also propagates to BetterAuth
+   * (trustedOrigins is set to undefined, allowing all origins).
+   *
+   * @default false
+   */
+  allowAll?: boolean;
+
+  /**
+   * Additional allowed origins beyond `appUrl` and `baseUrl`.
+   *
+   * These origins are merged with the auto-derived origins from `appUrl` and `baseUrl`
+   * (duplicates are removed). The combined list is used for both Express/Apollo CORS
+   * and BetterAuth's `trustedOrigins`.
+   *
+   * Only effective when `allowAll` is not set to `true`.
+   *
+   * @example ['https://admin.example.com', 'https://partner.example.com']
+   */
+  allowedOrigins?: string[];
+
+  /**
+   * Whether CORS is enabled.
+   *
+   * When set to `false`, disables CORS on all layers:
+   * - GraphQL: No CORS headers
+   * - REST: `enableCors()` not called
+   * - BetterAuth: `trustedOrigins` set to empty array (no origins allowed)
+   *
+   * @default true
+   */
+  enabled?: boolean;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
@@ -1123,10 +1224,48 @@ export interface IServerOptions {
   compression?: boolean | compression.CompressionOptions;
 
   /**
-   * Whether to use cookies for authentication handling
+   * Cookie configuration for authentication handling.
+   *
+   * Controls whether session cookies are set on authentication responses and
+   * whether `cookie-parser` middleware is loaded.
+   *
+   * Accepts (Boolean Shorthand Pattern):
+   * - `undefined` / `true`: Cookies enabled (token removed from response body)
+   * - `false`: Cookies disabled (JWT-only mode, token stays in response body)
+   * - `{ exposeTokenInBody: true }`: Cookies enabled AND token in response body
+   *
+   * JWT authentication via `Authorization: Bearer` header works independently
+   * of this setting — always available regardless of cookie configuration.
+   *
    * See: https://docs.nestjs.com/techniques/cookies
+   *
+   * @default true
+   * @since 11.25.0 Changed default from false to true, added ICookiesConfig
+   * @see ICookiesConfig
    */
-  cookies?: boolean;
+  cookies?: boolean | ICookiesConfig;
+
+  /**
+   * CORS (Cross-Origin Resource Sharing) configuration.
+   *
+   * Controls which origins can access the API. Propagates to all layers:
+   * GraphQL (Apollo), REST (Express), and BetterAuth (trustedOrigins).
+   *
+   * Origins are auto-derived from `appUrl` and `baseUrl` when available.
+   * Use `cors.allowedOrigins` to add additional origins, or `cors.allowAll`
+   * to allow all origins (development only).
+   *
+   * Accepts (Boolean Shorthand Pattern):
+   * - `undefined` / `true` / `{}`: CORS enabled with auto-derived origins
+   * - `false`: CORS disabled on all layers (including BetterAuth)
+   * - `{ allowedOrigins: [...] }`: Additional origins beyond appUrl/baseUrl
+   * - `{ allowAll: true }`: Allow all origins (not recommended for production)
+   *
+   * @default undefined (enabled with auto-derived origins)
+   * @since 11.25.0
+   * @see ICorsConfig
+   */
+  cors?: boolean | ICorsConfig;
 
   /**
    * Cron jobs configuration object with the name of the cron job function as key

@@ -7,6 +7,7 @@ import cookieParser = require('cookie-parser');
 
 import envConfig from './config.env';
 import { FilterArgs } from './core/common/args/filter.args';
+import { buildCorsConfig, isCookiesEnabled, isCorsDisabled } from './core/common/helpers/cookies.helper';
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
 import { CorePersistenceModel } from './core/common/models/core-persistence.model';
 import { CoreAuthModel } from './core/modules/auth/core-auth.model';
@@ -47,9 +48,18 @@ async function bootstrap() {
     server.use(compression(compressionOptions));
   }
 
-  // Cookie handling
-  if (envConfig.cookies) {
-    server.use(cookieParser());
+  // Cookie handling (enabled by default, disable with cookies: false)
+  // Pass a signing secret (if configured) to cookieParser so signed cookies can be
+  // verified via req.signedCookies. BetterAuth signs its own session cookies
+  // independently via HMAC, but the Express layer still benefits from a secret —
+  // Legacy Auth cookies and any custom signed cookies rely on this.
+  //
+  // Fallback chain: jwt.secret → betterAuth.secret (IAM-only mode) → unsigned
+  const cookiesEnabled = isCookiesEnabled(envConfig.cookies);
+  if (cookiesEnabled) {
+    const betterAuthSecret = typeof envConfig.betterAuth === 'object' ? envConfig.betterAuth?.secret : undefined;
+    const cookieSecret = envConfig.jwt?.secret || betterAuthSecret;
+    server.use(cookieSecret ? cookieParser(cookieSecret) : cookieParser());
   }
 
   // Asset directory
@@ -59,8 +69,25 @@ async function bootstrap() {
   server.setBaseViewsDir(envConfig.templates.path);
   server.setViewEngine(envConfig.templates.engine);
 
-  // Enable cors to allow requests from other domains
-  server.enableCors();
+  // Enable CORS (unified with GraphQL and BetterAuth via shared buildCorsConfig helper).
+  //
+  // Three cases:
+  // 1. CORS explicitly disabled (`cors: false` or `cors.enabled: false`) → skip `enableCors()`
+  //    entirely. No CORS headers emitted. Same-origin requests still work.
+  // 2. Origins resolvable (appUrl/baseUrl/allowedOrigins or allowAll) → use the computed options.
+  // 3. Cookies disabled → permissive `enableCors()` without credentials (backward-compatible).
+  if (isCorsDisabled(envConfig.cors)) {
+    // Case 1 — CORS explicitly disabled. Do nothing.
+  } else {
+    const corsOptions = buildCorsConfig(envConfig);
+    if (Object.keys(corsOptions).length > 0) {
+      server.enableCors(corsOptions); // Case 2
+    } else if (!cookiesEnabled) {
+      server.enableCors(); // Case 3
+    }
+    // else: cookies enabled but no origins resolvable → secure default (no `enableCors()` call
+    // to avoid open CORS with credentials). Callers should configure appUrl/baseUrl/allowedOrigins.
+  }
 
   // Swagger documentation
   const config = new DocumentBuilder()
