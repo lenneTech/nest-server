@@ -133,10 +133,6 @@ export class CoreModule implements NestModule {
    * })
    * ```
    *
-   * @deprecated This 3-parameter signature is deprecated for new projects.
-   * Use the single-parameter signature `CoreModule.forRoot(envConfig)` instead.
-   * Existing projects can continue using this signature during migration.
-   *
    * Use this for existing projects that need Legacy Auth for backwards compatibility.
    * Both Legacy Auth and BetterAuth (IAM) can run in parallel.
    *
