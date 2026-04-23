@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.25.2",
+  "version": "11.25.3",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -199,7 +199,8 @@
       "kysely@>=0.26.0 <0.28.16": "Security: SQL injection - transitive via better-auth",
       "lodash@>=4.0.0 <4.18.0": "Security: CVE in lodash@4.17.x - transitive via @nestjs/graphql. 4.18.1 is the latest patched version",
       "defu@<=6.1.6": "Security: prototype pollution via __proto__ key - transitive via better-auth",
-      "follow-redirects@<=1.15.11": "Security: Custom Authentication Headers leak on cross-domain redirect (GHSA-r4q5-vmmm-2653) - transitive via axios>@getbrevo/brevo and axios>node-mailjet"
+      "follow-redirects@<=1.15.11": "Security: Custom Authentication Headers leak on cross-domain redirect (GHSA-r4q5-vmmm-2653) - transitive via axios>@getbrevo/brevo and axios>node-mailjet",
+      "uuid@<14.0.0": "Security: Missing buffer bounds check in v3/v5/v6 (GHSA-w5hq-g745-h8pq) - transitive via @compodoc/compodoc and @compodoc/compodoc>@compodoc/live-server>http-auth"
     },
     "overrides": {
       "axios@<1.15.0": "1.15.0",
@@ -219,7 +220,8 @@
       "kysely@>=0.26.0 <0.28.16": "0.28.16",
       "lodash@>=4.0.0 <4.18.0": "4.18.1",
       "defu@<=6.1.6": "6.1.7",
-      "follow-redirects@<=1.15.11": "1.16.0"
+      "follow-redirects@<=1.15.11": "1.16.0",
+      "uuid@<14.0.0": "14.0.0"
     },
     "onlyBuiltDependencies": [
       "bcrypt",
