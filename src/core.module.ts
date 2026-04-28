@@ -44,6 +44,7 @@ import { CoreBetterAuthService } from './core/modules/better-auth/core-better-au
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
+import { CoreSyncModule } from './core/modules/sync/core-sync.module';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
 import { CoreTenantModule } from './core/modules/tenant/core-tenant.module';
 
@@ -488,6 +489,42 @@ export class CoreModule implements NestModule {
       }
 
       imports.push(CoreTenantModule.forRoot({ modelName: membershipModelName }));
+    }
+
+    // Add CoreSyncModule when offline sync is configured (Boolean Shorthand Pattern).
+    // Fully optional — projects that do not opt in are unaffected.
+    if (CoreModule.isSyncEnabled(config)) {
+      const syncCfg = CoreModule.getSyncConfig(config) || {};
+      const pullEnabled =
+        syncCfg.pull === false
+          ? false
+          : typeof syncCfg.pull === 'object'
+          ? syncCfg.pull?.enabled !== false
+          : true;
+      const pushEnabled =
+        syncCfg.push === false
+          ? false
+          : typeof syncCfg.push === 'object'
+          ? syncCfg.push?.enabled !== false
+          : true;
+      const hintEnabled =
+        syncCfg.hint === false
+          ? false
+          : typeof syncCfg.hint === 'object'
+          ? syncCfg.hint?.enabled !== false
+          : true;
+      imports.push(
+        CoreSyncModule.forRoot({
+          controller: overrides?.sync?.controller,
+          enableHint: hintEnabled && isGraphQlEnabled,
+          enableRest: pullEnabled || pushEnabled,
+          models: syncCfg.models || [],
+          pubSub: overrides?.sync?.pubSub,
+          rateLimitGuard: overrides?.sync?.rateLimitGuard,
+          resolver: overrides?.sync?.resolver,
+          service: overrides?.sync?.service,
+        }),
+      );
     }
 
     // Set exports

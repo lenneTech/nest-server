@@ -232,6 +232,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `health-check` | — | `src/core/modules/health-check/` |
 | `migrate` | README | `src/core/modules/migrate/` |
 | `permissions` | README, CHECKLIST | `src/core/modules/permissions/` |
+| `sync` | — | `src/core/modules/sync/` |
 | `system-setup` | README, CHECKLIST | `src/core/modules/system-setup/` |
 | `tenant` | README, CHECKLIST | `src/core/modules/tenant/` |
 | `tus` | README, CHECKLIST | `src/core/modules/tus/` |
