@@ -70,7 +70,7 @@ function resolveFromGraphQlMetadata(context: ExecutionContext): (new (...args: a
     // @Query/@Mutation return types at runtime. This path has been stable since @nestjs/graphql v10.
     // Wrapped in try/catch so a path change in a future version degrades gracefully (returns null).
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { TypeMetadataStorage } = require('@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage');
+    const { TypeMetadataStorage } = require('@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage.js');
 
     const handler = context.getHandler();
     const target = context.getClass();

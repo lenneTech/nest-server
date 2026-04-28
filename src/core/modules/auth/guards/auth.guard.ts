@@ -2,8 +2,8 @@ import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/
 import { ModuleRef } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
-import { defaultOptions } from '@nestjs/passport/dist/options';
-import { memoize } from '@nestjs/passport/dist/utils/memoize.util';
+import { defaultOptions } from '@nestjs/passport/dist/options.js';
+import { memoize } from '@nestjs/passport/dist/utils/memoize.util.js';
 import passport = require('passport');
 
 import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
