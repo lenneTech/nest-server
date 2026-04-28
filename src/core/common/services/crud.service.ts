@@ -652,6 +652,14 @@ export abstract class CrudService<
         const currentUserId = serviceOptions?.currentUser?.id;
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
 
+        // For syncable schemas: strip the version from the flat update body
+        // so it does not conflict with the $inc.version that the sync plugin
+        // adds in pre('findOneAndUpdate'). Also strip __v for the same reason.
+        if (isSyncable) {
+          delete (merged as any).version;
+          delete (merged as any).__v;
+        }
+
         // Syncable + expectedVersion → atomic CAS write.
         if (isSyncable && typeof expectedVersion === 'number') {
           const query = this.mainDbModel.findOneAndUpdate(
