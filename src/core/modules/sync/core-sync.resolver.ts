@@ -1,11 +1,12 @@
 import { Inject, Logger, Optional } from '@nestjs/common';
-import { Args, Field, ObjectType, Resolver, Subscription } from '@nestjs/graphql';
+import { Args, Field, Int, ObjectType, Resolver, Subscription } from '@nestjs/graphql';
 import type { PubSub as PubSubInstance } from 'graphql-subscriptions';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { JSON as JSONScalar } from '../../common/scalars/json.scalar';
 import { ConfigService } from '../../common/services/config.service';
-import { SYNC_PUB_SUB } from './core-sync.service';
+import { CoreSyncService, SYNC_PUB_SUB } from './core-sync.service';
 
 /**
  * GraphQL output type for sync hints. Intentionally minimal — only

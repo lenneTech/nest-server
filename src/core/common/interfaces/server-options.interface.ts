@@ -1138,6 +1138,43 @@ export interface ISyncConfig {
       };
 
   /**
+   * Real-time data stream over WebSocket. Streams full document payloads
+   * (not just hints) directly to subscribers. Every event runs through
+   * the full security pipeline per subscriber: tenant-match,
+   * `streamFilter`, `checkRestricted`, `securityCheck`, secret removal,
+   * `streamTransform`. No @Restricted field, no secret, no cross-tenant
+   * data ever reaches the wire.
+   *
+   * Subscribers receive an initial catch-up snapshot when they connect
+   * with a `since` cursor, then transition seamlessly to live events.
+   *
+   * Per-model opt-in via `models[].streamEnabled: true`. Models whose
+   * streams are not enabled do not emit and cannot be subscribed to.
+   *
+   * Set `stream: false` to disable the stream entirely (the lightweight
+   * `hint` remains available independently).
+   */
+  stream?:
+    | boolean
+    | {
+        /** @default true (when sync is enabled) */
+        enabled?: boolean;
+        /** PubSub channel name used internally. @default 'syncStream' */
+        channel?: string;
+        /** Per-user connection limit for the stream subscription. @default 5 */
+        maxSubscriptionsPerUser?: number;
+        /** Roles allowed to subscribe to the stream. @default ['S_USER'] */
+        auth?: { roles?: string[] };
+        /**
+         * Cap on items returned during the initial catch-up phase per
+         * subscription. If exceeded, the client receives a partial
+         * snapshot and should fall back to a regular pull.
+         * @default 1000
+         */
+        maxCatchupItems?: number;
+      };
+
+  /**
    * REST GET /sync/:model (delta pull) configuration.
    *
    * Set `pull: false` to disable the pull endpoint entirely (push-only mode).
@@ -1299,6 +1336,96 @@ export interface ISyncModelEntry {
    * it returns void.
    */
   onConflict?: (ctx: ISyncConflictContext) => Promise<void> | void;
+
+  /**
+   * Conflict resolution strategy for bulk-push when the client's
+   * `expectedVersion` does not match the server's current version.
+   *
+   * - `'reject'`   (default, backward compatible) — throw 409 conflict
+   *                with `serverState`. Client must re-fetch and retry.
+   *                Mirrors the legacy behaviour.
+   * - `'lww'`     — last-write-wins. The server discards `expectedVersion`,
+   *                applies the client's payload on top of the current
+   *                server state, and bumps the version. Use with caution:
+   *                concurrent writes silently overwrite each other.
+   * - `'merge'`   — field-level last-write-wins for fields decorated with
+   *                `@SyncField('lww')`. Other fields fall back to strict
+   *                (raise 409). The default field strategy is `'strict'`.
+   * - `'custom'`  — invoke `customConflictResolver` (see below). The
+   *                resolver returns either a merged patch (applied with
+   *                bumped version) or `undefined` to fall back to 409.
+   *
+   * @default 'reject'
+   */
+  conflictStrategy?: 'reject' | 'lww' | 'merge' | 'custom';
+
+  /**
+   * Custom conflict resolver. Only consulted when `conflictStrategy`
+   * is set to `'custom'`. Receives the client's intended patch, the
+   * current server state, the user, and the conflict payload. Returns
+   * a merged patch (which the framework will write with the up-to-date
+   * `expectedVersion`) or `undefined` to fall back to a 409 result.
+   */
+  customConflictResolver?: (ctx: ISyncCustomConflictContext) => Promise<Record<string, any> | undefined>;
+
+  /**
+   * Whether the model emits real-time stream events. When true, mutations
+   * on this model trigger emission to all eligible stream subscribers
+   * (after tenant match, restricted filter, securityCheck, secret removal,
+   * and `streamTransform`).
+   *
+   * Requires the global `sync.stream.enabled` flag to be on.
+   *
+   * @default false
+   */
+  streamEnabled?: boolean;
+
+  /**
+   * Optional pre-emit filter callback. Returns `true` to allow the event
+   * to be sent to the given user, `false` to drop it. Called AFTER the
+   * built-in tenant match check. Use this for project-specific
+   * authorization (e.g. "owner of the document only").
+   */
+  streamFilter?: (user: ISyncStreamUser, item: any) => boolean | Promise<boolean>;
+
+  /**
+   * Optional transform invoked AFTER the security pipeline
+   * (`checkRestricted`, `securityCheck`, `removeSecrets`) and BEFORE the
+   * payload is sent to the user. The function may add computed fields,
+   * populate joins, redact PII, localise strings, etc. Returning
+   * `undefined` drops the event for that user.
+   *
+   * The transform runs in the regular request context — the framework
+   * does NOT roll back the security pipeline if the transform leaks a
+   * field. Treat this hook as project-trusted code.
+   */
+  streamTransform?: (user: ISyncStreamUser, item: any) => any | Promise<any>;
+}
+
+/**
+ * Lightweight user description passed to stream filter / transform hooks.
+ * Mirrors the surface relevant to authorisation decisions; intentionally
+ * narrower than the full user model to avoid coupling project hooks to
+ * the underlying user schema.
+ */
+export interface ISyncStreamUser {
+  id: string;
+  roles?: string[];
+  tenantIds?: string[];
+  hasRole?: (roles: string[]) => boolean;
+}
+
+/**
+ * Context passed to `ISyncModelEntry.customConflictResolver`.
+ */
+export interface ISyncCustomConflictContext {
+  modelName: string;
+  itemId: string;
+  clientPatch: Record<string, any>;
+  clientVersion: number;
+  serverVersion: number;
+  serverState: any;
+  user?: ISyncStreamUser;
 }
 
 /**

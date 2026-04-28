@@ -5,10 +5,12 @@ import { validate } from 'class-validator';
 import type { PubSub as PubSubInstance } from 'graphql-subscriptions';
 import { Connection } from 'mongoose';
 
+import { checkRestricted } from '../../common/decorators/restricted.decorator';
 import { getSyncFieldStrategies } from '../../common/decorators/syncable.decorator';
+import { ProcessType } from '../../common/enums/process-type.enum';
 import { SyncConflictException } from '../../common/exceptions/sync-conflict.exception';
 import { ConfigService } from '../../common/services/config.service';
-import { ISyncPullResponse, ISyncPushItem, ISyncPushResponse, ISyncPushResult, ISyncRegistryEntry } from './sync.interfaces';
+import { ISyncPullResponse, ISyncPushItem, ISyncPushResponse, ISyncPushResult, ISyncRegistryEntry, ISyncStreamEvent } from './sync.interfaces';
 import { buildSyncIdempotencyKeySchema } from './sync-idempotency.schema';
 
 export const SYNC_PUB_SUB = 'SYNC_PUB_SUB';
@@ -132,7 +134,9 @@ export class CoreSyncService implements OnApplicationBootstrap {
       }
 
       this.registry.register({
+        conflictStrategy: raw.conflictStrategy || 'reject',
         createDto: raw.createDto,
+        customConflictResolver: raw.customConflictResolver,
         fieldStrategies,
         maxLimit: raw.maxLimit ?? defaultMaxLimit,
         maxPushBatch: raw.maxPushBatch ?? defaultMaxPushBatch,
@@ -140,6 +144,9 @@ export class CoreSyncService implements OnApplicationBootstrap {
         onConflict: raw.onConflict,
         pullLean: raw.pullLean === true,
         service: serviceInstance,
+        streamEnabled: raw.streamEnabled === true,
+        streamFilter: raw.streamFilter,
+        streamTransform: raw.streamTransform,
         tombstoneIndex: raw.tombstoneIndex !== false,
         updateDto: raw.updateDto || raw.createDto,
       });
@@ -176,6 +183,40 @@ export class CoreSyncService implements OnApplicationBootstrap {
           model.schema.post('insertMany', () => this.scheduleHint(entry.name));
         } catch (e) {
           this.logger.warn(`Could not attach sync hint hooks for "${entry.name}": ${e?.message || e}`);
+        }
+      }
+    }
+
+    // Install real-time stream emission hooks (only on stream-enabled models).
+    if (this.isStreamEnabled() && this.pubSub) {
+      for (const entry of this.registry.list()) {
+        if (!entry.streamEnabled || !entry.service) continue;
+        try {
+          const model = entry.service.getModel ? entry.service.getModel() : entry.service.mainDbModel;
+          if (!model?.schema) continue;
+          const onSave = (doc: any) => {
+            if (!doc) return;
+            const op: 'updated' | 'deleted' = doc.deletedAt ? 'deleted' : 'updated';
+            this.handleStreamMutation(entry.name, op, doc);
+          };
+          const onCreated = (doc: any) => {
+            if (!doc) return;
+            this.handleStreamMutation(entry.name, 'created', doc);
+          };
+          // For Mongoose, `save` on a new document fires after the document has its _id.
+          // The 'isNew' state is no longer accessible after save, so we use the
+          // version field as a heuristic: version=1 + no prior updates ≈ created.
+          // For findOneAndUpdate this is always an update or soft-delete.
+          model.schema.post('save', function (doc: any) {
+            if (doc?.version === 1) onCreated(doc);
+            else onSave(doc);
+          });
+          model.schema.post('findOneAndUpdate', onSave);
+          model.schema.post('insertMany', (docs: any[]) => {
+            for (const d of docs || []) onCreated(d);
+          });
+        } catch (e) {
+          this.logger.warn(`Could not attach sync stream hooks for "${entry.name}": ${e?.message || e}`);
         }
       }
     }
@@ -311,11 +352,7 @@ export class CoreSyncService implements OnApplicationBootstrap {
         return { clientId: item.clientId, id: item.id, status: 'not_found' };
       }
       if (e instanceof SyncConflictException) {
-        // Try field-level merge before raising the conflict.
-        const merged = await this.tryFieldLevelMerge(entry, item, cleanData, e, safeOptions);
-        if (merged) return merged;
-
-        // Notify hook.
+        // Notify hook (always — even if a strategy resolves the conflict).
         if (entry.onConflict) {
           try {
             await entry.onConflict({
@@ -330,6 +367,18 @@ export class CoreSyncService implements OnApplicationBootstrap {
           }
         }
 
+        // Apply the configured conflict strategy.
+        const resolved = await this.applyConflictStrategy(
+          entry,
+          item,
+          cleanData,
+          e,
+          safeOptions,
+          serviceOptions,
+        );
+        if (resolved) return resolved;
+
+        // Strategy did not resolve → fall back to plain conflict response.
         return {
           clientId: item.clientId,
           id: e.payload.id,
@@ -341,6 +390,116 @@ export class CoreSyncService implements OnApplicationBootstrap {
       this.logger.warn(`Sync push item failed for ${entry.name}: ${e?.message || e}`);
       return { clientId: item.clientId, id: item.id, message: e?.message || 'unknown error', status: 'error' };
     }
+  }
+
+  /**
+   * Dispatch to the configured conflict strategy.
+   *
+   * - `'reject'` (default): no recovery — the caller falls back to a
+   *   regular `conflict` response with `serverState`.
+   * - `'lww'`: ignore the client's `expectedVersion` and apply the
+   *   payload on top of the server state with the up-to-date version.
+   *   Mirrors PowerSync's "client wins" behavior for non-collaborative
+   *   data. Use sparingly — silent overwrite of concurrent edits.
+   * - `'merge'`: per-field LWW for fields decorated `@SyncField('lww')`.
+   *   Strict-decorated or undecorated fields fall back to conflict if
+   *   they diverge.
+   * - `'custom'`: invoke the registered `customConflictResolver`. The
+   *   resolver returns a merged patch (applied with the up-to-date
+   *   `expectedVersion`) or `undefined` to fall through to conflict.
+   *
+   * Whatever strategy runs, the resulting write goes through the
+   * regular `CrudService.update()` pipeline — `@Restricted` input check,
+   * `securityCheck`, all Mongoose plugins. Field-level LWW does not
+   * bypass any security mechanism.
+   */
+  protected async applyConflictStrategy(
+    entry: ISyncRegistryEntry,
+    item: ISyncPushItem,
+    clientPatch: Record<string, any>,
+    conflict: SyncConflictException,
+    safeOptions: any,
+    serviceOptions: any,
+  ): Promise<ISyncPushResult | undefined> {
+    const strategy = entry.conflictStrategy || 'reject';
+
+    if (strategy === 'reject') return undefined;
+
+    if (strategy === 'merge') {
+      return this.tryFieldLevelMerge(entry, item, clientPatch, conflict, safeOptions);
+    }
+
+    if (strategy === 'lww') {
+      // Re-apply the client patch on top of the current server version.
+      // No expectedVersion check — the server "trusts" the client's intent.
+      try {
+        const updated = await entry.service.update(item.id, clientPatch, {
+          ...safeOptions,
+          expectedVersion: conflict.payload.serverVersion,
+        });
+        return {
+          clientId: item.clientId,
+          id: this.docId(updated),
+          serverVersion: (updated as any)?.version,
+          status: 'merged',
+        };
+      } catch (e) {
+        // A concurrent third write happened during the LWW retry —
+        // fall back to plain conflict.
+        return undefined;
+      }
+    }
+
+    if (strategy === 'custom') {
+      if (!entry.customConflictResolver) {
+        this.logger.warn(
+          `[Sync] conflictStrategy='custom' on ${entry.name} but no customConflictResolver registered. Falling back to reject.`,
+        );
+        return undefined;
+      }
+      try {
+        const resolverPatch = await entry.customConflictResolver({
+          clientPatch,
+          clientVersion: conflict.payload.clientVersion,
+          itemId: conflict.payload.id,
+          modelName: entry.name,
+          serverState: conflict.payload.serverState,
+          serverVersion: conflict.payload.serverVersion,
+          user: this.toStreamUser(serviceOptions?.currentUser),
+        });
+        if (!resolverPatch) return undefined;
+        const updated = await entry.service.update(item.id, resolverPatch, {
+          ...safeOptions,
+          expectedVersion: conflict.payload.serverVersion,
+        });
+        return {
+          clientId: item.clientId,
+          id: this.docId(updated),
+          serverVersion: (updated as any)?.version,
+          status: 'merged',
+        };
+      } catch (e) {
+        this.logger.warn(`customConflictResolver failed: ${e?.message || e}`);
+        return undefined;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Project a request user onto the lightweight surface exposed to
+   * project hooks (streamFilter, streamTransform, customConflictResolver).
+   * Avoids leaking unrelated fields and keeps hook signatures stable.
+   */
+  protected toStreamUser(currentUser: any): any {
+    if (!currentUser) return undefined;
+    return {
+      hasRole: typeof currentUser.hasRole === 'function' ? currentUser.hasRole.bind(currentUser) : undefined,
+      id: currentUser.id ?? currentUser._id?.toString(),
+      roles: Array.isArray(currentUser.roles) ? [...currentUser.roles] : undefined,
+      tenantIds: Array.isArray(currentUser.tenantIds) ? [...currentUser.tenantIds] : undefined,
+    };
   }
 
   /**
@@ -447,6 +606,243 @@ export class CoreSyncService implements OnApplicationBootstrap {
     }, debounceMs);
     if (timer.unref) timer.unref();
     this.hintTimers.set(key, timer);
+  }
+
+  /**
+   * Mongoose post-hook callback. Emits a stream event for the registered
+   * model after a save/update/insert. The actual fan-out, security
+   * pipeline, and per-subscriber filtering happens later in the resolver
+   * via `streamFilterMatches` and `transformStreamPayload`.
+   */
+  protected handleStreamMutation(modelName: string, op: 'created' | 'updated' | 'deleted', doc: any) {
+    if (!this.pubSub || !this.isStreamEnabled()) return;
+    const channel = this.getStreamChannel();
+    // Publish the raw doc on the global stream channel. Per-subscriber
+    // filtering and transformation happens in the resolver's filter and
+    // resolve callbacks — the wire never sees `_doc`.
+    this.pubSub.publish(channel, {
+      syncStreamRaw: {
+        _doc: doc,
+        _tenantId: doc?.tenantId,
+        model: modelName,
+        op,
+      },
+    });
+  }
+
+  /**
+   * Async filter for stream subscribers.
+   *
+   * Called per subscriber per published event. Drops the event if:
+   * - Subscriber is not in the model's tenant scope.
+   * - Project's `streamFilter` callback returns falsy.
+   *
+   * Returning `false` here means the subscriber will NOT receive the
+   * event — neither the resolver nor any project hook is invoked
+   * downstream for that subscriber. This is the cheap pre-filter.
+   */
+  async streamFilterMatches(payload: any, variables: any, user: any): Promise<boolean> {
+    const raw = payload?.syncStreamRaw;
+    if (!raw) return false;
+    const entry = this.registry.get(raw.model);
+    if (!entry?.streamEnabled) return false;
+
+    if (variables?.model && raw.model !== variables.model) return false;
+
+    // Tenant match: if the doc is scoped to a tenant, the subscriber must
+    // belong to that tenant. If the doc has no tenant scope, broadcast.
+    if (raw._tenantId) {
+      const userTenants: string[] | undefined = user?.tenantIds;
+      if (!userTenants || !userTenants.length) return false;
+      if (!userTenants.map(String).includes(String(raw._tenantId))) return false;
+    }
+
+    // Project-level filter (e.g. owner-only).
+    if (entry.streamFilter) {
+      try {
+        const allowed = await entry.streamFilter(this.toStreamUser(user), raw._doc);
+        if (!allowed) return false;
+      } catch (e) {
+        this.logger.warn(`streamFilter for ${entry.name} threw: ${e?.message || e}`);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Resolves a published raw event into the safe wire payload for one
+   * subscriber. Runs the full security pipeline:
+   *  1. Clone (never mutate the shared raw doc).
+   *  2. `checkRestricted(item, user, OUTPUT)` — strips @Restricted fields.
+   *  3. `securityCheck(user)` — model-defined throw-on-forbidden hook.
+   *  4. Secret removal — passwords, tokens, etc.
+   *  5. Project `streamTransform(user, item)` — final manipulation hook.
+   *
+   * Returns `undefined` to drop the event for this subscriber (the
+   * GraphQL subscription handles undefined by skipping the emission).
+   */
+  async transformStreamPayload(payload: any, user: any): Promise<ISyncStreamEvent | undefined> {
+    const raw = payload?.syncStreamRaw;
+    if (!raw) return undefined;
+    const entry = this.registry.get(raw.model);
+    if (!entry) return undefined;
+
+    // 1. Deep clone — toObject() if Mongoose document, else JSON-clone.
+    let item: any;
+    try {
+      item = raw._doc?.toObject ? raw._doc.toObject() : JSON.parse(JSON.stringify(raw._doc));
+    } catch {
+      return undefined;
+    }
+    if (!item) return undefined;
+
+    // 2. @Restricted output filtering.
+    try {
+      const filtered = checkRestricted(item, this.toStreamUser(user) || {}, {
+        processType: ProcessType.OUTPUT,
+        throwError: false,
+      });
+      // checkRestricted may return the same object (mutated) or a new one.
+      item = filtered ?? item;
+    } catch (e) {
+      this.logger.warn(`checkRestricted dropped ${entry.name} event: ${e?.message || e}`);
+      return undefined;
+    }
+
+    // 3. Model-defined securityCheck. We invoke on the original Mongoose
+    //    document (where the method lives) but apply the result to `item`.
+    try {
+      if (raw._doc && typeof raw._doc.securityCheck === 'function') {
+        raw._doc.securityCheck(user);
+      }
+    } catch {
+      return undefined;
+    }
+
+    // 4. Secret removal (Safety Net duplicated here because the WS
+    //    response interceptor does NOT run on subscription payloads).
+    this.removeSecrets(item);
+
+    // 5. Project-level transform.
+    if (entry.streamTransform) {
+      try {
+        const transformed = await entry.streamTransform(this.toStreamUser(user), item);
+        if (transformed === undefined) return undefined;
+        item = transformed;
+      } catch (e) {
+        this.logger.warn(`streamTransform for ${entry.name} threw: ${e?.message || e}`);
+        return undefined;
+      }
+    }
+
+    const id = String(raw._doc?._id ?? raw._doc?.id ?? '');
+    const updatedAt: Date = raw._doc?.updatedAt instanceof Date ? raw._doc.updatedAt : new Date();
+
+    return {
+      cursor: id ? this.encodeCursor({ id, updatedAt }) : undefined,
+      id,
+      item,
+      model: raw.model,
+      op: raw.op,
+      version: raw._doc?.version,
+    };
+  }
+
+  /**
+   * Returns the catch-up snapshot for a subscriber that re-connects with
+   * a stored cursor. Reuses the model's `findChangesSince` and routes
+   * each result through the same security pipeline as live events.
+   *
+   * Caller (resolver) is expected to emit each event with `op: 'snapshot'`
+   * and a final `op: 'snapshot-complete'` terminator before switching to
+   * the live stream.
+   */
+  async getCatchupEvents(
+    modelName: string,
+    sinceCursor: string | null | undefined,
+    user: any,
+  ): Promise<ISyncStreamEvent[]> {
+    const entry = this.requireEntry(modelName);
+    if (!entry.streamEnabled) return [];
+
+    const cfg = this.getConfig();
+    const max = cfg?.stream?.maxCatchupItems ?? 1000;
+    const cursor = sinceCursor ? this.decodeCursor(sinceCursor) : null;
+
+    const result = await entry.service.findChangesSince(cursor, {
+      lean: false,
+      limit: max,
+      serviceOptions: { currentUser: user },
+    });
+
+    const events: ISyncStreamEvent[] = [];
+    for (const doc of result.changes) {
+      const op: 'created' | 'updated' | 'deleted' = doc.deletedAt
+        ? 'deleted'
+        : (doc.version === 1 ? 'created' : 'updated');
+      const matches = await this.streamFilterMatches(
+        { syncStreamRaw: { _doc: doc, _tenantId: doc?.tenantId, model: modelName, op } },
+        { model: modelName },
+        user,
+      );
+      if (!matches) continue;
+      const event = await this.transformStreamPayload(
+        { syncStreamRaw: { _doc: doc, _tenantId: doc?.tenantId, model: modelName, op } },
+        user,
+      );
+      if (!event) continue;
+      events.push({ ...event, op: 'snapshot' });
+    }
+    return events;
+  }
+
+  /**
+   * Recursive secret removal — defensive duplicate of CheckSecurityInterceptor's
+   * logic for the WebSocket pipeline (interceptors do not run on subs).
+   */
+  protected removeSecrets(data: any): void {
+    if (!data || typeof data !== 'object') return;
+    const secretFields: string[] =
+      ConfigService.get('security.secretFields') ||
+      ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'];
+    if (Array.isArray(data)) {
+      for (const item of data) this.removeSecrets(item);
+      return;
+    }
+    for (const field of secretFields) {
+      if (field in data) delete data[field];
+    }
+    for (const key of Object.keys(data)) {
+      if (data[key] && typeof data[key] === 'object') {
+        this.removeSecrets(data[key]);
+      }
+    }
+  }
+
+  protected isStreamEnabled(): boolean {
+    const cfg = this.getConfig()?.stream;
+    if (cfg === false) return false;
+    if (cfg === true || cfg === undefined) return true;
+    return cfg?.enabled !== false;
+  }
+
+  protected getStreamChannel(): string {
+    const cfg = this.getConfig()?.stream;
+    if (cfg && typeof cfg === 'object' && cfg.channel) return cfg.channel;
+    return 'syncStream';
+  }
+
+  /**
+   * Maximum number of concurrent stream subscriptions allowed per user.
+   */
+  getMaxStreamSubscriptionsPerUser(): number {
+    const cfg = this.getConfig()?.stream;
+    if (cfg && typeof cfg === 'object' && typeof cfg.maxSubscriptionsPerUser === 'number') {
+      return cfg.maxSubscriptionsPerUser;
+    }
+    return 5;
   }
 
   /**

@@ -83,4 +83,36 @@ export interface ISyncRegistryEntry {
   onConflict?: (ctx: any) => Promise<void> | void;
   /** Cached `Map<fieldName, 'lww' | 'strict'>` resolved from `@SyncField` metadata. */
   fieldStrategies: Map<string, 'lww' | 'strict'>;
+  conflictStrategy: 'reject' | 'lww' | 'merge' | 'custom';
+  customConflictResolver?: (ctx: any) => Promise<Record<string, any> | undefined>;
+  streamEnabled: boolean;
+  streamFilter?: (user: any, item: any) => boolean | Promise<boolean>;
+  streamTransform?: (user: any, item: any) => any | Promise<any>;
+}
+
+/**
+ * One real-time stream event delivered to a subscriber.
+ *
+ * `op` distinguishes the lifecycle phase:
+ *   - `'snapshot'` — replayed during initial catch-up after subscribe with
+ *     a `since` cursor. Multiple snapshot events are emitted in order,
+ *     ending with `op: 'snapshot-complete'` so the client knows live mode
+ *     has begun.
+ *   - `'snapshot-complete'` — terminator for the catch-up phase. `item` is null.
+ *   - `'created' | 'updated' | 'deleted'` — live events triggered by writes.
+ *
+ * `item` is the fully filtered + (optionally) transformed document — safe
+ * to apply directly to the client's local store.
+ *
+ * `cursor` is opaque and monotonically increasing (within a (model, user)
+ * scope). Persist it on the client; if the connection drops, reconnect
+ * with the persisted value as `since` to avoid missing events.
+ */
+export interface ISyncStreamEvent {
+  op: 'snapshot' | 'snapshot-complete' | 'created' | 'updated' | 'deleted';
+  model: string;
+  id?: string;
+  item?: any;
+  version?: number;
+  cursor?: string;
 }
