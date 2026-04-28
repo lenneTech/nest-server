@@ -13,8 +13,16 @@ set -e
 
 LOG_FILE=$(mktemp -t nest-server-check.XXXXXX)
 
-# Pick a free port so the check does not fail when the default port is busy
-FREE_PORT=$(node -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>console.log(p));});")
+# Pick a free port so the check does not fail when the default port is
+# busy. Strip ANSI color escape sequences from the command output —
+# when this script runs under a workspace runner like lerna/nx, stdout
+# may be wrapped and color codes ("\x1b[33m...\x1b[39m") injected.
+# Those would land inside FREE_PORT and crash net.Server#listen with
+# `ERR_SOCKET_BAD_PORT options.port ... Received type string ('<codes>50604<codes>')`.
+# A naïve `tr -cd '0-9'` makes it worse because the color codes contain
+# digits (33, 39) themselves; sed only on the escape pattern keeps the
+# port digits intact.
+FREE_PORT=$(node -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>console.log(p));});" | sed $'s/\x1b\\[[0-9;]*m//g' | tr -d '[:space:]')
 echo "Using free port: $FREE_PORT"
 
 cleanup() {

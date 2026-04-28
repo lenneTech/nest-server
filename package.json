@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.25.3",
+  "version": "11.25.4",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -76,25 +76,25 @@
   "dependencies": {
     "@apollo/server": "5.5.0",
     "@as-integrations/express5": "1.1.2",
-    "@better-auth/passkey": "1.5.5",
+    "@better-auth/passkey": "1.6.9",
     "@getbrevo/brevo": "3.0.1",
-    "@nestjs/apollo": "13.2.5",
+    "@nestjs/apollo": "13.3.0",
     "@nestjs/common": "11.1.19",
     "@nestjs/core": "11.1.19",
-    "@nestjs/graphql": "13.2.5",
+    "@nestjs/graphql": "13.3.0",
     "@nestjs/jwt": "11.0.2",
     "@nestjs/mongoose": "11.0.4",
     "@nestjs/passport": "11.0.5",
     "@nestjs/platform-express": "11.1.19",
     "@nestjs/schedule": "6.1.3",
-    "@nestjs/swagger": "11.3.0",
+    "@nestjs/swagger": "11.4.2",
     "@nestjs/terminus": "11.1.1",
     "@nestjs/websockets": "11.1.19",
-    "@tus/file-store": "2.0.0",
-    "@tus/server": "2.3.0",
+    "@tus/file-store": "2.1.0",
+    "@tus/server": "2.4.0",
     "@types/supertest": "7.2.0",
     "bcrypt": "6.0.0",
-    "better-auth": "1.5.5",
+    "better-auth": "1.6.9",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
     "compression": "1.8.1",
@@ -110,10 +110,10 @@
     "json-to-graphql-query": "2.3.0",
     "lodash": "4.18.1",
     "mongodb": "7.1.1",
-    "mongoose": "9.4.1",
+    "mongoose": "9.5.0",
     "multer": "2.1.1",
     "node-mailjet": "6.0.11",
-    "nodemailer": "8.0.5",
+    "nodemailer": "8.0.7",
     "passport": "0.7.0",
     "passport-jwt": "4.0.1",
     "reflect-metadata": "0.2.2",
@@ -129,7 +129,7 @@
     "@nestjs/schematics": "11.1.0",
     "@nestjs/testing": "11.1.19",
     "@swc/cli": "0.8.1",
-    "@swc/core": "1.15.26",
+    "@swc/core": "1.15.32",
     "@types/compression": "1.8.1",
     "@types/cookie-parser": "1.4.10",
     "@types/ejs": "3.1.5",
@@ -139,16 +139,16 @@
     "@types/node": "25.6.0",
     "@types/nodemailer": "8.0.0",
     "@types/passport": "1.0.17",
-    "@vitest/coverage-v8": "4.1.4",
-    "@vitest/ui": "4.1.4",
+    "@vitest/coverage-v8": "4.1.5",
+    "@vitest/ui": "4.1.5",
     "ansi-colors": "4.1.3",
     "find-file-up": "2.0.1",
     "husky": "9.1.7",
     "nodemon": "3.1.14",
     "npm-watch": "0.13.0",
-    "otpauth": "9.5.0",
-    "oxfmt": "0.45.0",
-    "oxlint": "1.60.0",
+    "otpauth": "9.5.1",
+    "oxfmt": "0.47.0",
+    "oxlint": "1.62.0",
     "rimraf": "6.1.3",
     "ts-node": "10.9.2",
     "tsconfig-paths": "4.2.0",
@@ -158,7 +158,7 @@
     "unplugin-swc": "1.5.9",
     "vite": "7.3.2",
     "vite-plugin-node": "7.0.0",
-    "vitest": "4.1.4"
+    "vitest": "4.1.5"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -179,7 +179,7 @@
   "watch": {
     "build:dev": "src"
   },
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@10.33.2",
   "pnpm": {
     "//overrides": {
       "axios@<1.15.0": "Security: SSRF via NO_PROXY bypass (GHSA-3p68-rc4w-qgx5) and unrestricted cloud metadata exfiltration (GHSA-fvcv-3m26-pcqx) - transitive via @getbrevo/brevo and node-mailjet. Remove when @getbrevo/brevo ships axios>=1.15.0",
@@ -200,7 +200,8 @@
       "lodash@>=4.0.0 <4.18.0": "Security: CVE in lodash@4.17.x - transitive via @nestjs/graphql. 4.18.1 is the latest patched version",
       "defu@<=6.1.6": "Security: prototype pollution via __proto__ key - transitive via better-auth",
       "follow-redirects@<=1.15.11": "Security: Custom Authentication Headers leak on cross-domain redirect (GHSA-r4q5-vmmm-2653) - transitive via axios>@getbrevo/brevo and axios>node-mailjet",
-      "uuid@<14.0.0": "Security: Missing buffer bounds check in v3/v5/v6 (GHSA-w5hq-g745-h8pq) - transitive via @compodoc/compodoc and @compodoc/compodoc>@compodoc/live-server>http-auth"
+      "uuid@<14.0.0": "Security: Missing buffer bounds check in v3/v5/v6 (GHSA-w5hq-g745-h8pq) - transitive via @compodoc/compodoc and @compodoc/compodoc>@compodoc/live-server>http-auth",
+      "postcss@<8.5.10": "Security: XSS via Unescaped </style> in CSS Stringify Output (GHSA-qx2v-qp2m-jg93) - transitive via vite. Remove when vite ships with postcss>=8.5.10"
     },
     "overrides": {
       "axios@<1.15.0": "1.15.0",
@@ -221,7 +222,8 @@
       "lodash@>=4.0.0 <4.18.0": "4.18.1",
       "defu@<=6.1.6": "6.1.7",
       "follow-redirects@<=1.15.11": "1.16.0",
-      "uuid@<14.0.0": "14.0.0"
+      "uuid@<14.0.0": "14.0.0",
+      "postcss@<8.5.10": "8.5.12"
     },
     "onlyBuiltDependencies": [
       "bcrypt",
