@@ -6,8 +6,8 @@ import {
   MemoryHealthIndicator,
   MongooseHealthIndicator,
 } from '@nestjs/terminus';
-import { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health';
-import { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type';
+import type { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health.js';
+import type { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type.js';
 
 import { ConfigService } from '../../common/services/config.service';
 

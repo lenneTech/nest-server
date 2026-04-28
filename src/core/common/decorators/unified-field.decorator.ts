@@ -1,8 +1,8 @@
 import { Field, FieldOptions, HideField } from '@nestjs/graphql';
-import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage';
+import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage.js';
 import { Prop, PropOptions } from '@nestjs/mongoose';
 import { ApiHideProperty, ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
-import { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface';
+import type { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface.js';
 import { Type } from 'class-transformer';
 import {
   IsArray,
