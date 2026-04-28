@@ -1046,6 +1046,273 @@ export interface ICorsConfig {
 }
 
 /**
+ * Configuration for the offline sync feature.
+ *
+ * Offline sync provides REST endpoints for delta-pull and bulk-push of
+ * model changes, plus a lightweight WebSocket "changes available" hint
+ * subscription. Designed for mobile clients with local SQLite caches.
+ *
+ * Activation follows the Boolean Shorthand Pattern:
+ * - `undefined` / `false`: feature is fully disabled (no plugin, no
+ *   routes, no subscriptions, no schema changes — fully backward
+ *   compatible).
+ * - `true` / `{}`: enabled with all defaults.
+ * - `{ ... }`: enabled with overrides.
+ *
+ * Per-model activation requires `@Schema({ syncable: true })` on the
+ * model AND registration via `CoreSyncModule.forRoot({ models: [...] })`
+ * passing the model's CrudService and DTO classes.
+ *
+ * Security guarantees: all writes go through `CrudService.update/create/delete()`
+ * — `@Restricted`, `@Roles`, `mongooseTenantPlugin`, `mongooseRoleGuardPlugin`,
+ * `mongooseAuditFieldsPlugin` all remain authoritative. The sync layer adds
+ * `version`-based optimistic concurrency and a soft-delete tombstone pattern
+ * on top of the existing security model — it never bypasses it.
+ *
+ * @see ISyncModelEntry
+ * @since 11.26.0
+ */
+export interface ISyncConfig {
+  /**
+   * Whether the sync feature is enabled. When omitted but a config object
+   * is supplied, defaults to `true` (presence implies enabled).
+   * @default false (when sync is undefined/false)
+   */
+  enabled?: boolean;
+
+  /**
+   * Cursor strategy for delta pulls. Currently only one strategy is
+   * implemented; this field exists for future extensibility.
+   * @default 'updatedAt-id'
+   */
+  cursor?: { strategy?: 'updatedAt-id' };
+
+  /**
+   * Default page size for delta pulls when the client does not specify
+   * a `limit` query parameter.
+   * @default 200
+   */
+  defaultLimit?: number;
+
+  /**
+   * Hard cap on items per pull response. Higher values requested by the
+   * client are silently clamped.
+   * @default 1000
+   */
+  maxLimit?: number;
+
+  /**
+   * Hard cap on items per bulk push request. Larger payloads are
+   * rejected with HTTP 400.
+   * @default 200
+   */
+  maxPushBatch?: number;
+
+  /**
+   * REST path prefix for sync endpoints. Final paths are
+   * `<pathPrefix>/:model` for both pull (GET) and push (POST).
+   * @default 'sync'
+   */
+  pathPrefix?: string;
+
+  /**
+   * WebSocket "changes available" hint configuration. Hints carry only
+   * `{ model, changedAt }` — no actual data and no `tenantId` in the
+   * payload. Subscribers receive one hint per debounce window.
+   *
+   * Set `hint: false` to disable the WebSocket hint entirely.
+   */
+  hint?:
+    | boolean
+    | {
+        /** @default true (when sync is enabled) */
+        enabled?: boolean;
+        /** Debounce window in milliseconds — collapses multiple mutations into one hint. @default 250 */
+        debounceMs?: number;
+        /** Channel name used internally for PubSub. @default 'syncHint' */
+        channel?: string;
+        /** Per-user connection limit for the hint subscription. @default 10 */
+        maxSubscriptionsPerUser?: number;
+        /** Roles allowed to subscribe to hints. @default ['S_USER'] */
+        auth?: { roles?: string[] };
+      };
+
+  /**
+   * REST GET /sync/:model (delta pull) configuration.
+   *
+   * Set `pull: false` to disable the pull endpoint entirely (push-only mode).
+   */
+  pull?:
+    | boolean
+    | {
+        /** @default true (when sync is enabled) */
+        enabled?: boolean;
+        /** Roles allowed to call the pull endpoint. @default ['S_USER'] */
+        auth?: { roles?: string[] };
+      };
+
+  /**
+   * REST POST /sync/:model (bulk push) configuration.
+   *
+   * Set `push: false` to disable the push endpoint entirely (pull-only mode).
+   */
+  push?:
+    | boolean
+    | {
+        /** @default true (when sync is enabled) */
+        enabled?: boolean;
+        /** Roles allowed to call the push endpoint. @default ['S_USER'] */
+        auth?: { roles?: string[] };
+      };
+
+  /**
+   * Per-endpoint rate limiting. Set a leg to `false` to disable rate
+   * limiting for that endpoint, or to an object to override defaults.
+   *
+   * The default in-memory implementation is per-process. For multi-instance
+   * deployments override `rateLimitGuard` via `ICoreModuleOverrides.sync`
+   * with a Redis-backed adapter.
+   */
+  rateLimit?: {
+    /** @default { max: 60, windowSeconds: 60 } */
+    pull?: false | { max: number; windowSeconds: number };
+    /** @default { max: 30, windowSeconds: 60 } */
+    push?: false | { max: number; windowSeconds: number };
+  };
+
+  /**
+   * Idempotency configuration for push.
+   *
+   * When enabled, clients can send a `clientId` (UUID) per item. The
+   * server caches the result for the configured TTL — retries with the
+   * same `(userId, modelName, clientId)` get the cached result instead of
+   * re-executing the write.
+   */
+  idempotency?: {
+    /** @default true (when sync is enabled) */
+    enabled?: boolean;
+    /** TTL for idempotency keys in seconds. @default 86400 (1 day) */
+    ttlSeconds?: number;
+    /** Mongoose collection name for stored idempotency results. @default 'sync_idempotency_keys' */
+    collectionName?: string;
+  };
+
+  /**
+   * Optional audit log of every sync operation (pull cursor positions,
+   * push outcomes per item). Disabled by default for DSGVO/privacy.
+   */
+  auditLog?: {
+    /** @default false */
+    enabled?: boolean;
+    /** Collection name. @default 'sync_audit_log' */
+    collectionName?: string;
+    /** TTL for audit entries in seconds (null = forever). @default null */
+    retentionSeconds?: number | null;
+  };
+
+  /**
+   * Override the field names that the sync plugin manages. Useful for
+   * projects that already have a different convention.
+   */
+  fields?: {
+    /** @default 'version' */
+    version?: string;
+    /** @default 'deletedAt' */
+    deletedAt?: string;
+  };
+
+  /**
+   * Per-model registration. Each entry describes a model that should
+   * participate in sync. The DTO classes are required so the server can
+   * validate items in a bulk push against a typed schema (without DTOs,
+   * the MapAndValidatePipe whitelist could be bypassed via generic
+   * Body types).
+   *
+   * Each entry can also override global limits (`maxPushBatch`, `maxLimit`),
+   * enable per-model lean pulls (memory optimisation, security trade-off),
+   * and supply an `onConflict` hook for custom logging/notifications.
+   */
+  models?: ISyncModelEntry[];
+}
+
+/**
+ * Per-model sync registration entry. See `ISyncConfig.models`.
+ */
+export interface ISyncModelEntry {
+  /**
+   * Logical model name used in URLs (`/sync/:model`). Should match the
+   * Mongoose model name unless a custom routing alias is desired.
+   */
+  name: string;
+
+  /**
+   * The CrudService class for this model. Must be a subclass of
+   * `CrudService`. Resolved via NestJS DI at registration time.
+   */
+  service: Type<any>;
+
+  /**
+   * DTO class used to validate items being CREATED via the bulk push.
+   * Must use `@UnifiedField` decorators. Without it, items would only
+   * receive shallow type validation.
+   */
+  createDto?: Type<any>;
+
+  /**
+   * DTO class used to validate items being UPDATED via the bulk push.
+   * Falls back to `createDto` when omitted.
+   */
+  updateDto?: Type<any>;
+
+  /**
+   * Use lean queries on pull. Significantly reduces memory pressure for
+   * high-volume models, but the server must explicitly call
+   * `checkRestricted` and `securityCheck` because Mongoose document
+   * methods are not available on lean results. Enable only when the
+   * project has audited that the model has no Restricted/secret fields
+   * that depend on Mongoose-level filtering.
+   * @default false
+   */
+  pullLean?: boolean;
+
+  /**
+   * Whether to add the compound tombstone index `(deletedAt, updatedAt)`.
+   * Disable for models with very low tombstone density to save write
+   * overhead at the cost of slightly slower tombstone queries.
+   * @default true
+   */
+  tombstoneIndex?: boolean;
+
+  /**
+   * Per-model override of the global `maxPushBatch`.
+   */
+  maxPushBatch?: number;
+
+  /**
+   * Per-model override of the global `maxLimit` for pulls.
+   */
+  maxLimit?: number;
+
+  /**
+   * Optional callback invoked on every conflict during bulk push.
+   * Useful for custom telemetry / audit. Not awaited synchronously when
+   * it returns void.
+   */
+  onConflict?: (ctx: ISyncConflictContext) => Promise<void> | void;
+}
+
+/**
+ * Context passed to `ISyncModelEntry.onConflict`.
+ */
+export interface ISyncConflictContext {
+  modelName: string;
+  itemId: string;
+  clientVersion: number;
+  serverVersion: number;
+  userId?: string;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
@@ -1979,6 +2246,24 @@ export interface IServerOptions {
   systemSetup?: ISystemSetup;
 
   /**
+   * Offline sync configuration. Boolean Shorthand Pattern.
+   *
+   * - `undefined` / `false`: feature fully disabled — no plugin, no
+   *   routes, no subscriptions, no schema changes (full backward
+   *   compatibility).
+   * - `true` / `{}`: enabled with all defaults.
+   * - `{ ... }`: enabled with overrides per `ISyncConfig`.
+   *
+   * Per-model activation requires `@Schema({ syncable: true })` plus
+   * registration via `models[]` (or `CoreSyncModule.forRoot({ models })`).
+   *
+   * @default undefined (disabled)
+   * @since 11.26.0
+   * @see ISyncConfig
+   */
+  sync?: boolean | ISyncConfig;
+
+  /**
    * Templates
    */
   templates?: {
@@ -2907,5 +3192,34 @@ export interface ICoreModuleOverrides {
   errorCode?: {
     controller?: Type<any>;
     service?: Type<any>;
+  };
+
+  /**
+   * Override sync controller, resolver, service, rate-limit guard, and/or
+   * PubSub provider.
+   *
+   * Useful for:
+   * - Multi-instance deployments: supply a Redis-backed PubSub.
+   * - Multi-instance rate limiting: supply a Redis-backed guard.
+   * - Adding application-specific authentication on top of `@Roles`.
+   *
+   * @example
+   * ```typescript
+   * {
+   *   sync: {
+   *     pubSub: new RedisPubSub(...),
+   *     rateLimitGuard: RedisSyncRateLimitGuard,
+   *   },
+   * }
+   * ```
+   *
+   * @since 11.26.0
+   */
+  sync?: {
+    controller?: Type<any>;
+    resolver?: Type<any>;
+    service?: Type<any>;
+    rateLimitGuard?: Type<any>;
+    pubSub?: any;
   };
 }

@@ -31,6 +31,7 @@ import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
 import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
 import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
+import { mongooseSyncPlugin } from './core/common/plugins/mongoose-sync.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { EmailService } from './core/common/services/email.service';
@@ -83,6 +84,31 @@ export class CoreModule implements NestModule {
    *   'Sec-WebSocket-Key': 'Yu4Lewa60jLk41YXcVrw0w==',
    * }
    */
+  /**
+   * Whether sync is enabled in the given config (Boolean Shorthand Pattern).
+   *
+   * - `undefined` / `false`: disabled.
+   * - `true` / object without `enabled: false`: enabled.
+   *
+   * @internal
+   */
+  static isSyncEnabled(config: Partial<IServerOptions>): boolean {
+    const cfg = (config as any)?.sync;
+    if (cfg === undefined || cfg === null || cfg === false) return false;
+    if (cfg === true) return true;
+    return cfg.enabled !== false;
+  }
+
+  /**
+   * Returns the normalised sync config object when enabled, otherwise undefined.
+   * @internal
+   */
+  static getSyncConfig(config: Partial<IServerOptions>): any | undefined {
+    if (!CoreModule.isSyncEnabled(config)) return undefined;
+    const cfg = (config as any).sync;
+    return cfg === true ? {} : cfg;
+  }
+
   static getHeaderFromArray(array): Record<string, string> {
     const result: Record<string, string> = {};
     if (!array.length) {
@@ -252,6 +278,13 @@ export class CoreModule implements NestModule {
       // Add tenant isolation plugin (opt-in via multiTenancy config)
       if (config.multiTenancy && config.multiTenancy.enabled !== false) {
         connection.plugin(mongooseTenantPlugin);
+      }
+      // Add sync plugin (opt-in via sync config — Boolean Shorthand Pattern)
+      // Must run AFTER tenant plugin so tombstone filter combines cleanly with tenant filter.
+      // Plugin no-ops on schemas that do not have `syncable: true` set.
+      if (CoreModule.isSyncEnabled(config)) {
+        const syncCfg = CoreModule.getSyncConfig(config);
+        connection.plugin(mongooseSyncPlugin, { fields: syncCfg?.fields });
       }
       return connection;
     };

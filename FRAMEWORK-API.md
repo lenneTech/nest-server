@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-04-23 (v11.25.3)
+> Auto-generated from source code on 2026-04-28 (v11.25.3)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -43,6 +43,7 @@
   - `sha256?`: `boolean` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; }` — Configuration for useStaticAssets
   - `systemSetup?`: `ISystemSetup` — System setup configuration for initial admin creation.
+  - `sync?`: `boolean | ISyncConfig` (default: `undefined (disabled)`) — Offline sync configuration. Boolean Shorthand Pattern.
   - `templates?`: `{ engine?: string; path?: string; }` — Templates
   - `tus?`: `boolean | ITusConfig` — TUS resumable upload configuration.
 
@@ -98,6 +99,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
+  - `sync?`: `{ controller?: Type<any>; resolver?: Type<any>; service?: Type<any>; rateLimi...` — Override sync controller, resolver, service, rate-limit guard, and/or
 
 ### IBetterAuthPasskeyConfig
 
@@ -203,10 +205,11 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async read(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for get or find
 - `async readForce(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for getForce or findForce
 - `async readRaw(input: string | FilterArgs | { filterQuery?: QueryFilter<any>; queryOptions?: QueryO..., serviceOptions?: ServiceOptions)`: `Promise<Model | Model[]>` — CRUD alias for getRaw or findRaw
-- `async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID
+- `async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions & { expectedVersion?: number; })`: `Promise<Model>` — Update item via ID
 - `async updateForce(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks or restrictions
 - `async updateRaw(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks, restrictions or preparations
-- `async delete(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID
+- `async delete(id: string, serviceOptions?: ServiceOptions & { hardDelete?: boolean; })`: `Promise<Model>` — Delete item via ID
+- `async findChangesSince(cursor: { updatedAt: Date; id: string; }, options?: { extraFilter?: any; lean?: boolean; limit?: number; serviceOptions?: Service...)`: `Promise<{ changes: Model[]; cursor: { updatedAt: Date; id: string; } | null; ...` — Delta-pull for offline sync.
 - `async deleteForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks or restrictions
 - `async deleteRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks, restrictions or preparations
 - `async pushToArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.

@@ -13,6 +13,7 @@ import {
 } from 'mongoose';
 
 import { FilterArgs } from '../args/filter.args';
+import { SyncConflictException } from '../exceptions/sync-conflict.exception';
 import { getStringIds } from '../helpers/db.helper';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
@@ -612,16 +613,71 @@ export abstract class CrudService<
 
   /**
    * Update item via ID
+   *
+   * When `serviceOptions.expectedVersion` is supplied AND the schema is
+   * marked `syncable: true`, performs an atomic optimistic-concurrency
+   * check via `findOneAndUpdate({ _id, version: expectedVersion }, ...)`.
+   * If the version does not match (either at fetch time or at write time),
+   * a `SyncConflictException` is thrown carrying the current server state.
+   *
+   * Behaviour is fully backward compatible: when `expectedVersion` is
+   * absent or the schema is not syncable, the legacy code path is used
+   * unchanged.
    */
-  async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
-    const dbObject = await this.mainDbModel.findById(id).lean();
+  async update(
+    id: string,
+    input: PlainObject<UpdateInput>,
+    serviceOptions?: ServiceOptions & { expectedVersion?: number },
+  ): Promise<Model> {
+    const dbObject = await this.mainDbModel.findById(id).setOptions({ _includeDeleted: true } as any).lean();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
+
+    // Optimistic-concurrency gate — only active for syncable schemas with explicit expectedVersion.
+    const isSyncable = (this.mainDbModel.schema as any)?.options?.syncable === true;
+    const expectedVersion = serviceOptions?.expectedVersion;
+    if (isSyncable && typeof expectedVersion === 'number' && (dbObject as any).version !== expectedVersion) {
+      throw new SyncConflictException({
+        clientVersion: expectedVersion,
+        id,
+        modelName: this.mainModelConstructor.name,
+        serverState: dbObject,
+        serverVersion: (dbObject as any).version,
+      });
+    }
+
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
+
+        // Syncable + expectedVersion → atomic CAS write.
+        if (isSyncable && typeof expectedVersion === 'number') {
+          const query = this.mainDbModel.findOneAndUpdate(
+            { _id: id, version: expectedVersion } as any,
+            merged,
+            { returnDocument: 'after' },
+          );
+          if (serviceOptions?.select) {
+            query.select(serviceOptions.select);
+          }
+          const result = await query.exec();
+          if (!result) {
+            // Race lost between read and write — re-fetch and conflict.
+            const fresh: any = await this.mainDbModel.findById(id).setOptions({ _includeDeleted: true } as any).lean();
+            throw new SyncConflictException({
+              clientVersion: expectedVersion,
+              id,
+              modelName: this.mainModelConstructor.name,
+              serverState: fresh,
+              serverVersion: fresh?.version,
+            });
+          }
+          return result;
+        }
+
+        // Legacy path — unchanged.
         const query = this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' });
         if (serviceOptions?.select) {
           query.select(serviceOptions.select);
@@ -654,9 +710,22 @@ export abstract class CrudService<
 
   /**
    * Delete item via ID
+   *
+   * When the schema is marked `syncable: true` AND `serviceOptions.hardDelete`
+   * is not explicitly true, performs a soft delete by routing through
+   * `update()` with `{ deletedAt: new Date() }`. This ensures the
+   * `process()` pipeline runs end-to-end (`@Restricted` input checks,
+   * `securityCheck`, plugins) instead of bypassing it via
+   * `findByIdAndDelete`.
+   *
+   * For non-syncable schemas, or when `hardDelete: true` is requested
+   * explicitly, the legacy hard-delete path is used unchanged.
    */
-  async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
-    const query = this.mainDbModel.findById(id);
+  async delete(
+    id: string,
+    serviceOptions?: ServiceOptions & { hardDelete?: boolean },
+  ): Promise<Model> {
+    const query = this.mainDbModel.findById(id).setOptions({ _includeDeleted: true } as any);
     if (serviceOptions?.select) {
       query.select(serviceOptions.select);
     }
@@ -664,6 +733,14 @@ export abstract class CrudService<
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
+
+    const isSyncable = (this.mainDbModel.schema as any)?.options?.syncable === true;
+    if (isSyncable && !serviceOptions?.hardDelete) {
+      // Soft delete: route through update() so the full process() pipeline
+      // (including checkRights and securityCheck) runs.
+      return this.update(id, { deletedAt: new Date() } as any, serviceOptions);
+    }
+
     return this.process(
       async () => {
         await this.mainDbModel.findByIdAndDelete(id).exec();
@@ -671,6 +748,73 @@ export abstract class CrudService<
       },
       { dbObject, serviceOptions },
     );
+  }
+
+  /**
+   * Delta-pull for offline sync.
+   *
+   * Returns documents whose `(updatedAt, _id)` strictly exceeds the
+   * supplied cursor, sorted ascending. The compound condition uses an
+   * `$or` clause so that documents sharing the same `updatedAt` but
+   * different `_id` values are still ordered deterministically — this is
+   * what makes pagination drift-free even when many writes share a
+   * single millisecond timestamp.
+   *
+   * Tombstones (soft-deleted documents) are included in the result so
+   * that clients can mirror deletions locally. Tenant scoping, restricted
+   * field filtering, and securityCheck remain authoritative because
+   * Mongoose document instances are returned (not lean objects) — the
+   * REST interceptors in the response pipeline filter as usual.
+   *
+   * @param cursor Last `(updatedAt, _id)` pair the client has seen, or null on first pull.
+   * @param options Optional limit cap (default 200, hard cap 1000), filter constraints, and lean toggle.
+   */
+  async findChangesSince(
+    cursor: { updatedAt: Date; id: string } | null,
+    options: {
+      extraFilter?: any;
+      lean?: boolean;
+      limit?: number;
+      serviceOptions?: ServiceOptions;
+    } = {},
+  ): Promise<{
+    changes: Model[];
+    cursor: { updatedAt: Date; id: string } | null;
+    hasMore: boolean;
+  }> {
+    const limit = Math.min(options.limit ?? 200, 1000);
+
+    // Cursor filter — all docs strictly greater than (cursor.updatedAt, cursor.id).
+    const cursorFilter = cursor
+      ? {
+          $or: [
+            { updatedAt: { $gt: cursor.updatedAt } },
+            { _id: { $gt: cursor.id }, updatedAt: cursor.updatedAt },
+          ],
+        }
+      : {};
+
+    const filter: any = options.extraFilter
+      ? { $and: [options.extraFilter, cursorFilter] }
+      : cursorFilter;
+
+    let q: any = this.mainDbModel
+      .find(filter, null, { limit: limit + 1, sort: { updatedAt: 1, _id: 1 } })
+      .setOptions({ _includeDeleted: true } as any);
+
+    if (options.lean) {
+      q = q.lean();
+    }
+
+    const docs: any[] = await q.exec();
+    const hasMore = docs.length > limit;
+    const changes = hasMore ? docs.slice(0, limit) : docs;
+    const last = changes[changes.length - 1];
+    const newCursor = last
+      ? { id: getStringIds(last), updatedAt: last.updatedAt }
+      : cursor;
+
+    return { changes: changes as Model[], cursor: newCursor, hasMore };
   }
 
   /**
