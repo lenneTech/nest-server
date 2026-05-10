@@ -32,7 +32,12 @@ const config: { [env: string]: IServerOptions } = {
       // JWT enabled by default (zero-config)
       jwt: { enabled: true, expiresIn: '15m' },
       // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
-      passkey: { enabled: true, origin: 'http://localhost:3001', rpId: 'localhost', rpName: 'Nest Server Local' },
+      passkey: {
+        enabled: true,
+        origin: process.env.APP_URL || 'http://localhost:3001',
+        rpId: 'localhost',
+        rpName: 'Nest Server Local',
+      },
       rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
       secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
@@ -42,7 +47,11 @@ const config: { [env: string]: IServerOptions } = {
         google: { clientId: '', clientSecret: '', enabled: false },
       },
       // Trusted origins for Passkey (localhost defaults)
-      trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
+      // Filter BASE_URL against '/' because Vite/Vitest auto-inject process.env.BASE_URL='/' (asset base path default).
+      trustedOrigins: [
+        process.env.BASE_URL && process.env.BASE_URL !== '/' ? process.env.BASE_URL : 'http://localhost:3000',
+        process.env.APP_URL || 'http://localhost:3001',
+      ],
       // 2FA enabled for local testing
       twoFactor: { appName: 'Nest Server Local', enabled: true },
     },
@@ -124,7 +133,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-ci',
     },
     permissions: true,
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
         checkObjectItself: false,
@@ -239,7 +248,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-dev',
     },
     permissions: true,
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
         checkObjectItself: false,
@@ -277,7 +286,12 @@ const config: { [env: string]: IServerOptions } = {
       // JWT enabled by default (zero-config)
       jwt: { enabled: true, expiresIn: '15m' },
       // Passkey auto-activated when URLs can be resolved (env: 'local' → localhost defaults)
-      passkey: { enabled: true, origin: 'http://localhost:3001', rpId: 'localhost', rpName: 'Nest Server Local' },
+      passkey: {
+        enabled: true,
+        origin: process.env.APP_URL || 'http://localhost:3001',
+        rpId: 'localhost',
+        rpName: 'Nest Server Local',
+      },
       rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
       secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
@@ -287,7 +301,11 @@ const config: { [env: string]: IServerOptions } = {
         google: { clientId: '', clientSecret: '', enabled: false },
       },
       // Trusted origins for Passkey (localhost defaults)
-      trustedOrigins: ['http://localhost:3000', 'http://localhost:3001'],
+      // Filter BASE_URL against '/' because Vite/Vitest auto-inject process.env.BASE_URL='/' (asset base path default).
+      trustedOrigins: [
+        process.env.BASE_URL && process.env.BASE_URL !== '/' ? process.env.BASE_URL : 'http://localhost:3000',
+        process.env.APP_URL || 'http://localhost:3001',
+      ],
       // 2FA enabled for local testing
       twoFactor: { appName: 'Nest Server Local', enabled: true },
     },
@@ -369,7 +387,7 @@ const config: { [env: string]: IServerOptions } = {
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-e2e',
     },
     permissions: true,
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
         checkObjectItself: false,
@@ -493,7 +511,7 @@ const config: { [env: string]: IServerOptions } = {
     permissions: {
       role: false,
     },
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
         checkObjectItself: false,
@@ -622,7 +640,7 @@ const config: { [env: string]: IServerOptions } = {
       // to prevent accidental connection to localhost (silent data-integrity risk).
       uri: process.env.MONGODB_URI,
     },
-    port: 3000,
+    port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
         checkObjectItself: false,

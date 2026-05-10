@@ -222,9 +222,9 @@ export class CoreModule implements NestModule {
               return connection;
             },
           },
-          uri: 'mongodb://localhost/nest-server-default',
+          uri: process.env.NSC__MONGOOSE__URI || 'mongodb://localhost/nest-server-default',
         },
-        port: 3000,
+        port: Number(process.env.PORT) || 3000,
       } as IServerOptions,
       options,
     );
