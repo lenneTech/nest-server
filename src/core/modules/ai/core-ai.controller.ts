@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Res } from '@nestjs/common';
+import { Response } from 'express';
 
 import { RESTServiceOptions } from '../../common/decorators/rest-service-options.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -45,6 +46,35 @@ export class CoreAiController {
     @Body() input: CoreAiPromptInput,
   ): Promise<CoreAiResponse> {
     return this.aiService.prompt(input, serviceOptions);
+  }
+
+  /**
+   * Send a prompt and stream the answer via Server-Sent Events.
+   *
+   * Emits `action`, `token`, `final` and `error` events as `data:` lines.
+   * Uses the raw response (`@Res()`), so interceptors are bypassed — the events
+   * already carry permission-filtered data from the orchestrator.
+   */
+  @Post('stream')
+  @Roles(RoleEnum.S_USER)
+  async stream(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Body() input: CoreAiPromptInput,
+    @Res() res: Response,
+  ): Promise<void> {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.flushHeaders?.();
+    try {
+      for await (const event of this.aiService.promptStream(input, serviceOptions)) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ message: (err as Error).message, type: 'error' })}\n\n`);
+    } finally {
+      res.end();
+    }
   }
 
   /**

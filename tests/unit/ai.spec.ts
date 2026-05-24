@@ -164,4 +164,39 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('Just a plain answer.');
     expect(response.actions).toHaveLength(0);
   });
+
+  it('streams action, token and final events; concatenated tokens equal the answer', async () => {
+    let executed = false;
+    const registry = new AiToolRegistry();
+    registry.register(
+      makeTool('count_users', [RoleEnum.ADMIN], async () => {
+        executed = true;
+        return { data: { count: 7 }, success: true };
+      }),
+    );
+    const provider = new ScriptedProvider([
+      JSON.stringify({ tool_calls: [{ arguments: {}, name: 'count_users' }] }),
+      JSON.stringify({ final: 'There are 7 users in total.' }),
+    ]);
+    const service = buildService(provider, registry);
+
+    const events: any[] = [];
+    for await (const ev of service.promptStream({ prompt: 'how many users?' } as any, {
+      currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] },
+    })) {
+      events.push(ev);
+    }
+
+    expect(executed).toBe(true);
+    const actionEvents = events.filter((e) => e.type === 'action');
+    const tokenEvents = events.filter((e) => e.type === 'token');
+    const finalEvents = events.filter((e) => e.type === 'final');
+
+    expect(actionEvents).toHaveLength(1);
+    expect(actionEvents[0].action).toMatchObject({ name: 'count_users', success: true });
+    expect(tokenEvents.length).toBeGreaterThan(1);
+    expect(tokenEvents.map((e) => e.token).join('')).toBe('There are 7 users in total.');
+    expect(finalEvents).toHaveLength(1);
+    expect(finalEvents[0].response.text).toBe('There are 7 users in total.');
+  });
 });

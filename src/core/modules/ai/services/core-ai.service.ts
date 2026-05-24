@@ -29,6 +29,20 @@ export interface AiInteractionRecord {
 }
 
 /**
+ * Event emitted by {@link CoreAiService.promptStream} over SSE.
+ *
+ * - `action`: a tool was executed (emitted before the answer)
+ * - `token`: a chunk of the natural-language answer
+ * - `final`: the complete structured response
+ * - `error`: an error occurred
+ */
+export type AiStreamEvent =
+  | { action: CoreAiAction; type: 'action' }
+  | { message: string; type: 'error' }
+  | { response: CoreAiResponse; type: 'final' }
+  | { token: string; type: 'token' };
+
+/**
  * Orchestrator for AI prompts — the agent loop that ties together the LLM
  * provider, the tool registry and the response shaping.
  *
@@ -176,9 +190,40 @@ export class CoreAiService {
     return response;
   }
 
+  /**
+   * Run a prompt and stream the result as a sequence of {@link AiStreamEvent}s
+   * (for SSE). Emits `action` events for executed tools, then the answer as
+   * `token` chunks, then a `final` event with the full response.
+   *
+   * Note: the agent/tool loop runs to completion first (emulated tool calling
+   * needs the full model output to detect tool calls), then the final answer is
+   * streamed in chunks. This gives a progressive UX without a second LLM call.
+   */
+  async *promptStream(input: CoreAiPromptInput, serviceOptions: ServiceOptions): AsyncGenerator<AiStreamEvent> {
+    const response = await this.prompt(input, serviceOptions);
+    for (const action of response.actions ?? []) {
+      yield { action, type: 'action' };
+    }
+    for (const token of this.chunkText(response.text)) {
+      yield { token, type: 'token' };
+    }
+    yield { response, type: 'final' };
+  }
+
   // ===================================================================================================================
   // Overridable hooks
   // ===================================================================================================================
+
+  /**
+   * Split the final answer into word-sized chunks for streaming. The chunks
+   * concatenate back to the original text exactly.
+   */
+  protected chunkText(text: string): string[] {
+    if (!text) {
+      return [];
+    }
+    return text.match(/\S+\s*|\s+/g) ?? [text];
+  }
 
   /**
    * Load prior conversation turns (owner-checked). Returns an empty array when no
