@@ -4,6 +4,7 @@ import { IAiTool } from '../../src/core/modules/ai/interfaces/ai-tool.interface'
 import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/llm-provider.interface';
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
+import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
 import { CoreAiService } from '../../src/core/modules/ai/services/core-ai.service';
 import { AiToolRegistry } from '../../src/core/modules/ai/tools/ai-tool.registry';
@@ -198,6 +199,25 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(tokenEvents.map((e) => e.token).join('')).toBe('There are 7 users in total.');
     expect(finalEvents).toHaveLength(1);
     expect(finalEvents[0].response.text).toBe('There are 7 users in total.');
+  });
+
+  it('exposes only role-permitted tools via MCP and rejects forbidden calls', async () => {
+    const registry = new AiToolRegistry();
+    registry.register(makeTool('public_info', [RoleEnum.S_EVERYONE], async () => ({ data: 'pub', success: true })));
+    registry.register(makeTool('admin_op', [RoleEnum.ADMIN], async () => ({ data: 'secret', success: true })));
+    const mcp = new CoreAiMcpService(registry);
+
+    const adminTools = mcp.mcpListTools({ id: 'a', roles: [RoleEnum.ADMIN] }).map((t) => t.name).sort();
+    const userTools = mcp.mcpListTools({ id: 'u', roles: [] }).map((t) => t.name);
+    expect(adminTools).toEqual(['admin_op', 'public_info']);
+    expect(userTools).toEqual(['public_info']);
+    // The MCP inputSchema is the tool's JSON schema.
+    expect(mcp.mcpListTools({ id: 'u', roles: [] })[0].inputSchema).toEqual({ properties: {}, type: 'object' });
+
+    const ok = await mcp.mcpCallTool({ id: 'a', roles: [RoleEnum.ADMIN] }, 'admin_op', {});
+    expect(ok.isError).toBeFalsy();
+    const denied = await mcp.mcpCallTool({ id: 'u', roles: [] }, 'admin_op', {});
+    expect(denied.isError).toBe(true);
   });
 
   it('halts a destructive tool until the user confirms', async () => {

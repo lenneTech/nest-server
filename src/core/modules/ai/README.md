@@ -145,14 +145,41 @@ Add a new LLM backend by registering a builder on `LlmProviderFactory`:
 factory.registerBuilder('anthropic', (conn) => new AnthropicProvider(conn));
 ```
 
-## MCP exposure (planned)
+## Conversations, audit & streaming
 
-The `AiToolRegistry` is the single source of truth and is designed to also feed a
-real **MCP server** so external MCP clients can use the same backend tools with the
-same role gating. See `INTEGRATION-CHECKLIST.md` and the framework's
-`mcp-integration` guide for the OAuth-secured Streamable-HTTP pattern.
+- **Multi-turn conversations** (`aiConversations`, owner-scoped): pass
+  `conversationId` to `aiPrompt` to load prior turns and append the new ones.
+  Manage via `createAiConversation` / `findAiConversations` / `getAiConversation`
+  / `deleteAiConversation`.
+- **Audit** (`ai.audit: true`): every run is persisted to `aiInteractions`
+  (admin-readable via `findAiInteractions` / `getAiInteraction`).
+- **Streaming**: `POST /ai/stream` returns Server-Sent Events (`action`, `token`,
+  `final`, `error`). `CoreAiService.promptStream()` powers it.
+
+## Destructive actions
+
+Mark a tool `destructive: true`. The orchestrator returns
+`requiresConfirmation: true` with `pendingActions` instead of executing; the
+client re-sends the prompt with `confirm: true` to proceed (see `delete_user` in
+the reference tools).
+
+## MCP server (`ai.mcp: true`)
+
+The `AiToolRegistry` also feeds a real **MCP server** at `POST/GET/DELETE /ai/mcp`
+(Streamable HTTP), so external MCP clients use the same backend tools with the
+same role gating. Enable with `ai: { mcp: true }` (requires
+`@modelcontextprotocol/sdk`, lazy-loaded).
+
+- Auth: the request must carry a valid Bearer token/session (resolved by the
+  framework's existing auth) — the MCP session is bound to that user, and
+  `tools/list` / `tools/call` are filtered to and executed with their permissions.
+- Unauthenticated requests get `401` with a `WWW-Authenticate` header.
+- Full OAuth 2.1 dynamic client registration (per the framework `mcp-integration`
+  guide) is a later hardening step.
 
 ## Tests
 
-- `tests/unit/ai.spec.ts` — crypto, registry role filtering, orchestrator loop (fakes)
-- `tests/ai.e2e-spec.ts` — full DI graph: connection CRUD + encryption + prompt flow
+- `tests/unit/ai.spec.ts` — crypto, registry role filtering, orchestrator loop,
+  streaming, destructive confirmation, MCP role gating (fakes)
+- `tests/ai.e2e-spec.ts` — full DI graph: connection CRUD + encryption, prompt
+  flow, multi-turn conversation, audit persistence, MCP 401

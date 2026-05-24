@@ -449,7 +449,10 @@ export class CoreModule implements NestModule {
     const isAiEnabled =
       aiConfig === true || (typeof aiConfig === 'object' && aiConfig !== null && aiConfig.enabled !== false);
     if (isAiEnabled) {
-      imports.push(CoreAiModule.forRoot(overrides?.ai || {}));
+      const aiObj = typeof aiConfig === 'object' && aiConfig !== null ? aiConfig : undefined;
+      const mcpEnabled =
+        aiObj?.mcp === true || (typeof aiObj?.mcp === 'object' && aiObj.mcp !== null && aiObj.mcp.enabled !== false);
+      imports.push(CoreAiModule.forRoot({ ...overrides?.ai, mcpEnabled }));
     }
 
     // Add CoreTenantModule when multiTenancy is configured (presence implies enabled)

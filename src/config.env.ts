@@ -29,6 +29,7 @@ const config: { [env: string]: IServerOptions } = {
       // AI module enabled for tests; no defaultConnection seed (tests create their own).
       audit: true,
       maxIterations: 3,
+      mcp: true,
     },
     automaticObjectIdFiltering: true,
     betterAuth: {
@@ -288,6 +289,7 @@ const config: { [env: string]: IServerOptions } = {
       // AI module enabled for tests; no defaultConnection seed (tests create their own).
       audit: true,
       maxIterations: 3,
+      mcp: true,
     },
     automaticObjectIdFiltering: true,
     betterAuth: {

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, ObjectId } from 'mongodb';
+import request from 'supertest';
 
 import {
   AiToolRegistry,
@@ -226,6 +227,16 @@ describe('AI module (e2e)', () => {
 
     await connectionService.delete(conn.id, adminOptions);
     await conversationService.delete(conversation.id, { currentUser: admin, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR] });
+  });
+
+  it('exposes an MCP endpoint that rejects unauthenticated requests with 401', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/ai/mcp')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send({ id: 1, jsonrpc: '2.0', method: 'initialize', params: {} });
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toContain('Bearer');
   });
 
   it('persists an audit interaction record when ai.audit is enabled', async () => {

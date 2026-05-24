@@ -1,8 +1,10 @@
 import { DynamicModule, Global, Module, Type } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { CoreAiMcpController } from './core-ai-mcp.controller';
 import { CoreAiController } from './core-ai.controller';
 import { CoreAiResolver } from './core-ai.resolver';
+import { CoreAiMcpService } from './services/core-ai-mcp.service';
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
@@ -44,6 +46,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom audit/interaction service (extends CoreAiInteractionService). */
   interactionService?: Type<CoreAiInteractionService>;
+
+  /** Whether to register the MCP server controller at /ai/mcp. */
+  mcpEnabled?: boolean;
 
   /** Custom prompt builder (extends CoreAiPromptBuilderService). */
   promptBuilder?: Type<CoreAiPromptBuilderService>;
@@ -87,14 +92,21 @@ export class CoreAiModule {
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
 
+    // Register the MCP controller only when enabled (it lazy-loads the MCP SDK).
+    const controllers: Type<any>[] = [ControllerClass];
+    if (options.mcpEnabled) {
+      controllers.push(CoreAiMcpController);
+    }
+
     return {
-      controllers: [ControllerClass],
+      controllers,
       exports: [
         AiCryptoService,
         AiToolRegistry,
         CoreAiConnectionService,
         CoreAiConversationService,
         CoreAiInteractionService,
+        CoreAiMcpService,
         CoreAiPromptBuilderService,
         CoreAiService,
         LlmProviderFactory,
@@ -117,6 +129,7 @@ export class CoreAiModule {
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
+        CoreAiMcpService,
         // Bind base-class tokens to the (possibly overridden) implementations so
         // injections by base type resolve to the project's subclass.
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },

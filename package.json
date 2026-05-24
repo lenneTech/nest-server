@@ -78,6 +78,7 @@
     "@as-integrations/express5": "1.1.2",
     "@better-auth/passkey": "1.6.11",
     "@getbrevo/brevo": "3.0.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@nestjs/apollo": "13.4.2",
     "@nestjs/common": "11.1.23",
     "@nestjs/core": "11.1.23",

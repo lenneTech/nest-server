@@ -1146,6 +1146,13 @@ export interface IAi {
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
 
+  /**
+   * Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+   * external MCP clients. Requires `@modelcontextprotocol/sdk`. Boolean shorthand.
+   * @default false
+   */
+  mcp?: boolean | { enabled?: boolean };
+
   /** Rate limiting for prompts. */
   rateLimit?: IAiRateLimit;
 
