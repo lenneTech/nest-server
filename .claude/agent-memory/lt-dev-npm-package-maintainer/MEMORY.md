@@ -9,11 +9,13 @@
 ### Blocked Updates (documented)
 - `@getbrevo/brevo` 3.x → 5.x: Complete API redesign (TransactionalEmailsApi, SendSmtpEmail, TransactionalEmailsApiApiKeys removed). Would require rewriting `src/core/common/services/brevo.service.ts`. See `blocking-updates.md` for details.
 - `graphql-upload` 15.x → 17.x: Extension changed from `.js` to `.mjs`. Import paths in `src/core.module.ts`, `src/core/modules/file/core-file.resolver.ts`, `src/server/modules/file/file.resolver.ts`, and `src/types/graphql-upload.d.ts` would all need updating.
-- `vite` 7.x → 8.x + `vite-plugin-node` 7.x → 8.x: Both must update together. vite-plugin-node@8.0.0 peerDep requires `vite: '^8.0.0'`. Blocked together.
-- `better-auth` + `@better-auth/passkey` 1.5.5 → 1.6.x: `@better-auth/core@1.6.x` adds `@opentelemetry/api` as a required (non-optional) peer dependency. Causes "Cannot find package '@opentelemetry/api'" errors. Verified on 2026-04-17 for 1.6.5. Do NOT update until better-auth makes @opentelemetry/api optional or we add @opentelemetry/api as a dev dep.
+- `@nestjs/swagger` 11.4.2 → 11.4.3+ (incl. 11.4.4): **BLOCKED (discovered 2026-05-24)**. 11.4.3 introduced a restrictive `exports` field exposing ONLY `.`, `./plugin`, `./package.json`. This breaks deep subpath imports that the framework relies on: `src/core/common/decorators/unified-field.decorator.ts` imports `@nestjs/swagger/dist/interfaces/schema-object-metadata.interface.js`, and the test `tests/project.e2e-spec.ts` imports `DECORATORS` from `@nestjs/swagger/dist/constants`. With 11.4.4, test fails: `"./dist/constants" is not exported under the conditions ["node","development","import"]`. 11.4.2 has NO exports field so deep subpaths work. KEEP at 11.4.2 until the src/ deep import is replaced with a public re-export (or upstream re-exposes the subpaths).
 - `typescript` 5.x → 6.x: TypeScript 6.0.3 released. Ecosystem readiness still unknown — skip until NestJS/tools explicitly support it.
-- `ts-morph` 27.x → 28.x: `@nestjs/graphql@13.2.5` only supports up to `^27.0.0` in peerDeps. Also `@compodoc/compodoc@1.2.1` requires `ts-morph@^27.0.2`. Cannot update ts-morph until both packages ship with ^28.0.0 support.
-- `vite` 7.x → 8.x + `vite-plugin-node` 7.x → 8.x: Both must update together. vite-plugin-node@8.0.0 peerDep requires `vite: '^8.0.0'`. Blocked together.
+- `ts-morph` 27.x → 28.x: blocked ONLY by `@compodoc/compodoc@1.2.1` (deps `ts-morph@^27.0.2`). `@nestjs/graphql@13.4.2` peerDep already allows `^28.0.0` (verified 2026-05-24: `^20 || ^21 || ^24 || ^25 || ^26 || ^27 || ^28`). Cannot update until compodoc ships ^28.0.0 support.
+
+### Resolved Blockers (no longer blocked, verified 2026-05-24)
+- `vite` 8.x + `vite-plugin-node` 8.x: NO LONGER BLOCKED. Already on vite@8.0.14 + vite-plugin-node@8.0.0 in working tree, tests green. (Prior memory said blocked together — that was for the 7→8 jump; it's been done.)
+- `better-auth` + `@better-auth/passkey` 1.6.x: NO LONGER BLOCKED. `@better-auth/core@1.6.10/1.6.11` marks `@opentelemetry/api` as `peerDependenciesMeta optional: true`. Project runs 1.6.11 green without @opentelemetry/api installed. The 1.6.5 required-peer issue is fixed upstream.
 
 ### Categorization Fix (Fixed 2026-04-07)
 - `supertest` and `@types/supertest` moved from `devDependencies` to `dependencies`.
@@ -31,23 +33,26 @@
 
 ### Version Coupling: mongodb + mongoose
 - `mongodb` and `mongoose` must be updated TOGETHER. Mongoose bundles its own mongodb version internally, so they must match.
-- `mongoose@9.4.1` bundles `~mongodb@7.1.x` (same as 9.3.x), so current mongodb@7.1.1 is still compatible.
-- mongodb@7.1.1 is still the latest in the 7.x line — no update needed there.
+- Current (2026-05-24): mongodb@7.2.0 + mongoose@9.6.2 (both updated in earlier sessions). Keep matched.
 
-### Overrides Status (updated 2026-04-17)
-- `axios@<1.15.0` → `1.15.0`: SSRF CVE (GHSA-3p68-rc4w-qgx5) + metadata exfiltration (GHSA-fvcv-3m26-pcqx). Both @getbrevo/brevo@3.0.1 (requires ^1.6.8) and node-mailjet@6.0.11 (requires ^1.12.0) naturally resolve to 1.15.0, but override kept as explicit security guarantee.
-- minimatch overrides: at latest versions (3.1.5, 9.0.9, 10.2.5) — still needed
-- `ajv` overrides (6.14.0, 8.18.0): still needed
-- `undici@>=7.0.0 <7.25.0` → `7.25.0`: **UPDATED 2026-04-17** (was 7.24.7). @compodoc/compodoc@1.2.1>cheerio@1.1.2 requires `^7.12.0`, would install 7.25.0 without override.
-- `srvx@<0.11.15` → `0.11.15` override: still needed. @tus/server 2.3.0 requires `~0.8.2` — still needed
-- `handlebars@>=4.0.0 <4.7.9` → `4.7.9` override: still needed via @compodoc/compodoc
-- `brace-expansion` overrides (1.1.13, 5.0.5): still needed
-- `picomatch` overrides (2.3.2, 4.0.4): still needed
-- `kysely@>=0.26.0 <0.28.16` → `0.28.16`: **UPDATED 2026-04-17** (was 0.28.15). better-auth@1.5.5 requires `^0.28.11`, selector widened to cover 0.28.15 now too.
-- `path-to-regexp@>=8.0.0 <8.4.2` → `8.4.2` override: still needed (express@5.2.1>router)
-- `lodash@>=4.0.0 <4.18.0` → `4.18.1` override: @nestjs/graphql pins lodash@4.17.23 which has CVE. 4.18.1 is the latest.
-- `defu@<=6.1.6` → `6.1.7` override: still needed (better-auth uses 6.1.7 directly now)
-- `follow-redirects@<=1.15.11` → `1.16.0` override: GHSA-r4q5-vmmm-2653 - transitive via axios
+### Overrides Status (updated 2026-05-24)
+- Empirical obsolescence test: removing ALL overrides + `pnpm install --lockfile-only` then `pnpm audit` reveals ONLY 3 packages still flagged → `ajv` (ReDoS via $data, <8.18.0), `picomatch` (ReDoS/method-injection, <4.0.4), `uuid` (<11.1.1). All other security overrides are currently no-op floors (parents caught up naturally) but KEPT as defense-in-depth against future transitive downgrades. This empirical method (strip overrides → lockfile-only → audit) is the reliable way to find genuinely-needed vs no-op security overrides.
+- `axios@<1.16.0` → `1.16.0`: SSRF + multiple CVEs. transitive via @getbrevo/brevo + node-mailjet. Kept.
+- minimatch overrides (3.1.5, 9.0.9, 10.2.5): kept
+- `ajv` overrides (6.14.0, 8.18.0): STILL STRICTLY NEEDED (8.18.0 floor blocks ReDoS in 8.17.1 via @angular-devkit)
+- `undici@>=7.0.0 <7.25.0` → `7.25.0`: kept
+- `handlebars@>=4.0.0 <4.7.9` → `4.7.9`: kept (via @compodoc/compodoc)
+- `brace-expansion` overrides (1.1.13, 5.0.6): kept
+- `picomatch` overrides (2.3.2, 4.0.4): STILL STRICTLY NEEDED (4.0.4 floor blocks ReDoS in 4.0.3 via @angular-devkit)
+- `kysely@>=0.26.0 <0.28.17` → `0.28.17`: kept. @better-auth/core@1.6.11 requires kysely `^0.28.17`.
+- `path-to-regexp@>=8.0.0 <8.4.2` → `8.4.2`: kept (express@5.2.1>router)
+- `lodash@>=4.0.0 <4.18.0` → `4.18.1`: kept
+- `defu@<=6.1.6` → `6.1.7`: kept
+- `follow-redirects@<=1.15.11` → `1.16.0`: kept
+- `@protobufjs/utf8@<=1.1.0` → `1.1.1`, `ws@>=8.0.0 <8.20.1` → `8.20.1`, `qs@>=6.11.1 <=6.15.1` → `6.15.2`: kept (the 5 explicitly-protected security overrides)
+- `uuid@<14.0.0` → `14.0.0`: STILL STRICTLY NEEDED (uuid <11.1.1 via @compodoc/compodoc)
+- `postcss@<8.5.10` → `8.5.12`: kept (via vite)
+- **REMOVED 2026-05-24**: `srvx@<0.11.15` → `0.11.15`. Obsolete COMPATIBILITY override: @tus/server upgraded 2.3.0→2.4.1, which now natively pins `srvx@~0.11.15`. The `~` constraint guarantees the floor; override removed, srvx still resolves to 0.11.15, audit clean.
 - **REMOVED 2026-04-03**: `file-type`, `yauzl`, `flatted`, `rollup` overrides
 
 ### json-to-graphql-query in dependencies (not devDependencies)

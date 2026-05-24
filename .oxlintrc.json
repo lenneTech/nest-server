@@ -12,6 +12,28 @@
   "rules": {
     "eqeqeq": "warn",
     "no-console": ["warn", { "allow": ["warn", "error", "info", "debug", "trace", "time", "timeEnd", "group", "groupEnd"] }],
+    "no-underscore-dangle": ["warn", {
+      "allow": [
+        "$__",
+        "__args",
+        "__schema",
+        "_authenticatedViaBetterAuth",
+        "_bsontype",
+        "_configSubject$",
+        "_doNotCheckSecurityDeep",
+        "_endMigration",
+        "_frozenConfigSubject$",
+        "_id",
+        "_instance",
+        "_model",
+        "_objectAlreadyCheckedForRestrictions",
+        "_startMigration",
+        "_translations",
+        "_typeTestConfigs"
+      ],
+      "allowAfterThis": true,
+      "allowAfterThisConstructor": true
+    }],
     "no-unused-vars": ["warn", {
       "argsIgnorePattern": "^_",
       "caughtErrors": "none",
