@@ -172,9 +172,18 @@ describe('AI module (e2e)', () => {
   // ===================================================================================================================
 
   it('runs a prompt end-to-end: resolves the connection, executes a tool, returns a structured answer', async () => {
+    // Deterministic, isolated tool (does not touch the shared User collection, which
+    // is mutated by other test files when the full suite runs in parallel).
+    registry.register({
+      description: 'Returns a fixed payload for e2e verification',
+      execute: async () => ({ data: { pong: true }, success: true }),
+      name: 'e2e_ping',
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
+    });
     providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([
-      JSON.stringify({ tool_calls: [{ arguments: { limit: 5 }, name: 'find_users' }] }),
-      JSON.stringify({ data: { ok: true }, final: 'I checked the users.' }),
+      JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_ping' }] }),
+      JSON.stringify({ data: { ok: true }, final: 'I checked the data.' }),
     ]));
 
     const conn = await connectionService.create(
@@ -182,13 +191,14 @@ describe('AI module (e2e)', () => {
       adminOptions,
     );
 
-    const response = await aiService.prompt({ prompt: 'check the users' } as any, adminOptions);
+    const response = await aiService.prompt({ connectionId: conn.id, prompt: 'check the data' } as any, adminOptions);
 
-    expect(response.text).toBe('I checked the users.');
+    expect(response.text).toBe('I checked the data.');
     expect(response.connectionId).toBe(conn.id);
-    expect(response.actions?.[0]).toMatchObject({ name: 'find_users', success: true });
+    expect(response.actions?.[0]).toMatchObject({ name: 'e2e_ping', success: true });
     expect(response.iterations).toBe(2);
 
+    registry.unregister('e2e_ping');
     await connectionService.delete(conn.id, adminOptions);
   });
 
