@@ -22,6 +22,17 @@ export class CoreAiPromptInput {
   connectionId?: string = undefined;
 
   /**
+   * Confirm execution of destructive tool actions requested in a previous turn.
+   */
+  @UnifiedField({
+    description: 'Confirm execution of destructive tool actions',
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+    type: () => Boolean,
+  })
+  confirm?: boolean = undefined;
+
+  /**
    * Optional conversation id for multi-turn continuation.
    */
   @UnifiedField({

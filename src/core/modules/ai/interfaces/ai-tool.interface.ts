@@ -56,6 +56,14 @@ export interface IAiTool {
   /** Description shown to the LLM — the primary signal for when to use the tool. */
   readonly description: string;
 
+  /**
+   * Whether the tool performs a destructive/irreversible action (delete, bulk
+   * update, payment, …). Destructive tools are NOT executed until the prompt is
+   * re-sent with `confirm: true`; the first response lists them as
+   * `pendingActions` with `requiresConfirmation: true`.
+   */
+  readonly destructive?: boolean;
+
   /** Unique tool name (snake_case recommended, stable across versions). */
   readonly name: string;
 

@@ -199,4 +199,47 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(finalEvents).toHaveLength(1);
     expect(finalEvents[0].response.text).toBe('There are 7 users in total.');
   });
+
+  it('halts a destructive tool until the user confirms', async () => {
+    let executed = 0;
+    const registry = new AiToolRegistry();
+    const deleteTool: IAiTool = {
+      description: 'Delete a user',
+      destructive: true,
+      execute: async () => {
+        executed++;
+        return { success: true };
+      },
+      name: 'delete_user',
+      parameters: { properties: { id: { type: 'string' } }, type: 'object' },
+      roles: [RoleEnum.ADMIN],
+    };
+    registry.register(deleteTool);
+
+    // Without confirmation: the destructive call must be blocked.
+    const providerA = new ScriptedProvider([
+      JSON.stringify({ tool_calls: [{ arguments: { id: 'x' }, name: 'delete_user' }] }),
+      JSON.stringify({ final: 'done' }),
+    ]);
+    const responseA = await buildService(providerA, registry).prompt(
+      { prompt: 'delete user x' } as any,
+      { currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] } },
+    );
+    expect(executed).toBe(0);
+    expect(responseA.requiresConfirmation).toBe(true);
+    expect(responseA.pendingActions?.[0]).toMatchObject({ name: 'delete_user' });
+
+    // With confirmation: the destructive call executes.
+    const providerB = new ScriptedProvider([
+      JSON.stringify({ tool_calls: [{ arguments: { id: 'x' }, name: 'delete_user' }] }),
+      JSON.stringify({ final: 'deleted' }),
+    ]);
+    const responseB = await buildService(providerB, registry).prompt(
+      { confirm: true, prompt: 'delete user x' } as any,
+      { currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] } },
+    );
+    expect(executed).toBe(1);
+    expect(responseB.requiresConfirmation).toBeFalsy();
+    expect(responseB.text).toBe('deleted');
+  });
 });

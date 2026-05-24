@@ -47,6 +47,22 @@ export class CoreAiResponse {
   iterations?: number;
 
   /**
+   * Destructive tool actions awaiting confirmation. Re-send the prompt with
+   * `confirm: true` to execute them.
+   */
+  @Field(() => [CoreAiAction], {
+    description: 'Destructive actions awaiting confirmation',
+    nullable: true,
+  })
+  pendingActions?: CoreAiAction[];
+
+  /**
+   * Whether the response is awaiting confirmation of destructive actions.
+   */
+  @Field(() => Boolean, { description: 'Whether confirmation of destructive actions is required', nullable: true })
+  requiresConfirmation?: boolean;
+
+  /**
    * Natural-language answer for the user.
    */
   @Field(() => String, { description: 'Natural-language answer for the user' })

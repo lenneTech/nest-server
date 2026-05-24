@@ -114,11 +114,14 @@ export class CoreAiService {
     messages.push({ content: input.prompt, role: 'user' });
 
     const maxIterations = ConfigService.get<number>('ai.maxIterations') ?? 5;
+    const confirm = !!input.confirm;
     const actions: CoreAiAction[] = [];
+    const pendingActions: CoreAiAction[] = [];
     const usage = { completionTokens: 0, promptTokens: 0, totalTokens: 0 };
     let finalText = '';
     let finalData: unknown;
     let iterations = 0;
+    let requiresConfirmation = false;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -133,6 +136,25 @@ export class CoreAiService {
       const toolCalls = provider.supportsNativeTools ? completion.toolCalls : this.extractToolCalls(completion.text);
 
       if (toolCalls?.length) {
+        // Halt on destructive tools until the user confirms (re-send with confirm: true).
+        const blocked = toolCalls.filter((c) => {
+          const tool = tools.find((t) => t.name === c.name);
+          return tool?.destructive && !confirm;
+        });
+        if (blocked.length) {
+          for (const call of blocked) {
+            const action = new CoreAiAction();
+            action.arguments = call.arguments;
+            action.name = call.name;
+            action.result = { requiresConfirmation: true };
+            action.success = false;
+            pendingActions.push(action);
+          }
+          requiresConfirmation = true;
+          finalText = 'Confirmation required to perform the requested action(s).';
+          break;
+        }
+
         messages.push({
           content: completion.text || JSON.stringify({ tool_calls: toolCalls }),
           role: 'assistant',
@@ -170,9 +192,13 @@ export class CoreAiService {
     response.iterations = iterations;
     response.text = finalText;
     response.usage = Object.assign(new CoreAiUsage(), usage);
+    if (requiresConfirmation) {
+      response.requiresConfirmation = true;
+      response.pendingActions = pendingActions;
+    }
 
-    // Persist the turn pair for multi-turn conversations.
-    if (input.conversationId && this.conversationService) {
+    // Persist the turn pair for multi-turn conversations (not while awaiting confirmation).
+    if (input.conversationId && this.conversationService && !requiresConfirmation) {
       await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
       await this.conversationService.appendMessage(input.conversationId, { content: finalText, role: 'assistant' });
     }

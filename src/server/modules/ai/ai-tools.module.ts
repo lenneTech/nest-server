@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { UserModule } from '../user/user.module';
+import { DeleteUserAiTool } from './tools/delete-user.tool';
 import { FindUsersAiTool } from './tools/find-users.tool';
 import { GetUserAiTool } from './tools/get-user.tool';
 import { UpdateUserJobTitleAiTool } from './tools/update-user-job-title.tool';
@@ -18,6 +19,6 @@ import { UpdateUserJobTitleAiTool } from './tools/update-user-job-title.tool';
  */
 @Module({
   imports: [UserModule],
-  providers: [FindUsersAiTool, GetUserAiTool, UpdateUserJobTitleAiTool],
+  providers: [DeleteUserAiTool, FindUsersAiTool, GetUserAiTool, UpdateUserJobTitleAiTool],
 })
 export class AiToolsModule {}
