@@ -11,6 +11,7 @@ import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
 import { CoreAiConnectionService } from './core-ai-connection.service';
+import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 
@@ -60,6 +61,7 @@ export class CoreAiService {
     protected readonly toolRegistry: AiToolRegistry,
     protected readonly promptBuilder: CoreAiPromptBuilderService,
     @Optional() protected readonly interactionService?: CoreAiInteractionService,
+    @Optional() protected readonly conversationService?: CoreAiConversationService,
   ) {}
 
   /**
@@ -85,7 +87,13 @@ export class CoreAiService {
     const systemPrompt = this.promptBuilder.buildSystemPrompt(tools, provider.supportsNativeTools);
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
 
+    // Load prior turns for multi-turn conversations (owner-checked).
+    const history = await this.loadConversationHistory(input.conversationId, currentUser);
+
     const messages: LlmMessage[] = [{ content: systemPrompt, role: 'system' }];
+    for (const turn of history) {
+      messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
+    }
     if (input.context) {
       messages.push({ content: `Context:\n${JSON.stringify(input.context)}`, role: 'user' });
     }
@@ -149,6 +157,12 @@ export class CoreAiService {
     response.text = finalText;
     response.usage = Object.assign(new CoreAiUsage(), usage);
 
+    // Persist the turn pair for multi-turn conversations.
+    if (input.conversationId && this.conversationService) {
+      await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
+      await this.conversationService.appendMessage(input.conversationId, { content: finalText, role: 'assistant' });
+    }
+
     await this.audit({
       actions: actions.map((a) => ({ name: a.name, success: a.success })),
       connectionId: connection.id,
@@ -165,6 +179,24 @@ export class CoreAiService {
   // ===================================================================================================================
   // Overridable hooks
   // ===================================================================================================================
+
+  /**
+   * Load prior conversation turns (owner-checked). Returns an empty array when no
+   * conversation is referenced or the conversation service is unavailable.
+   */
+  protected async loadConversationHistory(
+    conversationId: string | undefined,
+    currentUser: ServiceOptions['currentUser'],
+  ): Promise<{ content: string; role: string }[]> {
+    if (!conversationId || !this.conversationService) {
+      return [];
+    }
+    const conversation = await this.conversationService.get(conversationId, {
+      currentUser,
+      roles: ['admin', 's_creator', 's_self'],
+    });
+    return (conversation?.messages ?? []).map((m) => ({ content: m.content, role: m.role }));
+  }
 
   /**
    * Persist/track a prompt run. Logs at debug level and, when `ai.audit` is

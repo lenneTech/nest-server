@@ -4,10 +4,12 @@ import { MongoClient, ObjectId } from 'mongodb';
 import {
   AiToolRegistry,
   CoreAiConnectionService,
+  CoreAiConversationService,
   CoreAiInteractionService,
   CoreAiService,
   HttpExceptionLogFilter,
   ILlmProvider,
+  LlmMessage,
   LlmProviderFactory,
   LlmResponse,
   RoleEnum,
@@ -37,6 +39,7 @@ describe('AI module (e2e)', () => {
   let db;
 
   let connectionService: CoreAiConnectionService;
+  let conversationService: CoreAiConversationService;
   let interactionService: CoreAiInteractionService;
   let aiService: CoreAiService;
   let registry: AiToolRegistry;
@@ -56,6 +59,7 @@ describe('AI module (e2e)', () => {
     await app.init();
 
     connectionService = app.get(CoreAiConnectionService);
+    conversationService = app.get(CoreAiConversationService);
     interactionService = app.get(CoreAiInteractionService);
     aiService = app.get(CoreAiService);
     registry = app.get(AiToolRegistry);
@@ -69,6 +73,7 @@ describe('AI module (e2e)', () => {
     if (db) {
       await db.collection('aiConnections').deleteMany({});
       await db.collection('aiInteractions').deleteMany({});
+      await db.collection('aiConversations').deleteMany({});
     }
     if (connection) {
       await connection.close();
@@ -184,6 +189,43 @@ describe('AI module (e2e)', () => {
     expect(response.iterations).toBe(2);
 
     await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('keeps multi-turn context and persists messages on a conversation', async () => {
+    // Capture the messages the provider receives on each call.
+    const seenPerCall: LlmMessage[][] = [];
+    providerFactory.registerBuilder('fake-e2e', () => ({
+      name: 'fake-e2e',
+      supportsNativeTools: false,
+      async chat(messages: LlmMessage[]): Promise<LlmResponse> {
+        seenPerCall.push(messages);
+        return { text: JSON.stringify({ final: 'ok' }), usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 } };
+      },
+    }));
+
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Conv Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const conversation = await conversationService.create({ title: 'Test chat' } as any, adminOptions);
+
+    await aiService.prompt({ conversationId: conversation.id, prompt: 'first question' } as any, adminOptions);
+    await aiService.prompt({ conversationId: conversation.id, prompt: 'second question' } as any, adminOptions);
+
+    // Second call must have seen the first turn (user + assistant) in its context.
+    const secondCallContents = seenPerCall[1].map((m) => m.content).join(' | ');
+    expect(secondCallContents).toContain('first question');
+
+    // Both turns persisted: 2 user + 2 assistant = 4 messages.
+    const reloaded = await conversationService.get(conversation.id, {
+      currentUser: admin,
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+    });
+    expect(reloaded.messages).toHaveLength(4);
+    expect(reloaded.messages?.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+
+    await connectionService.delete(conn.id, adminOptions);
+    await conversationService.delete(conversation.id, { currentUser: admin, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR] });
   });
 
   it('persists an audit interaction record when ai.audit is enabled', async () => {

@@ -7,11 +7,14 @@ import { RoleEnum } from '../../common/enums/role.enum';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.input';
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
+import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiConnection } from './models/core-ai-connection.model';
+import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
+import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiService } from './services/core-ai.service';
 
@@ -31,6 +34,7 @@ export class CoreAiResolver {
   constructor(
     protected readonly aiService: CoreAiService,
     protected readonly connectionService: CoreAiConnectionService,
+    protected readonly conversationService: CoreAiConversationService,
     protected readonly interactionService: CoreAiInteractionService,
   ) {}
 
@@ -113,6 +117,66 @@ export class CoreAiResolver {
     @Args('input') input: CoreAiConnectionInput,
   ): Promise<CoreAiConnection> {
     return this.connectionService.update(id, input, { ...serviceOptions, inputType: CoreAiConnectionInput });
+  }
+
+  // ===================================================================================================================
+  // Conversations (owner-scoped)
+  // ===================================================================================================================
+
+  /**
+   * Create a new AI conversation for the current user.
+   */
+  @Mutation(() => CoreAiConversation, { description: 'Create a new AI conversation' })
+  @Roles(RoleEnum.S_USER)
+  async createAiConversation(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: CoreAiConversationCreateInput,
+  ): Promise<CoreAiConversation> {
+    return this.conversationService.create(input, { ...serviceOptions, inputType: CoreAiConversationCreateInput });
+  }
+
+  /**
+   * Delete an AI conversation (owner or admin).
+   */
+  @Mutation(() => CoreAiConversation, { description: 'Delete an AI conversation' })
+  @Roles(RoleEnum.S_USER)
+  async deleteAiConversation(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiConversation> {
+    return this.conversationService.delete(id, {
+      ...serviceOptions,
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF],
+    });
+  }
+
+  /**
+   * Find the current user's AI conversations (admins see all).
+   */
+  @Query(() => [CoreAiConversation], { description: 'Find AI conversations of the current user' })
+  @Roles(RoleEnum.S_USER)
+  async findAiConversations(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiConversation[]> {
+    const currentUser = serviceOptions?.currentUser;
+    const filterQuery = currentUser?.roles?.includes(RoleEnum.ADMIN) ? {} : { createdBy: currentUser?.id };
+    return this.conversationService.find(
+      { filterQuery },
+      { ...serviceOptions, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF] },
+    );
+  }
+
+  /**
+   * Get a single AI conversation by id (owner or admin).
+   */
+  @Query(() => CoreAiConversation, { description: 'Get an AI conversation by id' })
+  @Roles(RoleEnum.S_USER)
+  async getAiConversation(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiConversation> {
+    return this.conversationService.get(id, {
+      ...serviceOptions,
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF],
+    });
   }
 
   // ===================================================================================================================
