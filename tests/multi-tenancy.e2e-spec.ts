@@ -197,7 +197,7 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
 
     // Tenant A tries to update Tenant B's document
     const result = await runAsTenant('tenant-a', () =>
-      tenantItemModel.findOneAndUpdate({ name: 'target' }, { name: 'hacked' }, { new: true }).lean().exec(),
+      tenantItemModel.findOneAndUpdate({ name: 'target' }, { name: 'hacked' }, { returnDocument: 'after' }).lean().exec(),
     );
 
     expect(result).toBeNull();

@@ -119,9 +119,22 @@ export class CoreBetterAuthUserMapper {
   private readonly userCache = new Map<string, CachedUserData>();
   private static readonly USER_CACHE_MAX = 500;
 
-  /** Cache TTL: 15s in production, disabled in test environments */
+  /**
+   * Cache TTL: 15s in production, disabled in test / lt dev environments.
+   *
+   * `PLAYWRIGHT` and `LT_DEV_ACTIVE` (exported by `lt dev up`) join `VITEST`
+   * and the test NODE_ENVs so that E2E suites — which promote a freshly
+   * signed-up user to admin via a direct DB write — always read the user's
+   * current roles instead of a stale 15s-cached copy.
+   */
   private static readonly USER_CACHE_TTL_MS =
-    process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'e2e' ? 0 : 15_000;
+    process.env.VITEST === 'true' ||
+    process.env.PLAYWRIGHT === 'true' ||
+    process.env.LT_DEV_ACTIVE === 'true' ||
+    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === 'e2e'
+      ? 0
+      : 15_000;
 
   constructor(@Optional() @InjectConnection() private readonly connection?: Connection) {}
 

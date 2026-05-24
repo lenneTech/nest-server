@@ -119,7 +119,7 @@ export class CoreTenantService {
               role: effectiveRole,
               status: TenantMemberStatus.ACTIVE,
             },
-            { new: true },
+            { returnDocument: 'after' },
           )
           .lean()
           .exec()) as CoreTenantMemberModel;
@@ -160,7 +160,7 @@ export class CoreTenantService {
         .findOneAndUpdate(
           { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId },
           { status: TenantMemberStatus.SUSPENDED },
-          { new: true },
+          { returnDocument: 'after' },
         )
         .lean()
         .exec();
@@ -201,7 +201,7 @@ export class CoreTenantService {
         .findOneAndUpdate(
           { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId },
           { role },
-          { new: true },
+          { returnDocument: 'after' },
         )
         .lean()
         .exec();

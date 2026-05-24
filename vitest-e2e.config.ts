@@ -14,13 +14,15 @@ export default defineConfig({
   test: {
     environment: 'node',
     // Exclude type-only test files (run these with `npx tsc --noEmit` instead)
-    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts'],
+    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts', 'tests/setup.ts'],
     // Enable parallel file execution for speed
     fileParallelism: true,
     globalSetup: ['tests/global-setup.ts'],
     globals: true,
     hookTimeout: 60000,
     include: ['tests/**/*.ts'],
+    // Runs in every test worker before test files are imported (filters expected log/warn noise)
+    setupFiles: ['tests/setup.ts'],
     // PARALLEL CONFIGURATION: Fast execution with retry mechanism
     // Files run in parallel for maximum speed
     // Flaky tests are automatically retried up to 3 times
