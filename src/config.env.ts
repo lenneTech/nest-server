@@ -27,6 +27,7 @@ const config: { [env: string]: IServerOptions } = {
     },
     ai: {
       // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      audit: true,
       maxIterations: 3,
     },
     automaticObjectIdFiltering: true,
@@ -285,6 +286,7 @@ const config: { [env: string]: IServerOptions } = {
     },
     ai: {
       // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      audit: true,
       maxIterations: 3,
     },
     automaticObjectIdFiltering: true,

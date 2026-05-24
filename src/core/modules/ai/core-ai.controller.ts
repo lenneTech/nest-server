@@ -8,8 +8,10 @@ import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiConnection } from './models/core-ai-connection.model';
+import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
+import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiService } from './services/core-ai.service';
 
 /**
@@ -26,6 +28,7 @@ export class CoreAiController {
   constructor(
     protected readonly aiService: CoreAiService,
     protected readonly connectionService: CoreAiConnectionService,
+    protected readonly interactionService: CoreAiInteractionService,
   ) {}
 
   /**
@@ -96,5 +99,26 @@ export class CoreAiController {
     @Param('id') id: string,
   ): Promise<CoreAiConnection> {
     return this.connectionService.delete(id, serviceOptions);
+  }
+
+  /**
+   * Find AI interaction audit records.
+   */
+  @Get('interactions')
+  @Roles(RoleEnum.ADMIN)
+  async findInteractions(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiInteraction[]> {
+    return this.interactionService.find({}, serviceOptions);
+  }
+
+  /**
+   * Get an AI interaction audit record by id.
+   */
+  @Get('interactions/:id')
+  @Roles(RoleEnum.ADMIN)
+  async getInteraction(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Param('id') id: string,
+  ): Promise<CoreAiInteraction> {
+    return this.interactionService.get(id, serviceOptions);
   }
 }

@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CoreAiController } from './core-ai.controller';
 import { CoreAiResolver } from './core-ai.resolver';
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
+import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import { AiCryptoService } from './services/ai-crypto.service';
 import {
@@ -11,6 +12,11 @@ import {
   AI_CONNECTION_MODEL,
   CoreAiConnectionService,
 } from './services/core-ai-connection.service';
+import {
+  AI_INTERACTION_CLASS,
+  AI_INTERACTION_MODEL,
+  CoreAiInteractionService,
+} from './services/core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './services/core-ai-prompt-builder.service';
 import { CoreAiService } from './services/core-ai.service';
 import { AiToolRegistry } from './tools/ai-tool.registry';
@@ -26,6 +32,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom REST controller (extends CoreAiController). */
   controller?: Type<CoreAiController>;
+
+  /** Custom audit/interaction service (extends CoreAiInteractionService). */
+  interactionService?: Type<CoreAiInteractionService>;
 
   /** Custom prompt builder (extends CoreAiPromptBuilderService). */
   promptBuilder?: Type<CoreAiPromptBuilderService>;
@@ -63,6 +72,7 @@ export class CoreAiModule {
   static forRoot(options: CoreAiModuleOptions = {}): DynamicModule {
     const ConnectionServiceClass = options.connectionService || CoreAiConnectionService;
     const ControllerClass = options.controller || CoreAiController;
+    const InteractionServiceClass = options.interactionService || CoreAiInteractionService;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
@@ -73,18 +83,26 @@ export class CoreAiModule {
         AiCryptoService,
         AiToolRegistry,
         CoreAiConnectionService,
+        CoreAiInteractionService,
         CoreAiPromptBuilderService,
         CoreAiService,
         LlmProviderFactory,
         MongooseModule,
       ],
-      imports: [MongooseModule.forFeature([{ name: AI_CONNECTION_MODEL, schema: AiConnectionSchema }])],
+      imports: [
+        MongooseModule.forFeature([
+          { name: AI_CONNECTION_MODEL, schema: AiConnectionSchema },
+          { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
+        ]),
+      ],
       module: CoreAiModule,
       providers: [
         AiCryptoService,
         AiToolRegistry,
         LlmProviderFactory,
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
+        { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
+        { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
         // Bind base-class tokens to the (possibly overridden) implementations so
         // injections by base type resolve to the project's subclass.
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },

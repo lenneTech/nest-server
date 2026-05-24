@@ -9,8 +9,10 @@ import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiConnection } from './models/core-ai-connection.model';
+import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
+import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiService } from './services/core-ai.service';
 
 /**
@@ -29,6 +31,7 @@ export class CoreAiResolver {
   constructor(
     protected readonly aiService: CoreAiService,
     protected readonly connectionService: CoreAiConnectionService,
+    protected readonly interactionService: CoreAiInteractionService,
   ) {}
 
   // ===================================================================================================================
@@ -110,5 +113,33 @@ export class CoreAiResolver {
     @Args('input') input: CoreAiConnectionInput,
   ): Promise<CoreAiConnection> {
     return this.connectionService.update(id, input, { ...serviceOptions, inputType: CoreAiConnectionInput });
+  }
+
+  // ===================================================================================================================
+  // Audit (admin)
+  // ===================================================================================================================
+
+  /**
+   * Find AI interaction audit records (via filter).
+   */
+  @Query(() => [CoreAiInteraction], { description: 'Find AI interaction audit records' })
+  @Roles(RoleEnum.ADMIN)
+  async findAiInteractions(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args() args?: FilterArgs,
+  ): Promise<CoreAiInteraction[]> {
+    return this.interactionService.find(args, { ...serviceOptions, inputType: FilterArgs });
+  }
+
+  /**
+   * Get a single AI interaction audit record by id.
+   */
+  @Query(() => CoreAiInteraction, { description: 'Get an AI interaction audit record by id' })
+  @Roles(RoleEnum.ADMIN)
+  async getAiInteraction(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiInteraction> {
+    return this.interactionService.get(id, serviceOptions);
   }
 }

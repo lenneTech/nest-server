@@ -1124,6 +1124,12 @@ export interface IAiRateLimit {
  * ```
  */
 export interface IAi {
+  /**
+   * Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
+   * @default false
+   */
+  audit?: boolean;
+
   /** Optional one-time seed for a default connection (see {@link IAiDefaultConnection}). */
   defaultConnection?: IAiDefaultConnection;
 

@@ -4,6 +4,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import {
   AiToolRegistry,
   CoreAiConnectionService,
+  CoreAiInteractionService,
   CoreAiService,
   HttpExceptionLogFilter,
   ILlmProvider,
@@ -36,6 +37,7 @@ describe('AI module (e2e)', () => {
   let db;
 
   let connectionService: CoreAiConnectionService;
+  let interactionService: CoreAiInteractionService;
   let aiService: CoreAiService;
   let registry: AiToolRegistry;
   let providerFactory: LlmProviderFactory;
@@ -54,6 +56,7 @@ describe('AI module (e2e)', () => {
     await app.init();
 
     connectionService = app.get(CoreAiConnectionService);
+    interactionService = app.get(CoreAiInteractionService);
     aiService = app.get(CoreAiService);
     registry = app.get(AiToolRegistry);
     providerFactory = app.get(LlmProviderFactory);
@@ -65,6 +68,7 @@ describe('AI module (e2e)', () => {
   afterAll(async () => {
     if (db) {
       await db.collection('aiConnections').deleteMany({});
+      await db.collection('aiInteractions').deleteMany({});
     }
     if (connection) {
       await connection.close();
@@ -178,6 +182,22 @@ describe('AI module (e2e)', () => {
     expect(response.connectionId).toBe(conn.id);
     expect(response.actions?.[0]).toMatchObject({ name: 'find_users', success: true });
     expect(response.iterations).toBe(2);
+
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('persists an audit interaction record when ai.audit is enabled', async () => {
+    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'audited answer' })]));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Audit Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    await aiService.prompt({ prompt: 'audit me please' } as any, adminOptions);
+
+    const records = await interactionService.find({ filterQuery: { prompt: 'audit me please' } }, adminOptions);
+    expect(records.length).toBeGreaterThanOrEqual(1);
+    expect(records[0]).toMatchObject({ responseText: 'audited answer', userId: admin.id });
 
     await connectionService.delete(conn.id, adminOptions);
   });

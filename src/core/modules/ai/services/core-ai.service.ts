@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
@@ -11,6 +11,7 @@ import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
 import { CoreAiConnectionService } from './core-ai-connection.service';
+import { CoreAiInteractionService } from './core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 
 /**
@@ -22,6 +23,7 @@ export interface AiInteractionRecord {
   iterations: number;
   prompt: string;
   responseText: string;
+  usage?: { completionTokens?: number; promptTokens?: number; totalTokens?: number };
   userId?: string;
 }
 
@@ -57,6 +59,7 @@ export class CoreAiService {
     protected readonly providerFactory: LlmProviderFactory,
     protected readonly toolRegistry: AiToolRegistry,
     protected readonly promptBuilder: CoreAiPromptBuilderService,
+    @Optional() protected readonly interactionService?: CoreAiInteractionService,
   ) {}
 
   /**
@@ -152,6 +155,7 @@ export class CoreAiService {
       iterations,
       prompt: input.prompt,
       responseText: finalText,
+      usage,
       userId: currentUser?.id,
     });
 
@@ -163,14 +167,23 @@ export class CoreAiService {
   // ===================================================================================================================
 
   /**
-   * Persist/track a prompt run. Default implementation logs at debug level.
-   * Override to write an audit collection.
+   * Persist/track a prompt run. Logs at debug level and, when `ai.audit` is
+   * enabled and an interaction service is available, persists an audit record.
+   * Override to change tracking behaviour.
    */
   protected async audit(record: AiInteractionRecord): Promise<void> {
     this.logger.debug(
       `AI prompt by ${record.userId ?? 'anonymous'} via ${record.connectionId}: ` +
         `${record.iterations} iteration(s), ${record.actions.length} action(s)`,
     );
+    if (ConfigService.get('ai.audit') && this.interactionService) {
+      try {
+        await this.interactionService.record(record);
+      } catch (err) {
+        // Auditing must never break a prompt response.
+        this.logger.warn(`Failed to persist AI audit record: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**
