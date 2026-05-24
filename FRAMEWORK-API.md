@@ -12,6 +12,7 @@
 
 ### IServerOptions
 
+  - `ai?`: `boolean | IAi` — Configuration for the AI assistant module.
   - `appUrl?`: `string` — Base URL of the frontend/app application.
   - `auth?`: `IAuth` — Authentication system configuration
   - `automaticObjectIdFiltering?`: `boolean` — Automatically detect ObjectIds in string values in FilterQueries
@@ -96,6 +97,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### ICoreModuleOverrides
 
+  - `ai?`: `{ connectionService?: Type<any>; controller?: Type<any>; promptBuilder?: Type...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
 
@@ -222,6 +224,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 
 | Module | Docs | Path |
 |--------|------|------|
+| `ai` | README, CHECKLIST | `src/core/modules/ai/` |
 | `auth` | — | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |

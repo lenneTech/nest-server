@@ -37,6 +37,7 @@ import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
+import { CoreAiModule } from './core/modules/ai/core-ai.module';
 import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
@@ -441,6 +442,14 @@ export class CoreModule implements NestModule {
     // Enabled by default - disable explicitly via systemSetup: { enabled: false }
     if (isBetterAuthEnabled && config.systemSetup?.enabled !== false) {
       imports.push(CoreSystemSetupModule);
+    }
+
+    // Add CoreAiModule when an `ai` config block is present (presence implies enabled)
+    const aiConfig = config.ai;
+    const isAiEnabled =
+      aiConfig === true || (typeof aiConfig === 'object' && aiConfig !== null && aiConfig.enabled !== false);
+    if (isAiEnabled) {
+      imports.push(CoreAiModule.forRoot(overrides?.ai || {}));
     }
 
     // Add CoreTenantModule when multiTenancy is configured (presence implies enabled)

@@ -16,7 +16,14 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     debug: false,
     noteCheckedObjects: true,
     removeSecretFields: true,
-    secretFields: ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'],
+    secretFields: [
+      'password',
+      'verificationToken',
+      'passwordResetToken',
+      'refreshTokens',
+      'tempTokens',
+      'apiKeyEncrypted',
+    ],
   };
 
   constructor(private readonly configService: ConfigService) {

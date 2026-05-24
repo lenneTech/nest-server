@@ -1,0 +1,125 @@
+/**
+ * Abstraction layer for Large Language Model (LLM) providers.
+ *
+ * A provider encapsulates the transport to a concrete LLM backend (e.g. an
+ * OpenAI-compatible endpoint like mittwald AI hosting, a local Ollama instance,
+ * or a future native Anthropic/OpenAI integration). The orchestrator
+ * ({@link CoreAiService}) talks only to this interface, so backends can be
+ * swapped or extended without touching the agent loop.
+ *
+ * ## Native vs. emulated tool calling
+ *
+ * Not every backend supports native function/tool calling. mittwald's
+ * OpenAI-compatible gateway, for example, does NOT support the `tools`/`functions`
+ * parameter or JSON mode. Providers therefore declare {@link supportsNativeTools}:
+ * - `true`  → the orchestrator passes tool schemas natively and reads `toolCalls`
+ *   from the response.
+ * - `false` → the orchestrator emulates tool calling by injecting the tool
+ *   catalog into the system prompt and parsing a structured JSON block out of the
+ *   model's text response.
+ */
+export type LlmMessageRole = 'assistant' | 'system' | 'tool' | 'user';
+
+/**
+ * A single chat message exchanged with the LLM.
+ */
+export interface LlmMessage {
+  /** Plain-text content of the message. */
+  content: string;
+
+  /** Author role of the message. */
+  role: LlmMessageRole;
+}
+
+/**
+ * JSON-schema description of a tool the LLM may call.
+ */
+export interface LlmToolSchema {
+  /** Human-readable description used by the model to decide when to call the tool. */
+  description: string;
+
+  /** Unique tool name (snake_case recommended). */
+  name: string;
+
+  /** JSON schema of the tool's input arguments. */
+  parameters: Record<string, any>;
+}
+
+/**
+ * A tool invocation requested by the LLM.
+ */
+export interface LlmToolCall {
+  /** Parsed arguments for the tool. */
+  arguments: Record<string, any>;
+
+  /** Optional provider-specific call id (used by native tool calling). */
+  id?: string;
+
+  /** Name of the tool to call. */
+  name: string;
+}
+
+/**
+ * Token usage reported by the provider (best effort).
+ */
+export interface LlmUsage {
+  completionTokens?: number;
+  promptTokens?: number;
+  totalTokens?: number;
+}
+
+/**
+ * Per-request completion options. Values fall back to the connection defaults
+ * when omitted.
+ */
+export interface LlmCompletionOptions {
+  /** Maximum number of tokens to generate. */
+  maxTokens?: number;
+
+  /** Overrides the model id of the resolved connection. */
+  model?: string;
+
+  /** Sampling temperature. */
+  temperature?: number;
+
+  /** Per-request timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
+/**
+ * Normalized response of a single LLM completion.
+ */
+export interface LlmResponse {
+  /** Raw provider payload (for debugging/audit, never sent to clients). */
+  raw?: unknown;
+
+  /** Natural-language text content of the response. */
+  text: string;
+
+  /** Tool calls (only populated when {@link ILlmProvider.supportsNativeTools} is true). */
+  toolCalls?: LlmToolCall[];
+
+  /** Token usage (best effort). */
+  usage?: LlmUsage;
+}
+
+/**
+ * Provider abstraction. Implementations are created per request by the
+ * {@link LlmProviderFactory} from a persisted {@link CoreAiConnection}.
+ */
+export interface ILlmProvider {
+  /** Identifier of the provider implementation (e.g. 'openai-compatible'). */
+  readonly name: string;
+
+  /** Whether the backend supports native function/tool calling. */
+  readonly supportsNativeTools: boolean;
+
+  /**
+   * Run a chat completion.
+   *
+   * @param messages Conversation so far (system + user + assistant + tool).
+   * @param tools Tool schemas the model may use (ignored when not supported).
+   * @param options Per-request completion options.
+   */
+  chat(messages: LlmMessage[], tools: LlmToolSchema[], options?: LlmCompletionOptions): Promise<LlmResponse>;
+}

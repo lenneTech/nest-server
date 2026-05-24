@@ -1046,9 +1046,122 @@ export interface ICorsConfig {
 }
 
 /**
+ * Bootstrap configuration for a default AI connection.
+ *
+ * When set and no connection exists yet, the AI module seeds this as the default
+ * connection on first start. The database remains the source of truth afterwards;
+ * connections are managed at runtime (admin CRUD / frontend settings). Prefer
+ * `apiKeyEnv` over an inline `apiKey` so no secret is committed to config.
+ */
+export interface IAiDefaultConnection {
+  /** Inline plaintext API key (encrypted on seed). Prefer `apiKeyEnv` instead. */
+  apiKey?: string;
+
+  /** Name of an environment variable holding the API key (e.g. 'MITTWALD_API_KEY'). */
+  apiKeyEnv?: string;
+
+  /** Base URL of the OpenAI-compatible endpoint. */
+  baseUrl: string;
+
+  /** Capability tags (free-form, e.g. 'analysis', 'vision'). */
+  capabilities?: string[];
+
+  /** Default maximum number of tokens for completions. */
+  defaultMaxTokens?: number;
+
+  /** Default sampling temperature. */
+  defaultTemperature?: number;
+
+  /** Human-readable description. */
+  description?: string;
+
+  /** Model id sent to the backend (e.g. 'gpt-oss-120b'). */
+  model: string;
+
+  /** Human-readable connection name. */
+  name: string;
+
+  /** Provider type (default 'openai-compatible'). */
+  providerType?: string;
+
+  /** Whether the model supports image input. */
+  supportsVision?: boolean;
+}
+
+/**
+ * Rate-limit configuration for AI prompts (presence implies enabled).
+ */
+export interface IAiRateLimit {
+  /** Explicitly disable while keeping the config (default: enabled when present). */
+  enabled?: boolean;
+
+  /** Maximum number of prompts per window per user. @default 20 */
+  max?: number;
+
+  /** Window length in seconds. @default 60 */
+  windowSeconds?: number;
+}
+
+/**
+ * Configuration for the AI assistant module (presence implies enabled).
+ *
+ * The AI module adds a prompt orchestrator with emulated/native tool calling and
+ * database-backed LLM connections (managed at runtime by admins). Omit the block
+ * to disable the module entirely; set `enabled: false` to keep config but disable.
+ *
+ * @example
+ * ```typescript
+ * ai: {
+ *   maxIterations: 5,
+ *   rateLimit: { max: 20, windowSeconds: 60 },
+ *   defaultConnection: {
+ *     name: 'mittwald GPT-OSS 120B',
+ *     baseUrl: 'https://llm.aihosting.mittwald.de/v1',
+ *     model: 'gpt-oss-120b',
+ *     apiKeyEnv: 'MITTWALD_API_KEY',
+ *   },
+ * }
+ * ```
+ */
+export interface IAi {
+  /** Optional one-time seed for a default connection (see {@link IAiDefaultConnection}). */
+  defaultConnection?: IAiDefaultConnection;
+
+  /** Explicitly disable while keeping the config (default: enabled when present). */
+  enabled?: boolean;
+
+  /**
+   * Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
+   * keys. Falls back to `NSC__AI__ENCRYPTION_SECRET` / `SECRETS_ENCRYPTION_KEY`.
+   * MUST be set to a random 32+ char value in production.
+   */
+  encryptionSecret?: string;
+
+  /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
+  maxIterations?: number;
+
+  /** Rate limiting for prompts. */
+  rateLimit?: IAiRateLimit;
+
+  /** Base system prompt prepended to every conversation. */
+  systemPrompt?: string;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
+  /**
+   * Configuration for the AI assistant module.
+   *
+   * Presence implies enabled (omit to disable, `{ enabled: false }` to keep config
+   * but disable). Adds the prompt orchestrator, the tool registry and admin-managed
+   * database-backed LLM connections.
+   *
+   * @see IAi
+   */
+  ai?: boolean | IAi;
+
   /**
    * Base URL of the frontend/app application.
    *
@@ -2866,6 +2979,33 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
  * @since 11.22.0
  */
 export interface ICoreModuleOverrides {
+  /**
+   * Override AI module collaborators with project-specific subclasses.
+   *
+   * - `connectionService` must extend `CoreAiConnectionService`
+   * - `controller` must extend `CoreAiController`
+   * - `promptBuilder` must extend `CoreAiPromptBuilderService`
+   * - `resolver` must extend `CoreAiResolver` (re-declare GraphQL decorators)
+   * - `service` must extend `CoreAiService`
+   *
+   * @example
+   * ```typescript
+   * {
+   *   ai: {
+   *     service: MyAiService,
+   *     resolver: MyAiResolver,
+   *   },
+   * }
+   * ```
+   */
+  ai?: {
+    connectionService?: Type<any>;
+    controller?: Type<any>;
+    promptBuilder?: Type<any>;
+    resolver?: Type<any>;
+    service?: Type<any>;
+  };
+
   /**
    * Override BetterAuth controller and/or resolver.
    *

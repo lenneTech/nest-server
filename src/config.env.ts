@@ -25,6 +25,10 @@ const config: { [env: string]: IServerOptions } = {
     auth: {
       legacyEndpoints: { enabled: true },
     },
+    ai: {
+      // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      maxIterations: 3,
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       // Email verification disabled for test environment (no real mailbox available)
@@ -279,6 +283,10 @@ const config: { [env: string]: IServerOptions } = {
     auth: {
       legacyEndpoints: { enabled: true },
     },
+    ai: {
+      // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      maxIterations: 3,
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       // Email verification disabled for test environment (no real mailbox available)
@@ -415,6 +423,25 @@ const config: { [env: string]: IServerOptions } = {
   // Local environment (env: 'local' → auto URLs + Passkey)
   // ===========================================================================
   local: {
+    // AI assistant module (presence implies enabled).
+    // Connections are managed at runtime (admin CRUD); the defaultConnection below
+    // is only a one-time seed and reads its key from the MITTWALD_API_KEY env var,
+    // so no secret is committed to the repository.
+    ai: {
+      defaultConnection: {
+        apiKeyEnv: 'MITTWALD_API_KEY',
+        baseUrl: 'https://llm.aihosting.mittwald.de/v1',
+        capabilities: ['analysis'],
+        description: 'mittwald (DE/DSGVO) GPT-OSS 120B',
+        defaultMaxTokens: 4096,
+        defaultTemperature: 0.1,
+        model: 'gpt-oss-120b',
+        name: 'mittwald GPT-OSS 120B',
+        providerType: 'openai-compatible',
+      },
+      maxIterations: 5,
+      rateLimit: { max: 20, windowSeconds: 60 },
+    },
     auth: {
       legacyEndpoints: { enabled: true },
     },
