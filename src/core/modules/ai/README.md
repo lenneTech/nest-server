@@ -156,12 +156,53 @@ factory.registerBuilder('anthropic', (conn) => new AnthropicProvider(conn));
 - **Streaming**: `POST /ai/stream` returns Server-Sent Events (`action`, `token`,
   `final`, `error`). `CoreAiService.promptStream()` powers it.
 
-## Destructive actions
+## Plan mode (pre-flight permission validation, all-or-nothing)
 
-Mark a tool `destructive: true`. The orchestrator returns
-`requiresConfirmation: true` with `pendingActions` instead of executing; the
-client re-sends the prompt with `confirm: true` to proceed (see `delete_user` in
-the reference tools).
+Send `input.mode: 'plan'` (or set `ai.defaultMode: 'plan'`). The model first
+produces a complete plan; the backend then **authorizes every step up front**
+(registry role filter + each tool's optional `authorize()` data-level check). If
+ANY step is not permitted, **nothing executes** and a translated (de/en) error with
+`deniedActions` is returned. Otherwise all steps run in order, feeding results
+forward. This is the strongest fit for "do several connected actions automatically,
+but only if the user may perform all of them".
+
+```typescript
+@Injectable()
+export class TransferFundsTool extends AiTool {
+  readonly name = 'transfer_funds';
+  readonly mutating = true; // governed by the confirmation policy
+  readonly destructive = true; // always requires confirmation
+  // Pre-flight check WITHOUT mutating — decides if the user may run this:
+  async authorize(args, context) {
+    const account = await this.accountService.get(args.fromId, context.serviceOptions).catch(() => null);
+    return { allowed: !!account, reason: account ? undefined : 'No access to source account' };
+  }
+  async execute(args, context) {
+    /* … */
+  }
+}
+```
+
+## Confirmation for changes
+
+- `destructive` tools always require confirmation.
+- `mutating` tools follow `ai.confirmation.mutating: { default, enforced }`: the admin
+  default can be overridden per request via `input.requireConfirmation` — unless the
+  admin set `enforced: true`.
+- When confirmation is needed the response has `requiresConfirmation: true` +
+  `pendingActions`; re-send the prompt with `confirm: true` to proceed.
+
+## Client metadata & prompt enrichment
+
+- `input.metadata` (current URL, navigation steps, console logs, …) is injected as a
+  clearly-delimited, size-capped, **untrusted** context block.
+- The system prompt is enriched with the user's roles + available tools and optional
+  `ai.documentation` (override `CoreAiPromptBuilderService.getDocumentation()` for RAG).
+
+## Budget
+
+`ai.budget: { maxPromptsPerDay, maxTokensPerDay }` (requires `audit`) is enforced
+before a run; exceeding it aborts with HTTP 429 + a translated message.
 
 ## MCP server (`ai.mcp: true`)
 
@@ -174,8 +215,22 @@ same role gating. Enable with `ai: { mcp: true }` (requires
   framework's existing auth) — the MCP session is bound to that user, and
   `tools/list` / `tools/call` are filtered to and executed with their permissions.
 - Unauthenticated requests get `401` with a `WWW-Authenticate` header.
-- Full OAuth 2.1 dynamic client registration (per the framework `mcp-integration`
-  guide) is a later hardening step.
+
+### OAuth 2.1 (`ai.mcp.oauth: true`)
+
+For generic MCP clients (e.g. Claude Desktop) that auto-discover + register:
+`CoreAiMcpOAuthService` provides HMAC-signed access tokens (constant-time verify),
+PKCE S256, and MongoDB-backed client/code/refresh stores; the MCP controller then
+also accepts OAuth access tokens. Mount the discovery/token endpoints in `main.ts`:
+
+```typescript
+// main.ts, after app.init()
+import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
+await mountAiMcpOAuth(app, { baseUrl: process.env.BASE_URL });
+```
+
+Override `CoreAiMcpOAuthService.authorizeConsent()` to wire your login/consent UI.
+Set `ai.mcp.oauthSecret` (or reuse `ai.encryptionSecret`) to a random 32+ char value.
 
 ## Tests
 

@@ -91,6 +91,37 @@ When overriding the resolver, **re-declare all GraphQL decorators**
 (`@Mutation`/`@Query`/`@Roles`) — the schema is built from decorators at compile
 time.
 
+## Advanced configuration (optional)
+
+```typescript
+ai: {
+  defaultMode: 'auto',                 // or 'plan' (validate all permissions, then execute atomically)
+  documentation: '…',                  // system docs injected into the prompt (or override getDocumentation())
+  confirmation: { mutating: { default: false, enforced: false } }, // require confirmation for create/update/delete
+  audit: true,                         // persist runs to aiInteractions (required for budget)
+  budget: { maxPromptsPerDay: 200, maxTokensPerDay: 500000 },
+  mcp: { oauth: true, oauthSecret: process.env.NSC__AI__ENCRYPTION_SECRET },
+}
+```
+
+- **Plan mode / pre-flight permissions:** give data-mutating tools an `authorize()` that
+  checks permission WITHOUT mutating (e.g. load the record + verify ownership). Plan mode
+  runs it for every step before executing anything.
+- **Confirmation:** mark create/update/delete tools `mutating: true` and irreversible ones
+  `destructive: true`.
+
+### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
+
+**Edit `main.ts`** (after `app.init()`):
+
+```typescript
+import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
+await mountAiMcpOAuth(app, { baseUrl: process.env.BASE_URL });
+```
+
+Override `CoreAiMcpOAuthService.authorizeConsent()` with your login/consent UI (the only
+browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are built in.
+
 ## Verification Checklist
 
 - [ ] Build succeeds (`pnpm run build`)
