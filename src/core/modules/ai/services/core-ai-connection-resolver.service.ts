@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 
+import { ErrorCode } from '../../error-code';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 import { CoreAiAvailableConnection } from '../models/core-ai-available-connection.model';
 import { CoreAiConnectionPreference } from '../models/core-ai-connection-preference.model';
@@ -123,12 +124,12 @@ export class CoreAiConnectionResolverService {
    */
   async setUserConnection(userId: string, connectionId: string, tenantId?: string): Promise<void> {
     if (!this.preferenceService) {
-      throw new ForbiddenException('AI connection preferences are not available');
+      throw new ForbiddenException(ErrorCode.AI_PREFERENCES_UNAVAILABLE);
     }
     const connections = await this.connectionService.listUsable();
     const available = this.availableConnections(connections, tenantId);
     if (!available.some((c) => c.id === connectionId)) {
-      throw new ForbiddenException('The selected AI connection is not available');
+      throw new ForbiddenException(ErrorCode.AI_CONNECTION_NOT_AVAILABLE);
     }
     await this.preferenceService.upsertPreference('user', userId, connectionId);
   }
@@ -145,7 +146,7 @@ export class CoreAiConnectionResolverService {
     enforced = false,
   ): Promise<CoreAiConnectionPreference> {
     if (!this.preferenceService) {
-      throw new ForbiddenException('AI connection preferences are not available');
+      throw new ForbiddenException(ErrorCode.AI_PREFERENCES_UNAVAILABLE);
     }
     await this.assertConnectionUsable(connectionId);
     return this.preferenceService.upsertPreference(scope, refId, connectionId, enforced);
@@ -157,7 +158,7 @@ export class CoreAiConnectionResolverService {
   protected async assertConnectionUsable(connectionId: string): Promise<void> {
     const connections = await this.connectionService.listUsable();
     if (!connections.some((c) => c.id === connectionId)) {
-      throw new NotFoundException(`AI connection "${connectionId}" does not exist or is not usable`);
+      throw new NotFoundException(ErrorCode.AI_CONNECTION_NOT_FOUND);
     }
   }
 

@@ -138,3 +138,6 @@ export class CoreAiInteraction extends CorePersistenceModel {
 }
 
 export const AiInteractionSchema = SchemaFactory.createForClass(CoreAiInteraction);
+// Compound indexes for the budget period query (userId/tenantId + createdAt range).
+AiInteractionSchema.index({ userId: 1, createdAt: 1 });
+AiInteractionSchema.index({ tenantId: 1, createdAt: 1 });

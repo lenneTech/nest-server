@@ -189,15 +189,18 @@ the supported way to customize a core tool.
 Every collaborator can be replaced with a project subclass via
 `CoreModule.forRoot(envConfig, { ai: { … } })`:
 
-| Override             | Base class                                                       |
-| -------------------- | ---------------------------------------------------------------- |
-| `service`            | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)   |
-| `promptBuilder`      | `CoreAiPromptBuilderService` (system prompt, RAG)                |
-| `connectionService`  | `CoreAiConnectionService`                                        |
-| `connectionResolver` | `CoreAiConnectionResolverService` (resolution chain)             |
-| `preferenceService`  | `CoreAiConnectionPreferenceService` (tenant/user preferences)    |
-| `resolver`           | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
-| `controller`         | `CoreAiController`                                               |
+| Override              | Base class                                                       |
+| --------------------- | ---------------------------------------------------------------- |
+| `service`             | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)   |
+| `promptBuilder`       | `CoreAiPromptBuilderService` (system prompt, RAG)                |
+| `connectionService`   | `CoreAiConnectionService`                                        |
+| `connectionResolver`  | `CoreAiConnectionResolverService` (resolution chain)             |
+| `preferenceService`   | `CoreAiConnectionPreferenceService` (tenant/user preferences)    |
+| `budgetService`       | `CoreAiBudgetService` (token/prompt budgets + usage)             |
+| `conversationService` | `CoreAiConversationService` (multi-turn history)                 |
+| `interactionService`  | `CoreAiInteractionService` (audit records)                       |
+| `resolver`            | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
+| `controller`          | `CoreAiController`                                               |
 
 Add a new LLM backend by registering a builder on `LlmProviderFactory`:
 

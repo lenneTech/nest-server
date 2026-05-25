@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+import { IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -75,6 +76,7 @@ export class CoreAiPromptInput {
     description: "Execution mode: 'auto' (reactive loop) or 'plan' (validate all permissions, then execute atomically)",
     isOptional: true,
     roles: RoleEnum.S_USER,
+    validator: () => [IsIn(['auto', 'plan'])],
   })
   mode?: string = undefined;
 
@@ -84,6 +86,7 @@ export class CoreAiPromptInput {
   @UnifiedField({
     description: 'The user prompt text',
     roles: RoleEnum.S_USER,
+    validator: () => [IsString(), IsNotEmpty(), MaxLength(50000)],
   })
   prompt: string = undefined;
 

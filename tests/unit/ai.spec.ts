@@ -5,6 +5,7 @@ import { ConfigService } from '../../src/core/common/services/config.service';
 import { IAiTool } from '../../src/core/modules/ai/interfaces/ai-tool.interface';
 import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/llm-provider.interface';
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
+import { OpenAiCompatibleProvider } from '../../src/core/modules/ai/providers/openai-compatible.provider';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
 import { CoreAiBudgetService } from '../../src/core/modules/ai/services/core-ai-budget.service';
 import { CoreAiConnectionResolverService } from '../../src/core/modules/ai/services/core-ai-connection-resolver.service';
@@ -804,5 +805,129 @@ describe('CoreAiConnectionResolverService (resolution chain)', () => {
     await resolver.resolveConnectionId({ tenantId: 't1', userId: 'u1' });
     // tenantDefault (layer 2) + tenantEnforced (layer 5) share a single DB read.
     expect(tenantQueries).toBe(1);
+  });
+});
+
+describe('OpenAiCompatibleProvider', () => {
+  const baseConn = {
+    apiKey: 'sk-x',
+    baseUrl: 'https://llm.example.com/v1',
+    defaultMaxTokens: 256,
+    id: 'c1',
+    model: 'm',
+    name: 'Test',
+    providerType: 'openai-compatible',
+  };
+
+  beforeAll(() => {
+    new ConfigService({ ai: {} } as any);
+  });
+
+  it('derives capabilities from the connection flags', () => {
+    const p1 = new OpenAiCompatibleProvider({ ...baseConn } as any);
+    expect(p1.capabilities).toEqual({ jsonResponse: false, nativeTools: false, systemPrompt: true });
+    const p2 = new OpenAiCompatibleProvider({
+      ...baseConn,
+      supportsJsonResponse: true,
+      supportsNativeTools: true,
+    } as any);
+    expect(p2.capabilities).toMatchObject({ jsonResponse: true, nativeTools: true });
+  });
+
+  it('maps native tool_calls to normalized tool calls (tolerating bad JSON)', () => {
+    class Exposed extends OpenAiCompatibleProvider {
+      map(tc: any[]) {
+        return this.mapNativeToolCalls(tc);
+      }
+    }
+    const p = new Exposed({ ...baseConn } as any);
+    expect(
+      p.map([
+        { function: { arguments: '{"a":1}', name: 'foo' }, id: 'call_1' },
+        { function: { arguments: 'not-json', name: 'bar' }, id: 'call_2' },
+        { function: { name: '' } },
+      ]),
+    ).toEqual([
+      { arguments: { a: 1 }, id: 'call_1', name: 'foo' },
+      { arguments: {}, id: 'call_2', name: 'bar' },
+    ]);
+  });
+
+  it('returns text + usage on a successful completion', async () => {
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      json: async () => ({
+        choices: [{ message: { content: 'hello' } }],
+        usage: { completion_tokens: 2, prompt_tokens: 3, total_tokens: 5 },
+      }),
+      ok: true,
+    })) as any;
+    try {
+      const p = new OpenAiCompatibleProvider({ ...baseConn } as any);
+      const res = await p.chat([{ content: 'hi', role: 'user' }], []);
+      expect(res.text).toBe('hello');
+      expect(res.usage).toMatchObject({ completionTokens: 2, promptTokens: 3, totalTokens: 5 });
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('maps a transport error to 503 and a non-ok response to 502', async () => {
+    const orig = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => {
+        throw new Error('boom');
+      }) as any;
+      const p = new OpenAiCompatibleProvider({ ...baseConn } as any);
+      await expect(p.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 503 });
+
+      globalThis.fetch = (async () => ({ ok: false, status: 500, text: async () => 'upstream error' })) as any;
+      await expect(p.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 502 });
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  // Must stay last: sets ai.allowedBaseUrlHosts on the shared ConfigService singleton.
+  it('enforces ai.allowedBaseUrlHosts when configured', async () => {
+    new ConfigService({ ai: { allowedBaseUrlHosts: ['allowed.example.com'] } } as any);
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+      ok: true,
+    })) as any;
+    try {
+      const blocked = new OpenAiCompatibleProvider({ ...baseConn, baseUrl: 'https://evil.example.com/v1' } as any);
+      await expect(blocked.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 503 });
+
+      const allowed = new OpenAiCompatibleProvider({ ...baseConn, baseUrl: 'https://allowed.example.com/v1' } as any);
+      expect((await allowed.chat([{ content: 'hi', role: 'user' }], [])).text).toBe('ok');
+    } finally {
+      globalThis.fetch = orig;
+      new ConfigService({ ai: { allowedBaseUrlHosts: [] } } as any);
+    }
+  });
+});
+
+describe('CoreAiMcpOAuthService.buildOAuthProvider (wiring)', () => {
+  beforeAll(() => {
+    new ConfigService({ ai: { mcp: { oauth: true, oauthSecret: 'unit-mcp-oauth-secret-32-characters!!' } } } as any);
+  });
+
+  it('exposes the OAuthServerProvider interface and verifies/rejects access tokens', async () => {
+    const svc = new CoreAiMcpOAuthService({} as any);
+    const provider = svc.buildOAuthProvider(3600);
+    expect(typeof provider.clientsStore.getClient).toBe('function');
+    expect(typeof provider.clientsStore.registerClient).toBe('function');
+    expect(typeof provider.exchangeAuthorizationCode).toBe('function');
+    expect(typeof provider.exchangeRefreshToken).toBe('function');
+    expect(typeof provider.verifyAccessToken).toBe('function');
+
+    const token = svc.signAccessToken('user-9', 'client-9', 3600);
+    await expect(provider.verifyAccessToken(token)).resolves.toMatchObject({
+      clientId: 'client-9',
+      extra: { userId: 'user-9' },
+    });
+    await expect(provider.verifyAccessToken('bogus.token')).rejects.toThrow(/invalid_token/);
   });
 });

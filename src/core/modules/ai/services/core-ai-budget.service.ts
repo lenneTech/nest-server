@@ -5,6 +5,7 @@ import { Connection, Model } from 'mongoose';
 import { ConfigService } from '../../../common/services/config.service';
 import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
+import { ErrorCode } from '../../error-code';
 import { CoreAiBudgetLimitCreateInput } from '../inputs/core-ai-budget-limit-create.input';
 import { CoreAiBudgetLimitInput } from '../inputs/core-ai-budget-limit.input';
 import { AiBudgetLimitDocument, CoreAiBudgetLimit } from '../models/core-ai-budget-limit.model';
@@ -95,12 +96,17 @@ export class CoreAiBudgetService extends CrudService<
     if (!db) {
       return { resetAt: this.nextReset(period), usedPrompts: 0, usedTokens: 0 };
     }
-    const docs = await db
+    // Sum prompts + tokens server-side via aggregation so only the aggregate crosses
+    // the wire (a per-prompt `.find().toArray()` would load every interaction doc into
+    // the Node heap). Backed by the `{ userId|tenantId, createdAt }` compound indexes.
+    const [agg] = await db
       .collection(this.interactionsCollection)
-      .find(match, { projection: { totalTokens: 1 } })
+      .aggregate<{ usedPrompts: number; usedTokens: number }>([
+        { $match: match },
+        { $group: { _id: null, usedPrompts: { $sum: 1 }, usedTokens: { $sum: { $ifNull: ['$totalTokens', 0] } } } },
+      ])
       .toArray();
-    const usedTokens = docs.reduce((sum, doc) => sum + (Number((doc as { totalTokens?: number }).totalTokens) || 0), 0);
-    return { resetAt: this.nextReset(period), usedPrompts: docs.length, usedTokens };
+    return { resetAt: this.nextReset(period), usedPrompts: agg?.usedPrompts ?? 0, usedTokens: agg?.usedTokens ?? 0 };
   }
 
   /**
@@ -120,7 +126,9 @@ export class CoreAiBudgetService extends CrudService<
       }
       const usage = await this.getUsage(scope === 'user' ? { userId: refId } : { tenantId: refId }, limit.period);
       if (this.exceeded(usage, limit)) {
-        throw new HttpException(this.budgetMessage(language), HttpStatus.TOO_MANY_REQUESTS);
+        // Message is translated (de/en) by the error-code translation layer.
+        void language;
+        throw new HttpException(ErrorCode.AI_BUDGET_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
       }
     }
   }
@@ -153,6 +161,11 @@ export class CoreAiBudgetService extends CrudService<
       return summary;
     }
     const limit = await this.resolveLimit('user', userId);
+    // Unlimited user → nothing to report; skip the usage aggregation entirely.
+    // Full usage is still available on demand via `aiUsage` / GET /ai/usage.
+    if (!this.finite(limit.maxTokens) && !this.finite(limit.maxPrompts)) {
+      return summary;
+    }
     const usage = await this.getUsage({ userId }, limit.period);
     summary.usedTokens = usage.usedTokens;
     summary.remainingTokens = this.finite(limit.maxTokens)
@@ -228,11 +241,5 @@ export class CoreAiBudgetService extends CrudService<
     next.setHours(0, 0, 0, 0);
     next.setDate(next.getDate() + 1);
     return next;
-  }
-
-  protected budgetMessage(language?: string): string {
-    return (language || 'en').slice(0, 2).toLowerCase() === 'de'
-      ? 'Dein KI-Token-Kontingent für diesen Zeitraum ist aufgebraucht. Bitte versuche es nach dem nächsten Reset erneut.'
-      : 'Your AI token budget for this period is exhausted. Please try again after the next reset.';
   }
 }

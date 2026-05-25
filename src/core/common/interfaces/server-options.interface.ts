@@ -1057,7 +1057,7 @@ export interface IAiDefaultConnection {
   /** Inline plaintext API key (encrypted on seed). Prefer `apiKeyEnv` instead. */
   apiKey?: string;
 
-  /** Name of an environment variable holding the API key (e.g. 'MITTWALD_API_KEY'). */
+  /** Name of an environment variable holding the API key (e.g. 'AI_API_KEY'). */
   apiKeyEnv?: string;
 
   /** Base URL of the OpenAI-compatible endpoint. */
@@ -1115,15 +1115,25 @@ export interface IAiRateLimit {
  *   maxIterations: 5,
  *   rateLimit: { max: 20, windowSeconds: 60 },
  *   defaultConnection: {
- *     name: 'mittwald GPT-OSS 120B',
- *     baseUrl: 'https://llm.aihosting.mittwald.de/v1',
+ *     name: 'Default LLM',
+ *     baseUrl: 'https://llm.example.com/v1',
  *     model: 'gpt-oss-120b',
- *     apiKeyEnv: 'MITTWALD_API_KEY',
+ *     apiKeyEnv: 'AI_API_KEY',
  *   },
  * }
  * ```
  */
 export interface IAi {
+  /**
+   * Optional SSRF allowlist for connection base URLs. When set (non-empty), the
+   * provider only sends requests to these hosts (matched by `host` incl. port, or
+   * bare `hostname`); unset → permissive (so local providers like Ollama on localhost
+   * work out of the box). `baseUrl` is admin-only, so this guards a compromised or
+   * misconfigured admin, not end-user input.
+   * @example ['llm.example.com', 'localhost:11434']
+   */
+  allowedBaseUrlHosts?: string[];
+
   /**
    * Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
    * @default false
@@ -3043,9 +3053,12 @@ export interface ICoreModuleOverrides {
   /**
    * Override AI module collaborators with project-specific subclasses.
    *
+   * - `budgetService` must extend `CoreAiBudgetService`
    * - `connectionResolver` must extend `CoreAiConnectionResolverService`
    * - `connectionService` must extend `CoreAiConnectionService`
    * - `controller` must extend `CoreAiController`
+   * - `conversationService` must extend `CoreAiConversationService`
+   * - `interactionService` must extend `CoreAiInteractionService`
    * - `preferenceService` must extend `CoreAiConnectionPreferenceService`
    * - `promptBuilder` must extend `CoreAiPromptBuilderService`
    * - `resolver` must extend `CoreAiResolver` (re-declare GraphQL decorators)
@@ -3063,9 +3076,12 @@ export interface ICoreModuleOverrides {
    * ```
    */
   ai?: {
+    budgetService?: Type<any>;
     connectionResolver?: Type<any>;
     connectionService?: Type<any>;
     controller?: Type<any>;
+    conversationService?: Type<any>;
+    interactionService?: Type<any>;
     preferenceService?: Type<any>;
     promptBuilder?: Type<any>;
     resolver?: Type<any>;

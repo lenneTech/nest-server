@@ -14,6 +14,7 @@ import { ServiceOptions } from '../../../common/interfaces/service-options.inter
 import { CrudService } from '../../../common/services/crud.service';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
+import { ErrorCode } from '../../error-code';
 import { CoreAiConnectionCreateInput } from '../inputs/core-ai-connection-create.input';
 import { CoreAiConnectionInput } from '../inputs/core-ai-connection.input';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
@@ -204,10 +205,10 @@ export class CoreAiConnectionService
     }
 
     if (!doc) {
-      throw new NotFoundException('No usable AI connection configured');
+      throw new NotFoundException(ErrorCode.AI_NO_CONNECTION);
     }
     if (doc.enabled === false) {
-      throw new ServiceUnavailableException(`AI connection "${doc.name}" is disabled`);
+      throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_DISABLED);
     }
 
     return {

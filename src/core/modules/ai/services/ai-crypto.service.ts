@@ -66,9 +66,10 @@ export class AiCryptoService {
   }
 
   /**
-   * Derive the 32-byte AES key from the configured pass-phrase.
+   * Derive the 32-byte AES key from the configured pass-phrase. `protected` so a
+   * project can override key derivation (e.g. to source the key from a KMS).
    */
-  private getKey(): Buffer {
+  protected getKey(): Buffer {
     const raw =
       ConfigService.get<string>('ai.encryptionSecret') ||
       process.env.NSC__AI__ENCRYPTION_SECRET ||

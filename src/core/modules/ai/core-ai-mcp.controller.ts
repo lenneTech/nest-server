@@ -12,18 +12,19 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
 /**
  * MCP Streamable-HTTP endpoint at `/ai/mcp`.
  *
- * Exposes the AI tool registry to external MCP clients. Authentication reuses the
- * framework's existing token resolution: the request must carry a valid Bearer
- * token (or session) so `@CurrentUser()` resolves a user — the MCP session is
- * bound to that user and only their permitted tools are exposed/executed.
+ * Exposes the AI tool registry to external MCP clients. The request must carry a
+ * valid Bearer token (or session); the handler resolves the user via
+ * {@link CoreAiMcpController.resolveUser} (which reuses `req.user` and falls back to
+ * verifying the Bearer token directly, since `@Roles(S_EVERYONE)` does not populate
+ * `req.user`). The MCP session is bound to that user and only their permitted tools
+ * are exposed/executed.
  *
  * `@Roles(S_EVERYONE)` lets the request reach the handler (the guard would
  * otherwise reject), and the handler performs the MCP-specific 401 with a
  * `WWW-Authenticate` header as the protocol expects.
  *
- * Note: this first version authenticates via Bearer/session token. Full OAuth 2.1
- * dynamic client registration (per the framework `mcp-integration` guide) is a
- * later hardening step.
+ * When `ai.mcp.oauth` is enabled, the handler additionally accepts OAuth 2.1 access
+ * tokens (see `mountAiMcpOAuth`); otherwise it authenticates via Bearer/session token.
  */
 @ApiExcludeController()
 @Controller('ai/mcp')

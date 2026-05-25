@@ -3,6 +3,7 @@ import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
 import { RequestContext } from '../../../common/services/request-context.service';
+import { ErrorCode } from '../../error-code';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
 import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface';
 import { CoreAiAction } from '../models/core-ai-action.model';
@@ -476,11 +477,9 @@ export class CoreAiService {
     if (!conversationId || !this.conversationService) {
       return [];
     }
-    const conversation = await this.conversationService.get(conversationId, {
-      currentUser,
-      roles: ['admin', 's_creator', 's_self'],
-    });
-    return (conversation?.messages ?? []).map((m) => ({ content: m.content, role: m.role }));
+    // Lean, projected, $slice-capped read (ownership-checked inside) instead of a
+    // hydrated get() running the full process() pipeline over the whole messages array.
+    return this.conversationService.loadRecentMessages(conversationId, currentUser);
   }
 
   /**
@@ -696,7 +695,7 @@ export class CoreAiService {
     }
 
     if (bucket.count > max) {
-      throw new HttpException('Too many AI requests, please slow down.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(ErrorCode.AI_RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 

@@ -31,6 +31,9 @@ export class CoreAiConversationService extends CrudService<
   CoreAiConversationCreateInput,
   CoreAiConversationInput
 > {
+  /** Maximum number of messages retained per conversation (capped on `$push`). */
+  protected readonly maxRetainedMessages = 500;
+
   constructor(
     @InjectModel(AI_CONVERSATION_MODEL) protected override readonly mainDbModel: Model<AiConversationDocument>,
     @Inject(AI_CONVERSATION_CLASS)
@@ -41,11 +44,51 @@ export class CoreAiConversationService extends CrudService<
 
   /**
    * Append a message to a conversation via `$push` (system-internal; the user
-   * already authorized the prompt that produced it).
+   * already authorized the prompt that produced it). The array is capped at
+   * {@link maxRetainedMessages} via `$slice` so a long-lived conversation cannot
+   * grow unbounded.
    */
   async appendMessage(id: string, message: { content: string; createdAt?: Date; role: string }): Promise<void> {
     await this.mainDbModel
-      .findByIdAndUpdate(id, { $push: { messages: { ...message, createdAt: message.createdAt ?? new Date() } } })
+      .findByIdAndUpdate(id, {
+        $push: {
+          messages: {
+            $each: [{ ...message, createdAt: message.createdAt ?? new Date() }],
+            $slice: -this.maxRetainedMessages,
+          },
+        },
+      })
       .exec();
+  }
+
+  /**
+   * Load the most recent turns of a conversation as a lean, projected read for the
+   * orchestrator's LLM context — avoids the full `process()` pipeline over the whole
+   * subdocument array on every turn. Performs an explicit ownership check (creator or
+   * admin) because the lean read bypasses the model's `securityCheck`.
+   *
+   * @returns the last `limit` turns ({ content, role }), or `[]` if not found / not owned.
+   */
+  async loadRecentMessages(
+    id: string,
+    currentUser: { id?: string; roles?: string[] } | undefined,
+    limit = 20,
+  ): Promise<{ content: string; role: string }[]> {
+    const doc = await this.mainDbModel
+      .findById(id, { createdBy: 1, messages: { $slice: -limit } })
+      .lean()
+      .exec();
+    if (!doc) {
+      return [];
+    }
+    const isOwner = currentUser?.id && String((doc as { createdBy?: unknown }).createdBy) === String(currentUser.id);
+    const isAdmin = currentUser?.roles?.includes('admin');
+    if (!isOwner && !isAdmin) {
+      return [];
+    }
+    return ((doc as { messages?: { content: string; role: string }[] }).messages ?? []).map((m) => ({
+      content: m.content,
+      role: m.role,
+    }));
   }
 }

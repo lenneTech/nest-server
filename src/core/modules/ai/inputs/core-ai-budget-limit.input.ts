@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+import { IsIn } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -30,6 +31,7 @@ export class CoreAiBudgetLimitInput {
     description: "Reset period: 'day', 'month' or 'none'",
     isOptional: true,
     roles: RoleEnum.ADMIN,
+    validator: () => [IsIn(['day', 'month', 'none'])],
   })
   period?: string = undefined;
 
@@ -44,6 +46,7 @@ export class CoreAiBudgetLimitInput {
     description: "Scope of the limit: 'user' or 'tenant'",
     isOptional: true,
     roles: RoleEnum.ADMIN,
+    validator: () => [IsIn(['tenant', 'user'])],
   })
   scope?: string = undefined;
 }

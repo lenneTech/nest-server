@@ -21,6 +21,7 @@
  * - LTNS_0300-LTNS_0399: Validation errors
  * - LTNS_0400-LTNS_0499: Resource errors
  * - LTNS_0500-LTNS_0599: File errors
+ * - LTNS_0600-LTNS_0699: AI errors
  * - LTNS_0900-LTNS_0999: Internal errors
  *
  * @example
@@ -491,6 +492,91 @@ export const LtnsErrors = {
     translations: {
       de: 'System-Setup erfordert BetterAuth.',
       en: 'System setup requires BetterAuth.',
+    },
+  },
+
+  // =====================================================
+  // AI Errors (LTNS_0600-LTNS_0699)
+  // =====================================================
+
+  AI_NO_CONNECTION: {
+    code: 'LTNS_0600',
+    message: 'No usable AI connection configured',
+    translations: {
+      de: 'Es ist keine nutzbare KI-Verbindung konfiguriert.',
+      en: 'No usable AI connection is configured.',
+    },
+  },
+
+  AI_CONNECTION_DISABLED: {
+    code: 'LTNS_0601',
+    message: 'AI connection is disabled',
+    translations: {
+      de: 'Die KI-Verbindung ist deaktiviert.',
+      en: 'The AI connection is disabled.',
+    },
+  },
+
+  AI_CONNECTION_NOT_AVAILABLE: {
+    code: 'LTNS_0602',
+    message: 'The selected AI connection is not available',
+    translations: {
+      de: 'Die ausgewählte KI-Verbindung ist nicht verfügbar.',
+      en: 'The selected AI connection is not available.',
+    },
+  },
+
+  AI_CONNECTION_NOT_FOUND: {
+    code: 'LTNS_0603',
+    message: 'AI connection does not exist or is not usable',
+    translations: {
+      de: 'Die KI-Verbindung existiert nicht oder ist nicht nutzbar.',
+      en: 'The AI connection does not exist or is not usable.',
+    },
+  },
+
+  AI_PREFERENCES_UNAVAILABLE: {
+    code: 'LTNS_0604',
+    message: 'AI connection preferences are not available',
+    translations: {
+      de: 'KI-Verbindungseinstellungen sind nicht verfügbar.',
+      en: 'AI connection preferences are not available.',
+    },
+  },
+
+  AI_BUDGET_EXCEEDED: {
+    code: 'LTNS_0605',
+    message: 'AI token budget for this period is exhausted',
+    translations: {
+      de: 'Dein KI-Token-Kontingent für diesen Zeitraum ist aufgebraucht. Bitte versuche es nach dem nächsten Reset erneut.',
+      en: 'Your AI token budget for this period is exhausted. Please try again after the next reset.',
+    },
+  },
+
+  AI_RATE_LIMITED: {
+    code: 'LTNS_0606',
+    message: 'Too many AI requests',
+    translations: {
+      de: 'Zu viele KI-Anfragen. Bitte etwas langsamer.',
+      en: 'Too many AI requests, please slow down.',
+    },
+  },
+
+  AI_PROVIDER_ERROR: {
+    code: 'LTNS_0607',
+    message: 'The AI provider request failed',
+    translations: {
+      de: 'Die Anfrage an den KI-Anbieter ist fehlgeschlagen.',
+      en: 'The AI provider request failed.',
+    },
+  },
+
+  AI_CONNECTION_INVALID_URL: {
+    code: 'LTNS_0608',
+    message: 'AI connection has no valid base URL',
+    translations: {
+      de: 'Die KI-Verbindung hat keine gültige Basis-URL.',
+      en: 'The AI connection has no valid base URL.',
     },
   },
 } as const satisfies IErrorRegistry;

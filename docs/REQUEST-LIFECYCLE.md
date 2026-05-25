@@ -164,6 +164,16 @@ JWT-based authentication for existing projects:
 | **GridFS Migration** | Completed TUS uploads auto-migrate to GridFS |
 | **CORS Support** | Automatic CORS headers for browser uploads |
 
+### AI Assistant Module
+
+| Feature | Description |
+|---------|-------------|
+| **AI Module** | Prompt orchestrator (auto + plan mode), DB-backed LLM connections, tool registry |
+| **REST Endpoints** | `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
+| **GraphQL Endpoints** | `aiPrompt`, `aiAvailableConnections`, `aiSetUserConnection`, connection/preference/conversation/interaction/budget queries + mutations, `aiUsage` |
+| **MCP Server** | Streamable HTTP at `POST/GET/DELETE /ai/mcp` (Bearer auth); optional OAuth 2.1 router mounted in `main.ts` via `mountAiMcpOAuth(app)` (`/.well-known/*`, `/authorize`, `/token`, `/register`) |
+| **Permission Model** | `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`) |
+
 ### Email & Templates
 
 | Feature | Description |

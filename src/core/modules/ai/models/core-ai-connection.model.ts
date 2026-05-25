@@ -58,7 +58,7 @@ export class CoreAiConnection extends CorePersistenceModel {
    * Base URL of the OpenAI-compatible endpoint.
    */
   @UnifiedField({
-    description: 'Base URL of the OpenAI-compatible endpoint (e.g. https://llm.aihosting.mittwald.de/v1)',
+    description: 'Base URL of the OpenAI-compatible endpoint (e.g. https://llm.example.com/v1)',
     mongoose: true,
     roles: RoleEnum.ADMIN,
   })

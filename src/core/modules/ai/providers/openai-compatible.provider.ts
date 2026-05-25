@@ -1,5 +1,7 @@
 import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestjs/common';
 
+import { ConfigService } from '../../../common/services/config.service';
+import { ErrorCode } from '../../error-code';
 import {
   ILlmProvider,
   LlmCapabilities,
@@ -40,11 +42,20 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     this.defaultTimeoutMs = connection.timeoutMs ?? 120_000;
   }
 
+  /**
+   * Send a chat completion request to the OpenAI-compatible `/chat/completions`
+   * endpoint and map the response to {@link LlmResponse}. Sends native `tools` and
+   * `response_format` only when the connection's capabilities allow it; native tool
+   * calls are mapped via {@link mapNativeToolCalls}. Aborts after the connection's
+   * timeout and maps HTTP/transport errors to a {@link ServiceUnavailableException}.
+   */
   async chat(messages: LlmMessage[], tools: LlmToolSchema[], options?: LlmCompletionOptions): Promise<LlmResponse> {
     const url = `${this.connection.baseUrl.replace(/\/$/, '')}/chat/completions`;
     if (!url.startsWith('http')) {
-      throw new ServiceUnavailableException(`AI connection "${this.connection.name}" has no valid baseUrl`);
+      this.logger.warn(`AI connection "${this.connection.name}" has no valid baseUrl: ${this.connection.baseUrl}`);
+      throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_INVALID_URL);
     }
+    this.assertBaseUrlAllowed(url);
 
     const body: Record<string, any> = {
       max_tokens: options?.maxTokens ?? this.connection.defaultMaxTokens ?? 2048,
@@ -84,13 +95,14 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
       });
     } catch (err) {
       const message = (err as Error)?.name === 'TimeoutError' ? `timeout after ${timeoutMs}ms` : (err as Error).message;
-      throw new ServiceUnavailableException(`AI request to "${this.connection.name}" failed: ${message}`);
+      this.logger.warn(`AI request to "${this.connection.name}" failed: ${message}`);
+      throw new ServiceUnavailableException(ErrorCode.AI_PROVIDER_ERROR);
     }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       this.logger.warn(`AI completion failed (${response.status}) at ${url}: ${text.slice(0, 300)}`);
-      throw new BadGatewayException(`AI completion via "${this.connection.name}" failed (HTTP ${response.status})`);
+      throw new BadGatewayException(ErrorCode.AI_PROVIDER_ERROR);
     }
 
     const result = (await response.json()) as {
@@ -115,9 +127,35 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   }
 
   /**
+   * Optional SSRF hardening: when `ai.allowedBaseUrlHosts` is configured (non-empty),
+   * only allow requests to those hosts (matched by `host` incl. port, or bare
+   * `hostname`). Unset → permissive (so local providers like Ollama on localhost work
+   * out of the box). `baseUrl` is admin-only, so this guards a compromised/misconfigured
+   * admin, not an end-user input.
+   */
+  protected assertBaseUrlAllowed(url: string): void {
+    const allowedHosts = ConfigService.get<string[]>('ai.allowedBaseUrlHosts');
+    if (!Array.isArray(allowedHosts) || !allowedHosts.length) {
+      return;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_INVALID_URL);
+    }
+    if (!allowedHosts.includes(parsed.host) && !allowedHosts.includes(parsed.hostname)) {
+      this.logger.warn(
+        `AI connection "${this.connection.name}" host "${parsed.host}" is not in ai.allowedBaseUrlHosts`,
+      );
+      throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_NOT_AVAILABLE);
+    }
+  }
+
+  /**
    * Map native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
    */
-  private mapNativeToolCalls(toolCalls: any[] | undefined) {
+  protected mapNativeToolCalls(toolCalls: any[] | undefined) {
     if (!toolCalls?.length) {
       return undefined;
     }

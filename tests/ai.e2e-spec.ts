@@ -17,6 +17,7 @@ import {
   LlmProviderFactory,
   LlmResponse,
   RoleEnum,
+  TestHelper,
 } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
@@ -52,8 +53,33 @@ describe('AI module (e2e)', () => {
   let registry: AiToolRegistry;
   let providerFactory: LlmProviderFactory;
 
+  // HTTP-level auth (real BetterAuth users) for the security tests at the end.
+  let testHelper: TestHelper;
+  let httpAdminToken = '';
+  let httpRegularToken = '';
+  const httpAdminEmail = `ai-http-admin-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+  const httpRegularEmail = `ai-http-regular-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+  const httpPassword = 'AiHttpTest123!';
+
   const admin = { id: new ObjectId().toString(), roles: [RoleEnum.ADMIN] };
   const adminOptions = { currentUser: admin };
+
+  /** Sign up a BetterAuth user, optionally promote to admin, verify, and return a JWT. */
+  async function createHttpUser(email: string, roles: string[]): Promise<string> {
+    await testHelper.rest('/iam/sign-up/email', {
+      method: 'POST',
+      payload: { email, name: 'AI HTTP Test', password: httpPassword, termsAndPrivacyAccepted: true },
+      statusCode: 201,
+    });
+    await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, roles, verified: true } });
+    await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
+    const signIn = await testHelper.rest('/iam/sign-in/email', {
+      method: 'POST',
+      payload: { email, password: httpPassword },
+      statusCode: 200,
+    });
+    return signIn.token;
+  }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -77,6 +103,11 @@ describe('AI module (e2e)', () => {
 
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = connection.db();
+
+    // Real BetterAuth users for the HTTP-level security tests.
+    testHelper = new TestHelper(app);
+    httpAdminToken = await createHttpUser(httpAdminEmail, [RoleEnum.ADMIN]);
+    httpRegularToken = await createHttpUser(httpRegularEmail, []);
   });
 
   afterAll(async () => {
@@ -86,6 +117,14 @@ describe('AI module (e2e)', () => {
       await db.collection('aiInteractions').deleteMany({});
       await db.collection('aiConversations').deleteMany({});
       await db.collection('aiBudgetLimits').deleteMany({});
+      // Clean up the HTTP test users + their auth artifacts.
+      const httpUsers = await db.collection('users').find({ email: { $in: [httpAdminEmail, httpRegularEmail] } }).toArray();
+      const iamIds = httpUsers.map((u: any) => u.iamId).filter(Boolean);
+      await db.collection('users').deleteMany({ email: { $in: [httpAdminEmail, httpRegularEmail] } });
+      if (iamIds.length) {
+        await db.collection('account').deleteMany({ userId: { $in: iamIds } });
+        await db.collection('session').deleteMany({ userId: { $in: iamIds } });
+      }
     }
     if (connection) {
       await connection.close();
@@ -427,6 +466,40 @@ describe('AI module (e2e)', () => {
     await connectionService.delete(conn.id, adminOptions);
   });
 
+  it('enforces ownership in the shipped get_user tool (S_SELF), denying access to other users', async () => {
+    const ownerId = new ObjectId();
+    const otherId = new ObjectId();
+    await db.collection('users').insertMany([
+      { _id: ownerId, email: `ai-tool-owner-${ownerId}@test.com`, roles: [] },
+      { _id: otherId, email: `ai-tool-other-${otherId}@test.com`, roles: [] },
+    ]);
+    const regularUser = { id: ownerId.toString(), roles: [] as string[] };
+    const context = {
+      currentUser: regularUser,
+      language: 'en',
+      serviceOptions: { currentUser: regularUser, language: 'en' },
+    } as any;
+
+    const getUserTool = registry.all().find((t) => t.name === 'get_user');
+    expect(getUserTool).toBeDefined();
+
+    // Owner can read their own record (S_SELF).
+    const own = await getUserTool!.execute({ id: ownerId.toString() }, context);
+    expect((own as any).success).not.toBe(false);
+
+    // A regular user must NOT read another user's record.
+    await expect(getUserTool!.execute({ id: otherId.toString() }, context)).rejects.toBeDefined();
+
+    await db.collection('users').deleteMany({ _id: { $in: [ownerId, otherId] } });
+  });
+
+  it('only exposes admin-only tools (delete_user) to admins, not regular users', () => {
+    const adminToolNames = registry.forUser(admin).map((t) => t.name);
+    const regularToolNames = registry.forUser({ id: 'x', roles: [] }).map((t) => t.name);
+    expect(adminToolNames).toContain('delete_user');
+    expect(regularToolNames).not.toContain('delete_user');
+  });
+
   it('returns a disabled (denied) response when no usable connection exists', async () => {
     await db.collection('aiConnections').deleteMany({});
     const response = await aiService.prompt({ prompt: 'hi' } as any, adminOptions);
@@ -438,5 +511,80 @@ describe('AI module (e2e)', () => {
   it('protects the available-connections endpoint (401 without auth)', async () => {
     const res = await request(app.getHttpServer()).get('/ai/connections/available');
     expect(res.status).toBe(401);
+  });
+
+  // ===================================================================================================================
+  // HTTP-level security (real BetterAuth tokens through the full guard + interceptor chain)
+  // ===================================================================================================================
+
+  it('never exposes the encrypted API key over HTTP (interceptor Safety Net)', async () => {
+    // Create via the real admin HTTP endpoint.
+    const created = await testHelper.rest('/ai/connections', {
+      method: 'POST',
+      payload: {
+        apiKey: 'sk-http-secret-999',
+        baseUrl: 'http://fake/v1',
+        model: 'm',
+        name: 'HTTP Secret Conn',
+        providerType: 'fake-e2e',
+      },
+      statusCode: 201,
+      token: httpAdminToken,
+    });
+    expect(created.id).toBeDefined();
+    expect(created.hasApiKey).toBe(true);
+    expect(created.apiKey).toBeUndefined();
+    expect(created.apiKeyEncrypted).toBeUndefined();
+
+    // And on a fresh GET.
+    const fetched = await testHelper.rest(`/ai/connections/${created.id}`, { token: httpAdminToken });
+    expect(fetched.hasApiKey).toBe(true);
+    expect(fetched.apiKey).toBeUndefined();
+    expect(fetched.apiKeyEncrypted).toBeUndefined();
+
+    await connectionService.delete(created.id, adminOptions);
+  });
+
+  it('forbids a non-admin user from admin connection endpoints (403)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/ai/connections')
+      .set('Authorization', `Bearer ${httpRegularToken}`);
+    expect(res.status).toBe(403);
+
+    const createRes = await request(app.getHttpServer())
+      .post('/ai/connections')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ baseUrl: 'http://fake/v1', model: 'm', name: 'Nope', providerType: 'fake-e2e' });
+    expect(createRes.status).toBe(403);
+  });
+
+  it('lets an authenticated user reach the self-service available-connections endpoint (200)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/ai/connections/available')
+      .set('Authorization', `Bearer ${httpRegularToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('streams a prompt answer via SSE (Content-Type + data framing + final event)', async () => {
+    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'streamed answer' })]));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'SSE Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    const res = await request(app.getHttpServer())
+      .post('/ai/stream')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ prompt: 'stream please' });
+
+    // POST defaults to 201 in NestJS (the SSE handler uses a raw @Res()).
+    expect([200, 201]).toContain(res.status);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    expect(res.text).toContain('data:');
+    expect(res.text).toContain('"type":"final"');
+    expect(res.text).toContain('streamed answer');
+
+    await connectionService.delete(conn.id, adminOptions);
   });
 });

@@ -21,7 +21,7 @@ export type AiConnectionPreferenceDocument = CoreAiConnectionPreference & Docume
  */
 @MongooseSchema({ collection: 'aiConnectionPreferences', timestamps: true })
 @ObjectType({ description: 'AI connection preference for a tenant or user' })
-@Restricted(RoleEnum.S_USER)
+@Restricted(RoleEnum.ADMIN)
 export class CoreAiConnectionPreference extends CorePersistenceModel {
   /**
    * The selected connection id.
@@ -29,7 +29,7 @@ export class CoreAiConnectionPreference extends CorePersistenceModel {
   @UnifiedField({
     description: 'The selected connection id',
     mongoose: true,
-    roles: RoleEnum.S_USER,
+    roles: RoleEnum.ADMIN,
   })
   connectionId: string = undefined;
 
@@ -41,7 +41,7 @@ export class CoreAiConnectionPreference extends CorePersistenceModel {
     description: 'Whether the tenant connection is enforced (tenant scope only)',
     isOptional: true,
     mongoose: { default: false },
-    roles: RoleEnum.S_USER,
+    roles: RoleEnum.ADMIN,
     type: () => Boolean,
   })
   enforced?: boolean = undefined;
@@ -52,7 +52,7 @@ export class CoreAiConnectionPreference extends CorePersistenceModel {
   @UnifiedField({
     description: 'The tenant id or user id this preference belongs to',
     mongoose: true,
-    roles: RoleEnum.S_USER,
+    roles: RoleEnum.ADMIN,
   })
   refId: string = undefined;
 
@@ -62,7 +62,7 @@ export class CoreAiConnectionPreference extends CorePersistenceModel {
   @UnifiedField({
     description: "Scope of the preference: 'tenant' or 'user'",
     mongoose: true,
-    roles: RoleEnum.S_USER,
+    roles: RoleEnum.ADMIN,
   })
   scope: string = undefined;
 }

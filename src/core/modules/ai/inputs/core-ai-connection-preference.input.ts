@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+import { IsIn } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -35,6 +36,7 @@ export class CoreAiConnectionPreferenceInput {
   @UnifiedField({
     description: "Scope of the preference: 'tenant' or 'user'",
     roles: RoleEnum.ADMIN,
+    validator: () => [IsIn(['tenant', 'user'])],
   })
   scope: string = undefined;
 }

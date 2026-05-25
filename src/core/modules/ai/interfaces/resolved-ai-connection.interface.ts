@@ -10,7 +10,7 @@ export interface ResolvedAiConnection {
   /** Plaintext API key (decrypted or read from the env fallback). May be empty for keyless local backends. */
   apiKey: string;
 
-  /** Base URL of the OpenAI-compatible endpoint (e.g. 'https://llm.aihosting.mittwald.de/v1'). */
+  /** Base URL of the OpenAI-compatible endpoint (e.g. 'https://llm.example.com/v1'). */
   baseUrl: string;
 
   /** Default maximum number of tokens for completions. */

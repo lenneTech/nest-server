@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+import { IsIn } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -20,6 +21,7 @@ export class CoreAiBudgetLimitCreateInput extends CoreAiBudgetLimitInput {
   @UnifiedField({
     description: "Scope of the limit: 'user' or 'tenant'",
     roles: RoleEnum.ADMIN,
+    validator: () => [IsIn(['tenant', 'user'])],
   })
   override scope: string = undefined;
 }
