@@ -57,6 +57,9 @@ export class CoreAiMcpController {
       const transport: any = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
       const server = await this.mcpService.createServer(user);
       await server.connect(transport);
+      // The MCP SDK transport exposes `onclose` as a callback property (not a DOM
+      // EventTarget), so addEventListener does not apply here.
+      // eslint-disable-next-line unicorn/prefer-add-event-listener
       transport.onclose = () => {
         if (transport.sessionId) {
           this.transports.delete(transport.sessionId);
