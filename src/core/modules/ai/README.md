@@ -82,9 +82,9 @@ naming or special-casing any provider. Add entirely different backends/protocols
 registering a builder on `LlmProviderFactory`.
 
 > **Emulated-mode limitation (weak models):** In emulated tool calling the model
-> is *asked* (via the system prompt) to emit a `tool_calls` request before acting.
+> is _asked_ (via the system prompt) to emit a `tool_calls` request before acting.
 > Weaker models sometimes ignore this and reply with a natural-language "done"
-> message **without** actually emitting the tool call. This is a *false positive*
+> message **without** actually emitting the tool call. This is a _false positive_
 > (the tool never ran — no `actions` are recorded and no confirmation gate is
 > shown), **not** a security issue: a tool can only execute by going through the
 > backend's `executeToolCall()` + confirmation gate, so the model can never trigger
