@@ -61,6 +61,41 @@ describe('AiCryptoService', () => {
     expect(crypto.encrypt('')).toBe('');
     expect(crypto.decrypt('')).toBe('');
   });
+
+  it('assertProductionSafe throws in production without a secret, allows it otherwise', () => {
+    const savedNsc = process.env.NSC__AI__ENCRYPTION_SECRET;
+    const savedSec = process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.NSC__AI__ENCRYPTION_SECRET;
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    try {
+      const crypto = new AiCryptoService();
+      // production + no secret → throws (reInit replaces config, not merge)
+      ConfigService.setConfig({ ai: {}, env: 'production' } as any, { reInit: true });
+      expect(() => crypto.assertProductionSafe()).toThrow(/encryption secret is required/i);
+      // staging is also production-like
+      ConfigService.setConfig({ ai: {}, env: 'staging' } as any, { reInit: true });
+      expect(() => crypto.assertProductionSafe()).toThrow();
+      // production + secret → ok
+      ConfigService.setConfig(
+        { ai: { encryptionSecret: 'a-strong-secret-value-1234567890-abc' }, env: 'production' } as any,
+        { reInit: true },
+      );
+      expect(() => crypto.assertProductionSafe()).not.toThrow();
+      // non-production + no secret → ok (dev default + warning is acceptable)
+      ConfigService.setConfig({ ai: {}, env: 'local' } as any, { reInit: true });
+      expect(() => crypto.assertProductionSafe()).not.toThrow();
+    } finally {
+      if (savedNsc !== undefined) {
+        process.env.NSC__AI__ENCRYPTION_SECRET = savedNsc;
+      }
+      if (savedSec !== undefined) {
+        process.env.SECRETS_ENCRYPTION_KEY = savedSec;
+      }
+      ConfigService.setConfig({ ai: { encryptionSecret: 'unit-test-secret-key-please-32-chars' } } as any, {
+        reInit: true,
+      });
+    }
+  });
 });
 
 describe('AiToolRegistry', () => {
@@ -551,6 +586,45 @@ describe('CoreAiMcpOAuthService (security primitives)', () => {
     const token = s.signAccessToken('user-1', 'client-1', 3600);
     const payload = s.verifyAccessToken(token);
     expect(payload).toMatchObject({ cid: 'client-1', sub: 'user-1', type: 'mcp_access' });
+  });
+
+  it('assertProductionSafe throws only when oauth is enabled in production without a secret', () => {
+    const savedNsc = process.env.NSC__AI__ENCRYPTION_SECRET;
+    const savedSec = process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.NSC__AI__ENCRYPTION_SECRET;
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    try {
+      const s = svc();
+      // oauth enabled + production + no secret → throws (reInit replaces config)
+      ConfigService.setConfig({ ai: { mcp: { oauth: true } }, env: 'production' } as any, { reInit: true });
+      expect(() => s.assertProductionSafe()).toThrow(/OAuth signing secret is required/i);
+      // oauth NOT enabled + production + no secret → ok (secret irrelevant)
+      ConfigService.setConfig({ ai: { mcp: {} }, env: 'production' } as any, { reInit: true });
+      expect(() => s.assertProductionSafe()).not.toThrow();
+      // oauth enabled + production + secret set → ok
+      ConfigService.setConfig(
+        {
+          ai: { encryptionSecret: 'a-strong-secret-1234567890-abcdef', mcp: { oauth: true } },
+          env: 'production',
+        } as any,
+        { reInit: true },
+      );
+      expect(() => s.assertProductionSafe()).not.toThrow();
+      // oauth enabled + non-production + no secret → ok
+      ConfigService.setConfig({ ai: { mcp: { oauth: true } }, env: 'local' } as any, { reInit: true });
+      expect(() => s.assertProductionSafe()).not.toThrow();
+    } finally {
+      if (savedNsc !== undefined) {
+        process.env.NSC__AI__ENCRYPTION_SECRET = savedNsc;
+      }
+      if (savedSec !== undefined) {
+        process.env.SECRETS_ENCRYPTION_KEY = savedSec;
+      }
+      ConfigService.setConfig(
+        { ai: { mcp: { oauth: true, oauthSecret: 'unit-mcp-oauth-secret-32-characters!!' } } } as any,
+        { reInit: true },
+      );
+    }
   });
 
   it('rejects a tampered token', () => {

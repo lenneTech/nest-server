@@ -42,7 +42,10 @@ ai: {
 **WHY the encryption secret:** connection API keys are AES-256-GCM encrypted at
 rest. Without `ai.encryptionSecret` / `NSC__AI__ENCRYPTION_SECRET` /
 `SECRETS_ENCRYPTION_KEY`, an insecure development default is used (logged as a
-warning) — never ship that.
+warning) in non-production environments. In **production/staging the app refuses to
+boot** when AI is enabled but no secret is set (mirrors the email/cookie production
+guards) — so a missing secret can never silently ship. The same applies to the MCP
+OAuth signing secret when `ai.mcp.oauth` is enabled.
 
 ### 2. Set the LLM API key (environment)
 
@@ -144,11 +147,12 @@ browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are bui
 
 ## Common Mistakes
 
-| Mistake                                       | Symptom                                           | Fix                                                       |
-| --------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------- |
-| No `ai` config block                          | Module not loaded, `aiPrompt` missing from schema | Add an `ai` block (presence implies enabled)              |
-| No encryption secret in prod                  | Warning logged, keys encrypted with dev default   | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)              |
-| Tool returns `.lean()`/aggregate data         | `@Restricted` fields leak into the LLM context    | Route through `CrudService` with `context.serviceOptions` |
-| Tool not registered                           | Tool never offered to the LLM                     | Declare it as a provider in a module (extends `AiTool`)   |
-| Overridden resolver method missing decorators | Method absent from GraphQL schema                 | Re-declare `@Mutation`/`@Query`/`@Roles` in the override  |
-| Storing a real API key in `config.env.ts`     | Secret committed to the repo                      | Use `apiKeyEnv` or the runtime connection CRUD            |
+| Mistake                                       | Symptom                                                       | Fix                                                       |
+| --------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| No `ai` config block                          | Module not loaded, `aiPrompt` missing from schema             | Add an `ai` block (presence implies enabled)              |
+| No encryption secret in prod                  | **App refuses to boot** (throws); dev/local only warns        | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)              |
+| Encryption secret changed after keys stored   | Boot logs "key(s) could not be decrypted"; those prompts fail | Re-enter the API key for the listed connections           |
+| Tool returns `.lean()`/aggregate data         | `@Restricted` fields leak into the LLM context                | Route through `CrudService` with `context.serviceOptions` |
+| Tool not registered                           | Tool never offered to the LLM                                 | Declare it as a provider in a module (extends `AiTool`)   |
+| Overridden resolver method missing decorators | Method absent from GraphQL schema                             | Re-declare `@Mutation`/`@Query`/`@Roles` in the override  |
+| Storing a real API key in `config.env.ts`     | Secret committed to the repo                                  | Use `apiKeyEnv` or the runtime connection CRUD            |

@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Connection } from 'mongoose';
 
+import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper';
 import { ConfigService } from '../../../common/services/config.service';
 
 /**
@@ -38,7 +39,7 @@ export interface AiMcpAccessTokenPayload {
  * Token format: `base64url(JSON payload).base64url(HMAC-SHA256)`.
  */
 @Injectable()
-export class CoreAiMcpOAuthService {
+export class CoreAiMcpOAuthService implements OnModuleInit {
   protected readonly logger = new Logger(CoreAiMcpOAuthService.name);
 
   /** Native MongoDB collections (no Mongoose schema needed for OAuth artifacts). */
@@ -50,6 +51,42 @@ export class CoreAiMcpOAuthService {
   private warnedSecret = false;
 
   constructor(@InjectConnection() protected readonly connection: Connection) {}
+
+  /**
+   * Fail loud at boot in production/staging when the OAuth 2.1 layer is enabled
+   * (`ai.mcp.oauth`) but no signing secret is configured — otherwise tokens would be
+   * signed with a public, insecure development default.
+   */
+  onModuleInit(): void {
+    this.assertProductionSafe();
+  }
+
+  /** Throw in production/staging when OAuth is enabled but no secret is configured. */
+  assertProductionSafe(): void {
+    if (this.oauthEnabled() && isProductionLikeEnv(ConfigService.get<string>('env')) && !this.resolveSecret()) {
+      throw new Error(
+        'AI MCP OAuth signing secret is required in production/staging when ai.mcp.oauth is enabled, ' +
+          'but none is set (ai.mcp.oauthSecret / ai.encryptionSecret / NSC__AI__ENCRYPTION_SECRET / ' +
+          'SECRETS_ENCRYPTION_KEY). Set a random 32+ char value.',
+      );
+    }
+  }
+
+  /** Whether the OAuth 2.1 layer is enabled via `ai.mcp.oauth`. */
+  protected oauthEnabled(): boolean {
+    const mcp = ConfigService.get<{ oauth?: boolean }>('ai.mcp');
+    return typeof mcp === 'object' && mcp?.oauth === true;
+  }
+
+  /** Resolve the HMAC signing secret from config/env (no dev fallback). */
+  protected resolveSecret(): string | undefined {
+    return (
+      ConfigService.get<string>('ai.mcp.oauthSecret') ||
+      ConfigService.get<string>('ai.encryptionSecret') ||
+      process.env.NSC__AI__ENCRYPTION_SECRET ||
+      process.env.SECRETS_ENCRYPTION_KEY
+    );
+  }
 
   // ===================================================================================================================
   // Security primitives (unit-tested)
@@ -316,11 +353,7 @@ export class CoreAiMcpOAuthService {
    * via `ai.mcp.oauthSecret`).
    */
   protected getSecret(): string {
-    const raw =
-      ConfigService.get<string>('ai.mcp.oauthSecret') ||
-      ConfigService.get<string>('ai.encryptionSecret') ||
-      process.env.NSC__AI__ENCRYPTION_SECRET ||
-      process.env.SECRETS_ENCRYPTION_KEY;
+    const raw = this.resolveSecret();
     if (!raw) {
       if (!this.warnedSecret) {
         this.logger.warn(

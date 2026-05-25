@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
+import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper';
 import { ConfigService } from '../../../common/services/config.service';
 
 /**
@@ -19,9 +20,33 @@ import { ConfigService } from '../../../common/services/config.service';
  * operators must decrypt-then-re-encrypt on rotation (out of scope here).
  */
 @Injectable()
-export class AiCryptoService {
+export class AiCryptoService implements OnModuleInit {
   private readonly logger = new Logger(AiCryptoService.name);
   private warned = false;
+
+  /**
+   * Fail loud at boot in production/staging when AI is active but no real encryption
+   * secret is configured — otherwise stored API keys would be "encrypted" with a
+   * public, insecure development default. Mirrors the email/cookies production guards.
+   */
+  onModuleInit(): void {
+    this.assertProductionSafe();
+  }
+
+  /**
+   * Throw when running in a production-like environment without a configured secret.
+   * No-op in local/dev/ci/e2e (there the insecure default + a warning are acceptable).
+   */
+  assertProductionSafe(): void {
+    if (isProductionLikeEnv(ConfigService.get<string>('env')) && !this.resolveSecret()) {
+      throw new Error(
+        'AI encryption secret is required in production/staging but none is set ' +
+          '(ai.encryptionSecret / NSC__AI__ENCRYPTION_SECRET / SECRETS_ENCRYPTION_KEY). ' +
+          'Without it, stored AI API keys are encrypted with a public, insecure development ' +
+          'default. Set a random 32+ char value.',
+      );
+    }
+  }
 
   /**
    * Decrypt a stored cipher text. Values without the expected triplet shape are
@@ -69,11 +94,17 @@ export class AiCryptoService {
    * Derive the 32-byte AES key from the configured pass-phrase. `protected` so a
    * project can override key derivation (e.g. to source the key from a KMS).
    */
-  protected getKey(): Buffer {
-    const raw =
+  /** Resolve the configured pass-phrase from config/env (no dev fallback). */
+  protected resolveSecret(): string | undefined {
+    return (
       ConfigService.get<string>('ai.encryptionSecret') ||
       process.env.NSC__AI__ENCRYPTION_SECRET ||
-      process.env.SECRETS_ENCRYPTION_KEY;
+      process.env.SECRETS_ENCRYPTION_KEY
+    );
+  }
+
+  protected getKey(): Buffer {
+    const raw = this.resolveSecret();
     if (!raw) {
       if (!this.warned) {
         this.logger.warn(

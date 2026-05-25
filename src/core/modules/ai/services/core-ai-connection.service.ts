@@ -74,8 +74,26 @@ export class CoreAiConnectionService
    * offering a smooth bootstrap from config/env.
    */
   async onModuleInit(): Promise<void> {
+    await this.seedDefaultConnection();
+    await this.assertStoredKeysDecryptable();
+  }
+
+  /**
+   * One-time seeding of `ai.defaultConnection`. Skips silently when no default
+   * connection is configured, but warns when it is configured incompletely (so a
+   * missing `AI_*` env var doesn't fail silently). No-op once any connection exists.
+   */
+  protected async seedDefaultConnection(): Promise<void> {
     const seed = ConfigService.get<Record<string, any>>('ai.defaultConnection');
-    if (!seed?.baseUrl || !seed?.model || !seed?.name) {
+    if (!seed) {
+      return; // no default connection configured — normal
+    }
+    if (!seed.baseUrl || !seed.model || !seed.name) {
+      this.logger.warn(
+        `ai.defaultConnection seed skipped: incomplete config — need baseUrl, model and name ` +
+          `(got baseUrl=${!!seed.baseUrl}, model=${!!seed.model}, name=${!!seed.name}). ` +
+          `Set the missing AI_* env vars or create the connection via the admin UI.`,
+      );
       return;
     }
     const count = await this.mainDbModel.countDocuments().exec();
@@ -92,6 +110,37 @@ export class CoreAiConnectionService
       providerType: rest.providerType || 'openai-compatible',
     });
     this.logger.log(`Seeded default AI connection "${seed.name}"`);
+  }
+
+  /**
+   * Best-effort boot self-check: detect connections whose stored API key can no
+   * longer be decrypted (typically after the encryption secret was changed/rotated).
+   * Logs a clear, actionable error per connection instead of letting prompts fail
+   * deep inside the request later. Never throws — a check failure must not block boot.
+   */
+  protected async assertStoredKeysDecryptable(): Promise<void> {
+    try {
+      const docs = await this.mainDbModel
+        .find({ apiKeyEncrypted: { $exists: true, $ne: '' } }, { apiKeyEncrypted: 1, name: 1 })
+        .lean()
+        .exec();
+      const broken: string[] = [];
+      for (const doc of docs as { _id: unknown; apiKeyEncrypted?: string; name?: string }[]) {
+        try {
+          this.aiCryptoService.decrypt(doc.apiKeyEncrypted ?? '');
+        } catch {
+          broken.push(doc.name || String(doc._id));
+        }
+      }
+      if (broken.length) {
+        this.logger.error(
+          `AI connection API key(s) could not be decrypted (encryption secret changed or value corrupted): ` +
+            `${broken.join(', ')}. Re-enter the API key for these connections — prompts using them will fail until fixed.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`AI key decryptability self-check skipped: ${(err as Error).message}`);
+    }
   }
 
   /**
