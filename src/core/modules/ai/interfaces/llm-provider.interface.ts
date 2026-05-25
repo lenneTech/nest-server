@@ -1,24 +1,40 @@
 /**
  * Abstraction layer for Large Language Model (LLM) providers.
  *
- * A provider encapsulates the transport to a concrete LLM backend (e.g. an
- * OpenAI-compatible endpoint like mittwald AI hosting, a local Ollama instance,
- * or a future native Anthropic/OpenAI integration). The orchestrator
+ * A provider encapsulates the transport to an LLM backend — local runtimes or
+ * hosted endpoints, with or without native tool/JSON support. The orchestrator
  * ({@link CoreAiService}) talks only to this interface, so backends can be
- * swapped or extended without touching the agent loop.
+ * swapped or extended without touching the agent loop. Nothing here is tied to a
+ * specific vendor.
  *
- * ## Native vs. emulated tool calling
+ * ## Capability gradations
  *
- * Not every backend supports native function/tool calling. mittwald's
- * OpenAI-compatible gateway, for example, does NOT support the `tools`/`functions`
- * parameter or JSON mode. Providers therefore declare {@link supportsNativeTools}:
- * - `true`  → the orchestrator passes tool schemas natively and reads `toolCalls`
- *   from the response.
- * - `false` → the orchestrator emulates tool calling by injecting the tool
- *   catalog into the system prompt and parsing a structured JSON block out of the
- *   model's text response.
+ * Backends differ in what they support. Providers therefore declare their
+ * {@link LlmCapabilities}, and the orchestrator compensates across the whole
+ * spectrum:
+ * - `nativeTools: true`  → tool schemas are passed natively and `toolCalls` are
+ *   read from the response.
+ * - `nativeTools: false` → tool calling is emulated: the tool catalog is injected
+ *   into the system prompt and a structured JSON block is parsed from the text.
+ * - `jsonResponse: true` → a JSON/structured-output mode is requested; otherwise
+ *   JSON is requested via the prompt and parsed defensively.
  */
 export type LlmMessageRole = 'assistant' | 'system' | 'tool' | 'user';
+
+/**
+ * Capabilities a provider/backend supports. Used by the orchestrator to decide
+ * between native and emulated handling, so every gradation is supported.
+ */
+export interface LlmCapabilities {
+  /** Native JSON / structured-output mode (e.g. `response_format`). */
+  jsonResponse: boolean;
+
+  /** Native function/tool calling (the `tools` parameter). */
+  nativeTools: boolean;
+
+  /** Support for a `system` role message (true for virtually all backends). */
+  systemPrompt: boolean;
+}
 
 /**
  * A single chat message exchanged with the LLM.
@@ -108,11 +124,11 @@ export interface LlmResponse {
  * {@link LlmProviderFactory} from a persisted {@link CoreAiConnection}.
  */
 export interface ILlmProvider {
+  /** Declared capabilities of the backend (drives native vs. emulated handling). */
+  readonly capabilities: LlmCapabilities;
+
   /** Identifier of the provider implementation (e.g. 'openai-compatible'). */
   readonly name: string;
-
-  /** Whether the backend supports native function/tool calling. */
-  readonly supportsNativeTools: boolean;
 
   /**
    * Run a chat completion.

@@ -22,7 +22,7 @@ export interface McpCallResult {
 
 /**
  * Exposes the {@link AiToolRegistry} as a Model Context Protocol (MCP) server so
- * external MCP clients (e.g. Claude Desktop) can use the same backend tools with
+ * external MCP clients (e.g. desktop MCP clients) can use the same backend tools with
  * the same role gating as the internal orchestrator.
  *
  * The MCP server is created per session and bound to the authenticating user, so

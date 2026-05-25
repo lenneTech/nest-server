@@ -10,16 +10,18 @@ manipulate data — MCP-style — before returning a structured answer.
 - **Database-backed LLM connections** (`CoreAiConnection`) — endpoints, models and
   **encrypted API keys** are managed at runtime (admin CRUD; later a frontend
   settings area), not in `config.env.ts`.
-- **Provider abstraction** (`ILlmProvider`) — swap local (Ollama) and external
-  (mittwald / OpenAI-compatible) backends via config. Ships with a dependency-free
-  `fetch`-based OpenAI-compatible provider.
+- **Vendor-agnostic provider abstraction** (`ILlmProvider`) — swap local runtimes
+  and hosted backends via config. Ships with a dependency-free `fetch`-based
+  provider for the OpenAI-compatible chat API (a de-facto standard, not a vendor).
+- **Capability gradations** — each backend declares its `capabilities`
+  (`nativeTools`, `jsonResponse`, `systemPrompt`); the orchestrator compensates
+  across the whole spectrum (full native → none = emulated). No backend is special-cased.
 - **Tool registry** (`AiToolRegistry`) — a global registry of backend capabilities
   the LLM may call. Tools self-register from any module and are filtered by the
   caller's roles.
-- **Emulated tool calling** — works even with gateways that lack native function
-  calling (mittwald): the tool catalog is injected into the system prompt and tool
-  calls are parsed from the model's JSON output. Native tool calling is used
-  transparently when a provider supports it.
+- **Emulated tool calling** — for backends without native function calling, the
+  tool catalog is injected into the system prompt and tool calls are parsed from
+  the model's JSON output. Native tool calling is used transparently when supported.
 - **Security first** — tools execute through `CrudService` with the caller's
   permissions, so `@Restricted`, `securityCheck()` and tenant context all apply.
   The LLM can never escalate beyond what the user is allowed to do.
@@ -35,7 +37,7 @@ CoreAiService (orchestrator / agent loop)
    │  2. filter tools by the user's roles
    │  3. loop: LLM call → execute tool calls (CrudService, user perms) → feed back
    ▼
-ILlmProvider ── OpenAiCompatibleProvider (mittwald, Ollama, …)
+ILlmProvider ── OpenAiCompatibleProvider (any OpenAI-compatible endpoint) / custom providers
    ▼
 CoreAiResponse { text, actions[], data, usage, iterations }
 ```
@@ -54,20 +56,29 @@ ai: {
   systemPrompt: 'You are a helpful assistant for …',
   // Optional one-time seed of a default connection (DB is the source of truth):
   defaultConnection: {
-    name: 'mittwald GPT-OSS 120B',
-    baseUrl: 'https://llm.aihosting.mittwald.de/v1',
-    model: 'gpt-oss-120b',
-    apiKeyEnv: 'MITTWALD_API_KEY', // prefer env over an inline apiKey
+    name: 'Default LLM',
+    baseUrl: process.env.AI_BASE_URL,    // any OpenAI-compatible endpoint
+    model: process.env.AI_MODEL,
+    apiKeyEnv: 'AI_API_KEY',             // prefer env over an inline apiKey
+    supportsNativeTools: false,          // set per the backend's actual support
+    supportsJsonResponse: false,
   },
 }
 ```
 
-### mittwald AI hosting
+### Capabilities (vendor-agnostic)
 
-mittwald exposes an **OpenAI-compatible** API but does **not** support native
-function calling or JSON mode — the module therefore emulates tool calling. Models
-(see the [mittwald docs](https://developer.mittwald.de/de/docs/v2/platform/aihosting/models/)):
-`gpt-oss-120b`, `Qwen3.6-35B-A3B-FP8`, `Ministral-3-14B-Instruct-2512` (vision).
+The module makes no assumptions about a specific vendor. Each connection declares
+what its backend supports via `supportsNativeTools` and `supportsJsonResponse`:
+
+- Both **true** → native function calling + JSON mode are used directly.
+- **false** → the module compensates: tool calling is emulated via the system
+  prompt and JSON is requested in-prompt and parsed defensively.
+
+This covers the full spectrum — from feature-rich hosted models with native tools
+to minimal local runtimes or gateways with no native tool/JSON support — without
+naming or special-casing any provider. Add entirely different backends/protocols by
+registering a builder on `LlmProviderFactory`.
 
 ## Connections (DB configuration)
 
@@ -142,7 +153,7 @@ Every collaborator can be replaced with a project subclass via
 Add a new LLM backend by registering a builder on `LlmProviderFactory`:
 
 ```typescript
-factory.registerBuilder('anthropic', (conn) => new AnthropicProvider(conn));
+factory.registerBuilder('my-provider', (conn) => new MyProvider(conn));
 ```
 
 ## Conversations, audit & streaming
@@ -224,7 +235,8 @@ ai: {
 **Usage reported to the client:** every prompt response carries a compact
 `budget` summary — `promptTokens` (this prompt), `usedTokens`, `remainingTokens`
 (null = unlimited) and `resetAt`. The full breakdown (user + tenant scopes, prompts
-+ tokens, limits, reset) is available via the `aiUsage` query / `GET /ai/usage`.
+
+- tokens, limits, reset) is available via the `aiUsage` query / `GET /ai/usage`.
 
 ## MCP server (`ai.mcp: true`)
 
@@ -240,7 +252,7 @@ same role gating. Enable with `ai: { mcp: true }` (requires
 
 ### OAuth 2.1 (`ai.mcp.oauth: true`)
 
-For generic MCP clients (e.g. Claude Desktop) that auto-discover + register:
+For generic MCP clients that auto-discover + register:
 `CoreAiMcpOAuthService` provides HMAC-signed access tokens (constant-time verify),
 PKCE S256, and MongoDB-backed client/code/refresh stores; the MCP controller then
 also accepts OAuth access tokens. Mount the discovery/token endpoints in `main.ts`:

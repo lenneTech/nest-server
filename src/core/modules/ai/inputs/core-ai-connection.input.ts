@@ -141,6 +141,28 @@ export class CoreAiConnectionInput {
   providerType?: string = undefined;
 
   /**
+   * Whether the backend supports native JSON/structured-output mode.
+   */
+  @UnifiedField({
+    description: 'Whether the backend supports native JSON/structured-output mode',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  supportsJsonResponse?: boolean = undefined;
+
+  /**
+   * Whether the backend supports native function/tool calling.
+   */
+  @UnifiedField({
+    description: 'Whether the backend supports native function/tool calling',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  supportsNativeTools?: boolean = undefined;
+
+  /**
    * Whether the model supports vision (image input).
    */
   @UnifiedField({

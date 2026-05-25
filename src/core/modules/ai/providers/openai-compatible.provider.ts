@@ -2,6 +2,7 @@ import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestj
 
 import {
   ILlmProvider,
+  LlmCapabilities,
   LlmCompletionOptions,
   LlmMessage,
   LlmResponse,
@@ -12,33 +13,30 @@ import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.inter
 /**
  * Provider for OpenAI-compatible chat-completions endpoints.
  *
- * Used for mittwald AI hosting (https://llm.aihosting.mittwald.de/v1) and any
- * other OpenAI-compatible gateway (Azure OpenAI, vLLM, LiteLLM, Ollama's
- * `/v1` shim, …). Implemented with the native `fetch` API so the framework core
- * stays dependency-free and vendor-mode friendly.
+ * Works with any backend that speaks the OpenAI chat-completions shape — local
+ * runtimes or hosted endpoints alike. Implemented with the native `fetch` API so
+ * the framework core stays dependency-free and vendor-neutral.
  *
- * ## Tool calling
- *
- * mittwald's gateway does NOT support native function/tool calling or JSON mode,
- * so {@link supportsNativeTools} is `false`. Tool calling is emulated by the
- * orchestrator ({@link CoreAiService}) via the system prompt; this provider only
- * performs plain text completions. The flag is constructor-injectable so a
- * gateway that DOES support `tools` can be wired up without a new class.
+ * Capabilities are taken from the connection config (the admin knows what the
+ * endpoint supports). The orchestrator compensates: when `nativeTools` is false it
+ * emulates tool calling via the system prompt; when `jsonResponse` is false it
+ * relies on prompt-instructed JSON. Both are off by default (the safe, lowest
+ * common denominator) and can be enabled per connection.
  */
 export class OpenAiCompatibleProvider implements ILlmProvider {
+  readonly capabilities: LlmCapabilities;
   readonly name = 'openai-compatible';
-  readonly supportsNativeTools: boolean;
 
   private readonly logger = new Logger(OpenAiCompatibleProvider.name);
   private readonly defaultTimeoutMs: number;
 
-  constructor(
-    private readonly connection: ResolvedAiConnection,
-    options?: { supportsNativeTools?: boolean },
-  ) {
-    // mittwald and most lightweight gateways do not support native tools → default false.
-    this.supportsNativeTools = options?.supportsNativeTools ?? false;
-    // mittwald allows up to 1,800s; default to 2 minutes for interactive prompts.
+  constructor(private readonly connection: ResolvedAiConnection) {
+    this.capabilities = {
+      jsonResponse: connection.supportsJsonResponse ?? false,
+      nativeTools: connection.supportsNativeTools ?? false,
+      systemPrompt: true,
+    };
+    // Default to 2 minutes for interactive prompts; overridable per connection.
     this.defaultTimeoutMs = connection.timeoutMs ?? 120_000;
   }
 
@@ -51,7 +49,8 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     const body: Record<string, any> = {
       max_tokens: options?.maxTokens ?? this.connection.defaultMaxTokens ?? 2048,
       messages: messages.map((m) => ({
-        // mittwald only knows system/user/assistant — map the emulated 'tool' role to 'user'.
+        // Map the emulated 'tool' role to 'user' for backends that only know
+        // system/user/assistant.
         content: m.content,
         role: m.role === 'tool' ? 'user' : m.role,
       })),
@@ -60,12 +59,15 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
       temperature: options?.temperature ?? this.connection.defaultTemperature ?? 0.1,
     };
 
-    // Only attach the native tools parameter when the backend actually supports it.
-    if (this.supportsNativeTools && tools.length) {
+    // Attach native parameters only when the backend supports them.
+    if (this.capabilities.nativeTools && tools.length) {
       body.tools = tools.map((t) => ({
         function: { description: t.description, name: t.name, parameters: t.parameters },
         type: 'function',
       }));
+    }
+    if (this.capabilities.jsonResponse) {
+      body.response_format = { type: 'json_object' };
     }
 
     const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
@@ -87,7 +89,6 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      // 401/403 = config error, 429 = rate limit, 5xx = transient — surface status for the caller.
       this.logger.warn(`AI completion failed (${response.status}) at ${url}: ${text.slice(0, 300)}`);
       throw new BadGatewayException(`AI completion via "${this.connection.name}" failed (HTTP ${response.status})`);
     }
@@ -99,7 +100,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
 
     const choice = result.choices?.[0]?.message;
     const text = choice?.content ?? '';
-    const nativeToolCalls = this.supportsNativeTools ? this.mapNativeToolCalls(choice?.tool_calls) : undefined;
+    const nativeToolCalls = this.capabilities.nativeTools ? this.mapNativeToolCalls(choice?.tool_calls) : undefined;
 
     return {
       raw: result,
@@ -114,8 +115,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   }
 
   /**
-   * Map OpenAI native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
-   * Only relevant when {@link supportsNativeTools} is enabled.
+   * Map native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
    */
   private mapNativeToolCalls(toolCalls: any[] | undefined) {
     if (!toolCalls?.length) {

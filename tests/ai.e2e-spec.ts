@@ -24,8 +24,8 @@ import { ServerModule } from '../src/server/server.module';
  * agent loop deterministically through the real DI graph (no external LLM call).
  */
 class ScriptedE2eProvider implements ILlmProvider {
+  readonly capabilities = { jsonResponse: false, nativeTools: false, systemPrompt: true };
   readonly name = 'fake-e2e';
-  readonly supportsNativeTools = false;
   private call = 0;
   constructor(private readonly scripts: string[]) {}
   async chat(): Promise<LlmResponse> {
@@ -210,8 +210,8 @@ describe('AI module (e2e)', () => {
     // Capture the messages the provider receives on each call.
     const seenPerCall: LlmMessage[][] = [];
     providerFactory.registerBuilder('fake-e2e', () => ({
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
       name: 'fake-e2e',
-      supportsNativeTools: false,
       async chat(messages: LlmMessage[]): Promise<LlmResponse> {
         seenPerCall.push(messages);
         return { text: JSON.stringify({ final: 'ok' }), usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 } };

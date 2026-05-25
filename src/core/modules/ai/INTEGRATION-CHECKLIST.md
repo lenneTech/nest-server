@@ -30,10 +30,11 @@ ai: {
   maxIterations: 5,
   rateLimit: { max: 20, windowSeconds: 60 },
   defaultConnection: {                 // optional one-time seed
-    name: 'mittwald GPT-OSS 120B',
-    baseUrl: 'https://llm.aihosting.mittwald.de/v1',
-    model: 'gpt-oss-120b',
-    apiKeyEnv: 'MITTWALD_API_KEY',      // prefer env over inline apiKey
+    name: 'Default LLM',
+    baseUrl: process.env.AI_BASE_URL,   // any OpenAI-compatible endpoint
+    model: process.env.AI_MODEL,
+    apiKeyEnv: 'AI_API_KEY',            // prefer env over inline apiKey
+    supportsNativeTools: false,         // set per the backend's actual support
   },
 }
 ```
@@ -47,7 +48,8 @@ warning) — never ship that.
 
 ```bash
 # .env
-MITTWALD_API_KEY=sk-...
+AI_API_KEY=...
+AI_BASE_URL=https://your-openai-compatible-endpoint/v1
 NSC__AI__ENCRYPTION_SECRET=<random 32+ char string>
 ```
 

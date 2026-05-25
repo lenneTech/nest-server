@@ -7,15 +7,15 @@ import { OpenAiCompatibleProvider } from './openai-compatible.provider';
 /**
  * Builds an {@link ILlmProvider} from a resolved connection.
  *
- * Builders are keyed by `providerType`. The factory ships with an
- * `openai-compatible` builder (mittwald, Azure OpenAI, vLLM, Ollama `/v1`, …).
- * Projects extend support for new backends (e.g. native Anthropic) by calling
- * {@link registerBuilder} — typically from a module's `onModuleInit` — without
- * subclassing the factory.
+ * Builders are keyed by `providerType`. The factory ships with a builder for the
+ * `openai-compatible` chat API shape (a de-facto standard spoken by many local and
+ * hosted backends — not a specific vendor). Projects add builders for other
+ * backends/protocols by calling {@link registerBuilder} — typically from a
+ * module's `onModuleInit` — without subclassing the factory.
  *
  * @example
  * ```typescript
- * factory.registerBuilder('anthropic', (conn) => new AnthropicProvider(conn));
+ * factory.registerBuilder('my-provider', (conn) => new MyProvider(conn));
  * ```
  */
 @Injectable()
@@ -24,11 +24,11 @@ export class LlmProviderFactory {
   private readonly builders = new Map<string, (connection: ResolvedAiConnection) => ILlmProvider>();
 
   constructor() {
-    // Default builder: OpenAI-compatible (covers mittwald and most gateways).
-    const openAiBuilder = (connection: ResolvedAiConnection) => new OpenAiCompatibleProvider(connection);
-    this.registerBuilder('openai-compatible', openAiBuilder);
-    // Aliases so a connection stored as plain 'openai' resolves too.
-    this.registerBuilder('openai', openAiBuilder);
+    // Default builder for the OpenAI-compatible API shape (protocol, not a vendor).
+    const openAiCompatibleBuilder = (connection: ResolvedAiConnection) => new OpenAiCompatibleProvider(connection);
+    this.registerBuilder('openai-compatible', openAiCompatibleBuilder);
+    // Convenience alias for connections that store the shorter protocol key.
+    this.registerBuilder('openai', openAiCompatibleBuilder);
   }
 
   /**

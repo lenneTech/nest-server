@@ -26,8 +26,8 @@ function makeTool(name: string, roles: (RoleEnum | string)[], execute?: IAiTool[
 
 /** Fake provider returning scripted responses per call. */
 class ScriptedProvider implements ILlmProvider {
+  readonly capabilities = { jsonResponse: false, nativeTools: false, systemPrompt: true };
   readonly name = 'fake';
-  readonly supportsNativeTools = false;
   private call = 0;
 
   constructor(private readonly scripts: string[]) {}
@@ -273,8 +273,8 @@ describe('CoreAiService (emulated tool calling)', () => {
   it('includes client metadata (url, console logs) in the prompt sent to the LLM', async () => {
     const captured: string[] = [];
     const provider: ILlmProvider = {
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
       name: 'fake',
-      supportsNativeTools: false,
       async chat(messages) {
         captured.push(messages.map((m) => m.content).join(' || '));
         return { text: JSON.stringify({ final: 'ok' }), usage: {} };

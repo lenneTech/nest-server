@@ -72,7 +72,7 @@ export interface AiRunContext {
  *    feed results back, until a final answer or `maxIterations`
  * 5. shape the {@link CoreAiResponse} and audit the run
  *
- * Tool calling is emulated for providers without native support (mittwald):
+ * Tool calling is emulated for providers without native support:
  * the tool catalog is injected into the system prompt and tool calls are parsed
  * from the model's JSON output. Providers that support native tools are used
  * transparently.
@@ -165,7 +165,7 @@ export class CoreAiService {
    */
   protected async runAuto(input: CoreAiPromptInput, run: AiRunContext): Promise<CoreAiResponse> {
     const { connection, context, currentUser, history, provider, tenantId, tools } = run;
-    const systemPrompt = this.promptBuilder.buildSystemPrompt(tools, provider.supportsNativeTools, currentUser);
+    const systemPrompt = this.promptBuilder.buildSystemPrompt(tools, provider.capabilities.nativeTools, currentUser);
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
 
     const messages: LlmMessage[] = [{ content: systemPrompt, role: 'system' }];
@@ -195,7 +195,9 @@ export class CoreAiService {
       usage.promptTokens += completion.usage?.promptTokens ?? 0;
       usage.totalTokens += completion.usage?.totalTokens ?? 0;
 
-      const toolCalls = provider.supportsNativeTools ? completion.toolCalls : this.extractToolCalls(completion.text);
+      const toolCalls = provider.capabilities.nativeTools
+        ? completion.toolCalls
+        : this.extractToolCalls(completion.text);
 
       if (toolCalls?.length) {
         // Halt on actions that require confirmation until the user confirms.

@@ -427,22 +427,29 @@ const config: { [env: string]: IServerOptions } = {
   // Local environment (env: 'local' → auto URLs + Passkey)
   // ===========================================================================
   local: {
-    // AI assistant module (presence implies enabled).
+    // AI assistant module (presence implies enabled). Vendor-agnostic: configure
+    // any OpenAI-compatible endpoint (local runtime or hosted) via env vars.
     // Connections are managed at runtime (admin CRUD); the defaultConnection below
-    // is only a one-time seed and reads its key from the MITTWALD_API_KEY env var,
-    // so no secret is committed to the repository.
+    // is only a one-time seed and reads its key from an env var, so no secret is
+    // committed to the repository. Only seeded when AI_BASE_URL is set.
     ai: {
-      defaultConnection: {
-        apiKeyEnv: 'MITTWALD_API_KEY',
-        baseUrl: 'https://llm.aihosting.mittwald.de/v1',
-        capabilities: ['analysis'],
-        description: 'mittwald (DE/DSGVO) GPT-OSS 120B',
-        defaultMaxTokens: 4096,
-        defaultTemperature: 0.1,
-        model: 'gpt-oss-120b',
-        name: 'mittwald GPT-OSS 120B',
-        providerType: 'openai-compatible',
-      },
+      ...(process.env.AI_BASE_URL
+        ? {
+            defaultConnection: {
+              apiKeyEnv: 'AI_API_KEY',
+              baseUrl: process.env.AI_BASE_URL,
+              defaultMaxTokens: 4096,
+              defaultTemperature: 0.1,
+              description: 'Default LLM connection',
+              model: process.env.AI_MODEL || 'default',
+              name: 'Default LLM',
+              providerType: 'openai-compatible',
+              // Capability flags — enable per the backend's actual support:
+              supportsJsonResponse: process.env.AI_SUPPORTS_JSON === 'true',
+              supportsNativeTools: process.env.AI_SUPPORTS_NATIVE_TOOLS === 'true',
+            },
+          }
+        : {}),
       maxIterations: 5,
       rateLimit: { max: 20, windowSeconds: 60 },
     },

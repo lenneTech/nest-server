@@ -167,6 +167,8 @@ export class CoreAiConnectionService
       model: doc.model,
       name: doc.name,
       providerType: doc.providerType || 'openai-compatible',
+      supportsJsonResponse: doc.supportsJsonResponse,
+      supportsNativeTools: doc.supportsNativeTools,
     };
   }
 

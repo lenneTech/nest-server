@@ -31,6 +31,12 @@ export interface ResolvedAiConnection {
   /** Provider implementation key (e.g. 'openai-compatible'). */
   providerType: string;
 
+  /** Whether the backend natively supports JSON/structured-output mode. */
+  supportsJsonResponse?: boolean;
+
+  /** Whether the backend natively supports function/tool calling. */
+  supportsNativeTools?: boolean;
+
   /** Per-request timeout in milliseconds. */
   timeoutMs?: number;
 }

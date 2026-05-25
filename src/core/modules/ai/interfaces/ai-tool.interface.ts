@@ -94,7 +94,7 @@ export interface IAiTool {
   /** Unique tool name (snake_case recommended, stable across versions). */
   readonly name: string;
 
-  /** JSON schema of the tool's input arguments (OpenAI/JSON-schema shape). */
+  /** JSON schema of the tool's input arguments (JSON-schema shape). */
   readonly parameters: Record<string, any>;
 
   /**

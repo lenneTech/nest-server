@@ -109,7 +109,7 @@ export class CoreAiPromptBuilderService {
 
   /**
    * Build the emulated tool-calling protocol section appended to the system
-   * prompt for providers without native tool calling (e.g. mittwald).
+   * prompt for providers without native tool calling.
    */
   protected buildToolProtocol(tools: IAiTool[]): string {
     const catalog = tools

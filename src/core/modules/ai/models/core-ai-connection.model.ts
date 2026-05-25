@@ -44,7 +44,7 @@ export class CoreAiConnection extends CorePersistenceModel {
 
   /**
    * Name of an environment variable used as API-key fallback when no key is
-   * stored in the database (e.g. 'MITTWALD_API_KEY').
+   * stored in the database (e.g. 'AI_API_KEY').
    */
   @UnifiedField({
     description: 'Name of the environment variable used as API-key fallback',
@@ -178,6 +178,32 @@ export class CoreAiConnection extends CorePersistenceModel {
     roles: RoleEnum.ADMIN,
   })
   providerType?: string = undefined;
+
+  /**
+   * Whether the backend natively supports JSON / structured-output mode.
+   * When false, JSON is requested via the prompt and parsed defensively.
+   */
+  @UnifiedField({
+    description: 'Whether the backend supports native JSON/structured-output mode',
+    isOptional: true,
+    mongoose: { default: false },
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  supportsJsonResponse?: boolean = undefined;
+
+  /**
+   * Whether the backend natively supports function/tool calling. When false, tool
+   * calling is emulated via the system prompt.
+   */
+  @UnifiedField({
+    description: 'Whether the backend supports native function/tool calling',
+    isOptional: true,
+    mongoose: { default: false },
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  supportsNativeTools?: boolean = undefined;
 
   /**
    * Whether the model can process images.
