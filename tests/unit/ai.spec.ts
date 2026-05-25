@@ -180,6 +180,29 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('Sorry, I cannot do that.');
   });
 
+  it('nudges once for a final answer when the model returns an empty tool_calls wrapper', async () => {
+    const registry = new AiToolRegistry();
+    // Model first returns a bare `{"tool_calls":[]}` (no answer), then a proper final.
+    const provider = new ScriptedProvider([
+      JSON.stringify({ tool_calls: [] }),
+      JSON.stringify({ final: 'Here is the real answer.' }),
+    ]);
+    const service = buildService(provider, registry);
+    const response = await service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } });
+    expect(response.text).toBe('Here is the real answer.');
+    expect(response.iterations).toBe(2);
+  });
+
+  it('never leaks a bare protocol wrapper as the final answer', async () => {
+    const registry = new AiToolRegistry();
+    // Model keeps returning the empty wrapper even after the nudge.
+    const provider = new ScriptedProvider([JSON.stringify({ tool_calls: [] }), JSON.stringify({ tool_calls: [] })]);
+    const service = buildService(provider, registry);
+    const response = await service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } });
+    expect(response.text).not.toContain('tool_calls');
+    expect(response.text).toContain('could not produce a final answer');
+  });
+
   it('plan mode executes a fully-permitted multi-step plan', async () => {
     const executed: string[] = [];
     const registry = new AiToolRegistry();

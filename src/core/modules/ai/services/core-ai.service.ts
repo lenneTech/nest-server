@@ -239,6 +239,7 @@ export class CoreAiService {
     let finalText = '';
     let finalData: unknown;
     let iterations = 0;
+    let nudgedForFinal = false;
     let requiresConfirmation = false;
 
     while (iterations < maxIterations) {
@@ -294,8 +295,22 @@ export class CoreAiService {
       if (parsed && typeof parsed.final === 'string') {
         finalText = parsed.final;
         finalData = parsed.data ?? undefined;
+      } else if (parsed && 'tool_calls' in parsed && !nudgedForFinal && iterations < maxIterations) {
+        // The model emitted the protocol wrapper (e.g. an empty `{"tool_calls":[]}`
+        // batch) but no user-facing answer. Nudge once for a proper final answer
+        // instead of leaking the raw protocol JSON to the user.
+        nudgedForFinal = true;
+        messages.push({ content: completion.text, role: 'assistant' });
+        messages.push({
+          content: 'You did not request any tool. Now reply with your final answer ONLY as {"final":"<your answer>"}.',
+          role: 'user',
+        });
+        continue;
       } else {
-        finalText = completion.text;
+        // Plain-text answer — but never surface a bare protocol wrapper. If the model
+        // still returned only a `tool_calls`/`final`-shaped object, drop it so the
+        // generic fallback message applies instead of leaking JSON.
+        finalText = parsed && ('tool_calls' in parsed || 'final' in parsed) ? '' : completion.text;
       }
       break;
     }
