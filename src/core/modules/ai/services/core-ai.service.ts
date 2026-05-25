@@ -276,8 +276,11 @@ export class CoreAiService {
           break;
         }
 
+        // Record a normalized assistant turn (just the tool calls) — never the raw
+        // text, which may carry trailing prose or a model-hallucinated TOOL_RESULTS
+        // block. Feeding that back alongside the real results confuses the model.
         messages.push({
-          content: completion.text || JSON.stringify({ tool_calls: toolCalls }),
+          content: JSON.stringify({ tool_calls: toolCalls.map((c) => ({ arguments: c.arguments, name: c.name })) }),
           role: 'assistant',
         });
         const results: { name: string; result: unknown; success: boolean }[] = [];

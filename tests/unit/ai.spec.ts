@@ -239,6 +239,29 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('The server time is X.');
   });
 
+  it('feeds back only the normalized tool_calls as the assistant turn (no raw/hallucinated text)', async () => {
+    const registry = new AiToolRegistry();
+    registry.register(makeTool('server_time', [RoleEnum.S_USER], async () => ({ data: { now: 'X' }, success: true })));
+    const seen: { content: string; role: string }[][] = [];
+    class Capturing implements ILlmProvider {
+      readonly capabilities = { jsonResponse: false, nativeTools: false, systemPrompt: true };
+      readonly name = 'fake';
+      private call = 0;
+      async chat(messages: any): Promise<LlmResponse> {
+        seen.push(messages.map((m: any) => ({ content: m.content, role: m.role })));
+        this.call++;
+        return this.call === 1
+          ? { text: '{"tool_calls":[{"name":"server_time","arguments":{}}]}\n\nTOOL_RESULTS:\n[HALLUCINATED-FAKE]' }
+          : { text: JSON.stringify({ final: 'done' }) };
+      }
+    }
+    const service = buildService(new Capturing(), registry);
+    await service.prompt({ prompt: 'time' } as any, { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } });
+    const assistantTurn = seen[1]?.find((m) => m.role === 'assistant' && m.content.includes('tool_calls'));
+    expect(assistantTurn).toBeDefined();
+    expect(assistantTurn!.content).not.toContain('HALLUCINATED-FAKE');
+  });
+
   it('nudges once for a final answer when the model returns an empty tool_calls wrapper', async () => {
     const registry = new AiToolRegistry();
     // Model first returns a bare `{"tool_calls":[]}` (no answer), then a proper final.
