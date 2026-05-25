@@ -1,0 +1,1 @@
+- [Core ErrorCode in framework repo](project_core-errorcode.md) — src/core has its own ErrorCode registry; modern core modules use it, but the baseline is mixed (core-user still raw strings).

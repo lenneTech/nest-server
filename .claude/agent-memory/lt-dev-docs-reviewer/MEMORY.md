@@ -1,0 +1,2 @@
+- [FRAMEWORK-API generator interface allowlist](framework-api-generator-allowlist.md) — FRAMEWORK-API.md only documents config interfaces hardcoded in generate-framework-api.ts; new interfaces silently omitted
+- [Doc places to check for config features](doc-surfaces-for-config-features.md) — the full set of doc surfaces a new configurable feature must update in this repo
