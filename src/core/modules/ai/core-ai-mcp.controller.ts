@@ -2,9 +2,9 @@ import { Controller, Delete, Get, Post, Req, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 
 /**
@@ -36,7 +36,8 @@ export class CoreAiMcpController {
   constructor(private readonly mcpService: CoreAiMcpService) {}
 
   @Post()
-  async handlePost(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response): Promise<void> {
+  async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const user = await this.resolveUser(req);
     if (!user?.id) {
       this.unauthorized(req, res);
       return;
@@ -70,19 +71,43 @@ export class CoreAiMcpController {
   }
 
   @Get()
-  async handleGet(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response): Promise<void> {
-    await this.handleSessionRequest(user, req, res);
+  async handleGet(@Req() req: Request, @Res() res: Response): Promise<void> {
+    await this.handleSessionRequest(req, res);
   }
 
   @Delete()
-  async handleDelete(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response): Promise<void> {
-    await this.handleSessionRequest(user, req, res);
+  async handleDelete(@Req() req: Request, @Res() res: Response): Promise<void> {
+    await this.handleSessionRequest(req, res);
+  }
+
+  /**
+   * Resolve the authenticated user for an MCP request. Uses `req.user` (set by the
+   * BetterAuth middleware for valid tokens) and falls back to verifying the Bearer
+   * token directly via the BetterAuth token service — so MCP works regardless of
+   * whether the `S_EVERYONE` guard populated the user.
+   */
+  protected async resolveUser(req: Request): Promise<any | null> {
+    const fromRequest = (req as any).user;
+    if (fromRequest?.id) {
+      return fromRequest;
+    }
+    const tokenService = CoreBetterAuthModule.getTokenServiceInstance();
+    if (!tokenService) {
+      return null;
+    }
+    try {
+      const { token } = tokenService.extractTokenFromRequest(req);
+      return token ? await tokenService.verifyAndLoadUser(token) : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
    * Forward a GET (SSE stream) or DELETE (close) to the session's transport.
    */
-  private async handleSessionRequest(user: any, req: Request, res: Response): Promise<void> {
+  private async handleSessionRequest(req: Request, res: Response): Promise<void> {
+    const user = await this.resolveUser(req);
     if (!user?.id) {
       this.unauthorized(req, res);
       return;

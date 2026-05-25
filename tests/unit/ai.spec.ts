@@ -492,3 +492,32 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.requiresConfirmation).toBe(true);
   });
 });
+
+describe('CoreAiMcpService (MCP protocol via in-memory transport)', () => {
+  it('handshakes, lists role-filtered tools and executes a permitted tool', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+
+    const registry = new AiToolRegistry();
+    registry.register(
+      makeTool('public_info', [RoleEnum.S_EVERYONE], async () => ({ data: { ok: true }, success: true })),
+    );
+    registry.register(makeTool('admin_op', [RoleEnum.ADMIN], async () => ({ success: true })));
+
+    const mcp = new CoreAiMcpService(registry);
+    const server = await mcp.createServer({ id: 'u1', roles: [] }); // non-admin user
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await client.connect(clientTransport); // initialize handshake
+
+    const tools = await client.listTools();
+    expect(tools.tools.map((t: any) => t.name)).toEqual(['public_info']); // admin_op filtered by role
+
+    const result: any = await client.callTool({ arguments: {}, name: 'public_info' });
+    expect(JSON.stringify(result.content)).toContain('ok');
+
+    await client.close();
+  });
+});
