@@ -1188,9 +1188,14 @@ export interface IAi {
   /**
    * Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
    * external MCP clients. Requires `@modelcontextprotocol/sdk`. Boolean shorthand.
+   *
+   * `oauth: true` additionally enables the OAuth 2.1 layer (dynamic client
+   * registration + PKCE) so generic MCP clients can authenticate; mount the OAuth
+   * router in `main.ts` via `mountAiMcpOAuth(app)` (see INTEGRATION-CHECKLIST).
+   * Without it, MCP authenticates via the existing Bearer/session token.
    * @default false
    */
-  mcp?: boolean | { enabled?: boolean };
+  mcp?: boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string };
 
   /** Rate limiting for prompts. */
   rateLimit?: IAiRateLimit;

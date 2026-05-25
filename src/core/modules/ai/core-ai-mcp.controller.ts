@@ -4,7 +4,9 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
+import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 
 /**
@@ -33,7 +35,10 @@ export class CoreAiMcpController {
   /** Cap on concurrent MCP sessions (oldest evicted on overflow). */
   private readonly maxSessions = 500;
 
-  constructor(private readonly mcpService: CoreAiMcpService) {}
+  constructor(
+    private readonly mcpService: CoreAiMcpService,
+    private readonly oauthService: CoreAiMcpOAuthService,
+  ) {}
 
   @Post()
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
@@ -91,16 +96,40 @@ export class CoreAiMcpController {
     if (fromRequest?.id) {
       return fromRequest;
     }
+
+    const bearer = (req.headers?.authorization || '').replace(/^bearer\s+/i, '').trim();
+
+    // BetterAuth/legacy token (the default auth).
     const tokenService = CoreBetterAuthModule.getTokenServiceInstance();
-    if (!tokenService) {
-      return null;
+    if (tokenService) {
+      try {
+        const { token } = tokenService.extractTokenFromRequest(req);
+        const user = token ? await tokenService.verifyAndLoadUser(token) : null;
+        if (user?.id) {
+          return user;
+        }
+      } catch {
+        // fall through to OAuth
+      }
     }
-    try {
-      const { token } = tokenService.extractTokenFromRequest(req);
-      return token ? await tokenService.verifyAndLoadUser(token) : null;
-    } catch {
-      return null;
+
+    // OAuth 2.1 access token (when ai.mcp.oauth is enabled).
+    if (bearer && this.oauthEnabled()) {
+      const payload = this.oauthService.verifyAccessToken(bearer);
+      if (payload?.sub) {
+        return this.oauthService.loadUser(payload.sub);
+      }
     }
+
+    return null;
+  }
+
+  /**
+   * Whether the OAuth 2.1 layer is enabled via `ai.mcp.oauth`.
+   */
+  protected oauthEnabled(): boolean {
+    const mcp = ConfigService.get<{ oauth?: boolean }>('ai.mcp');
+    return typeof mcp === 'object' && mcp?.oauth === true;
   }
 
   /**

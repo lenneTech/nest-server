@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { IAiTool } from '../../src/core/modules/ai/interfaces/ai-tool.interface';
 import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/llm-provider.interface';
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
+import { CoreAiMcpOAuthService } from '../../src/core/modules/ai/services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
 import { CoreAiService } from '../../src/core/modules/ai/services/core-ai.service';
@@ -519,5 +522,46 @@ describe('CoreAiMcpService (MCP protocol via in-memory transport)', () => {
     expect(JSON.stringify(result.content)).toContain('ok');
 
     await client.close();
+  });
+});
+
+describe('CoreAiMcpOAuthService (security primitives)', () => {
+  beforeAll(() => {
+    new ConfigService({ ai: { mcp: { oauth: true, oauthSecret: 'unit-mcp-oauth-secret-32-characters!!' } } } as any);
+  });
+
+  function svc() {
+    // The security primitives do not use the Mongoose connection.
+    return new CoreAiMcpOAuthService({} as any);
+  }
+
+  it('signs and verifies an access token (roundtrip)', () => {
+    const s = svc();
+    const token = s.signAccessToken('user-1', 'client-1', 3600);
+    const payload = s.verifyAccessToken(token);
+    expect(payload).toMatchObject({ cid: 'client-1', sub: 'user-1', type: 'mcp_access' });
+  });
+
+  it('rejects a tampered token', () => {
+    const s = svc();
+    const token = s.signAccessToken('user-1', 'client-1');
+    expect(s.verifyAccessToken(token + 'x')).toBeNull();
+    const [p] = token.split('.');
+    expect(s.verifyAccessToken(`${p}.deadbeef`)).toBeNull();
+  });
+
+  it('rejects an expired token', () => {
+    const s = svc();
+    const token = s.signAccessToken('user-1', 'client-1', -1);
+    expect(s.verifyAccessToken(token)).toBeNull();
+  });
+
+  it('verifies PKCE S256 and rejects a wrong verifier / plain method', () => {
+    const s = svc();
+    const verifier = 'a-random-code-verifier-string-1234567890';
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    expect(s.verifyPkce(verifier, challenge)).toBe(true);
+    expect(s.verifyPkce('wrong-verifier', challenge)).toBe(false);
+    expect(s.verifyPkce(verifier, challenge, 'plain')).toBe(false);
   });
 });

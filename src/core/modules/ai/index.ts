@@ -1,5 +1,6 @@
 // AI module public API
 export * from './core-ai-mcp.controller';
+export * from './helpers/ai-mcp-oauth.helper';
 export * from './core-ai.controller';
 export * from './core-ai.module';
 export * from './core-ai.resolver';
@@ -24,6 +25,7 @@ export * from './services/ai-crypto.service';
 export * from './services/core-ai-connection.service';
 export * from './services/core-ai-conversation.service';
 export * from './services/core-ai-interaction.service';
+export * from './services/core-ai-mcp-oauth.service';
 export * from './services/core-ai-mcp.service';
 export * from './services/core-ai-prompt-builder.service';
 export * from './services/core-ai.service';

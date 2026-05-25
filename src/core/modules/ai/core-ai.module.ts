@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CoreAiMcpController } from './core-ai-mcp.controller';
 import { CoreAiController } from './core-ai.controller';
 import { CoreAiResolver } from './core-ai.resolver';
+import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
@@ -106,6 +107,7 @@ export class CoreAiModule {
         CoreAiConnectionService,
         CoreAiConversationService,
         CoreAiInteractionService,
+        CoreAiMcpOAuthService,
         CoreAiMcpService,
         CoreAiPromptBuilderService,
         CoreAiService,
@@ -130,6 +132,7 @@ export class CoreAiModule {
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
         CoreAiMcpService,
+        CoreAiMcpOAuthService,
         // Bind base-class tokens to the (possibly overridden) implementations so
         // injections by base type resolve to the project's subclass.
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
