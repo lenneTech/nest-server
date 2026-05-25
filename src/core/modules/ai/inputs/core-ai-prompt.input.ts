@@ -54,6 +54,31 @@ export class CoreAiPromptInput {
   context?: Record<string, any> = undefined;
 
   /**
+   * Optional client metadata giving the assistant more situational context, e.g.
+   * current URL, previous navigation steps, console logs. Treated as UNTRUSTED
+   * input (size-capped, clearly delimited) to limit prompt-injection risk.
+   */
+  @UnifiedField({
+    description: 'Optional client metadata (current URL, navigation steps, console logs, …)',
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+    type: () => JSON,
+  })
+  metadata?: Record<string, any> = undefined;
+
+  /**
+   * Execution mode. `auto` (default) runs the reactive agent loop; `plan` first
+   * produces a complete plan, validates ALL action permissions up front, and only
+   * then executes (all-or-nothing).
+   */
+  @UnifiedField({
+    description: "Execution mode: 'auto' (reactive loop) or 'plan' (validate all permissions, then execute atomically)",
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+  })
+  mode?: string = undefined;
+
+  /**
    * The user's prompt text.
    */
   @UnifiedField({
@@ -61,4 +86,16 @@ export class CoreAiPromptInput {
     roles: RoleEnum.S_USER,
   })
   prompt: string = undefined;
+
+  /**
+   * Client override of the admin confirmation-for-mutating-actions default.
+   * Ignored when the admin has enforced the policy.
+   */
+  @UnifiedField({
+    description: 'Override the admin default for requiring confirmation of mutating actions (ignored when enforced)',
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+    type: () => Boolean,
+  })
+  requireConfirmation?: boolean = undefined;
 }

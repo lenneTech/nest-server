@@ -23,6 +23,17 @@ export interface AiToolContext {
 }
 
 /**
+ * Result of a tool's pre-flight authorization check ({@link IAiTool.authorize}).
+ */
+export interface AiToolAuthorization {
+  /** Whether the user may run the tool with these arguments. */
+  allowed: boolean;
+
+  /** Optional human-readable reason when not allowed. */
+  reason?: string;
+}
+
+/**
  * Normalized result of a tool execution that is fed back to the LLM.
  */
 export interface AiToolResult {
@@ -58,11 +69,27 @@ export interface IAiTool {
 
   /**
    * Whether the tool performs a destructive/irreversible action (delete, bulk
-   * update, payment, …). Destructive tools are NOT executed until the prompt is
-   * re-sent with `confirm: true`; the first response lists them as
-   * `pendingActions` with `requiresConfirmation: true`.
+   * update, payment, …). Destructive tools always require confirmation: they are
+   * NOT executed until the prompt is re-sent with `confirm: true`; the first
+   * response lists them as `pendingActions` with `requiresConfirmation: true`.
    */
   readonly destructive?: boolean;
+
+  /**
+   * Whether the tool changes data (create/update/delete). Confirmation for
+   * mutating tools is governed by the `ai.confirmation` policy (admin default,
+   * optionally client-overridable, optionally enforced). `destructive` is the
+   * stronger flag and always requires confirmation regardless of policy.
+   */
+  readonly mutating?: boolean;
+
+  /**
+   * Optional pre-flight authorization check used by plan mode (and recommended
+   * for data-level checks). MUST NOT mutate anything — it only decides whether
+   * the user may run the tool with these arguments (e.g. load the target record
+   * and verify ownership). When omitted, only the registry role filter applies.
+   */
+  authorize?(args: Record<string, any>, context: AiToolContext): Promise<AiToolAuthorization | boolean>;
 
   /** Unique tool name (snake_case recommended, stable across versions). */
   readonly name: string;

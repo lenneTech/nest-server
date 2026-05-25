@@ -22,21 +22,82 @@ export class CoreAiPromptBuilderService {
     'Never invent data. If a request cannot be fulfilled with the available tools, say so.';
 
   /**
-   * Build the full system prompt for a run.
+   * Build the full system prompt for a run, enriched with system documentation and
+   * the current user's permissions (Goal #4: supply the LLM with the right info).
    *
    * @param tools Tools available to the current user.
    * @param supportsNativeTools Whether the provider handles tool calling natively.
+   * @param user The current user (for the permissions section).
    */
-  buildSystemPrompt(tools: IAiTool[], supportsNativeTools: boolean): string {
+  buildSystemPrompt(tools: IAiTool[], supportsNativeTools: boolean, user?: { id?: string; roles?: string[] }): string {
     const base = ConfigService.get<string>('ai.systemPrompt') || this.defaultSystemPrompt;
+    const parts: string[] = [base];
 
-    // With native tool calling the protocol is handled by the provider, so we
-    // only ship the base prompt. Without it, we describe the emulation protocol.
-    if (supportsNativeTools || tools.length === 0) {
-      return base;
+    const documentation = this.getDocumentation();
+    if (documentation) {
+      parts.push(`\nSystem documentation:\n${documentation}`);
     }
 
-    return `${base}\n\n${this.buildToolProtocol(tools)}`;
+    parts.push(`\n${this.buildPermissionsSection(user, tools)}`);
+
+    // With native tool calling the protocol is handled by the provider; otherwise
+    // describe the emulation protocol (which also documents the tool API).
+    if (!supportsNativeTools && tools.length > 0) {
+      parts.push(`\n${this.buildToolProtocol(tools)}`);
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Optional system documentation injected into the system prompt. Reads
+   * `ai.documentation` by default; override to supply RAG results / API docs.
+   */
+  protected getDocumentation(): string | undefined {
+    return ConfigService.get<string>('ai.documentation') || undefined;
+  }
+
+  /**
+   * Describe the current user's permissions and the tools they may use, so the
+   * model only attempts actions the user is actually allowed to perform.
+   */
+  protected buildPermissionsSection(user: { roles?: string[] } | undefined, tools: IAiTool[]): string {
+    const roles = user?.roles?.length ? user.roles.join(', ') : 'none';
+    const toolNames = tools.map((t) => t.name).join(', ') || 'none';
+    return [
+      'Your permissions and capabilities:',
+      `- roles: ${roles}`,
+      `- available tools (you may ONLY use these): ${toolNames}`,
+      'Never claim to perform an action you have no tool for, and never assume rights you do not have.',
+    ].join('\n');
+  }
+
+  /**
+   * Build the system prompt for plan mode: the model must return a COMPLETE
+   * ordered plan of tool calls as JSON instead of executing tools step by step.
+   */
+  buildPlanSystemPrompt(tools: IAiTool[], user?: { id?: string; roles?: string[] }): string {
+    const base = ConfigService.get<string>('ai.systemPrompt') || this.defaultSystemPrompt;
+    const documentation = this.getDocumentation();
+    const catalog = tools
+      .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
+      .join('\n');
+
+    return [
+      base,
+      ...(documentation ? ['', 'System documentation:', documentation] : []),
+      '',
+      this.buildPermissionsSection(user, tools),
+      '',
+      'Available tools:',
+      catalog || '(none)',
+      '',
+      'PLAN MODE: Do NOT execute anything. Respond with ONLY a JSON object describing the',
+      'COMPLETE ordered plan of tool calls needed to fulfil the request:',
+      '{"plan":[{"name":"<tool_name>","arguments":{ ... }}],"summary":"<short summary>"}',
+      'List every required step in order. If no tools are needed, return an empty plan array.',
+      'Reply with valid JSON only — no prose, no markdown code fences.',
+    ].join('\n');
   }
 
   /**

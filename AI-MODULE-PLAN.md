@@ -14,6 +14,39 @@ encrypted). Also exposable as a real **MCP server** for external clients.
 
 Frontend is built LAST, in separate repos: `nuxt-base-starter` + `nuxt-extensions`.
 
+## Architecture decision — internal orchestrator vs. external CLI (Claude Code / OpenCode)
+
+**Decision: keep the INTERNAL orchestrator as the primary, user-facing runtime.
+Use MCP only to OPTIONALLY expose the same tools to external CLIs.** Do NOT delegate
+the user-facing execution to an external CLI process.
+
+Rationale, weighed against the priorities (esp. #1 secure execution):
+
+- Claude Code and OpenCode are **single-user, per-developer CLIs** with an
+  **interactive approval** model (OpenCode's "Plan agent" is read-only and asks
+  before bash/edits). They are not multi-tenant servers and their permission model
+  is "a human approves at the terminal" — not "enforce *this* user's exact
+  rights per request across many concurrent tenants".
+- **Goal #1 (secure execution respecting all rules):** our backend MUST be the
+  thing that executes tools, because permission/`@Restricted`/`securityCheck`/tenant
+  enforcement lives in `CrudService` + `ServiceOptions`. Running an external CLI per
+  request would move the trust boundary into a process whose per-request, per-user
+  scoping we'd have to re-prove every time (token mapping, process isolation,
+  concurrency). In-process execution with the exact user's `ServiceOptions` is the
+  strongest guarantee.
+- **Goal #2 / #5 (no unwanted/partial actions, pre-flight detection):** we need a
+  hook to *plan → validate ALL permissions → execute atomically*. An external CLI
+  doesn't expose that; our orchestrator does (plan mode below).
+- **Prompt-injection surface:** an external coding CLI carries broad capabilities
+  (shell, fs). End users must only ever reach *registered* tools — in-process.
+- **Ops:** a direct LLM API call per request beats spawning/managing CLI processes
+  per prompt in a multi-tenant API.
+
+We **borrow the concepts** from these CLIs (plan mode, approval/permission gating,
+MCP) and implement them in-process. The MCP server (Phase 7) remains the bridge for
+the complementary case: a developer/admin driving the system's tools from Claude
+Code/OpenCode — with the *same* in-backend permission enforcement.
+
 ## Conventions
 
 - TDD for every phase (unit in `tests/unit/ai*.spec.ts`, e2e in `tests/ai*.e2e-spec.ts`).
@@ -39,14 +72,57 @@ Frontend is built LAST, in separate repos: `nuxt-base-starter` + `nuxt-extension
 > from the agent mid-session (`Permission denied (publickey)`). Run `git push` once
 > the key is available. Phases 0 + 3 are already on `origin/feature/ai-module`.
 
-## Remaining / follow-up
+## TODO — remaining + new phases (priority order matches the goals)
 
-- [ ] **MCP full handshake e2e** with a real Bearer token (needs auth bootstrap):
+Goals (priority): (1) secure execution respecting all rules, (2) protection against
+unwanted actions (esp. bulk data mutation), (3) best automation, (4) best LLM
+information supply, (5) detect missing rights BEFORE the first step → abort early.
+
+### Phase 9 — Plan mode: pre-flight permission validation + atomic multi-step  [Goals 1,2,3,5]
+- [ ] `input.mode?: 'auto' | 'plan'` (default configurable via `ai.defaultMode`).
+- [ ] `IAiTool.authorize?(args, context): Promise<boolean | { allowed; reason? }>` — a
+      NON-mutating permission/dry-run check. Default falls back to registry role check.
+- [ ] `IAiTool.mutating?: boolean` (create/update/delete). `destructive` stays the stronger flag.
+- [ ] Plan flow: one LLM call returns the full ordered plan `{plan:[{name,arguments}],summary}`
+      → **pre-flight `authorize()` ALL** planned actions → if ANY denied: execute NOTHING,
+      return a translated error (de/en) naming the offending action(s) (`denied`,
+      `deniedActions`) → else execute sequentially, feeding results forward.
+- [ ] `CoreAiResponse`: add `plan?`, `denied?`, `deniedActions?`.
+- [ ] Tests: all-permitted plan executes; one-forbidden plan executes nothing + translated error.
+
+### Phase 10 — Confirmation policy for mutating actions  [Goals 1,2]
+- [ ] `ai.confirmation.mutating: { default: boolean (admin default), enforced: boolean }`.
+- [ ] `input.requireConfirmation?: boolean` — client override, honored only when NOT enforced.
+- [ ] Effective = `enforced ? true : (input.requireConfirmation ?? default)`. A `mutating`
+      tool halts (requiresConfirmation/pendingActions) when effective && !`input.confirm`.
+      `destructive` always requires confirm (unifies Phase 6).
+- [ ] Tests: admin default on/off, client override honored, enforced cannot be overridden.
+
+### Phase 11 — Client metadata  [Goal 4]
+- [ ] `input.metadata?: JSON` (current URL, navigation steps, console logs, …).
+- [ ] PromptBuilder injects a "Client context" section (size-capped, sanitized).
+- [ ] Test: metadata reaches the system/context messages.
+
+### Phase 12 — Automatic prompt enrichment  [Goal 4]
+- [ ] PromptBuilder adds: (a) "Your permissions" (user roles + accessible tool names),
+      (b) API/tool description (already via catalog — make explicit), (c) optional system
+      documentation via `ai.documentation` (string) or overridable `getDocumentation()` hook.
+- [ ] Test: enriched system prompt contains the user's roles + documentation.
+
+### Phase 8 — Cost/budget  [Goal 2]
+- [ ] `ai.budget?: { maxTokensPerDay?, maxPromptsPerDay?, perTenant? }`; track usage
+      (reuse `aiInteractions`); enforce in orchestrator before a run; expose remaining.
+- [ ] Test: exceeding the budget blocks a run with a translated message.
+
+### Phase 7b — MCP full handshake e2e + OAuth
+- [ ] **MCP full handshake e2e** with a real Bearer token (auth bootstrap):
       initialize → tools/list (role-filtered) → tools/call → cross-user isolation.
-      Currently covered by a unit test (logic) + an HTTP 401 e2e + app-boot.
-- [ ] **MCP OAuth 2.1** dynamic client registration (hardening beyond Bearer).
-- [ ] **Phase 8 — cost/budget** (optional): per-user/tenant token budget in `ai.budget`.
-- [ ] **Finalization**: delete this plan file + final commit once the above are decided.
+- [ ] **MCP OAuth 2.1** dynamic client registration (`mcpAuthRouter`, OAuth provider,
+      MongoDB TTL collections, mount in main.ts) — hardening beyond Bearer.
+
+### Finalization
+- [ ] Update README / INTEGRATION-CHECKLIST / configurable-features / FRAMEWORK-API.
+- [ ] Full `pnpm test` green. **Delete this plan file** + final commit.
 - [ ] **Frontend** (separate repos `nuxt-base-starter` + `nuxt-extensions`) — NOT here.
 
 ## Superseded detail (original phase specs, kept for reference)

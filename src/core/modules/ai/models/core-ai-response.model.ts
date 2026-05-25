@@ -35,6 +35,19 @@ export class CoreAiResponse {
   conversationId?: string;
 
   /**
+   * Whether the run was aborted because the user lacked permission for at least
+   * one planned action (plan mode, all-or-nothing). Nothing was executed.
+   */
+  @Field(() => Boolean, { description: 'Whether the run was aborted due to missing permissions', nullable: true })
+  denied?: boolean;
+
+  /**
+   * Planned actions the user is NOT permitted to perform (when `denied`).
+   */
+  @Field(() => [CoreAiAction], { description: 'Planned actions the user may not perform', nullable: true })
+  deniedActions?: CoreAiAction[];
+
+  /**
    * Optional structured data the frontend can render.
    */
   @Field(() => JSON, { description: 'Optional structured data for the frontend to render', nullable: true })
@@ -47,11 +60,17 @@ export class CoreAiResponse {
   iterations?: number;
 
   /**
-   * Destructive tool actions awaiting confirmation. Re-send the prompt with
-   * `confirm: true` to execute them.
+   * The planned actions (plan mode), for transparency.
+   */
+  @Field(() => [CoreAiAction], { description: 'Planned actions (plan mode)', nullable: true })
+  plan?: CoreAiAction[];
+
+  /**
+   * Mutating/destructive tool actions awaiting confirmation. Re-send the prompt
+   * with `confirm: true` to execute them.
    */
   @Field(() => [CoreAiAction], {
-    description: 'Destructive actions awaiting confirmation',
+    description: 'Actions awaiting confirmation',
     nullable: true,
   })
   pendingActions?: CoreAiAction[];

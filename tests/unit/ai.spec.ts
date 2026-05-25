@@ -82,6 +82,22 @@ describe('AiToolRegistry', () => {
   });
 });
 
+describe('CoreAiPromptBuilderService (enrichment)', () => {
+  it('enriches the system prompt with the user permissions, tools and documentation', () => {
+    new ConfigService({ ai: { documentation: 'DOC-MARKER-123', systemPrompt: 'BASE-PROMPT' } } as any);
+    const builder = new CoreAiPromptBuilderService();
+    const prompt = builder.buildSystemPrompt([makeTool('do_thing', [RoleEnum.S_USER])], false, {
+      id: 'u1',
+      roles: ['admin', 'editor'],
+    });
+    expect(prompt).toContain('BASE-PROMPT');
+    expect(prompt).toContain('DOC-MARKER-123');
+    expect(prompt).toContain('admin');
+    expect(prompt).toContain('editor');
+    expect(prompt).toContain('do_thing');
+  });
+});
+
 describe('CoreAiService (emulated tool calling)', () => {
   beforeAll(() => {
     new ConfigService({ ai: { maxIterations: 5 } } as any);
@@ -154,6 +170,90 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('Sorry, I cannot do that.');
   });
 
+  it('plan mode executes a fully-permitted multi-step plan', async () => {
+    const executed: string[] = [];
+    const registry = new AiToolRegistry();
+    registry.register(makeTool('read_a', [RoleEnum.S_USER], async () => {
+      executed.push('read_a');
+      return { data: { a: 1 }, success: true };
+    }));
+    registry.register(makeTool('read_b', [RoleEnum.S_USER], async () => {
+      executed.push('read_b');
+      return { data: { b: 2 }, success: true };
+    }));
+
+    const provider = new ScriptedProvider([
+      JSON.stringify({ plan: [{ arguments: {}, name: 'read_a' }, { arguments: {}, name: 'read_b' }], summary: 'read both' }),
+      JSON.stringify({ final: 'Both read.' }),
+    ]);
+    const response = await buildService(provider, registry).prompt(
+      { mode: 'plan', prompt: 'read a and b' } as any,
+      { currentUser: { id: 'u1', roles: [] } },
+    );
+
+    expect(executed).toEqual(['read_a', 'read_b']);
+    expect(response.denied).toBeFalsy();
+    expect(response.plan?.map((a) => a.name)).toEqual(['read_a', 'read_b']);
+    expect(response.actions).toHaveLength(2);
+    expect(response.text).toBe('Both read.');
+  });
+
+  it('plan mode executes NOTHING and returns a translated error if one step is not permitted (pre-flight)', async () => {
+    const executed: string[] = [];
+    const registry = new AiToolRegistry();
+    registry.register(makeTool('read_a', [RoleEnum.S_USER], async () => {
+      executed.push('read_a');
+      return { data: { a: 1 }, success: true };
+    }));
+    registry.register(makeTool('admin_only', [RoleEnum.ADMIN], async () => {
+      executed.push('admin_only');
+      return { success: true };
+    }));
+
+    const provider = new ScriptedProvider([
+      JSON.stringify({ plan: [{ arguments: {}, name: 'read_a' }, { arguments: {}, name: 'admin_only' }], summary: 'x' }),
+    ]);
+    const response = await buildService(provider, registry).prompt(
+      { language: 'de', mode: 'plan', prompt: 'do both' } as any,
+      { currentUser: { id: 'u1', roles: [] }, language: 'de' },
+    );
+
+    // All-or-nothing: not a single step ran.
+    expect(executed).toEqual([]);
+    expect(response.denied).toBe(true);
+    expect(response.deniedActions?.map((a) => a.name)).toContain('admin_only');
+    // German message (translation respected).
+    expect(response.text.toLowerCase()).toContain('nicht');
+  });
+
+  it('plan mode honors a tool authorize() data-level denial (pre-flight)', async () => {
+    const executed: string[] = [];
+    const registry = new AiToolRegistry();
+    registry.register({
+      authorize: async () => ({ allowed: false, reason: 'not the owner' }),
+      description: 'edit a record',
+      execute: async () => {
+        executed.push('edit_record');
+        return { success: true };
+      },
+      name: 'edit_record',
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
+    });
+
+    const provider = new ScriptedProvider([
+      JSON.stringify({ plan: [{ arguments: { id: 'x' }, name: 'edit_record' }], summary: 'edit' }),
+    ]);
+    const response = await buildService(provider, registry).prompt(
+      { mode: 'plan', prompt: 'edit x' } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+
+    expect(executed).toEqual([]);
+    expect(response.denied).toBe(true);
+    expect(response.deniedActions?.[0]).toMatchObject({ name: 'edit_record' });
+  });
+
   it('treats plain text (no JSON protocol) as the final answer', async () => {
     const registry = new AiToolRegistry();
     const provider = new ScriptedProvider(['Just a plain answer.']);
@@ -164,6 +264,25 @@ describe('CoreAiService (emulated tool calling)', () => {
     );
     expect(response.text).toBe('Just a plain answer.');
     expect(response.actions).toHaveLength(0);
+  });
+
+  it('includes client metadata (url, console logs) in the prompt sent to the LLM', async () => {
+    const captured: string[] = [];
+    const provider: ILlmProvider = {
+      name: 'fake',
+      supportsNativeTools: false,
+      async chat(messages) {
+        captured.push(messages.map((m) => m.content).join(' || '));
+        return { text: JSON.stringify({ final: 'ok' }), usage: {} };
+      },
+    };
+    await buildService(provider, new AiToolRegistry()).prompt(
+      { metadata: { consoleLogs: ['ReferenceError at line 7'], url: '/orders/42' }, prompt: 'why does this page fail?' } as any,
+      { currentUser: { id: 'u1', roles: [] } },
+    );
+    const all = captured.join(' ');
+    expect(all).toContain('/orders/42');
+    expect(all).toContain('ReferenceError at line 7');
   });
 
   it('streams action, token and final events; concatenated tokens equal the answer', async () => {
@@ -261,5 +380,74 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(executed).toBe(1);
     expect(responseB.requiresConfirmation).toBeFalsy();
     expect(responseB.text).toBe('deleted');
+  });
+
+  // --- Confirmation policy for mutating actions (admin default / client override / enforced) ---
+
+  function mutatingRegistry(executed: string[]) {
+    const registry = new AiToolRegistry();
+    registry.register({
+      description: 'create a record',
+      execute: async () => {
+        executed.push('create_x');
+        return { success: true };
+      },
+      mutating: true,
+      name: 'create_x',
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
+    });
+    return registry;
+  }
+
+  function mutatingProvider() {
+    return new ScriptedProvider([
+      JSON.stringify({ tool_calls: [{ arguments: {}, name: 'create_x' }] }),
+      JSON.stringify({ final: 'created' }),
+    ]);
+  }
+
+  it('mutating action runs without confirmation when the admin default is off', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const response = await buildService(mutatingProvider(), mutatingRegistry(executed)).prompt(
+      { prompt: 'create x' } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+    expect(executed).toEqual(['create_x']);
+    expect(response.requiresConfirmation).toBeFalsy();
+  });
+
+  it('mutating action requires confirmation when the admin default is on', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: true } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const response = await buildService(mutatingProvider(), mutatingRegistry(executed)).prompt(
+      { prompt: 'create x' } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+    expect(executed).toEqual([]);
+    expect(response.requiresConfirmation).toBe(true);
+  });
+
+  it('client can override the admin default to skip confirmation (when not enforced)', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: true } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const response = await buildService(mutatingProvider(), mutatingRegistry(executed)).prompt(
+      { prompt: 'create x', requireConfirmation: false } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+    expect(executed).toEqual(['create_x']);
+    expect(response.requiresConfirmation).toBeFalsy();
+  });
+
+  it('enforced policy cannot be overridden by the client', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: true, enforced: true } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const response = await buildService(mutatingProvider(), mutatingRegistry(executed)).prompt(
+      { prompt: 'create x', requireConfirmation: false } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+    expect(executed).toEqual([]);
+    expect(response.requiresConfirmation).toBe(true);
   });
 });
