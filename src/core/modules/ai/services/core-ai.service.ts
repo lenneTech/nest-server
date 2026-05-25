@@ -96,8 +96,9 @@ export class CoreAiService {
    * Run a prompt and return a structured response. Dispatches to plan or auto mode.
    */
   async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
+    const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
     const run = await this.prepareRun(input, serviceOptions);
-    return input.mode === 'plan' ? this.runPlan(input, run) : this.runAuto(input, run);
+    return mode === 'plan' ? this.runPlan(input, run) : this.runAuto(input, run);
   }
 
   /**
@@ -107,7 +108,7 @@ export class CoreAiService {
   protected async prepareRun(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<AiRunContext> {
     const currentUser = serviceOptions?.currentUser;
     await this.checkRateLimit(currentUser?.id);
-    await this.checkBudget(currentUser?.id);
+    await this.checkBudget(currentUser?.id, serviceOptions?.language);
 
     const connection = await this.connectionService.resolve(input.connectionId);
     const provider = this.providerFactory.create(connection);
@@ -447,11 +448,24 @@ export class CoreAiService {
   }
 
   /**
-   * Enforce per-user/tenant budgets before a run. No-op unless `ai.budget` is set.
+   * Enforce per-user daily budgets before a run. No-op unless `ai.budget` is set
+   * and an interaction (audit) service is available to read past usage from.
+   * Counts today's prompts/tokens for the user and throws HTTP 429 if exceeded.
    */
-  protected async checkBudget(userId?: string): Promise<void> {
-    void userId;
-    // Implemented in the budget phase; no-op when ai.budget is not configured.
+  protected async checkBudget(userId?: string, language?: string): Promise<void> {
+    const budget = ConfigService.get<{ maxPromptsPerDay?: number; maxTokensPerDay?: number }>('ai.budget');
+    if (!budget || !this.interactionService || !userId) {
+      return;
+    }
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    const usage = await this.interactionService.usageSince(userId, since);
+
+    const promptsExceeded = budget.maxPromptsPerDay != null && usage.prompts >= budget.maxPromptsPerDay;
+    const tokensExceeded = budget.maxTokensPerDay != null && usage.tokens >= budget.maxTokensPerDay;
+    if (promptsExceeded || tokensExceeded) {
+      throw new HttpException(this.translate('budget_exceeded', language), HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 
   /**
@@ -463,6 +477,10 @@ export class CoreAiService {
       confirm_required: {
         de: 'Bitte bestätige die Ausführung der angeforderten Aktion(en).',
         en: 'Please confirm execution of the requested action(s).',
+      },
+      budget_exceeded: {
+        de: 'Dein KI-Kontingent für heute ist aufgebraucht. Bitte versuche es später erneut.',
+        en: 'Your AI budget for today is exhausted. Please try again later.',
       },
       done: { de: 'Erledigt.', en: 'Done.' },
       plan_denied: {

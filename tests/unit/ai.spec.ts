@@ -254,6 +254,47 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.deniedActions?.[0]).toMatchObject({ name: 'edit_record' });
   });
 
+  it('blocks a run when the daily budget is exceeded (translated message)', async () => {
+    new ConfigService({ ai: { budget: { maxPromptsPerDay: 3 }, maxIterations: 5 } } as any);
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'ok' })]));
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
+    } as any;
+    const interactionService = { record: async () => undefined, usageSince: async () => ({ prompts: 3, tokens: 0 }) } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      new AiToolRegistry(),
+      new CoreAiPromptBuilderService(),
+      interactionService,
+    );
+
+    await expect(
+      service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] }, language: 'de' }),
+    ).rejects.toThrow(/Kontingent/);
+  });
+
+  it('allows a run when under the daily budget', async () => {
+    new ConfigService({ ai: { budget: { maxPromptsPerDay: 10 }, maxIterations: 5 } } as any);
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'fine' })]));
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
+    } as any;
+    const interactionService = { record: async () => undefined, usageSince: async () => ({ prompts: 2, tokens: 0 }) } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      new AiToolRegistry(),
+      new CoreAiPromptBuilderService(),
+      interactionService,
+    );
+
+    const response = await service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } });
+    expect(response.text).toBe('fine');
+  });
+
   it('treats plain text (no JSON protocol) as the final answer', async () => {
     const registry = new AiToolRegistry();
     const provider = new ScriptedProvider(['Just a plain answer.']);

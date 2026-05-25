@@ -1130,8 +1130,47 @@ export interface IAi {
    */
   audit?: boolean;
 
+  /**
+   * Per-user daily budget for AI prompts. Enforced before a run; exceeding it
+   * aborts with HTTP 429 and a translated message. Requires `audit` (usage is read
+   * from the `aiInteractions` records).
+   */
+  budget?: {
+    /** Maximum number of prompts per user per day. */
+    maxPromptsPerDay?: number;
+    /** Maximum number of (total) tokens per user per day. */
+    maxTokensPerDay?: number;
+  };
+
+  /**
+   * Confirmation policy for mutating tool actions (create/update/delete).
+   * `destructive` tools always require confirmation regardless of this policy.
+   */
+  confirmation?: {
+    mutating?: {
+      /** Admin default: require confirmation for mutating actions. @default false */
+      default?: boolean;
+      /** When true, the client cannot override the default (always require). @default false */
+      enforced?: boolean;
+    };
+  };
+
+  /**
+   * System documentation injected into the system prompt to inform the LLM
+   * (official docs, domain rules, API description). For dynamic/RAG docs, override
+   * `CoreAiPromptBuilderService.getDocumentation()` instead.
+   */
+  documentation?: string;
+
   /** Optional one-time seed for a default connection (see {@link IAiDefaultConnection}). */
   defaultConnection?: IAiDefaultConnection;
+
+  /**
+   * Default execution mode when the client does not specify one.
+   * `auto` (reactive loop) or `plan` (validate all permissions, then execute atomically).
+   * @default 'auto'
+   */
+  defaultMode?: 'auto' | 'plan';
 
   /** Explicitly disable while keeping the config (default: enabled when present). */
   enabled?: boolean;
