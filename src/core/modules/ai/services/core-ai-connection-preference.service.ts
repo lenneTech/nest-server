@@ -46,6 +46,15 @@ export class CoreAiConnectionPreferenceService extends CrudService<
   }
 
   /**
+   * Delete all preferences pointing to a connection (used when a connection is
+   * removed, to avoid dangling tenant/user preferences). Returns the deleted count.
+   */
+  async deleteByConnectionId(connectionId: string): Promise<number> {
+    const result = await this.mainDbModel.deleteMany({ connectionId }).exec();
+    return result.deletedCount ?? 0;
+  }
+
+  /**
    * Upsert a preference (one per scope/ref). System-internal; callers must
    * authorize the scope/ref (e.g. a user may only set their own user preference).
    * Returns the persisted preference as a mapped model.

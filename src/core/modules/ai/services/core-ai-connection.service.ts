@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -18,6 +19,7 @@ import { CoreAiConnectionInput } from '../inputs/core-ai-connection.input';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 import { AiConnectionDocument, CoreAiConnection } from '../models/core-ai-connection.model';
 import { AiCryptoService } from './ai-crypto.service';
+import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
 
 /**
  * Mongoose injection token for the AI connection model.
@@ -56,6 +58,8 @@ export class CoreAiConnectionService
     @InjectModel(AI_CONNECTION_MODEL) protected override readonly mainDbModel: Model<AiConnectionDocument>,
     @Inject(AI_CONNECTION_CLASS)
     protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiConnection>,
+    // Optional: used only to clean up dangling preferences when a connection is deleted.
+    @Optional() protected readonly preferenceService?: CoreAiConnectionPreferenceService,
   ) {
     super();
   }
@@ -125,6 +129,22 @@ export class CoreAiConnectionService
       updated = await this.get(id, serviceOptions);
     }
     return updated;
+  }
+
+  /**
+   * Delete a connection and clean up any tenant/user preferences that pointed to it
+   * (avoids dangling preferences). The cleanup is best-effort and never fails the delete.
+   */
+  override async delete(id: string, serviceOptions?: ServiceOptions): Promise<CoreAiConnection> {
+    const deleted = await super.delete(id, serviceOptions);
+    if (this.preferenceService) {
+      try {
+        await this.preferenceService.deleteByConnectionId(id);
+      } catch (err) {
+        this.logger.warn(`Failed to clean up AI connection preferences for "${id}": ${(err as Error).message}`);
+      }
+    }
+    return deleted;
   }
 
   /**

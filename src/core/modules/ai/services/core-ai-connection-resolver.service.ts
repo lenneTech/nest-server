@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, Optional } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 import { CoreAiAvailableConnection } from '../models/core-ai-available-connection.model';
+import { CoreAiConnectionPreference } from '../models/core-ai-connection-preference.model';
 import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
 import { CoreAiConnectionService } from './core-ai-connection.service';
 
@@ -61,6 +62,14 @@ export interface AiConnectionResolveContext {
  */
 @Injectable()
 export class CoreAiConnectionResolverService {
+  protected readonly logger = new Logger(CoreAiConnectionResolverService.name);
+
+  /** Per-resolution memo for the tenant preference (one DB read per `ctx`). */
+  private readonly tenantPrefCache = new WeakMap<
+    AiConnectionResolveContext,
+    Promise<{ connectionId: string; enforced?: boolean } | null>
+  >();
+
   constructor(
     protected readonly connectionService: CoreAiConnectionService,
     @Optional() protected readonly preferenceService?: CoreAiConnectionPreferenceService,
@@ -125,6 +134,34 @@ export class CoreAiConnectionResolverService {
   }
 
   /**
+   * Set a tenant/user connection preference (admin self-service). Validates that the
+   * connection exists and is usable before persisting, so an admin gets immediate
+   * feedback instead of creating a dangling preference. Returns the stored preference.
+   */
+  async setPreference(
+    scope: 'tenant' | 'user',
+    refId: string,
+    connectionId: string,
+    enforced = false,
+  ): Promise<CoreAiConnectionPreference> {
+    if (!this.preferenceService) {
+      throw new ForbiddenException('AI connection preferences are not available');
+    }
+    await this.assertConnectionUsable(connectionId);
+    return this.preferenceService.upsertPreference(scope, refId, connectionId, enforced);
+  }
+
+  /**
+   * Throw {@link NotFoundException} when the connection id does not exist or is disabled.
+   */
+  protected async assertConnectionUsable(connectionId: string): Promise<void> {
+    const connections = await this.connectionService.listUsable();
+    if (!connections.some((c) => c.id === connectionId)) {
+      throw new NotFoundException(`AI connection "${connectionId}" does not exist or is not usable`);
+    }
+  }
+
+  /**
    * Run the resolution chain against a pre-fetched connection list, returning the
    * selected id and whether the selection came from a mandatory (hard) layer.
    */
@@ -137,6 +174,7 @@ export class CoreAiConnectionResolverService {
     }
     const available = this.availableConnections(connections, ctx.tenantId);
     const availableIds = new Set(available.map((c) => c.id));
+    const allIds = new Set(connections.map((c) => c.id));
 
     let locked = false;
     let selected: string | undefined;
@@ -152,6 +190,19 @@ export class CoreAiConnectionResolverService {
       selected = candidate;
       // A mandatory (hard) layer dictates the selection — the user cannot override it.
       locked = !layer.soft;
+    }
+
+    // Robustness: hard layers (enforced preferences, code override) and externally
+    // sourced ids are not pre-filtered by availability, so they can point to a
+    // connection that no longer exists or has been disabled. Drop such a stale
+    // reference and degrade gracefully instead of returning a dead id that would make
+    // `connectionService.resolve()` throw mid-prompt.
+    if (selected && !allIds.has(selected)) {
+      this.logger.warn(
+        `AI connection "${selected}" selected by the resolution chain no longer exists or is disabled; falling back.`,
+      );
+      locked = false;
+      selected = undefined;
     }
 
     // Nothing explicitly selected → fall back to the first available connection.
@@ -201,10 +252,7 @@ export class CoreAiConnectionResolverService {
   }
 
   protected async tenantDefault(ctx: AiConnectionResolveContext): Promise<string | undefined> {
-    if (!ctx.tenantId || !this.preferenceService) {
-      return undefined;
-    }
-    const pref = await this.preferenceService.getPreference('tenant', ctx.tenantId);
+    const pref = await this.loadTenantPreference(ctx);
     return pref && !pref.enforced ? pref.connectionId : undefined;
   }
 
@@ -220,11 +268,26 @@ export class CoreAiConnectionResolverService {
   }
 
   protected async tenantEnforced(ctx: AiConnectionResolveContext): Promise<string | undefined> {
-    if (!ctx.tenantId || !this.preferenceService) {
-      return undefined;
-    }
-    const pref = await this.preferenceService.getPreference('tenant', ctx.tenantId);
+    const pref = await this.loadTenantPreference(ctx);
     return pref?.enforced ? pref.connectionId : undefined;
+  }
+
+  /**
+   * Load the tenant preference once per resolution (`tenantDefault` + `tenantEnforced`
+   * both need it). Memoized on the `ctx` object so a single prompt triggers one DB read.
+   */
+  protected loadTenantPreference(
+    ctx: AiConnectionResolveContext,
+  ): Promise<{ connectionId: string; enforced?: boolean } | null> {
+    if (!ctx.tenantId || !this.preferenceService) {
+      return Promise.resolve(null);
+    }
+    let cached = this.tenantPrefCache.get(ctx);
+    if (!cached) {
+      cached = this.preferenceService.getPreference('tenant', ctx.tenantId);
+      this.tenantPrefCache.set(ctx, cached);
+    }
+    return cached;
   }
 
   protected adminEnforcedGlobal(all: AiResolvableConnection[]): string | undefined {

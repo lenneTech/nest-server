@@ -144,7 +144,7 @@ export class CoreAiController {
   @Post('connections/preferences')
   @Roles(RoleEnum.ADMIN)
   async setConnectionPreference(@Body() input: CoreAiConnectionPreferenceInput): Promise<CoreAiConnectionPreference> {
-    return this.preferenceService.upsertPreference(
+    return this.connectionResolver.setPreference(
       input.scope as 'tenant' | 'user',
       input.refId,
       input.connectionId,

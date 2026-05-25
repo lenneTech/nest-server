@@ -177,7 +177,7 @@ export class CoreAiResolver {
   async setAiConnectionPreference(
     @Args('input') input: CoreAiConnectionPreferenceInput,
   ): Promise<CoreAiConnectionPreference> {
-    return this.preferenceService.upsertPreference(
+    return this.connectionResolver.setPreference(
       input.scope as 'tenant' | 'user',
       input.refId,
       input.connectionId,

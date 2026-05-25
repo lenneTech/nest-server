@@ -393,6 +393,40 @@ describe('AI module (e2e)', () => {
     await connectionService.delete(c2.id, adminOptions);
   });
 
+  it('deletes dangling preferences when the referenced connection is removed', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    await db.collection('aiConnectionPreferences').deleteMany({});
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'Doomed', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    await preferenceService.upsertPreference('tenant', 't1', conn.id, true);
+    await preferenceService.upsertPreference('user', admin.id, conn.id);
+    expect(await db.collection('aiConnectionPreferences').countDocuments({ connectionId: conn.id })).toBe(2);
+
+    await connectionService.delete(conn.id, adminOptions);
+
+    // Both preferences pointing to the deleted connection are cleaned up.
+    expect(await db.collection('aiConnectionPreferences').countDocuments({ connectionId: conn.id })).toBe(0);
+  });
+
+  it('validates connection existence when an admin sets a preference', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    await db.collection('aiConnectionPreferences').deleteMany({});
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'Pref Target', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    // A non-existent connection is rejected; a real one is stored.
+    await expect(connectionResolver.setPreference('tenant', 't1', new ObjectId().toString())).rejects.toThrow(
+      /does not exist/,
+    );
+    const pref = await connectionResolver.setPreference('tenant', 't1', conn.id, true);
+    expect(pref).toMatchObject({ connectionId: conn.id, enforced: true, scope: 'tenant' });
+
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
   it('returns a disabled (denied) response when no usable connection exists', async () => {
     await db.collection('aiConnections').deleteMany({});
     const response = await aiService.prompt({ prompt: 'hi' } as any, adminOptions);

@@ -767,4 +767,42 @@ describe('CoreAiConnectionResolverService (resolution chain)', () => {
     const resolver = new FixedResolver(connectionService);
     expect(await resolver.resolveConnectionId({})).toBe('forced');
   });
+
+  it('P1 — a tenant-enforced preference to a missing connection degrades gracefully', async () => {
+    // c2 no longer exists; the enforced (hard) layer must not return a dead id.
+    const resolver = makeResolver([{ id: 'c1', isDefault: true }], {
+      'tenant:t1': { connectionId: 'c2', enforced: true },
+    });
+    expect(await resolver.resolveConnectionId({ tenantId: 't1' })).toBe('c1');
+  });
+
+  it('P1 — a code override to a missing connection degrades gracefully', async () => {
+    const resolver = makeResolver([{ id: 'c1', isDefault: true }]);
+    expect(await resolver.resolveConnectionId({ codeOverride: 'ghost' })).toBe('c1');
+  });
+
+  it('P2 — setPreference rejects a connection that does not exist, accepts an existing one', async () => {
+    const resolver = makeResolver([{ id: 'c1' }]);
+    await expect(resolver.setPreference('tenant', 't1', 'ghost')).rejects.toThrow(/does not exist/);
+    const pref = await resolver.setPreference('tenant', 't1', 'c1', true);
+    expect(pref).toMatchObject({ connectionId: 'c1', enforced: true, scope: 'tenant' });
+  });
+
+  it('P3 — loads the tenant preference only once per resolution (dedupe)', async () => {
+    let tenantQueries = 0;
+    const connectionService = { listUsable: async () => [{ id: 'c1' }, { id: 'c2' }] } as any;
+    const preferenceService = {
+      getPreference: async (scope: string) => {
+        if (scope === 'tenant') {
+          tenantQueries++;
+          return { connectionId: 'c2', enforced: true };
+        }
+        return null;
+      },
+    } as any;
+    const resolver = new CoreAiConnectionResolverService(connectionService, preferenceService);
+    await resolver.resolveConnectionId({ tenantId: 't1', userId: 'u1' });
+    // tenantDefault (layer 2) + tenantEnforced (layer 5) share a single DB read.
+    expect(tenantQueries).toBe(1);
+  });
 });

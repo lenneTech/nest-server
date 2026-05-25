@@ -135,6 +135,11 @@ Resolution order (ascending priority — a later layer overrides an earlier one)
   top layer. Projects that need admin/tenant mandates to be absolute can reorder the
   chain — every layer is an overridable `protected` method and `resolutionLayers()`
   can be replaced wholesale (pass a subclass via `ai: { connectionResolver }`).
+- **Robustness:** a selection that points to a deleted/disabled connection (e.g. an
+  orphaned enforced preference or a stale code override) is dropped with a `warn` log
+  and the chain degrades to the fallback instead of throwing mid-prompt. Admin
+  `setAiConnectionPreference` validates that the connection exists before saving, and
+  deleting a connection automatically removes preferences pointing to it.
 
 ## Tools
 
