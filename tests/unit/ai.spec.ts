@@ -4,6 +4,7 @@ import { RoleEnum } from '../../src/core/common/enums/role.enum';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { IAiTool } from '../../src/core/modules/ai/interfaces/ai-tool.interface';
 import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/llm-provider.interface';
+import { ClaudeCliProvider } from '../../src/core/modules/ai/providers/claude-cli.provider';
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
 import { OpenAiCompatibleProvider } from '../../src/core/modules/ai/providers/openai-compatible.provider';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
@@ -71,7 +72,12 @@ describe('AiToolRegistry', () => {
     registry.register(makeTool('locked', [RoleEnum.S_NO_ONE]));
 
     expect(registry.forUser(null).map((t) => t.name)).toEqual(['pub']);
-    expect(registry.forUser({ id: '1', roles: [] }).map((t) => t.name).sort()).toEqual(['pub', 'user']);
+    expect(
+      registry
+        .forUser({ id: '1', roles: [] })
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(['pub', 'user']);
 
     const adminTools = registry.forUser({ id: '2', roles: [RoleEnum.ADMIN] }).map((t) => t.name);
     expect(adminTools).toContain('admin');
@@ -141,10 +147,9 @@ describe('CoreAiService (emulated tool calling)', () => {
     ]);
 
     const service = buildService(provider, registry);
-    const response = await service.prompt(
-      { prompt: 'how many users are there?' } as any,
-      { currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] } },
-    );
+    const response = await service.prompt({ prompt: 'how many users are there?' } as any, {
+      currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] },
+    });
 
     expect(response.text).toBe('There are 5 users.');
     expect(response.data).toEqual({ count: 5 });
@@ -166,10 +171,9 @@ describe('CoreAiService (emulated tool calling)', () => {
     ]);
 
     const service = buildService(provider, registry);
-    const response = await service.prompt(
-      { prompt: 'use the admin tool' } as any,
-      { currentUser: { id: 'user-1', roles: [] } },
-    );
+    const response = await service.prompt({ prompt: 'use the admin tool' } as any, {
+      currentUser: { id: 'user-1', roles: [] },
+    });
 
     // The tool was rejected (not in the user's available set) → action marked unsuccessful.
     expect(response.actions?.[0]).toMatchObject({ name: 'admin_only', success: false });
@@ -179,23 +183,32 @@ describe('CoreAiService (emulated tool calling)', () => {
   it('plan mode executes a fully-permitted multi-step plan', async () => {
     const executed: string[] = [];
     const registry = new AiToolRegistry();
-    registry.register(makeTool('read_a', [RoleEnum.S_USER], async () => {
-      executed.push('read_a');
-      return { data: { a: 1 }, success: true };
-    }));
-    registry.register(makeTool('read_b', [RoleEnum.S_USER], async () => {
-      executed.push('read_b');
-      return { data: { b: 2 }, success: true };
-    }));
+    registry.register(
+      makeTool('read_a', [RoleEnum.S_USER], async () => {
+        executed.push('read_a');
+        return { data: { a: 1 }, success: true };
+      }),
+    );
+    registry.register(
+      makeTool('read_b', [RoleEnum.S_USER], async () => {
+        executed.push('read_b');
+        return { data: { b: 2 }, success: true };
+      }),
+    );
 
     const provider = new ScriptedProvider([
-      JSON.stringify({ plan: [{ arguments: {}, name: 'read_a' }, { arguments: {}, name: 'read_b' }], summary: 'read both' }),
+      JSON.stringify({
+        plan: [
+          { arguments: {}, name: 'read_a' },
+          { arguments: {}, name: 'read_b' },
+        ],
+        summary: 'read both',
+      }),
       JSON.stringify({ final: 'Both read.' }),
     ]);
-    const response = await buildService(provider, registry).prompt(
-      { mode: 'plan', prompt: 'read a and b' } as any,
-      { currentUser: { id: 'u1', roles: [] } },
-    );
+    const response = await buildService(provider, registry).prompt({ mode: 'plan', prompt: 'read a and b' } as any, {
+      currentUser: { id: 'u1', roles: [] },
+    });
 
     expect(executed).toEqual(['read_a', 'read_b']);
     expect(response.denied).toBeFalsy();
@@ -207,17 +220,27 @@ describe('CoreAiService (emulated tool calling)', () => {
   it('plan mode executes NOTHING and returns a translated error if one step is not permitted (pre-flight)', async () => {
     const executed: string[] = [];
     const registry = new AiToolRegistry();
-    registry.register(makeTool('read_a', [RoleEnum.S_USER], async () => {
-      executed.push('read_a');
-      return { data: { a: 1 }, success: true };
-    }));
-    registry.register(makeTool('admin_only', [RoleEnum.ADMIN], async () => {
-      executed.push('admin_only');
-      return { success: true };
-    }));
+    registry.register(
+      makeTool('read_a', [RoleEnum.S_USER], async () => {
+        executed.push('read_a');
+        return { data: { a: 1 }, success: true };
+      }),
+    );
+    registry.register(
+      makeTool('admin_only', [RoleEnum.ADMIN], async () => {
+        executed.push('admin_only');
+        return { success: true };
+      }),
+    );
 
     const provider = new ScriptedProvider([
-      JSON.stringify({ plan: [{ arguments: {}, name: 'read_a' }, { arguments: {}, name: 'admin_only' }], summary: 'x' }),
+      JSON.stringify({
+        plan: [
+          { arguments: {}, name: 'read_a' },
+          { arguments: {}, name: 'admin_only' },
+        ],
+        summary: 'x',
+      }),
     ]);
     const response = await buildService(provider, registry).prompt(
       { language: 'de', mode: 'plan', prompt: 'do both' } as any,
@@ -250,10 +273,9 @@ describe('CoreAiService (emulated tool calling)', () => {
     const provider = new ScriptedProvider([
       JSON.stringify({ plan: [{ arguments: { id: 'x' }, name: 'edit_record' }], summary: 'edit' }),
     ]);
-    const response = await buildService(provider, registry).prompt(
-      { mode: 'plan', prompt: 'edit x' } as any,
-      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
-    );
+    const response = await buildService(provider, registry).prompt({ mode: 'plan', prompt: 'edit x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
 
     expect(executed).toEqual([]);
     expect(response.denied).toBe(true);
@@ -264,10 +286,7 @@ describe('CoreAiService (emulated tool calling)', () => {
     const registry = new AiToolRegistry();
     const provider = new ScriptedProvider(['Just a plain answer.']);
     const service = buildService(provider, registry);
-    const response = await service.prompt(
-      { prompt: 'hello' } as any,
-      { currentUser: { id: 'user-1', roles: [] } },
-    );
+    const response = await service.prompt({ prompt: 'hello' } as any, { currentUser: { id: 'user-1', roles: [] } });
     expect(response.text).toBe('Just a plain answer.');
     expect(response.actions).toHaveLength(0);
   });
@@ -283,7 +302,10 @@ describe('CoreAiService (emulated tool calling)', () => {
       },
     };
     await buildService(provider, new AiToolRegistry()).prompt(
-      { metadata: { consoleLogs: ['ReferenceError at line 7'], url: '/orders/42' }, prompt: 'why does this page fail?' } as any,
+      {
+        metadata: { consoleLogs: ['ReferenceError at line 7'], url: '/orders/42' },
+        prompt: 'why does this page fail?',
+      } as any,
       { currentUser: { id: 'u1', roles: [] } },
     );
     const all = captured.join(' ');
@@ -332,7 +354,10 @@ describe('CoreAiService (emulated tool calling)', () => {
     registry.register(makeTool('admin_op', [RoleEnum.ADMIN], async () => ({ data: 'secret', success: true })));
     const mcp = new CoreAiMcpService(registry);
 
-    const adminTools = mcp.mcpListTools({ id: 'a', roles: [RoleEnum.ADMIN] }).map((t) => t.name).sort();
+    const adminTools = mcp
+      .mcpListTools({ id: 'a', roles: [RoleEnum.ADMIN] })
+      .map((t) => t.name)
+      .sort();
     const userTools = mcp.mcpListTools({ id: 'u', roles: [] }).map((t) => t.name);
     expect(adminTools).toEqual(['admin_op', 'public_info']);
     expect(userTools).toEqual(['public_info']);
@@ -366,10 +391,9 @@ describe('CoreAiService (emulated tool calling)', () => {
       JSON.stringify({ tool_calls: [{ arguments: { id: 'x' }, name: 'delete_user' }] }),
       JSON.stringify({ final: 'done' }),
     ]);
-    const responseA = await buildService(providerA, registry).prompt(
-      { prompt: 'delete user x' } as any,
-      { currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] } },
-    );
+    const responseA = await buildService(providerA, registry).prompt({ prompt: 'delete user x' } as any, {
+      currentUser: { id: 'admin-1', roles: [RoleEnum.ADMIN] },
+    });
     expect(executed).toBe(0);
     expect(responseA.requiresConfirmation).toBe(true);
     expect(responseA.pendingActions?.[0]).toMatchObject({ name: 'delete_user' });
@@ -447,7 +471,9 @@ describe('CoreAiService (emulated tool calling)', () => {
   });
 
   it('enforced policy cannot be overridden by the client', async () => {
-    new ConfigService({ ai: { confirmation: { mutating: { default: true, enforced: true } }, maxIterations: 5 } } as any);
+    new ConfigService({
+      ai: { confirmation: { mutating: { default: true, enforced: true } }, maxIterations: 5 },
+    } as any);
     const executed: string[] = [];
     const response = await buildService(mutatingProvider(), mutatingRegistry(executed)).prompt(
       { prompt: 'create x', requireConfirmation: false } as any,
@@ -539,14 +565,20 @@ describe('CoreAiBudgetService (limits + usage logic)', () => {
 
   it('resolveLimit prefers the persisted override, else the config default', async () => {
     new ConfigService({ ai: { budget: { period: 'day', user: { maxTokens: 1000 } } } } as any);
-    const fromDefault = await makeBudget(null, { resetAt: null, usedPrompts: 0, usedTokens: 0 }).resolveLimit('user', 'u1');
+    const fromDefault = await makeBudget(null, { resetAt: null, usedPrompts: 0, usedTokens: 0 }).resolveLimit(
+      'user',
+      'u1',
+    );
     expect(fromDefault).toMatchObject({ maxTokens: 1000, period: 'day' });
 
-    const withOverride = await makeBudget({ maxTokens: 50, period: 'month' }, {
-      resetAt: null,
-      usedPrompts: 0,
-      usedTokens: 0,
-    }).resolveLimit('user', 'u1');
+    const withOverride = await makeBudget(
+      { maxTokens: 50, period: 'month' },
+      {
+        resetAt: null,
+        usedPrompts: 0,
+        usedTokens: 0,
+      },
+    ).resolveLimit('user', 'u1');
     expect(withOverride).toMatchObject({ maxTokens: 50, period: 'month' });
   });
 
@@ -561,7 +593,9 @@ describe('CoreAiBudgetService (limits + usage logic)', () => {
   });
 
   it('treats a 0 limit as unlimited (no throw)', async () => {
-    new ConfigService({ ai: { budget: { tenant: { maxPrompts: 0, maxTokens: 0 }, user: { maxPrompts: 0, maxTokens: 0 } } } } as any);
+    new ConfigService({
+      ai: { budget: { tenant: { maxPrompts: 0, maxTokens: 0 }, user: { maxPrompts: 0, maxTokens: 0 } } },
+    } as any);
     await expect(
       makeBudget(null, { resetAt: null, usedPrompts: 999999, usedTokens: 999999 }).assertWithinBudget('u1'),
     ).resolves.toBeUndefined();
@@ -570,7 +604,11 @@ describe('CoreAiBudgetService (limits + usage logic)', () => {
   it('buildSummary reports prompt cost, used and remaining tokens + resetAt', async () => {
     new ConfigService({ ai: { budget: { user: { maxTokens: 1000 } } } } as any);
     const reset = new Date('2030-01-02T00:00:00Z');
-    const summary = await makeBudget(null, { resetAt: reset, usedPrompts: 3, usedTokens: 300 }).buildSummary('u1', undefined, 20);
+    const summary = await makeBudget(null, { resetAt: reset, usedPrompts: 3, usedTokens: 300 }).buildSummary(
+      'u1',
+      undefined,
+      20,
+    );
     expect(summary).toMatchObject({ promptTokens: 20, remainingTokens: 700, resetAt: reset, usedTokens: 300 });
   });
 
@@ -587,16 +625,35 @@ describe('CoreAiService + budget integration', () => {
     const factory = new LlmProviderFactory();
     factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'ok' })]));
     const connectionService = {
-      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
+      resolve: async () => ({
+        apiKey: '',
+        baseUrl: 'http://fake',
+        id: 'c1',
+        model: 'fake',
+        name: 'F',
+        providerType: 'fake',
+      }),
     } as any;
-    return new CoreAiService(connectionService, factory, new AiToolRegistry(), new CoreAiPromptBuilderService(), undefined, undefined, budgetService);
+    return new CoreAiService(
+      connectionService,
+      factory,
+      new AiToolRegistry(),
+      new CoreAiPromptBuilderService(),
+      undefined,
+      undefined,
+      budgetService,
+    );
   }
 
   it('attaches the budget summary to the response', async () => {
     new ConfigService({ ai: { maxIterations: 5 } } as any);
     const budgetService = {
       assertWithinBudget: async () => undefined,
-      buildSummary: async (_u: any, _t: any, promptTokens: number) => ({ promptTokens, remainingTokens: 880, usedTokens: 120 }),
+      buildSummary: async (_u: any, _t: any, promptTokens: number) => ({
+        promptTokens,
+        remainingTokens: 880,
+        usedTokens: 120,
+      }),
     };
     const response = await serviceWithBudget(budgetService).prompt({ prompt: 'hi' } as any, {
       currentUser: { id: 'u1', roles: [] },
@@ -666,21 +723,17 @@ describe('CoreAiConnectionResolverService (resolution chain)', () => {
   });
 
   it('layer 2 — tenant default overrides global default', async () => {
-    const resolver = makeResolver(
-      [
-        { id: 'c1', isDefault: true },
-        { id: 'c2' },
-      ],
-      { 'tenant:t1': { connectionId: 'c2' } },
-    );
+    const resolver = makeResolver([{ id: 'c1', isDefault: true }, { id: 'c2' }], {
+      'tenant:t1': { connectionId: 'c2' },
+    });
     expect(await resolver.resolveConnectionId({ tenantId: 't1' })).toBe('c2');
   });
 
   it('layer 3 — user default overrides tenant default', async () => {
-    const resolver = makeResolver(
-      [{ id: 'c1', isDefault: true }, { id: 'c2' }, { id: 'c3' }],
-      { 'tenant:t1': { connectionId: 'c2' }, 'user:u1': { connectionId: 'c3' } },
-    );
+    const resolver = makeResolver([{ id: 'c1', isDefault: true }, { id: 'c2' }, { id: 'c3' }], {
+      'tenant:t1': { connectionId: 'c2' },
+      'user:u1': { connectionId: 'c3' },
+    });
     expect(await resolver.resolveConnectionId({ tenantId: 't1', userId: 'u1' })).toBe('c3');
   });
 
@@ -726,11 +779,7 @@ describe('CoreAiConnectionResolverService (resolution chain)', () => {
   });
 
   it('availability — connections restricted to other tenants are filtered out', async () => {
-    const resolver = makeResolver([
-      { id: 'c1', tenantIds: ['t1'] },
-      { id: 'c2', tenantIds: ['t2'] },
-      { id: 'c3' },
-    ]);
+    const resolver = makeResolver([{ id: 'c1', tenantIds: ['t1'] }, { id: 'c2', tenantIds: ['t2'] }, { id: 'c3' }]);
     const available = await resolver.listAvailable({ tenantId: 't1' });
     expect(available.map((c) => c.id).sort()).toEqual(['c1', 'c3']);
   });
@@ -746,13 +795,7 @@ describe('CoreAiConnectionResolverService (resolution chain)', () => {
 
   it('setUserConnection — validates availability before storing', async () => {
     const prefs: Record<string, { connectionId: string; enforced?: boolean }> = {};
-    const resolver = makeResolver(
-      [
-        { id: 'c1' },
-        { id: 'c2', tenantIds: ['t2'] },
-      ],
-      prefs,
-    );
+    const resolver = makeResolver([{ id: 'c1' }, { id: 'c2', tenantIds: ['t2'] }], prefs);
     await expect(resolver.setUserConnection('u1', 'c2', 't1')).rejects.toThrow(/not available/);
     await resolver.setUserConnection('u1', 'c1', 't1');
     expect(prefs['user:u1']).toMatchObject({ connectionId: 'c1' });
@@ -898,7 +941,10 @@ describe('OpenAiCompatibleProvider', () => {
         return { json: async () => ({ choices: [{ message: { content: '{}' } }] }), ok: true };
       }
       if (body.tools) {
-        return { json: async () => ({ choices: [{ message: { tool_calls: [{ function: { name: 'ping' } }] } }] }), ok: true };
+        return {
+          json: async () => ({ choices: [{ message: { tool_calls: [{ function: { name: 'ping' } }] } }] }),
+          ok: true,
+        };
       }
       return { json: async () => ({}), ok: true };
     }) as any;
@@ -940,9 +986,15 @@ describe('OpenAiCompatibleProvider', () => {
 
   it('detectCapabilities treats 2xx without tool_calls as no native-tool support', async () => {
     const orig = globalThis.fetch;
-    globalThis.fetch = (async () => ({ json: async () => ({ choices: [{ message: { content: 'hi' } }] }), ok: true })) as any;
+    globalThis.fetch = (async () => ({
+      json: async () => ({ choices: [{ message: { content: 'hi' } }] }),
+      ok: true,
+    })) as any;
     try {
-      const detected = await new OpenAiCompatibleProvider({ ...baseConn, supportsJsonResponse: true } as any).detectCapabilities();
+      const detected = await new OpenAiCompatibleProvider({
+        ...baseConn,
+        supportsJsonResponse: true,
+      } as any).detectCapabilities();
       expect(detected).toEqual({ nativeTools: false });
     } finally {
       globalThis.fetch = orig;
@@ -1000,5 +1052,105 @@ describe('CoreAiMcpOAuthService.buildOAuthProvider (wiring)', () => {
     await mountAiMcpOAuth(app, { baseUrl: 'https://api.example.com' });
     expect(used).toHaveLength(1);
     expect(used[0][0]).toBeDefined(); // the mcpAuthRouter instance
+  });
+});
+
+describe('ClaudeCliProvider', () => {
+  const baseConn = {
+    apiKey: '',
+    baseUrl: '',
+    id: 'cc1',
+    model: 'sonnet',
+    name: 'Claude CLI',
+    providerType: 'claude-cli',
+  };
+
+  beforeAll(() => {
+    new ConfigService({ ai: {} } as any);
+  });
+
+  /** Subclass that captures the spawned argv/stdin and returns a canned stdout. */
+  class FakeCli extends ClaudeCliProvider {
+    lastArgs: string[] = [];
+    lastInput = '';
+    stdout = JSON.stringify({ result: 'hi there', subtype: 'success', usage: { input_tokens: 11, output_tokens: 4 } });
+    expose(system: string) {
+      return this.buildArgs(system);
+    }
+    protected override run(args: string[], input: string): Promise<string> {
+      this.lastArgs = args;
+      this.lastInput = input;
+      return Promise.resolve(this.stdout);
+    }
+  }
+
+  it('runs tool-free and emulated (capabilities nativeTools=false, jsonResponse=false)', () => {
+    const p = new ClaudeCliProvider({ ...baseConn } as any);
+    expect(p.capabilities).toEqual({ jsonResponse: false, nativeTools: false, systemPrompt: true });
+    expect(p.name).toBe('claude-cli');
+  });
+
+  it('always disables the CLI tools and replaces the system prompt', () => {
+    const p = new FakeCli({ ...baseConn } as any);
+    const args = p.expose('SYSTEM PROMPT');
+    // `--tools ""` must always be present (CLI runs without its own tools)
+    const toolsIdx = args.indexOf('--tools');
+    expect(toolsIdx).toBeGreaterThanOrEqual(0);
+    expect(args[toolsIdx + 1]).toBe('');
+    expect(args).toContain('--no-session-persistence');
+    expect(args).toContain('--system-prompt');
+    expect(args[args.indexOf('--system-prompt') + 1]).toBe('SYSTEM PROMPT');
+    expect(args[args.indexOf('--model') + 1]).toBe('sonnet');
+    expect(args).toContain('-p');
+  });
+
+  it('parses result + usage and flattens the transcript to stdin', async () => {
+    const p = new FakeCli({ ...baseConn } as any);
+    const res = await p.chat(
+      [
+        { content: 'sys', role: 'system' },
+        { content: 'hello', role: 'user' },
+        { content: 'prev answer', role: 'assistant' },
+      ],
+      [],
+    );
+    expect(res.text).toBe('hi there');
+    expect(res.usage).toMatchObject({ completionTokens: 4, promptTokens: 11, totalTokens: 15 });
+    // system goes to --system-prompt, the rest to the stdin transcript
+    expect(p.lastInput).toContain('User:');
+    expect(p.lastInput).toContain('hello');
+    expect(p.lastInput).toContain('Assistant:');
+    expect(p.lastInput).not.toContain('sys');
+  });
+
+  it('maps a CLI error result to a gateway error', async () => {
+    const p = new FakeCli({ ...baseConn } as any);
+    p.stdout = JSON.stringify({ is_error: true, subtype: 'error_during_execution' });
+    await expect(p.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('maps non-JSON CLI output to a gateway error', async () => {
+    const p = new FakeCli({ ...baseConn } as any);
+    p.stdout = 'not json at all';
+    await expect(p.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 502 });
+  });
+
+  it('maps a spawn/transport failure to 503', async () => {
+    class FailingCli extends ClaudeCliProvider {
+      protected override run(): Promise<string> {
+        return Promise.reject(new Error('spawn ENOENT'));
+      }
+    }
+    const p = new FailingCli({ ...baseConn } as any);
+    await expect(p.chat([{ content: 'hi', role: 'user' }], [])).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('is registrable on the factory and built for claude-cli connections', () => {
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('claude-cli', (conn) => new ClaudeCliProvider(conn));
+    expect(factory.supports('claude-cli')).toBe(true);
+    const provider = factory.create({ ...baseConn } as any);
+    expect(provider).toBeInstanceOf(ClaudeCliProvider);
+    expect(provider.capabilities.nativeTools).toBe(false);
   });
 });

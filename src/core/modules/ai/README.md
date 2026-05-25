@@ -113,6 +113,41 @@ returning a `tool_calls` result → native tools supported; a `4xx` or a silent 
 → unsupported). Override `OpenAiCompatibleProvider.detectCapabilities()` for custom
 backends, or implement the optional `ILlmProvider.detectCapabilities()` in your own provider.
 
+### Backend examples (external, local, CLI)
+
+The same module connects to all of these — the only differences are the connection's
+`providerType`, `baseUrl`/`model` and which provider builder is registered:
+
+| Backend                 | How to connect                                                                                                                                                                                                                                               | Tools                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| **External** (hosted)   | Built-in `openai-compatible` provider. `baseUrl` = the vendor's OpenAI-compatible endpoint, `apiKey` set.                                                                                                                                                    | native or emulated (auto-detected)      |
+| **Local** (e.g. Ollama) | Built-in `openai-compatible` provider. `baseUrl: 'http://localhost:11434/v1'`, any `apiKey` (Ollama ignores it). A tool-capable model (e.g. `qwen2.5`) supports native tools — set `supportsNativeTools: true` explicitly if the auto-probe is conservative. | native or emulated                      |
+| **Claude Code CLI**     | Opt-in `ClaudeCliProvider` (shells out to the local `claude` CLI). `providerType: 'claude-cli'`, `model` = a Claude alias (`opus`/`sonnet`/`haiku`).                                                                                                         | emulated (the CLI is run **tool-free**) |
+
+`openai-compatible` is registered out of the box. For the CLI, register the provider
+once (e.g. in a consumer module's `onModuleInit`) — it is **not** auto-registered:
+
+```typescript
+import { ClaudeCliProvider, LlmProviderFactory } from '@lenne.tech/nest-server';
+
+@Module({ providers: [] })
+export class AiProvidersModule implements OnModuleInit {
+  constructor(private readonly factory: LlmProviderFactory) {}
+  onModuleInit() {
+    this.factory.registerBuilder('claude-cli', (conn) => new ClaudeCliProvider(conn));
+  }
+}
+```
+
+Then create a connection with `providerType: 'claude-cli'`. The provider invokes
+`claude -p --output-format json --tools "" --system-prompt <orchestrator-prompt>`:
+Claude Code runs **with all of its own tools disabled**, so it cannot read files or
+run shell commands — it is a pure text generator and the orchestrator emulates tool
+calling and executes tools itself through `CrudService` with the caller's permissions.
+`spawn` uses an argument array (no shell), the conversation is piped via stdin, and
+the child runs in a temp dir so no `CLAUDE.md`/settings leak into the context. See
+`ClaudeCliProvider` for the full security model and the optional `ai.claudeCli` config.
+
 ## Connections (DB configuration)
 
 Connections live in the `aiConnections` collection and are managed by admins via

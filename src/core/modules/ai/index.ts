@@ -26,6 +26,7 @@ export * from './models/core-ai-message.model';
 export * from './models/core-ai-response.model';
 export * from './models/core-ai-usage-info.model';
 export * from './models/core-ai-usage.model';
+export * from './providers/claude-cli.provider';
 export * from './providers/llm-provider.factory';
 export * from './providers/openai-compatible.provider';
 export * from './services/ai-crypto.service';
