@@ -5,6 +5,8 @@ import request from 'supertest';
 import {
   AiToolRegistry,
   CoreAiBudgetService,
+  CoreAiConnectionPreferenceService,
+  CoreAiConnectionResolverService,
   CoreAiConnectionService,
   CoreAiConversationService,
   CoreAiInteractionService,
@@ -42,6 +44,8 @@ describe('AI module (e2e)', () => {
 
   let budgetService: CoreAiBudgetService;
   let connectionService: CoreAiConnectionService;
+  let connectionResolver: CoreAiConnectionResolverService;
+  let preferenceService: CoreAiConnectionPreferenceService;
   let conversationService: CoreAiConversationService;
   let interactionService: CoreAiInteractionService;
   let aiService: CoreAiService;
@@ -63,6 +67,8 @@ describe('AI module (e2e)', () => {
 
     budgetService = app.get(CoreAiBudgetService);
     connectionService = app.get(CoreAiConnectionService);
+    connectionResolver = app.get(CoreAiConnectionResolverService);
+    preferenceService = app.get(CoreAiConnectionPreferenceService);
     conversationService = app.get(CoreAiConversationService);
     interactionService = app.get(CoreAiInteractionService);
     aiService = app.get(CoreAiService);
@@ -76,6 +82,7 @@ describe('AI module (e2e)', () => {
   afterAll(async () => {
     if (db) {
       await db.collection('aiConnections').deleteMany({});
+      await db.collection('aiConnectionPreferences').deleteMany({});
       await db.collection('aiInteractions').deleteMany({});
       await db.collection('aiConversations').deleteMany({});
       await db.collection('aiBudgetLimits').deleteMany({});
@@ -299,5 +306,103 @@ describe('AI module (e2e)', () => {
     expect(records[0]).toMatchObject({ responseText: 'audited answer', userId: admin.id });
 
     await connectionService.delete(conn.id, adminOptions);
+  });
+
+  // ===================================================================================================================
+  // Connection resolution chain + per-tenant availability + preferences
+  // ===================================================================================================================
+
+  it('resolves the global default and lists it as available + selected', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    await db.collection('aiConnectionPreferences').deleteMany({});
+    const c1 = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'Plain', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const c2 = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Default', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    expect(await connectionResolver.resolveConnectionId({})).toBe(c2.id);
+
+    const available = await connectionResolver.listAvailable({ userId: admin.id });
+    expect(available.map((a) => a.id).sort()).toEqual([c1.id, c2.id].sort());
+    expect(available.find((a) => a.id === c2.id)?.selected).toBe(true);
+    expect(available.every((a) => !a.locked)).toBe(true);
+    // No secrets leak into the available list (only display fields).
+    expect((available[0] as any).apiKey).toBeUndefined();
+    expect((available[0] as any).baseUrl).toBeUndefined();
+
+    await connectionService.delete(c1.id, adminOptions);
+    await connectionService.delete(c2.id, adminOptions);
+  });
+
+  it('restricts connections per tenant and validates the user self-service selection', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    await db.collection('aiConnectionPreferences').deleteMany({});
+    const cGlobal = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Global', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const cTenant = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'Tenant-only', providerType: 'fake-e2e', tenantIds: ['t1'] } as any,
+      adminOptions,
+    );
+
+    // Without the tenant, the tenant-scoped connection is filtered out.
+    const noTenant = await connectionResolver.listAvailable({});
+    expect(noTenant.map((a) => a.id)).toEqual([cGlobal.id]);
+    // Within tenant t1, both are available.
+    const inTenant = await connectionResolver.listAvailable({ tenantId: 't1' });
+    expect(inTenant.map((a) => a.id).sort()).toEqual([cGlobal.id, cTenant.id].sort());
+
+    // A user may not select a connection that is not available to their tenant.
+    await expect(connectionResolver.setUserConnection(admin.id, cTenant.id, undefined)).rejects.toThrow(/not available/);
+    // Within t1 the selection is valid and then resolves.
+    await connectionResolver.setUserConnection(admin.id, cTenant.id, 't1');
+    expect(await connectionResolver.resolveConnectionId({ tenantId: 't1', userId: admin.id })).toBe(cTenant.id);
+
+    await connectionService.delete(cGlobal.id, adminOptions);
+    await connectionService.delete(cTenant.id, adminOptions);
+  });
+
+  it('admin tenant-enforced preference overrides client selection and locks the choice', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    await db.collection('aiConnectionPreferences').deleteMany({});
+    const c1 = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'A', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const c2 = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'B', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    await preferenceService.upsertPreference('tenant', 't1', c2.id, true);
+
+    // Even though the client requests c1, the tenant-enforced c2 wins.
+    expect(await connectionResolver.resolveConnectionId({ requested: c1.id, tenantId: 't1', userId: admin.id })).toBe(
+      c2.id,
+    );
+    const available = await connectionResolver.listAvailable({ tenantId: 't1', userId: admin.id });
+    expect(available.find((a) => a.id === c2.id)?.selected).toBe(true);
+    expect(available.every((a) => a.locked)).toBe(true);
+
+    await connectionService.delete(c1.id, adminOptions);
+    await connectionService.delete(c2.id, adminOptions);
+  });
+
+  it('returns a disabled (denied) response when no usable connection exists', async () => {
+    await db.collection('aiConnections').deleteMany({});
+    const response = await aiService.prompt({ prompt: 'hi' } as any, adminOptions);
+    expect(response.denied).toBe(true);
+    expect(response.text).toMatch(/No AI service is currently available/);
+    expect(response.connectionId).toBeUndefined();
+  });
+
+  it('protects the available-connections endpoint (401 without auth)', async () => {
+    const res = await request(app.getHttpServer()).get('/ai/connections/available');
+    expect(res.status).toBe(401);
   });
 });

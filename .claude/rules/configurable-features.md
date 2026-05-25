@@ -250,6 +250,7 @@ CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig
 
 | Module | Fields | Description |
 |--------|--------|-------------|
+| `ai` | `connectionResolver`, `connectionService`, `controller`, `preferenceService`, `promptBuilder`, `resolver`, `service` | Custom AI orchestrator, connection-resolution chain, connection/preference services, endpoints |
 | `errorCode` | `controller`, `service` | Custom error code endpoint and/or service |
 | `betterAuth` | `controller`, `resolver` | Custom IAM REST controller and/or GraphQL resolver |
 

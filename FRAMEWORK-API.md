@@ -97,7 +97,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### ICoreModuleOverrides
 
-  - `ai?`: `{ connectionService?: Type<any>; controller?: Type<any>; promptBuilder?: Type...` — Override AI module collaborators with project-specific subclasses.
+  - `ai?`: `{ connectionResolver?: Type<any>; connectionService?: Type<any>; controller?:...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
 

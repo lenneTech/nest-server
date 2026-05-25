@@ -100,6 +100,29 @@ export class CoreAiConnectionInput {
   enabled?: boolean = undefined;
 
   /**
+   * Admin-enforced for all tenants (overrides user/client/tenant selection).
+   */
+  @UnifiedField({
+    description: 'Admin-enforced for all tenants',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  enforced?: boolean = undefined;
+
+  /**
+   * Tenant ids for which this connection is admin-enforced.
+   */
+  @UnifiedField({
+    description: 'Tenant ids for which this connection is admin-enforced',
+    isArray: true,
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => String,
+  })
+  enforcedTenantIds?: string[] = undefined;
+
+  /**
    * Whether this is the default connection.
    */
   @UnifiedField({
@@ -172,4 +195,16 @@ export class CoreAiConnectionInput {
     type: () => Boolean,
   })
   supportsVision?: boolean = undefined;
+
+  /**
+   * Tenant ids this connection is available to (empty = all tenants).
+   */
+  @UnifiedField({
+    description: 'Tenant ids this connection is available to (empty = all tenants)',
+    isArray: true,
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => String,
+  })
+  tenantIds?: string[] = undefined;
 }

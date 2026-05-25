@@ -7,6 +7,7 @@ import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
 import { CoreAiBudgetService } from '../../src/core/modules/ai/services/core-ai-budget.service';
+import { CoreAiConnectionResolverService } from '../../src/core/modules/ai/services/core-ai-connection-resolver.service';
 import { CoreAiMcpOAuthService } from '../../src/core/modules/ai/services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
@@ -613,5 +614,157 @@ describe('CoreAiService + budget integration', () => {
     await expect(
       serviceWithBudget(budgetService).prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } }),
     ).rejects.toThrow(/budget exceeded/);
+  });
+});
+
+describe('CoreAiConnectionResolverService (resolution chain)', () => {
+  type Conn = {
+    enforced?: boolean;
+    enforcedTenantIds?: string[];
+    id: string;
+    isDefault?: boolean;
+    model?: string;
+    name?: string;
+    tenantIds?: string[];
+  };
+
+  /** Build a resolver over fake connection + preference services. */
+  function makeResolver(connections: Conn[], prefs: Record<string, { connectionId: string; enforced?: boolean }> = {}) {
+    const connectionService = {
+      listUsable: async () => connections,
+      resolve: async (id?: string) => ({ id: id ?? connections[0]?.id }),
+    } as any;
+    const preferenceService = {
+      getPreference: async (scope: string, refId: string) => prefs[`${scope}:${refId}`] ?? null,
+      upsertPreference: async (scope: string, refId: string, connectionId: string, enforced = false) => {
+        prefs[`${scope}:${refId}`] = { connectionId, enforced };
+        return { connectionId, enforced, refId, scope };
+      },
+    } as any;
+    return new CoreAiConnectionResolverService(connectionService, preferenceService);
+  }
+
+  it('no connections → AI disabled (undefined / empty)', async () => {
+    const resolver = makeResolver([]);
+    expect(await resolver.resolveConnectionId({})).toBeUndefined();
+    expect(await resolver.resolveConnection({})).toBeUndefined();
+    expect(await resolver.listAvailable({})).toEqual([]);
+  });
+
+  it('exactly one connection → it is the implicit default', async () => {
+    const resolver = makeResolver([{ id: 'c1', name: 'One' }]);
+    expect(await resolver.resolveConnectionId({})).toBe('c1');
+  });
+
+  it('layer 1 — global default wins over a non-default connection', async () => {
+    const resolver = makeResolver([
+      { id: 'c1', name: 'First' },
+      { id: 'c2', isDefault: true, name: 'Default' },
+    ]);
+    expect(await resolver.resolveConnectionId({})).toBe('c2');
+  });
+
+  it('layer 2 — tenant default overrides global default', async () => {
+    const resolver = makeResolver(
+      [
+        { id: 'c1', isDefault: true },
+        { id: 'c2' },
+      ],
+      { 'tenant:t1': { connectionId: 'c2' } },
+    );
+    expect(await resolver.resolveConnectionId({ tenantId: 't1' })).toBe('c2');
+  });
+
+  it('layer 3 — user default overrides tenant default', async () => {
+    const resolver = makeResolver(
+      [{ id: 'c1', isDefault: true }, { id: 'c2' }, { id: 'c3' }],
+      { 'tenant:t1': { connectionId: 'c2' }, 'user:u1': { connectionId: 'c3' } },
+    );
+    expect(await resolver.resolveConnectionId({ tenantId: 't1', userId: 'u1' })).toBe('c3');
+  });
+
+  it('layer 4 — client selection overrides user default', async () => {
+    const resolver = makeResolver([{ id: 'c1', isDefault: true }, { id: 'c2' }, { id: 'c3' }], {
+      'user:u1': { connectionId: 'c2' },
+    });
+    expect(await resolver.resolveConnectionId({ requested: 'c3', userId: 'u1' })).toBe('c3');
+  });
+
+  it('layer 5 — tenant-enforced overrides client selection (and locks)', async () => {
+    const resolver = makeResolver([{ id: 'c1' }, { id: 'c2' }], {
+      'tenant:t1': { connectionId: 'c2', enforced: true },
+    });
+    expect(await resolver.resolveConnectionId({ requested: 'c1', tenantId: 't1' })).toBe('c2');
+    const available = await resolver.listAvailable({ requested: 'c1', tenantId: 't1' });
+    expect(available.find((c) => c.id === 'c2')?.selected).toBe(true);
+    expect(available.every((c) => c.locked)).toBe(true);
+  });
+
+  it('layer 6 — admin-enforced global overrides tenant-enforced', async () => {
+    const resolver = makeResolver([{ id: 'c1' }, { enforced: true, id: 'c2' }], {
+      'tenant:t1': { connectionId: 'c1', enforced: true },
+    });
+    expect(await resolver.resolveConnectionId({ tenantId: 't1' })).toBe('c2');
+  });
+
+  it('layer 7 — admin-enforced for tenant overrides admin-enforced global', async () => {
+    const resolver = makeResolver([
+      { enforced: true, id: 'c1' },
+      { enforcedTenantIds: ['t1'], id: 'c2' },
+    ]);
+    expect(await resolver.resolveConnectionId({ tenantId: 't1' })).toBe('c2');
+    // Other tenants still get the global enforced connection.
+    expect(await resolver.resolveConnectionId({ tenantId: 't2' })).toBe('c1');
+  });
+
+  it('layer 8 — code override wins over everything', async () => {
+    const resolver = makeResolver([{ enforced: true, id: 'c1' }, { id: 'c2' }, { id: 'c3' }], {
+      'tenant:t1': { connectionId: 'c2', enforced: true },
+    });
+    expect(await resolver.resolveConnectionId({ codeOverride: 'c3', requested: 'c2', tenantId: 't1' })).toBe('c3');
+  });
+
+  it('availability — connections restricted to other tenants are filtered out', async () => {
+    const resolver = makeResolver([
+      { id: 'c1', tenantIds: ['t1'] },
+      { id: 'c2', tenantIds: ['t2'] },
+      { id: 'c3' },
+    ]);
+    const available = await resolver.listAvailable({ tenantId: 't1' });
+    expect(available.map((c) => c.id).sort()).toEqual(['c1', 'c3']);
+  });
+
+  it('availability — a soft layer pointing to an unavailable connection is ignored', async () => {
+    const resolver = makeResolver([
+      { id: 'c1', isDefault: true },
+      { id: 'c2', tenantIds: ['t2'] },
+    ]);
+    // Client requests c2, which is not available to tenant t1 → falls back to default c1.
+    expect(await resolver.resolveConnectionId({ requested: 'c2', tenantId: 't1' })).toBe('c1');
+  });
+
+  it('setUserConnection — validates availability before storing', async () => {
+    const prefs: Record<string, { connectionId: string; enforced?: boolean }> = {};
+    const resolver = makeResolver(
+      [
+        { id: 'c1' },
+        { id: 'c2', tenantIds: ['t2'] },
+      ],
+      prefs,
+    );
+    await expect(resolver.setUserConnection('u1', 'c2', 't1')).rejects.toThrow(/not available/);
+    await resolver.setUserConnection('u1', 'c1', 't1');
+    expect(prefs['user:u1']).toMatchObject({ connectionId: 'c1' });
+  });
+
+  it('overridable — a subclass can reorder/replace the chain', async () => {
+    class FixedResolver extends CoreAiConnectionResolverService {
+      protected override codeOverride(): string | undefined {
+        return 'forced';
+      }
+    }
+    const connectionService = { listUsable: async () => [{ id: 'a' }, { id: 'forced' }] } as any;
+    const resolver = new FixedResolver(connectionService);
+    expect(await resolver.resolveConnectionId({})).toBe('forced');
   });
 });

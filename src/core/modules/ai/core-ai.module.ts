@@ -7,12 +7,19 @@ import { CoreAiResolver } from './core-ai.resolver';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
+import { AiConnectionPreferenceSchema, CoreAiConnectionPreference } from './models/core-ai-connection-preference.model';
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import { AiCryptoService } from './services/ai-crypto.service';
 import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, CoreAiBudgetService } from './services/core-ai-budget.service';
+import {
+  AI_CONNECTION_PREFERENCE_CLASS,
+  AI_CONNECTION_PREFERENCE_MODEL,
+  CoreAiConnectionPreferenceService,
+} from './services/core-ai-connection-preference.service';
+import { CoreAiConnectionResolverService } from './services/core-ai-connection-resolver.service';
 import {
   AI_CONNECTION_CLASS,
   AI_CONNECTION_MODEL,
@@ -38,6 +45,9 @@ import { AiToolRegistry } from './tools/ai-tool.registry';
  * Pattern). Pass these via `CoreModule.forRoot(envConfig, { ai: { ... } })`.
  */
 export interface CoreAiModuleOptions {
+  /** Custom connection-resolution service (extends CoreAiConnectionResolverService). */
+  connectionResolver?: Type<CoreAiConnectionResolverService>;
+
   /** Custom CRUD service for AI connections (extends CoreAiConnectionService). */
   connectionService?: Type<CoreAiConnectionService>;
 
@@ -55,6 +65,9 @@ export interface CoreAiModuleOptions {
 
   /** Whether to register the MCP server controller at /ai/mcp. */
   mcpEnabled?: boolean;
+
+  /** Custom connection-preference service (extends CoreAiConnectionPreferenceService). */
+  preferenceService?: Type<CoreAiConnectionPreferenceService>;
 
   /** Custom prompt builder (extends CoreAiPromptBuilderService). */
   promptBuilder?: Type<CoreAiPromptBuilderService>;
@@ -91,10 +104,12 @@ export interface CoreAiModuleOptions {
 export class CoreAiModule {
   static forRoot(options: CoreAiModuleOptions = {}): DynamicModule {
     const BudgetServiceClass = options.budgetService || CoreAiBudgetService;
+    const ConnectionResolverClass = options.connectionResolver || CoreAiConnectionResolverService;
     const ConnectionServiceClass = options.connectionService || CoreAiConnectionService;
     const ControllerClass = options.controller || CoreAiController;
     const ConversationServiceClass = options.conversationService || CoreAiConversationService;
     const InteractionServiceClass = options.interactionService || CoreAiInteractionService;
+    const PreferenceServiceClass = options.preferenceService || CoreAiConnectionPreferenceService;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
@@ -111,6 +126,8 @@ export class CoreAiModule {
         AiCryptoService,
         AiToolRegistry,
         CoreAiBudgetService,
+        CoreAiConnectionPreferenceService,
+        CoreAiConnectionResolverService,
         CoreAiConnectionService,
         CoreAiConversationService,
         CoreAiInteractionService,
@@ -125,6 +142,7 @@ export class CoreAiModule {
         MongooseModule.forFeature([
           { name: AI_BUDGET_LIMIT_MODEL, schema: AiBudgetLimitSchema },
           { name: AI_CONNECTION_MODEL, schema: AiConnectionSchema },
+          { name: AI_CONNECTION_PREFERENCE_MODEL, schema: AiConnectionPreferenceSchema },
           { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
         ]),
@@ -136,6 +154,7 @@ export class CoreAiModule {
         LlmProviderFactory,
         { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
+        { provide: AI_CONNECTION_PREFERENCE_CLASS, useValue: CoreAiConnectionPreference },
         { provide: AI_CONVERSATION_CLASS, useValue: CoreAiConversation },
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
         { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
@@ -145,6 +164,8 @@ export class CoreAiModule {
         CoreAiMcpOAuthService,
         // Bind base-class tokens to the (possibly overridden) implementations so
         // injections by base type resolve to the project's subclass.
+        { provide: CoreAiConnectionPreferenceService, useClass: PreferenceServiceClass },
+        { provide: CoreAiConnectionResolverService, useClass: ConnectionResolverClass },
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
         { provide: CoreAiPromptBuilderService, useClass: PromptBuilderClass },
         { provide: CoreAiService, useClass: ServiceClass },

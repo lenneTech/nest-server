@@ -12,6 +12,7 @@ import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
 import { CoreAiBudgetService } from './core-ai-budget.service';
+import { CoreAiConnectionResolverService } from './core-ai-connection-resolver.service';
 import { CoreAiConnectionService } from './core-ai-connection.service';
 import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
@@ -95,6 +96,7 @@ export class CoreAiService {
     @Optional() protected readonly interactionService?: CoreAiInteractionService,
     @Optional() protected readonly conversationService?: CoreAiConversationService,
     @Optional() protected readonly budgetService?: CoreAiBudgetService,
+    @Optional() protected readonly connectionResolver?: CoreAiConnectionResolverService,
   ) {}
 
   /**
@@ -103,6 +105,10 @@ export class CoreAiService {
   async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
     const run = await this.prepareRun(input, serviceOptions);
+    // No usable connection → AI handling is effectively disabled.
+    if (!run) {
+      return this.unavailableResponse(input, serviceOptions?.language);
+    }
     const response = mode === 'plan' ? await this.runPlan(input, run) : await this.runAuto(input, run);
     // Attach the compact token-budget summary after the run was recorded.
     await this.attachBudgetSummary(response, run);
@@ -110,19 +116,56 @@ export class CoreAiService {
   }
 
   /**
+   * Build the "AI unavailable" response returned when no usable connection
+   * exists (the whole feature is disabled by absence of connections).
+   */
+  protected unavailableResponse(input: CoreAiPromptInput, language?: string): CoreAiResponse {
+    const response = new CoreAiResponse();
+    response.connectionId = undefined;
+    response.conversationId = input.conversationId;
+    response.denied = true;
+    response.iterations = 0;
+    response.text = this.translate('ai_unavailable', language);
+    return response;
+  }
+
+  /**
    * Common per-run setup: rate limit, budget, connection, provider, role-filtered
    * tools, tool context and conversation history.
    */
-  protected async prepareRun(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<AiRunContext> {
+  protected async prepareRun(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+  ): Promise<AiRunContext | undefined> {
     const currentUser = serviceOptions?.currentUser;
     const tenantId = RequestContext.getTenantId();
+
+    // Resolve WHICH connection to use via the prioritized chain (default → tenant →
+    // user → client → enforced → code override). Falls back to the plain connection
+    // service when no resolver is wired (e.g. minimal/unit setups). When the resolver
+    // finds no usable connection, AI handling is disabled (returns undefined).
+    // `_aiConnectionId` is the documented underscore-prefixed serviceOptions extension
+    // convention (see ServiceOptions JSDoc) — a deliberate code-level override channel.
+    // eslint-disable-next-line no-underscore-dangle
+    const codeOverride = (serviceOptions as ServiceOptions & { _aiConnectionId?: string })?._aiConnectionId;
+    const connection = this.connectionResolver
+      ? await this.connectionResolver.resolveConnection({
+          codeOverride,
+          requested: input.connectionId,
+          tenantId,
+          userId: currentUser?.id,
+        })
+      : await this.connectionService.resolve(input.connectionId);
+    if (!connection) {
+      return undefined;
+    }
+
     await this.checkRateLimit(currentUser?.id);
     // Enforce token/prompt budgets (per user + per tenant) before any LLM call.
     if (this.budgetService) {
       await this.budgetService.assertWithinBudget(currentUser?.id, tenantId, serviceOptions?.language);
     }
 
-    const connection = await this.connectionService.resolve(input.connectionId);
     const provider = this.providerFactory.create(connection);
 
     // First-line authorization: only offer tools the user may use.
@@ -487,6 +530,10 @@ export class CoreAiService {
   protected translate(key: string, language?: string, params: Record<string, string> = {}): string {
     const lang = (language || 'en').slice(0, 2).toLowerCase();
     const messages: Record<string, { de: string; en: string }> = {
+      ai_unavailable: {
+        de: 'Es ist aktuell kein KI-Dienst verfügbar.',
+        en: 'No AI service is currently available.',
+      },
       confirm_required: {
         de: 'Bitte bestätige die Ausführung der angeforderten Aktion(en).',
         en: 'Please confirm execution of the requested action(s).',

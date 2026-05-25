@@ -93,6 +93,48 @@ GraphQL (`findAiConnections`, `getAiConnection`, `createAiConnection`,
 - `resolve(id?)` returns a runtime `ResolvedAiConnection` (with the decrypted key)
   for the orchestrator — system-internal, never sent to clients.
 - One connection can be `isDefault`; the service keeps it unique.
+- Each connection declares its capabilities (`supportsJsonResponse`,
+  `supportsNativeTools`) so the orchestrator compensates for backends without
+  native tool calling / JSON output (emulated tool calling via the system prompt).
+
+## Connection selection (resolution chain)
+
+When several connections exist the system picks one via a **prioritized, fully
+overridable chain** (`CoreAiConnectionResolverService`). No connections at all →
+AI handling is effectively disabled (the orchestrator returns a translated
+"unavailable" response). Exactly one connection → it is the implicit default.
+
+Availability can be **restricted per tenant** (`tenantIds` on the connection; empty
+= available to all). A connection's availability is the gate for the "soft" layers;
+the mandatory ("hard") layers win regardless.
+
+Resolution order (ascending priority — a later layer overrides an earlier one):
+
+| #   | Layer                     | Source                                       | Type |
+| --- | ------------------------- | -------------------------------------------- | ---- |
+| 1   | Global default            | connection `isDefault`                       | soft |
+| 2   | Tenant default            | preference `scope:'tenant'`, not enforced    | soft |
+| 3   | User default              | preference `scope:'user'`                    | soft |
+| 4   | Client selection          | `input.connectionId`                         | soft |
+| 5   | Tenant-enforced           | preference `scope:'tenant'`, `enforced:true` | hard |
+| 6   | Admin-enforced global     | connection `enforced`                        | hard |
+| 7   | Admin-enforced per tenant | connection `enforcedTenantIds`               | hard |
+| 8   | Code override             | `serviceOptions._aiConnectionId`             | hard |
+
+- **Tenant/user defaults & tenant-enforced** live in the `aiConnectionPreferences`
+  collection (`CoreAiConnectionPreferenceService`), keyed uniquely by `(scope, refId)`.
+- **Self-service:** users set their own default via `aiSetUserConnection` /
+  `POST /ai/connections/select` (validated against availability). They list what they
+  may use via `aiAvailableConnections` / `GET /ai/connections/available` — a
+  non-sensitive list flagging the currently `selected` one and whether the choice is
+  `locked` by a mandatory layer.
+- **Admins** manage tenant/user preferences via `setAiConnectionPreference` /
+  `findAiConnectionPreferences` / `deleteAiConnectionPreference` (REST under
+  `/ai/connections/preferences`).
+- **Code override** (`serviceOptions._aiConnectionId`) is the deliberate, trusted
+  top layer. Projects that need admin/tenant mandates to be absolute can reorder the
+  chain — every layer is an overridable `protected` method and `resolutionLayers()`
+  can be replaced wholesale (pass a subclass via `ai: { connectionResolver }`).
 
 ## Tools
 
@@ -142,13 +184,15 @@ the supported way to customize a core tool.
 Every collaborator can be replaced with a project subclass via
 `CoreModule.forRoot(envConfig, { ai: { … } })`:
 
-| Override            | Base class                                                       |
-| ------------------- | ---------------------------------------------------------------- |
-| `service`           | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)   |
-| `promptBuilder`     | `CoreAiPromptBuilderService` (system prompt, RAG)                |
-| `connectionService` | `CoreAiConnectionService`                                        |
-| `resolver`          | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
-| `controller`        | `CoreAiController`                                               |
+| Override             | Base class                                                       |
+| -------------------- | ---------------------------------------------------------------- |
+| `service`            | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)   |
+| `promptBuilder`      | `CoreAiPromptBuilderService` (system prompt, RAG)                |
+| `connectionService`  | `CoreAiConnectionService`                                        |
+| `connectionResolver` | `CoreAiConnectionResolverService` (resolution chain)             |
+| `preferenceService`  | `CoreAiConnectionPreferenceService` (tenant/user preferences)    |
+| `resolver`           | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
+| `controller`         | `CoreAiController`                                               |
 
 Add a new LLM backend by registering a builder on `LlmProviderFactory`:
 

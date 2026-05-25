@@ -125,6 +125,33 @@ export class CoreAiConnection extends CorePersistenceModel {
   enabled?: boolean = undefined;
 
   /**
+   * Admin-enforced globally: when true, this connection is mandated for all tenants
+   * and overrides any user/client/tenant selection (resolution layer 6).
+   */
+  @UnifiedField({
+    description: 'Admin-enforced for all tenants (overrides user/client/tenant selection)',
+    isOptional: true,
+    mongoose: { default: false },
+    roles: RoleEnum.ADMIN,
+    type: () => Boolean,
+  })
+  enforced?: boolean = undefined;
+
+  /**
+   * Admin-enforced for specific tenants: this connection is mandated for the listed
+   * tenants (resolution layer 7, the most specific admin mandate).
+   */
+  @UnifiedField({
+    description: 'Tenant ids for which this connection is admin-enforced',
+    isArray: true,
+    isOptional: true,
+    mongoose: [String],
+    roles: RoleEnum.ADMIN,
+    type: () => String,
+  })
+  enforcedTenantIds?: string[] = undefined;
+
+  /**
    * Whether an encrypted API key is currently stored. Computed, read-only;
    * the plaintext key is never returned.
    */
@@ -216,6 +243,21 @@ export class CoreAiConnection extends CorePersistenceModel {
     type: () => Boolean,
   })
   supportsVision?: boolean = undefined;
+
+  /**
+   * Tenants this connection is available to. Empty/undefined = available to ALL
+   * tenants (the global pool); otherwise restricted to the listed tenants. This is
+   * the per-tenant availability restriction of the overall selection.
+   */
+  @UnifiedField({
+    description: 'Tenant ids this connection is available to (empty = all tenants)',
+    isArray: true,
+    isOptional: true,
+    mongoose: [String],
+    roles: RoleEnum.ADMIN,
+    type: () => String,
+  })
+  tenantIds?: string[] = undefined;
 
   // ===================================================================================================================
   // Methods

@@ -135,6 +135,10 @@ browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are bui
 - [ ] `findAiConnections` / `getAiConnection` etc. are admin-only and never return `apiKeyEncrypted`
 - [ ] A created connection's `hasApiKey` is `true`, the key is stored encrypted
 - [ ] `aiPrompt` works for an authenticated user
+- [ ] With multiple connections, resolution honors the chain (default → tenant → user → client → enforced)
+- [ ] `aiAvailableConnections` returns a non-sensitive list (no `apiKey`/`baseUrl`) flagging `selected`/`locked`
+- [ ] `aiSetUserConnection` rejects a connection not available to the caller's tenant
+- [ ] With zero connections, `aiPrompt` returns a denied "unavailable" response (no crash)
 - [ ] Your tools appear in `AiToolRegistry.all()` and are role-filtered correctly
 - [ ] Tools route through `CrudService` (no raw `.lean()`/aggregate results sent to the LLM)
 

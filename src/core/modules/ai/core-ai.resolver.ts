@@ -9,16 +9,21 @@ import { RequestContext } from '../../common/services/request-context.service';
 import { CoreAiBudgetLimitCreateInput } from './inputs/core-ai-budget-limit-create.input';
 import { CoreAiBudgetLimitInput } from './inputs/core-ai-budget-limit.input';
 import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.input';
+import { CoreAiConnectionPreferenceInput } from './inputs/core-ai-connection-preference.input';
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
+import { CoreAiAvailableConnection } from './models/core-ai-available-connection.model';
 import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
+import { CoreAiConnectionPreference } from './models/core-ai-connection-preference.model';
 import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
 import { CoreAiBudgetService } from './services/core-ai-budget.service';
+import { CoreAiConnectionPreferenceService } from './services/core-ai-connection-preference.service';
+import { CoreAiConnectionResolverService } from './services/core-ai-connection-resolver.service';
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
@@ -43,6 +48,8 @@ export class CoreAiResolver {
     protected readonly conversationService: CoreAiConversationService,
     protected readonly interactionService: CoreAiInteractionService,
     protected readonly budgetService: CoreAiBudgetService,
+    protected readonly connectionResolver: CoreAiConnectionResolverService,
+    protected readonly preferenceService: CoreAiConnectionPreferenceService,
   ) {}
 
   // ===================================================================================================================
@@ -124,6 +131,82 @@ export class CoreAiResolver {
     @Args('input') input: CoreAiConnectionInput,
   ): Promise<CoreAiConnection> {
     return this.connectionService.update(id, input, { ...serviceOptions, inputType: CoreAiConnectionInput });
+  }
+
+  // ===================================================================================================================
+  // Connection selection (user self-service + admin preferences)
+  // ===================================================================================================================
+
+  /**
+   * List the AI connections the current user/tenant may use (non-sensitive), with
+   * the currently resolved one flagged and whether the selection is locked.
+   */
+  @Query(() => [CoreAiAvailableConnection], { description: 'List AI connections available to the current user' })
+  @Roles(RoleEnum.S_USER)
+  async aiAvailableConnections(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+  ): Promise<CoreAiAvailableConnection[]> {
+    return this.connectionResolver.listAvailable({
+      tenantId: RequestContext.getTenantId(),
+      userId: serviceOptions?.currentUser?.id,
+    });
+  }
+
+  /**
+   * Set the current user's own default AI connection (validated against availability).
+   * Returns the updated available list.
+   */
+  @Mutation(() => [CoreAiAvailableConnection], { description: 'Set the current user default AI connection' })
+  @Roles(RoleEnum.S_USER)
+  async aiSetUserConnection(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('connectionId') connectionId: string,
+  ): Promise<CoreAiAvailableConnection[]> {
+    const tenantId = RequestContext.getTenantId();
+    const userId = serviceOptions?.currentUser?.id;
+    await this.connectionResolver.setUserConnection(userId, connectionId, tenantId);
+    return this.connectionResolver.listAvailable({ tenantId, userId });
+  }
+
+  /**
+   * Upsert a tenant/user connection preference (admin). Use for tenant defaults,
+   * tenant-enforced selection or managing a user's default.
+   */
+  @Mutation(() => CoreAiConnectionPreference, { description: 'Upsert an AI connection preference' })
+  @Roles(RoleEnum.ADMIN)
+  async setAiConnectionPreference(
+    @Args('input') input: CoreAiConnectionPreferenceInput,
+  ): Promise<CoreAiConnectionPreference> {
+    return this.preferenceService.upsertPreference(
+      input.scope as 'tenant' | 'user',
+      input.refId,
+      input.connectionId,
+      input.enforced ?? false,
+    );
+  }
+
+  /**
+   * Find AI connection preferences (admin).
+   */
+  @Query(() => [CoreAiConnectionPreference], { description: 'Find AI connection preferences' })
+  @Roles(RoleEnum.ADMIN)
+  async findAiConnectionPreferences(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args() args?: FilterArgs,
+  ): Promise<CoreAiConnectionPreference[]> {
+    return this.preferenceService.find(args, { ...serviceOptions, inputType: FilterArgs });
+  }
+
+  /**
+   * Delete an AI connection preference by id (admin).
+   */
+  @Mutation(() => CoreAiConnectionPreference, { description: 'Delete an AI connection preference' })
+  @Roles(RoleEnum.ADMIN)
+  async deleteAiConnectionPreference(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiConnectionPreference> {
+    return this.preferenceService.delete(id, serviceOptions);
   }
 
   // ===================================================================================================================

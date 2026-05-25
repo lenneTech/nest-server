@@ -128,6 +128,38 @@ export class CoreAiConnectionService
   }
 
   /**
+   * List all enabled connections with the fields the resolver needs (system-internal
+   * lean read; never exposes the API key). Used for availability + default resolution.
+   */
+  async listUsable(): Promise<
+    {
+      enforced?: boolean;
+      enforcedTenantIds?: string[];
+      id: string;
+      isDefault?: boolean;
+      model?: string;
+      name?: string;
+      tenantIds?: string[];
+    }[]
+  > {
+    const docs = await this.mainDbModel
+      .find({ enabled: { $ne: false } })
+      .select('enforced enforcedTenantIds isDefault model name tenantIds')
+      .sort({ createdAt: 1 })
+      .lean()
+      .exec();
+    return docs.map((doc) => ({
+      enforced: doc.enforced,
+      enforcedTenantIds: doc.enforcedTenantIds,
+      id: String(doc._id),
+      isDefault: doc.isDefault,
+      model: doc.model,
+      name: doc.name,
+      tenantIds: doc.tenantIds,
+    }));
+  }
+
+  /**
    * Resolve a connection to a runtime {@link ResolvedAiConnection} with the
    * decrypted API key. System-internal — never expose the result to clients.
    *

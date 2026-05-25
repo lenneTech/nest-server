@@ -3043,8 +3043,10 @@ export interface ICoreModuleOverrides {
   /**
    * Override AI module collaborators with project-specific subclasses.
    *
+   * - `connectionResolver` must extend `CoreAiConnectionResolverService`
    * - `connectionService` must extend `CoreAiConnectionService`
    * - `controller` must extend `CoreAiController`
+   * - `preferenceService` must extend `CoreAiConnectionPreferenceService`
    * - `promptBuilder` must extend `CoreAiPromptBuilderService`
    * - `resolver` must extend `CoreAiResolver` (re-declare GraphQL decorators)
    * - `service` must extend `CoreAiService`
@@ -3055,13 +3057,16 @@ export interface ICoreModuleOverrides {
    *   ai: {
    *     service: MyAiService,
    *     resolver: MyAiResolver,
+   *     connectionResolver: MyConnectionResolver,
    *   },
    * }
    * ```
    */
   ai?: {
+    connectionResolver?: Type<any>;
     connectionService?: Type<any>;
     controller?: Type<any>;
+    preferenceService?: Type<any>;
     promptBuilder?: Type<any>;
     resolver?: Type<any>;
     service?: Type<any>;
