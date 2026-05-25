@@ -888,6 +888,67 @@ describe('OpenAiCompatibleProvider', () => {
     }
   });
 
+  it('detectCapabilities probes only undefined flags (json 2xx → true, tools 2xx+tool_calls → true)', async () => {
+    const orig = globalThis.fetch;
+    const bodies: any[] = [];
+    globalThis.fetch = (async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if (body.response_format) {
+        return { json: async () => ({ choices: [{ message: { content: '{}' } }] }), ok: true };
+      }
+      if (body.tools) {
+        return { json: async () => ({ choices: [{ message: { tool_calls: [{ function: { name: 'ping' } }] } }] }), ok: true };
+      }
+      return { json: async () => ({}), ok: true };
+    }) as any;
+    try {
+      const detected = await new OpenAiCompatibleProvider({ ...baseConn } as any).detectCapabilities();
+      expect(detected).toEqual({ jsonResponse: true, nativeTools: true });
+      expect(bodies.some((b) => b.response_format)).toBe(true);
+      expect(bodies.some((b) => b.tool_choice === 'required')).toBe(true);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('detectCapabilities returns false on 4xx and does not probe explicit flags', async () => {
+    const orig = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => ({ ok: false, status: 400 })) as any;
+      expect(await new OpenAiCompatibleProvider({ ...baseConn } as any).detectCapabilities()).toEqual({
+        jsonResponse: false,
+        nativeTools: false,
+      });
+
+      let fetchCount = 0;
+      globalThis.fetch = (async () => {
+        fetchCount++;
+        return { json: async () => ({}), ok: true };
+      }) as any;
+      const explicit = new OpenAiCompatibleProvider({
+        ...baseConn,
+        supportsJsonResponse: true,
+        supportsNativeTools: false,
+      } as any);
+      expect(await explicit.detectCapabilities()).toEqual({});
+      expect(fetchCount).toBe(0); // explicit flags are authoritative, never probed
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('detectCapabilities treats 2xx without tool_calls as no native-tool support', async () => {
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => ({ json: async () => ({ choices: [{ message: { content: 'hi' } }] }), ok: true })) as any;
+    try {
+      const detected = await new OpenAiCompatibleProvider({ ...baseConn, supportsJsonResponse: true } as any).detectCapabilities();
+      expect(detected).toEqual({ nativeTools: false });
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
   // Must stay last: sets ai.allowedBaseUrlHosts on the shared ConfigService singleton.
   it('enforces ai.allowedBaseUrlHosts when configured', async () => {
     new ConfigService({ ai: { allowedBaseUrlHosts: ['allowed.example.com'] } } as any);
@@ -929,5 +990,15 @@ describe('CoreAiMcpOAuthService.buildOAuthProvider (wiring)', () => {
       extra: { userId: 'user-9' },
     });
     await expect(provider.verifyAccessToken('bogus.token')).rejects.toThrow(/invalid_token/);
+  });
+
+  it('mountAiMcpOAuth mounts the OAuth router on the app', async () => {
+    const { mountAiMcpOAuth } = await import('../../src/core/modules/ai/helpers/ai-mcp-oauth.helper');
+    const svc = new CoreAiMcpOAuthService({} as any);
+    const used: any[][] = [];
+    const app = { get: () => svc, use: (...args: any[]) => used.push(args) };
+    await mountAiMcpOAuth(app, { baseUrl: 'https://api.example.com' });
+    expect(used).toHaveLength(1);
+    expect(used[0][0]).toBeDefined(); // the mcpAuthRouter instance
   });
 });

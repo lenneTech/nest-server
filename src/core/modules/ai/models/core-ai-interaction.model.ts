@@ -129,9 +129,11 @@ export class CoreAiInteraction extends CorePersistenceModel {
    * Id of the user who ran the prompt.
    */
   @UnifiedField({
+    // No single-field index: the compound { userId: 1, createdAt: 1 } below already
+    // serves userId-prefix lookups, so a standalone index would be redundant.
     description: 'Id of the user who ran the prompt',
     isOptional: true,
-    mongoose: { index: true },
+    mongoose: true,
     roles: RoleEnum.ADMIN,
   })
   userId?: string = undefined;

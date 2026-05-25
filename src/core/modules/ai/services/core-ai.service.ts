@@ -149,7 +149,7 @@ export class CoreAiService {
     // convention (see ServiceOptions JSDoc) — a deliberate code-level override channel.
     // eslint-disable-next-line no-underscore-dangle
     const codeOverride = (serviceOptions as ServiceOptions & { _aiConnectionId?: string })?._aiConnectionId;
-    const connection = this.connectionResolver
+    let connection = this.connectionResolver
       ? await this.connectionResolver.resolveConnection({
           codeOverride,
           requested: input.connectionId,
@@ -159,6 +159,18 @@ export class CoreAiService {
       : await this.connectionService.resolve(input.connectionId);
     if (!connection) {
       return undefined;
+    }
+
+    // Lazy capability auto-detection (B): if a flag is still undefined (e.g. the
+    // eager save-time probe was not possible, or the connection was seeded), probe
+    // once and persist so this and future runs use the real capabilities. Best-effort
+    // — undefined flags otherwise fall back to the safe emulated baseline. Guarded so
+    // minimal/unit setups without a full connection service keep working.
+    if (
+      (connection.supportsJsonResponse === undefined || connection.supportsNativeTools === undefined) &&
+      typeof this.connectionService?.detectAndPersistCapabilities === 'function'
+    ) {
+      connection = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => connection);
     }
 
     await this.checkRateLimit(currentUser?.id);

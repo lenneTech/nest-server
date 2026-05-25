@@ -1084,6 +1084,18 @@ export interface IAiDefaultConnection {
   /** Provider type (default 'openai-compatible'). */
   providerType?: string;
 
+  /**
+   * Native JSON / structured-output support. Omit to auto-detect by probing the
+   * endpoint (explicit `true`/`false` is authoritative and never probed).
+   */
+  supportsJsonResponse?: boolean;
+
+  /**
+   * Native function/tool-calling support. Omit to auto-detect by probing the
+   * endpoint (explicit `true`/`false` is authoritative and never probed).
+   */
+  supportsNativeTools?: boolean;
+
   /** Whether the model supports image input. */
   supportsVision?: boolean;
 }

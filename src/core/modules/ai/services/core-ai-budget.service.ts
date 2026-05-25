@@ -111,6 +111,9 @@ export class CoreAiBudgetService extends CrudService<
 
   /**
    * Block the run with HTTP 429 if the user OR tenant has hit a finite limit.
+   *
+   * @param language Deprecated and unused — the error-code translation layer now
+   *   localizes the 429 message. Kept for call-site backward compatibility.
    */
   async assertWithinBudget(userId?: string, tenantId?: string, language?: string): Promise<void> {
     for (const [scope, refId] of [

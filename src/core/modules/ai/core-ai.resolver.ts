@@ -121,6 +121,20 @@ export class CoreAiResolver {
   }
 
   /**
+   * Probe an AI connection's endpoint to auto-detect and persist its capabilities
+   * (JSON / native tools) for any flag left undefined.
+   */
+  @Mutation(() => CoreAiConnection, { description: 'Auto-detect and persist AI connection capabilities' })
+  @Roles(RoleEnum.ADMIN)
+  async detectAiConnectionCapabilities(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiConnection> {
+    await this.connectionService.detectAndPersistCapabilities(id);
+    return this.connectionService.get(id, serviceOptions);
+  }
+
+  /**
    * Update an AI connection.
    */
   @Mutation(() => CoreAiConnection, { description: 'Update an AI connection' })

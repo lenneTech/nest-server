@@ -198,6 +198,20 @@ export class CoreAiController {
   }
 
   /**
+   * Probe an AI connection's endpoint to auto-detect and persist its capabilities
+   * (JSON / native tools) for any flag left undefined.
+   */
+  @Post('connections/:id/detect-capabilities')
+  @Roles(RoleEnum.ADMIN)
+  async detectConnectionCapabilities(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Param('id') id: string,
+  ): Promise<CoreAiConnection> {
+    await this.connectionService.detectAndPersistCapabilities(id);
+    return this.connectionService.get(id, serviceOptions);
+  }
+
+  /**
    * Update an AI connection.
    */
   @Put('connections/:id')

@@ -17,6 +17,7 @@ import {
   LlmProviderFactory,
   LlmResponse,
   RoleEnum,
+  TestGraphQLType,
   TestHelper,
 } from '../src';
 import envConfig from '../src/config.env';
@@ -487,8 +488,14 @@ describe('AI module (e2e)', () => {
     const own = await getUserTool!.execute({ id: ownerId.toString() }, context);
     expect((own as any).success).not.toBe(false);
 
-    // A regular user must NOT read another user's record.
-    await expect(getUserTool!.execute({ id: otherId.toString() }, context)).rejects.toBeDefined();
+    // A regular user must NOT read another user's record — and the denial must be an
+    // authorization error (401/403), not just any thrown error.
+    const denial = await getUserTool!.execute({ id: otherId.toString() }, context).then(
+      () => null,
+      (e) => e,
+    );
+    expect(denial).toBeTruthy();
+    expect([401, 403]).toContain(denial.status);
 
     await db.collection('users').deleteMany({ _id: { $in: [ownerId, otherId] } });
   });
@@ -586,5 +593,119 @@ describe('AI module (e2e)', () => {
     expect(res.text).toContain('streamed answer');
 
     await connectionService.delete(conn.id, adminOptions);
+  });
+
+  // ===================================================================================================================
+  // Capability auto-detection (JSON / native tools)
+  // ===================================================================================================================
+
+  /** A fake provider that reports detectable capabilities, for auto-detection tests. */
+  function registerDetectProvider(detect: () => Promise<{ jsonResponse?: boolean; nativeTools?: boolean }>) {
+    providerFactory.registerBuilder('fake-detect', () => ({
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
+      async chat() {
+        return { text: '{}', usage: { completionTokens: 0, promptTokens: 0, totalTokens: 0 } };
+      },
+      detectCapabilities: detect,
+      name: 'fake-detect',
+    }));
+  }
+
+  it('auto-detects and persists capabilities on create when flags are left undefined (eager)', async () => {
+    registerDetectProvider(async () => ({ jsonResponse: true, nativeTools: false }));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', model: 'm', name: 'Detect Eager', providerType: 'fake-detect' } as any,
+      adminOptions,
+    );
+    expect(conn.supportsJsonResponse).toBe(true);
+    expect(conn.supportsNativeTools).toBe(false);
+    const raw = await db.collection('aiConnections').findOne({ _id: new ObjectId(conn.id) });
+    expect(raw.supportsJsonResponse).toBe(true);
+    expect(raw.supportsNativeTools).toBe(false);
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('never re-probes explicitly set capability flags', async () => {
+    let probed = false;
+    registerDetectProvider(async () => {
+      probed = true;
+      return {};
+    });
+    const conn = await connectionService.create(
+      {
+        baseUrl: 'http://fake/v1',
+        model: 'm',
+        name: 'Detect Explicit',
+        providerType: 'fake-detect',
+        supportsJsonResponse: false,
+        supportsNativeTools: true,
+      } as any,
+      adminOptions,
+    );
+    expect(probed).toBe(false);
+    expect(conn.supportsJsonResponse).toBe(false);
+    expect(conn.supportsNativeTools).toBe(true);
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('re-detects capabilities via the admin detect endpoint (HTTP)', async () => {
+    registerDetectProvider(async () => ({ jsonResponse: true, nativeTools: false }));
+    const conn = await connectionService.create(
+      {
+        baseUrl: 'http://fake/v1',
+        model: 'm',
+        name: 'Detect Endpoint',
+        providerType: 'fake-detect',
+        supportsJsonResponse: false,
+        supportsNativeTools: false,
+      } as any,
+      adminOptions,
+    );
+    // Clear the flags so the endpoint has something to detect.
+    await db
+      .collection('aiConnections')
+      .updateOne({ _id: new ObjectId(conn.id) }, { $unset: { supportsJsonResponse: '', supportsNativeTools: '' } });
+
+    const res = await request(app.getHttpServer())
+      .post(`/ai/connections/${conn.id}/detect-capabilities`)
+      .set('Authorization', `Bearer ${httpAdminToken}`);
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.supportsJsonResponse).toBe(true);
+    expect(res.body.supportsNativeTools).toBe(false);
+    expect(res.body.apiKeyEncrypted).toBeUndefined();
+
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('forbids the detect endpoint for a non-admin user (403)', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/ai/connections/${new ObjectId().toString()}/detect-capabilities`)
+      .set('Authorization', `Bearer ${httpRegularToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // ===================================================================================================================
+  // GraphQL surface (resolver wiring + per-method @Roles)
+  // ===================================================================================================================
+
+  it('exposes the admin connection query over GraphQL for admins', async () => {
+    const res = await testHelper.graphQl(
+      { fields: ['id', 'name', 'hasApiKey'], name: 'findAiConnections', type: TestGraphQLType.QUERY },
+      { token: httpAdminToken },
+    );
+    expect(Array.isArray(res)).toBe(true);
+    // Schema-level restriction: the encrypted key is not part of the GraphQL type.
+    for (const conn of res ?? []) {
+      expect(conn.apiKeyEncrypted).toBeUndefined();
+    }
+  });
+
+  it('denies the admin connection query over GraphQL for a non-admin (Access denied)', async () => {
+    const res = await testHelper.graphQl(
+      { fields: ['id', 'name'], name: 'findAiConnections', type: TestGraphQLType.QUERY },
+      { token: httpRegularToken },
+    );
+    expect(res.errors).toBeDefined();
+    expect(res.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient|Unauthorized/i);
   });
 });

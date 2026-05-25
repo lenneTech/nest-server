@@ -444,9 +444,15 @@ const config: { [env: string]: IServerOptions } = {
               model: process.env.AI_MODEL || 'default',
               name: 'Default LLM',
               providerType: 'openai-compatible',
-              // Capability flags — enable per the backend's actual support:
-              supportsJsonResponse: process.env.AI_SUPPORTS_JSON === 'true',
-              supportsNativeTools: process.env.AI_SUPPORTS_NATIVE_TOOLS === 'true',
+              // Capability flags — set explicitly only when the env var is provided;
+              // otherwise left undefined so the module auto-detects them by probing
+              // the endpoint (on create + lazily on first prompt).
+              ...(process.env.AI_SUPPORTS_JSON === undefined
+                ? {}
+                : { supportsJsonResponse: process.env.AI_SUPPORTS_JSON === 'true' }),
+              ...(process.env.AI_SUPPORTS_NATIVE_TOOLS === undefined
+                ? {}
+                : { supportsNativeTools: process.env.AI_SUPPORTS_NATIVE_TOOLS === 'true' }),
             },
           }
         : {}),

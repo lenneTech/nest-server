@@ -120,6 +120,18 @@ export interface LlmResponse {
 }
 
 /**
+ * Result of capability auto-detection. Only the probed (previously undefined)
+ * flags are present; explicit flags are authoritative and never probed.
+ */
+export interface LlmDetectedCapabilities {
+  /** Detected `response_format` / JSON-mode support, or undefined if not probed. */
+  jsonResponse?: boolean;
+
+  /** Detected native tool-calling support, or undefined if not probed. */
+  nativeTools?: boolean;
+}
+
+/**
  * Provider abstraction. Implementations are created per request by the
  * {@link LlmProviderFactory} from a persisted {@link CoreAiConnection}.
  */
@@ -138,4 +150,12 @@ export interface ILlmProvider {
    * @param options Per-request completion options.
    */
   chat(messages: LlmMessage[], tools: LlmToolSchema[], options?: LlmCompletionOptions): Promise<LlmResponse>;
+
+  /**
+   * Optionally probe the backend to auto-detect capabilities for connection flags
+   * that were left undefined (provider-agnostic best effort). Implementations that
+   * cannot probe simply omit this method. Should resolve only the undefined flags
+   * and throw on a transport error so callers can treat the connection as undetected.
+   */
+  detectCapabilities?(): Promise<LlmDetectedCapabilities>;
 }

@@ -153,6 +153,71 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   }
 
   /**
+   * Probe the backend to auto-detect capabilities for flags the connection left
+   * undefined. Explicit flags are authoritative and are NOT probed. Best effort:
+   * - JSON: send `response_format: json_object`; 2xx → true, 4xx → false.
+   * - Native tools: send a trivial tool with `tool_choice: 'required'`; 2xx WITH a
+   *   `tool_calls` result → true, otherwise → false (a backend that silently ignores
+   *   tools returns no tool_calls and is treated as unsupported).
+   *
+   * Throws on a transport error so callers can treat the connection as undetected
+   * (and retry later) rather than persisting a wrong value.
+   */
+  async detectCapabilities(): Promise<{ jsonResponse?: boolean; nativeTools?: boolean }> {
+    const result: { jsonResponse?: boolean; nativeTools?: boolean } = {};
+    if (this.connection.supportsJsonResponse === undefined) {
+      const res = await this.probe({
+        max_tokens: 8,
+        messages: [{ content: 'Reply with the JSON object {"ok":true}.', role: 'user' }],
+        response_format: { type: 'json_object' },
+      });
+      result.jsonResponse = res.ok;
+    }
+    if (this.connection.supportsNativeTools === undefined) {
+      const res = await this.probe({
+        max_tokens: 8,
+        messages: [{ content: 'Call the ping tool.', role: 'user' }],
+        tool_choice: 'required',
+        tools: [
+          {
+            function: {
+              description: 'A no-op capability probe.',
+              name: 'ping',
+              parameters: { properties: {}, type: 'object' },
+            },
+            type: 'function',
+          },
+        ],
+      });
+      result.nativeTools = res.ok && !!res.json?.choices?.[0]?.message?.tool_calls?.length;
+    }
+    return result;
+  }
+
+  /**
+   * Send a minimal probe request and report whether the endpoint accepted it.
+   * `ok` is true only for a 2xx response; a 4xx (feature unsupported) yields false.
+   */
+  protected async probe(extra: Record<string, any>): Promise<{ json?: any; ok: boolean }> {
+    const url = `${this.connection.baseUrl.replace(/\/$/, '')}/chat/completions`;
+    if (!url.startsWith('http')) {
+      throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_INVALID_URL);
+    }
+    this.assertBaseUrlAllowed(url);
+    const response = await fetch(url, {
+      body: JSON.stringify({ model: this.connection.model, ...extra }),
+      headers: { Authorization: `Bearer ${this.connection.apiKey}`, 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal: AbortSignal.timeout(this.connection.timeoutMs ?? 30_000),
+    });
+    if (!response.ok) {
+      return { ok: false };
+    }
+    const json = await response.json().catch(() => undefined);
+    return { json, ok: true };
+  }
+
+  /**
    * Map native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
    */
   protected mapNativeToolCalls(toolCalls: any[] | undefined) {

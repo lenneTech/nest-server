@@ -19,6 +19,7 @@ import { CoreAiConnectionCreateInput } from '../inputs/core-ai-connection-create
 import { CoreAiConnectionInput } from '../inputs/core-ai-connection.input';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 import { AiConnectionDocument, CoreAiConnection } from '../models/core-ai-connection.model';
+import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiCryptoService } from './ai-crypto.service';
 import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
 
@@ -61,6 +62,8 @@ export class CoreAiConnectionService
     protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiConnection>,
     // Optional: used only to clean up dangling preferences when a connection is deleted.
     @Optional() protected readonly preferenceService?: CoreAiConnectionPreferenceService,
+    // Optional: used to auto-detect capabilities (JSON / native tools) by probing the endpoint.
+    @Optional() protected readonly providerFactory?: LlmProviderFactory,
   ) {
     super();
   }
@@ -108,6 +111,13 @@ export class CoreAiConnectionService
       await this.applyApiKey(created.id, apiKey);
       created = await this.get(created.id, serviceOptions);
     }
+    // Eager capability auto-detection (A): probe the endpoint when a capability flag
+    // was left undefined. Best-effort — never fails the create (the lazy runtime path
+    // re-tries on first prompt).
+    if (this.providerFactory && (input.supportsJsonResponse === undefined || input.supportsNativeTools === undefined)) {
+      await this.detectAndPersistCapabilities(created.id).catch(() => undefined);
+      created = await this.get(created.id, serviceOptions);
+    }
     return created;
   }
 
@@ -146,6 +156,58 @@ export class CoreAiConnectionService
       }
     }
     return deleted;
+  }
+
+  /**
+   * Auto-detect capabilities (JSON / native tools) for flags the connection left
+   * undefined, persist the detected booleans, and return the resolved connection
+   * (with the decrypted key) reflecting them. Explicit flags are authoritative and
+   * are never probed. Best effort: on a probe/transport failure nothing is persisted
+   * (so it is retried later) and the connection is returned unchanged — undefined
+   * flags then fall back to the safe emulated baseline for the current run.
+   *
+   * Used eagerly on create (A) and lazily by the orchestrator on first prompt (B);
+   * also exposed for an explicit admin "detect" endpoint.
+   */
+  async detectAndPersistCapabilities(connectionId: string): Promise<ResolvedAiConnection> {
+    const resolved = await this.resolve(connectionId);
+    if (
+      !this.providerFactory ||
+      (resolved.supportsJsonResponse !== undefined && resolved.supportsNativeTools !== undefined)
+    ) {
+      return resolved;
+    }
+
+    let provider: { detectCapabilities?: () => Promise<{ jsonResponse?: boolean; nativeTools?: boolean }> };
+    try {
+      provider = this.providerFactory.create(resolved);
+    } catch (err) {
+      this.logger.warn(`AI capability detection skipped for "${resolved.name}": ${(err as Error).message}`);
+      return resolved;
+    }
+    if (typeof provider.detectCapabilities !== 'function') {
+      return resolved;
+    }
+
+    try {
+      const detected = await provider.detectCapabilities();
+      const update: Record<string, boolean> = {};
+      if (resolved.supportsJsonResponse === undefined && typeof detected.jsonResponse === 'boolean') {
+        update.supportsJsonResponse = detected.jsonResponse;
+        resolved.supportsJsonResponse = detected.jsonResponse;
+      }
+      if (resolved.supportsNativeTools === undefined && typeof detected.nativeTools === 'boolean') {
+        update.supportsNativeTools = detected.nativeTools;
+        resolved.supportsNativeTools = detected.nativeTools;
+      }
+      if (Object.keys(update).length) {
+        await this.mainDbModel.findByIdAndUpdate(connectionId, { $set: update }).exec();
+        this.logger.log(`Auto-detected AI capabilities for "${resolved.name}": ${JSON.stringify(update)}`);
+      }
+    } catch (err) {
+      this.logger.warn(`AI capability detection failed for "${resolved.name}": ${(err as Error).message}`);
+    }
+    return resolved;
   }
 
   /**

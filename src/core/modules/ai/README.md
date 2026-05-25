@@ -74,11 +74,33 @@ what its backend supports via `supportsNativeTools` and `supportsJsonResponse`:
 - Both **true** → native function calling + JSON mode are used directly.
 - **false** → the module compensates: tool calling is emulated via the system
   prompt and JSON is requested in-prompt and parsed defensively.
+- **undefined** (omitted) → **auto-detected** by probing the endpoint (see below).
 
 This covers the full spectrum — from feature-rich hosted models with native tools
 to minimal local runtimes or gateways with no native tool/JSON support — without
 naming or special-casing any provider. Add entirely different backends/protocols by
 registering a builder on `LlmProviderFactory`.
+
+#### Capability auto-detection
+
+Leave `supportsJsonResponse` / `supportsNativeTools` **undefined** to let the module
+detect them automatically (explicit `true`/`false` is always authoritative and is
+never probed). Detection runs in two complementary ways:
+
+- **Eager (on create):** when a connection is created with an undefined flag, the
+  endpoint is probed once and the result is persisted. Best-effort — a probe failure
+  never blocks the create.
+- **Lazy (on first prompt):** if a flag is still undefined at prompt time (e.g. the
+  eager probe was not possible, or the connection was seeded), the orchestrator probes
+  once, persists, and uses the result. Until then the safe emulated baseline applies.
+- **On demand:** admins can re-probe via `detectAiConnectionCapabilities` /
+  `POST /ai/connections/:id/detect-capabilities` (e.g. after changing `baseUrl`/`model`).
+
+The probe is provider-agnostic best effort: `response_format: json_object` is sent
+(2xx → JSON supported); a trivial tool with `tool_choice: 'required'` is sent (2xx
+returning a `tool_calls` result → native tools supported; a `4xx` or a silent ignore
+→ unsupported). Override `OpenAiCompatibleProvider.detectCapabilities()` for custom
+backends, or implement the optional `ILlmProvider.detectCapabilities()` in your own provider.
 
 ## Connections (DB configuration)
 

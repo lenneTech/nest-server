@@ -209,11 +209,13 @@ export class CoreAiConnection extends CorePersistenceModel {
   /**
    * Whether the backend natively supports JSON / structured-output mode.
    * When false, JSON is requested via the prompt and parsed defensively.
+   * Leave UNDEFINED to auto-detect on first use / on save (no mongoose default,
+   * so "not set" stays distinguishable from an explicit false).
    */
   @UnifiedField({
-    description: 'Whether the backend supports native JSON/structured-output mode',
+    description: 'Whether the backend supports native JSON/structured-output mode (undefined = auto-detect)',
     isOptional: true,
-    mongoose: { default: false },
+    mongoose: true,
     roles: RoleEnum.ADMIN,
     type: () => Boolean,
   })
@@ -221,12 +223,13 @@ export class CoreAiConnection extends CorePersistenceModel {
 
   /**
    * Whether the backend natively supports function/tool calling. When false, tool
-   * calling is emulated via the system prompt.
+   * calling is emulated via the system prompt. Leave UNDEFINED to auto-detect
+   * (no mongoose default, so "not set" stays distinguishable from an explicit false).
    */
   @UnifiedField({
-    description: 'Whether the backend supports native function/tool calling',
+    description: 'Whether the backend supports native function/tool calling (undefined = auto-detect)',
     isOptional: true,
-    mongoose: { default: false },
+    mongoose: true,
     roles: RoleEnum.ADMIN,
     type: () => Boolean,
   })

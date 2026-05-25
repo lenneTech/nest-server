@@ -1,5 +1,5 @@
 import { InputType } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsString, MaxLength } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -86,7 +86,9 @@ export class CoreAiPromptInput {
   @UnifiedField({
     description: 'The user prompt text',
     roles: RoleEnum.S_USER,
-    validator: () => [IsString(), IsNotEmpty(), MaxLength(50000)],
+    // IsNotEmpty is auto-applied for required fields by @UnifiedField; only IsString
+    // + MaxLength need to be declared here (the custom validator replaces built-ins).
+    validator: () => [IsString(), MaxLength(50000)],
   })
   prompt: string = undefined;
 

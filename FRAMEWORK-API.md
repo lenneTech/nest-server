@@ -129,6 +129,8 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `model`: `string` — Model id sent to the backend (e.g. 'gpt-oss-120b').
   - `name`: `string` — Human-readable connection name.
   - `providerType?`: `string` — Provider type (default 'openai-compatible').
+  - `supportsJsonResponse?`: `boolean` — Native JSON / structured-output support. Omit to auto-detect by probing the
+  - `supportsNativeTools?`: `boolean` — Native function/tool-calling support. Omit to auto-detect by probing the
   - `supportsVision?`: `boolean` — Whether the model supports image input.
 
 ### ICoreModuleOverrides
