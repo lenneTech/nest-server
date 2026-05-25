@@ -780,6 +780,11 @@ export class CoreAiService {
   /**
    * Robustly extract a single JSON object from an LLM text response (tolerates
    * markdown code fences and surrounding prose).
+   *
+   * Prefers the first *brace-balanced* object so a model that keeps writing after
+   * its JSON — e.g. a `{"tool_calls":[…]}` followed by a hallucinated
+   * `TOOL_RESULTS:` block — is still parsed correctly. Falls back to the first-`{`
+   * … last-`}` slice for a single object surrounded by awkward content.
    */
   protected extractJsonObject(text: string): any | null {
     if (!text) {
@@ -791,15 +796,63 @@ export class CoreAiService {
       t = fence[1].trim();
     }
     const start = t.indexOf('{');
+    if (start === -1) {
+      return null;
+    }
+    // 1) Preferred: the first brace-balanced object (ignores any trailing content).
+    const balanced = this.firstBalancedJson(t, start);
+    if (balanced) {
+      try {
+        return JSON.parse(balanced);
+      } catch {
+        // fall through to the lenient slice
+      }
+    }
+    // 2) Fallback: first '{' to last '}'.
     const end = t.lastIndexOf('}');
-    if (start === -1 || end === -1 || end < start) {
-      return null;
+    if (end > start) {
+      try {
+        return JSON.parse(t.slice(start, end + 1));
+      } catch {
+        return null;
+      }
     }
-    try {
-      return JSON.parse(t.slice(start, end + 1));
-    } catch {
-      return null;
+    return null;
+  }
+
+  /**
+   * Return the substring of the first brace-balanced `{…}` starting at `from`, or
+   * null if no balanced object is found. String literals (and their escapes) are
+   * respected so braces inside strings do not affect the depth count.
+   */
+  protected firstBalancedJson(text: string, from: number): null | string {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = from; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          return text.slice(from, i + 1);
+        }
+      }
     }
+    return null;
   }
 
   /**

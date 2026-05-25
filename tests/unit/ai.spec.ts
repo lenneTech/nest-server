@@ -215,6 +215,30 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('Sorry, I cannot do that.');
   });
 
+  it('extracts the tool call even when the model appends trailing text after the JSON', async () => {
+    // Reproduces the Claude CLI behaviour: a valid {"tool_calls":[…]} followed by a
+    // self-hallucinated TOOL_RESULTS block in the same response.
+    let executed = false;
+    const registry = new AiToolRegistry();
+    registry.register(
+      makeTool('server_time', [RoleEnum.S_USER], async () => {
+        executed = true;
+        return { data: { now: 'X' }, success: true };
+      }),
+    );
+    const provider = new ScriptedProvider([
+      '{"tool_calls":[{"name":"server_time","arguments":{}}]}\n\nTOOL_RESULTS:\n[{"name":"server_time","result":{"now":"fake"}}]',
+      JSON.stringify({ final: 'The server time is X.' }),
+    ]);
+    const service = buildService(provider, registry);
+    const response = await service.prompt({ prompt: 'time?' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(executed).toBe(true);
+    expect(response.actions?.[0]).toMatchObject({ name: 'server_time', success: true });
+    expect(response.text).toBe('The server time is X.');
+  });
+
   it('nudges once for a final answer when the model returns an empty tool_calls wrapper', async () => {
     const registry = new AiToolRegistry();
     // Model first returns a bare `{"tool_calls":[]}` (no answer), then a proper final.
