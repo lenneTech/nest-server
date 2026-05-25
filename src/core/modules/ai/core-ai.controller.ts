@@ -5,14 +5,20 @@ import { RESTServiceOptions } from '../../common/decorators/rest-service-options
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
+import { RequestContext } from '../../common/services/request-context.service';
+import { CoreAiBudgetLimitCreateInput } from './inputs/core-ai-budget-limit-create.input';
+import { CoreAiBudgetLimitInput } from './inputs/core-ai-budget-limit.input';
 import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.input';
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
+import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
 import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
+import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
+import { CoreAiBudgetService } from './services/core-ai-budget.service';
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
@@ -34,6 +40,7 @@ export class CoreAiController {
     protected readonly connectionService: CoreAiConnectionService,
     protected readonly conversationService: CoreAiConversationService,
     protected readonly interactionService: CoreAiInteractionService,
+    protected readonly budgetService: CoreAiBudgetService,
   ) {}
 
   /**
@@ -210,5 +217,60 @@ export class CoreAiController {
     @Param('id') id: string,
   ): Promise<CoreAiInteraction> {
     return this.interactionService.get(id, serviceOptions);
+  }
+
+  /**
+   * Token usage for the current user (and tenant) until the next reset.
+   */
+  @Get('usage')
+  @Roles(RoleEnum.S_USER)
+  async usage(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiUsageInfo> {
+    return this.budgetService.getUsageInfo(serviceOptions?.currentUser?.id, RequestContext.getTenantId());
+  }
+
+  /**
+   * Find AI budget limits (admin).
+   */
+  @Get('budget-limits')
+  @Roles(RoleEnum.ADMIN)
+  async findBudgetLimits(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiBudgetLimit[]> {
+    return this.budgetService.find({}, serviceOptions);
+  }
+
+  /**
+   * Create an AI budget limit (admin).
+   */
+  @Post('budget-limits')
+  @Roles(RoleEnum.ADMIN)
+  async createBudgetLimit(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Body() input: CoreAiBudgetLimitCreateInput,
+  ): Promise<CoreAiBudgetLimit> {
+    return this.budgetService.create(input, { ...serviceOptions, inputType: CoreAiBudgetLimitCreateInput });
+  }
+
+  /**
+   * Update an AI budget limit (admin).
+   */
+  @Put('budget-limits/:id')
+  @Roles(RoleEnum.ADMIN)
+  async updateBudgetLimit(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Param('id') id: string,
+    @Body() input: CoreAiBudgetLimitInput,
+  ): Promise<CoreAiBudgetLimit> {
+    return this.budgetService.update(id, input, { ...serviceOptions, inputType: CoreAiBudgetLimitInput });
+  }
+
+  /**
+   * Delete an AI budget limit (admin).
+   */
+  @Delete('budget-limits/:id')
+  @Roles(RoleEnum.ADMIN)
+  async deleteBudgetLimit(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Param('id') id: string,
+  ): Promise<CoreAiBudgetLimit> {
+    return this.budgetService.delete(id, serviceOptions);
   }
 }

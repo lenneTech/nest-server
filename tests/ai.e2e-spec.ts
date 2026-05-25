@@ -4,6 +4,7 @@ import request from 'supertest';
 
 import {
   AiToolRegistry,
+  CoreAiBudgetService,
   CoreAiConnectionService,
   CoreAiConversationService,
   CoreAiInteractionService,
@@ -39,6 +40,7 @@ describe('AI module (e2e)', () => {
   let connection;
   let db;
 
+  let budgetService: CoreAiBudgetService;
   let connectionService: CoreAiConnectionService;
   let conversationService: CoreAiConversationService;
   let interactionService: CoreAiInteractionService;
@@ -59,6 +61,7 @@ describe('AI module (e2e)', () => {
     app.setViewEngine(envConfig.templates.engine);
     await app.init();
 
+    budgetService = app.get(CoreAiBudgetService);
     connectionService = app.get(CoreAiConnectionService);
     conversationService = app.get(CoreAiConversationService);
     interactionService = app.get(CoreAiInteractionService);
@@ -75,6 +78,7 @@ describe('AI module (e2e)', () => {
       await db.collection('aiConnections').deleteMany({});
       await db.collection('aiInteractions').deleteMany({});
       await db.collection('aiConversations').deleteMany({});
+      await db.collection('aiBudgetLimits').deleteMany({});
     }
     if (connection) {
       await connection.close();
@@ -247,6 +251,38 @@ describe('AI module (e2e)', () => {
       .send({ id: 1, jsonrpc: '2.0', method: 'initialize', params: {} });
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toContain('Bearer');
+  });
+
+  it('enforces a per-user token limit and reports usage in the response + aiUsage', async () => {
+    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'ok' })]));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Budget Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    // Isolated user so prior tests' usage does not count against this limit.
+    const budgetUser = { id: new ObjectId().toString(), roles: [RoleEnum.ADMIN] };
+    const budgetOptions = { currentUser: budgetUser };
+    await budgetService.create(
+      { maxTokens: 2, refId: budgetUser.id, scope: 'user' } as any,
+      adminOptions,
+    );
+
+    // First run is allowed and reports the budget summary (each fake run = 2 tokens).
+    const first = await aiService.prompt({ prompt: 'hi' } as any, budgetOptions);
+    expect(first.budget?.promptTokens).toBe(2);
+    expect(first.budget?.usedTokens).toBe(2);
+    expect(first.budget?.remainingTokens).toBe(0);
+    expect(first.budget?.resetAt).toBeDefined();
+
+    // aiUsage reflects the same usage.
+    const usage = await budgetService.getUsageInfo(budgetUser.id, undefined);
+    expect(usage.user).toMatchObject({ maxTokens: 2, remainingTokens: 0, scope: 'user', usedTokens: 2 });
+
+    // Second run is blocked (limit reached).
+    await expect(aiService.prompt({ prompt: 'again' } as any, budgetOptions)).rejects.toMatchObject({ status: 429 });
+
+    await connectionService.delete(conn.id, adminOptions);
   });
 
   it('persists an audit interaction record when ai.audit is enabled', async () => {

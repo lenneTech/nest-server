@@ -99,7 +99,11 @@ ai: {
   documentation: '…',                  // system docs injected into the prompt (or override getDocumentation())
   confirmation: { mutating: { default: false, enforced: false } }, // require confirmation for create/update/delete
   audit: true,                         // persist runs to aiInteractions (required for budget)
-  budget: { maxPromptsPerDay: 200, maxTokensPerDay: 500000 },
+  budget: {                            // per-user/tenant token limits (defaults; admins override per user/tenant)
+    period: 'day',                     // 'day' | 'month' | 'none'
+    user: { maxTokens: 50000 },        // 0/undefined = unlimited
+    tenant: { maxTokens: 2000000 },
+  },
   mcp: { oauth: true, oauthSecret: process.env.NSC__AI__ENCRYPTION_SECRET },
 }
 ```

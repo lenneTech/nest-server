@@ -4,6 +4,7 @@ import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { JSON } from '../../../common/scalars/json.scalar';
 import { CoreAiAction } from './core-ai-action.model';
+import { CoreAiBudgetSummary } from './core-ai-usage-info.model';
 import { CoreAiUsage } from './core-ai-usage.model';
 
 /**
@@ -21,6 +22,12 @@ export class CoreAiResponse {
    */
   @Field(() => [CoreAiAction], { description: 'Tool actions executed while answering', nullable: true })
   actions?: CoreAiAction[];
+
+  /**
+   * Compact token-budget summary (this prompt's cost, remaining/used, reset time).
+   */
+  @Field(() => CoreAiBudgetSummary, { description: 'Compact token-budget summary', nullable: true })
+  budget?: CoreAiBudgetSummary;
 
   /**
    * Id of the AI connection used.

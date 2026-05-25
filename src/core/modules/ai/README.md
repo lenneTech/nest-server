@@ -199,10 +199,32 @@ export class TransferFundsTool extends AiTool {
 - The system prompt is enriched with the user's roles + available tools and optional
   `ai.documentation` (override `CoreAiPromptBuilderService.getDocumentation()` for RAG).
 
-## Budget
+## Token budgets & usage
 
-`ai.budget: { maxPromptsPerDay, maxTokensPerDay }` (requires `audit`) is enforced
-before a run; exceeding it aborts with HTTP 429 + a translated message.
+Token/prompt limits are **per user AND per tenant**, with **config defaults** so you
+need not configure each one individually. Limits are **optional** — a missing or `0`
+limit means unlimited (only the LLM's own limit then applies). Requires `audit`.
+
+```typescript
+ai: {
+  audit: true,
+  budget: {
+    period: 'day',                         // 'day' | 'month' | 'none'
+    user: { maxTokens: 50000 },            // default per user
+    tenant: { maxTokens: 2000000 },        // default per whole tenant
+  },
+}
+```
+
+- Admins override per user/tenant at runtime (`aiBudgetLimits`, admin CRUD via
+  `createAiBudgetLimit` / REST `/ai/budget-limits`): `{ scope: 'user'|'tenant', refId, maxTokens?, maxPrompts?, period? }`.
+- Resolution per scope: persisted override → config default → unlimited.
+- Enforced before the run (user OR tenant limit) → HTTP 429 + translated message.
+
+**Usage reported to the client:** every prompt response carries a compact
+`budget` summary — `promptTokens` (this prompt), `usedTokens`, `remainingTokens`
+(null = unlimited) and `resetAt`. The full breakdown (user + tenant scopes, prompts
++ tokens, limits, reset) is available via the `aiUsage` query / `GET /ai/usage`.
 
 ## MCP server (`ai.mcp: true`)
 

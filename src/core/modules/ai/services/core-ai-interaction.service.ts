@@ -35,21 +35,9 @@ export class CoreAiInteractionService extends CrudService<CoreAiInteraction> {
   }
 
   /**
-   * Aggregate a user's usage since a point in time (for budget enforcement).
-   * System-internal lean read.
-   */
-  async usageSince(userId: string, since: Date): Promise<{ prompts: number; tokens: number }> {
-    const docs = await this.mainDbModel
-      .find({ createdAt: { $gte: since }, userId })
-      .select('totalTokens')
-      .lean()
-      .exec();
-    const tokens = docs.reduce((sum, doc) => sum + ((doc as { totalTokens?: number }).totalTokens ?? 0), 0);
-    return { prompts: docs.length, tokens };
-  }
-
-  /**
    * Persist an audit record. System-internal (direct model access, no user).
+   * `tenantId` is auto-set by the tenant plugin from the request context, but is
+   * passed through explicitly when known for robustness.
    */
   async record(rec: AiInteractionRecord): Promise<void> {
     await this.mainDbModel.create({
@@ -60,6 +48,7 @@ export class CoreAiInteractionService extends CrudService<CoreAiInteraction> {
       prompt: rec.prompt,
       promptTokens: rec.usage?.promptTokens,
       responseText: rec.responseText,
+      tenantId: rec.tenantId,
       totalTokens: rec.usage?.totalTokens,
       userId: rec.userId,
     });

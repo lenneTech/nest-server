@@ -6,6 +6,7 @@ import { IAiTool } from '../../src/core/modules/ai/interfaces/ai-tool.interface'
 import { ILlmProvider, LlmResponse } from '../../src/core/modules/ai/interfaces/llm-provider.interface';
 import { LlmProviderFactory } from '../../src/core/modules/ai/providers/llm-provider.factory';
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
+import { CoreAiBudgetService } from '../../src/core/modules/ai/services/core-ai-budget.service';
 import { CoreAiMcpOAuthService } from '../../src/core/modules/ai/services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
@@ -255,47 +256,6 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(executed).toEqual([]);
     expect(response.denied).toBe(true);
     expect(response.deniedActions?.[0]).toMatchObject({ name: 'edit_record' });
-  });
-
-  it('blocks a run when the daily budget is exceeded (translated message)', async () => {
-    new ConfigService({ ai: { budget: { maxPromptsPerDay: 3 }, maxIterations: 5 } } as any);
-    const factory = new LlmProviderFactory();
-    factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'ok' })]));
-    const connectionService = {
-      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
-    } as any;
-    const interactionService = { record: async () => undefined, usageSince: async () => ({ prompts: 3, tokens: 0 }) } as any;
-    const service = new CoreAiService(
-      connectionService,
-      factory,
-      new AiToolRegistry(),
-      new CoreAiPromptBuilderService(),
-      interactionService,
-    );
-
-    await expect(
-      service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] }, language: 'de' }),
-    ).rejects.toThrow(/Kontingent/);
-  });
-
-  it('allows a run when under the daily budget', async () => {
-    new ConfigService({ ai: { budget: { maxPromptsPerDay: 10 }, maxIterations: 5 } } as any);
-    const factory = new LlmProviderFactory();
-    factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'fine' })]));
-    const connectionService = {
-      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
-    } as any;
-    const interactionService = { record: async () => undefined, usageSince: async () => ({ prompts: 2, tokens: 0 }) } as any;
-    const service = new CoreAiService(
-      connectionService,
-      factory,
-      new AiToolRegistry(),
-      new CoreAiPromptBuilderService(),
-      interactionService,
-    );
-
-    const response = await service.prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } });
-    expect(response.text).toBe('fine');
   });
 
   it('treats plain text (no JSON protocol) as the final answer', async () => {
@@ -563,5 +523,95 @@ describe('CoreAiMcpOAuthService (security primitives)', () => {
     expect(s.verifyPkce(verifier, challenge)).toBe(true);
     expect(s.verifyPkce('wrong-verifier', challenge)).toBe(false);
     expect(s.verifyPkce(verifier, challenge, 'plain')).toBe(false);
+  });
+});
+
+describe('CoreAiBudgetService (limits + usage logic)', () => {
+  // Test subclass: stubs the native usage read and the override lookup.
+  function makeBudget(overrideDoc: any, usage: { resetAt: Date | null; usedPrompts: number; usedTokens: number }) {
+    const model = { findOne: () => ({ lean: () => ({ exec: async () => overrideDoc }) }) };
+    const svc = new CoreAiBudgetService({} as any, model as any, CoreAiBudgetService as any);
+    (svc as any).getUsage = async () => usage;
+    return svc;
+  }
+
+  it('resolveLimit prefers the persisted override, else the config default', async () => {
+    new ConfigService({ ai: { budget: { period: 'day', user: { maxTokens: 1000 } } } } as any);
+    const fromDefault = await makeBudget(null, { resetAt: null, usedPrompts: 0, usedTokens: 0 }).resolveLimit('user', 'u1');
+    expect(fromDefault).toMatchObject({ maxTokens: 1000, period: 'day' });
+
+    const withOverride = await makeBudget({ maxTokens: 50, period: 'month' }, {
+      resetAt: null,
+      usedPrompts: 0,
+      usedTokens: 0,
+    }).resolveLimit('user', 'u1');
+    expect(withOverride).toMatchObject({ maxTokens: 50, period: 'month' });
+  });
+
+  it('assertWithinBudget throws 429 when the token limit is reached, passes when under', async () => {
+    new ConfigService({ ai: { budget: { user: { maxTokens: 100 } } } } as any);
+    await expect(
+      makeBudget(null, { resetAt: null, usedPrompts: 0, usedTokens: 100 }).assertWithinBudget('u1', undefined, 'de'),
+    ).rejects.toMatchObject({ status: 429 });
+    await expect(
+      makeBudget(null, { resetAt: null, usedPrompts: 0, usedTokens: 40 }).assertWithinBudget('u1', undefined, 'de'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('treats a 0 limit as unlimited (no throw)', async () => {
+    new ConfigService({ ai: { budget: { tenant: { maxPrompts: 0, maxTokens: 0 }, user: { maxPrompts: 0, maxTokens: 0 } } } } as any);
+    await expect(
+      makeBudget(null, { resetAt: null, usedPrompts: 999999, usedTokens: 999999 }).assertWithinBudget('u1'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('buildSummary reports prompt cost, used and remaining tokens + resetAt', async () => {
+    new ConfigService({ ai: { budget: { user: { maxTokens: 1000 } } } } as any);
+    const reset = new Date('2030-01-02T00:00:00Z');
+    const summary = await makeBudget(null, { resetAt: reset, usedPrompts: 3, usedTokens: 300 }).buildSummary('u1', undefined, 20);
+    expect(summary).toMatchObject({ promptTokens: 20, remainingTokens: 700, resetAt: reset, usedTokens: 300 });
+  });
+
+  it('getUsageInfo includes the tenant scope when a tenant is given', async () => {
+    new ConfigService({ ai: { budget: { tenant: { maxTokens: 5000 }, user: { maxTokens: 1000 } } } } as any);
+    const info = await makeBudget(null, { resetAt: null, usedPrompts: 1, usedTokens: 100 }).getUsageInfo('u1', 't1');
+    expect(info.user).toMatchObject({ maxTokens: 1000, remainingTokens: 900, scope: 'user', usedTokens: 100 });
+    expect(info.tenant).toMatchObject({ maxTokens: 5000, scope: 'tenant', usedTokens: 100 });
+  });
+});
+
+describe('CoreAiService + budget integration', () => {
+  function serviceWithBudget(budgetService: any) {
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => new ScriptedProvider([JSON.stringify({ final: 'ok' })]));
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'fake', name: 'F', providerType: 'fake' }),
+    } as any;
+    return new CoreAiService(connectionService, factory, new AiToolRegistry(), new CoreAiPromptBuilderService(), undefined, undefined, budgetService);
+  }
+
+  it('attaches the budget summary to the response', async () => {
+    new ConfigService({ ai: { maxIterations: 5 } } as any);
+    const budgetService = {
+      assertWithinBudget: async () => undefined,
+      buildSummary: async (_u: any, _t: any, promptTokens: number) => ({ promptTokens, remainingTokens: 880, usedTokens: 120 }),
+    };
+    const response = await serviceWithBudget(budgetService).prompt({ prompt: 'hi' } as any, {
+      currentUser: { id: 'u1', roles: [] },
+    });
+    expect(response.budget).toMatchObject({ remainingTokens: 880, usedTokens: 120 });
+  });
+
+  it('blocks the run when assertWithinBudget rejects', async () => {
+    new ConfigService({ ai: { maxIterations: 5 } } as any);
+    const budgetService = {
+      assertWithinBudget: async () => {
+        throw new Error('budget exceeded');
+      },
+      buildSummary: async () => ({}),
+    };
+    await expect(
+      serviceWithBudget(budgetService).prompt({ prompt: 'hi' } as any, { currentUser: { id: 'u1', roles: [] } }),
+    ).rejects.toThrow(/budget exceeded/);
   });
 });

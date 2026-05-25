@@ -102,6 +102,18 @@ export class CoreAiInteraction extends CorePersistenceModel {
   responseText?: string = undefined;
 
   /**
+   * Tenant the prompt ran in (auto-set by the tenant plugin; used for per-tenant
+   * budget accounting). No manual index — the tenant plugin indexes `tenantId`.
+   */
+  @UnifiedField({
+    description: 'Tenant id the prompt ran in',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.ADMIN,
+  })
+  tenantId?: string = undefined;
+
+  /**
    * Total number of tokens.
    */
   @UnifiedField({

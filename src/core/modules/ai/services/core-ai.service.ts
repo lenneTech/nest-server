@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs
 
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
+import { RequestContext } from '../../../common/services/request-context.service';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
 import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface';
 import { CoreAiAction } from '../models/core-ai-action.model';
@@ -10,6 +11,7 @@ import { CoreAiUsage } from '../models/core-ai-usage.model';
 import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
+import { CoreAiBudgetService } from './core-ai-budget.service';
 import { CoreAiConnectionService } from './core-ai-connection.service';
 import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
@@ -24,6 +26,7 @@ export interface AiInteractionRecord {
   iterations: number;
   prompt: string;
   responseText: string;
+  tenantId?: string;
   usage?: { completionTokens?: number; promptTokens?: number; totalTokens?: number };
   userId?: string;
 }
@@ -53,6 +56,7 @@ export interface AiRunContext {
   history: { content: string; role: string }[];
   language?: string;
   provider: import('../interfaces/llm-provider.interface').ILlmProvider;
+  tenantId?: string;
   tools: IAiTool[];
 }
 
@@ -90,6 +94,7 @@ export class CoreAiService {
     protected readonly promptBuilder: CoreAiPromptBuilderService,
     @Optional() protected readonly interactionService?: CoreAiInteractionService,
     @Optional() protected readonly conversationService?: CoreAiConversationService,
+    @Optional() protected readonly budgetService?: CoreAiBudgetService,
   ) {}
 
   /**
@@ -98,7 +103,10 @@ export class CoreAiService {
   async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
     const run = await this.prepareRun(input, serviceOptions);
-    return mode === 'plan' ? this.runPlan(input, run) : this.runAuto(input, run);
+    const response = mode === 'plan' ? await this.runPlan(input, run) : await this.runAuto(input, run);
+    // Attach the compact token-budget summary after the run was recorded.
+    await this.attachBudgetSummary(response, run);
+    return response;
   }
 
   /**
@@ -107,8 +115,12 @@ export class CoreAiService {
    */
   protected async prepareRun(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<AiRunContext> {
     const currentUser = serviceOptions?.currentUser;
+    const tenantId = RequestContext.getTenantId();
     await this.checkRateLimit(currentUser?.id);
-    await this.checkBudget(currentUser?.id, serviceOptions?.language);
+    // Enforce token/prompt budgets (per user + per tenant) before any LLM call.
+    if (this.budgetService) {
+      await this.budgetService.assertWithinBudget(currentUser?.id, tenantId, serviceOptions?.language);
+    }
 
     const connection = await this.connectionService.resolve(input.connectionId);
     const provider = this.providerFactory.create(connection);
@@ -126,14 +138,33 @@ export class CoreAiService {
     // Load prior turns for multi-turn conversations (owner-checked).
     const history = await this.loadConversationHistory(input.conversationId, currentUser);
 
-    return { connection, context, currentUser, history, language: serviceOptions?.language, provider, tools };
+    return { connection, context, currentUser, history, language: serviceOptions?.language, provider, tenantId, tools };
+  }
+
+  /**
+   * Attach the compact token-budget summary to a response (after the run was
+   * recorded, so it reflects the just-consumed tokens).
+   */
+  protected async attachBudgetSummary(response: CoreAiResponse, run: AiRunContext): Promise<void> {
+    if (!this.budgetService || response.denied) {
+      return;
+    }
+    try {
+      response.budget = await this.budgetService.buildSummary(
+        run.currentUser?.id,
+        run.tenantId,
+        response.usage?.totalTokens ?? 0,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to build AI budget summary: ${(err as Error).message}`);
+    }
   }
 
   /**
    * Reactive agent loop (auto mode): the model requests tools step by step.
    */
   protected async runAuto(input: CoreAiPromptInput, run: AiRunContext): Promise<CoreAiResponse> {
-    const { connection, context, currentUser, history, provider, tools } = run;
+    const { connection, context, currentUser, history, provider, tenantId, tools } = run;
     const systemPrompt = this.promptBuilder.buildSystemPrompt(tools, provider.supportsNativeTools, currentUser);
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
 
@@ -240,6 +271,7 @@ export class CoreAiService {
       iterations,
       prompt: input.prompt,
       responseText: finalText,
+      tenantId,
       usage,
       userId: currentUser?.id,
     });
@@ -448,27 +480,6 @@ export class CoreAiService {
   }
 
   /**
-   * Enforce per-user daily budgets before a run. No-op unless `ai.budget` is set
-   * and an interaction (audit) service is available to read past usage from.
-   * Counts today's prompts/tokens for the user and throws HTTP 429 if exceeded.
-   */
-  protected async checkBudget(userId?: string, language?: string): Promise<void> {
-    const budget = ConfigService.get<{ maxPromptsPerDay?: number; maxTokensPerDay?: number }>('ai.budget');
-    if (!budget || !this.interactionService || !userId) {
-      return;
-    }
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    const usage = await this.interactionService.usageSince(userId, since);
-
-    const promptsExceeded = budget.maxPromptsPerDay != null && usage.prompts >= budget.maxPromptsPerDay;
-    const tokensExceeded = budget.maxTokensPerDay != null && usage.tokens >= budget.maxTokensPerDay;
-    if (promptsExceeded || tokensExceeded) {
-      throw new HttpException(this.translate('budget_exceeded', language), HttpStatus.TOO_MANY_REQUESTS);
-    }
-  }
-
-  /**
    * Localized system message (de/en). Override to extend languages/messages.
    */
   protected translate(key: string, language?: string, params: Record<string, string> = {}): string {
@@ -579,6 +590,7 @@ export class CoreAiService {
       iterations: response.iterations ?? 0,
       prompt: input.prompt,
       responseText: response.text,
+      tenantId: run.tenantId,
       usage,
       userId: run.currentUser?.id,
     };

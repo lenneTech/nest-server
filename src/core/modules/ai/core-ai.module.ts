@@ -6,11 +6,13 @@ import { CoreAiController } from './core-ai.controller';
 import { CoreAiResolver } from './core-ai.resolver';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
+import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import { AiCryptoService } from './services/ai-crypto.service';
+import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, CoreAiBudgetService } from './services/core-ai-budget.service';
 import {
   AI_CONNECTION_CLASS,
   AI_CONNECTION_MODEL,
@@ -41,6 +43,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom REST controller (extends CoreAiController). */
   controller?: Type<CoreAiController>;
+
+  /** Custom budget service (extends CoreAiBudgetService). */
+  budgetService?: Type<CoreAiBudgetService>;
 
   /** Custom conversation service (extends CoreAiConversationService). */
   conversationService?: Type<CoreAiConversationService>;
@@ -85,6 +90,7 @@ export interface CoreAiModuleOptions {
 @Module({})
 export class CoreAiModule {
   static forRoot(options: CoreAiModuleOptions = {}): DynamicModule {
+    const BudgetServiceClass = options.budgetService || CoreAiBudgetService;
     const ConnectionServiceClass = options.connectionService || CoreAiConnectionService;
     const ControllerClass = options.controller || CoreAiController;
     const ConversationServiceClass = options.conversationService || CoreAiConversationService;
@@ -104,6 +110,7 @@ export class CoreAiModule {
       exports: [
         AiCryptoService,
         AiToolRegistry,
+        CoreAiBudgetService,
         CoreAiConnectionService,
         CoreAiConversationService,
         CoreAiInteractionService,
@@ -116,6 +123,7 @@ export class CoreAiModule {
       ],
       imports: [
         MongooseModule.forFeature([
+          { name: AI_BUDGET_LIMIT_MODEL, schema: AiBudgetLimitSchema },
           { name: AI_CONNECTION_MODEL, schema: AiConnectionSchema },
           { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
@@ -126,9 +134,11 @@ export class CoreAiModule {
         AiCryptoService,
         AiToolRegistry,
         LlmProviderFactory,
+        { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
         { provide: AI_CONVERSATION_CLASS, useValue: CoreAiConversation },
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
+        { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
         CoreAiMcpService,

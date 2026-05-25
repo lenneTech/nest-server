@@ -1131,15 +1131,19 @@ export interface IAi {
   audit?: boolean;
 
   /**
-   * Per-user daily budget for AI prompts. Enforced before a run; exceeding it
-   * aborts with HTTP 429 and a translated message. Requires `audit` (usage is read
-   * from the `aiInteractions` records).
+   * Token/prompt budgets for AI prompts, enforced before a run (HTTP 429 + translated
+   * message). Requires `audit` (usage is read from `aiInteractions`). All limits are
+   * optional — a missing or `0` limit means unlimited (only the LLM's own limit then
+   * applies). These are the DEFAULTS; admins can override per user/tenant at runtime
+   * (`aiBudgetLimits`, `CoreAiBudgetService`).
    */
   budget?: {
-    /** Maximum number of prompts per user per day. */
-    maxPromptsPerDay?: number;
-    /** Maximum number of (total) tokens per user per day. */
-    maxTokensPerDay?: number;
+    /** Reset window. @default 'day' */
+    period?: 'day' | 'month' | 'none';
+    /** Default limit applied to a whole tenant (sum of all its users). */
+    tenant?: { maxPrompts?: number; maxTokens?: number };
+    /** Default limit applied per user. */
+    user?: { maxPrompts?: number; maxTokens?: number };
   };
 
   /**
