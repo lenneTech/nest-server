@@ -128,6 +128,11 @@ export class CoreAiPromptBuilderService {
       'When you have the final answer for the user, respond with ONLY a JSON object:',
       '{"final":"<your natural language answer>","data": <optional structured data or null>}',
       'Never mix tool_calls and final in the same response. Always reply with valid JSON only.',
+      '',
+      'CRITICAL: To perform any action you MUST emit a tool_calls request and wait for its',
+      'TOOL_RESULTS. Never state in a final answer that you executed, performed, deleted, updated,',
+      'or created anything unless you actually called the matching tool and received its results.',
+      'If you have not called the tool yet, call it — do not claim success.',
     ].join('\n');
   }
 }
