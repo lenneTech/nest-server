@@ -818,6 +818,60 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(executed).toEqual(['create_x']);
   });
 
+  it('scoped tool-policy `deny` aborts the call with a structured error', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const fakePolicy = {
+      evaluate: async (tool: string) =>
+        tool === 'create_x' ? { decision: 'deny' as const, reason: 'forbidden by tenant policy' } : undefined,
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      mutatingRegistry(executed),
+      new CoreAiPromptBuilderService(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, fakePolicy,
+    );
+    const response = await service.prompt({ prompt: 'create x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(executed).toEqual([]); // tool never ran
+    expect(response.actions?.[0]).toMatchObject({ name: 'create_x', success: false });
+    expect(JSON.stringify(response.actions?.[0]?.result)).toContain('forbidden by tenant policy');
+    expect(response.text).toMatch(/not permitted by policy/);
+  });
+
+  it('scoped tool-policy `ask` forces the confirmation gate even on a non-mutating tool', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const fakePolicy = {
+      evaluate: async (tool: string) => (tool === 'create_x' ? { decision: 'ask' as const } : undefined),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      mutatingRegistry(executed),
+      new CoreAiPromptBuilderService(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, fakePolicy,
+    );
+    const response = await service.prompt({ prompt: 'create x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(executed).toEqual([]); // not yet run — gate is on
+    expect(response.requiresConfirmation).toBe(true);
+    expect(response.pendingActions?.[0]).toMatchObject({ name: 'create_x' });
+  });
+
   it('AI hook can block a tool call via preToolUse', async () => {
     const { AiHookRegistry } = await import('../../src/core/modules/ai/hooks/ai-hook.registry');
     new ConfigService({ ai: { maxIterations: 5 } } as any);

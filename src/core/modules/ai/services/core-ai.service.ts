@@ -24,6 +24,7 @@ import { CoreAiInteractionService } from './core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
 import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
+import { CoreAiToolPolicyService } from './core-ai-tool-policy.service';
 
 /**
  * Record passed to {@link CoreAiService.audit} for each prompt run.
@@ -107,6 +108,7 @@ export class CoreAiService {
     @Optional() protected readonly hintService?: CoreAiPromptHintService,
     @Optional() protected readonly toolGrantService?: CoreAiToolGrantService,
     @Optional() protected readonly hookRegistry?: AiHookRegistry,
+    @Optional() protected readonly toolPolicyService?: CoreAiToolPolicyService,
   ) {}
 
   /**
@@ -282,12 +284,39 @@ export class CoreAiService {
         : this.extractToolCalls(completion.text);
 
       if (toolCalls?.length) {
+        // Evaluate fine-grained scoped policies first: a `deny` rule aborts the
+        // call immediately; an `ask` rule routes it through the confirmation gate
+        // even if the tool itself isn't marked mutating. Falls through silently when
+        // no policy is configured.
+        const policyOutcomes = await this.evaluateToolPolicies(toolCalls, tools, run);
+        if (policyOutcomes.denied.length) {
+          for (const { call, reason } of policyOutcomes.denied) {
+            const action = new CoreAiAction();
+            action.arguments = call.arguments;
+            action.name = call.name;
+            action.success = false;
+            action.result = {
+              error: {
+                code: 'BLOCKED_BY_POLICY',
+                hint: 'A server-side scoped policy denies these arguments. Try a different approach or ask the user.',
+                message: reason || 'Blocked by a server-side policy.',
+              },
+            };
+            actions.push(action);
+          }
+          finalText = this.translate('blocked_by_policy', language) || 'The requested action is not permitted by policy.';
+          break;
+        }
+        const policyAskNames = new Set(policyOutcomes.asked.map((c) => c.name));
+
         // Halt on actions that require confirmation until the user confirms — unless
         // a persistent grant from a prior "remember my decision" already covers the
         // tool for this scope.
         let blocked = toolCalls.filter((c) => {
           const tool = tools.find((t) => t.name === c.name);
-          return tool && this.confirmationRequiredFor(tool, input) && !confirm;
+          if (!tool) return false;
+          const needsGate = policyAskNames.has(c.name) || this.confirmationRequiredFor(tool, input);
+          return needsGate && !confirm;
         });
         if (blocked.length && this.toolGrantService) {
           blocked = await this.filterByGrants(blocked, tools, run, input);
@@ -619,6 +648,10 @@ export class CoreAiService {
       ai_unavailable: {
         de: 'Es ist aktuell kein KI-Dienst verfügbar.',
         en: 'No AI service is currently available.',
+      },
+      blocked_by_policy: {
+        de: 'Diese Aktion ist durch eine Richtlinie nicht erlaubt.',
+        en: 'The requested action is not permitted by policy.',
       },
       confirm_required: {
         de: 'Bitte bestätige die Ausführung der angeforderten Aktion(en).',
@@ -1057,6 +1090,45 @@ export class CoreAiService {
    * is allowed to proceed without confirmation. Best-effort — falls through silently
    * if the grant lookup fails.
    */
+  /**
+   * Evaluate scoped tool-policies for all calls of an iteration. Returns the calls
+   * that are denied (by a `deny` rule) and those that should be routed through the
+   * confirmation gate (by an `ask` rule), keyed by tool name. Empty arrays when no
+   * policy service is wired or no rule matches.
+   */
+  protected async evaluateToolPolicies(
+    toolCalls: LlmToolCall[],
+    tools: IAiTool[],
+    run: AiRunContext,
+  ): Promise<{ asked: LlmToolCall[]; denied: { call: LlmToolCall; reason?: string }[] }> {
+    const denied: { call: LlmToolCall; reason?: string }[] = [];
+    const asked: LlmToolCall[] = [];
+    if (!this.toolPolicyService) {
+      return { asked, denied };
+    }
+    for (const call of toolCalls) {
+      const tool = tools.find((t) => t.name === call.name);
+      if (!tool) {
+        continue;
+      }
+      try {
+        const outcome = await this.toolPolicyService.evaluate(call.name, call.arguments ?? {}, {
+          roles: (run.currentUser?.roles as string[]) ?? [],
+          tenantId: run.tenantId,
+          userId: run.currentUser?.id,
+        });
+        if (outcome?.decision === 'deny') {
+          denied.push({ call, reason: outcome.reason });
+        } else if (outcome?.decision === 'ask') {
+          asked.push(call);
+        }
+      } catch (err) {
+        this.logger.warn(`AI tool-policy evaluation for "${call.name}" failed: ${(err as Error).message}`);
+      }
+    }
+    return { asked, denied };
+  }
+
   protected async filterByGrants(
     blocked: LlmToolCall[],
     tools: IAiTool[],
