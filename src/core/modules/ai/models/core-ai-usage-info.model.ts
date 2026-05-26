@@ -13,6 +13,14 @@ import { RoleEnum } from '../../../common/enums/role.enum';
 @ObjectType({ description: 'Compact token-budget summary for a prompt response' })
 @Restricted(RoleEnum.S_EVERYONE)
 export class CoreAiBudgetSummary {
+  /**
+   * Effective token limit for the binding scope (resolution: user → tenant → LLM
+   * context window → null = no limit). Frontends use this to drive a usage progress
+   * bar; null/undefined = no limit → hide the bar.
+   */
+  @Field(() => Int, { description: 'Effective token limit (null = no limit)', nullable: true })
+  maxTokens?: number;
+
   /** Tokens this prompt consumed. */
   @Field(() => Int, { description: 'Tokens consumed by this prompt', nullable: true })
   promptTokens?: number;
@@ -24,6 +32,12 @@ export class CoreAiBudgetSummary {
   /** When the current period resets (null = never). */
   @Field(() => Date, { description: 'When the current budget period resets (null = never)', nullable: true })
   resetAt?: Date;
+
+  /**
+   * Which scope yielded {@link maxTokens} ('user', 'tenant' or 'llm').
+   */
+  @Field(() => String, { description: "Which scope yielded the limit ('user', 'tenant' or 'llm')", nullable: true })
+  scope?: string;
 
   /** Tokens used so far in the current period (user scope). */
   @Field(() => Int, { description: 'Tokens used so far in the current period', nullable: true })

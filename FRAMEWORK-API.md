@@ -107,6 +107,8 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean` — Explicitly disable while keeping the config (default: enabled when present).
   - `encryptionSecret?`: `string` — Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
   - `contextWindow?`: `number` (default: `8192`) — Fallback total context window (input + output tokens) used to budget the
+  - `compaction?`: `boolean` (default: `true`) — LLM-driven context compaction: when a session would overflow the connection's
+  - `deferToolSchemas?`: `boolean` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
   - `maxIterations?`: `number` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
   - `maxToolResultChars?`: `number` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; }` — Governed self-improvement loop for the system prompt. The orchestrator records

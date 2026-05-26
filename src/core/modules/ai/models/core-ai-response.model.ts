@@ -108,4 +108,12 @@ export class CoreAiResponse {
    */
   @Field(() => CoreAiUsage, { description: 'Token usage (best effort)', nullable: true })
   usage?: CoreAiUsage;
+
+  /**
+   * Context-window utilization at the end of the run. Used by frontends to render
+   * a "closing-circle" indicator when the conversation approaches the model's limit.
+   * `total` is the model's window size; `used` is the assembled-messages token estimate.
+   */
+  @Field(() => JSON, { description: 'Context-window utilization (used/total tokens)', nullable: true })
+  contextWindow?: { total: number; used: number };
 }

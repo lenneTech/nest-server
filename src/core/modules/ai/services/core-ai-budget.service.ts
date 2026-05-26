@@ -157,25 +157,51 @@ export class CoreAiBudgetService extends CrudService<
     userId: string | undefined,
     tenantId: string | undefined,
     promptTokens: number,
+    llmContextWindow?: number,
   ): Promise<CoreAiBudgetSummary> {
     const summary = new CoreAiBudgetSummary();
     summary.promptTokens = promptTokens;
     if (!userId) {
+      // Even with no user, expose the LLM context window so the frontend can render
+      // a coarse usage bar.
+      if (this.finite(llmContextWindow)) {
+        summary.maxTokens = llmContextWindow;
+        summary.scope = 'llm';
+      }
       return summary;
     }
-    const limit = await this.resolveLimit('user', userId);
-    // Unlimited user → nothing to report; skip the usage aggregation entirely.
-    // Full usage is still available on demand via `aiUsage` / GET /ai/usage.
-    if (!this.finite(limit.maxTokens) && !this.finite(limit.maxPrompts)) {
+    const userLimit = await this.resolveLimit('user', userId);
+    if (this.finite(userLimit.maxTokens) || this.finite(userLimit.maxPrompts)) {
+      const usage = await this.getUsage({ userId }, userLimit.period);
+      summary.usedTokens = usage.usedTokens;
+      summary.remainingTokens = this.finite(userLimit.maxTokens)
+        ? Math.max(0, (userLimit.maxTokens as number) - usage.usedTokens)
+        : undefined;
+      summary.resetAt = usage.resetAt ?? undefined;
+      if (this.finite(userLimit.maxTokens)) {
+        summary.maxTokens = userLimit.maxTokens;
+        summary.scope = 'user';
+      }
       return summary;
     }
-    const usage = await this.getUsage({ userId }, limit.period);
-    summary.usedTokens = usage.usedTokens;
-    summary.remainingTokens = this.finite(limit.maxTokens)
-      ? Math.max(0, (limit.maxTokens as number) - usage.usedTokens)
-      : undefined;
-    summary.resetAt = usage.resetAt ?? undefined;
-    void tenantId;
+    // Fall back to tenant limit.
+    if (tenantId) {
+      const tenantLimit = await this.resolveLimit('tenant', tenantId);
+      if (this.finite(tenantLimit.maxTokens)) {
+        const usage = await this.getUsage({ tenantId }, tenantLimit.period);
+        summary.usedTokens = usage.usedTokens;
+        summary.remainingTokens = Math.max(0, (tenantLimit.maxTokens as number) - usage.usedTokens);
+        summary.resetAt = usage.resetAt ?? undefined;
+        summary.maxTokens = tenantLimit.maxTokens;
+        summary.scope = 'tenant';
+        return summary;
+      }
+    }
+    // Fall back to the LLM's context window (best coarse signal).
+    if (this.finite(llmContextWindow)) {
+      summary.maxTokens = llmContextWindow;
+      summary.scope = 'llm';
+    }
     return summary;
   }
 

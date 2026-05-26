@@ -234,7 +234,18 @@ export class CoreAiService {
    * recorded, so it reflects the just-consumed tokens).
    */
   protected async attachBudgetSummary(response: CoreAiResponse, run: AiRunContext): Promise<void> {
+    // Attach the context-window utilization regardless of budget service presence.
+    const llmWindow = run.connection?.contextWindow ?? ConfigService.get<number>('ai.contextWindow') ?? 8192;
+    if (llmWindow > 0 && response.usage?.totalTokens) {
+      response.contextWindow = { total: llmWindow, used: Math.min(llmWindow, response.usage.totalTokens) };
+    }
     if (!this.budgetService || response.denied) {
+      // Even without the budget service, the LLM context window can drive a coarse
+      // usage bar.
+      if (llmWindow > 0 && !response.budget && response.usage?.totalTokens) {
+        const summary = { maxTokens: llmWindow, promptTokens: response.usage.totalTokens, scope: 'llm' as const };
+        response.budget = summary as any;
+      }
       return;
     }
     try {
@@ -242,6 +253,7 @@ export class CoreAiService {
         run.currentUser?.id,
         run.tenantId,
         response.usage?.totalTokens ?? 0,
+        llmWindow,
       );
     } catch (err) {
       this.logger.warn(`Failed to build AI budget summary: ${(err as Error).message}`);
