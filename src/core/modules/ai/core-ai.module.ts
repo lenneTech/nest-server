@@ -13,6 +13,7 @@ import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conve
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
 import { AiPromptTemplateSchema, CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
+import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model';
 import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model';
 import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
@@ -60,6 +61,7 @@ import {
   AI_TOOL_POLICY_MODEL,
   CoreAiToolPolicyService,
 } from './services/core-ai-tool-policy.service';
+import { AI_MODE_CLASS, AI_MODE_MODEL, CoreAiModeService } from './services/core-ai-mode.service';
 import { CoreAiService } from './services/core-ai.service';
 import { AiHookRegistry } from './hooks/ai-hook.registry';
 import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
@@ -116,6 +118,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom scoped tool-policy store (extends CoreAiToolPolicyService). */
   toolPolicyService?: Type<CoreAiToolPolicyService>;
+
+  /** Custom named-mode store (extends CoreAiModeService). */
+  modeService?: Type<CoreAiModeService>;
 }
 
 /**
@@ -156,6 +161,7 @@ export class CoreAiModule {
     const ServiceClass = options.service || CoreAiService;
     const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
     const ToolPolicyServiceClass = options.toolPolicyService || CoreAiToolPolicyService;
+    const ModeServiceClass = options.modeService || CoreAiModeService;
 
     // Register the MCP controller only when enabled (it lazy-loads the MCP SDK).
     const controllers: Type<any>[] = [ControllerClass];
@@ -183,6 +189,7 @@ export class CoreAiModule {
         CoreAiService,
         CoreAiToolGrantService,
         CoreAiToolPolicyService,
+        CoreAiModeService,
         LlmProviderFactory,
         MongooseModule,
       ],
@@ -197,6 +204,7 @@ export class CoreAiModule {
           { name: AI_PROMPT_TEMPLATE_MODEL, schema: AiPromptTemplateSchema },
           { name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
           { name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
+          { name: AI_MODE_MODEL, schema: AiModeSchema },
         ]),
       ],
       module: CoreAiModule,
@@ -216,6 +224,7 @@ export class CoreAiModule {
         { provide: AI_PROMPT_TEMPLATE_CLASS, useValue: CoreAiPromptTemplate },
         { provide: AI_TOOL_GRANT_CLASS, useValue: CoreAiToolGrant },
         { provide: AI_TOOL_POLICY_CLASS, useValue: CoreAiToolPolicy },
+        { provide: AI_MODE_CLASS, useValue: CoreAiMode },
         { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
@@ -232,6 +241,7 @@ export class CoreAiModule {
         { provide: CoreAiService, useClass: ServiceClass },
         { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },
         { provide: CoreAiToolPolicyService, useClass: ToolPolicyServiceClass },
+        { provide: CoreAiModeService, useClass: ModeServiceClass },
         ResolverClass,
       ],
     };

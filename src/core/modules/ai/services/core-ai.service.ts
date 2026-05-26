@@ -25,6 +25,7 @@ import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
 import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
 import { CoreAiToolPolicyService } from './core-ai-tool-policy.service';
+import { CoreAiModeService } from './core-ai-mode.service';
 
 /**
  * Record passed to {@link CoreAiService.audit} for each prompt run.
@@ -109,6 +110,7 @@ export class CoreAiService {
     @Optional() protected readonly toolGrantService?: CoreAiToolGrantService,
     @Optional() protected readonly hookRegistry?: AiHookRegistry,
     @Optional() protected readonly toolPolicyService?: CoreAiToolPolicyService,
+    @Optional() protected readonly modeService?: CoreAiModeService,
   ) {}
 
   /**
@@ -192,10 +194,27 @@ export class CoreAiService {
       await this.budgetService.assertWithinBudget(currentUser?.id, tenantId, serviceOptions?.language);
     }
 
+    // Named agent mode (#8) — admin-defined preset that narrows tools, optionally
+    // pins a model, and is gated to specific roles. Activated via `input.agentMode`.
+    let mode: { allowedTools?: string[]; name?: string; promptAddendum?: string; roles?: string[] } | undefined;
+    if (input.agentMode && this.modeService) {
+      const loaded = await this.modeService.getByName(input.agentMode);
+      if (loaded && (!loaded.roles?.length || loaded.roles.some((r) => (currentUser?.roles || []).includes(r)))) {
+        mode = loaded;
+      }
+    }
+
     const provider = this.providerFactory.create(connection);
 
     // First-line authorization: only offer tools the user may use.
-    const tools = this.toolRegistry.forUser(currentUser);
+    let tools = this.toolRegistry.forUser(currentUser);
+    if (mode?.allowedTools?.length) {
+      const allow = new Set(mode.allowedTools);
+      // Built-in meta-tools (ask_user_question, search_tools) stay available — they
+      // are never destructive and are essential for end-user UX.
+      const alwaysAvailable = new Set(['ask_user_question', 'search_tools']);
+      tools = tools.filter((t) => allow.has(t.name) || alwaysAvailable.has(t.name));
+    }
 
     // Only forward currentUser + language to tools (never the full serviceOptions).
     const context: AiToolContext = {

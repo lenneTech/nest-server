@@ -116,4 +116,16 @@ export class CoreAiPromptInput {
     roles: RoleEnum.S_USER,
   })
   rememberDecision?: string = undefined;
+
+  /**
+   * Named agent mode (admin-defined). Restricts the assistant to a curated tool set
+   * and optional model/prompt override for this run (e.g. `'support'`, `'audit'`).
+   * See {@link CoreAiMode}.
+   */
+  @UnifiedField({
+    description: 'Named agent mode (admin-defined; restricts tools / prompts / model)',
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+  })
+  agentMode?: string = undefined;
 }

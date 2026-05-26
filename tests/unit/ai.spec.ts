@@ -944,6 +944,44 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.pendingActions?.[0]).toMatchObject({ name: 'create_x' });
   });
 
+  it('named mode restricts tools to its allowedTools list', async () => {
+    const { CoreAiModeService } = await import('../../src/core/modules/ai/services/core-ai-mode.service');
+    new ConfigService({ ai: {} } as any);
+    const registry = new AiToolRegistry();
+    registry.register(makeTool('read_only_tool', [RoleEnum.S_USER], async () => ({ data: 'ok', success: true })));
+    registry.register(makeTool('hidden_tool', [RoleEnum.S_USER], async () => ({ data: 'nope', success: true })));
+    const fakeModeService = {
+      getByName: async (name: string) =>
+        name === 'support'
+          ? { name: 'support', allowedTools: ['read_only_tool'], enabled: true }
+          : null,
+    } as unknown as InstanceType<typeof CoreAiModeService>;
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => new ScriptedProvider([
+      JSON.stringify({ tool_calls: [{ arguments: {}, name: 'hidden_tool' }] }),
+      JSON.stringify({ final: 'Sorry, that tool is not available.' }),
+    ]));
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      registry,
+      new CoreAiPromptBuilderService(),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, fakeModeService,
+    );
+    const response = await service.prompt({ prompt: 'do hidden thing', agentMode: 'support' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    // hidden_tool was filtered out of the user's available set by the mode;
+    // the model's attempt to call it is rejected as "not available".
+    expect(response.actions?.[0]).toMatchObject({ name: 'hidden_tool', success: false });
+    expect(response.actions?.[0]?.result).toEqual(expect.objectContaining({
+      error: expect.objectContaining({ code: 'TOOL_NOT_AVAILABLE' }),
+    }));
+  });
+
   it('AI hook can block a tool call via preToolUse', async () => {
     const { AiHookRegistry } = await import('../../src/core/modules/ai/hooks/ai-hook.registry');
     new ConfigService({ ai: { maxIterations: 5 } } as any);
