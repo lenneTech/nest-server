@@ -818,6 +818,72 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(executed).toEqual(['create_x']);
   });
 
+  it('AI hook can block a tool call via preToolUse', async () => {
+    const { AiHookRegistry } = await import('../../src/core/modules/ai/hooks/ai-hook.registry');
+    new ConfigService({ ai: { maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const registry = mutatingRegistry(executed);
+    const hooks = new AiHookRegistry();
+    hooks.register({
+      name: 'block-create-x',
+      preToolUse: () => ({ block: true, reason: 'denied by policy' }),
+    });
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      registry,
+      new CoreAiPromptBuilderService(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      hooks,
+    );
+    const response = await service.prompt({ confirm: true, prompt: 'create x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(executed).toEqual([]); // tool was blocked by the hook
+    expect(response.actions?.[0]).toMatchObject({ name: 'create_x', success: false });
+    expect(JSON.stringify(response.actions?.[0]?.result)).toContain('denied by policy');
+  });
+
+  it('AI hook postToolUse is notified after execution', async () => {
+    const { AiHookRegistry } = await import('../../src/core/modules/ai/hooks/ai-hook.registry');
+    new ConfigService({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any);
+    const seen: { name: string; success: boolean }[] = [];
+    const hooks = new AiHookRegistry();
+    hooks.register({
+      name: 'observe',
+      postToolUse: (call, _tool, result) => {
+        seen.push({ name: call.name, success: result.success });
+      },
+    });
+    const executed: string[] = [];
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      mutatingRegistry(executed),
+      new CoreAiPromptBuilderService(),
+      undefined, undefined, undefined, undefined, undefined, undefined, hooks,
+    );
+    await service.prompt({ prompt: 'create x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(seen).toEqual([{ name: 'create_x', success: true }]);
+  });
+
   it('persists a grant when the user confirms with rememberDecision="user"', async () => {
     new ConfigService({ ai: { confirmation: { mutating: { default: true } }, maxIterations: 5 } } as any);
     const executed: string[] = [];

@@ -12,6 +12,8 @@ import { CoreAiResponse } from '../models/core-ai-response.model';
 import { CoreAiUsage } from '../models/core-ai-usage.model';
 import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
+import { AiHookRegistry } from '../hooks/ai-hook.registry';
+import { AiHookEvent } from '../interfaces/ai-hook.interface';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
 import { ASK_USER_QUESTION_SENTINEL } from '../tools/ask-user-question.tool';
 import { CoreAiBudgetService } from './core-ai-budget.service';
@@ -104,6 +106,7 @@ export class CoreAiService {
     @Optional() protected readonly connectionResolver?: CoreAiConnectionResolverService,
     @Optional() protected readonly hintService?: CoreAiPromptHintService,
     @Optional() protected readonly toolGrantService?: CoreAiToolGrantService,
+    @Optional() protected readonly hookRegistry?: AiHookRegistry,
   ) {}
 
   /**
@@ -229,6 +232,10 @@ export class CoreAiService {
    */
   protected async runAuto(input: CoreAiPromptInput, run: AiRunContext): Promise<CoreAiResponse> {
     const { connection, context, currentUser, history, language, provider, tenantId, tools } = run;
+    // Lifecycle hooks: sessionStart (best-effort).
+    if (this.hookRegistry) {
+      await this.hookRegistry.runSessionStart({ input, toolContext: context });
+    }
     const systemPrompt = await this.promptBuilder.buildSystemPrompt(
       tools,
       provider.capabilities.nativeTools,
@@ -309,7 +316,7 @@ export class CoreAiService {
         const results: { name: string; result: unknown; success: boolean }[] = [];
         let askedQuestion = false;
         for (const call of toolCalls) {
-          const action = await this.executeToolCall(call, tools, context);
+          const action = await this.executeToolCall(call, tools, context, input);
           actions.push(action);
           results.push({ name: action.name, result: action.result, success: action.success });
           // Detect the ask_user_question sentinel — model paused to clarify with the user.
@@ -396,6 +403,11 @@ export class CoreAiService {
       userId: currentUser?.id,
     });
 
+    // Lifecycle hooks: stop (best-effort, never affects the result).
+    if (this.hookRegistry) {
+      await this.hookRegistry.runStop(response, { input, toolContext: context });
+    }
+
     return response;
   }
 
@@ -477,7 +489,7 @@ export class CoreAiService {
     const actions: CoreAiAction[] = [];
     const results: { name: string; result: unknown; success: boolean }[] = [];
     for (const call of planCalls) {
-      const action = await this.executeToolCall(call, tools, context);
+      const action = await this.executeToolCall(call, tools, context, input);
       actions.push(action);
       results.push({ name: action.name, result: action.result, success: action.success });
     }
@@ -781,6 +793,7 @@ export class CoreAiService {
     call: LlmToolCall,
     availableTools: IAiTool[],
     context: AiToolContext,
+    input?: CoreAiPromptInput,
   ): Promise<CoreAiAction> {
     const action = new CoreAiAction();
     action.arguments = call.arguments;
@@ -802,6 +815,27 @@ export class CoreAiService {
         trigger: 'tool_not_available',
       });
       return action;
+    }
+
+    // PreToolUse hooks: can block the call or rewrite the args before execution.
+    if (this.hookRegistry && input) {
+      const event: AiHookEvent = { input, toolContext: context };
+      const decision = await this.hookRegistry.runPreToolUse(call, tool, event);
+      if (decision.block) {
+        action.success = false;
+        action.result = {
+          error: {
+            code: 'BLOCKED_BY_HOOK',
+            hint: 'A lifecycle hook prevented this action. Choose a different approach or ask the user.',
+            message: decision.reason || 'Blocked by a server-side policy hook.',
+          },
+        };
+        return action;
+      }
+      // Hook may have rewritten the args (sanitization / redaction).
+      if (decision.args) {
+        action.arguments = decision.args;
+      }
     }
 
     try {
@@ -848,6 +882,11 @@ export class CoreAiService {
         scope: call.name,
         trigger: 'tool_exception',
       });
+    }
+    // PostToolUse hooks: best-effort notification, never affects the result.
+    if (this.hookRegistry && input) {
+      const event: AiHookEvent = { input, toolContext: context };
+      await this.hookRegistry.runPostToolUse(call, tool, { result: action.result, success: action.success }, event);
     }
     return action;
   }

@@ -55,6 +55,7 @@ import {
   CoreAiToolGrantService,
 } from './services/core-ai-tool-grant.service';
 import { CoreAiService } from './services/core-ai.service';
+import { AiHookRegistry } from './hooks/ai-hook.registry';
 import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
 import { AiToolRegistry } from './tools/ai-tool.registry';
 
@@ -155,6 +156,7 @@ export class CoreAiModule {
       controllers,
       exports: [
         AiCryptoService,
+        AiHookRegistry,
         AiToolRegistry,
         CoreAiBudgetService,
         CoreAiConnectionPreferenceService,
@@ -187,6 +189,7 @@ export class CoreAiModule {
       module: CoreAiModule,
       providers: [
         AiCryptoService,
+        AiHookRegistry,
         AiToolRegistry,
         AskUserQuestionAiTool,
         LlmProviderFactory,
