@@ -272,7 +272,11 @@ export class CoreAiService {
       messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
     }
     this.appendClientContext(messages, input);
-    messages.push({ content: input.prompt, role: 'user' });
+    messages.push({
+      attachments: Array.isArray(input.attachments) && input.attachments.length ? input.attachments : undefined,
+      content: input.prompt,
+      role: 'user',
+    });
 
     const maxIterations = ConfigService.get<number>('ai.maxIterations') ?? 5;
     const confirm = !!input.confirm;
@@ -478,7 +482,11 @@ export class CoreAiService {
       messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
     }
     this.appendClientContext(messages, input);
-    messages.push({ content: input.prompt, role: 'user' });
+    messages.push({
+      attachments: Array.isArray(input.attachments) && input.attachments.length ? input.attachments : undefined,
+      content: input.prompt,
+      role: 'user',
+    });
 
     this.fitMessagesToContext(messages, connection);
     const planCompletion = await provider.chat(messages, [], chatOptions);

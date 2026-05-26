@@ -62,7 +62,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
       messages: messages.map((m) => ({
         // Map the emulated 'tool' role to 'user' for backends that only know
         // system/user/assistant.
-        content: m.content,
+        content: this.mapMessageContent(m),
         role: m.role === 'tool' ? 'user' : m.role,
       })),
       model: options?.model ?? this.connection.model,
@@ -285,6 +285,31 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   /**
    * Map native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
    */
+  /**
+   * Map a (possibly multi-modal) LlmMessage to the OpenAI content shape:
+   * - Plain text → `content: string` (unchanged).
+   * - Text + attachments → `content: [{type:'text',text}, {type:'image_url',image_url:{...}}, ...]`
+   * Files/PDFs with `dataUrl` are passed as `image_url` too — backends that don't
+   * support vision will warn or ignore.
+   */
+  protected mapMessageContent(m: { attachments?: any[]; content: string }): any {
+    if (!Array.isArray(m.attachments) || !m.attachments.length) {
+      return m.content;
+    }
+    const parts: any[] = [];
+    if (m.content) {
+      parts.push({ text: m.content, type: 'text' });
+    }
+    for (const a of m.attachments) {
+      const url = a?.url || a?.dataUrl;
+      if (!url) {
+        continue;
+      }
+      parts.push({ image_url: { url }, type: 'image_url' });
+    }
+    return parts.length ? parts : m.content;
+  }
+
   protected mapNativeToolCalls(toolCalls: any[] | undefined) {
     if (!toolCalls?.length) {
       return undefined;

@@ -128,4 +128,17 @@ export class CoreAiPromptInput {
     roles: RoleEnum.S_USER,
   })
   agentMode?: string = undefined;
+
+  /**
+   * Multi-modal attachments for the user prompt (e.g. screenshots, documents).
+   * Forwarded to vision-capable providers; ignored by providers without vision
+   * support. Items are `{ mimeType, dataUrl|url, name? }`.
+   */
+  @UnifiedField({
+    description: 'Multi-modal attachments (images, documents) for the prompt',
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+    type: () => Object,
+  })
+  attachments?: { dataUrl?: string; mimeType: string; name?: string; url?: string }[] = undefined;
 }

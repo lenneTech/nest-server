@@ -944,6 +944,39 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.pendingActions?.[0]).toMatchObject({ name: 'create_x' });
   });
 
+  it('multi-modal: input.attachments are forwarded to the provider on the user message', async () => {
+    new ConfigService({ ai: {} } as any);
+    const registry = new AiToolRegistry();
+    let capturedMessages: any[] | undefined;
+    const captureProvider: ILlmProvider = {
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
+      chat: async (msgs: any[]) => {
+        capturedMessages = msgs;
+        return { text: JSON.stringify({ final: 'Got the image.' }) };
+      },
+      name: 'capture',
+    };
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('capture', () => captureProvider);
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://x', id: 'c1', model: 'm', name: 'C', providerType: 'capture' }),
+    } as any;
+    const service = new CoreAiService(connectionService, factory, registry, new CoreAiPromptBuilderService());
+    await service.prompt(
+      {
+        attachments: [{ mimeType: 'image/png', name: 'screenshot.png', url: 'data:image/png;base64,AAA' }],
+        prompt: 'What is in this screenshot?',
+      } as any,
+      { currentUser: { id: 'u1', roles: [RoleEnum.S_USER] } },
+    );
+    expect(capturedMessages).toBeDefined();
+    const userMsg = capturedMessages?.find((m) => m.role === 'user' && /screenshot/.test(m.content || ''));
+    expect(userMsg).toBeDefined();
+    expect(userMsg?.attachments).toEqual([
+      expect.objectContaining({ mimeType: 'image/png', name: 'screenshot.png' }),
+    ]);
+  });
+
   it('named mode restricts tools to its allowedTools list', async () => {
     const { CoreAiModeService } = await import('../../src/core/modules/ai/services/core-ai-mode.service');
     new ConfigService({ ai: {} } as any);

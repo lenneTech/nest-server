@@ -37,9 +37,28 @@ export interface LlmCapabilities {
 }
 
 /**
+ * A multi-modal attachment (image / file) on a message. Providers that support
+ * vision/file inputs translate this into their native format (e.g. OpenAI's
+ * content-parts array with `image_url`); others ignore it.
+ */
+export interface LlmAttachment {
+  /** Inline base64 data — `data:<mime>;base64,<...>`. */
+  dataUrl?: string;
+  /** MIME type (e.g. `image/png`, `application/pdf`). */
+  mimeType: string;
+  /** Optional human-readable name. */
+  name?: string;
+  /** Public URL (alternative to `dataUrl`). */
+  url?: string;
+}
+
+/**
  * A single chat message exchanged with the LLM.
  */
 export interface LlmMessage {
+  /** Optional multi-modal attachments (images, files). */
+  attachments?: LlmAttachment[];
+
   /** Plain-text content of the message. */
   content: string;
 
