@@ -304,7 +304,8 @@ export class CoreAiService {
             };
             actions.push(action);
           }
-          finalText = this.translate('blocked_by_policy', language) || 'The requested action is not permitted by policy.';
+          finalText =
+            this.translate('blocked_by_policy', language) || 'The requested action is not permitted by policy.';
           break;
         }
         const policyAskNames = new Set(policyOutcomes.asked.map((c) => c.name));

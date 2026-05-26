@@ -57,7 +57,11 @@ export class CoreAiPromptBuilderService {
     options?: BuildPromptOptions,
   ): Promise<string> {
     const capability = supportsNativeTools ? 'native' : 'emulated';
-    const fragments = await this.resolveFragments(capability, options?.language, this.computeScopes(tools, user, options));
+    const fragments = await this.resolveFragments(
+      capability,
+      options?.language,
+      this.computeScopes(tools, user, options),
+    );
     const context = await this.renderContext(tools, user);
     return this.assemble(
       fragments.filter((f) => f.key !== 'plan_protocol'),
@@ -77,7 +81,11 @@ export class CoreAiPromptBuilderService {
     user?: { id?: string; roles?: string[] },
     options?: BuildPromptOptions,
   ): Promise<string> {
-    const fragments = await this.resolveFragments('emulated', options?.language, this.computeScopes(tools, user, options));
+    const fragments = await this.resolveFragments(
+      'emulated',
+      options?.language,
+      this.computeScopes(tools, user, options),
+    );
     const context = await this.renderContext(tools, user);
     const planFragments = fragments.filter((f) => f.key === 'plan_protocol' || !this.autoOnlyKeys.includes(f.key));
     return this.assemble(planFragments, context, tools.length);

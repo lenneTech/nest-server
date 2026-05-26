@@ -81,12 +81,7 @@ export class CoreAiToolGrantService extends CrudService<CoreAiToolGrant, CoreAiT
    * Persist (or refresh) a grant for the given scope. Idempotent — upserts on
    * the unique (scope, refId, tool) compound index.
    */
-  async grant(
-    tool: string,
-    scope: AiToolGrantScope,
-    refId: string,
-    options?: { expiresAt?: Date },
-  ): Promise<void> {
+  async grant(tool: string, scope: AiToolGrantScope, refId: string, options?: { expiresAt?: Date }): Promise<void> {
     if (!tool || !refId) {
       return;
     }

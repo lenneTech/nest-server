@@ -49,7 +49,11 @@ export interface IAiHook {
    * observe (return undefined). Errors thrown here are swallowed — hooks are
    * best-effort and must not crash a prompt run.
    */
-  preToolUse?(call: { arguments: Record<string, any>; name: string }, tool: IAiTool, event: AiHookEvent): Promise<AiHookPreDecision | undefined> | AiHookPreDecision | undefined;
+  preToolUse?(
+    call: { arguments: Record<string, any>; name: string },
+    tool: IAiTool,
+    event: AiHookEvent,
+  ): Promise<AiHookPreDecision | undefined> | AiHookPreDecision | undefined;
 
   /**
    * Called AFTER a tool ran (success or failure). Pure notification — the result
