@@ -138,7 +138,7 @@ export class CoreAiPromptInput {
     description: 'Multi-modal attachments (images, documents) for the prompt',
     isOptional: true,
     roles: RoleEnum.S_USER,
-    type: () => Object,
+    type: () => JSON,
   })
   attachments?: { dataUrl?: string; mimeType: string; name?: string; url?: string }[] = undefined;
 }
