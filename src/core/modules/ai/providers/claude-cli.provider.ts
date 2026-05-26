@@ -124,6 +124,15 @@ export class ClaudeCliProvider implements ILlmProvider {
   }
 
   /**
+   * Claude models all expose a large context window. Return the model-appropriate
+   * size automatically (default 200k; 1M for the Opus 4.x 1m-context variants).
+   */
+  async detectContextWindow(): Promise<number | undefined> {
+    const model = (this.connection.model || '').toLowerCase();
+    return model.includes('[1m]') || model.includes('-1m') ? 1_000_000 : 200_000;
+  }
+
+  /**
    * Build the argv for the CLI. Override to customize flags. Tools are always
    * disabled (`--tools ""`) — do not re-enable them unless you fully trust the model
    * with local file/shell access.

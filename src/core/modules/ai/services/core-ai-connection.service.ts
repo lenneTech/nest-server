@@ -220,41 +220,53 @@ export class CoreAiConnectionService
    */
   async detectAndPersistCapabilities(connectionId: string): Promise<ResolvedAiConnection> {
     const resolved = await this.resolve(connectionId);
-    if (
-      !this.providerFactory ||
-      (resolved.supportsJsonResponse !== undefined && resolved.supportsNativeTools !== undefined)
-    ) {
+    const needsCapabilities = resolved.supportsJsonResponse === undefined || resolved.supportsNativeTools === undefined;
+    const needsContextWindow = resolved.contextWindow === undefined;
+    if (!this.providerFactory || (!needsCapabilities && !needsContextWindow)) {
       return resolved;
     }
 
-    let provider: { detectCapabilities?: () => Promise<{ jsonResponse?: boolean; nativeTools?: boolean }> };
+    let provider: {
+      detectCapabilities?: () => Promise<{ jsonResponse?: boolean; nativeTools?: boolean }>;
+      detectContextWindow?: () => Promise<number | undefined>;
+    };
     try {
       provider = this.providerFactory.create(resolved);
     } catch (err) {
       this.logger.warn(`AI capability detection skipped for "${resolved.name}": ${(err as Error).message}`);
       return resolved;
     }
-    if (typeof provider.detectCapabilities !== 'function') {
-      return resolved;
-    }
 
-    try {
-      const detected = await provider.detectCapabilities();
-      const update: Record<string, boolean> = {};
-      if (resolved.supportsJsonResponse === undefined && typeof detected.jsonResponse === 'boolean') {
-        update.supportsJsonResponse = detected.jsonResponse;
-        resolved.supportsJsonResponse = detected.jsonResponse;
+    const update: Record<string, boolean | number> = {};
+    if (needsCapabilities && typeof provider.detectCapabilities === 'function') {
+      try {
+        const detected = await provider.detectCapabilities();
+        if (resolved.supportsJsonResponse === undefined && typeof detected.jsonResponse === 'boolean') {
+          update.supportsJsonResponse = detected.jsonResponse;
+          resolved.supportsJsonResponse = detected.jsonResponse;
+        }
+        if (resolved.supportsNativeTools === undefined && typeof detected.nativeTools === 'boolean') {
+          update.supportsNativeTools = detected.nativeTools;
+          resolved.supportsNativeTools = detected.nativeTools;
+        }
+      } catch (err) {
+        this.logger.warn(`AI capability detection failed for "${resolved.name}": ${(err as Error).message}`);
       }
-      if (resolved.supportsNativeTools === undefined && typeof detected.nativeTools === 'boolean') {
-        update.supportsNativeTools = detected.nativeTools;
-        resolved.supportsNativeTools = detected.nativeTools;
+    }
+    if (needsContextWindow && typeof provider.detectContextWindow === 'function') {
+      try {
+        const window = await provider.detectContextWindow();
+        if (typeof window === 'number' && window > 0) {
+          update.contextWindow = window;
+          resolved.contextWindow = window;
+        }
+      } catch (err) {
+        this.logger.warn(`AI context-window detection failed for "${resolved.name}": ${(err as Error).message}`);
       }
-      if (Object.keys(update).length) {
-        await this.mainDbModel.findByIdAndUpdate(connectionId, { $set: update }).exec();
-        this.logger.log(`Auto-detected AI capabilities for "${resolved.name}": ${JSON.stringify(update)}`);
-      }
-    } catch (err) {
-      this.logger.warn(`AI capability detection failed for "${resolved.name}": ${(err as Error).message}`);
+    }
+    if (Object.keys(update).length) {
+      await this.mainDbModel.findByIdAndUpdate(connectionId, { $set: update }).exec();
+      this.logger.log(`Auto-detected AI connection metadata for "${resolved.name}": ${JSON.stringify(update)}`);
     }
     return resolved;
   }

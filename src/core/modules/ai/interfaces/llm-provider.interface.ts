@@ -158,4 +158,11 @@ export interface ILlmProvider {
    * and throw on a transport error so callers can treat the connection as undetected.
    */
   detectCapabilities?(): Promise<LlmDetectedCapabilities>;
+
+  /**
+   * Optionally determine the model's total context window (tokens) automatically —
+   * e.g. from a known-model table or backend metadata. Returns `undefined` when it
+   * cannot be determined. Implementations that cannot detect it omit this method.
+   */
+  detectContextWindow?(): Promise<number | undefined>;
 }

@@ -1097,6 +1097,20 @@ describe('OpenAiCompatibleProvider', () => {
     new ConfigService({ ai: {} } as any);
   });
 
+  it('auto-detects the context window from the known-model table (no backend)', async () => {
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error('no ollama'); // probe fails → fall back to the heuristic table
+    }) as any;
+    try {
+      expect(await new OpenAiCompatibleProvider({ ...baseConn, model: 'gpt-4o' } as any).detectContextWindow()).toBe(128_000);
+      expect(await new OpenAiCompatibleProvider({ ...baseConn, model: 'qwen2.5:14b' } as any).detectContextWindow()).toBe(131_072);
+      expect(await new OpenAiCompatibleProvider({ ...baseConn, model: 'totally-unknown' } as any).detectContextWindow()).toBeUndefined();
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
   it('derives capabilities from the connection flags', () => {
     const p1 = new OpenAiCompatibleProvider({ ...baseConn } as any);
     expect(p1.capabilities).toEqual({ jsonResponse: false, nativeTools: false, systemPrompt: true });
@@ -1314,6 +1328,11 @@ describe('ClaudeCliProvider', () => {
       return Promise.resolve(this.stdout);
     }
   }
+
+  it('auto-detects a Claude context window from the model alias', async () => {
+    expect(await new ClaudeCliProvider({ model: 'sonnet', name: 'C', providerType: 'claude-cli' } as any).detectContextWindow()).toBe(200_000);
+    expect(await new ClaudeCliProvider({ model: 'opus[1m]', name: 'C', providerType: 'claude-cli' } as any).detectContextWindow()).toBe(1_000_000);
+  });
 
   it('runs tool-free and emulated (capabilities nativeTools=false, jsonResponse=false)', () => {
     const p = new ClaudeCliProvider({ ...baseConn } as any);

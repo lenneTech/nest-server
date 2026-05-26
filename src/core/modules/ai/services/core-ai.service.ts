@@ -170,7 +170,9 @@ export class CoreAiService {
     // — undefined flags otherwise fall back to the safe emulated baseline. Guarded so
     // minimal/unit setups without a full connection service keep working.
     if (
-      (connection.supportsJsonResponse === undefined || connection.supportsNativeTools === undefined) &&
+      (connection.supportsJsonResponse === undefined ||
+        connection.supportsNativeTools === undefined ||
+        connection.contextWindow === undefined) &&
       typeof this.connectionService?.detectAndPersistCapabilities === 'function'
     ) {
       connection = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => connection);

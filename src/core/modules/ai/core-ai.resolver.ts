@@ -12,6 +12,10 @@ import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.
 import { CoreAiConnectionPreferenceInput } from './inputs/core-ai-connection-preference.input';
 import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
+import { CoreAiPromptHintCreateInput } from './inputs/core-ai-prompt-hint-create.input';
+import { CoreAiPromptHintInput } from './inputs/core-ai-prompt-hint.input';
+import { CoreAiPromptTemplateCreateInput } from './inputs/core-ai-prompt-template-create.input';
+import { CoreAiPromptTemplateInput } from './inputs/core-ai-prompt-template.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiAvailableConnection } from './models/core-ai-available-connection.model';
 import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
@@ -19,6 +23,8 @@ import { CoreAiConnectionPreference } from './models/core-ai-connection-preferen
 import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
+import { CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
+import { CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
 import { CoreAiBudgetService } from './services/core-ai-budget.service';
@@ -27,6 +33,8 @@ import { CoreAiConnectionResolverService } from './services/core-ai-connection-r
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
+import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service';
+import { CoreAiPromptTemplateService } from './services/core-ai-prompt-template.service';
 import { CoreAiService } from './services/core-ai.service';
 
 /**
@@ -50,6 +58,8 @@ export class CoreAiResolver {
     protected readonly budgetService: CoreAiBudgetService,
     protected readonly connectionResolver: CoreAiConnectionResolverService,
     protected readonly preferenceService: CoreAiConnectionPreferenceService,
+    protected readonly promptTemplateService: CoreAiPromptTemplateService,
+    protected readonly promptHintService: CoreAiPromptHintService,
   ) {}
 
   // ===================================================================================================================
@@ -371,5 +381,95 @@ export class CoreAiResolver {
     @Args('input') input: CoreAiBudgetLimitInput,
   ): Promise<CoreAiBudgetLimit> {
     return this.budgetService.update(id, input, { ...serviceOptions, inputType: CoreAiBudgetLimitInput });
+  }
+
+  // ===================================================================================================================
+  // Prompt templates (admin-editable prompt building blocks)
+  // ===================================================================================================================
+
+  /** Create a prompt template fragment (admin). */
+  @Mutation(() => CoreAiPromptTemplate, { description: 'Create an AI prompt template fragment' })
+  @Roles(RoleEnum.ADMIN)
+  async createAiPromptTemplate(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: CoreAiPromptTemplateCreateInput,
+  ): Promise<CoreAiPromptTemplate> {
+    return this.promptTemplateService.create(input, { ...serviceOptions, inputType: CoreAiPromptTemplateCreateInput });
+  }
+
+  /** Delete a prompt template fragment (admin). */
+  @Mutation(() => CoreAiPromptTemplate, { description: 'Delete an AI prompt template fragment' })
+  @Roles(RoleEnum.ADMIN)
+  async deleteAiPromptTemplate(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiPromptTemplate> {
+    return this.promptTemplateService.delete(id, serviceOptions);
+  }
+
+  /** Find prompt template fragments (admin). */
+  @Query(() => [CoreAiPromptTemplate], { description: 'Find AI prompt template fragments' })
+  @Roles(RoleEnum.ADMIN)
+  async findAiPromptTemplates(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args() args?: FilterArgs,
+  ): Promise<CoreAiPromptTemplate[]> {
+    return this.promptTemplateService.find(args, { ...serviceOptions, inputType: FilterArgs });
+  }
+
+  /** Update a prompt template fragment (admin). */
+  @Mutation(() => CoreAiPromptTemplate, { description: 'Update an AI prompt template fragment' })
+  @Roles(RoleEnum.ADMIN)
+  async updateAiPromptTemplate(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+    @Args('input') input: CoreAiPromptTemplateInput,
+  ): Promise<CoreAiPromptTemplate> {
+    return this.promptTemplateService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptTemplateInput });
+  }
+
+  // ===================================================================================================================
+  // Learned prompt hints (governed self-improvement loop)
+  // ===================================================================================================================
+
+  /** Create a learned prompt hint manually (admin). */
+  @Mutation(() => CoreAiPromptHint, { description: 'Create a learned AI prompt hint' })
+  @Roles(RoleEnum.ADMIN)
+  async createAiPromptHint(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: CoreAiPromptHintCreateInput,
+  ): Promise<CoreAiPromptHint> {
+    return this.promptHintService.create(input, { ...serviceOptions, inputType: CoreAiPromptHintCreateInput });
+  }
+
+  /** Delete a learned prompt hint (admin). */
+  @Mutation(() => CoreAiPromptHint, { description: 'Delete a learned AI prompt hint' })
+  @Roles(RoleEnum.ADMIN)
+  async deleteAiPromptHint(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiPromptHint> {
+    return this.promptHintService.delete(id, serviceOptions);
+  }
+
+  /** Find learned prompt hints (admin) — review/approve/reject the learning loop. */
+  @Query(() => [CoreAiPromptHint], { description: 'Find learned AI prompt hints' })
+  @Roles(RoleEnum.ADMIN)
+  async findAiPromptHints(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args() args?: FilterArgs,
+  ): Promise<CoreAiPromptHint[]> {
+    return this.promptHintService.find(args, { ...serviceOptions, inputType: FilterArgs });
+  }
+
+  /** Update a learned prompt hint (admin) — typically approve/reject or edit. */
+  @Mutation(() => CoreAiPromptHint, { description: 'Update a learned AI prompt hint' })
+  @Roles(RoleEnum.ADMIN)
+  async updateAiPromptHint(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+    @Args('input') input: CoreAiPromptHintInput,
+  ): Promise<CoreAiPromptHint> {
+    return this.promptHintService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptHintInput });
   }
 }

@@ -218,6 +218,68 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   }
 
   /**
+   * Determine the model's total context window automatically: first an Ollama
+   * `/api/show` probe (local runtimes expose `<arch>.context_length`), then a
+   * known-model heuristic table. Best effort — returns undefined when unknown.
+   */
+  async detectContextWindow(): Promise<number | undefined> {
+    const fromBackend = await this.probeContextWindow().catch(() => undefined);
+    return fromBackend ?? this.knownContextWindow(this.connection.model);
+  }
+
+  /**
+   * Heuristic context window (tokens) for well-known model families, matched by
+   * case-insensitive substrings of the model id. Override/extend for custom models.
+   */
+  protected knownContextWindow(model: string | undefined): number | undefined {
+    const m = (model || '').toLowerCase();
+    const table: [number, string[]][] = [
+      [1_000_000, ['gemini-1.5', 'gemini-2']],
+      [200_000, ['claude']],
+      [128_000, ['gpt-4o', 'gpt-4.1', 'gpt-4-turbo', 'o1', 'o3', 'gpt-oss', 'mistral-large', 'mistral-small3', 'command-r']],
+      [131_072, ['qwen2.5', 'qwen3', 'llama-3.1', 'llama3.1', 'llama-3.3', 'llama3.3']],
+      [65_536, ['mixtral']],
+      [32_768, ['qwen2', 'mistral', 'gemma2', 'gemma-2']],
+      [16_385, ['gpt-3.5']],
+      [8_192, ['llama3', 'llama-3', 'gemma']],
+    ];
+    for (const [window, keys] of table) {
+      if (keys.some((k) => m.includes(k))) {
+        return window;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Probe a local Ollama backend for the model's context length via `/api/show`.
+   * Returns undefined for non-Ollama endpoints or on any error.
+   */
+  protected async probeContextWindow(): Promise<number | undefined> {
+    const base = this.connection.baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
+    if (!base.startsWith('http')) {
+      return undefined;
+    }
+    const response = await fetch(`${base}/api/show`, {
+      body: JSON.stringify({ name: this.connection.model }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal: AbortSignal.timeout(this.connection.timeoutMs ?? 15_000),
+    }).catch(() => undefined);
+    if (!response?.ok) {
+      return undefined;
+    }
+    const json = (await response.json().catch(() => undefined)) as { model_info?: Record<string, unknown> } | undefined;
+    const info = json?.model_info;
+    if (!info) {
+      return undefined;
+    }
+    const key = Object.keys(info).find((k) => k.endsWith('.context_length'));
+    const value = key ? info[key] : undefined;
+    return typeof value === 'number' && value > 0 ? value : undefined;
+  }
+
+  /**
    * Map native `tool_calls` to the normalized {@link LlmResponse.toolCalls}.
    */
   protected mapNativeToolCalls(toolCalls: any[] | undefined) {

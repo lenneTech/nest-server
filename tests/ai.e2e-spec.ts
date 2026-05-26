@@ -10,6 +10,9 @@ import {
   CoreAiConnectionService,
   CoreAiConversationService,
   CoreAiInteractionService,
+  CoreAiPromptBuilderService,
+  CoreAiPromptHintService,
+  CoreAiPromptTemplateService,
   CoreAiService,
   HttpExceptionLogFilter,
   ILlmProvider,
@@ -53,6 +56,8 @@ describe('AI module (e2e)', () => {
   let aiService: CoreAiService;
   let registry: AiToolRegistry;
   let providerFactory: LlmProviderFactory;
+  let promptTemplateService: CoreAiPromptTemplateService;
+  let promptHintService: CoreAiPromptHintService;
 
   // HTTP-level auth (real BetterAuth users) for the security tests at the end.
   let testHelper: TestHelper;
@@ -101,6 +106,8 @@ describe('AI module (e2e)', () => {
     aiService = app.get(CoreAiService);
     registry = app.get(AiToolRegistry);
     providerFactory = app.get(LlmProviderFactory);
+    promptTemplateService = app.get(CoreAiPromptTemplateService);
+    promptHintService = app.get(CoreAiPromptHintService);
 
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = connection.db();
@@ -118,6 +125,8 @@ describe('AI module (e2e)', () => {
       await db.collection('aiInteractions').deleteMany({});
       await db.collection('aiConversations').deleteMany({});
       await db.collection('aiBudgetLimits').deleteMany({});
+      await db.collection('aiPromptTemplates').deleteMany({});
+      await db.collection('aiPromptHints').deleteMany({});
       // Clean up the HTTP test users + their auth artifacts.
       const httpUsers = await db.collection('users').find({ email: { $in: [httpAdminEmail, httpRegularEmail] } }).toArray();
       const iamIds = httpUsers.map((u: any) => u.iamId).filter(Boolean);
@@ -707,5 +716,85 @@ describe('AI module (e2e)', () => {
     );
     expect(res.errors).toBeDefined();
     expect(res.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient|Unauthorized/i);
+  });
+
+  // ===================================================================================================================
+  // Self-optimizing prompts: DB-editable templates + governed learning loop
+  // ===================================================================================================================
+
+  it('applies an admin prompt-template override to the assembled system prompt', async () => {
+    const builder = app.get(CoreAiPromptBuilderService);
+    const created = await promptTemplateService.create(
+      { content: 'OVERRIDDEN-BASE-E2E-MARKER', key: 'base' } as any,
+      adminOptions,
+    );
+    const prompt = await builder.buildSystemPrompt([], false, { id: 'u', roles: [] });
+    expect(prompt).toContain('OVERRIDDEN-BASE-E2E-MARKER');
+    await promptTemplateService.delete(created.id, adminOptions);
+  });
+
+  it('learns from a tool failure and injects the approved hint into the prompt', async () => {
+    // A tool that always throws → the orchestrator records a learning signal.
+    registry.register({
+      description: 'A tool that always fails (e2e learning test).',
+      async execute() {
+        throw new Error('boom-e2e');
+      },
+      name: 'e2e_boom',
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
+    } as any);
+    providerFactory.registerBuilder('fake-e2e', () =>
+      new ScriptedE2eProvider([
+        JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_boom' }] }),
+        JSON.stringify({ final: 'Sorry, that failed.' }),
+      ]),
+    );
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Learn Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+
+    await aiService.prompt({ prompt: 'use e2e_boom' } as any, { currentUser: admin });
+
+    // A suggested hint was recorded for the failure (governed default — not yet active).
+    const hint = await db.collection('aiPromptHints').findOne({ scope: 'e2e_boom', trigger: 'tool_exception' });
+    expect(hint).toBeTruthy();
+    expect(hint.status).toBe('suggested');
+    expect(await promptHintService.approvedHints(['e2e_boom'])).toHaveLength(0);
+
+    // Admin approves → it now flows into the prompt.
+    await promptHintService.update(String(hint._id), { status: 'approved' } as any, adminOptions);
+    const builder = app.get(CoreAiPromptBuilderService);
+    const prompt = await builder.buildSystemPrompt(
+      [{ description: 'x', name: 'e2e_boom', parameters: {} } as any],
+      false,
+      { id: 'u', roles: [] },
+    );
+    expect(prompt).toContain('e2e_boom');
+    expect(prompt).toMatch(/Learned guidance/i);
+
+    await connectionService.delete(conn.id, adminOptions);
+  });
+
+  it('exposes prompt-template + hint admin queries over GraphQL and denies non-admins', async () => {
+    const templates = await testHelper.graphQl(
+      { fields: ['id', 'key', 'content'], name: 'findAiPromptTemplates', type: TestGraphQLType.QUERY },
+      { token: httpAdminToken },
+    );
+    expect(Array.isArray(templates)).toBe(true);
+
+    const hints = await testHelper.graphQl(
+      { fields: ['id', 'trigger', 'status'], name: 'findAiPromptHints', type: TestGraphQLType.QUERY },
+      { token: httpAdminToken },
+    );
+    expect(Array.isArray(hints)).toBe(true);
+
+    const denied = await testHelper.graphQl(
+      { fields: ['id', 'key'], name: 'findAiPromptTemplates', type: TestGraphQLType.QUERY },
+      { token: httpRegularToken },
+    );
+    expect(denied.errors).toBeDefined();
+    expect(denied.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient|Unauthorized/i);
   });
 });
