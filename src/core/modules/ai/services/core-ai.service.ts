@@ -269,7 +269,9 @@ export class CoreAiService {
 
     while (iterations < maxIterations) {
       iterations++;
-      // Keep the session within the model's context window before every call.
+      // Keep the session within the model's context window before every call:
+      // LLM-driven compaction first (summarize), then hard trim as a fallback.
+      await this.compactMessages(messages, connection);
       this.fitMessagesToContext(messages, connection);
       const completion = await provider.chat(messages, toolSchemas, {
         maxTokens: connection.defaultMaxTokens,
@@ -1042,6 +1044,65 @@ export class CoreAiService {
    * are dropped first, and as a last resort the largest remaining message is
    * truncated. Mutates `messages` in place.
    */
+  /**
+   * LLM-driven compaction (#7): when the session would overflow the context window,
+   * the oldest non-system / non-last turns are replaced by a single short summary
+   * generated via the connection's provider (small model). Falls back to the hard
+   * trim path on any error. Returns the count of turns replaced (0 = no compaction).
+   *
+   * Enabled by `ai.compaction !== false`. When OFF, only the hard trim is used.
+   */
+  protected async compactMessages(messages: LlmMessage[], connection: ResolvedAiConnection): Promise<number> {
+    if (ConfigService.get<boolean>('ai.compaction') === false) {
+      return 0;
+    }
+    if (messages.length <= 3) {
+      return 0;
+    }
+    const budget = this.contextBudget(connection);
+    const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
+    if (total() <= budget) {
+      return 0;
+    }
+    // Identify the contiguous block of oldest non-system / non-last turns to summarize.
+    const start = 1; // skip the system prompt
+    const end = messages.length - 1; // keep the most recent user turn
+    if (end - start < 2) {
+      return 0;
+    }
+    const oldBlock = messages.slice(start, end);
+    const transcript = oldBlock.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+    try {
+      const provider = this.providerFactory.create(connection);
+      const summary = await provider.chat(
+        [
+          {
+            content:
+              'Summarize the following conversation excerpt for context-continuity. Keep facts (ids, names, decisions, file paths). Strict prose, max ~10 short lines, no markdown.',
+            role: 'system',
+          },
+          { content: transcript, role: 'user' },
+        ],
+        [],
+        { temperature: 0 },
+      );
+      const text = (summary?.text || '').trim();
+      if (!text) {
+        return 0;
+      }
+      const summaryMsg: LlmMessage = {
+        content: `[Compacted summary of ${oldBlock.length} earlier turn(s)]:\n${text}`,
+        role: 'system',
+      };
+      messages.splice(start, oldBlock.length, summaryMsg);
+      this.logger.debug(`Context window: compacted ${oldBlock.length} oldest turn(s) into a summary`);
+      return oldBlock.length;
+    } catch (err) {
+      this.logger.warn(`Context compaction failed (${(err as Error).message}); falling back to hard trim`);
+      return 0;
+    }
+  }
+
   protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection): void {
     if (messages.length === 0) {
       return;

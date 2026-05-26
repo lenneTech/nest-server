@@ -308,6 +308,51 @@ describe('CoreAiService context-window handling (per user/session)', () => {
     expect(capped.length).toBeLessThan(500);
     expect(capped).toContain('truncated');
   });
+
+  it('LLM-driven compaction replaces oldest turns with a generated summary instead of dropping them', async () => {
+    ConfigService.setConfig({ ai: { compaction: true } } as any, { reInit: true });
+    // a tiny fake provider used both as the run's main provider AND the small-model
+    // compaction provider — it returns a fixed summary on call.
+    const fakeProvider: ILlmProvider = {
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
+      chat: async () => ({ text: 'COMPACTED-SUMMARY-XYZ', usage: { completionTokens: 5, promptTokens: 5, totalTokens: 10 } }),
+      name: 'fake',
+    };
+    class CompactProbe extends CoreAiService {
+      async runCompact(messages: any, conn: any) {
+        return this.compactMessages(messages, conn);
+      }
+    }
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => fakeProvider);
+    const probe = new CompactProbe(
+      { resolve: async () => ({}) } as any,
+      factory,
+      new AiToolRegistry(),
+      new CoreAiPromptBuilderService(),
+    );
+    const messages = [
+      { content: 'SYSTEM-PROMPT', role: 'system' },
+      { content: 'OLD-TURN-1 ' + 'a'.repeat(4000), role: 'user' },
+      { content: 'OLD-TURN-2 ' + 'b'.repeat(4000), role: 'assistant' },
+      { content: 'OLD-TURN-3 ' + 'c'.repeat(4000), role: 'user' },
+      { content: 'OLD-TURN-4 ' + 'd'.repeat(4000), role: 'assistant' },
+      { content: 'CURRENT-PROMPT', role: 'user' },
+    ];
+    await probe.runCompact(messages, {
+      contextWindow: 1000,
+      defaultMaxTokens: 100,
+      id: 'c-fake',
+      providerType: 'fake',
+    } as any);
+    // System + Current are preserved.
+    expect(messages[0].content).toBe('SYSTEM-PROMPT');
+    expect(messages[messages.length - 1].content).toBe('CURRENT-PROMPT');
+    // The summary replaces the oldest non-system turns.
+    expect(messages.some((m) => m.content?.includes('COMPACTED-SUMMARY-XYZ'))).toBe(true);
+    // Original old turns are no longer present verbatim.
+    expect(messages.some((m) => m.content === 'OLD-TURN-1')).toBe(false);
+  });
 });
 
 describe('CoreAiService (emulated tool calling)', () => {

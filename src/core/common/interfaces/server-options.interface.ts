@@ -1218,6 +1218,16 @@ export interface IAi {
   contextWindow?: number;
 
   /**
+   * LLM-driven context compaction: when a session would overflow the connection's
+   * context window, the oldest non-system/non-last turns are summarized by a single
+   * LLM call (via the same connection's provider) and REPLACED by a one-paragraph
+   * summary system message — instead of being dropped. Falls back to the hard trim
+   * path on any error. Disable with `false`.
+   * @default true
+   */
+  compaction?: boolean;
+
+  /**
    * Defer the parameter schemas of tools out of the system prompt. With many tools
    * the JSON-Schema catalog dominates the prompt; with `deferToolSchemas: true`
    * the system prompt only lists tool names + short descriptions and the built-in
