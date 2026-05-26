@@ -910,7 +910,7 @@ describe('CoreAiService (emulated tool calling)', () => {
 
   it('AI hook postToolUse is notified after execution', async () => {
     const { AiHookRegistry } = await import('../../src/core/modules/ai/hooks/ai-hook.registry');
-    new ConfigService({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any);
+    ConfigService.setConfig({ ai: { confirmation: { mutating: { default: false } }, maxIterations: 5 } } as any, { reInit: true });
     const seen: { name: string; success: boolean }[] = [];
     const hooks = new AiHookRegistry();
     hooks.register({
