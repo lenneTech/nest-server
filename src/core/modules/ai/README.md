@@ -54,6 +54,9 @@ ai: {
   maxIterations: 5,
   rateLimit: { max: 20, windowSeconds: 60 },
   systemPrompt: 'You are a helpful assistant for …',
+  contextWindow: 8192,            // fallback when a connection has no detected window
+  maxToolResultChars: 12000,      // cap a tool-results payload fed back to the model
+  promptLearning: { autoApply: false }, // governed self-improvement (admin approves hints)
   // Optional one-time seed of a default connection (DB is the source of truth):
   defaultConnection: {
     name: 'Default LLM',
@@ -267,6 +270,8 @@ Every collaborator can be replaced with a project subclass via
 | `budgetService`       | `CoreAiBudgetService` (token/prompt budgets + usage)             |
 | `conversationService` | `CoreAiConversationService` (multi-turn history)                 |
 | `interactionService`  | `CoreAiInteractionService` (audit records)                       |
+| `promptTemplateService` | `CoreAiPromptTemplateService` (editable prompt fragments)      |
+| `promptHintService`   | `CoreAiPromptHintService` (governed learning loop)              |
 | `resolver`            | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
 | `controller`          | `CoreAiController`                                               |
 
@@ -329,6 +334,62 @@ export class TransferFundsTool extends AiTool {
   clearly-delimited, size-capped, **untrusted** context block.
 - The system prompt is enriched with the user's roles + available tools and optional
   `ai.documentation` (override `CoreAiPromptBuilderService.getDocumentation()` for RAG).
+
+## Self-optimizing prompts (editable templates + governed learning)
+
+The system prompt is assembled from **keyed fragments** by `CoreAiPromptBuilderService`,
+so non-technical users only enter their domain prompt while the backend keeps the model
+optimally informed (capabilities, available tools + catalog, the user's roles, an
+anti-hallucination + output contract, and the emulated tool protocol when needed). Every
+prompt text is **transparent and editable** — there are no hard-coded, inaccessible
+prompt strings.
+
+**Editable templates (`aiPromptTemplates`, admin CRUD).** The builder ships sensible
+built-in defaults for every slot (`defaultFragments()`), so the module works with zero
+rows. A row here **overrides** the default for its `key` (logical slot, e.g. `base`,
+`permissions`, `anti_hallucination`, `output_contract`, `tool_protocol_emulated`),
+optionally scoped by `locale` and `capability` (`all` / `native` / `emulated`). Content
+may use `{{placeholders}}` (`{{roles}}`, `{{tools}}`, `{{toolCatalog}}`,
+`{{documentation}}`, `{{learnedHints}}`, `{{userId}}`) rendered at build time. Manage via
+`createAiPromptTemplate` / `findAiPromptTemplates` / … (GraphQL) or `/ai/prompt-templates`
+(REST) — all `@Roles(ADMIN)`.
+
+**Governed learning loop (`aiPromptHints`, admin CRUD).** When the orchestrator hits a
+recurring failure (tool not available, tool error/exception), it records a learned
+**hint** scoped to the tool. Hints are `suggested` by default and only reach the prompt
+once an admin **approves** them; set `ai.promptLearning.autoApply: true` to auto-approve.
+Review/approve/reject via `updateAiPromptHint` (GraphQL) or `/ai/prompt-hints` (REST).
+The model also receives **structured tool errors** (`{ error: { code, message, hint } }`)
+so it can recover within the run.
+
+> **Security:** learned hints and template overrides only ever **add textual guidance** —
+> they can never relax the permission model. Tool role-filtering, `authorize()`,
+> `CrudService`/`@Restricted` and `secretFields` are enforced backend-side regardless of
+> the prompt.
+
+```typescript
+ai: {
+  promptLearning: {
+    enabled: true,      // record + apply learned hints (default true)
+    autoApply: false,   // false = admin approves each hint (governed); true = auto-approve
+  },
+}
+```
+
+Both stores are fully overridable per project via `CoreModule.forRoot(env, { ai: {
+promptTemplateService, promptHintService, promptBuilder } })`.
+
+## Context window (per user/session, auto-detected)
+
+The assembled session conversation is budgeted against the model's **context window**.
+The window is determined automatically per connection (`ILlmProvider.detectContextWindow()`
+— e.g. a local Ollama `/api/show` probe, a known-model table, or the Claude alias) and
+persisted on the connection alongside the capability flags; set `connection.contextWindow`
+explicitly to override, or `ai.contextWindow` (default `8192`) as the global fallback.
+When a user's session history would overflow, the **oldest non-system turns are dropped**
+(the latest turn is truncated if still too large) and oversized tool-results are capped to
+`ai.maxToolResultChars` (default `12000`) — so long-running conversations never exceed the
+model's limit.
 
 ## Token budgets & usage
 

@@ -109,6 +109,9 @@ ai: {
     user: { maxTokens: 50000 },        // 0/undefined = unlimited
     tenant: { maxTokens: 2000000 },
   },
+  contextWindow: 8192,                 // fallback when a connection has no auto-detected window
+  maxToolResultChars: 12000,           // cap tool-results fed back to the model
+  promptLearning: { autoApply: false },// governed self-improvement (admins approve learned hints)
   mcp: { oauth: true, oauthSecret: process.env.NSC__AI__ENCRYPTION_SECRET },
 }
 ```
@@ -118,6 +121,14 @@ ai: {
   runs it for every step before executing anything.
 - **Confirmation:** mark create/update/delete tools `mutating: true` and irreversible ones
   `destructive: true`.
+- **Self-optimizing prompts:** the system prompt is built from editable, keyed fragments —
+  admins customize any slot via `aiPromptTemplates` (`/ai/prompt-templates`) and review the
+  learned hints the system records on tool failures via `aiPromptHints` (`/ai/prompt-hints`).
+  Both are `@Roles(ADMIN)`; build an admin UI with the `useLtAiAdmin` composable
+  (`listPromptTemplates` / `listPromptHints` / …). Hints never relax permissions.
+- **Context window:** detected automatically per connection and persisted; no setup needed.
+  Override per connection (`contextWindow`) or globally (`ai.contextWindow`) if a backend
+  isn't recognized.
 
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 
