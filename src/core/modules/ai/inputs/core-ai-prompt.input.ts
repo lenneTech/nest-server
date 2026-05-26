@@ -103,4 +103,17 @@ export class CoreAiPromptInput {
     type: () => Boolean,
   })
   requireConfirmation?: boolean = undefined;
+
+  /**
+   * When confirming a mutating action (`confirm: true`), persist the consent so the
+   * user does not have to re-confirm the same tool next time. Scope: `'conversation'`
+   * (this thread only), `'user'` (this user, all conversations), `'tenant'` (whole
+   * tenant). Destructive tools are never grantable — they always confirm.
+   */
+  @UnifiedField({
+    description: "Remember the confirmation as a grant: 'conversation', 'user' or 'tenant'",
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+  })
+  rememberDecision?: string = undefined;
 }

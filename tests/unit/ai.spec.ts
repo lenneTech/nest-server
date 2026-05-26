@@ -772,6 +772,86 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(executed).toEqual([]);
     expect(response.requiresConfirmation).toBe(true);
   });
+
+  it('persistent grant from a prior remembered decision skips the confirmation gate', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: true } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const grantsLookedUp: { scope: string; tool: string }[] = [];
+    const fakeGrantService = {
+      findActiveGrant: async (tool: string, scopes: any) => {
+        grantsLookedUp.push({ scope: 'user', tool });
+        return scopes.userId === 'u-with-grant' ? 'user' : undefined;
+      },
+      grant: async () => undefined,
+    } as any;
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      mutatingRegistry(executed),
+      new CoreAiPromptBuilderService(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fakeGrantService,
+    );
+
+    // User WITHOUT a grant: must still be gated.
+    const noGrant = await service.prompt({ prompt: 'create x' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(noGrant.requiresConfirmation).toBe(true);
+    expect(executed).toEqual([]);
+
+    // User WITH a grant: the gate is skipped and the action runs.
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const withGrant = await service.prompt({ prompt: 'create x' } as any, {
+      currentUser: { id: 'u-with-grant', roles: [RoleEnum.S_USER] },
+    });
+    expect(withGrant.requiresConfirmation).toBeFalsy();
+    expect(executed).toEqual(['create_x']);
+  });
+
+  it('persists a grant when the user confirms with rememberDecision="user"', async () => {
+    new ConfigService({ ai: { confirmation: { mutating: { default: true } }, maxIterations: 5 } } as any);
+    const executed: string[] = [];
+    const persisted: { refId: string; scope: string; tool: string }[] = [];
+    const fakeGrantService = {
+      findActiveGrant: async () => undefined,
+      grant: async (tool: string, scope: string, refId: string) => {
+        persisted.push({ refId, scope, tool });
+      },
+    } as any;
+    const factory = new LlmProviderFactory();
+    factory.registerBuilder('fake', () => mutatingProvider());
+    const connectionService = {
+      resolve: async () => ({ apiKey: '', baseUrl: 'http://fake', id: 'c1', model: 'm', name: 'F', providerType: 'fake' }),
+    } as any;
+    const service = new CoreAiService(
+      connectionService,
+      factory,
+      mutatingRegistry(executed),
+      new CoreAiPromptBuilderService(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fakeGrantService,
+    );
+
+    await service.prompt({ confirm: true, prompt: 'create x', rememberDecision: 'user' } as any, {
+      currentUser: { id: 'u1', roles: [RoleEnum.S_USER] },
+    });
+    expect(executed).toEqual(['create_x']);
+    expect(persisted).toEqual([{ refId: 'u1', scope: 'user', tool: 'create_x' }]);
+  });
 });
 
 describe('CoreAiMcpService (MCP protocol via in-memory transport)', () => {

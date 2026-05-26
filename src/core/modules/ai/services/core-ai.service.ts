@@ -21,6 +21,7 @@ import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
+import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
 
 /**
  * Record passed to {@link CoreAiService.audit} for each prompt run.
@@ -102,6 +103,7 @@ export class CoreAiService {
     @Optional() protected readonly budgetService?: CoreAiBudgetService,
     @Optional() protected readonly connectionResolver?: CoreAiConnectionResolverService,
     @Optional() protected readonly hintService?: CoreAiPromptHintService,
+    @Optional() protected readonly toolGrantService?: CoreAiToolGrantService,
   ) {}
 
   /**
@@ -273,11 +275,16 @@ export class CoreAiService {
         : this.extractToolCalls(completion.text);
 
       if (toolCalls?.length) {
-        // Halt on actions that require confirmation until the user confirms.
-        const blocked = toolCalls.filter((c) => {
+        // Halt on actions that require confirmation until the user confirms — unless
+        // a persistent grant from a prior "remember my decision" already covers the
+        // tool for this scope.
+        let blocked = toolCalls.filter((c) => {
           const tool = tools.find((t) => t.name === c.name);
           return tool && this.confirmationRequiredFor(tool, input) && !confirm;
         });
+        if (blocked.length && this.toolGrantService) {
+          blocked = await this.filterByGrants(blocked, tools, run, input);
+        }
         if (blocked.length) {
           for (const call of blocked) {
             const action = new CoreAiAction();
@@ -312,6 +319,11 @@ export class CoreAiService {
             finalText = sentinel.question;
             askedQuestion = true;
             break;
+          }
+          // Persist a "remember my decision" grant when the user explicitly confirmed
+          // AND asked us to remember — but only for mutating + non-destructive tools.
+          if (action.success && confirm && input.rememberDecision) {
+            await this.persistToolGrantIfRequested(call.name, tools, run, input);
           }
         }
         if (askedQuestion) {
@@ -1000,6 +1012,67 @@ export class CoreAiService {
    * and surface the clarification on `CoreAiResponse.pendingQuestion`. Returns
    * `undefined` otherwise.
    */
+  /**
+   * Filter the list of confirmation-blocked tool calls by active persistent grants:
+   * a call whose tool has an active grant in any scope (user / tenant / conversation)
+   * is allowed to proceed without confirmation. Best-effort — falls through silently
+   * if the grant lookup fails.
+   */
+  protected async filterByGrants(
+    blocked: LlmToolCall[],
+    tools: IAiTool[],
+    run: AiRunContext,
+    input: CoreAiPromptInput,
+  ): Promise<LlmToolCall[]> {
+    if (!this.toolGrantService || !blocked.length) {
+      return blocked;
+    }
+    const survivors: LlmToolCall[] = [];
+    for (const call of blocked) {
+      const tool = tools.find((t) => t.name === call.name);
+      // destructive tools NEVER use grants — they always confirm.
+      if (!tool || tool.destructive) {
+        survivors.push(call);
+        continue;
+      }
+      const match = await this.toolGrantService.findActiveGrant(call.name, {
+        conversationId: input.conversationId,
+        tenantId: run.tenantId,
+        userId: run.currentUser?.id,
+      });
+      if (!match) {
+        survivors.push(call);
+      }
+    }
+    return survivors;
+  }
+
+  /**
+   * Persist a "remember my decision" grant for a tool the user explicitly confirmed,
+   * if (and only if) the input requested it AND the tool is mutating + non-destructive.
+   */
+  protected async persistToolGrantIfRequested(
+    toolName: string,
+    tools: IAiTool[],
+    run: AiRunContext,
+    input: CoreAiPromptInput,
+  ): Promise<void> {
+    if (!this.toolGrantService || !input.rememberDecision) {
+      return;
+    }
+    const tool = tools.find((t) => t.name === toolName);
+    if (!tool || !tool.mutating || tool.destructive) {
+      return;
+    }
+    const scope = input.rememberDecision as AiToolGrantScope;
+    const refId =
+      scope === 'conversation' ? input.conversationId : scope === 'tenant' ? run.tenantId : run.currentUser?.id;
+    if (!refId || !['conversation', 'tenant', 'user'].includes(scope)) {
+      return;
+    }
+    await this.toolGrantService.grant(toolName, scope, refId);
+  }
+
   protected extractAskUserQuestion(
     action: CoreAiAction,
   ): { options?: { label: string; value: string }[]; question: string } | undefined {

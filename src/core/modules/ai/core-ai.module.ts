@@ -13,6 +13,7 @@ import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conve
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
 import { AiPromptTemplateSchema, CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
+import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import { AiCryptoService } from './services/ai-crypto.service';
 import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, CoreAiBudgetService } from './services/core-ai-budget.service';
@@ -48,6 +49,11 @@ import {
   AI_PROMPT_TEMPLATE_MODEL,
   CoreAiPromptTemplateService,
 } from './services/core-ai-prompt-template.service';
+import {
+  AI_TOOL_GRANT_CLASS,
+  AI_TOOL_GRANT_MODEL,
+  CoreAiToolGrantService,
+} from './services/core-ai-tool-grant.service';
 import { CoreAiService } from './services/core-ai.service';
 import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
 import { AiToolRegistry } from './tools/ai-tool.registry';
@@ -96,6 +102,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom orchestrator service (extends CoreAiService). */
   service?: Type<CoreAiService>;
+
+  /** Custom tool-grant ("remember my decision") store (extends CoreAiToolGrantService). */
+  toolGrantService?: Type<CoreAiToolGrantService>;
 }
 
 /**
@@ -134,6 +143,7 @@ export class CoreAiModule {
     const PromptTemplateServiceClass = options.promptTemplateService || CoreAiPromptTemplateService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
+    const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
 
     // Register the MCP controller only when enabled (it lazy-loads the MCP SDK).
     const controllers: Type<any>[] = [ControllerClass];
@@ -158,6 +168,7 @@ export class CoreAiModule {
         CoreAiPromptHintService,
         CoreAiPromptTemplateService,
         CoreAiService,
+        CoreAiToolGrantService,
         LlmProviderFactory,
         MongooseModule,
       ],
@@ -170,6 +181,7 @@ export class CoreAiModule {
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
           { name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
           { name: AI_PROMPT_TEMPLATE_MODEL, schema: AiPromptTemplateSchema },
+          { name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
         ]),
       ],
       module: CoreAiModule,
@@ -185,6 +197,7 @@ export class CoreAiModule {
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
         { provide: AI_PROMPT_HINT_CLASS, useValue: CoreAiPromptHint },
         { provide: AI_PROMPT_TEMPLATE_CLASS, useValue: CoreAiPromptTemplate },
+        { provide: AI_TOOL_GRANT_CLASS, useValue: CoreAiToolGrant },
         { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
@@ -199,6 +212,7 @@ export class CoreAiModule {
         { provide: CoreAiPromptHintService, useClass: PromptHintServiceClass },
         { provide: CoreAiPromptTemplateService, useClass: PromptTemplateServiceClass },
         { provide: CoreAiService, useClass: ServiceClass },
+        { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },
         ResolverClass,
       ],
     };
