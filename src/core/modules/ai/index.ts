@@ -58,3 +58,4 @@ export * from './services/core-ai.service';
 export * from './tools/ai-tool.base';
 export * from './tools/ai-tool.registry';
 export * from './tools/ask-user-question.tool';
+export * from './tools/search-tools.tool';

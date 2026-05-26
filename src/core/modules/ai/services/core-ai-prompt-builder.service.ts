@@ -245,14 +245,22 @@ export class CoreAiPromptBuilderService {
     user?: { id?: string; roles?: string[] },
   ): Promise<Record<string, string>> {
     const learned = this.hintService ? await this.hintService.approvedHints(tools.map((t) => t.name)) : [];
+    // Deferred tool-schemas (#13): with many tools the full JSON-Schema catalog can
+    // dominate the system prompt. When `ai.deferToolSchemas` is on, the catalog
+    // emits ONLY the tool names + short descriptions; the LLM uses the built-in
+    // `search_tools` meta-tool to fetch the parameter schema for a tool on demand.
+    const defer = ConfigService.get<boolean>('ai.deferToolSchemas') === true;
+    const toolCatalog = defer
+      ? (tools.map((t) => `- ${t.name}: ${t.description}`).join('\n') || '(none)') +
+        '\n\n[Schemas deferred. Call `search_tools` with the tool name to fetch its parameter schema BEFORE you call it.]'
+      : tools
+          .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
+          .join('\n') || '(none)';
     return {
       documentation: this.getDocumentation() || '',
       learnedHints: learned.length ? learned.map((h) => `- ${h}`).join('\n') : '',
       roles: user?.roles?.length ? user.roles.join(', ') : 'none',
-      toolCatalog:
-        tools
-          .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
-          .join('\n') || '(none)',
+      toolCatalog,
       tools: tools.map((t) => t.name).join(', ') || 'none',
       userId: user?.id || '',
     };

@@ -199,6 +199,33 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     expect(seen[0]).toEqual(expect.arrayContaining(['tool:get_user', 'tool:find_users', 'role:admin', 'role:editor', 'mode:support']));
   });
 
+  it('deferred tool-schemas: builder emits only tool names + a search_tools hint when ai.deferToolSchemas=true', async () => {
+    ConfigService.setConfig({ ai: { deferToolSchemas: true } } as any, { reInit: true });
+    const builder = new CoreAiPromptBuilderService();
+    const tools = [
+      makeTool('get_user', [RoleEnum.S_USER]),
+      makeTool('find_users', [RoleEnum.S_USER]),
+    ];
+    const prompt = await builder.buildSystemPrompt(tools, false, { id: 'u1', roles: [] });
+    // Tool names appear:
+    expect(prompt).toContain('get_user');
+    expect(prompt).toContain('find_users');
+    // Full schema (parameters object) does NOT:
+    expect(prompt).not.toContain('"parameters"');
+    // search_tools hint is included so the LLM knows how to fetch on demand:
+    expect(prompt).toMatch(/search_tools|fetch the tool schema/i);
+  });
+
+  it('deferred tool-schemas off (default): full tool catalog is in the prompt', async () => {
+    ConfigService.setConfig({ ai: { deferToolSchemas: false } } as any, { reInit: true });
+    const builder = new CoreAiPromptBuilderService();
+    const tools = [makeTool('get_user', [RoleEnum.S_USER])];
+    const prompt = await builder.buildSystemPrompt(tools, false, { id: 'u1', roles: [] });
+    expect(prompt).toContain('get_user');
+    // Full schema with `parameters` is in the prompt
+    expect(prompt).toMatch(/parameters/i);
+  });
+
   it('falls back to in-builder scope filter when no template service is wired', async () => {
     new ConfigService({ ai: {} } as any);
     class Probe extends CoreAiPromptBuilderService {

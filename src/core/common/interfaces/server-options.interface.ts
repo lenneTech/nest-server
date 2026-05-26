@@ -1217,6 +1217,15 @@ export interface IAi {
    */
   contextWindow?: number;
 
+  /**
+   * Defer the parameter schemas of tools out of the system prompt. With many tools
+   * the JSON-Schema catalog dominates the prompt; with `deferToolSchemas: true`
+   * the system prompt only lists tool names + short descriptions and the built-in
+   * `search_tools` meta-tool lets the model fetch a single tool's schema on demand.
+   * @default false
+   */
+  deferToolSchemas?: boolean;
+
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
 

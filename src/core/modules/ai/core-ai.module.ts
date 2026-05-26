@@ -63,6 +63,7 @@ import {
 import { CoreAiService } from './services/core-ai.service';
 import { AiHookRegistry } from './hooks/ai-hook.registry';
 import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
+import { SearchToolsAiTool } from './tools/search-tools.tool';
 import { AiToolRegistry } from './tools/ai-tool.registry';
 
 /**
@@ -204,6 +205,7 @@ export class CoreAiModule {
         AiHookRegistry,
         AiToolRegistry,
         AskUserQuestionAiTool,
+        SearchToolsAiTool,
         LlmProviderFactory,
         { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
