@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { ClaudeCliProvider } from '../../../core/modules/ai/providers/claude-cli.provider';
+import { LlmProviderFactory } from '../../../core/modules/ai/providers/llm-provider.factory';
 import { UserModule } from '../user/user.module';
 import { DeleteUserAiTool } from './tools/delete-user.tool';
 import { FindUsersAiTool } from './tools/find-users.tool';
@@ -15,10 +17,17 @@ import { UpdateUserJobTitleAiTool } from './tools/update-user-job-title.tool';
  * import is needed for it here — only `UserModule` for `UserService`.
  *
  * This is the reference implementation showing how a project adds (or overrides)
- * AI tools from its own module.
+ * AI tools from its own module. It also demonstrates the opt-in registration of
+ * the Claude Code CLI provider on the global {@link LlmProviderFactory}, so a
+ * connection with `providerType: 'claude-cli'` can be used.
  */
 @Module({
   imports: [UserModule],
   providers: [DeleteUserAiTool, FindUsersAiTool, GetUserAiTool, UpdateUserJobTitleAiTool],
 })
-export class AiToolsModule {}
+export class AiToolsModule {
+  constructor(protected readonly providerFactory: LlmProviderFactory) {
+    // Opt-in: enable connections with providerType 'claude-cli' (Claude Code CLI backend).
+    this.providerFactory.registerBuilder('claude-cli', (connection) => new ClaudeCliProvider(connection));
+  }
+}
