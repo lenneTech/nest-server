@@ -50,3 +50,4 @@ export * from './services/core-ai-prompt-template.service';
 export * from './services/core-ai.service';
 export * from './tools/ai-tool.base';
 export * from './tools/ai-tool.registry';
+export * from './tools/ask-user-question.tool';

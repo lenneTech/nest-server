@@ -83,6 +83,15 @@ export class CoreAiResponse {
   pendingActions?: CoreAiAction[];
 
   /**
+   * Optional clarifying question raised by the assistant via the built-in
+   * `ask_user_question` tool. When set, the run paused to collect more input from
+   * the user instead of guessing — the client should render this and send the user's
+   * answer as the next prompt to continue the conversation.
+   */
+  @Field(() => JSON, { description: 'Pending clarifying question from the assistant', nullable: true })
+  pendingQuestion?: { options?: { label: string; value: string }[]; question: string };
+
+  /**
    * Whether the response is awaiting confirmation of destructive actions.
    */
   @Field(() => Boolean, { description: 'Whether confirmation of destructive actions is required', nullable: true })

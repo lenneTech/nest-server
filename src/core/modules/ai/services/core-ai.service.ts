@@ -13,6 +13,7 @@ import { CoreAiUsage } from '../models/core-ai-usage.model';
 import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
 import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiToolRegistry } from '../tools/ai-tool.registry';
+import { ASK_USER_QUESTION_SENTINEL } from '../tools/ask-user-question.tool';
 import { CoreAiBudgetService } from './core-ai-budget.service';
 import { CoreAiConnectionResolverService } from './core-ai-connection-resolver.service';
 import { CoreAiConnectionService } from './core-ai-connection.service';
@@ -252,6 +253,7 @@ export class CoreAiService {
     let finalData: unknown;
     let iterations = 0;
     let nudgedForFinal = false;
+    let pendingQuestion: { options?: { label: string; value: string }[]; question: string } | undefined;
     let requiresConfirmation = false;
 
     while (iterations < maxIterations) {
@@ -298,10 +300,22 @@ export class CoreAiService {
           role: 'assistant',
         });
         const results: { name: string; result: unknown; success: boolean }[] = [];
+        let askedQuestion = false;
         for (const call of toolCalls) {
           const action = await this.executeToolCall(call, tools, context);
           actions.push(action);
           results.push({ name: action.name, result: action.result, success: action.success });
+          // Detect the ask_user_question sentinel — model paused to clarify with the user.
+          const sentinel = this.extractAskUserQuestion(action);
+          if (sentinel) {
+            pendingQuestion = sentinel;
+            finalText = sentinel.question;
+            askedQuestion = true;
+            break;
+          }
+        }
+        if (askedQuestion) {
+          break;
         }
         messages.push({ content: `TOOL_RESULTS:\n${this.capToolResults(JSON.stringify(results))}`, role: 'user' });
         continue;
@@ -348,9 +362,13 @@ export class CoreAiService {
       response.requiresConfirmation = true;
       response.pendingActions = pendingActions;
     }
+    if (pendingQuestion) {
+      response.pendingQuestion = pendingQuestion;
+    }
 
-    // Persist the turn pair for multi-turn conversations (not while awaiting confirmation).
-    if (input.conversationId && this.conversationService && !requiresConfirmation) {
+    // Persist the turn pair for multi-turn conversations (not while awaiting confirmation
+    // or a pending clarifying question — the user hasn't given a real answer yet).
+    if (input.conversationId && this.conversationService && !requiresConfirmation && !pendingQuestion) {
       await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
       await this.conversationService.appendMessage(input.conversationId, { content: finalText, role: 'assistant' });
     }
@@ -974,6 +992,39 @@ export class CoreAiService {
     return serialized.length > max
       ? `${serialized.slice(0, max)}\n…[tool result truncated to ${max} characters]`
       : serialized;
+  }
+
+  /**
+   * If this action came from the built-in `ask_user_question` tool, return the
+   * `{question, options}` payload so the orchestrator can short-circuit the run
+   * and surface the clarification on `CoreAiResponse.pendingQuestion`. Returns
+   * `undefined` otherwise.
+   */
+  protected extractAskUserQuestion(
+    action: CoreAiAction,
+  ): { options?: { label: string; value: string }[]; question: string } | undefined {
+    if (action?.name !== 'ask_user_question' || !action?.success) {
+      return undefined;
+    }
+    const result = action.result as any;
+    const data = result?.data ?? result;
+    if (!data || typeof data !== 'object') {
+      return undefined;
+    }
+    const sentinelKey = (ASK_USER_QUESTION_SENTINEL as unknown as string).toString();
+    if (!(sentinelKey in data) && !data[ASK_USER_QUESTION_SENTINEL as any]) {
+      return undefined;
+    }
+    const question = typeof data.question === 'string' ? data.question.trim() : '';
+    if (!question) {
+      return undefined;
+    }
+    const options = Array.isArray(data.options)
+      ? data.options
+          .filter((o: any) => o && typeof o.label === 'string' && typeof o.value === 'string')
+          .map((o: any) => ({ label: o.label, value: o.value }))
+      : undefined;
+    return { options, question };
   }
 
   /**

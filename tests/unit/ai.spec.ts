@@ -353,6 +353,53 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.text).toBe('Sorry, I cannot do that.');
   });
 
+  it('short-circuits the loop with `pendingQuestion` when ask_user_question is called', async () => {
+    const { ASK_USER_QUESTION_SENTINEL } = await import('../../src/core/modules/ai/tools/ask-user-question.tool');
+    const registry = new AiToolRegistry();
+    registry.register(
+      makeTool('ask_user_question', [RoleEnum.S_USER], async (args) => ({
+        data: {
+          [ASK_USER_QUESTION_SENTINEL as unknown as string]: true,
+          options: args.options,
+          question: args.question,
+        },
+        success: true,
+      })),
+    );
+
+    const provider = new ScriptedProvider([
+      JSON.stringify({
+        tool_calls: [
+          {
+            arguments: {
+              options: [
+                { label: 'Active', value: 'active' },
+                { label: 'Inactive', value: 'inactive' },
+              ],
+              question: 'Which user status do you mean?',
+            },
+            name: 'ask_user_question',
+          },
+        ],
+      }),
+    ]);
+
+    const service = buildService(provider, registry);
+    const response = await service.prompt({ prompt: 'find the users' } as any, {
+      currentUser: { id: 'u-1', roles: [] },
+    });
+
+    expect(response.pendingQuestion).toBeDefined();
+    expect(response.pendingQuestion?.question).toBe('Which user status do you mean?');
+    expect(response.pendingQuestion?.options).toEqual([
+      { label: 'Active', value: 'active' },
+      { label: 'Inactive', value: 'inactive' },
+    ]);
+    expect(response.text).toBe('Which user status do you mean?');
+    expect(response.iterations).toBe(1);
+    expect(response.requiresConfirmation).toBeFalsy();
+  });
+
   it('extracts the tool call even when the model appends trailing text after the JSON', async () => {
     // Reproduces the Claude CLI behaviour: a valid {"tool_calls":[…]} followed by a
     // self-hallucinated TOOL_RESULTS block in the same response.

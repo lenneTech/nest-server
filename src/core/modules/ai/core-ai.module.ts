@@ -49,6 +49,7 @@ import {
   CoreAiPromptTemplateService,
 } from './services/core-ai-prompt-template.service';
 import { CoreAiService } from './services/core-ai.service';
+import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
 import { AiToolRegistry } from './tools/ai-tool.registry';
 
 /**
@@ -175,6 +176,7 @@ export class CoreAiModule {
       providers: [
         AiCryptoService,
         AiToolRegistry,
+        AskUserQuestionAiTool,
         LlmProviderFactory,
         { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
