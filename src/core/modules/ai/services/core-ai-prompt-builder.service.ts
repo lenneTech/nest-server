@@ -9,6 +9,8 @@ import { CoreAiPromptTemplateService, ResolvedPromptFragment } from './core-ai-p
 /** Options for a prompt build (locale for template/hint selection). */
 export interface BuildPromptOptions {
   language?: string;
+  /** Named agent mode (e.g. 'support', 'audit') — exposes as a `mode:<name>` scope to filter fragments. */
+  mode?: string;
 }
 
 /**
@@ -55,7 +57,7 @@ export class CoreAiPromptBuilderService {
     options?: BuildPromptOptions,
   ): Promise<string> {
     const capability = supportsNativeTools ? 'native' : 'emulated';
-    const fragments = await this.resolveFragments(capability, options?.language);
+    const fragments = await this.resolveFragments(capability, options?.language, this.computeScopes(tools, user, options));
     const context = await this.renderContext(tools, user);
     return this.assemble(
       fragments.filter((f) => f.key !== 'plan_protocol'),
@@ -75,7 +77,7 @@ export class CoreAiPromptBuilderService {
     user?: { id?: string; roles?: string[] },
     options?: BuildPromptOptions,
   ): Promise<string> {
-    const fragments = await this.resolveFragments('emulated', options?.language);
+    const fragments = await this.resolveFragments('emulated', options?.language, this.computeScopes(tools, user, options));
     const context = await this.renderContext(tools, user);
     const planFragments = fragments.filter((f) => f.key === 'plan_protocol' || !this.autoOnlyKeys.includes(f.key));
     return this.assemble(planFragments, context, tools.length);
@@ -188,14 +190,45 @@ export class CoreAiPromptBuilderService {
    * Resolve the effective fragments: built-in defaults overlaid by admin DB rows
    * (when the template service is wired). Falls back to defaults only otherwise.
    */
-  protected async resolveFragments(capability: string, locale?: string): Promise<ResolvedPromptFragment[]> {
+  protected async resolveFragments(
+    capability: string,
+    locale?: string,
+    scopes?: string[],
+  ): Promise<ResolvedPromptFragment[]> {
     const defaults = this.defaultFragments();
+    const activeScopes = scopes ?? [];
     if (!this.templateService) {
       return defaults
         .filter((f) => !f.capability || f.capability === 'all' || f.capability === capability)
+        .filter((f) => !f.scope || activeScopes.includes(f.scope))
         .sort((a, b) => a.order - b.order);
     }
-    return this.templateService.resolveFragments(defaults, { capability, locale });
+    return this.templateService.resolveFragments(defaults, { capability, locale, scopes: activeScopes });
+  }
+
+  /**
+   * Compute the active scope tags for a run: `tool:<name>` for each tool in scope,
+   * `role:<name>` for each user role, and `mode:<name>` if a named mode is active.
+   * Used to filter scoped prompt fragments via {@link CoreAiPromptTemplateService.resolveFragments}.
+   */
+  protected computeScopes(
+    tools: IAiTool[],
+    user?: { id?: string; roles?: string[] },
+    options?: BuildPromptOptions & { mode?: string },
+  ): string[] {
+    const scopes: string[] = [];
+    for (const tool of tools || []) {
+      if (tool?.name) {
+        scopes.push(`tool:${tool.name}`);
+      }
+    }
+    for (const role of user?.roles || []) {
+      scopes.push(`role:${role}`);
+    }
+    if (options?.mode) {
+      scopes.push(`mode:${options.mode}`);
+    }
+    return scopes;
   }
 
   /** Compute placeholder values for the run. */

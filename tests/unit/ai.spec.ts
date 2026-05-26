@@ -179,6 +179,57 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     expect(prompt).toContain('OVERRIDDEN-BASE-XYZ');
     expect(prompt).toContain('Always double-check ids before acting.');
   });
+
+  it('passes the active scopes (tool:* + role:* + mode:*) to the template service for scoped overrides', async () => {
+    new ConfigService({ ai: {} } as any);
+    const seen: string[][] = [];
+    const fakeTemplates = {
+      resolveFragments: async (_defaults: any, opts: any) => {
+        seen.push(opts?.scopes || []);
+        return [];
+      },
+    } as any;
+    const builder = new CoreAiPromptBuilderService(fakeTemplates);
+    await builder.buildSystemPrompt(
+      [makeTool('get_user', [RoleEnum.S_USER]), makeTool('find_users', [RoleEnum.S_USER])],
+      false,
+      { id: 'u1', roles: ['admin', 'editor'] },
+      { mode: 'support' },
+    );
+    expect(seen[0]).toEqual(expect.arrayContaining(['tool:get_user', 'tool:find_users', 'role:admin', 'role:editor', 'mode:support']));
+  });
+
+  it('falls back to in-builder scope filter when no template service is wired', async () => {
+    new ConfigService({ ai: {} } as any);
+    class Probe extends CoreAiPromptBuilderService {
+      override defaultFragments(): any[] {
+        return [
+          { content: 'GLOBAL', key: 'base', order: 10 },
+          { content: 'SUPPORT-ONLY', key: 'support', order: 20, scope: 'mode:support' },
+          { content: 'GETUSER-ONLY', key: 'tool_hint', order: 30, scope: 'tool:get_user' },
+        ];
+      }
+    }
+    const builder = new Probe();
+    const promptWithSupport = await builder.buildSystemPrompt(
+      [makeTool('get_user', [RoleEnum.S_USER])],
+      false,
+      { id: 'u1', roles: [] },
+      { mode: 'support' },
+    );
+    expect(promptWithSupport).toContain('GLOBAL');
+    expect(promptWithSupport).toContain('SUPPORT-ONLY');
+    expect(promptWithSupport).toContain('GETUSER-ONLY');
+
+    const promptWithoutScopes = await builder.buildSystemPrompt(
+      [makeTool('count_users', [RoleEnum.S_USER])],
+      false,
+      { id: 'u1', roles: [] },
+    );
+    expect(promptWithoutScopes).toContain('GLOBAL');
+    expect(promptWithoutScopes).not.toContain('SUPPORT-ONLY');
+    expect(promptWithoutScopes).not.toContain('GETUSER-ONLY');
+  });
 });
 
 describe('CoreAiService context-window handling (per user/session)', () => {

@@ -20,6 +20,7 @@ export interface ResolvedPromptFragment {
   content: string;
   key: string;
   order: number;
+  scope?: string;
 }
 
 /**
@@ -49,25 +50,31 @@ export class CoreAiPromptTemplateService extends CrudService<
   /**
    * Resolve the effective, ordered prompt fragments for a run: the provided built-in
    * defaults (owned by the prompt builder) overlaid by enabled DB rows (matched by
-   * key, honoring locale + capability). Placeholders are NOT yet rendered — the
-   * prompt builder does that.
+   * key, honoring locale + capability + `scope`). Placeholders are NOT yet rendered —
+   * the prompt builder does that.
+   *
+   * `scopes` is the set of active run scopes (e.g. `['tool:get_user', 'role:admin',
+   * 'mode:support']`); a fragment whose `scope` is set must match at least one of them.
+   * Fragments without a scope always apply.
    */
   async resolveFragments(
     defaults: ResolvedPromptFragment[],
-    options?: { capability?: string; locale?: string },
+    options?: { capability?: string; locale?: string; scopes?: string[] },
   ): Promise<ResolvedPromptFragment[]> {
     const capability = options?.capability ?? 'all';
     const locale = options?.locale;
+    const scopes = options?.scopes ?? [];
 
     // Start from the built-in defaults keyed by their slot.
     const byKey = new Map<string, ResolvedPromptFragment>();
     for (const def of defaults) {
-      if (this.fragmentApplies(def.capability, capability)) {
+      if (this.fragmentApplies(def.capability, capability) && this.scopeApplies(def.scope, scopes)) {
         byKey.set(def.key, { ...def });
       }
     }
 
-    // Overlay DB rows (enabled only). A locale-specific row beats a generic one.
+    // Overlay DB rows (enabled only). A locale-specific row beats a generic one; a
+    // scoped row that matches beats a generic one (both are "more specific").
     let rows: CoreAiPromptTemplate[] = [];
     try {
       rows = await this.mainDbModel
@@ -77,22 +84,26 @@ export class CoreAiPromptTemplateService extends CrudService<
     } catch {
       rows = [];
     }
-    const localeRank = (rowLocale?: string): number => (rowLocale && rowLocale === locale ? 2 : rowLocale ? 0 : 1);
+    const rank = (row: CoreAiPromptTemplate): number =>
+      (row.locale && row.locale === locale ? 2 : row.locale ? 0 : 1) + (row.scope ? 4 : 0);
     const chosen = new Map<string, { rank: number; row: CoreAiPromptTemplate }>();
     for (const row of rows) {
       if (!row?.key || !row?.content) {
         continue;
       }
       if (row.locale && locale && row.locale !== locale) {
-        continue; // locale-specific row for another language
+        continue;
       }
       if (!this.fragmentApplies(row.capability, capability)) {
         continue;
       }
-      const rank = localeRank(row.locale);
+      if (!this.scopeApplies(row.scope, scopes)) {
+        continue;
+      }
+      const r = rank(row);
       const current = chosen.get(row.key);
-      if (!current || rank > current.rank) {
-        chosen.set(row.key, { rank, row });
+      if (!current || r > current.rank) {
+        chosen.set(row.key, { rank: r, row });
       }
     }
     for (const [key, { row }] of chosen) {
@@ -101,6 +112,7 @@ export class CoreAiPromptTemplateService extends CrudService<
         content: row.content,
         key,
         order: typeof row.order === 'number' ? row.order : (byKey.get(key)?.order ?? 100),
+        scope: row.scope,
       });
     }
 
@@ -116,5 +128,17 @@ export class CoreAiPromptTemplateService extends CrudService<
       return true;
     }
     return fragmentCapability === runCapability;
+  }
+
+  /**
+   * Whether a fragment's `scope` filter applies to the run's active scopes.
+   * Empty/undefined scope always applies; otherwise the fragment scope must equal one
+   * of the active run scopes (exact-match — patterns are not supported here).
+   */
+  protected scopeApplies(fragmentScope: string | undefined, runScopes: string[]): boolean {
+    if (!fragmentScope) {
+      return true;
+    }
+    return runScopes.includes(fragmentScope);
   }
 }

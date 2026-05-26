@@ -106,6 +106,21 @@ export class CoreAiPromptTemplate extends CorePersistenceModel {
     type: () => Number,
   })
   order?: number = undefined;
+
+  /**
+   * Optional scope this fragment applies to. Empty/undefined = always applies.
+   * Recognized prefixes: `tool:<name>` (only when that tool is in scope), `role:<name>`
+   * (only when the user has that role), `mode:<name>` (only when running in this named
+   * mode — see {@link CoreAiMode}). Multiple scopes can be expressed by creating
+   * multiple rows with the same key.
+   */
+  @UnifiedField({
+    description: "Scope filter (e.g. 'tool:get_user', 'role:admin', 'mode:support'); empty = always",
+    isOptional: true,
+    mongoose: { index: true },
+    roles: RoleEnum.ADMIN,
+  })
+  scope?: string = undefined;
 }
 
 export const AiPromptTemplateSchema = SchemaFactory.createForClass(CoreAiPromptTemplate);
