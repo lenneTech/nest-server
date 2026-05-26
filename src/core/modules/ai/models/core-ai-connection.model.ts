@@ -90,6 +90,20 @@ export class CoreAiConnection extends CorePersistenceModel {
   defaultMaxTokens?: number = undefined;
 
   /**
+   * Total context window (input + output tokens) the model supports. Used to budget
+   * the assembled messages and trim/condense history when it would overflow. Falls
+   * back to `ai.contextWindow` config (default 8192) when unset.
+   */
+  @UnifiedField({
+    description: 'Total context window (tokens) the model supports; enables context-overflow handling',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Number,
+  })
+  contextWindow?: number = undefined;
+
+  /**
    * Default sampling temperature for completions on this connection.
    */
   @UnifiedField({

@@ -1208,8 +1208,36 @@ export interface IAi {
    */
   encryptionSecret?: string;
 
+  /**
+   * Fallback total context window (input + output tokens) used to budget the
+   * assembled session messages when a connection has no `contextWindow` set. When the
+   * conversation (per user/session) would overflow, the oldest history turns are
+   * dropped and oversized payloads truncated before the LLM call.
+   * @default 8192
+   */
+  contextWindow?: number;
+
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
+
+  /** Maximum characters of a tool-results payload fed back to the model. @default 12000 */
+  maxToolResultChars?: number;
+
+  /**
+   * Governed self-improvement loop for the system prompt. The orchestrator records
+   * failure signals (tool errors, not-permitted calls); recurring patterns become
+   * learned hints. By default hints are `suggested` and only affect the prompt once an
+   * admin approves them; `autoApply` auto-approves them. Learning never relaxes
+   * permissions — hints only add textual guidance.
+   */
+  promptLearning?: {
+    /** Auto-approve learned hints instead of requiring admin approval. @default false */
+    autoApply?: boolean;
+    /** Enable the learning loop. @default true (when an `ai` block is present) */
+    enabled?: boolean;
+    /** Occurrences before a suggested hint is auto-approved (with `autoApply`). @default 1 */
+    minOccurrences?: number;
+  };
 
   /**
    * Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for

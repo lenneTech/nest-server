@@ -325,6 +325,7 @@ export class CoreAiConnectionService
     return {
       apiKey: this.resolveApiKeyFromDoc(doc) ?? '',
       baseUrl: doc.baseUrl,
+      contextWindow: doc.contextWindow,
       defaultMaxTokens: doc.defaultMaxTokens,
       defaultTemperature: doc.defaultTemperature,
       id: String(doc._id),

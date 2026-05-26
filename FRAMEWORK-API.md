@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-05-25 (v11.25.6)
+> Auto-generated from source code on 2026-05-26 (v11.25.6)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -106,7 +106,10 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `defaultMode?`: `"auto" | "plan"` (default: `'auto'`) — Default execution mode when the client does not specify one.
   - `enabled?`: `boolean` — Explicitly disable while keeping the config (default: enabled when present).
   - `encryptionSecret?`: `string` — Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
+  - `contextWindow?`: `number` (default: `8192`) — Fallback total context window (input + output tokens) used to budget the
   - `maxIterations?`: `number` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
+  - `maxToolResultChars?`: `number` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
+  - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; }` — Governed self-improvement loop for the system prompt. The orchestrator records
   - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string; }` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
   - `rateLimit?`: `IAiRateLimit` — Rate limiting for prompts.
   - `systemPrompt?`: `string` — Base system prompt prepended to every conversation.

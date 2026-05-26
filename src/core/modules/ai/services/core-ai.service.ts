@@ -6,6 +6,7 @@ import { RequestContext } from '../../../common/services/request-context.service
 import { ErrorCode } from '../../error-code';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
 import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 import { CoreAiAction } from '../models/core-ai-action.model';
 import { CoreAiResponse } from '../models/core-ai-response.model';
 import { CoreAiUsage } from '../models/core-ai-usage.model';
@@ -18,6 +19,7 @@ import { CoreAiConnectionService } from './core-ai-connection.service';
 import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
+import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
 
 /**
  * Record passed to {@link CoreAiService.audit} for each prompt run.
@@ -98,6 +100,7 @@ export class CoreAiService {
     @Optional() protected readonly conversationService?: CoreAiConversationService,
     @Optional() protected readonly budgetService?: CoreAiBudgetService,
     @Optional() protected readonly connectionResolver?: CoreAiConnectionResolverService,
+    @Optional() protected readonly hintService?: CoreAiPromptHintService,
   ) {}
 
   /**
@@ -220,8 +223,15 @@ export class CoreAiService {
    * Reactive agent loop (auto mode): the model requests tools step by step.
    */
   protected async runAuto(input: CoreAiPromptInput, run: AiRunContext): Promise<CoreAiResponse> {
-    const { connection, context, currentUser, history, provider, tenantId, tools } = run;
-    const systemPrompt = this.promptBuilder.buildSystemPrompt(tools, provider.capabilities.nativeTools, currentUser);
+    const { connection, context, currentUser, history, language, provider, tenantId, tools } = run;
+    const systemPrompt = await this.promptBuilder.buildSystemPrompt(
+      tools,
+      provider.capabilities.nativeTools,
+      currentUser,
+      {
+        language,
+      },
+    );
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
 
     const messages: LlmMessage[] = [{ content: systemPrompt, role: 'system' }];
@@ -244,6 +254,8 @@ export class CoreAiService {
 
     while (iterations < maxIterations) {
       iterations++;
+      // Keep the session within the model's context window before every call.
+      this.fitMessagesToContext(messages, connection);
       const completion = await provider.chat(messages, toolSchemas, {
         maxTokens: connection.defaultMaxTokens,
         temperature: connection.defaultTemperature,
@@ -289,7 +301,7 @@ export class CoreAiService {
           actions.push(action);
           results.push({ name: action.name, result: action.result, success: action.success });
         }
-        messages.push({ content: `TOOL_RESULTS:\n${JSON.stringify(results)}`, role: 'user' });
+        messages.push({ content: `TOOL_RESULTS:\n${this.capToolResults(JSON.stringify(results))}`, role: 'user' });
         continue;
       }
 
@@ -365,15 +377,15 @@ export class CoreAiService {
     const chatOptions = { maxTokens: connection.defaultMaxTokens, temperature: connection.defaultTemperature };
 
     // 1. Planning call — the model returns the full ordered plan, executes nothing.
-    const messages: LlmMessage[] = [
-      { content: this.promptBuilder.buildPlanSystemPrompt(tools, currentUser), role: 'system' },
-    ];
+    const planSystemPrompt = await this.promptBuilder.buildPlanSystemPrompt(tools, currentUser, { language });
+    const messages: LlmMessage[] = [{ content: planSystemPrompt, role: 'system' }];
     for (const turn of history) {
       messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
     }
     this.appendClientContext(messages, input);
     messages.push({ content: input.prompt, role: 'user' });
 
+    this.fitMessagesToContext(messages, connection);
     const planCompletion = await provider.chat(messages, [], chatOptions);
     this.accumulateUsage(usage, planCompletion);
 
@@ -437,9 +449,10 @@ export class CoreAiService {
       actions.push(action);
       results.push({ name: action.name, result: action.result, success: action.success });
     }
-    messages.push({ content: `TOOL_RESULTS:\n${JSON.stringify(results)}`, role: 'user' });
+    messages.push({ content: `TOOL_RESULTS:\n${this.capToolResults(JSON.stringify(results))}`, role: 'user' });
 
     // 5. Final summary call.
+    this.fitMessagesToContext(messages, connection);
     const finalCompletion = await provider.chat(messages, [], chatOptions);
     this.accumulateUsage(usage, finalCompletion);
     const finalParsed = this.extractJsonObject(finalCompletion.text);
@@ -744,7 +757,18 @@ export class CoreAiService {
     const tool = availableTools.find((t) => t.name === call.name);
     if (!tool) {
       action.success = false;
-      action.result = { error: `Unknown or not permitted tool: ${call.name}` };
+      action.result = {
+        error: {
+          code: 'TOOL_NOT_AVAILABLE',
+          hint: 'Only call tools from the listed available set; this one is unknown or not permitted for the current user.',
+          message: `Unknown or not permitted tool: ${call.name}`,
+        },
+      };
+      void this.recordSignal({
+        content: `The tool "${call.name}" is not available to this user — do not attempt to call it.`,
+        scope: call.name,
+        trigger: 'tool_not_available',
+      });
       return action;
     }
 
@@ -752,17 +776,46 @@ export class CoreAiService {
       const raw = await tool.execute(call.arguments ?? {}, context);
       let success = true;
       let payload: unknown = raw;
+      let message: string | undefined;
       if (raw && typeof raw === 'object' && 'success' in (raw as AiToolResult)) {
         const toolResult = raw as AiToolResult;
         success = toolResult.success !== false;
+        message = toolResult.message;
         payload = toolResult.data ?? toolResult.message ?? toolResult;
       }
       action.success = success;
-      action.result = this.sanitizeResult(payload, context.currentUser);
+      if (success) {
+        action.result = this.sanitizeResult(payload, context.currentUser);
+      } else {
+        // Surface a structured error the model can act on, and learn from it.
+        action.result = {
+          error: {
+            code: 'TOOL_FAILED',
+            hint: 'Check the arguments and retry, or explain the issue to the user.',
+            message: message || 'The tool reported a failure.',
+          },
+        };
+        void this.recordSignal({
+          content: `When calling "${call.name}", a previous attempt failed (${message || 'tool reported failure'}). Verify the arguments before retrying.`,
+          scope: call.name,
+          trigger: 'tool_error',
+        });
+      }
     } catch (err) {
       this.logger.warn(`AI tool "${call.name}" failed: ${(err as Error).message}`);
       action.success = false;
-      action.result = { error: (err as Error).message };
+      action.result = {
+        error: {
+          code: 'TOOL_EXCEPTION',
+          hint: 'The tool threw an error. Re-check the arguments and retry if sensible, otherwise inform the user.',
+          message: (err as Error).message,
+        },
+      };
+      void this.recordSignal({
+        content: `Calling "${call.name}" threw: ${(err as Error).message}. Validate arguments against the tool's parameter schema before retrying.`,
+        scope: call.name,
+        trigger: 'tool_exception',
+      });
     }
     return action;
   }
@@ -856,6 +909,81 @@ export class CoreAiService {
       }
     }
     return null;
+  }
+
+  /**
+   * Estimate the token count of a text. Rough heuristic (~4 chars/token); override
+   * to plug in a real tokenizer for the configured model.
+   */
+  protected estimateTokens(text: string): number {
+    return Math.ceil((text?.length ?? 0) / 4);
+  }
+
+  /**
+   * Input-token budget for a run: the model's context window minus a reserve for the
+   * response and a safety margin. Falls back to `ai.contextWindow` (default 8192).
+   */
+  protected contextBudget(connection: ResolvedAiConnection): number {
+    const window = connection.contextWindow ?? ConfigService.get<number>('ai.contextWindow') ?? 8192;
+    const reserve = connection.defaultMaxTokens ?? 2048;
+    const margin = 256;
+    return Math.max(512, window - reserve - margin);
+  }
+
+  /**
+   * Keep the assembled session messages within the model's context window. Operates
+   * per user/session: the system prompt (index 0) and the most recent message (the
+   * current user/tool input) are always preserved; the OLDEST session-history turns
+   * are dropped first, and as a last resort the largest remaining message is
+   * truncated. Mutates `messages` in place.
+   */
+  protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection): void {
+    if (messages.length === 0) {
+      return;
+    }
+    const budget = this.contextBudget(connection);
+    const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
+    let dropped = 0;
+    // Drop oldest non-system, non-last messages until within budget.
+    while (total() > budget && messages.length > 2) {
+      messages.splice(1, 1);
+      dropped++;
+    }
+    if (dropped > 0) {
+      this.logger.debug(`Context window: trimmed ${dropped} oldest session message(s) to fit ${budget} tokens`);
+    }
+    // Last resort: truncate the most recent message if it alone still overflows.
+    if (total() > budget) {
+      const last = messages[messages.length - 1];
+      const overflow = total() - budget;
+      const keepChars = Math.max(0, last.content.length - overflow * 4);
+      if (keepChars < last.content.length) {
+        last.content = `${last.content.slice(0, keepChars)}\n…[truncated to fit the context window]`;
+      }
+    }
+  }
+
+  /**
+   * Cap the size of a serialized tool-results payload fed back to the model so a
+   * single large result cannot blow the context window.
+   */
+  protected capToolResults(serialized: string): string {
+    const max = ConfigService.get<number>('ai.maxToolResultChars') ?? 12_000;
+    return serialized.length > max
+      ? `${serialized.slice(0, max)}\n…[tool result truncated to ${max} characters]`
+      : serialized;
+  }
+
+  /**
+   * Forward a failure signal to the governed learning loop (best-effort). No-op when
+   * no hint service is wired (e.g. unit tests) or learning is disabled by config.
+   */
+  protected async recordSignal(signal: AiPromptFeedbackSignal): Promise<void> {
+    try {
+      await this.hintService?.recordSignal(signal);
+    } catch {
+      // Learning must never break a prompt run.
+    }
   }
 
   /**

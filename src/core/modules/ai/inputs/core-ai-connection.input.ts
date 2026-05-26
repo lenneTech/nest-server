@@ -67,6 +67,14 @@ export class CoreAiConnectionInput {
   })
   defaultMaxTokens?: number = undefined;
 
+  @UnifiedField({
+    description: 'Total context window (tokens) the model supports; enables context-overflow handling',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Number,
+  })
+  contextWindow?: number = undefined;
+
   /**
    * Default sampling temperature for completions.
    */

@@ -13,6 +13,9 @@ export interface ResolvedAiConnection {
   /** Base URL of the OpenAI-compatible endpoint (e.g. 'https://llm.example.com/v1'). */
   baseUrl: string;
 
+  /** Total context window (input + output tokens) the model supports, if known. */
+  contextWindow?: number;
+
   /** Default maximum number of tokens for completions. */
   defaultMaxTokens?: number;
 

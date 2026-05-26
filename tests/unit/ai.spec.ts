@@ -130,10 +130,10 @@ describe('AiToolRegistry', () => {
 });
 
 describe('CoreAiPromptBuilderService (enrichment)', () => {
-  it('enriches the system prompt with the user permissions, tools and documentation', () => {
+  it('enriches the system prompt with the user permissions, tools and documentation', async () => {
     new ConfigService({ ai: { documentation: 'DOC-MARKER-123', systemPrompt: 'BASE-PROMPT' } } as any);
     const builder = new CoreAiPromptBuilderService();
-    const prompt = builder.buildSystemPrompt([makeTool('do_thing', [RoleEnum.S_USER])], false, {
+    const prompt = await builder.buildSystemPrompt([makeTool('do_thing', [RoleEnum.S_USER])], false, {
       id: 'u1',
       roles: ['admin', 'editor'],
     });
@@ -142,6 +142,93 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     expect(prompt).toContain('admin');
     expect(prompt).toContain('editor');
     expect(prompt).toContain('do_thing');
+  });
+
+  it('includes anti-hallucination + error guidance and renders the tool catalog', async () => {
+    new ConfigService({ ai: {} } as any);
+    const builder = new CoreAiPromptBuilderService();
+    const prompt = await builder.buildSystemPrompt([makeTool('count_users', [RoleEnum.S_USER])], false, {
+      id: 'u1',
+      roles: [],
+    });
+    expect(prompt).toMatch(/NEVER invent|guess/i);
+    expect(prompt).toContain('count_users');
+    expect(prompt).toMatch(/success.*false|error/i);
+    expect(prompt).toContain('{"final"');
+  });
+
+  it('omits tool protocol when the user has no tools', async () => {
+    new ConfigService({ ai: {} } as any);
+    const builder = new CoreAiPromptBuilderService();
+    const prompt = await builder.buildSystemPrompt([], false, { id: 'u1', roles: [] });
+    expect(prompt).not.toContain('tool_calls');
+    expect(prompt).toContain('available tools (you may ONLY use these): none');
+  });
+
+  it('applies admin template overrides and injects approved learned hints', async () => {
+    new ConfigService({ ai: {} } as any);
+    const fakeTemplates = {
+      resolveFragments: async () => [
+        { content: 'OVERRIDDEN-BASE-XYZ', key: 'base', order: 10 },
+        { content: 'Learned guidance:\n{{learnedHints}}', key: 'learned_hints', order: 80 },
+      ],
+    } as any;
+    const fakeHints = { approvedHints: async () => ['Always double-check ids before acting.'] } as any;
+    const builder = new CoreAiPromptBuilderService(fakeTemplates, fakeHints);
+    const prompt = await builder.buildSystemPrompt([], false, { id: 'u1', roles: [] });
+    expect(prompt).toContain('OVERRIDDEN-BASE-XYZ');
+    expect(prompt).toContain('Always double-check ids before acting.');
+  });
+});
+
+describe('CoreAiService context-window handling (per user/session)', () => {
+  class Exposed extends CoreAiService {
+    cap(s: string) {
+      return this.capToolResults(s);
+    }
+    fit(messages: any, conn: any) {
+      return this.fitMessagesToContext(messages, conn);
+    }
+  }
+  function make() {
+    return new Exposed(
+      { resolve: async () => ({}) } as any,
+      new LlmProviderFactory(),
+      new AiToolRegistry(),
+      new CoreAiPromptBuilderService(),
+    );
+  }
+
+  it('trims oldest session turns to fit the context window, keeping system + current', () => {
+    new ConfigService({ ai: {} } as any);
+    const messages = [
+      { content: 'SYSTEM-PROMPT', role: 'system' },
+      { content: 'X'.repeat(4000), role: 'user' },
+      { content: 'Y'.repeat(4000), role: 'assistant' },
+      { content: 'CURRENT-PROMPT', role: 'user' },
+    ];
+    make().fit(messages, { contextWindow: 1000, defaultMaxTokens: 100 } as any);
+    expect(messages[0].content).toBe('SYSTEM-PROMPT');
+    expect(messages[messages.length - 1].content).toBe('CURRENT-PROMPT');
+    expect(messages.length).toBeLessThan(4);
+  });
+
+  it('truncates the most recent message when it alone overflows', () => {
+    new ConfigService({ ai: {} } as any);
+    const messages = [
+      { content: 'SYSTEM', role: 'system' },
+      { content: 'Z'.repeat(40_000), role: 'user' },
+    ];
+    make().fit(messages, { contextWindow: 1000, defaultMaxTokens: 100 } as any);
+    expect(messages[1].content).toContain('truncated');
+    expect(messages[1].content.length).toBeLessThan(40_000);
+  });
+
+  it('caps an oversized tool-results payload', () => {
+    new ConfigService({ ai: { maxToolResultChars: 100 } } as any);
+    const capped = make().cap('Z'.repeat(500));
+    expect(capped.length).toBeLessThan(500);
+    expect(capped).toContain('truncated');
   });
 });
 

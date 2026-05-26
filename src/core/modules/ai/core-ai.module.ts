@@ -11,6 +11,8 @@ import { AiConnectionPreferenceSchema, CoreAiConnectionPreference } from './mode
 import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
+import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
+import { AiPromptTemplateSchema, CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import { AiCryptoService } from './services/ai-crypto.service';
 import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, CoreAiBudgetService } from './services/core-ai-budget.service';
@@ -36,6 +38,16 @@ import {
   CoreAiInteractionService,
 } from './services/core-ai-interaction.service';
 import { CoreAiPromptBuilderService } from './services/core-ai-prompt-builder.service';
+import {
+  AI_PROMPT_HINT_CLASS,
+  AI_PROMPT_HINT_MODEL,
+  CoreAiPromptHintService,
+} from './services/core-ai-prompt-hint.service';
+import {
+  AI_PROMPT_TEMPLATE_CLASS,
+  AI_PROMPT_TEMPLATE_MODEL,
+  CoreAiPromptTemplateService,
+} from './services/core-ai-prompt-template.service';
 import { CoreAiService } from './services/core-ai.service';
 import { AiToolRegistry } from './tools/ai-tool.registry';
 
@@ -71,6 +83,12 @@ export interface CoreAiModuleOptions {
 
   /** Custom prompt builder (extends CoreAiPromptBuilderService). */
   promptBuilder?: Type<CoreAiPromptBuilderService>;
+
+  /** Custom learned-hint service / learning loop (extends CoreAiPromptHintService). */
+  promptHintService?: Type<CoreAiPromptHintService>;
+
+  /** Custom prompt-template store (extends CoreAiPromptTemplateService). */
+  promptTemplateService?: Type<CoreAiPromptTemplateService>;
 
   /** Custom GraphQL resolver (extends CoreAiResolver). */
   resolver?: Type<CoreAiResolver>;
@@ -111,6 +129,8 @@ export class CoreAiModule {
     const InteractionServiceClass = options.interactionService || CoreAiInteractionService;
     const PreferenceServiceClass = options.preferenceService || CoreAiConnectionPreferenceService;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
+    const PromptHintServiceClass = options.promptHintService || CoreAiPromptHintService;
+    const PromptTemplateServiceClass = options.promptTemplateService || CoreAiPromptTemplateService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
 
@@ -134,6 +154,8 @@ export class CoreAiModule {
         CoreAiMcpOAuthService,
         CoreAiMcpService,
         CoreAiPromptBuilderService,
+        CoreAiPromptHintService,
+        CoreAiPromptTemplateService,
         CoreAiService,
         LlmProviderFactory,
         MongooseModule,
@@ -145,6 +167,8 @@ export class CoreAiModule {
           { name: AI_CONNECTION_PREFERENCE_MODEL, schema: AiConnectionPreferenceSchema },
           { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
+          { name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
+          { name: AI_PROMPT_TEMPLATE_MODEL, schema: AiPromptTemplateSchema },
         ]),
       ],
       module: CoreAiModule,
@@ -157,6 +181,8 @@ export class CoreAiModule {
         { provide: AI_CONNECTION_PREFERENCE_CLASS, useValue: CoreAiConnectionPreference },
         { provide: AI_CONVERSATION_CLASS, useValue: CoreAiConversation },
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
+        { provide: AI_PROMPT_HINT_CLASS, useValue: CoreAiPromptHint },
+        { provide: AI_PROMPT_TEMPLATE_CLASS, useValue: CoreAiPromptTemplate },
         { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
@@ -168,6 +194,8 @@ export class CoreAiModule {
         { provide: CoreAiConnectionResolverService, useClass: ConnectionResolverClass },
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
         { provide: CoreAiPromptBuilderService, useClass: PromptBuilderClass },
+        { provide: CoreAiPromptHintService, useClass: PromptHintServiceClass },
+        { provide: CoreAiPromptTemplateService, useClass: PromptTemplateServiceClass },
         { provide: CoreAiService, useClass: ServiceClass },
         ResolverClass,
       ],
