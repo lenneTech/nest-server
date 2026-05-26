@@ -10,7 +10,10 @@ import { AiToolRegistry } from '../tools/ai-tool.registry';
  * test double / lightweight wrapper.
  */
 export interface McpLikeClient {
-  callTool(req: { arguments?: Record<string, any>; name: string }): Promise<{ content?: { text?: string; type?: string }[]; isError?: boolean }>;
+  callTool(req: {
+    arguments?: Record<string, any>;
+    name: string;
+  }): Promise<{ content?: { text?: string; type?: string }[]; isError?: boolean }>;
   close?(): Promise<void> | void;
   listTools(): Promise<{ tools: { description?: string; inputSchema?: any; name: string }[] }>;
 }
@@ -81,7 +84,9 @@ export class CoreAiMcpClientService {
     }
     this.registered.set(config.name, { client: config.client, toolNames: registered });
     if (registered.length) {
-      this.logger.log(`Registered ${registered.length} tool(s) from MCP client "${config.name}": ${registered.join(', ')}`);
+      this.logger.log(
+        `Registered ${registered.length} tool(s) from MCP client "${config.name}": ${registered.join(', ')}`,
+      );
     }
     return registered;
   }
