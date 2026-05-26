@@ -236,7 +236,10 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     const table: [number, string[]][] = [
       [1_000_000, ['gemini-1.5', 'gemini-2']],
       [200_000, ['claude']],
-      [128_000, ['gpt-4o', 'gpt-4.1', 'gpt-4-turbo', 'o1', 'o3', 'gpt-oss', 'mistral-large', 'mistral-small3', 'command-r']],
+      [
+        128_000,
+        ['gpt-4o', 'gpt-4.1', 'gpt-4-turbo', 'o1', 'o3', 'gpt-oss', 'mistral-large', 'mistral-small3', 'command-r'],
+      ],
       [131_072, ['qwen2.5', 'qwen3', 'llama-3.1', 'llama3.1', 'llama-3.3', 'llama3.3']],
       [65_536, ['mixtral']],
       [32_768, ['qwen2', 'mistral', 'gemma2', 'gemma-2']],
