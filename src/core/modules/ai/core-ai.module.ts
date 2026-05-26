@@ -62,6 +62,7 @@ import {
   CoreAiToolPolicyService,
 } from './services/core-ai-tool-policy.service';
 import { AI_MODE_CLASS, AI_MODE_MODEL, CoreAiModeService } from './services/core-ai-mode.service';
+import { CoreAiMcpClientService } from './services/core-ai-mcp-client.service';
 import { CoreAiService } from './services/core-ai.service';
 import { AiHookRegistry } from './hooks/ai-hook.registry';
 import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
@@ -121,6 +122,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom named-mode store (extends CoreAiModeService). */
   modeService?: Type<CoreAiModeService>;
+
+  /** Custom MCP-client wiring (extends CoreAiMcpClientService). */
+  mcpClientService?: Type<CoreAiMcpClientService>;
 }
 
 /**
@@ -162,6 +166,7 @@ export class CoreAiModule {
     const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
     const ToolPolicyServiceClass = options.toolPolicyService || CoreAiToolPolicyService;
     const ModeServiceClass = options.modeService || CoreAiModeService;
+    const McpClientServiceClass = options.mcpClientService || CoreAiMcpClientService;
 
     // Register the MCP controller only when enabled (it lazy-loads the MCP SDK).
     const controllers: Type<any>[] = [ControllerClass];
@@ -190,6 +195,7 @@ export class CoreAiModule {
         CoreAiToolGrantService,
         CoreAiToolPolicyService,
         CoreAiModeService,
+        CoreAiMcpClientService,
         LlmProviderFactory,
         MongooseModule,
       ],
@@ -242,6 +248,7 @@ export class CoreAiModule {
         { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },
         { provide: CoreAiToolPolicyService, useClass: ToolPolicyServiceClass },
         { provide: CoreAiModeService, useClass: ModeServiceClass },
+        { provide: CoreAiMcpClientService, useClass: McpClientServiceClass },
         ResolverClass,
       ],
     };

@@ -54,6 +54,7 @@ export * from './services/core-ai-prompt-builder.service';
 export * from './services/core-ai-prompt-hint.service';
 export * from './services/core-ai-prompt-template.service';
 export * from './services/core-ai-tool-grant.service';
+export * from './services/core-ai-mcp-client.service';
 export * from './services/core-ai-mode.service';
 export * from './services/core-ai-tool-policy.service';
 export * from './services/core-ai.service';

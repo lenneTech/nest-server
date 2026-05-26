@@ -944,6 +944,44 @@ describe('CoreAiService (emulated tool calling)', () => {
     expect(response.pendingActions?.[0]).toMatchObject({ name: 'create_x' });
   });
 
+  it('MCP-Client: external MCP-server tools are registered with namespaced names and dispatch back to callTool', async () => {
+    const { CoreAiMcpClientService } = await import(
+      '../../src/core/modules/ai/services/core-ai-mcp-client.service'
+    );
+    new ConfigService({ ai: {} } as any);
+    // Fake MCP-like client: ducks-typed listTools + callTool.
+    let calledWith: any = null;
+    const fakeMcp = {
+      listTools: async () => ({
+        tools: [
+          {
+            description: 'Search the local filesystem',
+            inputSchema: { properties: { query: { type: 'string' } }, required: ['query'], type: 'object' },
+            name: 'fs_search',
+          },
+        ],
+      }),
+      callTool: async (req: any) => {
+        calledWith = req;
+        return { content: [{ text: JSON.stringify({ hits: 3 }), type: 'text' }] };
+      },
+    };
+    const registry = new AiToolRegistry();
+    const svc = new CoreAiMcpClientService(registry);
+    await svc.registerExternalClient({ client: fakeMcp as any, name: 'localfs' });
+
+    const tools = registry.all();
+    expect(tools.map((t) => t.name)).toContain('localfs_fs_search');
+    const tool = tools.find((t) => t.name === 'localfs_fs_search')!;
+    expect(tool.description).toBe('Search the local filesystem');
+    expect(tool.parameters).toEqual(expect.objectContaining({ properties: { query: { type: 'string' } } }));
+
+    // Execute through our wrapper — it should call back to the MCP client.
+    const result: any = await tool.execute({ query: 'foo' }, { currentUser: { id: 'u1', roles: ['admin'] } } as any);
+    expect(calledWith).toEqual({ arguments: { query: 'foo' }, name: 'fs_search' });
+    expect(result?.success).toBe(true);
+  });
+
   it('multi-modal: input.attachments are forwarded to the provider on the user message', async () => {
     new ConfigService({ ai: {} } as any);
     const registry = new AiToolRegistry();
