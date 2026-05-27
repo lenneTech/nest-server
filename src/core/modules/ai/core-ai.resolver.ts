@@ -14,6 +14,8 @@ import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptHintCreateInput } from './inputs/core-ai-prompt-hint-create.input';
 import { CoreAiPromptHintInput } from './inputs/core-ai-prompt-hint.input';
+import { CoreAiPromptSnippetCreateInput } from './inputs/core-ai-prompt-snippet-create.input';
+import { CoreAiPromptSnippetInput } from './inputs/core-ai-prompt-snippet.input';
 import { CoreAiPromptTemplateCreateInput } from './inputs/core-ai-prompt-template-create.input';
 import { CoreAiPromptTemplateInput } from './inputs/core-ai-prompt-template.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
@@ -24,6 +26,7 @@ import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
+import { CoreAiPromptSnippet } from './models/core-ai-prompt-snippet.model';
 import { CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
@@ -34,6 +37,7 @@ import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service';
+import { CoreAiPromptSnippetService } from './services/core-ai-prompt-snippet.service';
 import { CoreAiPromptTemplateService } from './services/core-ai-prompt-template.service';
 import { CoreAiService } from './services/core-ai.service';
 
@@ -60,6 +64,7 @@ export class CoreAiResolver {
     protected readonly preferenceService: CoreAiConnectionPreferenceService,
     protected readonly promptTemplateService: CoreAiPromptTemplateService,
     protected readonly promptHintService: CoreAiPromptHintService,
+    protected readonly promptSnippetService: CoreAiPromptSnippetService,
   ) {}
 
   // ===================================================================================================================
@@ -471,5 +476,47 @@ export class CoreAiResolver {
     @Args('input') input: CoreAiPromptHintInput,
   ): Promise<CoreAiPromptHint> {
     return this.promptHintService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptHintInput });
+  }
+
+  // ===================================================================================================================
+  // User-facing prompt snippets ("Vorlagen") — own / tenant / global
+  // ===================================================================================================================
+
+  /** List prompt snippets visible to the current user (own + tenant + global). */
+  @Query(() => [CoreAiPromptSnippet], { description: 'List AI prompt snippets visible to the current user' })
+  @Roles(RoleEnum.S_USER)
+  async findAiPromptSnippets(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPromptSnippet[]> {
+    return this.promptSnippetService.listVisible(serviceOptions);
+  }
+
+  /** Create a prompt snippet for the current user / tenant (global requires admin). */
+  @Mutation(() => CoreAiPromptSnippet, { description: 'Create an AI prompt snippet' })
+  @Roles(RoleEnum.S_USER)
+  async createAiPromptSnippet(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: CoreAiPromptSnippetCreateInput,
+  ): Promise<CoreAiPromptSnippet> {
+    return this.promptSnippetService.create(input, { ...serviceOptions, inputType: CoreAiPromptSnippetCreateInput });
+  }
+
+  /** Update a prompt snippet (owner only; admins via standard admin pipeline). */
+  @Mutation(() => CoreAiPromptSnippet, { description: 'Update an AI prompt snippet' })
+  @Roles(RoleEnum.S_USER)
+  async updateAiPromptSnippet(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+    @Args('input') input: CoreAiPromptSnippetInput,
+  ): Promise<CoreAiPromptSnippet> {
+    return this.promptSnippetService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptSnippetInput });
+  }
+
+  /** Delete a prompt snippet (owner only; admins via standard admin pipeline). */
+  @Mutation(() => CoreAiPromptSnippet, { description: 'Delete an AI prompt snippet' })
+  @Roles(RoleEnum.S_USER)
+  async deleteAiPromptSnippet(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiPromptSnippet> {
+    return this.promptSnippetService.delete(id, serviceOptions);
   }
 }

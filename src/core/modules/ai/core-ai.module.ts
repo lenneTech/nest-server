@@ -12,6 +12,7 @@ import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connectio
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
+import { AiPromptSnippetSchema, CoreAiPromptSnippet } from './models/core-ai-prompt-snippet.model';
 import { AiPromptTemplateSchema, CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
 import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model';
 import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model';
@@ -46,6 +47,11 @@ import {
   AI_PROMPT_HINT_MODEL,
   CoreAiPromptHintService,
 } from './services/core-ai-prompt-hint.service';
+import {
+  AI_PROMPT_SNIPPET_CLASS,
+  AI_PROMPT_SNIPPET_MODEL,
+  CoreAiPromptSnippetService,
+} from './services/core-ai-prompt-snippet.service';
 import {
   AI_PROMPT_TEMPLATE_CLASS,
   AI_PROMPT_TEMPLATE_MODEL,
@@ -105,6 +111,9 @@ export interface CoreAiModuleOptions {
   /** Custom learned-hint service / learning loop (extends CoreAiPromptHintService). */
   promptHintService?: Type<CoreAiPromptHintService>;
 
+  /** Custom user-facing prompt snippet store (extends CoreAiPromptSnippetService). */
+  promptSnippetService?: Type<CoreAiPromptSnippetService>;
+
   /** Custom prompt-template store (extends CoreAiPromptTemplateService). */
   promptTemplateService?: Type<CoreAiPromptTemplateService>;
 
@@ -160,6 +169,7 @@ export class CoreAiModule {
     const PreferenceServiceClass = options.preferenceService || CoreAiConnectionPreferenceService;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
     const PromptHintServiceClass = options.promptHintService || CoreAiPromptHintService;
+    const PromptSnippetServiceClass = options.promptSnippetService || CoreAiPromptSnippetService;
     const PromptTemplateServiceClass = options.promptTemplateService || CoreAiPromptTemplateService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
@@ -190,6 +200,7 @@ export class CoreAiModule {
         CoreAiMcpService,
         CoreAiPromptBuilderService,
         CoreAiPromptHintService,
+        CoreAiPromptSnippetService,
         CoreAiPromptTemplateService,
         CoreAiService,
         CoreAiToolGrantService,
@@ -207,6 +218,7 @@ export class CoreAiModule {
           { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
           { name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
+          { name: AI_PROMPT_SNIPPET_MODEL, schema: AiPromptSnippetSchema },
           { name: AI_PROMPT_TEMPLATE_MODEL, schema: AiPromptTemplateSchema },
           { name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
           { name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
@@ -227,6 +239,7 @@ export class CoreAiModule {
         { provide: AI_CONVERSATION_CLASS, useValue: CoreAiConversation },
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
         { provide: AI_PROMPT_HINT_CLASS, useValue: CoreAiPromptHint },
+        { provide: AI_PROMPT_SNIPPET_CLASS, useValue: CoreAiPromptSnippet },
         { provide: AI_PROMPT_TEMPLATE_CLASS, useValue: CoreAiPromptTemplate },
         { provide: AI_TOOL_GRANT_CLASS, useValue: CoreAiToolGrant },
         { provide: AI_TOOL_POLICY_CLASS, useValue: CoreAiToolPolicy },
@@ -243,6 +256,7 @@ export class CoreAiModule {
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
         { provide: CoreAiPromptBuilderService, useClass: PromptBuilderClass },
         { provide: CoreAiPromptHintService, useClass: PromptHintServiceClass },
+        { provide: CoreAiPromptSnippetService, useClass: PromptSnippetServiceClass },
         { provide: CoreAiPromptTemplateService, useClass: PromptTemplateServiceClass },
         { provide: CoreAiService, useClass: ServiceClass },
         { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },

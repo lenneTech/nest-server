@@ -12,6 +12,7 @@ import {
   CoreAiInteractionService,
   CoreAiPromptBuilderService,
   CoreAiPromptHintService,
+  CoreAiPromptSnippetService,
   CoreAiPromptTemplateService,
   CoreAiService,
   HttpExceptionLogFilter,
@@ -58,6 +59,7 @@ describe('AI module (e2e)', () => {
   let providerFactory: LlmProviderFactory;
   let promptTemplateService: CoreAiPromptTemplateService;
   let promptHintService: CoreAiPromptHintService;
+  let promptSnippetService: CoreAiPromptSnippetService;
 
   // HTTP-level auth (real BetterAuth users) for the security tests at the end.
   let testHelper: TestHelper;
@@ -108,6 +110,7 @@ describe('AI module (e2e)', () => {
     providerFactory = app.get(LlmProviderFactory);
     promptTemplateService = app.get(CoreAiPromptTemplateService);
     promptHintService = app.get(CoreAiPromptHintService);
+    promptSnippetService = app.get(CoreAiPromptSnippetService);
 
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = connection.db();
@@ -127,6 +130,7 @@ describe('AI module (e2e)', () => {
       await db.collection('aiBudgetLimits').deleteMany({});
       await db.collection('aiPromptTemplates').deleteMany({});
       await db.collection('aiPromptHints').deleteMany({});
+      await db.collection('aiPromptSnippets').deleteMany({});
       // Clean up the HTTP test users + their auth artifacts.
       const httpUsers = await db.collection('users').find({ email: { $in: [httpAdminEmail, httpRegularEmail] } }).toArray();
       const iamIds = httpUsers.map((u: any) => u.iamId).filter(Boolean);
@@ -796,5 +800,122 @@ describe('AI module (e2e)', () => {
     );
     expect(denied.errors).toBeDefined();
     expect(denied.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient|Unauthorized/i);
+  });
+
+  // ===================================================================================================================
+  // User-facing prompt snippets ("Vorlagen") — own / tenant / global visibility + owner-only mutations
+  // ===================================================================================================================
+
+  it('filters snippets per scope: own (any) + tenant (same tenant) + global (everyone)', async () => {
+    const tenantA = new ObjectId().toString();
+    const tenantB = new ObjectId().toString();
+    const alice = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantA] } as any;
+    const bob = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantA] } as any;
+    const carol = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantB] } as any;
+
+    const aliceUser = await promptSnippetService.create(
+      { content: 'A-private', name: `vis-A-user-${Date.now()}` } as any,
+      { currentUser: alice },
+    );
+    const aliceTenant = await promptSnippetService.create(
+      { content: 'A-tenant', name: `vis-A-tenant-${Date.now()}`, scope: 'tenant' } as any,
+      { currentUser: alice },
+    );
+    const adminGlobal = await promptSnippetService.create(
+      { content: 'global-A', name: `vis-global-${Date.now()}`, scope: 'global' } as any,
+      adminOptions,
+    );
+
+    const aliceVisible = await promptSnippetService.listVisible({ currentUser: alice });
+    const aliceIds = aliceVisible.map((s) => String(s.id || (s as any)._id));
+    expect(aliceIds).toEqual(expect.arrayContaining([aliceUser.id, aliceTenant.id, adminGlobal.id]));
+
+    const bobVisible = await promptSnippetService.listVisible({ currentUser: bob });
+    const bobIds = bobVisible.map((s) => String(s.id || (s as any)._id));
+    expect(bobIds).toEqual(expect.arrayContaining([aliceTenant.id, adminGlobal.id])); // tenant + global
+    expect(bobIds).not.toContain(aliceUser.id); // alice's private snippet is hidden
+
+    const carolVisible = await promptSnippetService.listVisible({ currentUser: carol });
+    const carolIds = carolVisible.map((s) => String(s.id || (s as any)._id));
+    expect(carolIds).toContain(adminGlobal.id);
+    expect(carolIds).not.toContain(aliceUser.id);
+    expect(carolIds).not.toContain(aliceTenant.id); // different tenant
+  });
+
+  it('rejects global snippet creation by non-admins and lets admins create one', async () => {
+    const regular = { id: new ObjectId().toString(), roles: [] } as any;
+    await expect(
+      promptSnippetService.create(
+        { content: 'should-fail', name: `forbid-global-${Date.now()}`, scope: 'global' } as any,
+        { currentUser: regular },
+      ),
+    ).rejects.toThrow(/admins/i);
+
+    const ok = await promptSnippetService.create(
+      { content: 'admin-global', name: `ok-global-${Date.now()}`, scope: 'global' } as any,
+      adminOptions,
+    );
+    expect(ok.scope).toBe('global');
+  });
+
+  it('refuses tenant snippets when the user has no tenant context', async () => {
+    const noTenant = { id: new ObjectId().toString(), roles: [] } as any;
+    await expect(
+      promptSnippetService.create(
+        { content: 'no-tenant', name: `forbid-no-tenant-${Date.now()}`, scope: 'tenant' } as any,
+        { currentUser: noTenant },
+      ),
+    ).rejects.toThrow(/tenant/i);
+  });
+
+  it('only the owner can update/delete a snippet (non-owner is forbidden)', async () => {
+    const owner = { id: new ObjectId().toString(), roles: [] } as any;
+    const stranger = { id: new ObjectId().toString(), roles: [] } as any;
+    const snippet = await promptSnippetService.create(
+      { content: 'own-only', name: `owner-only-${Date.now()}` } as any,
+      { currentUser: owner },
+    );
+
+    await expect(
+      promptSnippetService.update(snippet.id, { content: 'hacked' } as any, { currentUser: stranger }),
+    ).rejects.toThrow(/owner|denied|forbidden/i);
+    await expect(
+      promptSnippetService.delete(snippet.id, { currentUser: stranger }),
+    ).rejects.toThrow(/owner|denied|forbidden/i);
+
+    const updated = await promptSnippetService.update(
+      snippet.id,
+      { content: 'updated-by-owner' } as any,
+      { currentUser: owner },
+    );
+    expect(updated.content).toBe('updated-by-owner');
+  });
+
+  it('exposes snippet endpoints to authenticated users (REST list + GraphQL) and rejects anonymous calls', async () => {
+    // Anonymous call → 401/403 on REST and an error on GraphQL.
+    const anon = await request(app.getHttpServer()).get('/ai/snippets');
+    expect([401, 403]).toContain(anon.status);
+
+    // Authenticated REST list works (default scope filters apply; at minimum returns an array).
+    const restList = await request(app.getHttpServer())
+      .get('/ai/snippets')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .expect(200);
+    expect(Array.isArray(restList.body)).toBe(true);
+
+    // GraphQL listVisible is available to any authenticated user (S_USER).
+    const gql = await testHelper.graphQl(
+      { fields: ['id', 'name', 'scope'], name: 'findAiPromptSnippets', type: TestGraphQLType.QUERY },
+      { token: httpRegularToken },
+    );
+    expect(Array.isArray(gql)).toBe(true);
+
+    // Anonymous GraphQL call → permission error.
+    const denied = await testHelper.graphQl({
+      fields: ['id', 'name'],
+      name: 'findAiPromptSnippets',
+      type: TestGraphQLType.QUERY,
+    });
+    expect(denied.errors).toBeDefined();
   });
 });
