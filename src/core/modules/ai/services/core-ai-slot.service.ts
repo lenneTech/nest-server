@@ -180,12 +180,26 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
   }
 
   /**
-   * Create a slot for the current tenant. `tenantId` is set system-side
-   * from the calling admin — it's NEVER taken from the client input.
+   * Create or replace a slot for the current tenant. `tenantId` is set
+   * system-side from the calling admin — it's NEVER taken from the client
+   * input. **Idempotent by `(tenantId, key)`:** if an existing row for the
+   * same tenant + key is found, it's UPDATED in place instead of creating
+   * a duplicate. This makes "Override anlegen" / "Deaktivieren" safely
+   * repeatable in the admin UI without leaking orphan rows.
    */
   override async create(input: CoreAiSlotCreateInput, serviceOptions: ServiceOptions = {}): Promise<CoreAiSlot> {
     this.assertAdmin(serviceOptions);
     const tenantId = this.tenantOf(serviceOptions);
+    if (input?.key) {
+      const existing = await this.mainDbModel
+        .findOne({ key: input.key, tenantId: tenantId ?? { $in: [null, undefined] } })
+        .lean<CoreAiSlot>()
+        .exec();
+      if (existing?.id || (existing as any)?._id) {
+        const existingId = String(existing?.id || (existing as any)?._id);
+        return super.update(existingId, input as any, serviceOptions);
+      }
+    }
     const created = await super.create(input as any, serviceOptions);
     await this.mainDbModel.updateOne({ _id: created.id }, { $set: { tenantId } }).exec();
     return this.get(created.id, serviceOptions);
@@ -415,10 +429,14 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
     return [...byKey.values()].filter((f) => f.content?.trim()).sort((a, b) => a.order - b.order);
   }
 
-  /** Throws when the slot at `id` doesn't belong to the calling admin's tenant. */
+  /**
+   * Throws when the slot at `id` doesn't belong to the calling admin's tenant.
+   * Projects to `tenantId` only — cheaper than loading the full document just
+   * to compare tenant ownership.
+   */
   protected async assertSameTenant(id: string, serviceOptions: ServiceOptions): Promise<void> {
     const tenantId = this.tenantOf(serviceOptions);
-    const row = await this.mainDbModel.findById(id).lean<CoreAiSlot>().exec();
+    const row = await this.mainDbModel.findById(id, { tenantId: 1 }).lean<{ tenantId?: string }>().exec();
     if (!row) {
       throw new ForbiddenException(`Slot ${id} not found.`);
     }

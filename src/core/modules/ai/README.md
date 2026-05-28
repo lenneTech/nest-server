@@ -260,20 +260,22 @@ the supported way to customize a core tool.
 Every collaborator can be replaced with a project subclass via
 `CoreModule.forRoot(envConfig, { ai: { … } })`:
 
-| Override                | Base class                                                       |
-| ----------------------- | ---------------------------------------------------------------- |
-| `service`               | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)   |
-| `promptBuilder`         | `CoreAiPromptBuilderService` (system prompt, RAG)                |
-| `connectionService`     | `CoreAiConnectionService`                                        |
-| `connectionResolver`    | `CoreAiConnectionResolverService` (resolution chain)             |
-| `preferenceService`     | `CoreAiConnectionPreferenceService` (tenant/user preferences)    |
-| `budgetService`         | `CoreAiBudgetService` (token/prompt budgets + usage)             |
-| `conversationService`   | `CoreAiConversationService` (multi-turn history)                 |
-| `interactionService`    | `CoreAiInteractionService` (audit records)                       |
-| `promptTemplateService` | `CoreAiPromptTemplateService` (editable prompt fragments)        |
-| `promptHintService`     | `CoreAiPromptHintService` (governed learning loop)               |
-| `resolver`              | `CoreAiResolver` (re-declare GraphQL decorators when overriding) |
-| `controller`            | `CoreAiController`                                               |
+| Override              | Base class                                                        |
+| --------------------- | ----------------------------------------------------------------- |
+| `service`             | `CoreAiService` (orchestrator, prompt loop, rate-limit, audit)    |
+| `promptBuilder`       | `CoreAiPromptBuilderService` (system prompt, RAG)                 |
+| `connectionService`   | `CoreAiConnectionService`                                         |
+| `connectionResolver`  | `CoreAiConnectionResolverService` (resolution chain)              |
+| `preferenceService`   | `CoreAiConnectionPreferenceService` (tenant/user preferences)     |
+| `budgetService`       | `CoreAiBudgetService` (token/prompt budgets + usage)              |
+| `conversationService` | `CoreAiConversationService` (multi-turn history)                  |
+| `interactionService`  | `CoreAiInteractionService` (audit records)                        |
+| `slotService`         | `CoreAiSlotService` (admin slots — system-prompt building blocks) |
+| `promptService`       | `CoreAiPromptService` (user re-usable prompts / "Vorlagen")       |
+| `promptHintService`   | `CoreAiPromptHintService` (governed learning loop)                |
+| `placeholderRegistry` | `CoreAiPlaceholderRegistry` (runtime `{{placeholder}}` registry)  |
+| `resolver`            | `CoreAiResolver` (re-declare GraphQL decorators when overriding)  |
+| `controller`          | `CoreAiController`                                                |
 
 Add a new LLM backend by registering a builder on `LlmProviderFactory`:
 
@@ -344,15 +346,36 @@ anti-hallucination + output contract, and the emulated tool protocol when needed
 prompt text is **transparent and editable** — there are no hard-coded, inaccessible
 prompt strings.
 
-**Editable templates (`aiPromptTemplates`, admin CRUD).** The builder ships sensible
-built-in defaults for every slot (`defaultFragments()`), so the module works with zero
-rows. A row here **overrides** the default for its `key` (logical slot, e.g. `base`,
+**Editable slots (`aiSlots`, admin CRUD, tenant-scoped).** The builder ships sensible
+built-in defaults for every slot (`getSystemDefaultSlots()`), so the module works with
+zero rows. A row here **overrides** the default for its `key` (logical slot, e.g. `base`,
 `permissions`, `anti_hallucination`, `output_contract`, `tool_protocol_emulated`),
-optionally scoped by `locale` and `capability` (`all` / `native` / `emulated`). Content
-may use `{{placeholders}}` (`{{roles}}`, `{{tools}}`, `{{toolCatalog}}`,
-`{{documentation}}`, `{{learnedHints}}`, `{{userId}}`) rendered at build time. Manage via
-`createAiPromptTemplate` / `findAiPromptTemplates` / … (GraphQL) or `/ai/prompt-templates`
-(REST) — all `@Roles(ADMIN)`.
+optionally scoped by `locale` and `capability` (`all` / `native` / `emulated`). When
+multi-tenancy is active, overrides apply only to the admin's tenant; without multi-tenancy
+they are effectively system-wide. `create()` is idempotent on `(tenantId, key)` — a second
+"override" of the same system slot UPDATES the existing row instead of inserting a
+duplicate. Content may use `{{placeholders}}` (resolved via the placeholder registry —
+see below) rendered at build time. Manage via `createAiSlot` / `findAiSlots` / … (GraphQL)
+or `/ai/slots` (REST), with admin-friendly extras: `GET /ai/slots/effective` returns the
+combined view (framework defaults + tenant overrides + custom slots with `isSystem` /
+`isOverride` flags) and `POST /ai/slots/:id/reset` deletes an override → the framework
+default applies again.
+
+**Placeholder registry (`CoreAiPlaceholderRegistry`).** Tokens like `{{userId}}`,
+`{{roles}}`, `{{tools}}`, `{{toolCatalog}}`, `{{documentation}}`, `{{learnedHints}}` are
+resolved at run time by a registry. The framework registers six defaults at boot; projects
+add their own via `register({ name, description, resolve })` from any provider. The
+current list is served via `GET /ai/placeholders` (S*USER), so any admin/editor UI can
+render an up-to-date sidebar without hard-coded names in the frontend. **User-prompt
+placeholders** (in user prompts coming from `aiPrompt` / SSE) are ALSO resolved before
+the LLM sees them — a stored user prompt template like *"Erkläre dem Nutzer mit ID
+`{{userId}}` …"\_ gets the real value substituted at run time. Unknown tokens are left
+untouched so plain text with curly braces survives.
+
+**User-facing prompts (`aiPrompts`).** Re-usable short user prompts ("Vorlagen") that
+each user authors for themselves (`scope: 'user'` — private) or for the whole tenant
+(`scope: 'tenant'` — public). Inserted into the chat input by a picker. Mutations are
+owner-only.
 
 **Governed learning loop (`aiPromptHints`, admin CRUD).** When the orchestrator hits a
 recurring failure (tool not available, tool error/exception), it records a learned
@@ -376,8 +399,8 @@ ai: {
 }
 ```
 
-Both stores are fully overridable per project via `CoreModule.forRoot(env, { ai: {
-promptTemplateService, promptHintService, promptBuilder } })`.
+All stores are fully overridable per project via `CoreModule.forRoot(env, { ai: {
+slotService, promptService, promptHintService, promptBuilder, placeholderRegistry } })`.
 
 ## Context window (per user/session, auto-detected)
 

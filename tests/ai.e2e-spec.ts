@@ -961,6 +961,21 @@ describe('AI module (e2e)', () => {
     expect(baseReset.id).toBeUndefined();
   });
 
+  it('createSlot is idempotent on (tenantId, key): a second "override" updates the existing row instead of duplicating', async () => {
+    await db.collection('aiSlots').deleteMany({});
+    const first = await slotService.create({ content: 'first-override', key: 'base' } as any, adminOptions);
+    const second = await slotService.create({ content: 'second-override', key: 'base' } as any, adminOptions);
+
+    // Same id → same row was updated, not a duplicate inserted.
+    expect(second.id).toBe(first.id);
+    expect(second.content).toBe('second-override');
+
+    // DB confirms a single row exists for that (tenantId, key).
+    const all = await db.collection('aiSlots').find({ key: 'base' }).toArray();
+    expect(all).toHaveLength(1);
+    expect(all[0].content).toBe('second-override');
+  });
+
   it('non-admins cannot read or write slots (S_USER → ForbiddenException)', async () => {
     const regular = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(slotService.listEffective({ currentUser: regular })).rejects.toThrow(/admin/i);
@@ -990,6 +1005,69 @@ describe('AI module (e2e)', () => {
     expect(res.body.length).toBeGreaterThanOrEqual(6);
     expect(res.body[0]).toHaveProperty('name');
     expect(res.body[0]).toHaveProperty('description');
+  });
+
+  it('user-prompt placeholders are resolved before the LLM sees them', async () => {
+    // Capture the prompt the orchestrator forwards to the provider so we can verify
+    // the placeholder substitution happened.
+    const seenPrompts: string[] = [];
+    providerFactory.registerBuilder('fake-e2e', () => ({
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
+      chat: async (msgs: LlmMessage[]) => {
+        seenPrompts.push((msgs.find((m) => m.role === 'user')?.content as string) || '');
+        return {
+          text: JSON.stringify({ final: 'ok' }),
+          usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+        } as LlmResponse;
+      },
+      name: 'fake-e2e',
+    }));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'PH-Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const targetUserId = new ObjectId().toString();
+    try {
+      await aiService.prompt(
+        { prompt: 'Hallo Nutzer {{userId}} mit Rollen {{roles}}.' } as any,
+        { currentUser: { id: targetUserId, roles: ['admin'] } },
+      );
+      expect(seenPrompts.length).toBeGreaterThan(0);
+      expect(seenPrompts[0]).toContain(targetUserId);
+      expect(seenPrompts[0]).toContain('admin');
+      expect(seenPrompts[0]).not.toContain('{{userId}}');
+      expect(seenPrompts[0]).not.toContain('{{roles}}');
+    } finally {
+      await connectionService.delete(conn.id, adminOptions);
+    }
+  });
+
+  it('user-prompt placeholders: unknown tokens are left untouched (no accidental drop)', async () => {
+    const seenPrompts: string[] = [];
+    providerFactory.registerBuilder('fake-e2e', () => ({
+      capabilities: { jsonResponse: false, nativeTools: false, systemPrompt: true },
+      chat: async (msgs: LlmMessage[]) => {
+        seenPrompts.push((msgs.find((m) => m.role === 'user')?.content as string) || '');
+        return {
+          text: JSON.stringify({ final: 'ok' }),
+          usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+        } as LlmResponse;
+      },
+      name: 'fake-e2e',
+    }));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'PH-Conn-2', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    try {
+      await aiService.prompt(
+        { prompt: 'Plain text with {{notARegisteredPlaceholder}} in it.' } as any,
+        { currentUser: { id: 'u', roles: [] } },
+      );
+      expect(seenPrompts[0]).toContain('{{notARegisteredPlaceholder}}');
+    } finally {
+      await connectionService.delete(conn.id, adminOptions);
+    }
   });
 
   it('project placeholders are honored: register, list, resolve', async () => {

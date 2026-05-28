@@ -21,6 +21,7 @@ import { CoreAiConnectionResolverService } from './core-ai-connection-resolver.s
 import { CoreAiConnectionService } from './core-ai-connection.service';
 import { CoreAiConversationService } from './core-ai-conversation.service';
 import { CoreAiInteractionService } from './core-ai-interaction.service';
+import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry';
 import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
 import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
 import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
@@ -111,22 +112,63 @@ export class CoreAiService {
     @Optional() protected readonly hookRegistry?: AiHookRegistry,
     @Optional() protected readonly toolPolicyService?: CoreAiToolPolicyService,
     @Optional() protected readonly modeService?: CoreAiModeService,
+    @Optional() protected readonly placeholderRegistry?: CoreAiPlaceholderRegistry,
   ) {}
 
   /**
    * Run a prompt and return a structured response. Dispatches to plan or auto mode.
+   *
+   * User-prompt placeholders (`{{userId}}`, `{{roles}}`, …) are resolved BEFORE
+   * the LLM sees them — so a stored user prompt template like "Erkläre dem
+   * Nutzer mit ID `{{userId}}` …" gets the real value substituted at run time.
+   * Unknown tokens are left as-is so plain text with curly braces survives.
    */
   async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
-    const run = await this.prepareRun(input, serviceOptions);
+    const resolvedInput = await this.resolvePromptPlaceholders(input, serviceOptions);
+    const run = await this.prepareRun(resolvedInput, serviceOptions);
     // No usable connection → AI handling is effectively disabled.
     if (!run) {
-      return this.unavailableResponse(input, serviceOptions?.language);
+      return this.unavailableResponse(resolvedInput, serviceOptions?.language);
     }
-    const response = mode === 'plan' ? await this.runPlan(input, run) : await this.runAuto(input, run);
+    const response = mode === 'plan' ? await this.runPlan(resolvedInput, run) : await this.runAuto(resolvedInput, run);
     // Attach the compact token-budget summary after the run was recorded.
     await this.attachBudgetSummary(response, run);
     return response;
+  }
+
+  /**
+   * Resolve `{{placeholder}}` tokens in the user's prompt text via the
+   * runtime placeholder registry. Returns the input untouched when no
+   * registry is wired or when the prompt has no curly-brace tokens.
+   *
+   * Resolution context only carries the current user (tools aren't resolved
+   * yet at this point — they're rate-limited / role-filtered later in
+   * prepareRun); placeholders that need tool context (`{{toolCatalog}}` etc.)
+   * yield their empty fallback here, which matches what they'd evaluate to
+   * for a prompt-only run anyway.
+   */
+  protected async resolvePromptPlaceholders(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+  ): Promise<CoreAiPromptInput> {
+    if (!this.placeholderRegistry || !input?.prompt || !input.prompt.includes('{{')) {
+      return input;
+    }
+    try {
+      const values = await this.placeholderRegistry.resolveAll({
+        tools: [],
+        toolCatalog: '',
+        user: serviceOptions?.currentUser,
+      });
+      const rendered = input.prompt.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>
+        values[key] != null && values[key] !== '' ? values[key] : match,
+      );
+      return rendered === input.prompt ? input : { ...input, prompt: rendered };
+    } catch (err) {
+      this.logger.warn(`User-prompt placeholder resolution failed: ${(err as Error).message}`);
+      return input;
+    }
   }
 
   /**

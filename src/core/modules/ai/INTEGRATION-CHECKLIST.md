@@ -121,11 +121,21 @@ ai: {
   runs it for every step before executing anything.
 - **Confirmation:** mark create/update/delete tools `mutating: true` and irreversible ones
   `destructive: true`.
-- **Self-optimizing prompts:** the system prompt is built from editable, keyed fragments —
-  admins customize any slot via `aiPromptTemplates` (`/ai/prompt-templates`) and review the
+- **Self-optimizing prompts:** the system prompt is built from editable, keyed slots —
+  admins customize any slot via `aiSlots` (`/ai/slots`, tenant-scoped) and review the
   learned hints the system records on tool failures via `aiPromptHints` (`/ai/prompt-hints`).
   Both are `@Roles(ADMIN)`; build an admin UI with the `useLtAiAdmin` composable
-  (`listPromptTemplates` / `listPromptHints` / …). Hints never relax permissions.
+  (`listEffectiveSlots` returns framework defaults + tenant overrides + custom slots with
+  `isSystem`/`isOverride` flags; `resetSlot` undoes an override). Hints never relax
+  permissions.
+- **User prompts ("Vorlagen"):** users author re-usable short prompts for themselves
+  (private) or their tenant (public) via `aiPrompts` (`/ai/prompts`, `useLtAiPrompts`).
+  Inserted into the chat input by a picker.
+- **Placeholders:** `{{placeholder}}` tokens in both system slots AND user prompts are
+  resolved at run time by `CoreAiPlaceholderRegistry`. The current list is served via
+  `GET /ai/placeholders` (`useLtAiPlaceholders`) — your slot/prompt editors should render
+  it dynamically so project-added placeholders show up without a frontend change. Register
+  project-specific placeholders via `placeholderRegistry.register({ name, description, resolve })`.
 - **Context window:** detected automatically per connection and persisted; no setup needed.
   Override per connection (`contextWindow`) or globally (`ai.contextWindow`) if a backend
   isn't recognized.
