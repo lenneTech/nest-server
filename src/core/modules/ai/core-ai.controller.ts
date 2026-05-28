@@ -36,6 +36,7 @@ import { CoreAiConnectionResolverService } from './services/core-ai-connection-r
 import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
+import { CoreAiPlaceholderRegistry } from './services/core-ai-placeholder.registry';
 import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service';
 import { CoreAiPromptService } from './services/core-ai-prompt.service';
 import { CoreAiSlotService } from './services/core-ai-slot.service';
@@ -63,6 +64,7 @@ export class CoreAiController {
     protected readonly slotService: CoreAiSlotService,
     protected readonly promptHintService: CoreAiPromptHintService,
     protected readonly promptService: CoreAiPromptService,
+    protected readonly placeholderRegistry: CoreAiPlaceholderRegistry,
   ) {}
 
   /**
@@ -384,17 +386,47 @@ export class CoreAiController {
   }
 
   // ===================================================================================================================
-  // Prompt templates (admin-editable prompt building blocks)
+  // Placeholders — runtime registry, available to any signed-in user (for slot/prompt editors)
   // ===================================================================================================================
 
-  /** Find prompt template fragments (admin). */
+  /** List every registered placeholder with its name + description (for slot/prompt editors). */
+  @Get('placeholders')
+  @Roles(RoleEnum.S_USER)
+  async listPlaceholders(): Promise<unknown[]> {
+    return this.placeholderRegistry.list();
+  }
+
+  // ===================================================================================================================
+  // Slots — admin-editable system-prompt building blocks (tenant-scoped)
+  // ===================================================================================================================
+
+  /**
+   * Effective slots for the admin UI — framework defaults + tenant overrides + tenant customs.
+   * Each entry carries `isSystem` / `isOverride` flags so the UI can render the correct action.
+   * NOTE: this route comes BEFORE `:id` parameter routes so Express matches it literally.
+   */
+  @Get('slots/effective')
+  @Roles(RoleEnum.ADMIN)
+  async listEffectiveSlots(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<unknown[]> {
+    return this.slotService.listEffective(serviceOptions);
+  }
+
+  /** Reset a system-slot override (deletes the row → framework default applies again). */
+  @Post('slots/:id/reset')
+  @Roles(RoleEnum.ADMIN)
+  async resetSlot(@RESTServiceOptions() serviceOptions: ServiceOptions, @Param('id') id: string): Promise<boolean> {
+    await this.slotService.resetSystemSlot(id, serviceOptions);
+    return true;
+  }
+
+  /** Find slots stored for the current tenant (admin). Custom + override rows only — system defaults are virtual. */
   @Get('slots')
   @Roles(RoleEnum.ADMIN)
   async findSlots(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiSlot[]> {
     return this.slotService.find({}, serviceOptions);
   }
 
-  /** Create a prompt template fragment (admin). */
+  /** Create a tenant slot (admin). Use the system-default `key` to override a default. */
   @Post('slots')
   @Roles(RoleEnum.ADMIN)
   async createSlot(
@@ -404,7 +436,7 @@ export class CoreAiController {
     return this.slotService.create(input, { ...serviceOptions, inputType: CoreAiSlotCreateInput });
   }
 
-  /** Update a prompt template fragment (admin). */
+  /** Update a tenant slot (admin). Slot must belong to the calling admin's tenant. */
   @Put('slots/:id')
   @Roles(RoleEnum.ADMIN)
   async updateSlot(
@@ -415,7 +447,7 @@ export class CoreAiController {
     return this.slotService.update(id, input, { ...serviceOptions, inputType: CoreAiSlotUpdateInput });
   }
 
-  /** Delete a prompt template fragment (admin). */
+  /** Delete a tenant slot (admin). Real delete; custom slots cannot be restored. */
   @Delete('slots/:id')
   @Roles(RoleEnum.ADMIN)
   async deleteSlot(@RESTServiceOptions() serviceOptions: ServiceOptions, @Param('id') id: string): Promise<CoreAiSlot> {

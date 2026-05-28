@@ -1,8 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { RoleEnum } from '../../../common/enums/role.enum';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { CrudService } from '../../../common/services/crud.service';
+import { RequestContext } from '../../../common/services/request-context.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
 import { CoreAiSlotCreateInput } from '../inputs/core-ai-slot-create.input';
 import { CoreAiSlotUpdateInput } from '../inputs/core-ai-slot-update.input';
@@ -24,17 +27,150 @@ export interface ResolvedPromptFragment {
 }
 
 /**
- * Admin-editable store of system-prompt building blocks. Ships built-in defaults for
- * every {@link CoreAiSlotService.defaultFragments} key, so the prompt works
- * with zero DB rows; a stored row **overrides** the default for its key (optionally
- * scoped by `locale`/`capability`). This keeps the whole prompt transparent and
- * adjustable — by admins and the governed learning loop — rather than hard-coded.
+ * A slot row enriched with system/override metadata, returned by
+ * {@link CoreAiSlotService.listEffective} for the admin UI:
  *
- * Override this class via `CoreModule.forRoot(env, { ai: { slotService } })`
- * to ship different defaults or composition rules.
+ * - `isSystem: true` rows are framework defaults (no DB row) — virtual entries
+ *   that exist purely so the UI can render them and let admins override.
+ * - `isSystem: false` + `isOverride: true` rows override a system default for
+ *   the current tenant (admin edited an existing system slot).
+ * - `isSystem: false` + `isOverride: false` rows are custom tenant-only slots
+ *   (admin created a new key that isn't a system default).
+ *
+ * `id` is missing on virtual system rows; UI shows "Bearbeiten" → creates an
+ * override; "Zurücksetzen" deletes the override row; "Löschen" on a system
+ * row creates a disabled override (soft-delete for that tenant);
+ * "Wiederherstellen" deletes the disabled override; "Löschen" on a custom
+ * row is a real delete.
+ */
+export interface EffectiveSlot extends ResolvedPromptFragment {
+  capability?: string;
+  description?: string;
+  enabled: boolean;
+  id?: string;
+  /** True when a tenant-specific row overrides a system default. */
+  isOverride: boolean;
+  /** True for built-in framework defaults (no DB row). */
+  isSystem: boolean;
+  locale?: string;
+  /** Key matching a built-in system default — only set on override rows. */
+  systemKey?: string;
+  tenantId?: string;
+}
+
+/**
+ * Built-in framework default slots. Returned by {@link getSystemDefaultSlots};
+ * the prompt builder + slot service both consume them. Extracted to a module
+ * function so neither service has to depend on the other.
+ *
+ * Override via `ai.systemPrompt` (replaces the `base` slot content) or by
+ * subclassing {@link CoreAiPromptBuilderService}.
+ */
+export function getSystemDefaultSlots(baseSystemPrompt?: string): ResolvedPromptFragment[] {
+  const base =
+    baseSystemPrompt ||
+    'You are a helpful assistant integrated into a business application. ' +
+      'Answer concisely and only use information you can obtain through the provided tools. ' +
+      'Never invent data. If a request cannot be fulfilled with the available tools, say so.';
+  return [
+    { content: base, key: 'base', order: 10 },
+    { content: 'System documentation:\n{{documentation}}', key: 'documentation', order: 20 },
+    {
+      content:
+        'Your permissions and capabilities:\n' +
+        '- roles: {{roles}}\n' +
+        '- available tools (you may ONLY use these): {{tools}}\n' +
+        'Never claim to perform an action you have no tool for, and never assume rights you do not have. ' +
+        'Tools are executed with the current user permissions; the backend rejects anything beyond them.',
+      key: 'permissions',
+      order: 30,
+    },
+    {
+      content:
+        'Accuracy rules — follow strictly:\n' +
+        '- NEVER invent, guess or assume data (ids, names, emails, numbers, dates, statuses).\n' +
+        '- Use a tool to obtain any fact you are unsure about.\n' +
+        "- If no available tool can provide the needed information, tell the user you don't have it " +
+        'instead of fabricating an answer.\n' +
+        '- Only report a value you actually received from a tool result.',
+      key: 'anti_hallucination',
+      order: 40,
+    },
+    {
+      capability: 'native',
+      content:
+        'You can call the provided tools (native function calling). Available tools:\n{{toolCatalog}}\n' +
+        'Call a tool whenever it is needed to obtain data or perform an action.',
+      key: 'tool_catalog',
+      order: 50,
+    },
+    {
+      capability: 'emulated',
+      content:
+        'You can call backend tools to fetch or modify data. Available tools:\n{{toolCatalog}}\n\n' +
+        'To call tools, respond with ONLY a JSON object (no prose, no markdown code fences):\n' +
+        '{"tool_calls":[{"name":"<tool_name>","arguments":{ ... }}]}\n' +
+        'You may request multiple tools at once. After emitting tool_calls, STOP and output nothing ' +
+        'else — do NOT write the results yourself. The system will send the real results back in a ' +
+        'message starting with "TOOL_RESULTS:"; only then continue.\n\n' +
+        'CRITICAL: To perform any action you MUST emit a tool_calls request and wait for its ' +
+        'TOOL_RESULTS. Never state in a final answer that you executed, performed, deleted, updated, ' +
+        'or created anything unless you actually called the matching tool and received its results. ' +
+        'If you have not called the tool yet, call it — do not claim success.',
+      key: 'tool_protocol_emulated',
+      order: 50,
+    },
+    {
+      content:
+        'PLAN MODE: Do NOT execute anything. Available tools:\n{{toolCatalog}}\n\n' +
+        'Respond with ONLY a JSON object describing the COMPLETE ordered plan of tool calls needed to ' +
+        'fulfil the request:\n' +
+        '{"plan":[{"name":"<tool_name>","arguments":{ ... }}],"summary":"<short summary>"}\n' +
+        'List every required step in order. If no tools are needed, return an empty plan array. ' +
+        'Reply with valid JSON only — no prose, no markdown code fences.',
+      key: 'plan_protocol',
+      order: 55,
+    },
+    {
+      capability: 'emulated',
+      content:
+        'When you have the final answer for the user, respond with ONLY a JSON object:\n' +
+        '{"final":"<your natural language answer>","data": <optional structured data or null>}\n' +
+        'Never mix tool_calls and final in the same response. Always reply with valid JSON only.',
+      key: 'output_contract',
+      order: 60,
+    },
+    {
+      content:
+        'Tool error handling: a tool result with "success": false includes an "error" object ' +
+        '({ code, message, hint }). When that happens, do NOT pretend it worked. Read the hint, ' +
+        'correct your arguments and retry if it is sensible, otherwise clearly explain the problem to ' +
+        'the user in plain language.',
+      key: 'error_guidance',
+      order: 70,
+    },
+    { content: 'Learned guidance (avoid past mistakes):\n{{learnedHints}}', key: 'learned_hints', order: 80 },
+  ];
+}
+
+/**
+ * Tenant-scoped store of system-prompt slots. Ships built-in defaults via
+ * {@link getSystemDefaultSlots} so the prompt works with zero DB rows. An
+ * admin-stored row OVERRIDES the framework default for the same `key` within
+ * the admin's tenant; custom keys add additional slots for that tenant.
+ *
+ * Tenancy enforcement:
+ * - Every CRUD operation auto-sets / filters by the admin's tenant (via
+ *   `RequestContext.getTenantId()` or `serviceOptions.currentUser.tenantId`).
+ * - When multi-tenancy is OFF, `tenantId` stays undefined and slots are
+ *   effectively system-wide for that deployment.
+ *
+ * Override this class via `CoreModule.forRoot(env, { ai: { slotService } })`.
  */
 @Injectable()
 export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateInput, CoreAiSlotUpdateInput> {
+  protected readonly logger = new Logger(CoreAiSlotService.name);
+
   constructor(
     @InjectModel(AI_SLOT_MODEL) protected override readonly mainDbModel: Model<AiSlotDocument>,
     @Inject(AI_SLOT_CLASS)
@@ -44,14 +180,154 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
   }
 
   /**
-   * Resolve the effective, ordered prompt fragments for a run: the provided built-in
-   * defaults (owned by the prompt builder) overlaid by enabled DB rows (matched by
-   * key, honoring locale + capability + `scope`). Placeholders are NOT yet rendered —
-   * the prompt builder does that.
+   * Create a slot for the current tenant. `tenantId` is set system-side
+   * from the calling admin — it's NEVER taken from the client input.
+   */
+  override async create(input: CoreAiSlotCreateInput, serviceOptions: ServiceOptions = {}): Promise<CoreAiSlot> {
+    this.assertAdmin(serviceOptions);
+    const tenantId = this.tenantOf(serviceOptions);
+    const created = await super.create(input as any, serviceOptions);
+    await this.mainDbModel.updateOne({ _id: created.id }, { $set: { tenantId } }).exec();
+    return this.get(created.id, serviceOptions);
+  }
+
+  /**
+   * Update a slot. The slot must belong to the calling admin's tenant.
+   * `tenantId` is never overwritten from the client input.
+   */
+  override async update(
+    id: string,
+    input: CoreAiSlotUpdateInput,
+    serviceOptions: ServiceOptions = {},
+  ): Promise<CoreAiSlot> {
+    this.assertAdmin(serviceOptions);
+    await this.assertSameTenant(id, serviceOptions);
+    const sanitized: Record<string, unknown> = { ...input };
+    delete sanitized.tenantId;
+    return super.update(id, sanitized as any, serviceOptions);
+  }
+
+  /**
+   * Delete a slot. The slot must belong to the calling admin's tenant.
+   */
+  override async delete(id: string, serviceOptions: ServiceOptions = {}): Promise<CoreAiSlot> {
+    this.assertAdmin(serviceOptions);
+    await this.assertSameTenant(id, serviceOptions);
+    return super.delete(id, serviceOptions);
+  }
+
+  /**
+   * Effective slots for the admin UI: the framework defaults overlaid by the
+   * tenant's stored overrides + custom rows. Each entry carries
+   * `isSystem` / `isOverride` flags so the UI can render the right action
+   * (Bearbeiten / Zurücksetzen / Löschen / Wiederherstellen).
+   */
+  async listEffective(serviceOptions: ServiceOptions = {}): Promise<EffectiveSlot[]> {
+    this.assertAdmin(serviceOptions);
+    const tenantId = this.tenantOf(serviceOptions);
+    const defaults = getSystemDefaultSlots();
+    const defaultKeys = new Set(defaults.map((d) => d.key));
+
+    let rows: CoreAiSlot[] = [];
+    try {
+      rows = await this.mainDbModel
+        .find(tenantId ? { tenantId } : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] })
+        .lean<CoreAiSlot[]>()
+        .exec();
+    } catch (err) {
+      this.logger.warn(`listEffective failed to load rows: ${(err as Error).message}`);
+      rows = [];
+    }
+    // Tenant-row index by `key` for quick lookup (one override per key — multiple
+    // rows with the same key just take the most-recent).
+    const byKey = new Map<string, CoreAiSlot>();
+    for (const row of rows) {
+      if (!row?.key) continue;
+      byKey.set(row.key, row);
+    }
+
+    const out: EffectiveSlot[] = [];
+    // 1. System defaults (with optional override applied)
+    for (const def of defaults) {
+      const override = byKey.get(def.key);
+      if (override) {
+        out.push({
+          capability: override.capability ?? def.capability,
+          content: override.content ?? def.content,
+          description: override.description,
+          enabled: override.enabled !== false,
+          id: override.id,
+          isOverride: true,
+          isSystem: false,
+          key: override.key,
+          locale: override.locale,
+          order: typeof override.order === 'number' ? override.order : def.order,
+          scope: override.scope ?? def.scope,
+          systemKey: def.key,
+          tenantId: override.tenantId,
+        });
+      } else {
+        out.push({
+          capability: def.capability,
+          content: def.content,
+          enabled: true,
+          isOverride: false,
+          isSystem: true,
+          key: def.key,
+          order: def.order,
+          scope: def.scope,
+        });
+      }
+    }
+    // 2. Custom tenant slots (keys NOT in the framework defaults)
+    for (const row of rows) {
+      if (!row?.key || defaultKeys.has(row.key)) continue;
+      out.push({
+        capability: row.capability,
+        content: row.content,
+        description: row.description,
+        enabled: row.enabled !== false,
+        id: row.id,
+        isOverride: false,
+        isSystem: false,
+        key: row.key,
+        locale: row.locale,
+        order: typeof row.order === 'number' ? row.order : 100,
+        scope: row.scope,
+        tenantId: row.tenantId,
+      });
+    }
+    return out.sort((a, b) => a.order - b.order);
+  }
+
+  /**
+   * Reset a tenant override: delete the row that overrides a system default,
+   * restoring the framework value. The slot must (a) belong to the tenant
+   * and (b) match a system-default `key` — calling this on a custom slot
+   * is rejected (use {@link delete} for that).
+   */
+  async resetSystemSlot(id: string, serviceOptions: ServiceOptions = {}): Promise<void> {
+    this.assertAdmin(serviceOptions);
+    await this.assertSameTenant(id, serviceOptions);
+    const row = await this.mainDbModel.findById(id).lean<CoreAiSlot>().exec();
+    if (!row) {
+      throw new ForbiddenException(`Slot ${id} not found.`);
+    }
+    const systemKeys = new Set(getSystemDefaultSlots().map((d) => d.key));
+    if (!systemKeys.has(row.key)) {
+      throw new ForbiddenException('Only system-slot overrides can be reset. Use delete for custom slots.');
+    }
+    await this.mainDbModel.deleteOne({ _id: id }).exec();
+  }
+
+  /**
+   * Resolve the effective, ordered prompt fragments for a run: the built-in
+   * defaults overlaid by the current tenant's DB rows (key match, honoring
+   * locale + capability + `scope`). Placeholders are NOT yet rendered — the
+   * prompt builder does that.
    *
-   * `scopes` is the set of active run scopes (e.g. `['tool:get_user', 'role:admin',
-   * 'mode:support']`); a fragment whose `scope` is set must match at least one of them.
-   * Fragments without a scope always apply.
+   * Tenant: pulled from `RequestContext.getTenantId()`. When undefined (no
+   * multi-tenancy active), only rows without `tenantId` apply.
    */
   async resolveFragments(
     defaults: ResolvedPromptFragment[],
@@ -60,6 +336,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
     const capability = options?.capability ?? 'all';
     const locale = options?.locale;
     const scopes = options?.scopes ?? [];
+    const tenantId = RequestContext.getTenantId();
 
     // Start from the built-in defaults keyed by their slot.
     const byKey = new Map<string, ResolvedPromptFragment>();
@@ -69,17 +346,34 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
       }
     }
 
-    // Overlay DB rows (enabled only). A locale-specific row beats a generic one; a
-    // scoped row that matches beats a generic one (both are "more specific").
+    // Overlay DB rows (enabled only, current tenant only).
     let rows: CoreAiSlot[] = [];
     try {
+      const tenantFilter = tenantId
+        ? { tenantId: String(tenantId) }
+        : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] };
       rows = await this.mainDbModel
-        .find({ enabled: { $ne: false } })
+        .find({ enabled: { $ne: false }, ...tenantFilter })
         .lean<CoreAiSlot[]>()
         .exec();
     } catch {
       rows = [];
     }
+    // Also consider disabled overrides of system keys: they HIDE the default
+    // for this tenant ("soft delete" the system slot).
+    let disabled: CoreAiSlot[] = [];
+    try {
+      const tenantFilter = tenantId
+        ? { tenantId: String(tenantId) }
+        : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] };
+      disabled = await this.mainDbModel
+        .find({ enabled: false, ...tenantFilter })
+        .lean<CoreAiSlot[]>()
+        .exec();
+    } catch {
+      disabled = [];
+    }
+
     const rank = (row: CoreAiSlot): number =>
       (row.locale && row.locale === locale ? 2 : row.locale ? 0 : 1) + (row.scope ? 4 : 0);
     const chosen = new Map<string, { rank: number; row: CoreAiSlot }>();
@@ -111,12 +405,40 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
         scope: row.scope,
       });
     }
+    // Soft-deleted system slots: remove them from the result for this tenant.
+    for (const row of disabled) {
+      if (row?.key && byKey.has(row.key)) {
+        byKey.delete(row.key);
+      }
+    }
 
     return [...byKey.values()].filter((f) => f.content?.trim()).sort((a, b) => a.order - b.order);
   }
 
+  /** Throws when the slot at `id` doesn't belong to the calling admin's tenant. */
+  protected async assertSameTenant(id: string, serviceOptions: ServiceOptions): Promise<void> {
+    const tenantId = this.tenantOf(serviceOptions);
+    const row = await this.mainDbModel.findById(id).lean<CoreAiSlot>().exec();
+    if (!row) {
+      throw new ForbiddenException(`Slot ${id} not found.`);
+    }
+    const rowTenant = row.tenantId ? String(row.tenantId) : undefined;
+    const callerTenant = tenantId ? String(tenantId) : undefined;
+    if (rowTenant !== callerTenant) {
+      throw new ForbiddenException('Slot belongs to a different tenant.');
+    }
+  }
+
+  /** Throws when the caller is not an admin. */
+  protected assertAdmin(serviceOptions: ServiceOptions): void {
+    const roles = serviceOptions?.currentUser?.roles || [];
+    if (!roles.includes(RoleEnum.ADMIN)) {
+      throw new ForbiddenException('Slot management requires admin role.');
+    }
+  }
+
   /**
-   * Whether a fragment's capability scope applies to the run's capability.
+   * Whether a slot's capability scope applies to the run's capability.
    * `undefined`/`'all'` always applies; otherwise must match exactly.
    */
   protected fragmentApplies(fragmentCapability: string | undefined, runCapability: string): boolean {
@@ -127,14 +449,22 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
   }
 
   /**
-   * Whether a fragment's `scope` filter applies to the run's active scopes.
-   * Empty/undefined scope always applies; otherwise the fragment scope must equal one
-   * of the active run scopes (exact-match — patterns are not supported here).
+   * Whether a slot's `scope` filter applies to the run's active scopes.
+   * Empty/undefined scope always applies; otherwise the slot scope must equal
+   * one of the active run scopes (exact-match — no patterns).
    */
   protected scopeApplies(fragmentScope: string | undefined, runScopes: string[]): boolean {
     if (!fragmentScope) {
       return true;
     }
     return runScopes.includes(fragmentScope);
+  }
+
+  /** Tenant id of the calling user (request context or user object). */
+  protected tenantOf(serviceOptions: ServiceOptions): string | undefined {
+    const ctx = RequestContext.getTenantId();
+    if (ctx) return String(ctx);
+    const user = serviceOptions?.currentUser as any;
+    return user?.tenantId || user?.currentTenantId || user?.tenantIds?.[0];
   }
 }

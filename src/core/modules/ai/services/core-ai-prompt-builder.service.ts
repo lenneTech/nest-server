@@ -3,8 +3,9 @@ import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '../../../common/services/config.service';
 import { IAiTool } from '../interfaces/ai-tool.interface';
 import { LlmToolSchema } from '../interfaces/llm-provider.interface';
+import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry';
 import { CoreAiPromptHintService } from './core-ai-prompt-hint.service';
-import { CoreAiSlotService, ResolvedPromptFragment } from './core-ai-slot.service';
+import { CoreAiSlotService, getSystemDefaultSlots, ResolvedPromptFragment } from './core-ai-slot.service';
 
 /** Options for a prompt build (locale for template/hint selection). */
 export interface BuildPromptOptions {
@@ -43,6 +44,7 @@ export class CoreAiPromptBuilderService {
   constructor(
     @Optional() protected readonly templateService?: CoreAiSlotService,
     @Optional() protected readonly hintService?: CoreAiPromptHintService,
+    @Optional() protected readonly placeholderRegistry?: CoreAiPlaceholderRegistry,
   ) {}
 
   /**
@@ -104,86 +106,7 @@ export class CoreAiPromptBuilderService {
    * via {@link CoreAiSlotService}).
    */
   protected defaultFragments(): ResolvedPromptFragment[] {
-    const base = ConfigService.get<string>('ai.systemPrompt') || this.defaultSystemPrompt;
-    return [
-      { content: base, key: 'base', order: 10 },
-      { content: 'System documentation:\n{{documentation}}', key: 'documentation', order: 20 },
-      {
-        content:
-          'Your permissions and capabilities:\n' +
-          '- roles: {{roles}}\n' +
-          '- available tools (you may ONLY use these): {{tools}}\n' +
-          'Never claim to perform an action you have no tool for, and never assume rights you do not have. ' +
-          'Tools are executed with the current user permissions; the backend rejects anything beyond them.',
-        key: 'permissions',
-        order: 30,
-      },
-      {
-        content:
-          'Accuracy rules — follow strictly:\n' +
-          '- NEVER invent, guess or assume data (ids, names, emails, numbers, dates, statuses).\n' +
-          '- Use a tool to obtain any fact you are unsure about.\n' +
-          "- If no available tool can provide the needed information, tell the user you don't have it " +
-          'instead of fabricating an answer.\n' +
-          '- Only report a value you actually received from a tool result.',
-        key: 'anti_hallucination',
-        order: 40,
-      },
-      {
-        capability: 'native',
-        content:
-          'You can call the provided tools (native function calling). Available tools:\n{{toolCatalog}}\n' +
-          'Call a tool whenever it is needed to obtain data or perform an action.',
-        key: 'tool_catalog',
-        order: 50,
-      },
-      {
-        capability: 'emulated',
-        content:
-          'You can call backend tools to fetch or modify data. Available tools:\n{{toolCatalog}}\n\n' +
-          'To call tools, respond with ONLY a JSON object (no prose, no markdown code fences):\n' +
-          '{"tool_calls":[{"name":"<tool_name>","arguments":{ ... }}]}\n' +
-          'You may request multiple tools at once. After emitting tool_calls, STOP and output nothing ' +
-          'else — do NOT write the results yourself. The system will send the real results back in a ' +
-          'message starting with "TOOL_RESULTS:"; only then continue.\n\n' +
-          'CRITICAL: To perform any action you MUST emit a tool_calls request and wait for its ' +
-          'TOOL_RESULTS. Never state in a final answer that you executed, performed, deleted, updated, ' +
-          'or created anything unless you actually called the matching tool and received its results. ' +
-          'If you have not called the tool yet, call it — do not claim success.',
-        key: 'tool_protocol_emulated',
-        order: 50,
-      },
-      {
-        content:
-          'PLAN MODE: Do NOT execute anything. Available tools:\n{{toolCatalog}}\n\n' +
-          'Respond with ONLY a JSON object describing the COMPLETE ordered plan of tool calls needed to ' +
-          'fulfil the request:\n' +
-          '{"plan":[{"name":"<tool_name>","arguments":{ ... }}],"summary":"<short summary>"}\n' +
-          'List every required step in order. If no tools are needed, return an empty plan array. ' +
-          'Reply with valid JSON only — no prose, no markdown code fences.',
-        key: 'plan_protocol',
-        order: 55,
-      },
-      {
-        capability: 'emulated',
-        content:
-          'When you have the final answer for the user, respond with ONLY a JSON object:\n' +
-          '{"final":"<your natural language answer>","data": <optional structured data or null>}\n' +
-          'Never mix tool_calls and final in the same response. Always reply with valid JSON only.',
-        key: 'output_contract',
-        order: 60,
-      },
-      {
-        content:
-          'Tool error handling: a tool result with "success": false includes an "error" object ' +
-          '({ code, message, hint }). When that happens, do NOT pretend it worked. Read the hint, ' +
-          'correct your arguments and retry if it is sensible, otherwise clearly explain the problem to ' +
-          'the user in plain language.',
-        key: 'error_guidance',
-        order: 70,
-      },
-      { content: 'Learned guidance (avoid past mistakes):\n{{learnedHints}}', key: 'learned_hints', order: 80 },
-    ];
+    return getSystemDefaultSlots(ConfigService.get<string>('ai.systemPrompt') || this.defaultSystemPrompt);
   }
 
   /**
@@ -239,12 +162,15 @@ export class CoreAiPromptBuilderService {
     return scopes;
   }
 
-  /** Compute placeholder values for the run. */
+  /**
+   * Compute placeholder values for the run. Resolves via {@link CoreAiPlaceholderRegistry}
+   * when wired, so project-registered placeholders are honored automatically; falls
+   * back to a hard-coded record when no registry is available.
+   */
   protected async renderContext(
     tools: IAiTool[],
     user?: { id?: string; roles?: string[] },
   ): Promise<Record<string, string>> {
-    const learned = this.hintService ? await this.hintService.approvedHints(tools.map((t) => t.name)) : [];
     // Deferred tool-schemas (#13): with many tools the full JSON-Schema catalog can
     // dominate the system prompt. When `ai.deferToolSchemas` is on, the catalog
     // emits ONLY the tool names + short descriptions; the LLM uses the built-in
@@ -256,6 +182,13 @@ export class CoreAiPromptBuilderService {
       : tools
           .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
           .join('\n') || '(none)';
+
+    if (this.placeholderRegistry) {
+      return this.placeholderRegistry.resolveAll({ toolCatalog, tools, user });
+    }
+
+    // Fallback when the registry isn't wired (legacy / unit-test paths).
+    const learned = this.hintService ? await this.hintService.approvedHints(tools.map((t) => t.name)) : [];
     return {
       documentation: this.getDocumentation() || '',
       learnedHints: learned.length ? learned.map((h) => `- ${h}`).join('\n') : '',

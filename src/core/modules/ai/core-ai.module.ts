@@ -41,6 +41,7 @@ import {
   AI_INTERACTION_MODEL,
   CoreAiInteractionService,
 } from './services/core-ai-interaction.service';
+import { CoreAiPlaceholderRegistry } from './services/core-ai-placeholder.registry';
 import { CoreAiPromptBuilderService } from './services/core-ai-prompt-builder.service';
 import {
   AI_PROMPT_HINT_CLASS,
@@ -96,6 +97,9 @@ export interface CoreAiModuleOptions {
 
   /** Custom connection-preference service (extends CoreAiConnectionPreferenceService). */
   preferenceService?: Type<CoreAiConnectionPreferenceService>;
+
+  /** Custom placeholder registry (extends CoreAiPlaceholderRegistry). */
+  placeholderRegistry?: Type<CoreAiPlaceholderRegistry>;
 
   /** Custom prompt builder (extends CoreAiPromptBuilderService). */
   promptBuilder?: Type<CoreAiPromptBuilderService>;
@@ -159,6 +163,7 @@ export class CoreAiModule {
     const ConversationServiceClass = options.conversationService || CoreAiConversationService;
     const InteractionServiceClass = options.interactionService || CoreAiInteractionService;
     const PreferenceServiceClass = options.preferenceService || CoreAiConnectionPreferenceService;
+    const PlaceholderRegistryClass = options.placeholderRegistry || CoreAiPlaceholderRegistry;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
     const PromptHintServiceClass = options.promptHintService || CoreAiPromptHintService;
     const PromptServiceClass = options.promptService || CoreAiPromptService;
@@ -190,6 +195,7 @@ export class CoreAiModule {
         CoreAiInteractionService,
         CoreAiMcpOAuthService,
         CoreAiMcpService,
+        CoreAiPlaceholderRegistry,
         CoreAiPromptBuilderService,
         CoreAiPromptHintService,
         CoreAiPromptService,
@@ -246,6 +252,7 @@ export class CoreAiModule {
         { provide: CoreAiConnectionPreferenceService, useClass: PreferenceServiceClass },
         { provide: CoreAiConnectionResolverService, useClass: ConnectionResolverClass },
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
+        { provide: CoreAiPlaceholderRegistry, useClass: PlaceholderRegistryClass },
         { provide: CoreAiPromptBuilderService, useClass: PromptBuilderClass },
         { provide: CoreAiPromptHintService, useClass: PromptHintServiceClass },
         { provide: CoreAiPromptService, useClass: PromptServiceClass },

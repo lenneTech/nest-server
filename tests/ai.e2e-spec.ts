@@ -10,6 +10,7 @@ import {
   CoreAiConnectionService,
   CoreAiConversationService,
   CoreAiInteractionService,
+  CoreAiPlaceholderRegistry,
   CoreAiPromptBuilderService,
   CoreAiPromptHintService,
   CoreAiPromptService,
@@ -911,5 +912,101 @@ describe('AI module (e2e)', () => {
       type: TestGraphQLType.QUERY,
     });
     expect(denied.errors).toBeDefined();
+  });
+
+  // ===================================================================================================================
+  // Slots — tenant-scoping + listEffective + reset
+  // ===================================================================================================================
+
+  it('listEffective returns all built-in system defaults when the tenant has zero overrides', async () => {
+    await db.collection('aiSlots').deleteMany({});
+    const effective = await slotService.listEffective(adminOptions);
+    const keys = effective.map((e) => e.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'anti_hallucination',
+        'base',
+        'documentation',
+        'error_guidance',
+        'learned_hints',
+        'output_contract',
+        'permissions',
+        'plan_protocol',
+        'tool_catalog',
+        'tool_protocol_emulated',
+      ]),
+    );
+    const base = effective.find((e) => e.key === 'base')!;
+    expect(base.isSystem).toBe(true);
+    expect(base.isOverride).toBe(false);
+    expect(base.id).toBeUndefined();
+  });
+
+  it('an admin can override a system slot and reset it to the default', async () => {
+    await db.collection('aiSlots').deleteMany({});
+    const created = await slotService.create({ content: 'OVERRIDE-BASE-XYZ', key: 'base' } as any, adminOptions);
+    expect(created.id).toBeDefined();
+
+    const afterOverride = await slotService.listEffective(adminOptions);
+    const baseAfter = afterOverride.find((e) => e.key === 'base')!;
+    expect(baseAfter.isSystem).toBe(false);
+    expect(baseAfter.isOverride).toBe(true);
+    expect(baseAfter.content).toBe('OVERRIDE-BASE-XYZ');
+    expect(baseAfter.id).toBe(created.id);
+
+    await slotService.resetSystemSlot(created.id, adminOptions);
+    const afterReset = await slotService.listEffective(adminOptions);
+    const baseReset = afterReset.find((e) => e.key === 'base')!;
+    expect(baseReset.isSystem).toBe(true);
+    expect(baseReset.id).toBeUndefined();
+  });
+
+  it('non-admins cannot read or write slots (S_USER → ForbiddenException)', async () => {
+    const regular = { id: new ObjectId().toString(), roles: [] } as any;
+    await expect(slotService.listEffective({ currentUser: regular })).rejects.toThrow(/admin/i);
+    await expect(slotService.create({ content: 'x', key: 'base' } as any, { currentUser: regular })).rejects.toThrow(
+      /admin/i,
+    );
+  });
+
+  // ===================================================================================================================
+  // Placeholders — runtime registry
+  // ===================================================================================================================
+
+  it('lists the 6 built-in system placeholders via registry.list()', () => {
+    const registry = app.get(CoreAiPlaceholderRegistry);
+    const names = registry.list().map((p: any) => p.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['documentation', 'learnedHints', 'roles', 'toolCatalog', 'tools', 'userId']),
+    );
+  });
+
+  it('lets a non-admin user fetch the placeholders endpoint (REST)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/ai/placeholders')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .expect(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeGreaterThanOrEqual(6);
+    expect(res.body[0]).toHaveProperty('name');
+    expect(res.body[0]).toHaveProperty('description');
+  });
+
+  it('project placeholders are honored: register, list, resolve', async () => {
+    const registry = app.get(CoreAiPlaceholderRegistry);
+    registry.register({
+      description: 'Project-specific test placeholder.',
+      name: 'projectMarker',
+      resolve: () => 'PROJECT-MARKER-XYZ',
+    });
+    try {
+      const names = registry.list().map((p: any) => p.name);
+      expect(names).toContain('projectMarker');
+
+      const all = await registry.resolveAll({ tools: [], toolCatalog: '', user: { id: 'u', roles: [] } });
+      expect(all.projectMarker).toBe('PROJECT-MARKER-XYZ');
+    } finally {
+      registry.unregister('projectMarker');
+    }
   });
 });
