@@ -4,7 +4,7 @@ import { ConfigService } from '../../../common/services/config.service';
 import { IAiTool } from '../interfaces/ai-tool.interface';
 import { LlmToolSchema } from '../interfaces/llm-provider.interface';
 import { CoreAiPromptHintService } from './core-ai-prompt-hint.service';
-import { CoreAiPromptTemplateService, ResolvedPromptFragment } from './core-ai-prompt-template.service';
+import { CoreAiSlotService, ResolvedPromptFragment } from './core-ai-slot.service';
 
 /** Options for a prompt build (locale for template/hint selection). */
 export interface BuildPromptOptions {
@@ -17,7 +17,7 @@ export interface BuildPromptOptions {
  * Builds the system prompt and tool catalog for a prompt run.
  *
  * The prompt is assembled from keyed fragments: built-in {@link defaultFragments}
- * overlaid by admin-editable rows from {@link CoreAiPromptTemplateService}, plus
+ * overlaid by admin-editable rows from {@link CoreAiSlotService}, plus
  * governed learned hints from {@link CoreAiPromptHintService}. Nothing is hard-coded
  * and unreachable — admins and the learning loop can adjust every fragment. Override
  * this class via `CoreModule.forRoot(env, { ai: { promptBuilder } })` for custom
@@ -41,7 +41,7 @@ export class CoreAiPromptBuilderService {
   protected readonly toolKeys = ['output_contract', 'plan_protocol', 'tool_catalog', 'tool_protocol_emulated'];
 
   constructor(
-    @Optional() protected readonly templateService?: CoreAiPromptTemplateService,
+    @Optional() protected readonly templateService?: CoreAiSlotService,
     @Optional() protected readonly hintService?: CoreAiPromptHintService,
   ) {}
 
@@ -101,7 +101,7 @@ export class CoreAiPromptBuilderService {
   /**
    * Built-in default prompt fragments. `content` may contain `{{placeholders}}`.
    * Override to ship different defaults (admins can also override per-key in the DB
-   * via {@link CoreAiPromptTemplateService}).
+   * via {@link CoreAiSlotService}).
    */
   protected defaultFragments(): ResolvedPromptFragment[] {
     const base = ConfigService.get<string>('ai.systemPrompt') || this.defaultSystemPrompt;
@@ -217,7 +217,7 @@ export class CoreAiPromptBuilderService {
   /**
    * Compute the active scope tags for a run: `tool:<name>` for each tool in scope,
    * `role:<name>` for each user role, and `mode:<name>` if a named mode is active.
-   * Used to filter scoped prompt fragments via {@link CoreAiPromptTemplateService.resolveFragments}.
+   * Used to filter scoped prompt fragments via {@link CoreAiSlotService.resolveFragments}.
    */
   protected computeScopes(
     tools: IAiTool[],

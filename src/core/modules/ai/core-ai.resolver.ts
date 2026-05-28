@@ -14,10 +14,10 @@ import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptHintCreateInput } from './inputs/core-ai-prompt-hint-create.input';
 import { CoreAiPromptHintInput } from './inputs/core-ai-prompt-hint.input';
-import { CoreAiPromptSnippetCreateInput } from './inputs/core-ai-prompt-snippet-create.input';
-import { CoreAiPromptSnippetInput } from './inputs/core-ai-prompt-snippet.input';
-import { CoreAiPromptTemplateCreateInput } from './inputs/core-ai-prompt-template-create.input';
-import { CoreAiPromptTemplateInput } from './inputs/core-ai-prompt-template.input';
+import { CoreAiPromptCreateInput } from './inputs/core-ai-prompt-create.input';
+import { CoreAiPromptUpdateInput } from './inputs/core-ai-prompt-update.input';
+import { CoreAiSlotCreateInput } from './inputs/core-ai-slot-create.input';
+import { CoreAiSlotUpdateInput } from './inputs/core-ai-slot-update.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiAvailableConnection } from './models/core-ai-available-connection.model';
 import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
@@ -26,8 +26,8 @@ import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
-import { CoreAiPromptSnippet } from './models/core-ai-prompt-snippet.model';
-import { CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
+import { CoreAiPrompt } from './models/core-ai-prompt.model';
+import { CoreAiSlot } from './models/core-ai-slot.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
 import { CoreAiBudgetService } from './services/core-ai-budget.service';
@@ -37,8 +37,8 @@ import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service';
-import { CoreAiPromptSnippetService } from './services/core-ai-prompt-snippet.service';
-import { CoreAiPromptTemplateService } from './services/core-ai-prompt-template.service';
+import { CoreAiPromptService } from './services/core-ai-prompt.service';
+import { CoreAiSlotService } from './services/core-ai-slot.service';
 import { CoreAiService } from './services/core-ai.service';
 
 /**
@@ -62,9 +62,9 @@ export class CoreAiResolver {
     protected readonly budgetService: CoreAiBudgetService,
     protected readonly connectionResolver: CoreAiConnectionResolverService,
     protected readonly preferenceService: CoreAiConnectionPreferenceService,
-    protected readonly promptTemplateService: CoreAiPromptTemplateService,
+    protected readonly slotService: CoreAiSlotService,
     protected readonly promptHintService: CoreAiPromptHintService,
-    protected readonly promptSnippetService: CoreAiPromptSnippetService,
+    protected readonly promptService: CoreAiPromptService,
   ) {}
 
   // ===================================================================================================================
@@ -393,44 +393,44 @@ export class CoreAiResolver {
   // ===================================================================================================================
 
   /** Create a prompt template fragment (admin). */
-  @Mutation(() => CoreAiPromptTemplate, { description: 'Create an AI prompt template fragment' })
+  @Mutation(() => CoreAiSlot, { description: 'Create an AI prompt template fragment' })
   @Roles(RoleEnum.ADMIN)
-  async createAiPromptTemplate(
+  async createAiSlot(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('input') input: CoreAiPromptTemplateCreateInput,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.create(input, { ...serviceOptions, inputType: CoreAiPromptTemplateCreateInput });
+    @Args('input') input: CoreAiSlotCreateInput,
+  ): Promise<CoreAiSlot> {
+    return this.slotService.create(input, { ...serviceOptions, inputType: CoreAiSlotCreateInput });
   }
 
   /** Delete a prompt template fragment (admin). */
-  @Mutation(() => CoreAiPromptTemplate, { description: 'Delete an AI prompt template fragment' })
+  @Mutation(() => CoreAiSlot, { description: 'Delete an AI prompt template fragment' })
   @Roles(RoleEnum.ADMIN)
-  async deleteAiPromptTemplate(
+  async deleteAiSlot(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('id') id: string,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.delete(id, serviceOptions);
+  ): Promise<CoreAiSlot> {
+    return this.slotService.delete(id, serviceOptions);
   }
 
   /** Find prompt template fragments (admin). */
-  @Query(() => [CoreAiPromptTemplate], { description: 'Find AI prompt template fragments' })
+  @Query(() => [CoreAiSlot], { description: 'Find AI prompt template fragments' })
   @Roles(RoleEnum.ADMIN)
-  async findAiPromptTemplates(
+  async findAiSlots(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args() args?: FilterArgs,
-  ): Promise<CoreAiPromptTemplate[]> {
-    return this.promptTemplateService.find(args, { ...serviceOptions, inputType: FilterArgs });
+  ): Promise<CoreAiSlot[]> {
+    return this.slotService.find(args, { ...serviceOptions, inputType: FilterArgs });
   }
 
   /** Update a prompt template fragment (admin). */
-  @Mutation(() => CoreAiPromptTemplate, { description: 'Update an AI prompt template fragment' })
+  @Mutation(() => CoreAiSlot, { description: 'Update an AI prompt template fragment' })
   @Roles(RoleEnum.ADMIN)
-  async updateAiPromptTemplate(
+  async updateAiSlot(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('id') id: string,
-    @Args('input') input: CoreAiPromptTemplateInput,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptTemplateInput });
+    @Args('input') input: CoreAiSlotUpdateInput,
+  ): Promise<CoreAiSlot> {
+    return this.slotService.update(id, input, { ...serviceOptions, inputType: CoreAiSlotUpdateInput });
   }
 
   // ===================================================================================================================
@@ -479,44 +479,44 @@ export class CoreAiResolver {
   }
 
   // ===================================================================================================================
-  // User-facing prompt snippets ("Vorlagen") — own / tenant / global
+  // User-facing user prompts ("Vorlagen") — own / tenant / global
   // ===================================================================================================================
 
-  /** List prompt snippets visible to the current user (own + tenant + global). */
-  @Query(() => [CoreAiPromptSnippet], { description: 'List AI prompt snippets visible to the current user' })
+  /** List user prompts visible to the current user (own + tenant + global). */
+  @Query(() => [CoreAiPrompt], { description: 'List AI user prompts visible to the current user' })
   @Roles(RoleEnum.S_USER)
-  async findAiPromptSnippets(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPromptSnippet[]> {
-    return this.promptSnippetService.listVisible(serviceOptions);
+  async findAiPrompts(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPrompt[]> {
+    return this.promptService.listVisible(serviceOptions);
   }
 
-  /** Create a prompt snippet for the current user / tenant (global requires admin). */
-  @Mutation(() => CoreAiPromptSnippet, { description: 'Create an AI prompt snippet' })
+  /** Create a user prompt for the current user / tenant (global requires admin). */
+  @Mutation(() => CoreAiPrompt, { description: 'Create an AI user prompt' })
   @Roles(RoleEnum.S_USER)
-  async createAiPromptSnippet(
+  async createAiPrompt(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('input') input: CoreAiPromptSnippetCreateInput,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.create(input, { ...serviceOptions, inputType: CoreAiPromptSnippetCreateInput });
+    @Args('input') input: CoreAiPromptCreateInput,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.create(input, { ...serviceOptions, inputType: CoreAiPromptCreateInput });
   }
 
-  /** Update a prompt snippet (owner only; admins via standard admin pipeline). */
-  @Mutation(() => CoreAiPromptSnippet, { description: 'Update an AI prompt snippet' })
+  /** Update a user prompt (owner only; admins via standard admin pipeline). */
+  @Mutation(() => CoreAiPrompt, { description: 'Update an AI user prompt' })
   @Roles(RoleEnum.S_USER)
-  async updateAiPromptSnippet(
-    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('id') id: string,
-    @Args('input') input: CoreAiPromptSnippetInput,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptSnippetInput });
-  }
-
-  /** Delete a prompt snippet (owner only; admins via standard admin pipeline). */
-  @Mutation(() => CoreAiPromptSnippet, { description: 'Delete an AI prompt snippet' })
-  @Roles(RoleEnum.S_USER)
-  async deleteAiPromptSnippet(
+  async updateAiPrompt(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('id') id: string,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.delete(id, serviceOptions);
+    @Args('input') input: CoreAiPromptUpdateInput,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptUpdateInput });
+  }
+
+  /** Delete a user prompt (owner only; admins via standard admin pipeline). */
+  @Mutation(() => CoreAiPrompt, { description: 'Delete an AI user prompt' })
+  @Roles(RoleEnum.S_USER)
+  async deleteAiPrompt(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('id') id: string,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.delete(id, serviceOptions);
   }
 }

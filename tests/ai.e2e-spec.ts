@@ -12,8 +12,8 @@ import {
   CoreAiInteractionService,
   CoreAiPromptBuilderService,
   CoreAiPromptHintService,
-  CoreAiPromptSnippetService,
-  CoreAiPromptTemplateService,
+  CoreAiPromptService,
+  CoreAiSlotService,
   CoreAiService,
   HttpExceptionLogFilter,
   ILlmProvider,
@@ -57,9 +57,9 @@ describe('AI module (e2e)', () => {
   let aiService: CoreAiService;
   let registry: AiToolRegistry;
   let providerFactory: LlmProviderFactory;
-  let promptTemplateService: CoreAiPromptTemplateService;
+  let slotService: CoreAiSlotService;
   let promptHintService: CoreAiPromptHintService;
-  let promptSnippetService: CoreAiPromptSnippetService;
+  let promptService: CoreAiPromptService;
 
   // HTTP-level auth (real BetterAuth users) for the security tests at the end.
   let testHelper: TestHelper;
@@ -108,9 +108,9 @@ describe('AI module (e2e)', () => {
     aiService = app.get(CoreAiService);
     registry = app.get(AiToolRegistry);
     providerFactory = app.get(LlmProviderFactory);
-    promptTemplateService = app.get(CoreAiPromptTemplateService);
+    slotService = app.get(CoreAiSlotService);
     promptHintService = app.get(CoreAiPromptHintService);
-    promptSnippetService = app.get(CoreAiPromptSnippetService);
+    promptService = app.get(CoreAiPromptService);
 
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = connection.db();
@@ -128,9 +128,9 @@ describe('AI module (e2e)', () => {
       await db.collection('aiInteractions').deleteMany({});
       await db.collection('aiConversations').deleteMany({});
       await db.collection('aiBudgetLimits').deleteMany({});
-      await db.collection('aiPromptTemplates').deleteMany({});
+      await db.collection('aiSlots').deleteMany({});
       await db.collection('aiPromptHints').deleteMany({});
-      await db.collection('aiPromptSnippets').deleteMany({});
+      await db.collection('aiPrompts').deleteMany({});
       // Clean up the HTTP test users + their auth artifacts.
       const httpUsers = await db.collection('users').find({ email: { $in: [httpAdminEmail, httpRegularEmail] } }).toArray();
       const iamIds = httpUsers.map((u: any) => u.iamId).filter(Boolean);
@@ -726,15 +726,15 @@ describe('AI module (e2e)', () => {
   // Self-optimizing prompts: DB-editable templates + governed learning loop
   // ===================================================================================================================
 
-  it('applies an admin prompt-template override to the assembled system prompt', async () => {
+  it('applies an admin slot override to the assembled system prompt', async () => {
     const builder = app.get(CoreAiPromptBuilderService);
-    const created = await promptTemplateService.create(
+    const created = await slotService.create(
       { content: 'OVERRIDDEN-BASE-E2E-MARKER', key: 'base' } as any,
       adminOptions,
     );
     const prompt = await builder.buildSystemPrompt([], false, { id: 'u', roles: [] });
     expect(prompt).toContain('OVERRIDDEN-BASE-E2E-MARKER');
-    await promptTemplateService.delete(created.id, adminOptions);
+    await slotService.delete(created.id, adminOptions);
   });
 
   it('learns from a tool failure and injects the approved hint into the prompt', async () => {
@@ -781,9 +781,9 @@ describe('AI module (e2e)', () => {
     await connectionService.delete(conn.id, adminOptions);
   });
 
-  it('exposes prompt-template + hint admin queries over GraphQL and denies non-admins', async () => {
+  it('exposes slot + hint admin queries over GraphQL and denies non-admins', async () => {
     const templates = await testHelper.graphQl(
-      { fields: ['id', 'key', 'content'], name: 'findAiPromptTemplates', type: TestGraphQLType.QUERY },
+      { fields: ['id', 'key', 'content'], name: 'findAiSlots', type: TestGraphQLType.QUERY },
       { token: httpAdminToken },
     );
     expect(Array.isArray(templates)).toBe(true);
@@ -795,7 +795,7 @@ describe('AI module (e2e)', () => {
     expect(Array.isArray(hints)).toBe(true);
 
     const denied = await testHelper.graphQl(
-      { fields: ['id', 'key'], name: 'findAiPromptTemplates', type: TestGraphQLType.QUERY },
+      { fields: ['id', 'key'], name: 'findAiSlots', type: TestGraphQLType.QUERY },
       { token: httpRegularToken },
     );
     expect(denied.errors).toBeDefined();
@@ -803,109 +803,103 @@ describe('AI module (e2e)', () => {
   });
 
   // ===================================================================================================================
-  // User-facing prompt snippets ("Vorlagen") — own / tenant / global visibility + owner-only mutations
+  // User-facing prompts ("Vorlagen") — private/public visibility + owner-only mutations
   // ===================================================================================================================
 
-  it('filters snippets per scope: own (any) + tenant (same tenant) + global (everyone)', async () => {
+  it('filters prompts per scope: own (private + public) + tenant (public-shared)', async () => {
     const tenantA = new ObjectId().toString();
     const tenantB = new ObjectId().toString();
     const alice = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantA] } as any;
     const bob = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantA] } as any;
     const carol = { id: new ObjectId().toString(), roles: [], tenantIds: [tenantB] } as any;
 
-    const aliceUser = await promptSnippetService.create(
-      { content: 'A-private', name: `vis-A-user-${Date.now()}` } as any,
+    const alicePrivate = await promptService.create(
+      { content: 'A-private', name: `vis-A-private-${Date.now()}` } as any,
       { currentUser: alice },
     );
-    const aliceTenant = await promptSnippetService.create(
-      { content: 'A-tenant', name: `vis-A-tenant-${Date.now()}`, scope: 'tenant' } as any,
+    const alicePublic = await promptService.create(
+      { content: 'A-public', name: `vis-A-public-${Date.now()}`, scope: 'tenant' } as any,
       { currentUser: alice },
-    );
-    const adminGlobal = await promptSnippetService.create(
-      { content: 'global-A', name: `vis-global-${Date.now()}`, scope: 'global' } as any,
-      adminOptions,
     );
 
-    const aliceVisible = await promptSnippetService.listVisible({ currentUser: alice });
+    const aliceVisible = await promptService.listVisible({ currentUser: alice });
     const aliceIds = aliceVisible.map((s) => String(s.id || (s as any)._id));
-    expect(aliceIds).toEqual(expect.arrayContaining([aliceUser.id, aliceTenant.id, adminGlobal.id]));
+    expect(aliceIds).toEqual(expect.arrayContaining([alicePrivate.id, alicePublic.id]));
 
-    const bobVisible = await promptSnippetService.listVisible({ currentUser: bob });
+    const bobVisible = await promptService.listVisible({ currentUser: bob });
     const bobIds = bobVisible.map((s) => String(s.id || (s as any)._id));
-    expect(bobIds).toEqual(expect.arrayContaining([aliceTenant.id, adminGlobal.id])); // tenant + global
-    expect(bobIds).not.toContain(aliceUser.id); // alice's private snippet is hidden
+    expect(bobIds).toContain(alicePublic.id); // same tenant sees the public prompt
+    expect(bobIds).not.toContain(alicePrivate.id); // alice's private prompt is hidden
 
-    const carolVisible = await promptSnippetService.listVisible({ currentUser: carol });
+    const carolVisible = await promptService.listVisible({ currentUser: carol });
     const carolIds = carolVisible.map((s) => String(s.id || (s as any)._id));
-    expect(carolIds).toContain(adminGlobal.id);
-    expect(carolIds).not.toContain(aliceUser.id);
-    expect(carolIds).not.toContain(aliceTenant.id); // different tenant
+    expect(carolIds).not.toContain(alicePrivate.id);
+    expect(carolIds).not.toContain(alicePublic.id); // different tenant
   });
 
-  it('rejects global snippet creation by non-admins and lets admins create one', async () => {
+  it('rejects unknown scopes (including the removed "global" scope) for everyone — including admins', async () => {
     const regular = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(
-      promptSnippetService.create(
-        { content: 'should-fail', name: `forbid-global-${Date.now()}`, scope: 'global' } as any,
+      promptService.create(
+        { content: 'x', name: `forbid-global-${Date.now()}`, scope: 'global' } as any,
         { currentUser: regular },
       ),
-    ).rejects.toThrow(/admins/i);
+    ).rejects.toThrow(/invalid|scope/i);
 
-    const ok = await promptSnippetService.create(
-      { content: 'admin-global', name: `ok-global-${Date.now()}`, scope: 'global' } as any,
-      adminOptions,
-    );
-    expect(ok.scope).toBe('global');
+    await expect(
+      promptService.create(
+        { content: 'x', name: `admin-forbid-global-${Date.now()}`, scope: 'global' } as any,
+        adminOptions,
+      ),
+    ).rejects.toThrow(/invalid|scope/i);
   });
 
-  it('refuses tenant snippets when the user has no tenant context', async () => {
+  it('refuses public (tenant) prompts when the user has no tenant context', async () => {
     const noTenant = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(
-      promptSnippetService.create(
+      promptService.create(
         { content: 'no-tenant', name: `forbid-no-tenant-${Date.now()}`, scope: 'tenant' } as any,
         { currentUser: noTenant },
       ),
     ).rejects.toThrow(/tenant/i);
   });
 
-  it('only the owner can update/delete a snippet (non-owner is forbidden)', async () => {
+  it('only the owner can update/delete a prompt (non-owner is forbidden)', async () => {
     const owner = { id: new ObjectId().toString(), roles: [] } as any;
     const stranger = { id: new ObjectId().toString(), roles: [] } as any;
-    const snippet = await promptSnippetService.create(
+    const prompt = await promptService.create(
       { content: 'own-only', name: `owner-only-${Date.now()}` } as any,
       { currentUser: owner },
     );
 
     await expect(
-      promptSnippetService.update(snippet.id, { content: 'hacked' } as any, { currentUser: stranger }),
+      promptService.update(prompt.id, { content: 'hacked' } as any, { currentUser: stranger }),
     ).rejects.toThrow(/owner|denied|forbidden/i);
-    await expect(
-      promptSnippetService.delete(snippet.id, { currentUser: stranger }),
-    ).rejects.toThrow(/owner|denied|forbidden/i);
+    await expect(promptService.delete(prompt.id, { currentUser: stranger })).rejects.toThrow(/owner|denied|forbidden/i);
 
-    const updated = await promptSnippetService.update(
-      snippet.id,
+    const updated = await promptService.update(
+      prompt.id,
       { content: 'updated-by-owner' } as any,
       { currentUser: owner },
     );
     expect(updated.content).toBe('updated-by-owner');
   });
 
-  it('exposes snippet endpoints to authenticated users (REST list + GraphQL) and rejects anonymous calls', async () => {
+  it('exposes prompt endpoints to authenticated users (REST list + GraphQL) and rejects anonymous calls', async () => {
     // Anonymous call → 401/403 on REST and an error on GraphQL.
-    const anon = await request(app.getHttpServer()).get('/ai/snippets');
+    const anon = await request(app.getHttpServer()).get('/ai/prompts');
     expect([401, 403]).toContain(anon.status);
 
     // Authenticated REST list works (default scope filters apply; at minimum returns an array).
     const restList = await request(app.getHttpServer())
-      .get('/ai/snippets')
+      .get('/ai/prompts')
       .set('Authorization', `Bearer ${httpRegularToken}`)
       .expect(200);
     expect(Array.isArray(restList.body)).toBe(true);
 
     // GraphQL listVisible is available to any authenticated user (S_USER).
     const gql = await testHelper.graphQl(
-      { fields: ['id', 'name', 'scope'], name: 'findAiPromptSnippets', type: TestGraphQLType.QUERY },
+      { fields: ['id', 'name', 'scope'], name: 'findAiPrompts', type: TestGraphQLType.QUERY },
       { token: httpRegularToken },
     );
     expect(Array.isArray(gql)).toBe(true);
@@ -913,7 +907,7 @@ describe('AI module (e2e)', () => {
     // Anonymous GraphQL call → permission error.
     const denied = await testHelper.graphQl({
       fields: ['id', 'name'],
-      name: 'findAiPromptSnippets',
+      name: 'findAiPrompts',
       type: TestGraphQLType.QUERY,
     });
     expect(denied.errors).toBeDefined();

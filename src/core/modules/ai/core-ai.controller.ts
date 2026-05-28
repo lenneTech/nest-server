@@ -14,10 +14,10 @@ import { CoreAiConnectionInput } from './inputs/core-ai-connection.input';
 import { CoreAiConversationCreateInput } from './inputs/core-ai-conversation-create.input';
 import { CoreAiPromptHintCreateInput } from './inputs/core-ai-prompt-hint-create.input';
 import { CoreAiPromptHintInput } from './inputs/core-ai-prompt-hint.input';
-import { CoreAiPromptSnippetCreateInput } from './inputs/core-ai-prompt-snippet-create.input';
-import { CoreAiPromptSnippetInput } from './inputs/core-ai-prompt-snippet.input';
-import { CoreAiPromptTemplateCreateInput } from './inputs/core-ai-prompt-template-create.input';
-import { CoreAiPromptTemplateInput } from './inputs/core-ai-prompt-template.input';
+import { CoreAiPromptCreateInput } from './inputs/core-ai-prompt-create.input';
+import { CoreAiPromptUpdateInput } from './inputs/core-ai-prompt-update.input';
+import { CoreAiSlotCreateInput } from './inputs/core-ai-slot-create.input';
+import { CoreAiSlotUpdateInput } from './inputs/core-ai-slot-update.input';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input';
 import { CoreAiAvailableConnection } from './models/core-ai-available-connection.model';
 import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
@@ -26,8 +26,8 @@ import { CoreAiConnection } from './models/core-ai-connection.model';
 import { CoreAiConversation } from './models/core-ai-conversation.model';
 import { CoreAiInteraction } from './models/core-ai-interaction.model';
 import { CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
-import { CoreAiPromptSnippet } from './models/core-ai-prompt-snippet.model';
-import { CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
+import { CoreAiPrompt } from './models/core-ai-prompt.model';
+import { CoreAiSlot } from './models/core-ai-slot.model';
 import { CoreAiResponse } from './models/core-ai-response.model';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model';
 import { CoreAiBudgetService } from './services/core-ai-budget.service';
@@ -37,8 +37,8 @@ import { CoreAiConnectionService } from './services/core-ai-connection.service';
 import { CoreAiConversationService } from './services/core-ai-conversation.service';
 import { CoreAiInteractionService } from './services/core-ai-interaction.service';
 import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service';
-import { CoreAiPromptSnippetService } from './services/core-ai-prompt-snippet.service';
-import { CoreAiPromptTemplateService } from './services/core-ai-prompt-template.service';
+import { CoreAiPromptService } from './services/core-ai-prompt.service';
+import { CoreAiSlotService } from './services/core-ai-slot.service';
 import { CoreAiService } from './services/core-ai.service';
 
 /**
@@ -60,9 +60,9 @@ export class CoreAiController {
     protected readonly budgetService: CoreAiBudgetService,
     protected readonly connectionResolver: CoreAiConnectionResolverService,
     protected readonly preferenceService: CoreAiConnectionPreferenceService,
-    protected readonly promptTemplateService: CoreAiPromptTemplateService,
+    protected readonly slotService: CoreAiSlotService,
     protected readonly promptHintService: CoreAiPromptHintService,
-    protected readonly promptSnippetService: CoreAiPromptSnippetService,
+    protected readonly promptService: CoreAiPromptService,
   ) {}
 
   /**
@@ -388,41 +388,38 @@ export class CoreAiController {
   // ===================================================================================================================
 
   /** Find prompt template fragments (admin). */
-  @Get('prompt-templates')
+  @Get('slots')
   @Roles(RoleEnum.ADMIN)
-  async findPromptTemplates(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPromptTemplate[]> {
-    return this.promptTemplateService.find({}, serviceOptions);
+  async findSlots(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiSlot[]> {
+    return this.slotService.find({}, serviceOptions);
   }
 
   /** Create a prompt template fragment (admin). */
-  @Post('prompt-templates')
+  @Post('slots')
   @Roles(RoleEnum.ADMIN)
-  async createPromptTemplate(
+  async createSlot(
     @RESTServiceOptions() serviceOptions: ServiceOptions,
-    @Body() input: CoreAiPromptTemplateCreateInput,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.create(input, { ...serviceOptions, inputType: CoreAiPromptTemplateCreateInput });
+    @Body() input: CoreAiSlotCreateInput,
+  ): Promise<CoreAiSlot> {
+    return this.slotService.create(input, { ...serviceOptions, inputType: CoreAiSlotCreateInput });
   }
 
   /** Update a prompt template fragment (admin). */
-  @Put('prompt-templates/:id')
+  @Put('slots/:id')
   @Roles(RoleEnum.ADMIN)
-  async updatePromptTemplate(
+  async updateSlot(
     @RESTServiceOptions() serviceOptions: ServiceOptions,
     @Param('id') id: string,
-    @Body() input: CoreAiPromptTemplateInput,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptTemplateInput });
+    @Body() input: CoreAiSlotUpdateInput,
+  ): Promise<CoreAiSlot> {
+    return this.slotService.update(id, input, { ...serviceOptions, inputType: CoreAiSlotUpdateInput });
   }
 
   /** Delete a prompt template fragment (admin). */
-  @Delete('prompt-templates/:id')
+  @Delete('slots/:id')
   @Roles(RoleEnum.ADMIN)
-  async deletePromptTemplate(
-    @RESTServiceOptions() serviceOptions: ServiceOptions,
-    @Param('id') id: string,
-  ): Promise<CoreAiPromptTemplate> {
-    return this.promptTemplateService.delete(id, serviceOptions);
+  async deleteSlot(@RESTServiceOptions() serviceOptions: ServiceOptions, @Param('id') id: string): Promise<CoreAiSlot> {
+    return this.slotService.delete(id, serviceOptions);
   }
 
   // ===================================================================================================================
@@ -468,44 +465,44 @@ export class CoreAiController {
   }
 
   // ===================================================================================================================
-  // User-facing prompt snippets ("Vorlagen") — own / tenant / global
+  // User-facing user prompts ("Vorlagen") — own / tenant / global
   // ===================================================================================================================
 
-  /** List prompt snippets visible to the current user (own + tenant + global). */
-  @Get('snippets')
+  /** List user prompts visible to the current user (own + tenant + global). */
+  @Get('prompts')
   @Roles(RoleEnum.S_USER)
-  async findPromptSnippets(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPromptSnippet[]> {
-    return this.promptSnippetService.listVisible(serviceOptions);
+  async findPrompts(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPrompt[]> {
+    return this.promptService.listVisible(serviceOptions);
   }
 
-  /** Create a prompt snippet for the current user / tenant (global requires admin). */
-  @Post('snippets')
+  /** Create a user prompt for the current user / tenant (global requires admin). */
+  @Post('prompts')
   @Roles(RoleEnum.S_USER)
-  async createPromptSnippet(
+  async createPrompt(
     @RESTServiceOptions() serviceOptions: ServiceOptions,
-    @Body() input: CoreAiPromptSnippetCreateInput,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.create(input, { ...serviceOptions, inputType: CoreAiPromptSnippetCreateInput });
+    @Body() input: CoreAiPromptCreateInput,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.create(input, { ...serviceOptions, inputType: CoreAiPromptCreateInput });
   }
 
-  /** Update a prompt snippet (owner only; admins via standard admin pipeline). */
-  @Put('snippets/:id')
+  /** Update a user prompt (owner only; admins via standard admin pipeline). */
+  @Put('prompts/:id')
   @Roles(RoleEnum.S_USER)
-  async updatePromptSnippet(
-    @RESTServiceOptions() serviceOptions: ServiceOptions,
-    @Param('id') id: string,
-    @Body() input: CoreAiPromptSnippetInput,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptSnippetInput });
-  }
-
-  /** Delete a prompt snippet (owner only; admins via standard admin pipeline). */
-  @Delete('snippets/:id')
-  @Roles(RoleEnum.S_USER)
-  async deletePromptSnippet(
+  async updatePrompt(
     @RESTServiceOptions() serviceOptions: ServiceOptions,
     @Param('id') id: string,
-  ): Promise<CoreAiPromptSnippet> {
-    return this.promptSnippetService.delete(id, serviceOptions);
+    @Body() input: CoreAiPromptUpdateInput,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.update(id, input, { ...serviceOptions, inputType: CoreAiPromptUpdateInput });
+  }
+
+  /** Delete a user prompt (owner only; admins via standard admin pipeline). */
+  @Delete('prompts/:id')
+  @Roles(RoleEnum.S_USER)
+  async deletePrompt(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Param('id') id: string,
+  ): Promise<CoreAiPrompt> {
+    return this.promptService.delete(id, serviceOptions);
   }
 }

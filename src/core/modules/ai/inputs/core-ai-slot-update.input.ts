@@ -6,11 +6,11 @@ import { UnifiedField } from '../../../common/decorators/unified-field.decorator
 import { RoleEnum } from '../../../common/enums/role.enum';
 
 /**
- * Input to update an AI prompt template fragment (all fields optional).
+ * Input to update an AI slot (system-prompt building block). All fields optional.
  */
-@InputType({ description: 'Input to update an AI prompt template fragment', isAbstract: true })
+@InputType({ description: 'Input to update an AI slot', isAbstract: true })
 @Restricted(RoleEnum.ADMIN)
-export class CoreAiPromptTemplateInput {
+export class CoreAiSlotUpdateInput {
   @UnifiedField({
     description: "Capability scope: 'all', 'native' or 'emulated'",
     isOptional: true,
@@ -20,21 +20,21 @@ export class CoreAiPromptTemplateInput {
   capability?: string = undefined;
 
   @UnifiedField({
-    description: 'Fragment text (supports {{placeholders}})',
+    description: 'Slot text (supports {{placeholders}})',
     isOptional: true,
     roles: RoleEnum.ADMIN,
   })
   content?: string = undefined;
 
   @UnifiedField({
-    description: 'Admin-facing description of the fragment',
+    description: 'Admin-facing description of the slot',
     isOptional: true,
     roles: RoleEnum.ADMIN,
   })
   description?: string = undefined;
 
   @UnifiedField({
-    description: 'Whether the fragment is included in the prompt',
+    description: 'Whether the slot is included in the prompt',
     isOptional: true,
     roles: RoleEnum.ADMIN,
     type: () => Boolean,
@@ -42,7 +42,7 @@ export class CoreAiPromptTemplateInput {
   enabled?: boolean = undefined;
 
   @UnifiedField({
-    description: "Logical prompt slot (e.g. 'base', 'permissions', 'anti_hallucination')",
+    description: "Logical prompt slot key (e.g. 'base', 'permissions', 'anti_hallucination')",
     isOptional: true,
     roles: RoleEnum.ADMIN,
   })

@@ -7,43 +7,37 @@ import { UnifiedField } from '../../../common/decorators/unified-field.decorator
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CorePersistenceModel } from '../../../common/models/core-persistence.model';
 
-export type AiPromptSnippetDocument = CoreAiPromptSnippet & Document;
+export type AiPromptDocument = CoreAiPrompt & Document;
 
 /**
- * User-facing prompt snippet (also called "Vorlage" in the UI) — a short, named
- * piece of text the user can insert into the chat input with one click.
+ * User-facing prompt — a short, named piece of text the user can insert into
+ * the chat input with one click. Different from the {@link CoreAiPromptInput}
+ * mutation payload (which carries a single user question to the AI) and from
+ * {@link CoreAiSlot} (the admin-edited building blocks of the SYSTEM prompt).
  *
- * Different from {@link CoreAiPromptTemplate}: that one is an admin-only
- * building block of the SYSTEM prompt; this one is a user-created USER-prompt
- * preset (e.g. "Erkläre den letzten Fehler", "Schreibe eine kurze Antwort an
- * den Kunden zu …", …). Users may create snippets for themselves, share them
- * with their tenant, or — when multi-tenancy is off — make them available to
- * everyone in the workspace.
- *
- * Visibility rules (enforced in {@link CoreAiPromptSnippetService.find} and the
+ * Visibility (enforced in {@link CoreAiPromptService.listVisible} + this
  * model's {@link securityCheck}):
- * - `scope: 'user'`   → only the `ownerId` user sees it.
- * - `scope: 'tenant'` → all members of `tenantId` see it.
- * - `scope: 'global'` → all signed-in users see it.
+ * - `scope: 'user'`   → only the `ownerId` user sees it ("private").
+ * - `scope: 'tenant'` → all members of `tenantId` see it ("public" within
+ *   the tenant; without multi-tenancy this is effectively workspace-wide).
  *
- * Write/delete is always restricted to the owner (admins can still delete via
- * the standard admin pipeline).
+ * Mutations are owner-only.
  */
-@MongooseSchema({ collection: 'aiPromptSnippets', timestamps: true })
-@ObjectType({ description: 'User-facing prompt snippet (Vorlage)' })
+@MongooseSchema({ collection: 'aiPrompts', timestamps: true })
+@ObjectType({ description: 'User-facing AI prompt (re-usable user prompt)' })
 @Restricted(RoleEnum.S_USER)
-export class CoreAiPromptSnippet extends CorePersistenceModel {
+export class CoreAiPrompt extends CorePersistenceModel {
   /** The text inserted into the chat input. May contain `{{placeholders}}`. */
-  @UnifiedField({ description: 'The snippet text', mongoose: true, roles: RoleEnum.S_USER })
+  @UnifiedField({ description: 'The prompt text', mongoose: true, roles: RoleEnum.S_USER })
   content: string = undefined;
 
-  /** Optional admin-facing description. */
+  /** Optional description. */
   @UnifiedField({ description: 'Description', isOptional: true, mongoose: true, roles: RoleEnum.S_USER })
   description?: string = undefined;
 
-  /** Whether the snippet is active (disabled snippets are hidden from the picker). */
+  /** Whether the prompt is active (disabled prompts are hidden from the picker). */
   @UnifiedField({
-    description: 'Whether the snippet is active',
+    description: 'Whether the prompt is active',
     isOptional: true,
     mongoose: { default: true },
     roles: RoleEnum.S_USER,
@@ -51,7 +45,7 @@ export class CoreAiPromptSnippet extends CorePersistenceModel {
   })
   enabled?: boolean = undefined;
 
-  /** Optional icon hint for the UI (e.g. lucide name or single emoji). */
+  /** Optional icon hint for the UI (lucide name or single emoji). */
   @UnifiedField({
     description: 'Icon hint (e.g. lucide name or emoji)',
     isOptional: true,
@@ -60,7 +54,7 @@ export class CoreAiPromptSnippet extends CorePersistenceModel {
   })
   icon?: string = undefined;
 
-  /** Display label shown in the snippet picker. */
+  /** Display label shown in the prompt picker. */
   @UnifiedField({ description: 'Display label', mongoose: { index: true }, roles: RoleEnum.S_USER })
   name: string = undefined;
 
@@ -83,11 +77,11 @@ export class CoreAiPromptSnippet extends CorePersistenceModel {
   order?: number = undefined;
 
   /**
-   * Visibility scope: `'user'` (only the owner), `'tenant'` (members of the
-   * owner's tenant), or `'global'` (every signed-in user).
+   * Visibility scope: `'user'` (only the owner — "private") or `'tenant'`
+   * (members of the owner's tenant — "public").
    */
   @UnifiedField({
-    description: "Visibility scope ('user', 'tenant' or 'global')",
+    description: "Visibility scope ('user' = private, 'tenant' = public)",
     mongoose: { default: 'user', index: true },
     roles: RoleEnum.S_USER,
   })
@@ -103,15 +97,12 @@ export class CoreAiPromptSnippet extends CorePersistenceModel {
   tenantId?: string = undefined;
 
   /**
-   * Filter snippets out of read responses the current user is not allowed to see.
+   * Filter prompts out of read responses the current user is not allowed to see.
    * Update/delete authorization is enforced by the service layer.
    */
   override securityCheck(user: any, _force?: boolean): this {
     if (!user) {
       return undefined as any;
-    }
-    if (this.scope === 'global') {
-      return this;
     }
     if (this.scope === 'tenant') {
       const userTenantId = user.tenantId || user.currentTenantId || (user.tenantIds || [])[0];
@@ -124,7 +115,6 @@ export class CoreAiPromptSnippet extends CorePersistenceModel {
   }
 }
 
-export const AiPromptSnippetSchema = SchemaFactory.createForClass(CoreAiPromptSnippet);
-// One snippet per (owner, name) — keeps the picker tidy and the user can't
-// shadow their own snippet by accident.
-AiPromptSnippetSchema.index({ ownerId: 1, name: 1 }, { unique: true });
+export const AiPromptSchema = SchemaFactory.createForClass(CoreAiPrompt);
+// One prompt per (owner, name) — keeps the picker tidy.
+AiPromptSchema.index({ ownerId: 1, name: 1 }, { unique: true });

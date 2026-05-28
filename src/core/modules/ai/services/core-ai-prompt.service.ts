@@ -6,58 +6,49 @@ import { ServiceOptions } from '../../../common/interfaces/service-options.inter
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiPromptSnippetCreateInput } from '../inputs/core-ai-prompt-snippet-create.input';
-import { CoreAiPromptSnippetInput } from '../inputs/core-ai-prompt-snippet.input';
-import { AiPromptSnippetDocument, CoreAiPromptSnippet } from '../models/core-ai-prompt-snippet.model';
+import { CoreAiPromptCreateInput } from '../inputs/core-ai-prompt-create.input';
+import { CoreAiPromptUpdateInput } from '../inputs/core-ai-prompt-update.input';
+import { AiPromptDocument, CoreAiPrompt } from '../models/core-ai-prompt.model';
 
-export const AI_PROMPT_SNIPPET_MODEL = 'AiPromptSnippet';
-export const AI_PROMPT_SNIPPET_CLASS = 'AI_PROMPT_SNIPPET_CLASS';
+export const AI_PROMPT_MODEL = 'AiPrompt';
+export const AI_PROMPT_CLASS = 'AI_PROMPT_CLASS';
 
-const VALID_SCOPES = new Set(['global', 'tenant', 'user']);
+const VALID_SCOPES = new Set(['tenant', 'user']);
 
 /**
- * User-facing prompt snippet store. End users can author snippets for themselves,
- * for their tenant, or globally (admin-only). See {@link CoreAiPromptSnippet}.
+ * User-facing prompt store. End users can author re-usable prompts for
+ * themselves (`scope: 'user'` = private) or for their tenant
+ * (`scope: 'tenant'` = public). See {@link CoreAiPrompt}.
  *
- * `find()` returns only snippets the caller is allowed to see (owner / tenant
- * member / global). `create()` / `update()` / `delete()` enforce that only the
- * owner can mutate a snippet (admins still pass via the standard admin pipeline).
+ * `listVisible()` returns only prompts the caller is allowed to see (own +
+ * tenant). `create()` / `update()` / `delete()` enforce owner-only mutations
+ * (admins still pass via the standard admin pipeline).
  */
 @Injectable()
-export class CoreAiPromptSnippetService extends CrudService<
-  CoreAiPromptSnippet,
-  CoreAiPromptSnippetCreateInput,
-  CoreAiPromptSnippetInput
-> {
-  protected readonly logger = new Logger(CoreAiPromptSnippetService.name);
+export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptCreateInput, CoreAiPromptUpdateInput> {
+  protected readonly logger = new Logger(CoreAiPromptService.name);
 
   constructor(
-    @InjectModel(AI_PROMPT_SNIPPET_MODEL) protected override readonly mainDbModel: Model<AiPromptSnippetDocument>,
-    @Inject(AI_PROMPT_SNIPPET_CLASS)
-    protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiPromptSnippet>,
+    @InjectModel(AI_PROMPT_MODEL) protected override readonly mainDbModel: Model<AiPromptDocument>,
+    @Inject(AI_PROMPT_CLASS)
+    protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiPrompt>,
   ) {
     super();
   }
 
-  override async create(
-    input: CoreAiPromptSnippetCreateInput,
-    serviceOptions: ServiceOptions = {},
-  ): Promise<CoreAiPromptSnippet> {
+  override async create(input: CoreAiPromptCreateInput, serviceOptions: ServiceOptions = {}): Promise<CoreAiPrompt> {
     const user = serviceOptions?.currentUser;
     if (!user?.id) {
-      throw new ForbiddenException('Sign in to create a snippet.');
+      throw new ForbiddenException('Sign in to create a prompt.');
     }
     const scope = (input.scope || 'user').toLowerCase();
     if (!VALID_SCOPES.has(scope)) {
-      throw new ForbiddenException(`Invalid snippet scope "${scope}".`);
-    }
-    if (scope === 'global' && !(user.roles || []).includes(RoleEnum.ADMIN)) {
-      throw new ForbiddenException('Only admins can create global snippets.');
+      throw new ForbiddenException(`Invalid prompt scope "${scope}".`);
     }
     const userTenantId = (user as any).tenantId || (user as any).currentTenantId || ((user as any).tenantIds || [])[0];
     const tenantId = scope === 'tenant' ? (userTenantId ? String(userTenantId) : undefined) : undefined;
     if (scope === 'tenant' && !tenantId) {
-      throw new ForbiddenException('Cannot share a snippet with a tenant when no tenant context exists.');
+      throw new ForbiddenException('Cannot share a prompt with a tenant when no tenant context exists.');
     }
 
     // Run the standard create pipeline first (validation + per-input whitelist).
@@ -75,9 +66,9 @@ export class CoreAiPromptSnippetService extends CrudService<
 
   override async update(
     id: string,
-    input: CoreAiPromptSnippetInput,
+    input: CoreAiPromptUpdateInput,
     serviceOptions: ServiceOptions = {},
-  ): Promise<CoreAiPromptSnippet> {
+  ): Promise<CoreAiPrompt> {
     await this.assertOwner(id, serviceOptions);
     // Strip read-only fields the client should never overwrite.
     const sanitized: Record<string, unknown> = { ...input };
@@ -87,12 +78,9 @@ export class CoreAiPromptSnippetService extends CrudService<
     if (sanitized.scope) {
       const scope = String(sanitized.scope).toLowerCase();
       if (!VALID_SCOPES.has(scope)) {
-        throw new ForbiddenException(`Invalid snippet scope "${scope}".`);
+        throw new ForbiddenException(`Invalid prompt scope "${scope}".`);
       }
       const user = serviceOptions?.currentUser;
-      if (scope === 'global' && !(user?.roles || []).includes(RoleEnum.ADMIN)) {
-        throw new ForbiddenException('Only admins can create global snippets.');
-      }
       sanitized.scope = scope;
       let nextTenantId: string | undefined;
       if (scope === 'tenant') {
@@ -100,7 +88,7 @@ export class CoreAiPromptSnippetService extends CrudService<
           (user as any)?.tenantId || (user as any)?.currentTenantId || ((user as any)?.tenantIds || [])[0];
         nextTenantId = userTenantId ? String(userTenantId) : undefined;
         if (!nextTenantId) {
-          throw new ForbiddenException('Cannot share a snippet with a tenant when no tenant context exists.');
+          throw new ForbiddenException('Cannot share a prompt with a tenant when no tenant context exists.');
         }
       }
       scopeChange = { scope, tenantId: nextTenantId };
@@ -117,22 +105,22 @@ export class CoreAiPromptSnippetService extends CrudService<
     return updated;
   }
 
-  override async delete(id: string, serviceOptions: ServiceOptions = {}): Promise<CoreAiPromptSnippet> {
+  override async delete(id: string, serviceOptions: ServiceOptions = {}): Promise<CoreAiPrompt> {
     await this.assertOwner(id, serviceOptions);
     return super.delete(id, serviceOptions);
   }
 
   /**
-   * List snippets visible to the current user: own (any scope) + tenant snippets
-   * of the user's tenant + every global snippet. Ordered by `order` asc then name.
+   * List prompts visible to the current user: own + tenant prompts of the
+   * user's tenant. Ordered by `order` asc then `name`.
    */
-  async listVisible(serviceOptions: ServiceOptions = {}): Promise<CoreAiPromptSnippet[]> {
+  async listVisible(serviceOptions: ServiceOptions = {}): Promise<CoreAiPrompt[]> {
     const user = serviceOptions?.currentUser;
     if (!user?.id) {
       return [];
     }
     const tenantId = (user as any).tenantId || (user as any).currentTenantId || ((user as any).tenantIds || [])[0];
-    const or: Record<string, unknown>[] = [{ ownerId: user.id }, { scope: 'global' }];
+    const or: Record<string, unknown>[] = [{ ownerId: user.id }];
     if (tenantId) {
       or.push({ scope: 'tenant', tenantId: String(tenantId) });
     }
@@ -140,37 +128,37 @@ export class CoreAiPromptSnippetService extends CrudService<
       const rows = await this.mainDbModel
         .find({ $or: or, enabled: { $ne: false } })
         .sort({ order: 1, name: 1 })
-        .lean<CoreAiPromptSnippet[]>()
+        .lean<CoreAiPrompt[]>()
         .exec();
       return rows || [];
     } catch (err) {
-      this.logger.warn(`Failed to list snippets: ${(err as Error).message}`);
+      this.logger.warn(`Failed to list prompts: ${(err as Error).message}`);
       return [];
     }
   }
 
-  /** Ensure the snippet at `id` is owned by the current user (or is admin). */
+  /** Ensure the prompt at `id` is owned by the current user (or is admin). */
   protected async assertOwner(id: string, serviceOptions: ServiceOptions): Promise<void> {
     const user = serviceOptions?.currentUser;
     if (!user?.id) {
-      throw new ForbiddenException('Sign in to modify a snippet.');
+      throw new ForbiddenException('Sign in to modify a prompt.');
     }
     if ((user.roles || []).includes(RoleEnum.ADMIN)) {
       return;
     }
     try {
-      const row = await this.mainDbModel.findById(id).lean<CoreAiPromptSnippet>().exec();
+      const row = await this.mainDbModel.findById(id).lean<CoreAiPrompt>().exec();
       if (!row) {
-        throw new ForbiddenException(`Snippet ${id} not found.`);
+        throw new ForbiddenException(`Prompt ${id} not found.`);
       }
       if (row.ownerId !== user.id) {
-        throw new ForbiddenException('Only the owner can modify this snippet.');
+        throw new ForbiddenException('Only the owner can modify this prompt.');
       }
     } catch (err) {
       if (err instanceof ForbiddenException) {
         throw err;
       }
-      throw new ForbiddenException(`Could not verify snippet ownership: ${(err as Error).message}`);
+      throw new ForbiddenException(`Could not verify prompt ownership: ${(err as Error).message}`);
     }
   }
 }

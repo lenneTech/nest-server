@@ -12,8 +12,8 @@ import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connectio
 import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
 import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
 import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
-import { AiPromptSnippetSchema, CoreAiPromptSnippet } from './models/core-ai-prompt-snippet.model';
-import { AiPromptTemplateSchema, CoreAiPromptTemplate } from './models/core-ai-prompt-template.model';
+import { AiPromptSchema, CoreAiPrompt } from './models/core-ai-prompt.model';
+import { AiSlotSchema, CoreAiSlot } from './models/core-ai-slot.model';
 import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model';
 import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model';
 import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model';
@@ -47,16 +47,8 @@ import {
   AI_PROMPT_HINT_MODEL,
   CoreAiPromptHintService,
 } from './services/core-ai-prompt-hint.service';
-import {
-  AI_PROMPT_SNIPPET_CLASS,
-  AI_PROMPT_SNIPPET_MODEL,
-  CoreAiPromptSnippetService,
-} from './services/core-ai-prompt-snippet.service';
-import {
-  AI_PROMPT_TEMPLATE_CLASS,
-  AI_PROMPT_TEMPLATE_MODEL,
-  CoreAiPromptTemplateService,
-} from './services/core-ai-prompt-template.service';
+import { AI_PROMPT_CLASS, AI_PROMPT_MODEL, CoreAiPromptService } from './services/core-ai-prompt.service';
+import { AI_SLOT_CLASS, AI_SLOT_MODEL, CoreAiSlotService } from './services/core-ai-slot.service';
 import {
   AI_TOOL_GRANT_CLASS,
   AI_TOOL_GRANT_MODEL,
@@ -111,11 +103,11 @@ export interface CoreAiModuleOptions {
   /** Custom learned-hint service / learning loop (extends CoreAiPromptHintService). */
   promptHintService?: Type<CoreAiPromptHintService>;
 
-  /** Custom user-facing prompt snippet store (extends CoreAiPromptSnippetService). */
-  promptSnippetService?: Type<CoreAiPromptSnippetService>;
+  /** Custom user-facing user prompt store (extends CoreAiPromptService). */
+  promptService?: Type<CoreAiPromptService>;
 
-  /** Custom prompt-template store (extends CoreAiPromptTemplateService). */
-  promptTemplateService?: Type<CoreAiPromptTemplateService>;
+  /** Custom slot store (extends CoreAiSlotService). */
+  slotService?: Type<CoreAiSlotService>;
 
   /** Custom GraphQL resolver (extends CoreAiResolver). */
   resolver?: Type<CoreAiResolver>;
@@ -169,8 +161,8 @@ export class CoreAiModule {
     const PreferenceServiceClass = options.preferenceService || CoreAiConnectionPreferenceService;
     const PromptBuilderClass = options.promptBuilder || CoreAiPromptBuilderService;
     const PromptHintServiceClass = options.promptHintService || CoreAiPromptHintService;
-    const PromptSnippetServiceClass = options.promptSnippetService || CoreAiPromptSnippetService;
-    const PromptTemplateServiceClass = options.promptTemplateService || CoreAiPromptTemplateService;
+    const PromptServiceClass = options.promptService || CoreAiPromptService;
+    const SlotServiceClass = options.slotService || CoreAiSlotService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
     const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
@@ -200,8 +192,8 @@ export class CoreAiModule {
         CoreAiMcpService,
         CoreAiPromptBuilderService,
         CoreAiPromptHintService,
-        CoreAiPromptSnippetService,
-        CoreAiPromptTemplateService,
+        CoreAiPromptService,
+        CoreAiSlotService,
         CoreAiService,
         CoreAiToolGrantService,
         CoreAiToolPolicyService,
@@ -218,8 +210,8 @@ export class CoreAiModule {
           { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
           { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
           { name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
-          { name: AI_PROMPT_SNIPPET_MODEL, schema: AiPromptSnippetSchema },
-          { name: AI_PROMPT_TEMPLATE_MODEL, schema: AiPromptTemplateSchema },
+          { name: AI_PROMPT_MODEL, schema: AiPromptSchema },
+          { name: AI_SLOT_MODEL, schema: AiSlotSchema },
           { name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
           { name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
           { name: AI_MODE_MODEL, schema: AiModeSchema },
@@ -239,8 +231,8 @@ export class CoreAiModule {
         { provide: AI_CONVERSATION_CLASS, useValue: CoreAiConversation },
         { provide: AI_INTERACTION_CLASS, useValue: CoreAiInteraction },
         { provide: AI_PROMPT_HINT_CLASS, useValue: CoreAiPromptHint },
-        { provide: AI_PROMPT_SNIPPET_CLASS, useValue: CoreAiPromptSnippet },
-        { provide: AI_PROMPT_TEMPLATE_CLASS, useValue: CoreAiPromptTemplate },
+        { provide: AI_PROMPT_CLASS, useValue: CoreAiPrompt },
+        { provide: AI_SLOT_CLASS, useValue: CoreAiSlot },
         { provide: AI_TOOL_GRANT_CLASS, useValue: CoreAiToolGrant },
         { provide: AI_TOOL_POLICY_CLASS, useValue: CoreAiToolPolicy },
         { provide: AI_MODE_CLASS, useValue: CoreAiMode },
@@ -256,8 +248,8 @@ export class CoreAiModule {
         { provide: CoreAiConnectionService, useClass: ConnectionServiceClass },
         { provide: CoreAiPromptBuilderService, useClass: PromptBuilderClass },
         { provide: CoreAiPromptHintService, useClass: PromptHintServiceClass },
-        { provide: CoreAiPromptSnippetService, useClass: PromptSnippetServiceClass },
-        { provide: CoreAiPromptTemplateService, useClass: PromptTemplateServiceClass },
+        { provide: CoreAiPromptService, useClass: PromptServiceClass },
+        { provide: CoreAiSlotService, useClass: SlotServiceClass },
         { provide: CoreAiService, useClass: ServiceClass },
         { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },
         { provide: CoreAiToolPolicyService, useClass: ToolPolicyServiceClass },

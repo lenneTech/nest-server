@@ -4,15 +4,15 @@ import { Model } from 'mongoose';
 
 import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiPromptTemplateCreateInput } from '../inputs/core-ai-prompt-template-create.input';
-import { CoreAiPromptTemplateInput } from '../inputs/core-ai-prompt-template.input';
-import { AiPromptTemplateDocument, CoreAiPromptTemplate } from '../models/core-ai-prompt-template.model';
+import { CoreAiSlotCreateInput } from '../inputs/core-ai-slot-create.input';
+import { CoreAiSlotUpdateInput } from '../inputs/core-ai-slot-update.input';
+import { AiSlotDocument, CoreAiSlot } from '../models/core-ai-slot.model';
 
-/** Mongoose injection token for the prompt-template model. */
-export const AI_PROMPT_TEMPLATE_MODEL = 'AiPromptTemplate';
+/** Mongoose injection token for the slot model. */
+export const AI_SLOT_MODEL = 'AiSlot';
 
-/** DI token for the prompt-template model constructor. */
-export const AI_PROMPT_TEMPLATE_CLASS = 'AI_PROMPT_TEMPLATE_CLASS';
+/** DI token for the slot model constructor. */
+export const AI_SLOT_CLASS = 'AI_SLOT_CLASS';
 
 /** A resolved prompt fragment ready for placeholder rendering + assembly. */
 export interface ResolvedPromptFragment {
@@ -25,24 +25,20 @@ export interface ResolvedPromptFragment {
 
 /**
  * Admin-editable store of system-prompt building blocks. Ships built-in defaults for
- * every {@link CoreAiPromptTemplateService.defaultFragments} key, so the prompt works
+ * every {@link CoreAiSlotService.defaultFragments} key, so the prompt works
  * with zero DB rows; a stored row **overrides** the default for its key (optionally
  * scoped by `locale`/`capability`). This keeps the whole prompt transparent and
  * adjustable — by admins and the governed learning loop — rather than hard-coded.
  *
- * Override this class via `CoreModule.forRoot(env, { ai: { promptTemplateService } })`
+ * Override this class via `CoreModule.forRoot(env, { ai: { slotService } })`
  * to ship different defaults or composition rules.
  */
 @Injectable()
-export class CoreAiPromptTemplateService extends CrudService<
-  CoreAiPromptTemplate,
-  CoreAiPromptTemplateCreateInput,
-  CoreAiPromptTemplateInput
-> {
+export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateInput, CoreAiSlotUpdateInput> {
   constructor(
-    @InjectModel(AI_PROMPT_TEMPLATE_MODEL) protected override readonly mainDbModel: Model<AiPromptTemplateDocument>,
-    @Inject(AI_PROMPT_TEMPLATE_CLASS)
-    protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiPromptTemplate>,
+    @InjectModel(AI_SLOT_MODEL) protected override readonly mainDbModel: Model<AiSlotDocument>,
+    @Inject(AI_SLOT_CLASS)
+    protected override readonly mainModelConstructor: CoreModelConstructor<CoreAiSlot>,
   ) {
     super();
   }
@@ -75,18 +71,18 @@ export class CoreAiPromptTemplateService extends CrudService<
 
     // Overlay DB rows (enabled only). A locale-specific row beats a generic one; a
     // scoped row that matches beats a generic one (both are "more specific").
-    let rows: CoreAiPromptTemplate[] = [];
+    let rows: CoreAiSlot[] = [];
     try {
       rows = await this.mainDbModel
         .find({ enabled: { $ne: false } })
-        .lean<CoreAiPromptTemplate[]>()
+        .lean<CoreAiSlot[]>()
         .exec();
     } catch {
       rows = [];
     }
-    const rank = (row: CoreAiPromptTemplate): number =>
+    const rank = (row: CoreAiSlot): number =>
       (row.locale && row.locale === locale ? 2 : row.locale ? 0 : 1) + (row.scope ? 4 : 0);
-    const chosen = new Map<string, { rank: number; row: CoreAiPromptTemplate }>();
+    const chosen = new Map<string, { rank: number; row: CoreAiSlot }>();
     for (const row of rows) {
       if (!row?.key || !row?.content) {
         continue;
