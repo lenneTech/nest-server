@@ -116,6 +116,38 @@ export class CoreAiConnection extends CorePersistenceModel {
   defaultTemperature?: number = undefined;
 
   /**
+   * Provider-side default token quota per user over the configured
+   * {@link defaultUserMaxPeriod}. Used as a soft fallback in the budget
+   * summary when no per-user / per-tenant hard limit is configured — the
+   * admin pins this per connection based on the provider's known plan
+   * (e.g. mittwald 100k tokens/day). Surfaces in the UI's token bar with
+   * `scope: 'llm'` and a "kumulativ" label.
+   *
+   * Zero / undefined disables the fallback for this connection.
+   */
+  @UnifiedField({
+    description: 'Provider-side soft user quota (tokens / period) used when no hard budget is set',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Number,
+  })
+  defaultUserMaxTokens?: number = undefined;
+
+  /**
+   * Aggregation period for {@link defaultUserMaxTokens}. Accepts the same
+   * values as `ai.budget.period` (`'day'`, `'month'`, `'none'`). Defaults
+   * to the configured `ai.budget.period` (or `'day'`) when unset.
+   */
+  @UnifiedField({
+    description: 'Period for the provider-side soft user quota (day | month | none)',
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.ADMIN,
+  })
+  defaultUserMaxPeriod?: string = undefined;
+
+  /**
    * Human-readable description.
    */
   @UnifiedField({

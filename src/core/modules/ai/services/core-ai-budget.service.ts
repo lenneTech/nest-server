@@ -158,18 +158,20 @@ export class CoreAiBudgetService extends CrudService<
     tenantId: string | undefined,
     promptTokens: number,
     llmContextWindow?: number,
+    providerQuota?: { maxTokens?: number; period?: string },
   ): Promise<CoreAiBudgetSummary> {
     const summary = new CoreAiBudgetSummary();
     summary.promptTokens = promptTokens;
     if (!userId) {
-      // Even with no user, expose the LLM context window so the frontend can render
-      // a coarse usage bar.
+      // No user → only the LLM context window can be reported as a coarse signal.
       if (this.finite(llmContextWindow)) {
         summary.maxTokens = llmContextWindow;
         summary.scope = 'llm';
       }
       return summary;
     }
+
+    // 1) User-scope hard limit (DB override → config default).
     const userLimit = await this.resolveLimit('user', userId);
     if (this.finite(userLimit.maxTokens) || this.finite(userLimit.maxPrompts)) {
       const usage = await this.getUsage({ userId }, userLimit.period);
@@ -184,7 +186,8 @@ export class CoreAiBudgetService extends CrudService<
       }
       return summary;
     }
-    // Fall back to tenant limit.
+
+    // 2) Tenant-scope hard limit.
     if (tenantId) {
       const tenantLimit = await this.resolveLimit('tenant', tenantId);
       if (this.finite(tenantLimit.maxTokens)) {
@@ -197,7 +200,27 @@ export class CoreAiBudgetService extends CrudService<
         return summary;
       }
     }
-    // Fall back to the LLM's context window (best coarse signal).
+
+    // No hard limit configured for this user / tenant. Still report the running
+    // CUMULATIVE user usage over the default period so the UI can show a
+    // running counter (and a soft bar when a fallback maxTokens exists).
+    const period = providerQuota?.period || userLimit.period;
+    const usage = await this.getUsage({ userId }, period);
+    summary.usedTokens = usage.usedTokens;
+    summary.resetAt = usage.resetAt ?? undefined;
+
+    // 3) Provider-quota soft default — auto-derived from the active connection
+    // (the admin pins it per connection; the bar shows it as scope='llm'
+    // because it's a provider hint, not a per-user hard limit).
+    if (this.finite(providerQuota?.maxTokens)) {
+      summary.maxTokens = providerQuota!.maxTokens;
+      summary.remainingTokens = Math.max(0, (providerQuota!.maxTokens as number) - usage.usedTokens);
+      summary.scope = 'llm';
+      return summary;
+    }
+
+    // 4) Last-resort soft default — the LLM context window. Coarse but
+    // better than rendering nothing.
     if (this.finite(llmContextWindow)) {
       summary.maxTokens = llmContextWindow;
       summary.scope = 'llm';

@@ -340,6 +340,8 @@ export class CoreAiConnectionService
       contextWindow: doc.contextWindow,
       defaultMaxTokens: doc.defaultMaxTokens,
       defaultTemperature: doc.defaultTemperature,
+      defaultUserMaxPeriod: doc.defaultUserMaxPeriod,
+      defaultUserMaxTokens: doc.defaultUserMaxTokens,
       id: String(doc._id),
       model: doc.model,
       name: doc.name,

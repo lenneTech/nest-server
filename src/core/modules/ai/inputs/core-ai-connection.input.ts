@@ -86,6 +86,23 @@ export class CoreAiConnectionInput {
   })
   defaultTemperature?: number = undefined;
 
+  /** Provider-side soft user quota (tokens) used when no hard budget is set. */
+  @UnifiedField({
+    description: 'Provider-side soft user quota (tokens) used when no hard budget is set',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+    type: () => Number,
+  })
+  defaultUserMaxTokens?: number = undefined;
+
+  /** Period for the provider-side soft user quota (`day` | `month` | `none`). */
+  @UnifiedField({
+    description: 'Period for the provider-side soft user quota (day | month | none)',
+    isOptional: true,
+    roles: RoleEnum.ADMIN,
+  })
+  defaultUserMaxPeriod?: string = undefined;
+
   /**
    * Human-readable description.
    */

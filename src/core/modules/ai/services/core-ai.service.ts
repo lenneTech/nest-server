@@ -291,11 +291,17 @@ export class CoreAiService {
       return;
     }
     try {
+      const quotaTokens = run.connection?.defaultUserMaxTokens;
+      const providerQuota =
+        typeof quotaTokens === 'number' && quotaTokens > 0
+          ? { maxTokens: quotaTokens, period: run.connection?.defaultUserMaxPeriod }
+          : undefined;
       response.budget = await this.budgetService.buildSummary(
         run.currentUser?.id,
         run.tenantId,
         response.usage?.totalTokens ?? 0,
         llmWindow,
+        providerQuota,
       );
     } catch (err) {
       this.logger.warn(`Failed to build AI budget summary: ${(err as Error).message}`);

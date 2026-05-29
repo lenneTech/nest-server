@@ -976,6 +976,46 @@ describe('AI module (e2e)', () => {
     expect(all[0].content).toBe('second-override');
   });
 
+  it('budget summary aggregates cumulative user usage over the period (scope=llm fallback)', async () => {
+    // Insert two synthetic interactions for the user inside the current day window.
+    const u = new ObjectId().toString();
+    const now = new Date();
+    await db.collection('aiInteractions').insertMany([
+      { createdAt: now, promptTokens: 100, totalTokens: 500, userId: u },
+      { createdAt: now, promptTokens: 150, totalTokens: 800, userId: u },
+    ]);
+    try {
+      // No user/tenant limit configured → falls through to provider quota / context window
+      // but `usedTokens` must be the cumulative sum (500 + 800 = 1300).
+      const summary = await budgetService.buildSummary(u, undefined, 150, 8192);
+      expect(summary.scope).toBe('llm');
+      expect(summary.maxTokens).toBe(8192);
+      expect(summary.usedTokens).toBe(1300);
+      expect(summary.remainingTokens).toBeUndefined(); // context-window fallback has no remaining
+    } finally {
+      await db.collection('aiInteractions').deleteMany({ userId: u });
+    }
+  });
+
+  it('budget summary uses the connection providerQuota as soft fallback when no hard limit is set', async () => {
+    const u = new ObjectId().toString();
+    const now = new Date();
+    await db.collection('aiInteractions').insertOne({ createdAt: now, totalTokens: 2000, userId: u });
+    try {
+      const summary = await budgetService.buildSummary(u, undefined, 100, 8192, {
+        maxTokens: 100000,
+        period: 'day',
+      });
+      expect(summary.scope).toBe('llm');
+      expect(summary.maxTokens).toBe(100000); // provider quota wins over context window
+      expect(summary.usedTokens).toBe(2000);
+      expect(summary.remainingTokens).toBe(98000);
+      expect(summary.resetAt).toBeDefined();
+    } finally {
+      await db.collection('aiInteractions').deleteMany({ userId: u });
+    }
+  });
+
   it('non-admins cannot read or write slots (S_USER → ForbiddenException)', async () => {
     const regular = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(slotService.listEffective({ currentUser: regular })).rejects.toThrow(/admin/i);

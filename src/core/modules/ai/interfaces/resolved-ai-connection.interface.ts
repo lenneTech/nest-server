@@ -22,6 +22,16 @@ export interface ResolvedAiConnection {
   /** Default sampling temperature. */
   defaultTemperature?: number;
 
+  /**
+   * Provider-side soft user quota (tokens) over {@link defaultUserMaxPeriod}.
+   * Used as a fallback in the budget summary when no user / tenant hard limit
+   * is configured.
+   */
+  defaultUserMaxTokens?: number;
+
+  /** Period for {@link defaultUserMaxTokens} (`day` | `month` | `none`). */
+  defaultUserMaxPeriod?: string;
+
   /** Connection id (for audit/logging). */
   id: string;
 
