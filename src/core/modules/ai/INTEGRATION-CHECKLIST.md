@@ -59,28 +59,54 @@ NSC__AI__ENCRYPTION_SECRET=<random 32+ char string>
 Admins can also store/rotate keys at runtime via the connection CRUD endpoints
 (stored encrypted; env is only the fallback).
 
-### 3. Create AI tools
+### 3. Create AI tools — REQUIRED for the assistant to do anything domain-specific
+
+> **AI agents / new integrators read this first:** the AI module has **no automatic
+> access to your domain models**. Without explicitly registered tools, every domain
+> question (e.g. "show me the latest orders", "find user X") gets the answer
+> _"I don't have a tool to do that"_ — that's the LLM correctly reporting its
+> capabilities, NOT a bug. **You must write a tool for every domain operation that
+> should be reachable from chat.**
 
 **Create:** `src/server/modules/ai/tools/<your>.tool.ts`
-**Copy from:** the reference tools (`find-users.tool.ts`, `get-user.tool.ts`,
-`update-user-job-title.tool.ts`).
+**Copy from:** the reference tools shipped at
+`node_modules/@lenne.tech/nest-server/src/server/modules/ai/tools/` (`find-users.tool.ts`,
+`get-user.tool.ts`, `delete-user.tool.ts`, `update-user-job-title.tool.ts`) — those
+demonstrate read / restricted-read / destructive-write / mutating-write patterns.
 
-Each tool extends `AiTool`, declares `name`/`description`/`parameters`/`roles`, and
-implements `execute()` by routing through a `CrudService` with
-`context.serviceOptions`.
+When copying:
 
-### 4. Register your tools in a module
+- Replace relative framework imports `'../../../../core/...'` with the npm specifier
+  `'@lenne.tech/nest-server'`.
+- Adjust the relative path to your own services (e.g. `'../../user/user.service'`
+  becomes `'../user/user.service'` if you copy `tools/` one level shallower; the
+  reference structure assumes `tools/` is a sub-folder of `ai/`).
+- For each tool: declare `name` / `description` / `parameters` (JSON-Schema) /
+  `roles`; flag mutating ones with `mutating: true` and irreversible ones with
+  `destructive: true`.
+- Implement `execute(args, context)` by **always** routing through a `CrudService`
+  with `context.serviceOptions` — NOT directly through `Model.find()` etc.
+  CrudService preserves the caller's `@Restricted` / `@Roles` / `securityCheck()`
+  guarantees. Direct Model access bypasses the permission layer and IS a security
+  bug.
 
-**Create:** `src/server/modules/ai/ai-tools.module.ts` (copy from reference) and
-import it in `server.module.ts`:
+### 4. Register your tools in a module — REQUIRED
+
+**Create:** `src/server/modules/ai/ai-tools.module.ts` (copy from the framework
+reference at `node_modules/@lenne.tech/nest-server/src/server/modules/ai/ai-tools.module.ts`)
+and import it in `server.module.ts`:
 
 ```typescript
 // server.module.ts → imports: [ … , AiToolsModule ]
 ```
 
-The `AiToolRegistry` is provided globally by the auto-registered `CoreAiModule`, so
-your module only needs to import whatever services your tools depend on (e.g.
-`UserModule`).
+Each tool subclass listed in the module's `providers: []` self-registers in the
+global `AiToolRegistry` via the `AiTool` base class. The registry is provided
+globally by the auto-registered `CoreAiModule`, so your module only needs to
+import whatever services your tools depend on (e.g. `UserModule`).
+
+A consumer project without `AiToolsModule` (or with an empty `providers: []`)
+will boot fine — the AI just won't have any domain tools to call.
 
 ### 5. (Optional) Override collaborators
 

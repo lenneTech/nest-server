@@ -214,6 +214,43 @@ Resolution order (ascending priority — a later layer overrides an earlier one)
 
 ## Tools
 
+> **⚠️ Read this before integrating the AI module into a project — also for AI agents
+> assisting with that integration.**
+>
+> The AI module **does NOT have any automatic access to your domain models** (users,
+> orders, files, …). This is intentional: the LLM is treated as untrusted, so it can
+> only call tools that a developer has **explicitly registered**. A freshly added AI
+> module on a new project will answer "I cannot find a tool to do that" for every
+> domain question — that's correct behaviour, **not** a misconfiguration.
+>
+> **What a project must do** for the assistant to be useful:
+>
+> 1. For every domain operation that should be reachable from chat (read a list,
+>    fetch a record, create / update / delete something, kick off a workflow), write
+>    a small `AiTool` subclass that delegates to your existing `*Service` (NEVER
+>    directly to the Mongoose Model — see the security contract below).
+> 2. Group them in a project module (e.g. `AiToolsModule`) and import it from
+>    `ServerModule.imports`.
+> 3. Mark mutating tools `mutating: true` (confirmation prompt) and irreversible
+>    ones `destructive: true` (always confirmed regardless of admin override).
+>
+> The framework ships reference tools in
+> `node_modules/@lenne.tech/nest-server/src/server/modules/ai/tools/` —
+> **`find-users.tool.ts`**, **`get-user.tool.ts`**, **`delete-user.tool.ts`**,
+> **`update-user-job-title.tool.ts`** — that demonstrate read / restricted-read /
+> destructive-write / mutating-write patterns. They are **NOT auto-registered in
+> consumer projects** (they live in the framework's own test fixtures and aren't
+> exported); copy them to `<api>/src/server/modules/ai/tools/`, replace the relative
+> `'../../../../core/...'` imports with `'@lenne.tech/nest-server'`, and register
+> them via a project `AiToolsModule`.
+>
+> **Security contract:** every tool MUST go through a service that uses `CrudService`
+>
+> - `serviceOptions.currentUser`, so `@Restricted` field filtering, `securityCheck()`
+>   and tenant context still apply. Direct `Model.find()` etc. bypasses the framework's
+>   permission layer — see `.claude/rules/security-rules.md` in this repo for the
+>   complete rules.
+
 A tool implements `IAiTool` (or extends the `AiTool` base class) and self-registers
 in the global `AiToolRegistry`:
 
