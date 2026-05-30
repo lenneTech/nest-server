@@ -1,3 +1,11 @@
+spectaql:
+  # Treat unresolved Handlebars-style interpolations (`{{name}}`) in GraphQL
+  # descriptions as warnings instead of build-breaking errors. The AI module
+  # legitimately uses `{{placeholders}}` notation in slot/prompt-content
+  # descriptions to document its runtime placeholder registry — those tokens
+  # are meant for the AI orchestrator, not for spectaql's Handlebars engine.
+  errorOnInterpolationReferenceNotFound: false
+
 introspection:
   schemaFile: ./schema.gql
 
@@ -11,7 +19,7 @@ servers:
 info:
   title: lT Nest Server
   description: Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).
-  version: 11.25.6
+  version: 11.26.0
   contact:
     name: lenne.Tech GmbH
     url: https://lenne.tech
