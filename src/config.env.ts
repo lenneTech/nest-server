@@ -16,7 +16,10 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
  * @see IServerOptions for documentation of all options
  * @see .env.example for all available environment variables
  */
-dotenv.config();
+// `quiet: true` silences dotenv's startup banner ("◇ injected env (N) from .env // tip: …"),
+// which is purely cosmetic and carries promotional content. Warnings (`⚠`) for genuine
+// misconfiguration still surface.
+dotenv.config({ quiet: true });
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   // CI environment

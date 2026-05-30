@@ -46,10 +46,13 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
     ...options,
   };
 
+  // `quiet: true` silences dotenv's startup banner ("◇ injected env (N) from .env // tip: …"),
+  // which is purely cosmetic and carries promotional content. Warnings (`⚠`) for genuine
+  // misconfiguration still surface.
   if (envPath) {
-    dotenv.config({ path: envPath });
+    dotenv.config({ path: envPath, quiet: true });
   } else {
-    dotenv.config();
+    dotenv.config({ quiet: true });
   }
 
   const env = process.env['NODE_ENV'] || defaultEnv;
