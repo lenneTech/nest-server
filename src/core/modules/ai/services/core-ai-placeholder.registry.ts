@@ -65,7 +65,7 @@ export class CoreAiPlaceholderRegistry implements OnModuleInit {
     for (const p of this.placeholders.values()) {
       try {
         const value = await p.resolve(ctx);
-        out[p.name] = value == null ? '' : String(value);
+        out[p.name] = value === null || value === undefined ? '' : String(value);
       } catch (err) {
         this.logger.warn(`Placeholder ${p.name} failed to resolve: ${(err as Error).message}`);
         out[p.name] = '';

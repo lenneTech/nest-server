@@ -47,7 +47,7 @@ export class CoreAiSlot extends CorePersistenceModel {
    * Slot text. May contain `{{placeholders}}` (see placeholder registry).
    */
   @UnifiedField({
-    description: 'Slot text (supports {{placeholders}})',
+    description: 'Slot text — supports placeholder tokens; the active registry is served by GET /ai/placeholders',
     mongoose: true,
     roles: RoleEnum.ADMIN,
   })

@@ -13,7 +13,7 @@ import { CoreAiSlotUpdateInput } from './core-ai-slot-update.input';
 @Restricted(RoleEnum.ADMIN)
 export class CoreAiSlotCreateInput extends CoreAiSlotUpdateInput {
   @UnifiedField({
-    description: 'Slot text (supports {{placeholders}})',
+    description: 'Slot text — supports placeholder tokens; the active registry is served by GET /ai/placeholders',
     roles: RoleEnum.ADMIN,
   })
   override content: string = undefined;

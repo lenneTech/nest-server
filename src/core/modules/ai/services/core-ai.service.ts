@@ -162,7 +162,7 @@ export class CoreAiService {
         user: serviceOptions?.currentUser,
       });
       const rendered = input.prompt.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>
-        values[key] != null && values[key] !== '' ? values[key] : match,
+        values[key] !== null && values[key] !== undefined && values[key] !== '' ? values[key] : match,
       );
       return rendered === input.prompt ? input : { ...input, prompt: rendered };
     } catch (err) {

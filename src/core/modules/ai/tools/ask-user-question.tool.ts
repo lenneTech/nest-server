@@ -50,6 +50,9 @@ export class AskUserQuestionAiTool extends AiTool {
   };
   readonly roles = [RoleEnum.S_USER];
 
+  // Re-declares the constructor publicly so NestJS DI can instantiate this provider
+  // (AiTool's constructor is `protected`).
+  // eslint-disable-next-line no-useless-constructor
   constructor(registry: AiToolRegistry) {
     super(registry);
   }

@@ -1029,8 +1029,8 @@ describe('AI module (e2e)', () => {
   // ===================================================================================================================
 
   it('lists the 6 built-in system placeholders via registry.list()', () => {
-    const registry = app.get(CoreAiPlaceholderRegistry);
-    const names = registry.list().map((p: any) => p.name);
+    const placeholderRegistry = app.get(CoreAiPlaceholderRegistry);
+    const names = placeholderRegistry.list().map((p: any) => p.name);
     expect(names).toEqual(
       expect.arrayContaining(['documentation', 'learnedHints', 'roles', 'toolCatalog', 'tools', 'userId']),
     );
@@ -1111,20 +1111,20 @@ describe('AI module (e2e)', () => {
   });
 
   it('project placeholders are honored: register, list, resolve', async () => {
-    const registry = app.get(CoreAiPlaceholderRegistry);
-    registry.register({
+    const placeholderRegistry = app.get(CoreAiPlaceholderRegistry);
+    placeholderRegistry.register({
       description: 'Project-specific test placeholder.',
       name: 'projectMarker',
       resolve: () => 'PROJECT-MARKER-XYZ',
     });
     try {
-      const names = registry.list().map((p: any) => p.name);
+      const names = placeholderRegistry.list().map((p: any) => p.name);
       expect(names).toContain('projectMarker');
 
-      const all = await registry.resolveAll({ tools: [], toolCatalog: '', user: { id: 'u', roles: [] } });
+      const all = await placeholderRegistry.resolveAll({ tools: [], toolCatalog: '', user: { id: 'u', roles: [] } });
       expect(all.projectMarker).toBe('PROJECT-MARKER-XYZ');
     } finally {
-      registry.unregister('projectMarker');
+      placeholderRegistry.unregister('projectMarker');
     }
   });
 });

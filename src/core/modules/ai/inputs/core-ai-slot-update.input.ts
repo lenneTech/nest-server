@@ -20,7 +20,7 @@ export class CoreAiSlotUpdateInput {
   capability?: string = undefined;
 
   @UnifiedField({
-    description: 'Slot text (supports {{placeholders}})',
+    description: 'Slot text — supports placeholder tokens; the active registry is served by GET /ai/placeholders',
     isOptional: true,
     roles: RoleEnum.ADMIN,
   })
