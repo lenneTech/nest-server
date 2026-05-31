@@ -8,11 +8,21 @@ import { ConfigService } from '../../../common/services/config.service';
 
 /**
  * Stored OAuth client (dynamically registered).
+ *
+ * For confidential clients (i.e. clients that registered with a
+ * `token_endpoint_auth_method` other than `'none'`), `client_secret` is
+ * persisted and returned here so the SDK's `clientAuth` middleware can verify
+ * it. Dropping the secret from the returned shape would silently downgrade
+ * confidential clients to public clients (the SDK's secret-verification branch
+ * is gated by `if (client.client_secret)`).
  */
 export interface AiMcpOAuthClient {
   client_id: string;
   client_name?: string;
+  client_secret?: string;
+  client_secret_expires_at?: number;
   redirect_uris: string[];
+  token_endpoint_auth_method?: string;
 }
 
 /**
@@ -171,10 +181,26 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
 
   /**
    * Look up a registered client.
+   *
+   * Returns `client_secret` and `client_secret_expires_at` when present so the
+   * SDK's `clientAuth` middleware can verify the secret on token-endpoint
+   * requests (`if (client.client_secret) { …verify… }`). Public clients
+   * (registered with `token_endpoint_auth_method: 'none'`) have no secret and
+   * the verification branch is skipped — PKCE protects the auth-code flow.
    */
   async getClient(clientId: string): Promise<AiMcpOAuthClient | null> {
     const doc = await this.db().collection(this.clientsCollection).findOne({ client_id: clientId });
-    return doc ? { client_id: doc.client_id, client_name: doc.client_name, redirect_uris: doc.redirect_uris } : null;
+    if (!doc) {
+      return null;
+    }
+    return {
+      client_id: doc.client_id,
+      client_name: doc.client_name,
+      client_secret: doc.client_secret,
+      client_secret_expires_at: doc.client_secret_expires_at,
+      redirect_uris: doc.redirect_uris,
+      token_endpoint_auth_method: doc.token_endpoint_auth_method,
+    };
   }
 
   /**
@@ -230,9 +256,21 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
 
   /**
    * Rotate a refresh token: validate, delete, issue a new one. Returns the user/client.
+   *
+   * The `clientId` parameter is REQUIRED — refresh tokens are bound to the
+   * issuing client per OAuth 2.1 §4.13.2 / §7.4. Looking up the token alone
+   * would let a different client present a stolen refresh token and obtain an
+   * access token for the original user's subject (impersonation). The
+   * `findOneAndDelete({ token, clientId })` query enforces the binding atomically.
    */
-  async rotateRefreshToken(token: string): Promise<{ clientId: string; newToken: string; userId: string } | null> {
-    const doc = await this.db().collection(this.refreshCollection).findOneAndDelete({ token });
+  async rotateRefreshToken(
+    token: string,
+    clientId: string,
+  ): Promise<{ clientId: string; newToken: string; userId: string } | null> {
+    if (!token || !clientId) {
+      return null;
+    }
+    const doc = await this.db().collection(this.refreshCollection).findOneAndDelete({ clientId, token });
     const value = (doc as any)?.value ?? doc;
     if (!value) {
       return null;
@@ -292,8 +330,17 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           token_type: 'Bearer',
         };
       },
-      exchangeRefreshToken: async (_client: any, refreshToken: string) => {
-        const rotated = await this.rotateRefreshToken(refreshToken);
+      exchangeRefreshToken: async (client: any, refreshToken: string) => {
+        // Bind the rotating refresh token to the calling client (OAuth 2.1
+        // §4.13.2 / §7.4). Without this check, a different client could present
+        // a stolen refresh token and obtain an access token for the original
+        // user's subject. `rotateRefreshToken` enforces the binding atomically
+        // via `findOneAndDelete({ token, clientId })`.
+        const callerClientId = client?.client_id;
+        if (!callerClientId) {
+          throw new Error('invalid_client');
+        }
+        const rotated = await this.rotateRefreshToken(refreshToken, callerClientId);
         if (!rotated) {
           throw new Error('invalid_grant');
         }

@@ -16,6 +16,7 @@ import {
   CoreAiPromptService,
   CoreAiSlotService,
   CoreAiService,
+  CoreBetterAuthService,
   HttpExceptionLogFilter,
   ILlmProvider,
   LlmMessage,
@@ -73,7 +74,21 @@ describe('AI module (e2e)', () => {
   const admin = { id: new ObjectId().toString(), roles: [RoleEnum.ADMIN] };
   const adminOptions = { currentUser: admin };
 
-  /** Sign up a BetterAuth user, optionally promote to admin, verify, and return a JWT. */
+  /**
+   * Sign up a BetterAuth user, promote to the given roles, verify the email,
+   * and return a JWT usable as `Authorization: Bearer …`.
+   *
+   * Why the JWT fallback path (`betterAuthService.getToken`): BetterAuth's
+   * `api.signInEmail()` does not always echo a session token into the response
+   * body (it depends on the BetterAuth internal state + plugin warm-up; in
+   * isolated test runs the body is `{ requiresTwoFactor, success, user }`
+   * without `token` or `session`). The session is still established via the
+   * `iam.session_token` Set-Cookie. We forward that cookie to
+   * `betterAuthService.getToken({ headers: { cookie } })` (the JWT plugin's
+   * /iam/token endpoint underneath), which deterministically returns a JWT —
+   * regardless of whether the sign-in body contained one. This eliminates the
+   * pre-existing flaky 401s in this file.
+   */
   async function createHttpUser(email: string, roles: string[]): Promise<string> {
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
@@ -82,12 +97,32 @@ describe('AI module (e2e)', () => {
     });
     await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, roles, verified: true } });
     await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
-    const signIn = await testHelper.rest('/iam/sign-in/email', {
+
+    const signInResponse = await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
       payload: { email, password: httpPassword },
+      returnResponse: true,
       statusCode: 200,
     });
-    return signIn.token;
+
+    // Prefer the token from the response body (BetterAuth + `exposeTokenInBody`).
+    let token: string | undefined = signInResponse?.body?.token;
+
+    // Fallback: convert the session cookie to a JWT via the BetterAuth JWT
+    // plugin. Required when `api.signInEmail()` does not echo a token in the
+    // body — which happens in isolated test runs.
+    if (!token) {
+      const rawCookies = signInResponse?.headers?.['set-cookie'] ?? [];
+      const cookieList: string[] = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+      const cookieHeader = cookieList.map((c: string) => c.split(';')[0]).join('; ');
+      const betterAuthService = app.get(CoreBetterAuthService);
+      token = (await betterAuthService.getToken({ headers: { cookie: cookieHeader } })) ?? undefined;
+    }
+
+    if (!token) {
+      throw new Error(`createHttpUser: failed to obtain a Bearer token for ${email}`);
+    }
+    return token;
   }
 
   beforeAll(async () => {

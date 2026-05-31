@@ -1218,6 +1218,20 @@ export interface IAi {
   contextWindow?: number;
 
   /**
+   * Optional config for the `ClaudeCliProvider` (LLM backend that invokes a local
+   * `claude` CLI binary). Only consumed when a connection's `providerType` is
+   * `claude-cli` or the provider is registered explicitly.
+   */
+  claudeCli?: {
+    /** Path/name of the Claude CLI binary. @default 'claude' */
+    bin?: string;
+    /** Extra CLI flags appended verbatim to every invocation (admin-only). */
+    extraArgs?: string[];
+    /** Optional `--budget` cap (USD) appended to every invocation. */
+    maxBudgetUsd?: number;
+  };
+
+  /**
    * LLM-driven context compaction: when a session would overflow the connection's
    * context window, the oldest non-system/non-last turns are summarized by a single
    * LLM call (via the same connection's provider) and REPLACED by a one-paragraph
@@ -3118,10 +3132,18 @@ export interface ICoreModuleOverrides {
    * - `controller` must extend `CoreAiController`
    * - `conversationService` must extend `CoreAiConversationService`
    * - `interactionService` must extend `CoreAiInteractionService`
+   * - `mcpClientService` must extend `CoreAiMcpClientService`
+   * - `modeService` must extend `CoreAiModeService`
+   * - `placeholderRegistry` must extend `CoreAiPlaceholderRegistry`
    * - `preferenceService` must extend `CoreAiConnectionPreferenceService`
    * - `promptBuilder` must extend `CoreAiPromptBuilderService`
+   * - `promptHintService` must extend `CoreAiPromptHintService`
+   * - `promptService` must extend `CoreAiPromptService`
    * - `resolver` must extend `CoreAiResolver` (re-declare GraphQL decorators)
    * - `service` must extend `CoreAiService`
+   * - `slotService` must extend `CoreAiSlotService`
+   * - `toolGrantService` must extend `CoreAiToolGrantService`
+   * - `toolPolicyService` must extend `CoreAiToolPolicyService`
    *
    * @example
    * ```typescript
@@ -3130,6 +3152,7 @@ export interface ICoreModuleOverrides {
    *     service: MyAiService,
    *     resolver: MyAiResolver,
    *     connectionResolver: MyConnectionResolver,
+   *     slotService: MySlotService,
    *   },
    * }
    * ```
@@ -3141,10 +3164,18 @@ export interface ICoreModuleOverrides {
     controller?: Type<any>;
     conversationService?: Type<any>;
     interactionService?: Type<any>;
+    mcpClientService?: Type<any>;
+    modeService?: Type<any>;
+    placeholderRegistry?: Type<any>;
     preferenceService?: Type<any>;
     promptBuilder?: Type<any>;
+    promptHintService?: Type<any>;
+    promptService?: Type<any>;
     resolver?: Type<any>;
     service?: Type<any>;
+    slotService?: Type<any>;
+    toolGrantService?: Type<any>;
+    toolPolicyService?: Type<any>;
   };
 
   /**

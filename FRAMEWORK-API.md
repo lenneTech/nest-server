@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-05-30 (v11.26.0)
+> Auto-generated from source code on 2026-05-31 (v11.26.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -107,6 +107,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean` — Explicitly disable while keeping the config (default: enabled when present).
   - `encryptionSecret?`: `string` — Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
   - `contextWindow?`: `number` (default: `8192`) — Fallback total context window (input + output tokens) used to budget the
+  - `claudeCli?`: `{ bin?: string; extraArgs?: string[]; maxBudgetUsd?: number; }` — Optional config for the `ClaudeCliProvider` (LLM backend that invokes a local
   - `compaction?`: `boolean` (default: `true`) — LLM-driven context compaction: when a session would overflow the connection's
   - `deferToolSchemas?`: `boolean` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
   - `maxIterations?`: `number` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).

@@ -10,6 +10,7 @@ import { OpenAiCompatibleProvider } from '../../src/core/modules/ai/providers/op
 import { AiCryptoService } from '../../src/core/modules/ai/services/ai-crypto.service';
 import { CoreAiBudgetService } from '../../src/core/modules/ai/services/core-ai-budget.service';
 import { CoreAiConnectionResolverService } from '../../src/core/modules/ai/services/core-ai-connection-resolver.service';
+import { CoreAiMcpController } from '../../src/core/modules/ai/core-ai-mcp.controller';
 import { CoreAiMcpOAuthService } from '../../src/core/modules/ai/services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
@@ -1155,6 +1156,151 @@ describe('CoreAiService (emulated tool calling)', () => {
   });
 });
 
+/**
+ * MCP HTTP session lifecycle tests (`CoreAiMcpController`).
+ *
+ * These exercise the controller's request-routing logic — `resolveUser` chain,
+ * MCP-style 401 response, "unknown session" 404 path, and the `evictIfNeeded`
+ * cap. They use a hand-rolled fake `Request`/`Response` rather than supertest
+ * because the controller's heavy lifting (transport.handleRequest) is delegated
+ * to the MCP SDK, which is exercised separately by the in-memory protocol test.
+ */
+describe('CoreAiMcpController (HTTP session lifecycle)', () => {
+  beforeAll(() => {
+    new ConfigService({ ai: { mcp: { oauth: true, oauthSecret: 'unit-mcp-oauth-secret-32-characters!!' } } } as any);
+  });
+
+  function makeReq(opts: { authorization?: string; body?: any; method?: string; sessionId?: string; user?: any } = {}) {
+    return {
+      body: opts.body ?? {},
+      get: (name: string) => (name.toLowerCase() === 'host' ? 'api.example.com' : undefined),
+      headers: {
+        ...(opts.authorization && { authorization: opts.authorization }),
+        ...(opts.sessionId && { 'mcp-session-id': opts.sessionId }),
+      },
+      method: opts.method ?? 'POST',
+      protocol: 'https',
+      ...(opts.user && { user: opts.user }),
+    } as any;
+  }
+
+  function makeRes() {
+    const captured: { body?: any; headers: Record<string, string>; status?: number } = { headers: {} };
+    const res: any = {
+      json: (b: any) => {
+        captured.body = b;
+        return res;
+      },
+      set: (h: Record<string, string>) => {
+        Object.assign(captured.headers, h);
+        return res;
+      },
+      status: (s: number) => {
+        captured.status = s;
+        return res;
+      },
+    };
+    return { captured, res };
+  }
+
+  it('returns 401 with WWW-Authenticate header when no authentication is presented (handlePost)', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const { captured, res } = makeRes();
+    await controller.handlePost(makeReq(), res);
+    expect(captured.status).toBe(401);
+    expect(captured.headers['WWW-Authenticate']).toMatch(/Bearer resource_metadata="/);
+    expect(captured.headers['WWW-Authenticate']).toContain('https://api.example.com/ai/mcp');
+    expect(captured.body).toMatchObject({ error: expect.stringMatching(/Bearer token/i) });
+  });
+
+  it('returns 401 from handleGet when no authentication is presented', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const { captured, res } = makeRes();
+    await controller.handleGet(makeReq({ method: 'GET' }), res);
+    expect(captured.status).toBe(401);
+  });
+
+  it('returns 401 from handleDelete when no authentication is presented', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const { captured, res } = makeRes();
+    await controller.handleDelete(makeReq({ method: 'DELETE' }), res);
+    expect(captured.status).toBe(401);
+  });
+
+  it('handleGet returns 404 when authenticated but the session id is unknown', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const { captured, res } = makeRes();
+    await controller.handleGet(
+      makeReq({ method: 'GET', sessionId: 'no-such-session', user: { id: 'u1', roles: [] } }),
+      res,
+    );
+    expect(captured.status).toBe(404);
+    expect(captured.body).toMatchObject({ error: expect.stringMatching(/Unknown or expired MCP session/i) });
+  });
+
+  it('handleDelete returns 404 when the session id is unknown', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const { captured, res } = makeRes();
+    await controller.handleDelete(
+      makeReq({ method: 'DELETE', sessionId: 'ghost-session', user: { id: 'u1', roles: [] } }),
+      res,
+    );
+    expect(captured.status).toBe(404);
+  });
+
+  it('resolveUser prefers req.user (the BetterAuth middleware path)', async () => {
+    const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+    const req = makeReq({ user: { id: 'u-from-middleware', roles: ['admin'] } });
+    const resolved = await (controller as any).resolveUser(req);
+    expect(resolved).toMatchObject({ id: 'u-from-middleware' });
+  });
+
+  it('resolveUser falls back to verifying the OAuth Bearer token when no req.user (SEC-005 cross-check)', async () => {
+    // Stub `loadUser` to avoid touching MongoDB.
+    const oauth = new CoreAiMcpOAuthService({} as any);
+    (oauth as any).loadUser = async (uid: string) => ({ id: uid, roles: [] });
+    const controller = new CoreAiMcpController({} as any, oauth);
+
+    const accessToken = oauth.signAccessToken('u-oauth', 'cid-x', 3600);
+    const resolved = await (controller as any).resolveUser(makeReq({ authorization: `Bearer ${accessToken}` }));
+    expect(resolved).toMatchObject({ id: 'u-oauth' });
+  });
+
+  it('resolveUser returns null for a tampered OAuth Bearer token', async () => {
+    const oauth = new CoreAiMcpOAuthService({} as any);
+    (oauth as any).loadUser = async () => ({ id: 'should-not-be-reached', roles: [] });
+    const controller = new CoreAiMcpController({} as any, oauth);
+    const validToken = oauth.signAccessToken('u-victim', 'cid-x', 3600);
+    const tampered = validToken.replace(/.$/, 'x'); // mutate the signature segment
+    const resolved = await (controller as any).resolveUser(makeReq({ authorization: `Bearer ${tampered}` }));
+    expect(resolved).toBeNull();
+  });
+
+  it('evictIfNeeded drops the oldest entry when the cap is reached', () => {
+    const oauth = new CoreAiMcpOAuthService({} as any);
+    const controller: any = new CoreAiMcpController({} as any, oauth);
+    // Force a small cap to keep the test fast.
+    controller.maxSessions = 3;
+    controller.transports.set('a', { lastUsed: 100, transport: { close: () => {} } });
+    controller.transports.set('b', { lastUsed: 200, transport: { close: () => {} } });
+    controller.transports.set('c', { lastUsed: 300, transport: { close: () => {} } });
+    controller.evictIfNeeded();
+    // The oldest entry ("a") is dropped to free a slot.
+    expect(controller.transports.has('a')).toBe(false);
+    expect(controller.transports.has('b')).toBe(true);
+    expect(controller.transports.has('c')).toBe(true);
+  });
+
+  it('evictIfNeeded is a no-op when below the cap', () => {
+    const oauth = new CoreAiMcpOAuthService({} as any);
+    const controller: any = new CoreAiMcpController({} as any, oauth);
+    controller.maxSessions = 5;
+    controller.transports.set('only', { lastUsed: 100, transport: { close: () => {} } });
+    controller.evictIfNeeded();
+    expect(controller.transports.has('only')).toBe(true);
+  });
+});
+
 describe('CoreAiMcpService (MCP protocol via in-memory transport)', () => {
   it('handshakes, lists role-filtered tools and executes a permitted tool', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -1776,6 +1922,210 @@ describe('CoreAiMcpOAuthService.buildOAuthProvider (wiring)', () => {
     await mountAiMcpOAuth(app, { baseUrl: 'https://api.example.com' });
     expect(used).toHaveLength(1);
     expect(used[0][0]).toBeDefined(); // the mcpAuthRouter instance
+  });
+});
+
+/**
+ * OAuth 2.1 flow tests against the persistence layer. The Mongoose connection
+ * is replaced by an in-memory fake that mimics the subset of native MongoDB
+ * driver methods (`insertOne`, `findOne`, `findOneAndDelete`, `createIndex`).
+ *
+ * The tests cover the security-critical store contract:
+ *   1) authorization-code consume is single-use,
+ *   2) `getClient` returns `client_secret` so SDK middleware can verify it,
+ *   3) refresh-token rotation is bound to `clientId` (OAuth 2.1 §4.13.2 / §7.4),
+ *   4) `exchangeAuthorizationCode` happy path through `buildOAuthProvider`.
+ */
+describe('CoreAiMcpOAuthService (OAuth 2.1 flow against in-memory store)', () => {
+  beforeAll(() => {
+    new ConfigService({ ai: { mcp: { oauth: true, oauthSecret: 'unit-oauth-flow-secret-32-chars!!' } } } as any);
+  });
+
+  /** In-memory collection: array-backed; `findOneAndDelete` is atomic per call. */
+  function makeCollection() {
+    const docs: any[] = [];
+    const matches = (doc: any, query: any) => Object.keys(query).every((k) => doc[k] === query[k]);
+    return {
+      docs,
+      createIndex: async () => ({}),
+      findOne: async (query: any) => docs.find((d) => matches(d, query)) ?? null,
+      findOneAndDelete: async (query: any) => {
+        const idx = docs.findIndex((d) => matches(d, query));
+        if (idx < 0) {
+          return null;
+        }
+        const [removed] = docs.splice(idx, 1);
+        return removed;
+      },
+      insertOne: async (doc: any) => {
+        docs.push(doc);
+        return { insertedId: doc.client_id ?? doc.code ?? doc.token ?? 'x' };
+      },
+    };
+  }
+
+  function makeConnectionStub() {
+    const collections = new Map<string, ReturnType<typeof makeCollection>>();
+    return {
+      db: {
+        collection: (name: string) => {
+          if (!collections.has(name)) {
+            collections.set(name, makeCollection());
+          }
+          return collections.get(name)!;
+        },
+      },
+    };
+  }
+
+  function makeSvc() {
+    return new CoreAiMcpOAuthService(makeConnectionStub() as any);
+  }
+
+  it('preserves client_secret across registerClient → getClient roundtrip (BSV-3)', async () => {
+    const svc = makeSvc();
+    await svc.registerClient({
+      client_id: 'cid-confidential',
+      client_name: 'Confidential App',
+      client_secret: 'top-secret-value',
+      client_secret_expires_at: 0,
+      redirect_uris: ['https://app.example.com/cb'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    });
+    const fetched = await svc.getClient('cid-confidential');
+    // Without this fix the SDK's `clientAuth` middleware would skip secret
+    // verification because `client.client_secret` is undefined → confidential
+    // clients silently downgrade to public clients.
+    expect(fetched).toMatchObject({
+      client_id: 'cid-confidential',
+      client_secret: 'top-secret-value',
+      token_endpoint_auth_method: 'client_secret_basic',
+    });
+  });
+
+  it('public clients have no client_secret (and that is fine — PKCE protects them)', async () => {
+    const svc = makeSvc();
+    await svc.registerClient({
+      client_id: 'cid-public',
+      redirect_uris: ['https://app.example.com/cb'],
+      token_endpoint_auth_method: 'none',
+    });
+    const fetched = await svc.getClient('cid-public');
+    expect(fetched?.client_secret).toBeUndefined();
+    expect(fetched?.token_endpoint_auth_method).toBe('none');
+  });
+
+  it('consumeAuthorizationCode is single-use', async () => {
+    const svc = makeSvc();
+    await svc.saveAuthorizationCode('code-abc', {
+      clientId: 'cid-1',
+      codeChallenge: 'challenge-1',
+      userId: 'uid-1',
+    });
+    const first = await svc.consumeAuthorizationCode('code-abc');
+    expect(first).toMatchObject({ clientId: 'cid-1', codeChallenge: 'challenge-1', userId: 'uid-1' });
+    const second = await svc.consumeAuthorizationCode('code-abc');
+    expect(second).toBeNull();
+  });
+
+  it('rotateRefreshToken with the issuing client succeeds (SEC-001 happy path)', async () => {
+    const svc = makeSvc();
+    const token = await svc.issueRefreshToken('uid-2', 'cid-2');
+    const rotated = await svc.rotateRefreshToken(token, 'cid-2');
+    expect(rotated).toMatchObject({ clientId: 'cid-2', userId: 'uid-2' });
+    expect(rotated?.newToken).toBeTruthy();
+    expect(rotated?.newToken).not.toBe(token);
+    // The old token is now invalid (single-use rotation).
+    const reuse = await svc.rotateRefreshToken(token, 'cid-2');
+    expect(reuse).toBeNull();
+  });
+
+  it('rotateRefreshToken rejects a stolen token presented by a different client (SEC-001 fix)', async () => {
+    const svc = makeSvc();
+    const stolenToken = await svc.issueRefreshToken('uid-victim', 'cid-victim');
+    // Attacker (different client) attempts to rotate the stolen token.
+    const rotated = await svc.rotateRefreshToken(stolenToken, 'cid-attacker');
+    expect(rotated).toBeNull();
+    // The legitimate client can still use the token (atomicity preserved).
+    const legit = await svc.rotateRefreshToken(stolenToken, 'cid-victim');
+    expect(legit).toMatchObject({ clientId: 'cid-victim', userId: 'uid-victim' });
+  });
+
+  it('rotateRefreshToken rejects empty token or empty clientId', async () => {
+    const svc = makeSvc();
+    expect(await svc.rotateRefreshToken('', 'cid-x')).toBeNull();
+    expect(await svc.rotateRefreshToken('some-token', '')).toBeNull();
+  });
+
+  it('buildOAuthProvider.exchangeAuthorizationCode happy path through the provider', async () => {
+    const svc = makeSvc();
+    const provider = svc.buildOAuthProvider(60);
+    await svc.saveAuthorizationCode('code-flow', {
+      clientId: 'cid-flow',
+      codeChallenge: 'irrelevant-here',
+      userId: 'uid-flow',
+    });
+    const result = await provider.exchangeAuthorizationCode({ client_id: 'cid-flow' }, 'code-flow');
+    expect(result).toMatchObject({ expires_in: 60, token_type: 'Bearer' });
+    expect(result.access_token).toBeTruthy();
+    expect(result.refresh_token).toBeTruthy();
+    // The issued access token round-trips through verifyAccessToken.
+    await expect(provider.verifyAccessToken(result.access_token)).resolves.toMatchObject({
+      clientId: 'cid-flow',
+      extra: { userId: 'uid-flow' },
+    });
+    // Second use of the same authorization code is rejected.
+    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-flow' }, 'code-flow')).rejects.toThrow(
+      /invalid_grant/,
+    );
+  });
+
+  it('buildOAuthProvider.exchangeAuthorizationCode rejects code from a different client', async () => {
+    const svc = makeSvc();
+    const provider = svc.buildOAuthProvider();
+    await svc.saveAuthorizationCode('code-mismatch', {
+      clientId: 'cid-owner',
+      codeChallenge: '',
+      userId: 'uid-owner',
+    });
+    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-other' }, 'code-mismatch')).rejects.toThrow(
+      /invalid_grant/,
+    );
+  });
+
+  it('buildOAuthProvider.exchangeRefreshToken rotates only for the issuing client (SEC-001 end-to-end)', async () => {
+    const svc = makeSvc();
+    const provider = svc.buildOAuthProvider(60);
+    const refresh = await svc.issueRefreshToken('uid-r', 'cid-r');
+    // Wrong client → invalid_grant
+    await expect(provider.exchangeRefreshToken({ client_id: 'cid-attacker' }, refresh)).rejects.toThrow(
+      /invalid_grant/,
+    );
+    // Right client → success
+    const ok = await provider.exchangeRefreshToken({ client_id: 'cid-r' }, refresh);
+    expect(ok).toMatchObject({ expires_in: 60, token_type: 'Bearer' });
+    // Re-using the rotated (old) refresh token is rejected.
+    await expect(provider.exchangeRefreshToken({ client_id: 'cid-r' }, refresh)).rejects.toThrow(/invalid_grant/);
+  });
+
+  it('buildOAuthProvider.exchangeRefreshToken rejects an empty client', async () => {
+    const svc = makeSvc();
+    const provider = svc.buildOAuthProvider();
+    await expect(provider.exchangeRefreshToken({}, 'any-token')).rejects.toThrow(/invalid_client/);
+  });
+
+  it('challengeForAuthorizationCode returns the stored PKCE challenge (does not consume)', async () => {
+    const svc = makeSvc();
+    const provider = svc.buildOAuthProvider();
+    await svc.saveAuthorizationCode('code-pkce', {
+      clientId: 'cid-pkce',
+      codeChallenge: 'the-challenge',
+      userId: 'uid-pkce',
+    });
+    expect(await provider.challengeForAuthorizationCode({}, 'code-pkce')).toBe('the-challenge');
+    // The code is still present for the subsequent exchange.
+    const result = await provider.exchangeAuthorizationCode({ client_id: 'cid-pkce' }, 'code-pkce');
+    expect(result.access_token).toBeTruthy();
   });
 });
 

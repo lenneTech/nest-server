@@ -267,6 +267,10 @@ export class CoreAiController {
 
   /**
    * Find the current user's AI conversations (admins see all).
+   *
+   * The `messages` subdocument array is excluded from the list result — clients
+   * fetching the conversation detail via `getConversation` get the full message
+   * history. List payloads stay small even for users with many long conversations.
    */
   @Get('conversations')
   @Roles(RoleEnum.S_USER)
@@ -275,7 +279,7 @@ export class CoreAiController {
     const filterQuery = currentUser?.roles?.includes(RoleEnum.ADMIN) ? {} : { createdBy: currentUser?.id };
     return this.conversationService.find(
       { filterQuery },
-      { ...serviceOptions, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF] },
+      { ...serviceOptions, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF], select: '-messages' },
     );
   }
 

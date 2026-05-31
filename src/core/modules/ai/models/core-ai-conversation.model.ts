@@ -39,7 +39,7 @@ export class CoreAiConversation extends CorePersistenceModel {
   @UnifiedField({
     description: 'Id of the user who created the conversation',
     isOptional: true,
-    mongoose: { ref: 'User', type: Schema.Types.ObjectId },
+    mongoose: { index: true, ref: 'User', type: Schema.Types.ObjectId },
     roles: RoleEnum.S_USER,
     type: () => String,
   })
