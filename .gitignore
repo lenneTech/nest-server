@@ -104,5 +104,8 @@ globalConfig.json
 tests/**/*.txt
 tests/**/*.bin
 
+# Generated diagnostics (lt server permissions scanner output)
+permissions.md
+
 # Keep .gitkeep files
 !/**/.gitkeep
