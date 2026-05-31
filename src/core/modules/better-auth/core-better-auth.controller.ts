@@ -75,6 +75,14 @@ export class CoreBetterAuthUserResponse {
   @ApiProperty({ description: 'User display name' })
   name: string;
 
+  @ApiProperty({
+    description: 'Roles of the user (e.g. ["admin"]) — populated from the synced legacy user.',
+    isArray: true,
+    required: false,
+    type: String,
+  })
+  roles?: string[];
+
   @ApiProperty({ description: 'Whether 2FA is enabled', required: false })
   twoFactorEnabled?: boolean;
 }
@@ -799,16 +807,25 @@ export class CoreBetterAuthController {
 
   /**
    * Map user to response format
+   *
+   * The `mappedUser` parameter is the synced legacy user from `mapSessionUser()` — it
+   * carries DB-only fields like `roles` that are not part of the Better-Auth session
+   * payload but are required by consumers for admin gating / RBAC. The base
+   * implementation forwards `roles` so the client-side state (`useLtAuth().setUser()`
+   * cache, `lt-auth-state` cookie) can route admin areas without a second round-trip.
+   *
+   * Subclasses can override to add project-specific fields (e.g. `status`, `type`).
+   *
    * @param sessionUser - The user from Better-Auth session
-   * @param _mappedUser - The synced user from legacy system (available for override customization)
+   * @param mappedUser - The synced user from legacy system (includes `roles`)
    */
-
-  protected mapUser(sessionUser: BetterAuthSessionUser, _mappedUser: any): CoreBetterAuthUserResponse {
+  protected mapUser(sessionUser: BetterAuthSessionUser, mappedUser: any): CoreBetterAuthUserResponse {
     return {
       email: sessionUser.email,
       emailVerified: sessionUser.emailVerified || false,
       id: sessionUser.id,
       name: sessionUser.name || sessionUser.email.split('@')[0],
+      roles: Array.isArray(mappedUser?.roles) ? mappedUser.roles : [],
     };
   }
 
