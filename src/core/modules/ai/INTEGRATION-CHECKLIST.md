@@ -166,6 +166,21 @@ ai: {
   Override per connection (`contextWindow`) or globally (`ai.contextWindow`) if a backend
   isn't recognized.
 
+### MCP server (only when `ai.mcp.enabled` or `ai.mcp` is truthy)
+
+**Install the MCP SDK** in your project:
+
+```bash
+pnpm add @modelcontextprotocol/sdk
+# or: npm install @modelcontextprotocol/sdk
+```
+
+The SDK is a peer-style optional dependency — it is `import()`-ed lazily by
+`CoreAiMcpController` only when an MCP request actually arrives, so projects
+that don't enable MCP pay no install cost. When `ai.mcp` is set but the SDK
+is not installed, `/ai/mcp` returns **503 Service Unavailable** with an
+install-hint message instead of a 500 trace.
+
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 
 **Edit `main.ts`** (after `app.init()`):

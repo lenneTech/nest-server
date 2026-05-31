@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
@@ -67,13 +67,24 @@ export class CoreAiConversationService extends CrudService<
    * subdocument array on every turn. Performs an explicit ownership check (creator or
    * admin) because the lean read bypasses the model's `securityCheck`.
    *
-   * @returns the last `limit` turns ({ content, role }), or `[]` if not found / not owned.
+   * The `id` parameter is forwarded from `aiPrompt` input — a hostile or
+   * misconfigured caller may pass an empty string, the literal strings `"null"`
+   * / `"undefined"`, or anything that does not parse as a valid ObjectId. We
+   * fail-soft to `[]` instead of letting Mongoose throw a BSON cast error; the
+   * orchestrator then proceeds without prior history, which is the same
+   * outcome as no conversationId at all. We deliberately do NOT 404 here
+   * because this method is called from inside the prompt pipeline.
+   *
+   * @returns the last `limit` turns ({ content, role }), or `[]` if not found / not owned / invalid id.
    */
   async loadRecentMessages(
     id: string,
     currentUser: { id?: string; roles?: string[] } | undefined,
     limit = 20,
   ): Promise<{ content: string; role: string }[]> {
+    if (!id || typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+      return [];
+    }
     const doc = await this.mainDbModel
       .findById(id, { createdBy: 1, messages: { $slice: -limit } })
       .lean()

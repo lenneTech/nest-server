@@ -675,12 +675,18 @@ export class CoreAiService {
   /**
    * Load prior conversation turns (owner-checked). Returns an empty array when no
    * conversation is referenced or the conversation service is unavailable.
+   *
+   * Defensive: clients sometimes send the literal strings `"null"` or
+   * `"undefined"` (e.g. JSON-encoded `String(value)` instead of the value
+   * itself). Treat those as "no conversation" rather than passing them down to
+   * Mongoose, which would BSON-cast-fail in `loadRecentMessages`. The
+   * conversationService itself also revalidates with `Types.ObjectId.isValid`.
    */
   protected async loadConversationHistory(
     conversationId: string | undefined,
     currentUser: ServiceOptions['currentUser'],
   ): Promise<{ content: string; role: string }[]> {
-    if (!conversationId || !this.conversationService) {
+    if (!conversationId || conversationId === 'null' || conversationId === 'undefined' || !this.conversationService) {
       return [];
     }
     // Lean, projected, $slice-capped read (ownership-checked inside) instead of a

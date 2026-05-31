@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { vi } from 'vitest';
 
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
 import { ConfigService } from '../../src/core/common/services/config.service';
@@ -1298,6 +1299,80 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
     controller.transports.set('only', { lastUsed: 100, transport: { close: () => {} } });
     controller.evictIfNeeded();
     expect(controller.transports.has('only')).toBe(true);
+  });
+
+  it('mcpUnavailable returns 503 with an actionable install hint (BUG-2 regression)', () => {
+    const oauth = new CoreAiMcpOAuthService({} as any);
+    const controller: any = new CoreAiMcpController({} as any, oauth);
+    const { captured, res } = makeRes();
+    controller.mcpUnavailable(res, new Error("Cannot find module '@modelcontextprotocol/sdk/server/streamableHttp.js'"));
+    expect(captured.status).toBe(503);
+    expect(captured.body).toMatchObject({
+      statusCode: 503,
+      error: expect.stringMatching(/@modelcontextprotocol\/sdk/),
+    });
+    // The actionable hint must mention the install command — that's the whole
+    // point of the friendlier response (a raw 500 wouldn't help the integrator).
+    expect(captured.body.error).toMatch(/pnpm add|npm i/);
+  });
+});
+
+/**
+ * `loadRecentMessages` defensive-input tests (BUG-1 regression).
+ *
+ * Clients sometimes pass the literal strings `"null"` or `"undefined"` instead
+ * of leaving the field undefined — Mongoose would then BSON-cast-fail
+ * inside the orchestrator's prompt pipeline and bubble a 500 to the user.
+ * The service now short-circuits before the DB call.
+ */
+describe('CoreAiConversationService.loadRecentMessages (defensive input)', () => {
+  async function makeService() {
+    const { CoreAiConversationService } = await import(
+      '../../src/core/modules/ai/services/core-ai-conversation.service'
+    );
+    // We do not exercise the DB path here; the early-return branches must not
+    // touch the Mongoose model at all.
+    const exec = vi.fn();
+    const lean = vi.fn(() => ({ exec }));
+    const findById = vi.fn(() => ({ lean }));
+    const model: any = { findById };
+    const svc = new CoreAiConversationService(model, CoreAiConversationService as any);
+    return { svc, findById };
+  }
+
+  it('returns [] without touching the DB for the literal string "null"', async () => {
+    const { svc, findById } = await makeService();
+    const result = await svc.loadRecentMessages('null', { id: 'u1' });
+    expect(result).toEqual([]);
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('returns [] without touching the DB for the literal string "undefined"', async () => {
+    const { svc, findById } = await makeService();
+    const result = await svc.loadRecentMessages('undefined', { id: 'u1' });
+    expect(result).toEqual([]);
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('returns [] for an empty string id', async () => {
+    const { svc, findById } = await makeService();
+    const result = await svc.loadRecentMessages('', { id: 'u1' });
+    expect(result).toEqual([]);
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('returns [] for any non-24-hex string (does not throw BSON cast error)', async () => {
+    const { svc, findById } = await makeService();
+    const result = await svc.loadRecentMessages('not-an-objectid', { id: 'u1' });
+    expect(result).toEqual([]);
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('returns [] for a non-string (defensive against bad client input)', async () => {
+    const { svc, findById } = await makeService();
+    const result = await svc.loadRecentMessages(42 as unknown as string, { id: 'u1' });
+    expect(result).toEqual([]);
+    expect(findById).not.toHaveBeenCalled();
   });
 });
 

@@ -483,8 +483,19 @@ ai: {
 
 The `AiToolRegistry` also feeds a real **MCP server** at `POST/GET/DELETE /ai/mcp`
 (Streamable HTTP), so external MCP clients use the same backend tools with the
-same role gating. Enable with `ai: { mcp: true }` (requires
-`@modelcontextprotocol/sdk`, lazy-loaded).
+same role gating. Enable with `ai: { mcp: true }`.
+
+**Install the SDK** in your project (it is a peer-style optional dependency that
+the controller lazy-imports only when an MCP request arrives — projects that
+don't enable MCP pay no install cost):
+
+```bash
+pnpm add @modelcontextprotocol/sdk
+```
+
+When `ai.mcp` is set but the SDK is missing, `/ai/mcp` returns **503 Service
+Unavailable** with an actionable install-hint message instead of a 500 stack
+trace.
 
 - Auth: the request must carry a valid Bearer token/session (resolved by the
   framework's existing auth) — the MCP session is bound to that user, and

@@ -415,12 +415,15 @@ export class CoreAiController {
     return this.slotService.listEffective(serviceOptions);
   }
 
-  /** Reset a system-slot override (deletes the row → framework default applies again). */
+  /**
+   * Reset a system-slot override (deletes the row → framework default applies
+   * again). Returns the now-effective system-default slot so the caller can
+   * refresh its UI without a follow-up `/ai/slots/effective` call.
+   */
   @Post('slots/:id/reset')
   @Roles(RoleEnum.ADMIN)
-  async resetSlot(@RESTServiceOptions() serviceOptions: ServiceOptions, @Param('id') id: string): Promise<boolean> {
-    await this.slotService.resetSystemSlot(id, serviceOptions);
-    return true;
+  async resetSlot(@RESTServiceOptions() serviceOptions: ServiceOptions, @Param('id') id: string) {
+    return this.slotService.resetSystemSlot(id, serviceOptions);
   }
 
   /** Find slots stored for the current tenant (admin). Custom + override rows only — system defaults are virtual. */

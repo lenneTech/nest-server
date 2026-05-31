@@ -197,12 +197,32 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
         .exec();
       if (existing?.id || (existing as any)?._id) {
         const existingId = String(existing?.id || (existing as any)?._id);
-        return super.update(existingId, input as any, serviceOptions);
+        const updated = await super.update(existingId, input as any, serviceOptions);
+        return this.decorateWithSystemFlags(updated);
       }
     }
     const created = await super.create(input as any, serviceOptions);
     await this.mainDbModel.updateOne({ _id: created.id }, { $set: { tenantId } }).exec();
-    return this.get(created.id, serviceOptions);
+    const reloaded = await this.get(created.id, serviceOptions);
+    return this.decorateWithSystemFlags(reloaded);
+  }
+
+  /**
+   * Annotate a freshly persisted slot with `isSystem` / `isOverride` flags so
+   * the admin UI gets the same shape from `create`/`update` as from
+   * `listEffective`. The flags are computed against the built-in system-default
+   * key set: a row whose key matches a system default is an override
+   * (`isOverride: true`); anything else is a custom tenant-only slot
+   * (`isOverride: false`). DB rows are never `isSystem: true` — system
+   * defaults are virtual.
+   */
+  protected decorateWithSystemFlags(slot: CoreAiSlot): CoreAiSlot {
+    const systemKeys = new Set(getSystemDefaultSlots().map((d) => d.key));
+    return Object.assign(slot, {
+      isOverride: systemKeys.has(slot.key),
+      isSystem: false,
+      systemKey: systemKeys.has(slot.key) ? slot.key : undefined,
+    });
   }
 
   /**
@@ -218,7 +238,8 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
     await this.assertSameTenant(id, serviceOptions);
     const sanitized: Record<string, unknown> = { ...input };
     delete sanitized.tenantId;
-    return super.update(id, sanitized as any, serviceOptions);
+    const updated = await super.update(id, sanitized as any, serviceOptions);
+    return this.decorateWithSystemFlags(updated);
   }
 
   /**
@@ -319,19 +340,36 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
    * restoring the framework value. The slot must (a) belong to the tenant
    * and (b) match a system-default `key` — calling this on a custom slot
    * is rejected (use {@link delete} for that).
+   *
+   * Returns the now-effective slot for that key (a synthetic
+   * `isSystem: true, isOverride: false` shape) so the caller can refresh its
+   * UI without a second list call. The slot has no `id` because system
+   * defaults are virtual rows (they live in code, not in the DB).
    */
-  async resetSystemSlot(id: string, serviceOptions: ServiceOptions = {}): Promise<void> {
+  async resetSystemSlot(id: string, serviceOptions: ServiceOptions = {}): Promise<EffectiveSlot> {
     this.assertAdmin(serviceOptions);
     await this.assertSameTenant(id, serviceOptions);
     const row = await this.mainDbModel.findById(id).lean<CoreAiSlot>().exec();
     if (!row) {
       throw new ForbiddenException(`Slot ${id} not found.`);
     }
-    const systemKeys = new Set(getSystemDefaultSlots().map((d) => d.key));
-    if (!systemKeys.has(row.key)) {
+    const defaults = getSystemDefaultSlots();
+    const fallback = defaults.find((d) => d.key === row.key);
+    if (!fallback) {
       throw new ForbiddenException('Only system-slot overrides can be reset. Use delete for custom slots.');
     }
     await this.mainDbModel.deleteOne({ _id: id }).exec();
+    return {
+      capability: fallback.capability,
+      content: fallback.content,
+      enabled: true,
+      isOverride: false,
+      isSystem: true,
+      key: fallback.key,
+      order: fallback.order ?? 100,
+      scope: fallback.scope,
+      systemKey: fallback.key,
+    };
   }
 
   /**

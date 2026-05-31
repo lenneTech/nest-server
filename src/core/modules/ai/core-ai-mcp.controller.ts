@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Logger, Post, Req, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
@@ -30,6 +30,8 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
 @Controller('ai/mcp')
 @Roles(RoleEnum.S_EVERYONE)
 export class CoreAiMcpController {
+  protected readonly logger = new Logger(CoreAiMcpController.name);
+
   /** Active transports keyed by MCP session id. */
   private readonly transports = new Map<string, { lastUsed: number; transport: any }>();
 
@@ -53,7 +55,16 @@ export class CoreAiMcpController {
     let entry = sessionId ? this.transports.get(sessionId) : undefined;
 
     if (!entry) {
-      const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
+      let StreamableHTTPServerTransport: any;
+      try {
+        ({ StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js'));
+      } catch (err) {
+        // The MCP SDK is a peer-style optional dependency — it must be installed
+        // by the consumer project when `ai.mcp.enabled` is true. Surface a
+        // 503 with an actionable hint instead of the raw "Cannot find module"
+        // 500 that bubbles from the lazy `import()`.
+        return this.mcpUnavailable(res, err as Error);
+      }
       const { randomUUID } = await import('node:crypto');
       const transport: any = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
       const server = await this.mcpService.createServer(user);
@@ -153,6 +164,24 @@ export class CoreAiMcpController {
     }
     entry.lastUsed = Date.now();
     await entry.transport.handleRequest(req, res, (req as any).body);
+  }
+
+  /**
+   * 503 Service Unavailable when the optional `@modelcontextprotocol/sdk` peer
+   * dependency is not installed. The SDK is lazy-imported because not every
+   * consumer needs MCP — when `ai.mcp.enabled` is set but the SDK is missing,
+   * we surface the actionable install hint rather than the raw require-stack
+   * trace from the failed `import()`.
+   */
+  private mcpUnavailable(res: Response, err: Error): void {
+    this.logger.error(`MCP SDK not available: ${err.message}`);
+    res.status(503).json({
+      error:
+        'MCP server unavailable: the @modelcontextprotocol/sdk peer dependency is not installed. ' +
+        'Run `pnpm add @modelcontextprotocol/sdk` (or `npm i @modelcontextprotocol/sdk`) ' +
+        'in your project and restart the server.',
+      statusCode: 503,
+    });
   }
 
   /**
