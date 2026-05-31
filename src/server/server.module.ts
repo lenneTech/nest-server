@@ -9,6 +9,7 @@ import { JSON } from '../core/common/scalars/json.scalar';
 import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
 import { TusModule } from '../core/modules/tus';
 import { CronJobs } from './common/services/cron-jobs.service';
+import { AiToolsModule } from './modules/ai/ai-tools.module';
 import { AuthController } from './modules/auth/auth.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { BetterAuthModule } from './modules/better-auth/better-auth.module';
@@ -59,6 +60,10 @@ import { ServerController } from './server.controller';
 
     // Include TusModule for resumable file uploads
     TusModule.forRoot(),
+
+    // Register example AI tools (CoreAiModule itself is auto-registered by CoreModule
+    // when an `ai` config block is present)
+    AiToolsModule,
   ],
 
   providers: [Any, CronJobs, DateScalar, JSON],

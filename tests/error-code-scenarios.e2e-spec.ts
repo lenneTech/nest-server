@@ -27,6 +27,7 @@ import {
   ErrorCodeModule,
   HttpExceptionLogFilter,
   IErrorRegistry,
+  JSON as JsonScalar,
   mergeErrorCodes,
   TestHelper,
 } from '../src';
@@ -142,6 +143,9 @@ describe('Scenario A: additionalErrorRegistry', () => {
           },
         }),
       ],
+      // JSON scalar required because package types (e.g. AI models) using it leak
+      // into the global GraphQL type registry; a real app provides it via ServerModule.
+      providers: [JsonScalar],
     })
     class TestModule {}
 
@@ -251,6 +255,7 @@ describe('Scenario B: Custom Service', () => {
           service: CustomErrorCodeService,
         }),
       ],
+      providers: [JsonScalar],
     })
     class TestModule {}
 
@@ -318,6 +323,7 @@ describe('Scenario C: Core Only (No Extensions)', () => {
           // Default: no errorCode config, auto-register enabled
         }),
       ],
+      providers: [JsonScalar],
     })
     class TestModule {}
 

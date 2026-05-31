@@ -16,7 +16,10 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
  * @see IServerOptions for documentation of all options
  * @see .env.example for all available environment variables
  */
-dotenv.config();
+// `quiet: true` silences dotenv's startup banner ("◇ injected env (N) from .env // tip: …"),
+// which is purely cosmetic and carries promotional content. Warnings (`⚠`) for genuine
+// misconfiguration still surface.
+dotenv.config({ quiet: true });
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   // CI environment
@@ -24,6 +27,12 @@ const config: { [env: string]: IServerOptions } = {
   ci: {
     auth: {
       legacyEndpoints: { enabled: true },
+    },
+    ai: {
+      // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      audit: true,
+      maxIterations: 3,
+      mcp: true,
     },
     automaticObjectIdFiltering: true,
     betterAuth: {
@@ -279,6 +288,12 @@ const config: { [env: string]: IServerOptions } = {
     auth: {
       legacyEndpoints: { enabled: true },
     },
+    ai: {
+      // AI module enabled for tests; no defaultConnection seed (tests create their own).
+      audit: true,
+      maxIterations: 3,
+      mcp: true,
+    },
     automaticObjectIdFiltering: true,
     betterAuth: {
       // Email verification disabled for test environment (no real mailbox available)
@@ -415,6 +430,38 @@ const config: { [env: string]: IServerOptions } = {
   // Local environment (env: 'local' → auto URLs + Passkey)
   // ===========================================================================
   local: {
+    // AI assistant module (presence implies enabled). Vendor-agnostic: configure
+    // any OpenAI-compatible endpoint (local runtime or hosted) via env vars.
+    // Connections are managed at runtime (admin CRUD); the defaultConnection below
+    // is only a one-time seed and reads its key from an env var, so no secret is
+    // committed to the repository. Only seeded when AI_BASE_URL is set.
+    ai: {
+      ...(process.env.AI_BASE_URL
+        ? {
+            defaultConnection: {
+              apiKeyEnv: 'AI_API_KEY',
+              baseUrl: process.env.AI_BASE_URL,
+              defaultMaxTokens: 4096,
+              defaultTemperature: 0.1,
+              description: 'Default LLM connection',
+              model: process.env.AI_MODEL || 'default',
+              name: 'Default LLM',
+              providerType: 'openai-compatible',
+              // Capability flags — set explicitly only when the env var is provided;
+              // otherwise left undefined so the module auto-detects them by probing
+              // the endpoint (on create + lazily on first prompt).
+              ...(process.env.AI_SUPPORTS_JSON === undefined
+                ? {}
+                : { supportsJsonResponse: process.env.AI_SUPPORTS_JSON === 'true' }),
+              ...(process.env.AI_SUPPORTS_NATIVE_TOOLS === undefined
+                ? {}
+                : { supportsNativeTools: process.env.AI_SUPPORTS_NATIVE_TOOLS === 'true' }),
+            },
+          }
+        : {}),
+      maxIterations: 5,
+      rateLimit: { max: 20, windowSeconds: 60 },
+    },
     auth: {
       legacyEndpoints: { enabled: true },
     },

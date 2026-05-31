@@ -1,0 +1,2 @@
+- [Core ErrorCode in framework repo](project_core-errorcode.md) — src/core has its own ErrorCode registry; modern core modules use it, but the baseline is mixed (core-user still raw strings).
+- [AI module prompt/slot service raw exceptions](project_ai-module-prompt-service-errors.md) — most of the AI module routes through ErrorCode, but CoreAiPromptService + CoreAiSlotService still throw raw-string ForbiddenExceptions; consistency cleanup, not a security gap.

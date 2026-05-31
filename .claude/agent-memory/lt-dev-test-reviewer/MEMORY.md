@@ -1,0 +1,3 @@
+- [E2E Test Isolation Model](e2e-isolation-model.md) — how the Vitest e2e suite shares one MongoDB across parallel forks and what that means for collection-wide deleteMany in tests.
+- [ConfigService Singleton in Tests](configservice-singleton-in-tests.md) — per-file fork isolation makes static ConfigService safe between files; within a file mergeConfig (lodash merge) means arrays don't clear via [] — check test ORDER, not "reset".
+- [AI Module Test Coverage](ai-module-test-coverage.md) — coverage gaps observed in the AI module review (OAuth 2.1 stores, MCP HTTP session lifecycle, sessionStart/stop hooks, search_tools/ask_user_question execute bodies); brittle regex-on-message assertions caused by mixed raw-string vs ErrorCode throws.

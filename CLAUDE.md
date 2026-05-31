@@ -151,6 +151,24 @@ See [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) for the complete re
 
 5. **Export Management** - New public components → `src/index.ts`
 
+### AI Module: Tools Are Opt-In (Critical for AI agents integrating the module)
+
+The `CoreAiModule` ships with `AiToolRegistry` empty by default — it has NO automatic
+access to any domain model. When integrating the AI module into a consumer project,
+**you MUST register tools** for every domain operation that should be reachable from
+chat (find_users, get_orders, etc.), otherwise the assistant correctly answers
+*"I don't have a tool to do that"* for every domain question.
+
+The pattern: extend `AiTool`, route through a `CrudService` with
+`context.serviceOptions` (NEVER direct `Model.find()` — bypasses `@Restricted` and
+`securityCheck`), mark mutating tools `mutating: true` and destructive ones
+`destructive: true`. Group in an `AiToolsModule` and add it to `ServerModule.imports`.
+
+Reference tools live at `src/server/modules/ai/tools/` (find-users, get-user,
+delete-user, update-user-job-title) — these are framework test fixtures, NOT
+auto-registered in consumer projects. See `src/core/modules/ai/INTEGRATION-CHECKLIST.md`
+§3 + §4 for the full step-by-step.
+
 ### Role System (Critical)
 
 System roles (`S_` prefix) are runtime checks only - **NEVER store in user.roles**:
