@@ -16,7 +16,14 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     debug: false,
     noteCheckedObjects: true,
     removeSecretFields: true,
-    secretFields: ['password', 'verificationToken', 'passwordResetToken', 'refreshTokens', 'tempTokens'],
+    secretFields: [
+      'password',
+      'verificationToken',
+      'passwordResetToken',
+      'refreshTokens',
+      'tempTokens',
+      'apiKeyEncrypted',
+    ],
   };
 
   constructor(private readonly configService: ConfigService) {
@@ -24,10 +31,13 @@ export class CheckSecurityInterceptor implements NestInterceptor {
     if (typeof configuration === 'object') {
       this.config = { ...this.config, ...configuration };
     }
-    // Allow overriding secretFields from security config
+    // Merge (union) project secretFields with the framework defaults instead of
+    // replacing them — a custom list must not be able to silently drop a
+    // security-critical default (e.g. `password`, `apiKeyEncrypted`). Projects can
+    // only ADD fields to strip, never remove the built-in ones.
     const globalSecretFields = this.configService.getFastButReadOnly('security.secretFields');
     if (Array.isArray(globalSecretFields)) {
-      this.config.secretFields = globalSecretFields;
+      this.config.secretFields = [...new Set([...this.config.secretFields, ...globalSecretFields])];
     }
   }
 

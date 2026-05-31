@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-05-24 (v11.25.6)
+> Auto-generated from source code on 2026-05-31 (v11.26.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -12,6 +12,7 @@
 
 ### IServerOptions
 
+  - `ai?`: `boolean | IAi` — Configuration for the AI assistant module.
   - `appUrl?`: `string` — Base URL of the frontend/app application.
   - `auth?`: `IAuth` — Authentication system configuration
   - `automaticObjectIdFiltering?`: `boolean` — Automatically detect ObjectIds in string values in FilterQueries
@@ -94,8 +95,53 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `allowedOrigins?`: `string[]` — Additional allowed origins beyond `appUrl` and `baseUrl`.
   - `enabled?`: `boolean` (default: `true`) — Whether CORS is enabled.
 
+### IAi
+
+  - `allowedBaseUrlHosts?`: `string[]` — Optional SSRF allowlist for connection base URLs. When set (non-empty), the
+  - `audit?`: `boolean` (default: `false`) — Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
+  - `budget?`: `{ period?: "day" | "month" | "none"; tenant?: { maxPrompts?: number; maxToken...` — Token/prompt budgets for AI prompts, enforced before a run (HTTP 429 + translated
+  - `confirmation?`: `{ mutating?: { default?: boolean; enforced?: boolean; }; }` — Confirmation policy for mutating tool actions (create/update/delete).
+  - `documentation?`: `string` — System documentation injected into the system prompt to inform the LLM
+  - `defaultConnection?`: `IAiDefaultConnection` — Optional one-time seed for a default connection (see {@link IAiDefaultConnection}).
+  - `defaultMode?`: `"auto" | "plan"` (default: `'auto'`) — Default execution mode when the client does not specify one.
+  - `enabled?`: `boolean` — Explicitly disable while keeping the config (default: enabled when present).
+  - `encryptionSecret?`: `string` — Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
+  - `contextWindow?`: `number` (default: `8192`) — Fallback total context window (input + output tokens) used to budget the
+  - `claudeCli?`: `{ bin?: string; extraArgs?: string[]; maxBudgetUsd?: number; }` — Optional config for the `ClaudeCliProvider` (LLM backend that invokes a local
+  - `compaction?`: `boolean` (default: `true`) — LLM-driven context compaction: when a session would overflow the connection's
+  - `deferToolSchemas?`: `boolean` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
+  - `maxIterations?`: `number` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
+  - `maxToolResultChars?`: `number` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
+  - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; }` — Governed self-improvement loop for the system prompt. The orchestrator records
+  - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string; }` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+  - `rateLimit?`: `IAiRateLimit` — Rate limiting for prompts.
+  - `systemPrompt?`: `string` — Base system prompt prepended to every conversation.
+
+### IAiRateLimit
+
+  - `enabled?`: `boolean` — Explicitly disable while keeping the config (default: enabled when present).
+  - `max?`: `number` (default: `20`) — Maximum number of prompts per window per user.
+  - `windowSeconds?`: `number` (default: `60`) — Window length in seconds.
+
+### IAiDefaultConnection
+
+  - `apiKey?`: `string` — Inline plaintext API key (encrypted on seed). Prefer `apiKeyEnv` instead.
+  - `apiKeyEnv?`: `string` — Name of an environment variable holding the API key (e.g. 'AI_API_KEY').
+  - `baseUrl`: `string` — Base URL of the OpenAI-compatible endpoint.
+  - `capabilities?`: `string[]` — Capability tags (free-form, e.g. 'analysis', 'vision').
+  - `defaultMaxTokens?`: `number` — Default maximum number of tokens for completions.
+  - `defaultTemperature?`: `number` — Default sampling temperature.
+  - `description?`: `string` — Human-readable description.
+  - `model`: `string` — Model id sent to the backend (e.g. 'gpt-oss-120b').
+  - `name`: `string` — Human-readable connection name.
+  - `providerType?`: `string` — Provider type (default 'openai-compatible').
+  - `supportsJsonResponse?`: `boolean` — Native JSON / structured-output support. Omit to auto-detect by probing the
+  - `supportsNativeTools?`: `boolean` — Native function/tool-calling support. Omit to auto-detect by probing the
+  - `supportsVision?`: `boolean` — Whether the model supports image input.
+
 ### ICoreModuleOverrides
 
+  - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
 
@@ -222,6 +268,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 
 | Module | Docs | Path |
 |--------|------|------|
+| `ai` | README, CHECKLIST | `src/core/modules/ai/` |
 | `auth` | — | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |

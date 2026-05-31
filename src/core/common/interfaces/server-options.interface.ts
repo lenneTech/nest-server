@@ -1046,9 +1046,266 @@ export interface ICorsConfig {
 }
 
 /**
+ * Bootstrap configuration for a default AI connection.
+ *
+ * When set and no connection exists yet, the AI module seeds this as the default
+ * connection on first start. The database remains the source of truth afterwards;
+ * connections are managed at runtime (admin CRUD / frontend settings). Prefer
+ * `apiKeyEnv` over an inline `apiKey` so no secret is committed to config.
+ */
+export interface IAiDefaultConnection {
+  /** Inline plaintext API key (encrypted on seed). Prefer `apiKeyEnv` instead. */
+  apiKey?: string;
+
+  /** Name of an environment variable holding the API key (e.g. 'AI_API_KEY'). */
+  apiKeyEnv?: string;
+
+  /** Base URL of the OpenAI-compatible endpoint. */
+  baseUrl: string;
+
+  /** Capability tags (free-form, e.g. 'analysis', 'vision'). */
+  capabilities?: string[];
+
+  /** Default maximum number of tokens for completions. */
+  defaultMaxTokens?: number;
+
+  /** Default sampling temperature. */
+  defaultTemperature?: number;
+
+  /** Human-readable description. */
+  description?: string;
+
+  /** Model id sent to the backend (e.g. 'gpt-oss-120b'). */
+  model: string;
+
+  /** Human-readable connection name. */
+  name: string;
+
+  /** Provider type (default 'openai-compatible'). */
+  providerType?: string;
+
+  /**
+   * Native JSON / structured-output support. Omit to auto-detect by probing the
+   * endpoint (explicit `true`/`false` is authoritative and never probed).
+   */
+  supportsJsonResponse?: boolean;
+
+  /**
+   * Native function/tool-calling support. Omit to auto-detect by probing the
+   * endpoint (explicit `true`/`false` is authoritative and never probed).
+   */
+  supportsNativeTools?: boolean;
+
+  /** Whether the model supports image input. */
+  supportsVision?: boolean;
+}
+
+/**
+ * Rate-limit configuration for AI prompts (presence implies enabled).
+ */
+export interface IAiRateLimit {
+  /** Explicitly disable while keeping the config (default: enabled when present). */
+  enabled?: boolean;
+
+  /** Maximum number of prompts per window per user. @default 20 */
+  max?: number;
+
+  /** Window length in seconds. @default 60 */
+  windowSeconds?: number;
+}
+
+/**
+ * Configuration for the AI assistant module (presence implies enabled).
+ *
+ * The AI module adds a prompt orchestrator with emulated/native tool calling and
+ * database-backed LLM connections (managed at runtime by admins). Omit the block
+ * to disable the module entirely; set `enabled: false` to keep config but disable.
+ *
+ * @example
+ * ```typescript
+ * ai: {
+ *   maxIterations: 5,
+ *   rateLimit: { max: 20, windowSeconds: 60 },
+ *   defaultConnection: {
+ *     name: 'Default LLM',
+ *     baseUrl: 'https://llm.example.com/v1',
+ *     model: 'gpt-oss-120b',
+ *     apiKeyEnv: 'AI_API_KEY',
+ *   },
+ * }
+ * ```
+ */
+export interface IAi {
+  /**
+   * Optional SSRF allowlist for connection base URLs. When set (non-empty), the
+   * provider only sends requests to these hosts (matched by `host` incl. port, or
+   * bare `hostname`); unset → permissive (so local providers like Ollama on localhost
+   * work out of the box). `baseUrl` is admin-only, so this guards a compromised or
+   * misconfigured admin, not end-user input.
+   * @example ['llm.example.com', 'localhost:11434']
+   */
+  allowedBaseUrlHosts?: string[];
+
+  /**
+   * Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
+   * @default false
+   */
+  audit?: boolean;
+
+  /**
+   * Token/prompt budgets for AI prompts, enforced before a run (HTTP 429 + translated
+   * message). Requires `audit` (usage is read from `aiInteractions`). All limits are
+   * optional — a missing or `0` limit means unlimited (only the LLM's own limit then
+   * applies). These are the DEFAULTS; admins can override per user/tenant at runtime
+   * (`aiBudgetLimits`, `CoreAiBudgetService`).
+   */
+  budget?: {
+    /** Reset window. @default 'day' */
+    period?: 'day' | 'month' | 'none';
+    /** Default limit applied to a whole tenant (sum of all its users). */
+    tenant?: { maxPrompts?: number; maxTokens?: number };
+    /** Default limit applied per user. */
+    user?: { maxPrompts?: number; maxTokens?: number };
+  };
+
+  /**
+   * Confirmation policy for mutating tool actions (create/update/delete).
+   * `destructive` tools always require confirmation regardless of this policy.
+   */
+  confirmation?: {
+    mutating?: {
+      /** Admin default: require confirmation for mutating actions. @default false */
+      default?: boolean;
+      /** When true, the client cannot override the default (always require). @default false */
+      enforced?: boolean;
+    };
+  };
+
+  /**
+   * System documentation injected into the system prompt to inform the LLM
+   * (official docs, domain rules, API description). For dynamic/RAG docs, override
+   * `CoreAiPromptBuilderService.getDocumentation()` instead.
+   */
+  documentation?: string;
+
+  /** Optional one-time seed for a default connection (see {@link IAiDefaultConnection}). */
+  defaultConnection?: IAiDefaultConnection;
+
+  /**
+   * Default execution mode when the client does not specify one.
+   * `auto` (reactive loop) or `plan` (validate all permissions, then execute atomically).
+   * @default 'auto'
+   */
+  defaultMode?: 'auto' | 'plan';
+
+  /** Explicitly disable while keeping the config (default: enabled when present). */
+  enabled?: boolean;
+
+  /**
+   * Pass-phrase used to derive the AES-256-GCM key for encrypting connection API
+   * keys. Falls back to `NSC__AI__ENCRYPTION_SECRET` / `SECRETS_ENCRYPTION_KEY`.
+   * MUST be set to a random 32+ char value in production.
+   */
+  encryptionSecret?: string;
+
+  /**
+   * Fallback total context window (input + output tokens) used to budget the
+   * assembled session messages when a connection has no `contextWindow` set. When the
+   * conversation (per user/session) would overflow, the oldest history turns are
+   * dropped and oversized payloads truncated before the LLM call.
+   * @default 8192
+   */
+  contextWindow?: number;
+
+  /**
+   * Optional config for the `ClaudeCliProvider` (LLM backend that invokes a local
+   * `claude` CLI binary). Only consumed when a connection's `providerType` is
+   * `claude-cli` or the provider is registered explicitly.
+   */
+  claudeCli?: {
+    /** Path/name of the Claude CLI binary. @default 'claude' */
+    bin?: string;
+    /** Extra CLI flags appended verbatim to every invocation (admin-only). */
+    extraArgs?: string[];
+    /** Optional `--budget` cap (USD) appended to every invocation. */
+    maxBudgetUsd?: number;
+  };
+
+  /**
+   * LLM-driven context compaction: when a session would overflow the connection's
+   * context window, the oldest non-system/non-last turns are summarized by a single
+   * LLM call (via the same connection's provider) and REPLACED by a one-paragraph
+   * summary system message — instead of being dropped. Falls back to the hard trim
+   * path on any error. Disable with `false`.
+   * @default true
+   */
+  compaction?: boolean;
+
+  /**
+   * Defer the parameter schemas of tools out of the system prompt. With many tools
+   * the JSON-Schema catalog dominates the prompt; with `deferToolSchemas: true`
+   * the system prompt only lists tool names + short descriptions and the built-in
+   * `search_tools` meta-tool lets the model fetch a single tool's schema on demand.
+   * @default false
+   */
+  deferToolSchemas?: boolean;
+
+  /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
+  maxIterations?: number;
+
+  /** Maximum characters of a tool-results payload fed back to the model. @default 12000 */
+  maxToolResultChars?: number;
+
+  /**
+   * Governed self-improvement loop for the system prompt. The orchestrator records
+   * failure signals (tool errors, not-permitted calls); recurring patterns become
+   * learned hints. By default hints are `suggested` and only affect the prompt once an
+   * admin approves them; `autoApply` auto-approves them. Learning never relaxes
+   * permissions — hints only add textual guidance.
+   */
+  promptLearning?: {
+    /** Auto-approve learned hints instead of requiring admin approval. @default false */
+    autoApply?: boolean;
+    /** Enable the learning loop. @default true (when an `ai` block is present) */
+    enabled?: boolean;
+    /** Occurrences before a suggested hint is auto-approved (with `autoApply`). @default 1 */
+    minOccurrences?: number;
+  };
+
+  /**
+   * Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+   * external MCP clients. Requires `@modelcontextprotocol/sdk`. Boolean shorthand.
+   *
+   * `oauth: true` additionally enables the OAuth 2.1 layer (dynamic client
+   * registration + PKCE) so generic MCP clients can authenticate; mount the OAuth
+   * router in `main.ts` via `mountAiMcpOAuth(app)` (see INTEGRATION-CHECKLIST).
+   * Without it, MCP authenticates via the existing Bearer/session token.
+   * @default false
+   */
+  mcp?: boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string };
+
+  /** Rate limiting for prompts. */
+  rateLimit?: IAiRateLimit;
+
+  /** Base system prompt prepended to every conversation. */
+  systemPrompt?: string;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
+  /**
+   * Configuration for the AI assistant module.
+   *
+   * Presence implies enabled (omit to disable, `{ enabled: false }` to keep config
+   * but disable). Adds the prompt orchestrator, the tool registry and admin-managed
+   * database-backed LLM connections.
+   *
+   * @see IAi
+   */
+  ai?: boolean | IAi;
+
   /**
    * Base URL of the frontend/app application.
    *
@@ -2866,6 +3123,61 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
  * @since 11.22.0
  */
 export interface ICoreModuleOverrides {
+  /**
+   * Override AI module collaborators with project-specific subclasses.
+   *
+   * - `budgetService` must extend `CoreAiBudgetService`
+   * - `connectionResolver` must extend `CoreAiConnectionResolverService`
+   * - `connectionService` must extend `CoreAiConnectionService`
+   * - `controller` must extend `CoreAiController`
+   * - `conversationService` must extend `CoreAiConversationService`
+   * - `interactionService` must extend `CoreAiInteractionService`
+   * - `mcpClientService` must extend `CoreAiMcpClientService`
+   * - `modeService` must extend `CoreAiModeService`
+   * - `placeholderRegistry` must extend `CoreAiPlaceholderRegistry`
+   * - `preferenceService` must extend `CoreAiConnectionPreferenceService`
+   * - `promptBuilder` must extend `CoreAiPromptBuilderService`
+   * - `promptHintService` must extend `CoreAiPromptHintService`
+   * - `promptService` must extend `CoreAiPromptService`
+   * - `resolver` must extend `CoreAiResolver` (re-declare GraphQL decorators)
+   * - `service` must extend `CoreAiService`
+   * - `slotService` must extend `CoreAiSlotService`
+   * - `toolGrantService` must extend `CoreAiToolGrantService`
+   * - `toolPolicyService` must extend `CoreAiToolPolicyService`
+   *
+   * @example
+   * ```typescript
+   * {
+   *   ai: {
+   *     service: MyAiService,
+   *     resolver: MyAiResolver,
+   *     connectionResolver: MyConnectionResolver,
+   *     slotService: MySlotService,
+   *   },
+   * }
+   * ```
+   */
+  ai?: {
+    budgetService?: Type<any>;
+    connectionResolver?: Type<any>;
+    connectionService?: Type<any>;
+    controller?: Type<any>;
+    conversationService?: Type<any>;
+    interactionService?: Type<any>;
+    mcpClientService?: Type<any>;
+    modeService?: Type<any>;
+    placeholderRegistry?: Type<any>;
+    preferenceService?: Type<any>;
+    promptBuilder?: Type<any>;
+    promptHintService?: Type<any>;
+    promptService?: Type<any>;
+    resolver?: Type<any>;
+    service?: Type<any>;
+    slotService?: Type<any>;
+    toolGrantService?: Type<any>;
+    toolPolicyService?: Type<any>;
+  };
+
   /**
    * Override BetterAuth controller and/or resolver.
    *

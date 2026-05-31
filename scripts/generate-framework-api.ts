@@ -182,6 +182,9 @@ function main() {
     'IJwt',
     'ICookiesConfig',
     'ICorsConfig',
+    'IAi',
+    'IAiRateLimit',
+    'IAiDefaultConnection',
     'ICoreModuleOverrides',
   ];
 
