@@ -4,13 +4,16 @@
  * Tests the cookie domain feature, createCookieHelper factory,
  * and getDefaultCookieOptions behavior.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BetterAuthCookieHelper,
   type BetterAuthCookieHelperConfig,
   createCookieHelper,
 } from '../../src/core/modules/better-auth/core-better-auth-cookie.helper';
+import { extractSessionToken } from '../../src/core/modules/better-auth/core-better-auth-web.helper';
+import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
+import { TestHelper } from '../../src/test/test.helper';
 
 describe('BetterAuthCookieHelper', () => {
   /**
@@ -167,6 +170,90 @@ describe('BetterAuthCookieHelper', () => {
 
       // Only native cookie, no legacy
       expect(cookieCalls).toEqual(['iam.session_token']);
+    });
+  });
+
+  /**
+   * Cross-layer lockstep under a COOKIE_PREFIX override.
+   *
+   * Regression guard for the bug where the session cookie name was derived from
+   * basePath INDEPENDENTLY in several places: Better-Auth set `acme.session_token`
+   * while the NestJS read/clear path still looked for `iam.session_token`, so a
+   * COOKIE_PREFIX override silently broke sign-in / authenticated requests / logout.
+   *
+   * This exercises the SET path (helper) and the READ path (extractSessionToken)
+   * together — exactly what a sign-in → request → sign-out e2e would catch — but
+   * deterministically and without a database.
+   */
+  describe('COOKIE_PREFIX override (cross-layer lockstep)', () => {
+    const previousCookiePrefix = process.env.COOKIE_PREFIX;
+
+    beforeEach(() => {
+      process.env.COOKIE_PREFIX = 'acme';
+    });
+
+    afterEach(() => {
+      if (previousCookiePrefix === undefined) {
+        delete process.env.COOKIE_PREFIX;
+      } else {
+        process.env.COOKIE_PREFIX = previousCookiePrefix;
+      }
+    });
+
+    it('SET path: helper uses the overridden cookie name', () => {
+      const helper = new BetterAuthCookieHelper({ basePath: '/iam', secret: 'test-secret' });
+      expect(helper.getCookieName()).toBe('acme.session_token');
+
+      const cookieCalls: string[] = [];
+      const mockRes = { cookie: vi.fn((name: string) => cookieCalls.push(name)) } as any;
+      helper.setSessionCookies(mockRes, 'tok');
+      expect(cookieCalls).toContain('acme.session_token');
+
+      const clearCalls: string[] = [];
+      const clearRes = { cookie: vi.fn((name: string) => clearCalls.push(name)) } as any;
+      helper.clearSessionCookies(clearRes);
+      expect(clearCalls).toContain('acme.session_token');
+    });
+
+    it('READ path: extractSessionToken reads the overridden cookie the SET path wrote', () => {
+      const req = { cookies: { 'acme.session_token': 'tok' }, headers: {} } as any;
+      expect(extractSessionToken(req, '/iam', { skipAuthHeader: true })).toBe('tok');
+    });
+
+    it('READ path: the old basePath-derived name is NO LONGER honoured under override (catches the bug)', () => {
+      // With the previous per-site derivation this would still resolve 'tok';
+      // now the read path resolves through the same resolver, so it must miss.
+      const req = { cookies: { 'iam.session_token': 'tok' }, headers: {} } as any;
+      expect(extractSessionToken(req, '/iam', { skipAuthHeader: true })).toBeNull();
+    });
+
+    it('TestHelper.extractSessionToken: default cookie name follows the COOKIE_PREFIX override', () => {
+      // A test that calls extractSessionToken(res) WITHOUT an explicit name
+      // would silently return null under a COOKIE_PREFIX=acme app if the
+      // default was still the hardcoded 'iam.session_token'.
+      const response = {
+        headers: { 'set-cookie': ['acme.session_token=secret-token; Path=/; HttpOnly'] },
+      };
+      expect(TestHelper.extractSessionToken(response)).toBe('secret-token');
+    });
+
+    it('Service cache: getCookiePrefix freezes the value on first read so a late env mutation cannot drift', () => {
+      // Service is constructed BEFORE process.env.COOKIE_PREFIX changes — this
+      // simulates a forked test worker that boots Better-Auth and only then a
+      // sibling test mutates the env. Without the cache, getCookiePrefix would
+      // return the new value while the Better-Auth instance is still pinned to
+      // the old one.
+      // ts-expect-error — bypass DI by passing all-undefined to the constructor.
+      const service: any = new (CoreBetterAuthService as any)(null, undefined, { basePath: '/iam' });
+
+      expect(service.getCookiePrefix()).toBe('acme');
+      const cookieName = service.getSessionCookieName();
+      expect(cookieName).toBe('acme.session_token');
+
+      // Late mutation — must NOT change what the service reports.
+      process.env.COOKIE_PREFIX = 'kit-test';
+      expect(service.getCookiePrefix()).toBe('acme');
+      expect(service.getSessionCookieName()).toBe('acme.session_token');
     });
   });
 });

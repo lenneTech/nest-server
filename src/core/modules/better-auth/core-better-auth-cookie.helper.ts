@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Response } from 'express';
 
 import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
+import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
 import { signCookieValue } from './core-better-auth-web.helper';
 
 /**
@@ -124,8 +125,10 @@ export class BetterAuthCookieHelper {
   constructor(private readonly config: BetterAuthCookieHelperConfig) {
     // Normalize basePath: remove leading slash, replace slashes with dots
     this.normalizedBasePath = config.basePath.replace(/^\//, '').replace(/\//g, '.');
-    // Default cookie name based on basePath (e.g., 'iam.session_token')
-    this.cookieName = `${this.normalizedBasePath}.session_token`;
+    // Session cookie name via the single shared resolver: honours COOKIE_PREFIX
+    // (e.g. 'iam.session_token', or 'acme.session_token' when COOKIE_PREFIX=acme),
+    // so set/clear/read here always match the name Better-Auth itself uses.
+    this.cookieName = resolveBetterAuthSessionCookieName(config.basePath);
   }
 
   /**
@@ -153,6 +156,13 @@ export class BetterAuthCookieHelper {
 
   /**
    * Gets the normalized base path (e.g., 'iam' from '/iam').
+   *
+   * WARNING: This is the basePath-derived string, NOT the resolved cookie
+   * prefix — it intentionally ignores `COOKIE_PREFIX`. Do NOT use it to build
+   * a session cookie name (use {@link getCookieName} instead). Composing
+   * `${getNormalizedBasePath()}.session_token` would re-introduce the
+   * COOKIE_PREFIX drift bug where Better-Auth and the NestJS layer disagree
+   * on the cookie name (see better-auth-cookie-prefix.helper.ts).
    */
   getNormalizedBasePath(): string {
     return this.normalizedBasePath;

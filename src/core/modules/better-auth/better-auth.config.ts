@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
+import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 
 /**
  * Type for better-auth instance with plugins
@@ -325,9 +326,20 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   // Build the base Better-Auth configuration
   // Use resolved baseUrl (with local defaults) or fallback
   const basePath = config.basePath || '/iam';
-  // Cookie prefix derived from basePath (e.g., '/iam' → 'iam')
-  // This ensures Better-Auth looks for cookies like 'iam.session_token' instead of 'better-auth.session_token'
-  const cookiePrefix = basePath.replace(/^\//, '').replace(/\//g, '.');
+  // Cookie prefix for Better-Auth's session cookies (e.g. 'iam.session_token').
+  // COOKIE_PREFIX env (always wins) lets a project fully isolate its auth
+  // cookies on a shared host; otherwise derived from basePath. The SAME pure
+  // resolver is used by every session-cookie call site (service, controller,
+  // web/cookie helpers) so the name stays in lockstep.
+  const cookiePrefix = resolveBetterAuthCookiePrefix(basePath);
+  // Operator visibility: make a non-default COOKIE_PREFIX override obvious in the
+  // logs, and remind that the frontend must mirror it or auth will break.
+  if ((process.env.COOKIE_PREFIX || '').trim()) {
+    logger.log(
+      `COOKIE_PREFIX override active → auth cookies use prefix "${cookiePrefix}" ` +
+        `(e.g. "${cookiePrefix}.session_token"). The frontend NUXT_PUBLIC_COOKIE_PREFIX MUST match.`,
+    );
+  }
 
   const betterAuthConfig: Record<string, unknown> = {
     advanced: {
@@ -382,6 +394,14 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     const { advanced: optionsAdvanced, ...restOptions } = config.options as Record<string, unknown>;
     finalConfig = { ...betterAuthConfig, ...restOptions };
     if (optionsAdvanced && typeof optionsAdvanced === 'object') {
+      // Drift guard: a programmatic `options.advanced.cookiePrefix` would only
+      // change what Better-Auth itself sets — the NestJS layer keeps resolving
+      // through `resolveBetterAuthCookiePrefix(basePath, env)`, so sign-in /
+      // read / sign-out would silently fall out of lockstep. Loud warning so
+      // operators see the misconfiguration immediately. Use `COOKIE_PREFIX`
+      // (env) instead — it is honoured by every call site.
+      const driftWarning = detectCookiePrefixDrift(cookiePrefix, optionsAdvanced);
+      if (driftWarning) logger.warn(driftWarning);
       finalConfig.advanced = {
         ...(betterAuthConfig.advanced as Record<string, unknown>),
         ...(optionsAdvanced as Record<string, unknown>),
@@ -1080,6 +1100,17 @@ export interface ResolvedCrossSubDomainCookies {
   /** Whether cross-subdomain cookies are enabled */
   enabled: boolean;
 }
+
+/**
+ * Re-exported for backward compatibility.
+ *
+ * @deprecated Import from `./better-auth-cookie-prefix.helper` directly. The
+ * re-export exists only so callers that landed on `./better-auth.config`
+ * before the helper was extracted keep working; new code MUST import from the
+ * dedicated helper module to avoid pulling the heavy config-builder into the
+ * dependency graph (which forces import cycles in some build setups).
+ */
+export { resolveBetterAuthCookiePrefix, resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
 
 /**
  * Resolves the cross-subdomain cookies configuration.
