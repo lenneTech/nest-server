@@ -408,13 +408,19 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       swaggerOpts.required = true;
     }
 
-    // Set type for swagger
-    if (baseType) {
-      if (normalizedEnum) {
-        swaggerOpts.type = () => String;
-      } else {
-        swaggerOpts.type = baseType;
-      }
+    // Set type for swagger.
+    //
+    // For enum fields we deliberately do NOT set `type`: @nestjs/swagger derives
+    // the schema from `enum` + `enumName` (set further below). Passing
+    // `type: () => String` ALONGSIDE `enum`/`enumName` makes @nestjs/swagger
+    // >= 11.4 emit a broken, UNNAMED enum reference
+    // (`allOf: [{ $ref: '#/components/schemas/' }]`) and never adds the enum to
+    // `components.schemas`. That crashes OpenAPI client generators — e.g.
+    // @hey-api/openapi-ts fails with «Missing $ref pointer "#/components/schemas/"».
+    // (On @nestjs/swagger <= 11.2 the extra `type` was tolerated, which is why
+    // this only surfaced after a swagger bump.)
+    if (baseType && !normalizedEnum) {
+      swaggerOpts.type = baseType;
     }
 
     // Set description
