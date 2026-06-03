@@ -776,8 +776,7 @@ export class CoreBetterAuthController {
     }
 
     // Check cookies - Better-Auth native cookie first, then legacy token
-    const basePath = this.betterAuthService.getBasePath().replace(/^\//, '').replace(/\//g, '.');
-    const cookieName = `${basePath}.session_token`;
+    const cookieName = this.betterAuthService.getSessionCookieName();
     return req.cookies?.[cookieName] || req.cookies?.['token'] || null;
   }
 

@@ -8,6 +8,7 @@ import util = require('util');
 import ws = require('ws');
 
 import { getStringIds } from '../core/common/helpers/db.helper';
+import { resolveBetterAuthSessionCookieName } from '../core/modules/better-auth/better-auth-cookie-prefix.helper';
 
 /**
  * GraphQL request type
@@ -830,8 +831,11 @@ export class TestHelper {
    * Sets the token in all relevant cookie names for compatibility.
    */
   static buildBetterAuthCookies(sessionToken: string, basePath: string = 'iam'): Record<string, string> {
+    // Resolve the session cookie name through the shared resolver so tests honour
+    // a COOKIE_PREFIX override exactly like the runtime (otherwise an authenticated
+    // request in a COOKIE_PREFIX=acme app would send the wrong cookie name).
     return {
-      [`${basePath}.session_token`]: sessionToken,
+      [resolveBetterAuthSessionCookieName(basePath)]: sessionToken,
       token: sessionToken,
     };
   }
@@ -861,10 +865,16 @@ export class TestHelper {
   /**
    * Extract a session token from Set-Cookie headers of a supertest response.
    * Handles signed cookies (value.signature format) by returning only the value part.
+   *
+   * The default cookie name is resolved through the shared resolver so it
+   * honours a `COOKIE_PREFIX` env override exactly like the runtime (otherwise
+   * tests against a `COOKIE_PREFIX=acme` app would look for the wrong cookie
+   * and silently return `null`). Tests can still pass an explicit name.
    */
-  static extractSessionToken(response: any, cookieName: string = 'iam.session_token'): null | string {
+  static extractSessionToken(response: any, cookieName?: string): null | string {
+    const resolvedCookieName = cookieName ?? resolveBetterAuthSessionCookieName('/iam');
     const cookies = TestHelper.extractCookies(response);
-    const value = cookies[cookieName];
+    const value = cookies[resolvedCookieName];
     if (!value) {
       return null;
     }

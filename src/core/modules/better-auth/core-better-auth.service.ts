@@ -9,6 +9,7 @@ import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
+import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 import { BetterAuthInstance } from './better-auth.config';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
@@ -65,6 +66,11 @@ export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
 export class CoreBetterAuthService implements OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
   private readonly config: IBetterAuth;
+  // Cached cookie prefix — frozen on first read so the value cannot drift away
+  // from the Better-Auth instance (which captured it at bootstrap). Without
+  // this cache a test or fork that mutates `process.env.COOKIE_PREFIX` after
+  // boot would push the service and the Better-Auth instance out of lockstep.
+  private cachedCookiePrefix: null | string = null;
 
   constructor(
     @Optional() @Inject(BETTER_AUTH_INSTANCE) private readonly authInstance: BetterAuthInstance | null,
@@ -280,8 +286,28 @@ export class CoreBetterAuthService implements OnModuleInit {
    * @returns The session cookie name
    */
   getSessionCookieName(): string {
-    const basePath = this.getBasePath()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
-    return `${basePath}.session_token`;
+    return `${this.getCookiePrefix()}.session_token`;
+  }
+
+  /**
+   * Gets the cookie prefix (the `iam` in `iam.session_token`).
+   *
+   * Single source of truth: honours the `COOKIE_PREFIX` env override and falls
+   * back to the basePath-derived prefix. Every session-cookie call site must
+   * resolve the name through this (or {@link getSessionCookieName}) so the name
+   * stays in lockstep across the whole auth pipeline.
+   *
+   * The resolved value is cached on first read and reused for the lifetime of
+   * the service so it cannot drift away from the Better-Auth instance, which
+   * captures the prefix once at bootstrap. A late mutation of
+   * `process.env.COOKIE_PREFIX` (typical in tests / forked workers) would
+   * otherwise make set, read and clear use different names.
+   */
+  getCookiePrefix(): string {
+    if (this.cachedCookiePrefix === null) {
+      this.cachedCookiePrefix = resolveBetterAuthCookiePrefix(this.getBasePath() || '/iam');
+    }
+    return this.cachedCookiePrefix;
   }
 
   // ===================================================================================================================
@@ -434,8 +460,7 @@ export class CoreBetterAuthService implements OnModuleInit {
       // Browser clients send unsigned cookies, but Better-Auth expects signed cookies
       const cookieHeader = headers.get('cookie');
       if (cookieHeader && this.config?.secret) {
-        const basePath = this.getBasePath()?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
-        const sessionCookieName = `${basePath}.session_token`;
+        const sessionCookieName = this.getSessionCookieName();
         const cookies = parseCookieHeader(cookieHeader);
         let modified = false;
 

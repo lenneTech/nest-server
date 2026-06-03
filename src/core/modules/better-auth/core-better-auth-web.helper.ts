@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 
+import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
 import { isSessionToken } from './core-better-auth-token.helper';
 
 /**
@@ -94,13 +95,12 @@ export function extractSessionToken(
     }
   }
 
-  // Normalize basePath (remove leading slash, replace slashes with dots)
-  const normalizedBasePath = basePath.replace(/^\//, '').replace(/\//g, '.');
-
   // Cookie names to check (in order of priority)
-  // v11.12+: Only native Better-Auth cookie and legacy token
+  // v11.12+: Only native Better-Auth cookie and legacy token. The session cookie
+  // name is resolved through the single shared resolver (honours COOKIE_PREFIX),
+  // so it always matches what Better-Auth actually sets.
   const cookieNames = [
-    `${normalizedBasePath}.session_token`, // Better-Auth native (PRIMARY)
+    resolveBetterAuthSessionCookieName(basePath), // Better-Auth native (PRIMARY)
     BETTER_AUTH_COOKIE_NAMES.TOKEN, // Legacy nest-server cookie
   ];
 
@@ -320,8 +320,7 @@ export async function toWebRequest(req: Request, options: ToWebRequestOptions): 
   if (sessionToken) {
     headers.set('authorization', `Bearer ${sessionToken}`);
 
-    const normalizedBasePath = basePath?.replace(/^\//, '').replace(/\//g, '.') || 'iam';
-    const primaryCookieName = `${normalizedBasePath}.session_token`;
+    const primaryCookieName = resolveBetterAuthSessionCookieName(basePath || '/iam');
     const existingCookieString = headers.get('cookie') || '';
 
     // Check if the request already has a signed session cookie.
