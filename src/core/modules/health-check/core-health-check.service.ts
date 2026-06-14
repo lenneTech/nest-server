@@ -9,6 +9,7 @@ import {
 import type { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health.js';
 import type { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type.js';
 
+import { getBuildInfo } from '../../common/helpers/meta.helper';
 import { ConfigService } from '../../common/services/config.service';
 
 /**
@@ -64,6 +65,18 @@ export class CoreHealthCheckService {
         ),
       );
     }
+    // Build identity (commit / version / env) — always reported as "up", so it
+    // surfaces under `info`/`details` without ever affecting the overall health
+    // status. Lets ops/monitoring detect a drifted or stale container after a
+    // partial rollout (the same commit-SHA signal the admin UI compares). The
+    // commit is baked into the image at build time (APP_VERSION_COMMIT, fed from
+    // the CI commit SHA); `version`/`env` come from the config. Opt out with
+    // `healthCheck.configs.build.enabled: false`.
+    if (this.config.get<boolean>('healthCheck.configs.build.enabled') !== false) {
+      const build = getBuildInfo({ env: this.config.get<string>('env'), version: this.config.get<string>('version') });
+      healthIndicatorFunctions.push(async () => ({ build: { ...build, status: 'up' as const } }));
+    }
+
     return this.health.check(healthIndicatorFunctions);
   }
 }

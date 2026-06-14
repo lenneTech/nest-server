@@ -1592,6 +1592,17 @@ export interface IServerOptions {
   env?: string;
 
   /**
+   * Semantic version of the running build (e.g. from package.json / meta.json).
+   *
+   * Surfaced via the build-identity health indicator alongside the commit SHA.
+   * Unlike the commit (which uniquely pins the exact build), the version is a
+   * rarely-bumped semver and may legitimately differ between API and frontend.
+   *
+   * @since 11.27.0
+   */
+  version?: string;
+
+  /**
    * Configuration for the error code module
    *
    * Controls how error codes and translations are handled.
@@ -1671,6 +1682,24 @@ export interface IServerOptions {
      * Configuration of single health checks
      */
     configs?: {
+      /**
+       * Configuration for the build-identity health indicator.
+       *
+       * Always reports status "up" and surfaces the running build's commit SHA,
+       * version and environment under the health check's `info`/`details`, so a
+       * drifted / stale container can be detected after a partial rollout. The
+       * commit is read from `process.env.APP_VERSION_COMMIT` (baked at build
+       * time from the CI commit SHA); `version` comes from {@link IServerOptions.version}.
+       *
+       * @since 11.27.0
+       */
+      build?: {
+        /**
+         * Whether to include build identity in the health check (default: true)
+         */
+        enabled?: boolean;
+      };
+
       /**
        * Configuration for database health check
        */

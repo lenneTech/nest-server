@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-06-03 (v11.26.3)
+> Auto-generated from source code on 2026-06-14 (v11.27.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -26,11 +26,12 @@
   - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
   - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
   - `env?`: `string` — Environment
+  - `version?`: `string` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode` — Configuration for the error code module
   - `execAfterInit?`: `string` — Exec a command after server is initialized
   - `filter?`: `{ maxLimit?: number; }` — Filter configuration and defaults
   - `graphQl?`: `false | { driver?: ApolloDriverConfig; enableSubscriptionAuth?: boolean; maxC...` — Configuration of the GraphQL module
-  - `healthCheck?`: `{ configs?: { database?: { enabled?: boolean; key?: string; options?: Mongoos...` — Whether to activate health check endpoints
+  - `healthCheck?`: `{ configs?: { build?: { enabled?: boolean; }; database?: { enabled?: boolean;...` — Whether to activate health check endpoints
   - `hostname?`: `string` — Hostname of the server
   - `ignoreSelectionsForPopulate?`: `boolean` — Ignore selections in fieldSelection
   - `jwt?`: `IJwt & JwtModuleOptions & { refresh?: IJwt & { renewal?: boolean; }; sameToke...` — Configuration of JavaScript Web Token (JWT) module
