@@ -121,26 +121,25 @@ function parseLint(out) {
   };
 }
 
-// ── audit (run once, structured) ───────────────────────────────────────────
+// ── audit (faithful: runs the project's OWN audit command) ──────────────────
 const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
-const gateRank = (level) => ({ critical: 4, high: 3, info: 0, low: 1, moderate: 2 })[level] ?? 3;
 
-async function runAudit(gateLevel) {
-  const { code, out } = await capture("pnpm audit --prod --json", ROOT);
+// Run the audit command exactly as the check chain defines it (same scope /
+// --prod / --audit-level), only appending --json for the counts. The gate is
+// the command's own exit code, so `check` blocks precisely when a bare
+// `<auditCmd>` would — never with a narrower scope than the chain. (The old
+// hardcoded `--prod` hid devDependency vulns for library packages.)
+async function runAudit(auditCmd) {
+  const cmd = /(^|\s)--json(\s|$)/.test(auditCmd) ? auditCmd : `${auditCmd} --json`;
+  const { code, out } = await capture(cmd, ROOT);
   let counts = null;
   try {
-    const json = JSON.parse(out.slice(out.indexOf("{")));
-    counts = json?.metadata?.vulnerabilities ?? json?.vulnerabilities ?? null;
+    counts = JSON.parse(out.slice(out.indexOf("{")))?.metadata?.vulnerabilities ?? null;
   } catch {
     /* fall through to raw reason */
   }
-  if (!counts) return { blocking: code !== 0 ? 1 : 0, counts: null, gateLevel, reason: out };
-  const min = gateRank(gateLevel);
-  const blocking = SEVERITIES.filter((s) => gateRank(s) >= min).reduce(
-    (n, s) => n + (counts[s] || 0),
-    0,
-  );
-  return { blocking, counts, gateLevel };
+  const total = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
+  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total };
 }
 
 // ── command runner ─────────────────────────────────────────────────────────
@@ -286,10 +285,11 @@ function discoverProjects() {
   return projects;
 }
 
-// One group per project: its ordered, fix-mapped steps. Audit is hoisted out to
-// a single workspace-level run and its gate level captured.
+// One group per project: its ordered, fix-mapped steps. The audit step is
+// hoisted to a single workspace-level run; its EXACT command (scope + level +
+// package manager) is captured so the run mirrors the chain's own audit.
 function buildGroups(projects) {
-  let gateLevel = "high";
+  let auditCmd = null;
   const groups = projects.map((project) => {
     const steps = [];
     for (const raw of project.check
@@ -298,15 +298,14 @@ function buildGroups(projects) {
       .filter(Boolean)) {
       const meta = classify(raw);
       if (meta.kind === "audit") {
-        const m = raw.match(/--audit-level[= ]([a-z]+)/i);
-        if (m) gateLevel = m[1].toLowerCase();
+        if (!auditCmd) auditCmd = raw;
         continue;
       }
       steps.push({ ...meta, cmd: toFixCommand(meta.kind, raw), cwd: project.dir });
     }
     return { project, steps };
   });
-  return { gateLevel, groups };
+  return { auditCmd, groups };
 }
 
 // ── per-project runner ───────────────────────────────────────────────────────
@@ -353,15 +352,15 @@ async function main() {
     console.error(C.red("No workspace projects with a `check` script found."));
     process.exit(1);
   }
-  const { gateLevel, groups } = buildGroups(projects);
-  const stepCount = groups.reduce((n, g) => n + g.steps.length, 0) + 1;
+  const { auditCmd, groups } = buildGroups(projects);
+  const stepCount = groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0);
   const mode = SEQUENTIAL ? "sequential" : "parallel";
   const pkgName = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).name;
 
   console.log(C.bold(`\nRunning checks for ${C.cyan(pkgName)}`));
   console.log(
     C.dim(
-      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit gate: ${gateLevel}` +
+      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? "none"}` +
         `${NO_FIX ? "" : " · auto-fix format+lint"}${VERBOSE ? " · verbose" : ""}\n`,
     ),
   );
@@ -369,21 +368,28 @@ async function main() {
   const results = [];
 
   // Step 0 — single workspace audit (blocking gate, runs before the fan-out).
-  {
+  // Mirrors the chain's own audit command (scope/level/PM); skipped only when
+  // the chain has no audit step.
+  if (auditCmd) {
     const t = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} audit (prod)\n`);
-    else drawLive([`${C.cyan(FRAMES[0])} audit (prod)`]);
-    const audit = await runAudit(gateLevel);
+    if (!TTY) process.stdout.write(`  ${C.dim("→")} audit\n`);
+    else drawLive([`${C.cyan(FRAMES[0])} audit`]);
+    const audit = await runAudit(auditCmd);
     liveCount = 0;
     const dur = Date.now() - t;
     if (audit.blocking) {
-      console.log(
-        `${C.red("✗")} audit  ${C.red(`${audit.blocking} vuln ≥ ${gateLevel}`)} ${C.dim(`(${fmtDuration(dur)})`)}`,
+      const summary = audit.counts
+        ? `${audit.total} vuln (${renderVulnLine(audit.counts)})`
+        : "failed";
+      console.log(`${C.red("✗")} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
+      return fail(
+        `audit (${auditCmd})`,
+        audit.counts ? renderVulnLine(audit.counts) : audit.reason,
+        started,
       );
-      return fail("audit", audit.counts ? renderVulnLine(audit.counts) : audit.reason, started);
     }
     console.log(
-      `${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("counts unavailable")} ${C.dim(`(${fmtDuration(dur)})`)}`,
+      `${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}`,
     );
     results.push({ audit, kind: "audit" });
   }
@@ -409,7 +415,7 @@ async function main() {
 
   if (abort.hit) return fail(abort.failure.step, abort.failure.out, started);
 
-  report(started, results, gateLevel);
+  report(started, results);
   process.exit(0);
 }
 
@@ -449,7 +455,7 @@ function fail(stepLabel, reason, started) {
   process.exit(1);
 }
 
-function report(started, results, gateLevel) {
+function report(started, results) {
   const audit = results.find((r) => r.kind === "audit")?.audit;
   const tests = results.filter((r) => r.kind === "test");
   const unit = tests.find((r) => r.project?.includes("app"))?.tests;
@@ -470,8 +476,12 @@ function report(started, results, gateLevel) {
     );
   }
 
-  console.log(`\n${C.bold("Vulnerabilities")} ${C.dim(`(prod, gate: ${gateLevel})`)}`);
-  console.log(`  ${audit?.counts ? renderVulnLine(audit.counts) : C.dim("counts unavailable")}`);
+  console.log(
+    `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
+  );
+  console.log(
+    `  ${audit?.counts ? renderVulnLine(audit.counts) : C.dim(audit ? "counts unavailable" : "—")}`,
+  );
 
   console.log(`\n${C.bold("Tests")}`);
   if (unit || api) {
