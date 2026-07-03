@@ -9,6 +9,7 @@ import { Model } from 'mongoose';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { IRequestContext, RequestContext } from '../src/core/common/services/request-context.service';
 import { mongooseTenantPlugin } from '../src/core/common/plugins/mongoose-tenant.plugin';
+import { deriveTestDbUri } from './db-lifecycle.reporter';
 
 // =============================================================================
 // Test Schema: TenantItem (has tenantId → plugin activates)
@@ -38,7 +39,7 @@ const GlobalItemSchema = SchemaFactory.createForClass(GlobalItem);
 // =============================================================================
 // Test Module
 // =============================================================================
-const TEST_DB_URI = 'mongodb://127.0.0.1/nest-server-mt-test';
+const TEST_DB_URI = deriveTestDbUri('mt');
 
 @Module({
   imports: [
@@ -672,7 +673,7 @@ describe('Multi-Tenancy Plugin Disabled (e2e)', () => {
 
     @Module({
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-mt-disabled-test', {
+        MongooseModule.forRoot(deriveTestDbUri('mt-off'), {
           connectionFactory: (connection) => {
             // Plugin still registered globally, but config says disabled
             // The plugin itself checks tenantId field, but resolveTenantId reads config

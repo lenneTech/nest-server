@@ -12,6 +12,7 @@ import { hashPassword, mongoosePasswordPlugin } from '../src/core/common/plugins
 import { mongooseRoleGuardPlugin } from '../src/core/common/plugins/mongoose-role-guard.plugin';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { IRequestContext, RequestContext } from '../src/core/common/services/request-context.service';
+import { deriveTestDbUri } from './db-lifecycle.reporter';
 
 // =============================================================================
 // Test Schema: PluginTestUser (has password, roles, createdBy, updatedBy)
@@ -39,7 +40,7 @@ const PluginTestUserSchema = SchemaFactory.createForClass(PluginTestUser);
 // =============================================================================
 // Test Module
 // =============================================================================
-const TEST_DB_URI = 'mongodb://127.0.0.1/nest-server-plugins-test';
+const TEST_DB_URI = deriveTestDbUri('plugins');
 
 @Module({
   imports: [

@@ -31,6 +31,7 @@ import {
   mergeErrorCodes,
   TestHelper,
 } from '../src';
+import { deriveTestDbUri } from './db-lifecycle.reporter';
 
 // =============================================================================
 // Test Error Registries
@@ -120,7 +121,7 @@ const getTestConfig = (dbSuffix: string) => ({
     signInOptions: { expiresIn: '15m' as const },
   },
   mongoose: {
-    uri: `mongodb://127.0.0.1/nest-server-${dbSuffix}`,
+    uri: deriveTestDbUri(dbSuffix),
   },
   port: 0,
 });

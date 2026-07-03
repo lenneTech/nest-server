@@ -25,7 +25,7 @@
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,17 @@ const NO_FIX = process.argv.includes("--no-fix");
 const PROJECT_FILTERS = process.argv
   .filter((a) => a.startsWith("--project="))
   .map((a) => a.slice("--project=".length));
+// Watchdog: kill a step whose child produces NO output for this long. A wedged
+// test run (workers deadlocked at 0% CPU) otherwise spins the live view
+// forever — the spinner only proves the child process exists, not that it
+// progresses. Override with --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT
+// (seconds); 0 disables the watchdog.
+const IDLE_TIMEOUT_MS = (() => {
+  const flag = process.argv.find((a) => a.startsWith("--idle-timeout="));
+  const raw = flag ? flag.slice("--idle-timeout=".length) : process.env.CHECK_IDLE_TIMEOUT;
+  const seconds = raw === undefined || raw === "" ? 300 : Number(raw);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+})();
 // Verbose streams raw output, so the in-place live view is disabled there.
 const TTY = Boolean(process.stdout.isTTY) && !VERBOSE;
 
@@ -144,19 +155,72 @@ async function runAudit(auditCmd) {
 
 // ── command runner ─────────────────────────────────────────────────────────
 const RUNNING = new Set();
+
+// Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
+// fork workers). Killing only the direct child orphans the tree — exactly the
+// zombie workers a deadlock leaves behind. Children are collected via pgrep
+// and killed leaves-first.
+function killTree(child, signal = "SIGTERM") {
+  const pids = [];
+  const collect = (pid) => {
+    pids.push(pid);
+    let out = "";
+    try {
+      out = execSync(`pgrep -P ${pid}`, { stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim();
+    } catch {
+      /* no children */
+    }
+    if (out) for (const p of out.split("\n")) collect(Number(p));
+  };
+  collect(child.pid);
+  for (const pid of pids.reverse()) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 function capture(cmd, cwd) {
   return new Promise((resolve) => {
     const child = spawn(cmd, { cwd, shell: true });
     RUNNING.add(child);
     let out = "";
+    let idleTimer = null;
+    let watchdogHit = false;
+    // Any output resets the watchdog — only complete silence for the full
+    // window counts as wedged. Escalate to SIGKILL for processes that ignore
+    // SIGTERM (deadlocked event loops usually still honor TERM, but be sure).
+    const armWatchdog = () => {
+      if (!IDLE_TIMEOUT_MS) return;
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        watchdogHit = true;
+        killTree(child);
+        setTimeout(() => killTree(child, "SIGKILL"), 5000).unref();
+      }, IDLE_TIMEOUT_MS);
+    };
     const onData = (d) => {
       out += d;
+      armWatchdog();
       if (VERBOSE) process.stdout.write(d);
     };
+    armWatchdog();
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
     const done = (code, extra) => {
+      clearTimeout(idleTimer);
       RUNNING.delete(child);
+      if (watchdogHit) {
+        const note =
+          `[watchdog] step produced no output for ${Math.round(IDLE_TIMEOUT_MS / 1000)}s — ` +
+          "process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), " +
+          "not a slow run. Re-run the step directly to debug, e.g. `pnpm run vitest`.";
+        return resolve({ code: 1, out: `${out}\n${note}` });
+      }
       resolve({ code, out: extra ? `${out}\n${extra}` : out });
     };
     child.on("close", (code) => done(code ?? 1));
@@ -166,7 +230,7 @@ function capture(cmd, cwd) {
 function killAll() {
   for (const child of RUNNING) {
     try {
-      child.kill("SIGTERM");
+      killTree(child);
     } catch {
       /* already gone */
     }
@@ -361,7 +425,9 @@ async function main() {
   console.log(
     C.dim(
       `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? "none"}` +
-        `${NO_FIX ? "" : " · auto-fix format+lint"}${VERBOSE ? " · verbose" : ""}\n`,
+        `${NO_FIX ? "" : " · auto-fix format+lint"}` +
+        ` · watchdog: ${IDLE_TIMEOUT_MS ? fmtDuration(IDLE_TIMEOUT_MS) : "off"}` +
+        `${VERBOSE ? " · verbose" : ""}\n`,
     ),
   );
 

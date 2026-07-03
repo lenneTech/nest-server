@@ -15,6 +15,11 @@ import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better
  */
 export type BetterAuthInstance = ReturnType<typeof betterAuth>;
 
+/**
+ * Shared logger for all functions in this config module
+ */
+const logger = new Logger('BetterAuthConfig');
+
 // ---------------------------------------------------------------------------
 // Performance-optimized password hashing using Node.js native crypto.scrypt
 //
@@ -175,6 +180,40 @@ export type SendVerificationEmailCallback = (options: {
 }) => Promise<void>;
 
 /**
+ * Invoke an auth-email send (verification / password-reset) fire-and-forget.
+ *
+ * Better-Auth recommends NOT awaiting these sends so the response time does not
+ * leak whether an account exists (timing attack). The catch here is essential:
+ * a rejected send (e.g. SMTP not configured / delivery failure) must never
+ * become an unhandled promise rejection — that crashes the Node process (an
+ * unverified sign-up + sign-in took the whole API down in dev). This wrapper
+ * keeps the send non-blocking while routing every failure (sync throw or async
+ * rejection) to `onError` instead. `onError` itself is guarded too: if the
+ * handler throws, the error is swallowed rather than crashing the process.
+ *
+ * Deliberate divergence from Better-Auth's own mechanism: Better-Auth awaits
+ * these callbacks via `runInBackgroundOrAwait` and offers
+ * `advanced.backgroundTasks` as its native non-blocking path. That option is
+ * global (it detaches ALL background tasks — OTP, invites, password reset, …)
+ * and routes failures to Better-Auth's internal logger instead of the NestJS
+ * logger, so this wrapper detaches only the sends the framework owns. Projects
+ * can still opt into `advanced.backgroundTasks` via the `options` passthrough.
+ */
+export function sendAuthEmailSafely(send: () => unknown, onError: (error: unknown) => void): void {
+  void Promise.resolve()
+    .then(send)
+    .catch((error) => {
+      try {
+        onError(error);
+      } catch {
+        // Last resort: the error handler itself failed. Swallowing here keeps
+        // the no-unhandled-rejection guarantee — a throwing handler must not
+        // crash the process this helper exists to protect.
+      }
+    });
+}
+
+/**
  * Better-Auth field type definition
  * Matches the DBFieldType from better-auth
  */
@@ -264,7 +303,6 @@ export interface CreateBetterAuthResult {
 }
 
 export function createBetterAuthInstance(options: CreateBetterAuthOptions): CreateBetterAuthResult | null {
-  const logger = new Logger('BetterAuthConfig');
   const { config, db, fallbackSecrets, onEmailVerified, sendVerificationEmail, serverEnv } = options;
 
   // Return null only if better-auth is explicitly disabled
@@ -495,9 +533,19 @@ function buildEmailVerificationConfig(
       data: { token: string; url: string; user: { email: string; id: string; name?: null | string } },
       _request?: Request,
     ) => {
-      // Don't await to prevent timing attacks (as recommended by Better-Auth docs)
-
-      sendVerificationEmail(data);
+      // Fire-and-forget (timing-attack mitigation, per Better-Auth docs) — but a
+      // failed send must be logged, never crash the process (see sendAuthEmailSafely).
+      // Note: delivery failures are also logged (with masked recipient) by the
+      // email-verification service before rethrowing; this line additionally
+      // covers failures thrown outside the service's own try/catch.
+      sendAuthEmailSafely(
+        () => sendVerificationEmail(data),
+        (error) =>
+          logger.error(
+            `Failed to send verification email: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            error instanceof Error ? error.stack : undefined,
+          ),
+      );
     };
   }
 
