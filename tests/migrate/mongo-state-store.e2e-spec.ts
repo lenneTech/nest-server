@@ -25,9 +25,12 @@ import { MongoClient } from 'mongodb';
 import { promisify } from 'util';
 
 import { MigrationOptions, MongoStateStore, synchronizedMigration } from '../../src';
+import { deriveTestDbUri } from '../db-lifecycle.reporter';
 
 describe('MongoDB State Store for Migrations (e2e)', () => {
-  const mongoUrl = process.env.MONGODB_URL || 'mongodb://127.0.0.1/nest-server-local';
+  // NEVER default to nest-server-local here — that is the developer's LOCAL DEV
+  // database, and this suite manipulates its `migrations` collection.
+  const mongoUrl = process.env.MONGODB_URL || deriveTestDbUri('migrate');
   const defaultCollectionName = 'migrations';
 
   // List of all collections used in tests for comprehensive cleanup

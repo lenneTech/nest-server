@@ -17,12 +17,16 @@ export default defineConfig({
   test: {
     environment: 'node',
     // Exclude type-only test files (run these with `npx tsc --noEmit` instead)
-    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts', 'tests/setup.ts'],
+    // and test-infrastructure modules (global setup, worker setup, DB reporter)
+    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts', 'tests/setup.ts', 'tests/db-lifecycle.reporter.ts'],
     // Enable parallel file execution for speed
     fileParallelism: true,
     globalSetup: ['tests/global-setup.ts'],
     globals: true,
-    hookTimeout: 60000,
+    // Hooks are NOT covered by `retry` (tests only) — a beforeAll that boots a
+    // full Nest app can exceed 60s under load (parallel transform/import),
+    // which failed whole files without any retry. Be generous here.
+    hookTimeout: 120000,
     include: ['tests/**/*.ts'],
     // Runs in every test worker before test files are imported (filters expected log/warn noise)
     setupFiles: ['tests/setup.ts'],
@@ -35,7 +39,9 @@ export default defineConfig({
     maxConcurrency: 3,
     // Use forks instead of threads for better NestJS performance
     pool: 'forks',
-    reporters: ['default'],
+    // db-lifecycle: drops this run's unique DB on success (+ collects stale
+    // run DBs), keeps it for debugging on failure — see tests/db-lifecycle.reporter.ts
+    reporters: ['default', './tests/db-lifecycle.reporter.ts'],
     // Retry flaky tests up to 3 times before failing
     // This handles intermittent MongoDB race conditions
     retry: 5,

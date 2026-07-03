@@ -108,7 +108,7 @@ pnpm run start:dev      # Development mode with watch
 # Testing (ALWAYS run before completing changes)
 pnpm test               # Run E2E tests (Vitest)
 pnpm run test:cov       # With coverage
-pnpm run test:e2e-doh   # Debug open handles
+npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process   # Debug open handles
 pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
 
 # Linting & Formatting
@@ -218,7 +218,7 @@ The migration store uses `NSC__MONGOOSE__URI` env var (not `config.env.ts`) for 
 | Tests timeout | Ensure MongoDB running on localhost:27017 |
 | GraphQL introspection fails | Check `config.env.ts` introspection setting |
 | Module not found after adding | Verify export in `src/index.ts`, run `pnpm run build` |
-| Open handles in tests | Run `pnpm run test:e2e-doh` |
+| Open handles in tests | Run vitest with `--reporter=hanging-process` |
 
 ## Best Practices
 

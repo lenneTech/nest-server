@@ -29,6 +29,7 @@ import {
   isSystemRole,
 } from '../src/core/modules/tenant/core-tenant.helpers';
 import { CoreTenantService } from '../src/core/modules/tenant/core-tenant.service';
+import { deriveTestDbUri } from './db-lifecycle.reporter';
 
 // =============================================================================
 // Test Schema: TenantMember
@@ -215,7 +216,7 @@ class TestController {
 // =============================================================================
 // Test Module
 // =============================================================================
-const TEST_DB_URI = 'mongodb://127.0.0.1/nest-server-tenant-guard-test';
+const TEST_DB_URI = deriveTestDbUri('tg');
 
 @Module({
   controllers: [TestController, AdminFallbackController],
@@ -1323,7 +1324,7 @@ describe('CoreTenantService (e2e)', () => {
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-svc-test'),
+        MongooseModule.forRoot(deriveTestDbUri('tg-svc')),
         MongooseModule.forFeature([{ name: 'TenantMember', schema: TenantMemberSchema }]),
       ],
       providers: [CoreTenantService],
@@ -1632,7 +1633,7 @@ describe('CoreTenantModule.forRoot() customization', () => {
       @Module({
         controllers: [TestController],
         imports: [
-          MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-custom-model-test'),
+          MongooseModule.forRoot(deriveTestDbUri('tg-cmodel')),
           CoreTenantModule.forRoot({ modelName: 'OrgMember' }),
         ],
       })
@@ -1709,7 +1710,7 @@ describe('CoreTenantModule.forRoot() customization', () => {
       @Module({
         controllers: [TestController],
         imports: [
-          MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-custom-svc-test'),
+          MongooseModule.forRoot(deriveTestDbUri('tg-csvc')),
           CoreTenantModule.forRoot({ service: CustomTenantService }),
         ],
       })
@@ -2172,7 +2173,7 @@ describe('CoreTenantGuard with multiTenancy disabled', () => {
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-disabled-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-off'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;
@@ -2781,7 +2782,7 @@ describe('CoreTenantGuard: BetterAuth auto-skip with header present (regression)
     @Module({
       controllers: [IamTestController],
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-skip-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-ba-skip'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;
@@ -2916,7 +2917,7 @@ describe('CoreTenantGuard: BetterAuth skipTenantCheck: false (opt-out)', () => {
     @Module({
       controllers: [IamOptOutController],
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-optout-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-ba-optout'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;
@@ -3003,7 +3004,7 @@ describe('CoreTenantGuard: Non-BetterAuth controller does not auto-skip', () => 
     @Module({
       controllers: [RegularController],
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-nonskip-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-nonskip'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;
@@ -3117,7 +3118,7 @@ describe('CoreTenantGuard: BetterAuth config missing — safe default skip', () 
     @Module({
       controllers: [IamNoConfigController],
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-noconfig-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-ba-nocfg'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;
@@ -3221,7 +3222,7 @@ describe('CoreTenantGuard: BetterAuth resolver subclass auto-skip', () => {
     @Module({
       controllers: [IamResolverTestController],
       imports: [
-        MongooseModule.forRoot('mongodb://127.0.0.1/nest-server-tenant-ba-resolver-test', {
+        MongooseModule.forRoot(deriveTestDbUri('tg-ba-resolver'), {
           connectionFactory: (connection) => {
             connection.plugin(mongooseTenantPlugin);
             return connection;

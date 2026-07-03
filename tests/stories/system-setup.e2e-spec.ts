@@ -401,7 +401,11 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
 // =============================================================================
 
 describe('Story: System Setup - Auto-Creation skipped with existing users', () => {
-  const SKIP_DB = `nest-server-e2e-setup-skip-${Date.now()}`;
+  // Derive from the current (per-run) test DB name so an aborted run's leftover
+  // is collected by the db-lifecycle reporter of the next successful run.
+  // Short suffix only: the run DB name is already unique, and MongoDB caps
+  // database names at 63 characters.
+  const SKIP_DB = `${envConfig.mongoose.uri.split('/').pop().split('?')[0]}-skip`;
   const SKIP_ADMIN_EMAIL = `skip-admin-${Date.now()}@test.com`;
 
   let app;

@@ -19,7 +19,7 @@ pnpm run test:cov
 pnpm run test:ci
 
 # Debug open handles
-pnpm run test:e2e-doh
+npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process
 
 # Clean up leftover test artifacts (.txt, .bin files from failed file upload tests)
 pnpm run test:cleanup
@@ -27,8 +27,9 @@ pnpm run test:cleanup
 
 ## Test Environment
 
-- Environment: `NODE_ENV=local`
-- Database: Local MongoDB instance (`mongodb://127.0.0.1/nest-server-local`)
+- Environment: `NODE_ENV=e2e` (via `pnpm test` → `vitest-e2e.config.ts`)
+- Database: **one unique database per run** (`nest-server-e2e-run-<ts>-p<pid>`), created by `tests/global-setup.ts` so concurrent runs cannot interfere with each other
+- DB lifecycle (`tests/db-lifecycle.reporter.ts`): run passes → DB dropped immediately + stale run DBs from crashed/failed runs collected; run fails → DB kept for debugging, removed by the next successful run. An externally set `MONGODB_URI` (CI) opts out of the scheme.
 - Test helper: `src/test/test.helper.ts`
 - Coverage: Collected from `src/**/*.{ts,js}`
 
@@ -115,6 +116,6 @@ Full documentation for TestHelper (REST, GraphQL, Cookie support):
 ## Common Test Issues
 
 - **Tests timeout**: Ensure MongoDB is running
-- **Open handles**: Use `pnpm run test:e2e-doh` to debug
+- **Open handles**: Run vitest with `--reporter=hanging-process` to debug
 - **Data conflicts**: Use unique identifiers per test
 - **"NestApplication successfully started" log**: Use `httpServer.listen()` instead of `app.listen()`
