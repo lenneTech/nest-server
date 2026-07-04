@@ -37,16 +37,28 @@ const NO_FIX = process.argv.includes("--no-fix");
 const PROJECT_FILTERS = process.argv
   .filter((a) => a.startsWith("--project="))
   .map((a) => a.slice("--project=".length));
-// Watchdog: kill a step whose child produces NO output for this long. A wedged
-// test run (workers deadlocked at 0% CPU) otherwise spins the live view
+// Watchdog: kill a TEST step whose child produces NO output for this long. A
+// wedged test run (workers deadlocked at 0% CPU) otherwise spins the live view
 // forever — the spinner only proves the child process exists, not that it
-// progresses. Override with --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT
-// (seconds); 0 disables the watchdog.
+// progresses. Only test steps are watched: build / typecheck / audit legitimately
+// buffer all their output to the end (and go silent under a non-TTY pipe), so
+// watching them would false-kill a slow-but-progressing run. Override with
+// --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT (seconds); 0 disables it.
 const IDLE_TIMEOUT_MS = (() => {
   const flag = process.argv.find((a) => a.startsWith("--idle-timeout="));
   const raw = flag ? flag.slice("--idle-timeout=".length) : process.env.CHECK_IDLE_TIMEOUT;
-  const seconds = raw === undefined || raw === "" ? 300 : Number(raw);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+  const DEFAULT_MS = 300 * 1000;
+  if (raw === undefined || raw === "") return DEFAULT_MS;
+  const seconds = Number(raw);
+  if (seconds === 0) return 0; // explicit opt-out
+  // Invalid value (typo, unit suffix, negative) → keep the protection at its
+  // default rather than silently disabling it — a fat-fingered value must not
+  // turn the watchdog off unnoticed.
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    process.stderr.write(`[check] ignoring invalid idle-timeout "${raw}", using ${DEFAULT_MS / 1000}s\n`);
+    return DEFAULT_MS;
+  }
+  return seconds * 1000;
 })();
 // Verbose streams raw output, so the in-place live view is disabled there.
 const TTY = Boolean(process.stdout.isTTY) && !VERBOSE;
@@ -184,24 +196,32 @@ function killTree(child, signal = "SIGTERM") {
   }
 }
 
-function capture(cmd, cwd) {
+// idleTimeoutMs > 0 arms the no-output watchdog for this child; 0 (the default)
+// runs it unwatched. Only callers that KNOW the child streams progress (test
+// steps) should pass a timeout — see runGroup.
+function capture(cmd, cwd, idleTimeoutMs = 0) {
   return new Promise((resolve) => {
     const child = spawn(cmd, { cwd, shell: true });
     RUNNING.add(child);
     let out = "";
     let idleTimer = null;
+    let killTimer = null;
     let watchdogHit = false;
     // Any output resets the watchdog — only complete silence for the full
     // window counts as wedged. Escalate to SIGKILL for processes that ignore
     // SIGTERM (deadlocked event loops usually still honor TERM, but be sure).
     const armWatchdog = () => {
-      if (!IDLE_TIMEOUT_MS) return;
+      if (!idleTimeoutMs) return;
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         watchdogHit = true;
         killTree(child);
-        setTimeout(() => killTree(child, "SIGKILL"), 5000).unref();
-      }, IDLE_TIMEOUT_MS);
+        // Track the SIGKILL escalation so a child that honors SIGTERM and exits
+        // within the grace window cancels it in done() — otherwise the stray
+        // timer could SIGKILL an unrelated process that reused the freed PID.
+        killTimer = setTimeout(() => killTree(child, "SIGKILL"), 5000);
+        killTimer.unref();
+      }, idleTimeoutMs);
     };
     const onData = (d) => {
       out += d;
@@ -213,12 +233,13 @@ function capture(cmd, cwd) {
     child.stderr.on("data", onData);
     const done = (code, extra) => {
       clearTimeout(idleTimer);
+      clearTimeout(killTimer);
       RUNNING.delete(child);
       if (watchdogHit) {
         const note =
-          `[watchdog] step produced no output for ${Math.round(IDLE_TIMEOUT_MS / 1000)}s — ` +
+          `[watchdog] step produced no output for ${Math.round(idleTimeoutMs / 1000)}s — ` +
           "process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), " +
-          "not a slow run. Re-run the step directly to debug, e.g. `pnpm run vitest`.";
+          `not a slow run. Re-run the step directly to debug: \`${cmd}\``;
         return resolve({ code: 1, out: `${out}\n${note}` });
       }
       resolve({ code, out: extra ? `${out}\n${extra}` : out });
@@ -372,6 +393,31 @@ function buildGroups(projects) {
   return { auditCmd, groups };
 }
 
+// A child killed by a signal surfaces through the package manager as a
+// "Command failed with exit code 143/137" line (SIGTERM/SIGKILL), NOT as a test
+// assertion failure — and the outer shell then reports its own generic exit 1,
+// so `code` alone never reveals it. Surface the signal so the reason isn't
+// mistaken for a real failure: the usual cause is resource pressure (parallel
+// checks/builds swapping the machine) or an external kill.
+function signalExitHint(out) {
+  const clean = stripAnsi(out);
+  // The watchdog also kills via SIGTERM, so pnpm's "exit code 143" ends up in
+  // the output — but that path already carries its own [watchdog] note with the
+  // correct (deadlock) diagnosis. Don't stack a contradictory "external kill"
+  // hint on top of it.
+  if (/\[watchdog\]/.test(clean)) return null;
+  // Match the package manager's OWN failure line, not an arbitrary "exit code
+  // 143" a test happens to log, so a real assertion failure isn't mislabeled.
+  const m = clean.match(/Command failed with exit code (137|143)\b/);
+  if (!m) return null;
+  const sig = m[1] === "143" ? "SIGTERM" : "SIGKILL";
+  return (
+    `[check] step ended via ${sig} (exit ${m[1]}) — the process was killed, not an assertion failure. ` +
+    "Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. " +
+    "Re-run this project's check alone to confirm."
+  );
+}
+
 // ── per-project runner ───────────────────────────────────────────────────────
 // Runs a group's steps in order, recording results + live state. Stops early
 // when another project already failed (abort.hit).
@@ -384,7 +430,10 @@ async function runGroup(group, states, results, abort) {
     st.current = step.label;
     st.stepStart = Date.now();
     if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
-    const { code, out } = await capture(step.cmd, step.cwd);
+    // Watchdog only on test steps (see IDLE_TIMEOUT_MS): a test runner streams
+    // output continuously, so prolonged silence == deadlocked workers. Other
+    // steps buffer their output and must run unwatched.
+    const { code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0);
     const dur = Date.now() - st.stepStart;
     const r = { dur, kind: step.kind, label: step.label, project: rel };
     if (step.kind === "test") r.tests = parseVitest(out);
@@ -394,7 +443,12 @@ async function runGroup(group, states, results, abort) {
       st.failed = step.label;
       if (!abort.hit) {
         abort.hit = true;
-        abort.failure = { out, project: rel, step: `${shortRel(rel)} · ${step.label}` };
+        const hint = signalExitHint(out);
+        abort.failure = {
+          out: hint ? `${out}\n${hint}` : out,
+          project: rel,
+          step: `${shortRel(rel)} · ${step.label}`,
+        };
         killAll();
       }
       return;
@@ -426,7 +480,7 @@ async function main() {
     C.dim(
       `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? "none"}` +
         `${NO_FIX ? "" : " · auto-fix format+lint"}` +
-        ` · watchdog: ${IDLE_TIMEOUT_MS ? fmtDuration(IDLE_TIMEOUT_MS) : "off"}` +
+        ` · watchdog: ${IDLE_TIMEOUT_MS ? `${fmtDuration(IDLE_TIMEOUT_MS)} (tests)` : "off"}` +
         `${VERBOSE ? " · verbose" : ""}\n`,
     ),
   );
