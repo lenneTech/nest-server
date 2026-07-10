@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-04 (v11.27.4)
+> Auto-generated from source code on 2026-07-10 (v11.27.5)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -94,6 +94,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `allowAll?`: `boolean` (default: `false`) — Allow all origins by mirroring the request Origin header back.
   - `allowedOrigins?`: `string[]` — Additional allowed origins beyond `appUrl` and `baseUrl`.
+  - `deriveAppUrl?`: `boolean` (default: `true`) — Whether `appUrl` may be auto-derived from `baseUrl` when it is not set explicitly.
   - `enabled?`: `boolean` (default: `true`) — Whether CORS is enabled.
 
 ### IAi

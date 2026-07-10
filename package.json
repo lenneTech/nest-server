@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.27.4",
+  "version": "11.27.5",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -77,7 +77,7 @@
   "dependencies": {
     "@apollo/server": "5.5.1",
     "@as-integrations/express5": "1.1.2",
-    "@better-auth/passkey": "1.6.11",
+    "@better-auth/passkey": "1.6.23",
     "@getbrevo/brevo": "3.0.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@nestjs/apollo": "13.4.2",
@@ -96,7 +96,7 @@
     "@tus/server": "2.4.1",
     "@types/supertest": "7.2.0",
     "bcrypt": "6.0.0",
-    "better-auth": "1.6.11",
+    "better-auth": "1.6.23",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
     "compression": "1.8.1",
@@ -216,7 +216,8 @@
       "hono@<4.12.25": "Security: multiple CVEs <4.12.25 (prototype pollution, bodyLimit/Vary bypass, JWT NumericDate) - transitive via @nestjs/terminus>prisma>@prisma/dev",
       "nodemailer@<9.0.1": "Security: email/header injection CVEs <9.0.1 - direct dependency",
       "multer@<2.2.0": "Security: unhandled multipart errors / DoS <2.2.0 - transitive via @nestjs/platform-express",
-      "js-yaml@<4.2.0": "Security: special-character handling / prototype pollution (patched in 4.2.0; 4.1.2 was never published) - transitive via @nestjs/swagger"
+      "js-yaml@<4.2.0": "Security: special-character handling / prototype pollution (patched in 4.2.0; 4.1.2 was never published) - transitive via @nestjs/swagger",
+      "@xhmikosr/decompress@<11.1.3": "Security: archive extraction can create files/links outside the target directory (GHSA-mp2f-45pm-3cg9, critical) - transitive via @swc/cli>@xhmikosr/bin-wrapper>@xhmikosr/downloader; @swc/cli 0.8.1 is already the latest release and still resolves the vulnerable range, so an override is the only fix"
     },
     "overrides": {
       "axios@<1.16.0": "1.16.0",
@@ -252,7 +253,8 @@
       "hono@<4.12.25": "4.12.25",
       "nodemailer@<9.0.1": "9.0.1",
       "multer@<2.2.0": "2.2.0",
-      "js-yaml@<4.2.0": "4.2.0"
+      "js-yaml@<4.2.0": "4.2.0",
+      "@xhmikosr/decompress@<11.1.3": "11.1.3"
     },
     "//peerDependencyRules": "allowedVersions: deps lag behind our newer majors (graphql-upload wants @types/express@^4, the deprecated apollo playground plugin wants @apollo/server@^4) — both work with our v5. ignoreMissing: browser-only vis-network peers pulled in transitively via yuml-diagram (server-side UML generation never renders, so these are not needed).",
     "peerDependencyRules": {

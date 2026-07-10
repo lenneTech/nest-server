@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { resolveServerUrls } from '../../common/helpers/cookies.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 
@@ -915,21 +916,6 @@ function readProjectNameFromPackageJson(): string {
 }
 
 /**
- * Default URLs for local/test environments (local, ci, e2e)
- * These environments typically run on localhost and don't have a deployed domain.
- */
-const LOCALHOST_DEFAULTS = {
-  API_URL: 'http://localhost:3000',
-  APP_URL: 'http://localhost:3001',
-};
-
-/**
- * Environments that use localhost defaults for URLs.
- * These are typically development/test environments without deployed domains.
- */
-const LOCALHOST_ENVS = ['local', 'ci', 'e2e'];
-
-/**
  * Resolves the effective URLs for BetterAuth configuration.
  *
  * Resolution priority:
@@ -946,37 +932,6 @@ interface ResolvedUrls {
   baseUrl: string | undefined;
   rpId: string | undefined;
   warnings: string[];
-}
-
-/**
- * Derives appUrl from baseUrl by removing 'api.' prefix from subdomain.
- *
- * Examples:
- * - 'https://api.example.com' → 'https://example.com'
- * - 'https://api.dev.example.com' → 'https://dev.example.com'
- * - 'https://example.com' → 'https://example.com' (unchanged)
- * - 'http://localhost:3000' → 'http://localhost:3000' (unchanged)
- *
- * @param baseUrl - The API base URL
- * @returns Derived app URL or the original URL if no 'api.' prefix
- */
-function deriveAppUrlFromBaseUrl(baseUrl: string): string {
-  try {
-    const url = new URL(baseUrl);
-    const hostname = url.hostname;
-
-    // Check if hostname starts with 'api.'
-    if (hostname.startsWith('api.')) {
-      // Remove 'api.' prefix
-      url.hostname = hostname.substring(4);
-      return url.origin;
-    }
-
-    // Return original URL if no 'api.' prefix
-    return url.origin;
-  } catch {
-    return baseUrl;
-  }
 }
 
 /**
@@ -1263,36 +1218,31 @@ function deriveCookieDomainFromUrls(appUrl?: string, baseUrl?: string): string |
 }
 
 function resolveUrls(options: CreateBetterAuthOptions): ResolvedUrls {
-  const { config, serverAppUrl, serverBaseUrl, serverEnv } = options;
+  const { config, serverAppUrl, serverBaseUrl, serverCorsConfig, serverEnv } = options;
   const warnings: string[] = [];
-  const usesLocalhostDefaults = LOCALHOST_ENVS.includes(serverEnv || '');
 
-  // Step 1: Resolve baseUrl
-  // Priority: betterAuth.baseUrl > serverBaseUrl > localhost default (for local/ci/e2e)
-  let baseUrl = config.baseUrl || serverBaseUrl;
-  if (!baseUrl && usesLocalhostDefaults) {
-    baseUrl = LOCALHOST_DEFAULTS.API_URL;
+  // Steps 1+2 (baseUrl, appUrl) are delegated to the shared resolver in cookies.helper so that
+  // BetterAuth's trustedOrigins and the REST/GraphQL CORS allowlist can never disagree about
+  // which app origin this server is reachable under. `cors.deriveAppUrl: false` therefore
+  // suppresses the `api.`-strip derivation on this layer too.
+  const corsObj = typeof serverCorsConfig === 'object' && serverCorsConfig !== null ? serverCorsConfig : undefined;
+  const resolved = resolveServerUrls({
+    appUrl: serverAppUrl,
+    // Priority: betterAuth.baseUrl > serverBaseUrl (> localhost default, applied by the resolver)
+    baseUrl: config.baseUrl || serverBaseUrl,
+    deriveAppUrl: corsObj?.deriveAppUrl,
+    env: serverEnv,
+  });
+  const { appUrl, baseUrl } = resolved;
+
+  if (resolved.baseUrlSource === 'localhost-default') {
     warnings.push(`URL: Using localhost default baseUrl="${baseUrl}" (env: '${serverEnv}')`);
   }
-
-  // Step 2: Resolve appUrl
-  // Priority: serverAppUrl > localhost default (when baseUrl is localhost) > derived from baseUrl
-  let appUrl = serverAppUrl;
-
-  // For localhost environments with localhost baseUrl, use localhost app default
-  // This handles the common case where API runs on :3000 and App on :3001
-  const isBaseUrlLocalhost = baseUrl && (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'));
-  if (!appUrl && usesLocalhostDefaults && isBaseUrlLocalhost) {
-    appUrl = LOCALHOST_DEFAULTS.APP_URL;
+  if (resolved.appUrlSource === 'localhost-default') {
     warnings.push(`URL: Using localhost default appUrl="${appUrl}" (env: '${serverEnv}')`);
   }
-
-  // For non-localhost environments, try to derive appUrl from baseUrl
-  if (!appUrl && baseUrl) {
-    appUrl = deriveAppUrlFromBaseUrl(baseUrl);
-    if (appUrl !== baseUrl) {
-      warnings.push(`URL: Auto-derived appUrl="${appUrl}" from baseUrl="${baseUrl}"`);
-    }
+  if (resolved.appUrlSource === 'derived' && appUrl !== baseUrl) {
+    warnings.push(`URL: Auto-derived appUrl="${appUrl}" from baseUrl="${baseUrl}"`);
   }
 
   // Step 3: Resolve rpId from appUrl (not baseUrl!)

@@ -170,6 +170,10 @@ const config: { [env: string]: IServerOptions } = {
   // Development environment
   // ===========================================================================
   development: {
+    // `development` is not one of the localhost-default environments (local/ci/e2e), so appUrl
+    // must be set explicitly: deriving it from baseUrl would yield the API's own :3000 origin
+    // and leave the frontend on :3001 outside the CORS allowlist.
+    appUrl: process.env.APP_URL || 'http://localhost:3001',
     auth: {
       legacyEndpoints: { enabled: true },
     },

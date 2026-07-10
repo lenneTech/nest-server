@@ -460,8 +460,15 @@ if (!isCorsDisabled(envConfig.cors)) {
 | `cors: { allowAll: true }` | `origin: true` | `origin: true` | `trustedOrigins: undefined` |
 | `cors: { allowedOrigins: [...] }` | `origin: [merged list]` | `origin: [merged list]` | `trustedOrigins: [merged list]` |
 | `cors: { enabled: false }` | No CORS headers | No CORS headers | `trustedOrigins: []` |
+| `cors: { deriveAppUrl: false }` | `appUrl` not derived from `baseUrl` | same | same |
 
-> **Note:** GraphQL CORS is configured in `CoreModule.buildCorsConfig()` using raw config values. BetterAuth derives `trustedOrigins` using resolved URLs (auto-derived from `baseUrl`). In edge cases (no explicit `appUrl`), these may differ slightly. Set `appUrl` explicitly for consistent behavior across all layers.
+**URL resolution (since v11.27.5):** all three layers resolve `appUrl`/`baseUrl` through the single `resolveServerUrls()` helper in `cookies.helper.ts`, so they can no longer drift:
+
+1. `appUrl` set explicitly → used as-is
+2. `env: 'local' | 'ci' | 'e2e'` with a localhost `baseUrl` → `appUrl` defaults to `http://localhost:3001`
+3. otherwise derived from `baseUrl` by stripping a leading `api.` label (`https://api.example.com` → `https://example.com`), unless `cors.deriveAppUrl: false`
+
+> **Security:** step 3 grants the derived origin credentialed CORS. If the apex domain is not trusted (e.g. a third-party-hosted marketing site whose XSS surface you do not control), set `cors.deriveAppUrl: false` and list the frontend origin explicitly via `appUrl` or `cors.allowedOrigins`. The derivation never yields a bare TLD (`https://api.dev` stays unchanged) and never emits the opaque `null` origin.
 
 ### NestJS Middleware Chain (CoreModule)
 
