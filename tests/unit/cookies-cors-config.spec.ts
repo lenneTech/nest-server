@@ -15,11 +15,13 @@ import { describe, expect, it } from 'vitest';
 import {
   assertCookiesProductionSafe,
   buildCorsConfig,
+  deriveAppUrlFromBaseUrl,
   getDefaultAuthCookieOptions,
   isCookiesEnabled,
   isCorsDisabled,
   isExposeTokenInBodyEnabled,
   isProductionLikeEnv,
+  resolveServerUrls,
   setLegacyAuthCookies,
   shouldConvertSessionTokenToJwt,
 } from '../../src/core/common/helpers/cookies.helper';
@@ -291,6 +293,245 @@ describe('CORS Configuration: buildCorsConfig', () => {
       credentials: true,
       origin: ['https://example.com'],
     });
+  });
+
+  // Regression: deployed configs typically set only baseUrl (NSC__BASE_URL) and rely on
+  // appUrl being auto-derived from it (api.example.com → example.com). Both this layer and
+  // BetterAuth's resolveUrls() now share resolveServerUrls(), so they cannot drift. Without
+  // the derivation, the REST CORS layer only allowed the API origin and blocked the frontend
+  // app origin — breaking every api.<host> / <host> deployment out of the box.
+  it('should derive appUrl from baseUrl when appUrl is not set (api.* → apex)', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://api.example.com' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://example.com', 'https://api.example.com'],
+    });
+  });
+
+  it('should still merge allowedOrigins with the derived appUrl', () => {
+    const result = buildCorsConfig({
+      baseUrl: 'https://api.example.com',
+      cors: { allowedOrigins: ['https://admin.example.com'] },
+    });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://example.com', 'https://api.example.com', 'https://admin.example.com'],
+    });
+  });
+
+  it('should NOT override an explicit appUrl with a derived one', () => {
+    const result = buildCorsConfig({
+      appUrl: 'https://app.other-domain.com',
+      baseUrl: 'https://api.example.com',
+    });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://app.other-domain.com', 'https://api.example.com'],
+    });
+  });
+
+  it('should not add a duplicate origin when baseUrl has no api. prefix', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://example.com' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://example.com'],
+    });
+  });
+
+  // Opt-out: deriving the apex grants it credentialed CORS. Deployments whose apex is not
+  // trusted (third-party-hosted marketing site) must be able to keep it out of the allowlist.
+  it('should not derive appUrl when cors.deriveAppUrl is false', () => {
+    const result = buildCorsConfig({
+      baseUrl: 'https://api.example.com',
+      cors: { deriveAppUrl: false },
+    });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://api.example.com'],
+    });
+  });
+
+  it('should still honor an explicit appUrl when cors.deriveAppUrl is false', () => {
+    const result = buildCorsConfig({
+      appUrl: 'https://app.example.com',
+      baseUrl: 'https://api.example.com',
+      cors: { deriveAppUrl: false },
+    });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://app.example.com', 'https://api.example.com'],
+    });
+  });
+
+  // Normalization: the browser's Origin header is always a bare origin, so a trailing slash
+  // would produce an entry that can never match — and would defeat the dedup.
+  it('should normalize a trailing-slash baseUrl to its origin and deduplicate', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://example.com/' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://example.com'],
+    });
+  });
+
+  it('should normalize a trailing-slash api baseUrl on both derived and raw entries', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://api.example.com/' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://example.com', 'https://api.example.com'],
+    });
+  });
+
+  // Security: `URL.origin` serializes to the literal string 'null' for opaque origins, which
+  // is exactly the Origin header a sandboxed iframe sends. It must never reach the allowlist.
+  it('should never emit the string "null" as an origin for a non-http(s) baseUrl', () => {
+    const result = buildCorsConfig({ baseUrl: 'custom://api.example.com' });
+    expect(result.origin).not.toContain('null');
+    expect(result.origin).toEqual(['custom://api.example.com']);
+  });
+
+  // Localhost defaults: API on :3000, app on :3001. Previously only BetterAuth applied these,
+  // so the REST/GraphQL CORS layer blocked the frontend in local/ci/e2e.
+  it.each(['ci', 'e2e', 'local'])('should apply localhost defaults for env: %s', (env) => {
+    expect(buildCorsConfig({ env })).toEqual({
+      credentials: true,
+      origin: ['http://localhost:3001', 'http://localhost:3000'],
+    });
+  });
+
+  it('should apply the localhost app default when baseUrl is localhost (not derive :3000)', () => {
+    const result = buildCorsConfig({ baseUrl: 'http://localhost:3000', env: 'e2e' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['http://localhost:3001', 'http://localhost:3000'],
+    });
+  });
+
+  it('should NOT apply localhost defaults for non-localhost environments', () => {
+    expect(buildCorsConfig({ env: 'development' })).toEqual({});
+    expect(buildCorsConfig({ env: 'production' })).toEqual({});
+  });
+});
+
+// =================================================================================================
+// Server URL Resolution Tests (shared by CORS and BetterAuth)
+// =================================================================================================
+
+describe('URL Resolution: deriveAppUrlFromBaseUrl', () => {
+  it('should strip the api. label from a multi-label hostname', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.example.com')).toBe('https://example.com');
+  });
+
+  it('should strip only the leading api. label from a nested subdomain', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.dev.example.com')).toBe('https://dev.example.com');
+  });
+
+  it('should preserve a non-default port', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.example.com:8443')).toBe('https://example.com:8443');
+  });
+
+  it('should strip api. in front of localhost (lt dev: api.<slug>.localhost)', () => {
+    expect(deriveAppUrlFromBaseUrl('http://api.localhost:3000')).toBe('http://localhost:3000');
+    expect(deriveAppUrlFromBaseUrl('https://api.nest-server.localhost')).toBe('https://nest-server.localhost');
+  });
+
+  it('should return the origin unchanged when there is no api. prefix', () => {
+    expect(deriveAppUrlFromBaseUrl('https://example.com')).toBe('https://example.com');
+    expect(deriveAppUrlFromBaseUrl('http://localhost:3000')).toBe('http://localhost:3000');
+  });
+
+  it('should normalize away a trailing slash', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.example.com/')).toBe('https://example.com');
+  });
+
+  it('should lowercase the hostname (Origin headers are lowercase)', () => {
+    expect(deriveAppUrlFromBaseUrl('https://API.Example.COM')).toBe('https://example.com');
+  });
+
+  // `api.dev`, `api.io`, `api.co` are registrable domains. Stripping would hand a bare TLD
+  // ('https://dev') to the CORS allowlist — an unreachable host masking a broken config.
+  it('should NOT strip when only a bare TLD would remain', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.dev')).toBe('https://api.dev');
+    expect(deriveAppUrlFromBaseUrl('https://api.io')).toBe('https://api.io');
+  });
+
+  it('should NOT strip when nothing would remain', () => {
+    expect(deriveAppUrlFromBaseUrl('https://api.')).toBe('https://api.');
+  });
+
+  it('should return non-http(s) input verbatim instead of the opaque "null" origin', () => {
+    expect(deriveAppUrlFromBaseUrl('custom://api.example.com')).toBe('custom://api.example.com');
+  });
+
+  it('should return unparsable input verbatim', () => {
+    expect(deriveAppUrlFromBaseUrl('api.example.com')).toBe('api.example.com');
+    expect(deriveAppUrlFromBaseUrl('')).toBe('');
+  });
+});
+
+describe('URL Resolution: resolveServerUrls', () => {
+  it('should mark an explicit appUrl as explicit and never derive over it', () => {
+    expect(resolveServerUrls({ appUrl: 'https://app.other.com', baseUrl: 'https://api.example.com' })).toEqual({
+      appUrl: 'https://app.other.com',
+      appUrlSource: 'explicit',
+      baseUrl: 'https://api.example.com',
+      baseUrlSource: 'explicit',
+    });
+  });
+
+  it('should derive appUrl from baseUrl', () => {
+    expect(resolveServerUrls({ baseUrl: 'https://api.example.com' })).toEqual({
+      appUrl: 'https://example.com',
+      appUrlSource: 'derived',
+      baseUrl: 'https://api.example.com',
+      baseUrlSource: 'explicit',
+    });
+  });
+
+  it('should skip derivation when deriveAppUrl is false', () => {
+    expect(resolveServerUrls({ baseUrl: 'https://api.example.com', deriveAppUrl: false })).toEqual({
+      appUrl: undefined,
+      appUrlSource: 'none',
+      baseUrl: 'https://api.example.com',
+      baseUrlSource: 'explicit',
+    });
+  });
+
+  it('should apply localhost defaults for local/ci/e2e when nothing is configured', () => {
+    expect(resolveServerUrls({ env: 'e2e' })).toEqual({
+      appUrl: 'http://localhost:3001',
+      appUrlSource: 'localhost-default',
+      baseUrl: 'http://localhost:3000',
+      baseUrlSource: 'localhost-default',
+    });
+  });
+
+  it('should prefer the localhost app default over deriving from a localhost baseUrl', () => {
+    const result = resolveServerUrls({ baseUrl: 'http://127.0.0.1:3000', env: 'local' });
+    expect(result.appUrl).toBe('http://localhost:3001');
+    expect(result.appUrlSource).toBe('localhost-default');
+  });
+
+  // deriveAppUrl only governs the api.-strip derivation; the localhost defaults are an
+  // explicit, documented behavior of the local/ci/e2e environments.
+  it('should still apply localhost defaults when deriveAppUrl is false', () => {
+    const result = resolveServerUrls({ deriveAppUrl: false, env: 'ci' });
+    expect(result.appUrl).toBe('http://localhost:3001');
+    expect(result.appUrlSource).toBe('localhost-default');
+  });
+
+  it('should not apply localhost defaults for other environments', () => {
+    expect(resolveServerUrls({ env: 'development' })).toEqual({
+      appUrl: undefined,
+      appUrlSource: 'none',
+      baseUrl: undefined,
+      baseUrlSource: 'none',
+    });
+  });
+
+  it('should not treat a lookalike host as localhost', () => {
+    const result = resolveServerUrls({ baseUrl: 'https://api.not-localhost.com', env: 'local' });
+    expect(result.appUrl).toBe('https://not-localhost.com');
+    expect(result.appUrlSource).toBe('derived');
   });
 });
 

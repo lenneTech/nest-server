@@ -237,6 +237,190 @@ export function isCorsDisabled(cors: boolean | ICorsConfig | undefined): boolean
   return false;
 }
 
+// =================================================================================================
+// Server URL resolution
+//
+// Single source of truth for "which app/API origin is this server reachable under".
+// Consumed by `buildCorsConfig()` (REST + GraphQL CORS) and by BetterAuth's `resolveUrls()`
+// (trustedOrigins, Passkey rpId/origin, cross-subdomain cookies). Keeping one implementation
+// is what makes the three CORS layers agree — previously each layer derived URLs on its own
+// and they drifted (BetterAuth applied localhost defaults, the CORS layer did not).
+// =================================================================================================
+
+/**
+ * Default URLs for local/test environments (`local`, `ci`, `e2e`).
+ *
+ * These environments run on localhost and have no deployed domain: the API listens on
+ * port 3000, the frontend app on port 3001.
+ *
+ * @since 11.27.5
+ */
+export const LOCALHOST_URL_DEFAULTS = {
+  apiUrl: 'http://localhost:3000',
+  appUrl: 'http://localhost:3001',
+} as const;
+
+/**
+ * Environments that fall back to {@link LOCALHOST_URL_DEFAULTS} when no URLs are configured.
+ *
+ * @since 11.27.5
+ */
+export const LOCALHOST_URL_ENVS: readonly string[] = ['ci', 'e2e', 'local'];
+
+/**
+ * The hostname label stripped from `baseUrl` to derive `appUrl`.
+ */
+const API_HOST_LABEL = 'api.';
+
+/**
+ * Normalizes a URL string to its http(s) origin, or `undefined` when it is not a usable
+ * http(s) URL.
+ *
+ * The `protocol` guard is security-relevant, not cosmetic: `URL.origin` serializes to the
+ * literal string `'null'` for opaque origins (any non-special scheme, e.g. `custom://host`).
+ * That string is exactly the `Origin` header a sandboxed iframe sends, so letting it into a
+ * `credentials: true` allowlist would grant credentialed access to any site able to frame a
+ * sandboxed document.
+ */
+function toHttpOrigin(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return undefined;
+  }
+
+  return url.origin;
+}
+
+/**
+ * Whether the URL points at the local machine (localhost, `*.localhost`, loopback IP).
+ */
+function isLocalhostUrl(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const { hostname } = new URL(value);
+    return (
+      hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '[::1]'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether stripping the leading `api.` label from the hostname leaves a deployable host.
+ *
+ * Guards two cases where a naive strip produces a bogus origin:
+ * - `api.dev` → `dev` — a bare TLD. `api.dev`/`api.io`/`api.co` are registrable domains, so
+ *   this is reachable configuration, and the result would be an unreachable host in a
+ *   credentialed allowlist.
+ * - `api.` → `` — not a host at all. Assigning an empty hostname is silently ignored by the
+ *   `URL` setter for special schemes, so the strip would appear to succeed but do nothing.
+ *
+ * `localhost` is the one legitimate single-label host (`api.localhost` → `localhost`).
+ */
+function canStripApiLabel(hostname: string): boolean {
+  if (!hostname.startsWith(API_HOST_LABEL)) {
+    return false;
+  }
+
+  const remainder = hostname.slice(API_HOST_LABEL.length);
+  return remainder === 'localhost' || remainder.includes('.');
+}
+
+/**
+ * Derives the frontend app URL from the API base URL by stripping a leading `api.`
+ * label from the hostname (e.g. `https://api.example.com` → `https://example.com`,
+ * `https://api.dev.example.com` → `https://dev.example.com`).
+ *
+ * Returns the origin unchanged when there is no strippable `api.` prefix, and returns the
+ * input unchanged when it is not an http(s) URL — callers decide what to do with a value
+ * they cannot normalize.
+ *
+ * @since 11.27.5
+ */
+export function deriveAppUrlFromBaseUrl(baseUrl: string): string {
+  const origin = toHttpOrigin(baseUrl);
+  if (!origin) {
+    return baseUrl;
+  }
+
+  const url = new URL(origin);
+  if (canStripApiLabel(url.hostname)) {
+    url.hostname = url.hostname.slice(API_HOST_LABEL.length);
+  }
+
+  return url.origin;
+}
+
+/**
+ * Where a resolved URL came from. Callers use this to emit accurate startup diagnostics
+ * without re-deriving the resolution logic.
+ *
+ * @since 11.27.5
+ */
+export interface IResolvedServerUrls {
+  appUrl: string | undefined;
+  appUrlSource: 'derived' | 'explicit' | 'localhost-default' | 'none';
+  baseUrl: string | undefined;
+  baseUrlSource: 'explicit' | 'localhost-default' | 'none';
+}
+
+/**
+ * Resolves the effective app/API URLs for a server configuration.
+ *
+ * `baseUrl`: explicit → localhost default (local/ci/e2e only) → none.
+ * `appUrl`: explicit → localhost default (local/ci/e2e with a localhost `baseUrl`) →
+ * derived from `baseUrl` → none.
+ *
+ * `baseUrl` is returned verbatim (not origin-normalized) because BetterAuth passes it
+ * straight through as its `baseURL`; normalization for origin matching is the caller's job.
+ *
+ * @param input.deriveAppUrl - Set to `false` to disable the `api.`-strip derivation. The
+ *                             localhost defaults are unaffected — they are an explicit,
+ *                             documented behavior of the `local`/`ci`/`e2e` environments.
+ *
+ * @since 11.27.5
+ */
+export function resolveServerUrls(input: {
+  appUrl?: string;
+  baseUrl?: string;
+  deriveAppUrl?: boolean;
+  env?: string;
+}): IResolvedServerUrls {
+  const usesLocalhostDefaults = LOCALHOST_URL_ENVS.includes(input.env ?? '');
+
+  let baseUrl = input.baseUrl;
+  let baseUrlSource: IResolvedServerUrls['baseUrlSource'] = baseUrl ? 'explicit' : 'none';
+  if (!baseUrl && usesLocalhostDefaults) {
+    baseUrl = LOCALHOST_URL_DEFAULTS.apiUrl;
+    baseUrlSource = 'localhost-default';
+  }
+
+  if (input.appUrl) {
+    return { appUrl: input.appUrl, appUrlSource: 'explicit', baseUrl, baseUrlSource };
+  }
+
+  // API on :3000 and app on :3001 — deriving from baseUrl would yield the API's own origin.
+  if (usesLocalhostDefaults && isLocalhostUrl(baseUrl)) {
+    return { appUrl: LOCALHOST_URL_DEFAULTS.appUrl, appUrlSource: 'localhost-default', baseUrl, baseUrlSource };
+  }
+
+  if (baseUrl && input.deriveAppUrl !== false) {
+    return { appUrl: deriveAppUrlFromBaseUrl(baseUrl), appUrlSource: 'derived', baseUrl, baseUrlSource };
+  }
+
+  return { appUrl: undefined, appUrlSource: 'none', baseUrl, baseUrlSource };
+}
+
 /**
  * Builds a CORS configuration object from server options.
  *
@@ -244,21 +428,30 @@ export function isCorsDisabled(cors: boolean | ICorsConfig | undefined): boolean
  * 1. CORS disabled → empty object (no CORS)
  * 2. Cookies disabled → empty object (no credentials needed, handled by simple enableCors())
  * 3. `cors.allowAll` → `{ credentials: true, origin: true }` (mirror request origin)
- * 4. `cors.allowedOrigins` + `appUrl`/`baseUrl` → deduplicated origin list
- * 5. Only `appUrl`/`baseUrl` → those origins
+ * 4. `cors.allowedOrigins` + resolved `appUrl`/`baseUrl` → deduplicated origin list
+ * 5. Only resolved `appUrl`/`baseUrl` → those origins
  * 6. Nothing configured → `{}` (no credentialed CORS — caller decides fallback)
+ *
+ * `appUrl`/`baseUrl` are resolved via {@link resolveServerUrls}, the same function BetterAuth
+ * uses, so all three CORS layers (GraphQL, REST, BetterAuth `trustedOrigins`) agree.
  *
  * Used by both:
  * - `CoreModule.buildCorsConfig()` for GraphQL (Apollo) CORS
  * - `main.ts` reference implementation for REST (Express) CORS
  *
- * Security note: when no origins are resolvable AND cookies are enabled, the function
- * returns `{}` rather than `{ credentials: true, origin: true }`. Returning open CORS
- * with credentials would allow any website to make credentialed requests. Callers
- * should either configure `appUrl`/`baseUrl`/`allowedOrigins`, enable `cors.allowAll`
- * explicitly (for development), or accept no credentialed CORS.
+ * Security notes:
+ * - When no origins are resolvable AND cookies are enabled, the function returns `{}` rather
+ *   than `{ credentials: true, origin: true }`. Returning open CORS with credentials would
+ *   allow any website to make credentialed requests. Callers should either configure
+ *   `appUrl`/`baseUrl`/`allowedOrigins`, enable `cors.allowAll` explicitly (for development),
+ *   or accept no credentialed CORS.
+ * - Configuring only `baseUrl` grants credentialed CORS to the derived app origin as well
+ *   (`https://api.example.com` → also `https://example.com`). This is the documented
+ *   `appUrl` auto-detection and matches BetterAuth's `trustedOrigins`. Deployments whose
+ *   apex domain is not trusted (e.g. a third-party-hosted marketing site) must opt out with
+ *   `cors.deriveAppUrl: false` and list the real frontend origin explicitly.
  *
- * @param options - Server options containing `cors`, `cookies`, `appUrl`, `baseUrl`
+ * @param options - Server options containing `cors`, `cookies`, `appUrl`, `baseUrl`, `env`
  * @returns CORS config object for Apollo/Express, or empty object if disabled/unconfigured
  *
  * @since 11.25.0
@@ -279,10 +472,23 @@ export function buildCorsConfig(options: Partial<IServerOptions>): Record<string
     return { credentials: true, origin: true };
   }
 
-  // Build origin list from appUrl, baseUrl, and allowedOrigins
+  // Build origin list from the shared URL resolution (appUrl auto-derived from baseUrl,
+  // localhost defaults for local/ci/e2e), then allowedOrigins.
+  const { appUrl, baseUrl } = resolveServerUrls({
+    appUrl: options?.appUrl,
+    baseUrl: options?.baseUrl,
+    deriveAppUrl: corsObj.deriveAppUrl,
+    env: options?.env,
+  });
+
+  // Normalize to origins before deduplicating: a browser's `Origin` header is always a bare
+  // scheme://host[:port] triple, so a configured `https://api.example.com/` (trailing slash —
+  // common in env-var-sourced URLs) could never match, and would defeat the Set below.
+  // Values we cannot normalize are passed through verbatim rather than dropped.
   const origins: string[] = [];
-  if (options?.appUrl) origins.push(options.appUrl);
-  if (options?.baseUrl) origins.push(options.baseUrl);
+  for (const url of [appUrl, baseUrl]) {
+    if (url) origins.push(toHttpOrigin(url) ?? url);
+  }
   if (corsObj.allowedOrigins?.length) {
     origins.push(...corsObj.allowedOrigins);
   }

@@ -1033,6 +1033,28 @@ export interface ICorsConfig {
   allowedOrigins?: string[];
 
   /**
+   * Whether `appUrl` may be auto-derived from `baseUrl` when it is not set explicitly.
+   *
+   * By default the leading `api.` label is stripped from `baseUrl`'s hostname
+   * (`https://api.example.com` → `https://example.com`), and the result is trusted by all
+   * three CORS layers (GraphQL, REST, BetterAuth `trustedOrigins`). This is what makes the
+   * common `api.<host>` / `<host>` deployment work without extra configuration.
+   *
+   * Set to `false` when the derived apex domain must NOT receive credentialed cross-origin
+   * access — for example when `example.com` is a third-party-hosted marketing site whose
+   * XSS surface you do not control. With `false`, configure the frontend origin explicitly
+   * via `appUrl` or `allowedOrigins`.
+   *
+   * Has no effect on the localhost defaults applied for `env: 'local' | 'ci' | 'e2e'`, and
+   * no effect when `appUrl` is set explicitly.
+   *
+   * @default true
+   *
+   * @since 11.27.5
+   */
+  deriveAppUrl?: boolean;
+
+  /**
    * Whether CORS is enabled.
    *
    * When set to `false`, disables CORS on all layers:
