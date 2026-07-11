@@ -74,7 +74,7 @@
     "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
-    "node": ">= 20"
+    "node": ">= 22"
   },
   "dependencies": {
     "@apollo/server": "5.5.1",
