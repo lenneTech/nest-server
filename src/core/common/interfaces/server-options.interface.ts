@@ -1012,8 +1012,17 @@ export interface ICorsConfig {
    * Convenient for development but NOT recommended for production as it enables
    * CSRF-like attacks from any domain.
    *
-   * When true, overrides `allowedOrigins`. Also propagates to BetterAuth
-   * (trustedOrigins is set to undefined, allowing all origins).
+   * When true, overrides `allowedOrigins`.
+   *
+   * **This does NOT disable BetterAuth's origin check.** BetterAuth keeps
+   * verifying the `Origin` header against its `trustedOrigins`, which are derived
+   * from `appUrl` (and the passkey config). Leaving `trustedOrigins` empty would
+   * not "allow everything" — BetterAuth then trusts only its own `baseURL`, and
+   * origin-checked endpoints such as `two-factor/enable` or passkey registration
+   * answer `403 INVALID_ORIGIN` for a separately hosted frontend.
+   *
+   * To accept arbitrary origins for auth as well, set `betterAuth.trustedOrigins`
+   * explicitly — an origin check has no meaningful "allow everything" mode.
    *
    * @default false
    */
@@ -1337,13 +1346,19 @@ export interface IServerOptions {
    * - Frontend redirect URLs
    *
    * **Auto-Detection from `baseUrl`:**
-   * If not set, `appUrl` is derived from `baseUrl`:
+   * If not set, `appUrl` is derived from `baseUrl` (the port is preserved):
    * - `https://api.example.com` → `https://example.com` (removes 'api.' prefix)
    * - `https://example.com` → `https://example.com` (unchanged)
    *
    * **Localhost Environment Defaults:**
-   * When `env` is 'local', 'ci', or 'e2e' and neither `baseUrl` nor `appUrl` is set:
-   * - `appUrl` defaults to `http://localhost:3001`
+   * When `env` is 'local', 'ci', or 'e2e', `appUrl` is not set, and `baseUrl` is unset or points at
+   * localhost, `appUrl` defaults to `http://localhost:3001`. These defaults encode a PORT split:
+   * one host, API on `:3000`, app on `:3001`.
+   *
+   * A localhost `baseUrl` whose `api.` label strips to a SIBLING host is a HOST split and is
+   * derived instead — `https://api.crm.localhost` → `https://crm.localhost`, as served by
+   * `lt dev up` behind Caddy. `https://api.localhost` strips to the bare `localhost` the API
+   * already answers on, so it keeps the `http://localhost:3001` default.
    *
    * **Environment Variable:** `APP_URL` (only needed if not auto-derivable from `BASE_URL`)
    *
@@ -1362,6 +1377,11 @@ export interface IServerOptions {
    * env: 'local', // or 'ci' or 'e2e'
    * // baseUrl defaults to 'http://localhost:3000'
    * // appUrl defaults to 'http://localhost:3001'
+   *
+   * // Local/CI/E2E behind `lt dev up` (host split — appUrl auto-derived)
+   * env: 'local',
+   * baseUrl: 'https://api.crm.localhost',
+   * // → appUrl auto-derived: 'https://crm.localhost'
    * ```
    */
   appUrl?: string;
@@ -2784,7 +2804,8 @@ interface IBetterAuthBase {
    *   },
    *   advanced: {
    *     cookiePrefix: 'my-app',
-   *     useSecureCookies: true,
+   *     useSecureCookies: true, // re-enables the __Secure- prefix; safe ONLY when Better-Auth
+   *                             // fully manages your cookies — see the note below.
    *     crossSubDomainCookies: {
    *       domain: 'example.com', // Cookies shared across *.example.com
    *     },
@@ -2795,6 +2816,14 @@ interface IBetterAuthBase {
    * **Note on `advanced` options:** The `advanced` object is deep-merged with internal defaults
    * (e.g., `cookiePrefix` derived from `basePath`). You do not need to re-specify `cookiePrefix`
    * when adding other `advanced` options like `crossSubDomainCookies`.
+   *
+   * **`useSecureCookies` is pinned to `false` by default (since v11.27.6).** The framework keeps
+   * Better-Auth's native handlers on the same UNPREFIXED cookie name the nest-server cookie helper
+   * writes; the `Secure` attribute is still applied on an `https://` baseURL via
+   * `advanced.defaultCookieAttributes`, so transport security is unchanged. Only set
+   * `useSecureCookies: true` if Better-Auth manages your session cookies entirely (not the
+   * nest-server helper) — otherwise its native handlers look for a `__Secure-`-prefixed cookie the
+   * helper never writes and answer `401` on 2FA / passkey / `/token`.
    */
   options?: Record<string, unknown>;
 

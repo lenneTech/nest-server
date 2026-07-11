@@ -262,10 +262,10 @@ Read the security section below for production deployments.
 
 **Global server-level settings that affect BetterAuth behavior (since v11.25.0):**
 
-| Setting (top-level `IServerOptions`)                                          | Technical Purpose                                                                                                                                                                      | Impact of Wrong Value                                                                                                         |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `cookies` (`boolean \| ICookiesConfig`, default: `true`)                      | Controls cookie-parser middleware and session cookie setting. `cookies.exposeTokenInBody` additionally returns the token in the response body (test-only; **forbidden in production**) | Tokens missing from response body surprises test clients; `exposeTokenInBody` in prod = XSS-risk, framework throws at startup |
-| `cors` (`boolean \| ICorsConfig`, default: enabled with auto-derived origins) | Unified CORS config — propagates to GraphQL (Apollo), REST (Express), and BetterAuth `trustedOrigins` from a single source                                                             | `cors.enabled: false` disables all three layers; `cors.allowAll` allows any origin (dev only)                                 |
+| Setting (top-level `IServerOptions`)                                          | Technical Purpose                                                                                                                                                                      | Impact of Wrong Value                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cookies` (`boolean \| ICookiesConfig`, default: `true`)                      | Controls cookie-parser middleware and session cookie setting. `cookies.exposeTokenInBody` additionally returns the token in the response body (test-only; **forbidden in production**) | Tokens missing from response body surprises test clients; `exposeTokenInBody` in prod = XSS-risk, framework throws at startup                                                                                          |
+| `cors` (`boolean \| ICorsConfig`, default: enabled with auto-derived origins) | Unified CORS config — propagates to GraphQL (Apollo), REST (Express), and BetterAuth `trustedOrigins` from a single source                                                             | `cors.enabled: false` disables the REST/GraphQL layers; `cors.allowAll` mirrors any request origin for REST/GraphQL (dev only) but BetterAuth keeps restricting to `appUrl` (its origin check has no "allow all" mode) |
 
 **For Development:** The defaults (`http://localhost:3000`, `/iam`) are correct.
 
@@ -725,6 +725,12 @@ const config = {
       },
       advanced: {
         cookiePrefix: 'my-app',
+        // Since v11.27.6 the framework pins `useSecureCookies: false` so Better-Auth's native
+        // handlers read the same UNPREFIXED cookie the nest-server helper writes (the `Secure`
+        // attribute is still applied on https via `advanced.defaultCookieAttributes`). Only set
+        // `true` if Better-Auth manages your cookies entirely — otherwise its native handlers
+        // look for a `__Secure-`-prefixed cookie that is never written and answer 401 on
+        // 2FA / passkey / `/token`.
         useSecureCookies: true,
       },
     },

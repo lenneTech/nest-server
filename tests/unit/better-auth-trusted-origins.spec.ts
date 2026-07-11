@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { resolveServerUrls } from '../../src/core/common/helpers/cookies.helper';
 import { buildTrustedOrigins } from '../../src/core/modules/better-auth/better-auth.config';
 
 // Helper to construct the options shape expected by buildTrustedOrigins
@@ -70,15 +71,84 @@ describe('buildTrustedOrigins', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Priority 3: serverCorsConfig.allowAll → undefined (BetterAuth: allow all)
+  // Priority 3: serverCorsConfig.allowAll falls through to the appUrl/passkey rules.
+  //
+  // Returning `undefined` here would NOT make BetterAuth "allow all origins" —
+  // without trustedOrigins it trusts only its own baseURL, so the app origin is
+  // rejected and origin-checked endpoints (two-factor/enable, passkey) answer
+  // 403 INVALID_ORIGIN. That used to break 2FA + passkeys in local dev and CI,
+  // which are exactly the setups that run with allowAll.
   // -------------------------------------------------------------------------
 
-  it('should return undefined when serverCorsConfig.allowAll === true', () => {
+  it('should trust the appUrl when serverCorsConfig.allowAll === true', () => {
     const result = buildTrustedOrigins(
       {} as any,
       opts({ resolvedAppUrl: 'https://example.com', serverCorsConfig: { allowAll: true } }),
     );
+    expect(result).toEqual(['https://example.com']);
+  });
+
+  // Rule 5 (passkey trustedOrigins) is reached before rule 6 (appUrl). The fixture below is a
+  // deliberate CONSTRUCTION: it gives the passkey normalization a value that differs from the
+  // appUrl purely to prove rule 5 sources the origins from the passkey normalization, not from
+  // the appUrl. In production the two are always equal — `normalizePasskeyConfig()` computes
+  // `trustedOrigins = config.trustedOrigins?.length ? config.trustedOrigins : [appUrl]`, and a
+  // non-empty `config.trustedOrigins` would already have returned at rule 1 — so whenever rule 5
+  // is actually reached, `passkeyNormalization.trustedOrigins` is exactly `[appUrl]`.
+  it('should source trustedOrigins from the passkey normalization (rule 5) under allowAll', () => {
+    const result = buildTrustedOrigins(
+      {} as any,
+      opts({
+        passkeyEnabled: true,
+        passkeyTrustedOrigins: ['https://app.example.com'],
+        resolvedAppUrl: 'https://example.com',
+        serverCorsConfig: { allowAll: true },
+      }),
+    );
+    expect(result).toEqual(['https://app.example.com']);
+  });
+
+  // The realistic shape: allowAll + passkey enabled, passkey origins = [appUrl] (the only value
+  // normalizePasskeyConfig can produce at rule 5). The app origin must end up trusted.
+  it('should trust the appUrl under allowAll + passkey (production shape)', () => {
+    const result = buildTrustedOrigins(
+      {} as any,
+      opts({
+        passkeyEnabled: true,
+        passkeyTrustedOrigins: ['https://example.com'],
+        resolvedAppUrl: 'https://example.com',
+        serverCorsConfig: { allowAll: true },
+      }),
+    );
+    expect(result).toEqual(['https://example.com']);
+  });
+
+  it('should still return undefined for allowAll when no appUrl can be resolved', () => {
+    const result = buildTrustedOrigins({} as any, opts({ serverCorsConfig: { allowAll: true } }));
     expect(result).toBeUndefined();
+  });
+
+  it('should let an explicit trustedOrigins list override allowAll', () => {
+    const result = buildTrustedOrigins(
+      { trustedOrigins: ['https://explicit.example.com'] } as any,
+      opts({ resolvedAppUrl: 'https://example.com', serverCorsConfig: { allowAll: true } }),
+    );
+    expect(result).toEqual(['https://explicit.example.com']);
+  });
+
+  // Composition: the host-split app origin resolved by resolveServerUrls (from a
+  // `lt dev up` `api.<slug>.localhost` baseUrl) must reach BetterAuth's trustedOrigins.
+  // The unit tests above hand-supply `resolvedAppUrl`; this threads the real resolver
+  // output through buildTrustedOrigins to prove the two halves actually compose.
+  it('should trust the host-split app origin threaded from resolveServerUrls (composition)', () => {
+    const resolved = resolveServerUrls({ baseUrl: 'https://api.crm.localhost', env: 'local' });
+    expect(resolved.appUrl).toBe('https://crm.localhost');
+
+    const result = buildTrustedOrigins(
+      {} as any,
+      opts({ resolvedAppUrl: resolved.appUrl, serverCorsConfig: { allowAll: true } }),
+    );
+    expect(result).toEqual(['https://crm.localhost']);
   });
 
   // -------------------------------------------------------------------------

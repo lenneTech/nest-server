@@ -3,6 +3,8 @@ import os from 'node:os';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
+import { E2E_TEST_INCLUDE } from './vitest.include-globs';
+
 // Opt-in low-resource mode — for running MANY e2e suites at once on one machine
 // (e.g. several parallel `lt dev` / `lt ticket` environments). Set
 // CHECK_LOW_RESOURCE=1 to cap parallel forks and raise timeouts so the suites
@@ -36,10 +38,13 @@ export default defineConfig({
     }),
   ],
   test: {
+    // Separate directory from the unit runner's report — see vitest.config.ts.
+    coverage: { reportsDirectory: './coverage/e2e' },
     environment: 'node',
-    // Exclude type-only test files (run these with `npx tsc --noEmit` instead)
-    // and test-infrastructure modules (global setup, worker setup, DB reporter)
-    exclude: ['tests/types/**/*.ts', 'tests/global-setup.ts', 'tests/setup.ts', 'tests/db-lifecycle.reporter.ts'],
+    // No `exclude` needed: the `include` patterns below match neither the type-only tests
+    // (`tests/types/**/*.type-test.ts`, run via `pnpm run test:types`) nor the test-infrastructure
+    // modules (global setup, worker setup, DB reporter). Leaving `exclude` unset keeps vitest's
+    // own defaults (node_modules, dist, …) in place instead of replacing them.
     // Enable parallel file execution for speed
     fileParallelism: true,
     globalSetup: ['tests/global-setup.ts'],
@@ -48,7 +53,15 @@ export default defineConfig({
     // full Nest app can exceed 60s under load (parallel transform/import),
     // which failed whole files without any retry. Be generous here.
     hookTimeout: LOW_RESOURCE ? 240000 : 120000,
-    include: ['tests/**/*.ts'],
+    // Suites that need the mongod + globalSetup this config provides: e2e specs and story
+    // tests. Naming the patterns explicitly (instead of `tests/**/*.ts`) keeps helpers,
+    // setup and reporters out — and, crucially, keeps `tests/unit/**` out: those are plain
+    // unit tests, run by vitest.config.ts, against a database they neither need nor use.
+    // The patterns live in vitest.include-globs.ts, shared with
+    // `tests/unit/test-file-routing.spec.ts`, which asserts that every *.spec.ts / *.test.ts file
+    // in the repo is claimed by exactly one of the two runners — so narrowing them can never
+    // silently drop a suite.
+    include: E2E_TEST_INCLUDE,
     // Runs in every test worker before test files are imported (filters expected log/warn noise)
     setupFiles: ['tests/setup.ts'],
     // PARALLEL CONFIGURATION: Fast execution with retry mechanism

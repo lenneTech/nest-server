@@ -7,7 +7,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { resolveServerUrls } from '../../common/helpers/cookies.helper';
+import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 
@@ -380,15 +380,47 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     );
   }
 
+  // Better-Auth base URL (resolved localhost defaults → explicit config → fallback).
+  const betterAuthBaseUrl = resolvedUrls.baseUrl || config.baseUrl || 'http://localhost:3000';
+  // The `Secure` attribute Better-Auth WOULD derive for its cookies if `useSecureCookies`
+  // were not pinned below: an `https://` baseURL is Better-Auth's own signal
+  // (createCookieGetter → `baseURLString.startsWith('https://')`). We keep exactly this value so
+  // the pinned `useSecureCookies: false` (needed for name alignment, see below) does not silently
+  // strip `Secure` from the cookies Better-Auth's native handlers forward.
+  const secureCookies = betterAuthBaseUrl.startsWith('https://');
+
   const betterAuthConfig: Record<string, unknown> = {
     advanced: {
       cookiePrefix,
       ...(crossSubDomain.enabled && {
         crossSubDomainCookies: { domain: crossSubDomain.domain, enabled: true },
       }),
+      // Keep Better-Auth's NATIVE handlers on the SAME cookie name the
+      // nest-server cookie helpers actually write. Those helpers always emit
+      // the UNPREFIXED `<cookiePrefix>.session_token`. Better-Auth, left to its
+      // own devices on an `https://` baseURL, auto-enables secure cookies AND
+      // prefixes the name with `__Secure-`, so its native handlers (2FA
+      // enable/disable, passkey register/list, backup codes, `/token`) look for
+      // `__Secure-<cookiePrefix>.session_token` — a cookie that is never written
+      // — and return `401 UNAUTHORIZED`, while the project's own session
+      // resolver (which reads the unprefixed cookie) still returns a session: a
+      // split-brain where `GET /iam/get-session` is 200 but every sensitive
+      // Better-Auth endpoint is 401. Pinning `useSecureCookies: false` keeps the
+      // native read path aligned with the cookie helper.
+      useSecureCookies: false,
+      // …BUT `useSecureCookies: false` also forces `secure: false` on EVERY cookie
+      // Better-Auth sets (createCookieGetter → `secure: !!secureCookiePrefix`), and the
+      // native handlers forward their `Set-Cookie` VERBATIM via `sendWebResponse`
+      // (2FA verify, social callback, magic link, passkey) WITHOUT passing through the
+      // cookie helper — so those session cookies would ship without `Secure` in
+      // production. Restore the exact Secure flag Better-Auth itself would have derived
+      // (an `https://` baseURL), keeping the unprefixed NAME while preserving the
+      // `Secure` TRANSPORT flag. Only injected on https so http/local and a consumer's
+      // own `options.advanced.useSecureCookies` override are left untouched.
+      ...(secureCookies && { defaultCookieAttributes: { secure: true } }),
     },
     basePath,
-    baseURL: resolvedUrls.baseUrl || config.baseUrl || 'http://localhost:3000',
+    baseURL: betterAuthBaseUrl,
     database: mongodbAdapter(db),
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
@@ -681,12 +713,20 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
  *
  * Behavior (in priority order):
  * 1. Explicit betterAuth.trustedOrigins → use those (always takes precedence)
- * 2. Server CORS disabled → empty array (BetterAuth CORS also disabled)
- * 3. Server CORS allowAll → undefined (BetterAuth allows all origins)
+ * 2. Server CORS disabled → empty array (adds no extra trusted origins beyond BetterAuth's own
+ *    baseURL — see NOTE; it does NOT switch BetterAuth's origin check off)
+ * 3. Server CORS allowAll → fall through to rules 4-7 (see below)
  * 4. Server CORS allowedOrigins → merge with appUrl/baseUrl
  * 5. Passkey trustedOrigins → use from normalizePasskeyConfig()
  * 6. Fallback to resolved appUrl
- * 7. Otherwise → undefined (allows all origins via Better-Auth's default)
+ * 7. Otherwise → undefined (Better-Auth then trusts only its own baseURL)
+ *
+ * NOTE on rules 2 and 7: neither an empty array (rule 2) nor `undefined` (rule 7) means "any
+ * origin is allowed", and neither disables BetterAuth's origin check. In both cases BetterAuth
+ * still derives and trusts its own `baseURL` origin (see `getTrustedOrigins()` in
+ * `better-auth/context`, which unconditionally pushes `new URL(baseURL).origin` before appending
+ * `options.trustedOrigins`), so `[]` and `undefined` are behaviorally identical here: a
+ * separately hosted frontend is still rejected by every origin-checked endpoint.
  *
  * @param config - Better-auth configuration
  * @param options - Passkey normalization, resolved URLs, and server CORS context
@@ -706,15 +746,25 @@ export function buildTrustedOrigins(
     return config.trustedOrigins;
   }
 
-  // 2. Server CORS disabled → BetterAuth CORS also disabled
+  // 2. Server CORS disabled → add no extra trusted origins. BetterAuth still trusts its own
+  //    baseURL (see the NOTE above), so this does NOT turn its origin check off — it only means
+  //    "no separately hosted frontend is trusted". Behaviorally identical to rule 7's undefined.
   if (serverCorsConfig === false || (typeof serverCorsConfig === 'object' && serverCorsConfig?.enabled === false)) {
     return [];
   }
 
-  // 3. Server CORS allowAll → BetterAuth allows all origins
-  if (typeof serverCorsConfig === 'object' && serverCorsConfig?.allowAll) {
-    return undefined;
-  }
+  // 3. Server CORS allowAll → fall through to the appUrl / passkey rules below.
+  //
+  // This used to `return undefined` in the belief that BetterAuth then "allows all
+  // origins". It does not: without trustedOrigins BetterAuth trusts only its own
+  // baseURL, so the *app* origin is rejected and every origin-checked endpoint
+  // (two-factor/enable, passkey) answers 403 INVALID_ORIGIN. That silently broke
+  // 2FA and passkeys in exactly the setups that use allowAll — local dev and CI.
+  //
+  // An origin check has no meaningful "allow everything" mode — that is the very
+  // thing it defends against — so allowAll now yields the known-good origins
+  // (appUrl, passkey) instead of none. Projects that really do want to accept
+  // arbitrary origins can still set `betterAuth.trustedOrigins` explicitly (rule 1).
 
   // 4. Server allowedOrigins → merge with appUrl/baseUrl.
   // Order (appUrl, baseUrl, allowedOrigins) mirrors buildCorsConfig() in cookies.helper.ts
@@ -1183,6 +1233,17 @@ export function resolveCrossSubDomainCookies(
  * 3. Use baseUrl hostname as-is
  *
  * Returns undefined for localhost (cross-subdomain not meaningful there).
+ *
+ * The `api.` strip reuses {@link strippedApiHostname} so it shares that helper's guard against
+ * bogus results: `api.dev` → `dev` would set a public-suffix cookie domain that browsers reject
+ * outright (dropping every session cookie), so `api.dev` is kept as-is instead.
+ *
+ * KNOWN LIMITATION (fails closed, no leak): the single-label guard cannot recognise a MULTI-label
+ * public suffix — `api.co.uk` still strips to `co.uk`, a Public-Suffix-List entry browsers also
+ * reject, so cross-subdomain auth would break (cookie dropped) rather than over-scope. A full PSL
+ * check would need a dependency, which this security-critical module deliberately avoids; for such
+ * apex domains set `betterAuth.crossSubDomainCookies.domain` explicitly instead of relying on
+ * derivation. See migration guide 11.27.5 → 11.27.6.
  */
 function deriveCookieDomainFromUrls(appUrl?: string, baseUrl?: string): string | undefined {
   // Priority 1: appUrl hostname (this IS the parent domain in typical setups)
@@ -1204,11 +1265,9 @@ function deriveCookieDomainFromUrls(appUrl?: string, baseUrl?: string): string |
       if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return undefined;
       }
-      // Strip api. prefix to get parent domain
-      if (hostname.startsWith('api.')) {
-        return hostname.substring(4);
-      }
-      return hostname;
+      // Strip api. prefix to get parent domain — but keep the host unchanged when stripping
+      // would leave a bare TLD (`api.dev`) or empty host (`api.`).
+      return strippedApiHostname(hostname) ?? hostname;
     } catch {
       return undefined;
     }
