@@ -273,8 +273,7 @@ export const LOCALHOST_URL_ENVS: readonly string[] = ['ci', 'e2e', 'local'];
 const API_HOST_LABEL = 'api.';
 
 /**
- * Normalizes a URL string to its http(s) origin, or `undefined` when it is not a usable
- * http(s) URL.
+ * Parses a URL string into a `URL`, or returns `undefined` when it is not a usable http(s) URL.
  *
  * The `protocol` guard is security-relevant, not cosmetic: `URL.origin` serializes to the
  * literal string `'null'` for opaque origins (any non-special scheme, e.g. `custom://host`).
@@ -282,7 +281,7 @@ const API_HOST_LABEL = 'api.';
  * `credentials: true` allowlist would grant credentialed access to any site able to frame a
  * sandboxed document.
  */
-function toHttpOrigin(value: string): string | undefined {
+function toHttpUrl(value: string): undefined | URL {
   let url: URL;
   try {
     url = new URL(value);
@@ -294,7 +293,15 @@ function toHttpOrigin(value: string): string | undefined {
     return undefined;
   }
 
-  return url.origin;
+  return url;
+}
+
+/**
+ * Normalizes a URL string to its http(s) origin, or `undefined` when it is not a usable
+ * http(s) URL. See {@link toHttpUrl} for why the protocol guard matters.
+ */
+function toHttpOrigin(value: string): string | undefined {
+  return toHttpUrl(value)?.origin;
 }
 
 /**
@@ -316,7 +323,8 @@ function isLocalhostUrl(value: string | undefined): boolean {
 }
 
 /**
- * Whether stripping the leading `api.` label from the hostname leaves a deployable host.
+ * The hostname with its leading `api.` label removed, or `undefined` when the label is absent
+ * or stripping it would not leave a deployable host.
  *
  * Guards two cases where a naive strip produces a bogus origin:
  * - `api.dev` → `dev` — a bare TLD. `api.dev`/`api.io`/`api.co` are registrable domains, so
@@ -326,20 +334,73 @@ function isLocalhostUrl(value: string | undefined): boolean {
  *   `URL` setter for special schemes, so the strip would appear to succeed but do nothing.
  *
  * `localhost` is the one legitimate single-label host (`api.localhost` → `localhost`).
+ *
+ * Exported for reuse by BetterAuth's `deriveCookieDomainFromUrls()`, so the cookie-domain
+ * derivation shares this bare-TLD/empty guard instead of re-implementing a naive `api.`-strip.
  */
-function canStripApiLabel(hostname: string): boolean {
+export function strippedApiHostname(hostname: string): string | undefined {
   if (!hostname.startsWith(API_HOST_LABEL)) {
-    return false;
+    return undefined;
   }
 
   const remainder = hostname.slice(API_HOST_LABEL.length);
-  return remainder === 'localhost' || remainder.includes('.');
+  if (remainder !== 'localhost' && !remainder.includes('.')) {
+    return undefined;
+  }
+
+  return remainder;
+}
+
+/**
+ * Derives the app origin from an already-parsed API base `URL` by stripping a leading `api.`
+ * label from its hostname. Mutates and re-serializes the passed `URL`, so callers must not
+ * reuse it afterwards. Shared by {@link deriveAppUrlFromBaseUrl} (string entry point) and
+ * {@link resolveServerUrls} (which parses `baseUrl` once and threads the result through).
+ */
+function deriveAppOriginFromUrl(url: URL): string {
+  const stripped = strippedApiHostname(url.hostname);
+  if (stripped !== undefined) {
+    url.hostname = stripped;
+  }
+
+  return url.origin;
+}
+
+/**
+ * Whether stripping the `api.` label from `baseUrl` names a host the API itself is NOT served
+ * from — i.e. API and app are separated by HOST rather than by PORT.
+ *
+ * {@link LOCALHOST_URL_DEFAULTS} encode a port split: one host, API on `:3000`, app on `:3001`.
+ * `http://api.localhost:3000` and `https://api.localhost` are both that shape — the label
+ * strips to the bare `localhost` the API already answers on, so only the port tells app and API
+ * apart, and the flat `http://localhost:3001` default is the right answer.
+ *
+ * `https://api.crm.localhost` (as served by `lt dev up` behind Caddy) strips to the sibling host
+ * `crm.localhost`, which the API never answers on. There the derivation names the real app
+ * origin and must win over the flat default.
+ *
+ * Keyed on the stripped LABEL, never on the presence of a port: a host split stays a host split
+ * behind a non-default port (`https://api.crm.localhost:8443` → `https://crm.localhost:8443`),
+ * and a port split stays a port split on the default port (`https://api.localhost`).
+ *
+ * Takes an already-parsed `URL` (or `undefined` for an unparseable/absent `baseUrl`) so the
+ * caller parses `baseUrl` only once.
+ */
+function separatesApiAndAppByHost(url: undefined | URL): boolean {
+  if (!url) {
+    return false;
+  }
+
+  const stripped = strippedApiHostname(url.hostname);
+  return stripped !== undefined && stripped !== 'localhost';
 }
 
 /**
  * Derives the frontend app URL from the API base URL by stripping a leading `api.`
  * label from the hostname (e.g. `https://api.example.com` → `https://example.com`,
  * `https://api.dev.example.com` → `https://dev.example.com`).
+ *
+ * The port is preserved (`https://api.example.com:8443` → `https://example.com:8443`).
  *
  * Returns the origin unchanged when there is no strippable `api.` prefix, and returns the
  * input unchanged when it is not an http(s) URL — callers decide what to do with a value
@@ -348,17 +409,8 @@ function canStripApiLabel(hostname: string): boolean {
  * @since 11.27.5
  */
 export function deriveAppUrlFromBaseUrl(baseUrl: string): string {
-  const origin = toHttpOrigin(baseUrl);
-  if (!origin) {
-    return baseUrl;
-  }
-
-  const url = new URL(origin);
-  if (canStripApiLabel(url.hostname)) {
-    url.hostname = url.hostname.slice(API_HOST_LABEL.length);
-  }
-
-  return url.origin;
+  const url = toHttpUrl(baseUrl);
+  return url ? deriveAppOriginFromUrl(url) : baseUrl;
 }
 
 /**
@@ -378,15 +430,22 @@ export interface IResolvedServerUrls {
  * Resolves the effective app/API URLs for a server configuration.
  *
  * `baseUrl`: explicit → localhost default (local/ci/e2e only) → none.
- * `appUrl`: explicit → localhost default (local/ci/e2e with a localhost `baseUrl`) →
- * derived from `baseUrl` → none.
+ * `appUrl`: explicit → derived from a host-split localhost `baseUrl` (local/ci/e2e) →
+ * localhost default (local/ci/e2e with a localhost `baseUrl`) → derived from `baseUrl` → none.
+ *
+ * The localhost defaults assume a PORT split (API `:3000`, app `:3001`, one host). A localhost
+ * `baseUrl` whose `api.` label strips to a SIBLING host — `https://api.crm.localhost` from
+ * `lt dev up` — derives that host on whatever port it carries, because the flat
+ * `http://localhost:3001` default would name a host the app never serves from. See
+ * {@link separatesApiAndAppByHost}.
  *
  * `baseUrl` is returned verbatim (not origin-normalized) because BetterAuth passes it
  * straight through as its `baseURL`; normalization for origin matching is the caller's job.
  *
  * @param input.deriveAppUrl - Set to `false` to disable the `api.`-strip derivation. The
  *                             localhost defaults are unaffected — they are an explicit,
- *                             documented behavior of the `local`/`ci`/`e2e` environments.
+ *                             documented behavior of the `local`/`ci`/`e2e` environments, and
+ *                             a host-split localhost `baseUrl` falls back to them.
  *
  * @since 11.27.5
  */
@@ -409,13 +468,29 @@ export function resolveServerUrls(input: {
     return { appUrl: input.appUrl, appUrlSource: 'explicit', baseUrl, baseUrlSource };
   }
 
-  // API on :3000 and app on :3001 — deriving from baseUrl would yield the API's own origin.
-  if (usesLocalhostDefaults && isLocalhostUrl(baseUrl)) {
+  const mayDerive = input.deriveAppUrl !== false;
+
+  // Parse `baseUrl` once and reuse the result for both the host-split check and the derivation
+  // below (the localhost check keeps its own string parse — its loopback-IP matching differs
+  // from `toHttpUrl`'s http(s)-only guard). Gated on `mayDerive`: both consumers of
+  // `parsedBaseUrl` sit behind it (the host-split check via short-circuit, the derivation via its
+  // own guard), so with `deriveAppUrl: false` the parse is never needed and is skipped entirely.
+  const parsedBaseUrl = baseUrl && mayDerive ? toHttpUrl(baseUrl) : undefined;
+
+  // API on :3000 and app on :3001 — deriving from a port-split baseUrl would yield the API's
+  // own origin. A baseUrl that splits API and app by host instead (`https://api.crm.localhost`,
+  // from `lt dev up`) derives the real app origin, so prefer it over the flat default.
+  // `separatesApiAndAppByHost` is evaluated last, so every deployed (non-localhost) environment
+  // short-circuits before paying for the parse.
+  if (usesLocalhostDefaults && isLocalhostUrl(baseUrl) && !(mayDerive && separatesApiAndAppByHost(parsedBaseUrl))) {
     return { appUrl: LOCALHOST_URL_DEFAULTS.appUrl, appUrlSource: 'localhost-default', baseUrl, baseUrlSource };
   }
 
-  if (baseUrl && input.deriveAppUrl !== false) {
-    return { appUrl: deriveAppUrlFromBaseUrl(baseUrl), appUrlSource: 'derived', baseUrl, baseUrlSource };
+  if (baseUrl && mayDerive) {
+    // `parsedBaseUrl` is mutated by `deriveAppOriginFromUrl`; a non-http(s) `baseUrl` (parse
+    // failed) is returned verbatim, matching `deriveAppUrlFromBaseUrl`.
+    const appUrl = parsedBaseUrl ? deriveAppOriginFromUrl(parsedBaseUrl) : baseUrl;
+    return { appUrl, appUrlSource: 'derived', baseUrl, baseUrlSource };
   }
 
   return { appUrl: undefined, appUrlSource: 'none', baseUrl, baseUrlSource };

@@ -20,12 +20,26 @@ export interface MigrationFile {
 }
 
 /**
+ * Default file pattern for migration files: `*.ts` and `*.js`, but never `*.d.ts`.
+ *
+ * A compiled migration ships `foo.js` next to `foo.d.ts` (whenever the project
+ * builds with `declaration: true`). A plain `/\.(ts|js)$/` matches the
+ * declaration file too, so the runner would load it as a *second* migration and
+ * throw — `export declare …` is not valid CommonJS.
+ *
+ * The lookbehind guards the `.ts` branch only. Writing it as `(?<!\.d)\.(ts|js)$`
+ * would also reject a perfectly valid `foo.d.js`, since `.d` precedes `.js` there
+ * as well.
+ */
+export const DEFAULT_MIGRATION_FILE_PATTERN = /(?:(?<!\.d)\.ts|\.js)$/;
+
+/**
  * Migration runner configuration
  */
 export interface MigrationRunnerOptions {
   /** Directory containing migration files */
   migrationsDirectory: string;
-  /** Pattern to match migration files (default: *.ts, *.js) */
+  /** Pattern to match migration files (default: {@link DEFAULT_MIGRATION_FILE_PATTERN}) */
   pattern?: RegExp;
   /** State store for tracking migrations */
   stateStore: MongoStateStore;
@@ -59,7 +73,7 @@ export class MigrationRunner {
 
   constructor(options: MigrationRunnerOptions) {
     this.options = options;
-    this.pattern = options.pattern || /\.(ts|js)$/;
+    this.pattern = options.pattern || DEFAULT_MIGRATION_FILE_PATTERN;
   }
 
   /**

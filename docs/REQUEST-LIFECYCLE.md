@@ -457,18 +457,31 @@ if (!isCorsDisabled(envConfig.cors)) {
 
 | Config | REST (Express) | GraphQL (Apollo) | BetterAuth |
 |--------|----------------|-------------------|------------|
-| `cors: { allowAll: true }` | `origin: true` | `origin: true` | `trustedOrigins: undefined` |
+| `cors: { allowAll: true }` | `origin: true` | `origin: true` | `trustedOrigins: [appUrl] (+ passkey origins)` |
 | `cors: { allowedOrigins: [...] }` | `origin: [merged list]` | `origin: [merged list]` | `trustedOrigins: [merged list]` |
 | `cors: { enabled: false }` | No CORS headers | No CORS headers | `trustedOrigins: []` |
 | `cors: { deriveAppUrl: false }` | `appUrl` not derived from `baseUrl` | same | same |
 
+> **BetterAuth has no "allow all origins" mode (since v11.27.6).** `cors.allowAll` mirrors the request origin for REST/GraphQL, but BetterAuth's origin check is a security control with no meaningful "allow everything" setting. So `allowAll` yields the known-good origins (`appUrl` + any passkey origins), NOT `undefined` — returning nothing there would leave BetterAuth trusting only its own `baseURL` and silently answer `403 INVALID_ORIGIN` for a separately hosted frontend on `two-factor/enable`, passkey registration, etc. For the same reason `trustedOrigins: []` (the `enabled: false` row) does **not** switch the origin check off: BetterAuth always trusts its own `baseURL`, so `[]` and `undefined` behave identically. To accept arbitrary origins for auth, set `betterAuth.trustedOrigins` explicitly.
+
 **URL resolution (since v11.27.5):** all three layers resolve `appUrl`/`baseUrl` through the single `resolveServerUrls()` helper in `cookies.helper.ts`, so they can no longer drift:
 
 1. `appUrl` set explicitly → used as-is
-2. `env: 'local' | 'ci' | 'e2e'` with a localhost `baseUrl` → `appUrl` defaults to `http://localhost:3001`
-3. otherwise derived from `baseUrl` by stripping a leading `api.` label (`https://api.example.com` → `https://example.com`), unless `cors.deriveAppUrl: false`
+2. `env: 'local' | 'ci' | 'e2e'` with a localhost `baseUrl` that splits API and app by **host** → derived from `baseUrl` (see below)
+3. `env: 'local' | 'ci' | 'e2e'` with any other localhost `baseUrl` → `appUrl` defaults to `http://localhost:3001`
+4. otherwise derived from `baseUrl` by stripping a leading `api.` label (`https://api.example.com` → `https://example.com`), unless `cors.deriveAppUrl: false`
 
-> **Security:** step 3 grants the derived origin credentialed CORS. If the apex domain is not trusted (e.g. a third-party-hosted marketing site whose XSS surface you do not control), set `cors.deriveAppUrl: false` and list the frontend origin explicitly via `appUrl` or `cors.allowedOrigins`. The derivation never yields a bare TLD (`https://api.dev` stays unchanged) and never emits the opaque `null` origin.
+**Port split vs. host split (step 2 vs. 3, since v11.27.6).** The localhost defaults encode a *port split*: one host, API on `:3000`, app on `:3001`. `lt dev up` instead serves a *host split* behind Caddy — API on `https://api.<slug>.localhost`, app on `https://<slug>.localhost`. The two are told apart by what the `api.` label strips to, never by the port:
+
+| `baseUrl` (`env: 'local'`) | Split | Resolved `appUrl` |
+|---------------------------|-------|-------------------|
+| `https://api.crm.localhost` | host | `https://crm.localhost` |
+| `https://api.crm.localhost:8443` | host | `https://crm.localhost:8443` |
+| `https://api.localhost` | port (strips to the bare host the API answers on) | `http://localhost:3001` |
+| `http://api.localhost:3000` | port | `http://localhost:3001` |
+| `http://localhost:3000` | port (no `api.` label) | `http://localhost:3001` |
+
+> **Security:** steps 2 and 4 grant the derived origin credentialed CORS. If the apex domain is not trusted (e.g. a third-party-hosted marketing site whose XSS surface you do not control), set `cors.deriveAppUrl: false` and list the frontend origin explicitly via `appUrl` or `cors.allowedOrigins`. The derivation never yields a bare TLD (`https://api.dev` stays unchanged) and never emits the opaque `null` origin. With `cors.deriveAppUrl: false`, a host-split localhost `baseUrl` falls back to the `http://localhost:3001` default.
 
 ### NestJS Middleware Chain (CoreModule)
 

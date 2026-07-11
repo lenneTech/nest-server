@@ -314,6 +314,29 @@ describe('resolveCrossSubDomainCookies', () => {
       expect(result).toEqual({ domain: 'example.com', enabled: true });
     });
 
+    // The `strippedApiHostname(hostname) ?? hostname` guard in deriveCookieDomainFromUrls:
+    // stripping `api.dev` would leave the bare TLD `dev`, a public suffix browsers reject as a
+    // cookie domain (dropping every session cookie), so `api.dev` is kept as-is instead.
+    it('should keep api.<bare-TLD> as-is instead of stripping to a public suffix (api.dev)', () => {
+      const result = resolveCrossSubDomainCookies(
+        { crossSubDomainCookies: true } as any,
+        { ...resolvedUrlsEmpty, baseUrl: 'https://api.dev' },
+      );
+      expect(result).toEqual({ domain: 'api.dev', enabled: true });
+    });
+
+    // KNOWN LIMITATION (documented, fails closed): a MULTI-label public suffix is not recognised
+    // without a PSL, so `api.co.uk` still strips to `co.uk`. Browsers reject that domain too, so
+    // cross-subdomain auth breaks (cookie dropped) rather than over-scoping. For such apex domains
+    // set crossSubDomainCookies.domain explicitly. Locked here so the limitation stays explicit.
+    it('should strip api.co.uk to co.uk (documented multi-label public-suffix limitation)', () => {
+      const result = resolveCrossSubDomainCookies(
+        { crossSubDomainCookies: true } as any,
+        { ...resolvedUrlsEmpty, baseUrl: 'https://api.co.uk' },
+      );
+      expect(result).toEqual({ domain: 'co.uk', enabled: true });
+    });
+
     it('should prefer appUrl over baseUrl for domain derivation', () => {
       const result = resolveCrossSubDomainCookies(
         { crossSubDomainCookies: true } as any,

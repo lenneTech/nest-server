@@ -27,7 +27,7 @@
  */
 import { execSync, spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -122,16 +122,30 @@ function toFixCommand(kind, cmd) {
 }
 
 // ── metric parsers ─────────────────────────────────────────────────────────
-function parseVitest(out) {
+// Sum capture group 1 across every match of `re` (which must carry the `g` flag).
+// Returns null when nothing matched, so callers can tell "absent" from "zero".
+function sumMatches(clean, re) {
+  let total = null;
+  for (const m of clean.matchAll(re)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) total = (total ?? 0) + n;
+  }
+  return total;
+}
+// A single test step may invoke vitest more than once (`test` is `vitest:unit && vitest`),
+// emitting one summary block per run. Sum them all — reading only the first silently
+// under-reports every later run, and the test count is the only visible evidence in the
+// report that a suite ran at all. Covered by tests/unit/check-script-metrics.spec.ts.
+export function parseVitest(out) {
   const clean = stripAnsi(out);
-  const tests = clean.match(/Tests\s+(?:(\d+)\s+failed[^\n]*?)?(\d+)\s+passed/i);
-  const files = clean.match(/Test Files\s+(?:(\d+)\s+failed[^\n]*?)?(\d+)\s+passed/i);
-  const failed = clean.match(/Tests\s+(\d+)\s+failed/i);
-  if (!tests && !files) return null;
+  const passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  const files = sumMatches(clean, /Test Files\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  const failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  if (passed == null && files == null) return null;
   return {
-    failed: failed ? Number(failed[1]) : 0,
-    files: files ? Number(files[2]) : null,
-    passed: tests ? Number(tests[2]) : null,
+    failed: failed ?? 0,
+    files,
+    passed,
   };
 }
 function parseLint(out) {
@@ -626,7 +640,13 @@ function report(started, results) {
   console.log(`\n${C.green("All checks passed.")}\n`);
 }
 
-main().catch((err) => {
-  console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
-  process.exit(1);
-});
+// Run the pipeline only when invoked as a script. Importing this module (the metric parsers are
+// unit-tested in tests/unit/check-script-metrics.spec.ts) must not spawn a check run.
+const INVOKED_AS_SCRIPT = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (INVOKED_AS_SCRIPT) {
+  main().catch((err) => {
+    console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
+    process.exit(1);
+  });
+}

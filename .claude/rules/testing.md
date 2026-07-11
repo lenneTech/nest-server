@@ -2,20 +2,34 @@
 
 ## Test Framework
 
-- **Vitest** - Primary test framework (migrated from Jest)
-- Configuration: `vitest.config.ts`
-- Test files: `tests/` directory with `.e2e-spec.ts` suffix
+**Vitest**, split across two runners. Which one claims a file is decided purely by its filename:
+
+| Runner | Config | Test files | Needs MongoDB |
+|--------|--------|-----------|:-------------:|
+| Unit | `vitest.config.ts` | `src/**/*.spec.ts`, `tests/unit/**/*.spec.ts` | No |
+| E2E | `vitest-e2e.config.ts` | `tests/**/*.e2e-spec.ts`, `tests/stories/**/*.story.test.ts` | Yes |
+
+A file matching neither pattern would run nowhere. `tests/unit/test-file-routing.spec.ts` asserts
+that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** runner, so a
+mis-named suite fails the build instead of silently passing. Type-only tests
+(`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
 
 ## Running Tests
 
 ```bash
-# Run all E2E tests (default)
+# Unit + E2E (default) — the E2E half needs MongoDB
 pnpm test
 
-# Run with coverage
+# Unit tests only (fast, no MongoDB)
+pnpm run vitest:unit
+
+# E2E tests only
+pnpm run test:e2e
+
+# Both suites with coverage → coverage/unit + coverage/e2e
 pnpm run test:cov
 
-# Run in CI mode
+# Run in CI mode (unit + E2E with NODE_ENV=ci)
 pnpm run test:ci
 
 # Debug open handles
@@ -27,11 +41,15 @@ pnpm run test:cleanup
 
 ## Test Environment
 
-- Environment: `NODE_ENV=e2e` (via `pnpm test` → `vitest-e2e.config.ts`)
-- Database: **one unique database per run** (`nest-server-e2e-run-<ts>-p<pid>`), created by `tests/global-setup.ts` so concurrent runs cannot interfere with each other
+- Environment: `NODE_ENV=e2e` for the E2E runner (`pnpm run vitest`). The unit runner sets no
+  `NODE_ENV`; vitest defaults it to `test`, and `getEnvironmentConfig()` falls back to `config.local`.
+- Both runners load `tests/setup.ts` via `setupFiles` (Nest Logger restricted to `error`/`fatal`,
+  `@UnifiedField` deprecation warnings filtered).
+- Database (E2E only): **one unique database per run** (`nest-server-e2e-run-<ts>-p<pid>`), created by `tests/global-setup.ts` so concurrent runs cannot interfere with each other
 - DB lifecycle (`tests/db-lifecycle.reporter.ts`): run passes → DB dropped immediately + stale run DBs from crashed/failed runs collected; run fails → DB kept for debugging, removed by the next successful run. An externally set `MONGODB_URI` (CI) opts out of the scheme.
 - Test helper: `src/test/test.helper.ts`
-- Coverage: Collected from `src/**/*.{ts,js}`
+- Coverage: Collected from `src/**/*.{ts,js}`. The two runners are separate vitest processes, so
+  they write separate reports (`coverage/unit`, `coverage/e2e`) rather than overwriting each other.
 
 ## Test Best Practices
 

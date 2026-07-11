@@ -406,6 +406,33 @@ describe('CORS Configuration: buildCorsConfig', () => {
     });
   });
 
+  // `lt dev up` serves API and app as sibling *.localhost hosts behind Caddy. The allowlist
+  // must contain the app host, not the flat localhost:3001 default.
+  it('should allow the sibling app host for a host-split localhost baseUrl', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://api.crm.localhost', env: 'local' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://crm.localhost', 'https://api.crm.localhost'],
+    });
+  });
+
+  it('should allow the sibling app host on a non-default port', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://api.crm.localhost:8443', env: 'local' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['https://crm.localhost:8443', 'https://api.crm.localhost:8443'],
+    });
+  });
+
+  // `api.localhost` is the flat port split — the app lives on :3001, not on the default port.
+  it('should keep the localhost app default when the api. label strips to bare localhost', () => {
+    const result = buildCorsConfig({ baseUrl: 'https://api.localhost', env: 'local' });
+    expect(result).toEqual({
+      credentials: true,
+      origin: ['http://localhost:3001', 'https://api.localhost'],
+    });
+  });
+
   it('should NOT apply localhost defaults for non-localhost environments', () => {
     expect(buildCorsConfig({ env: 'development' })).toEqual({});
     expect(buildCorsConfig({ env: 'production' })).toEqual({});
@@ -427,6 +454,7 @@ describe('URL Resolution: deriveAppUrlFromBaseUrl', () => {
 
   it('should preserve a non-default port', () => {
     expect(deriveAppUrlFromBaseUrl('https://api.example.com:8443')).toBe('https://example.com:8443');
+    expect(deriveAppUrlFromBaseUrl('https://api.crm.localhost:8443')).toBe('https://crm.localhost:8443');
   });
 
   it('should strip api. in front of localhost (lt dev: api.<slug>.localhost)', () => {
@@ -511,10 +539,51 @@ describe('URL Resolution: resolveServerUrls', () => {
     expect(result.appUrlSource).toBe('localhost-default');
   });
 
+  // The localhost defaults encode a PORT split (API :3000, app :3001, one host). `lt dev up`
+  // instead serves a HOST split behind Caddy — `https://api.<slug>.localhost` next to
+  // `https://<slug>.localhost` — where the flat :3001 default names a host the app never
+  // serves from. The derivation has to win there.
+  it.each(['ci', 'e2e', 'local'])('should derive the app origin from a host-split localhost baseUrl (%s)', (env) => {
+    const result = resolveServerUrls({ baseUrl: 'https://api.crm.localhost', env });
+    expect(result.appUrl).toBe('https://crm.localhost');
+    expect(result.appUrlSource).toBe('derived');
+  });
+
+  it('should derive across a nested host-split localhost baseUrl', () => {
+    const result = resolveServerUrls({ baseUrl: 'https://api.nest-server.localhost', env: 'local' });
+    expect(result.appUrl).toBe('https://nest-server.localhost');
+    expect(result.appUrlSource).toBe('derived');
+  });
+
+  // A host split stays a host split behind a non-default port — Caddy may serve `lt dev` on
+  // something other than :443. Keying the decision on the port would send this back to the flat
+  // `http://localhost:3001` default and block the frontend by preflight.
+  it('should derive from a host-split localhost baseUrl on a non-default port', () => {
+    const result = resolveServerUrls({ baseUrl: 'https://api.crm.localhost:8443', env: 'local' });
+    expect(result.appUrl).toBe('https://crm.localhost:8443');
+    expect(result.appUrlSource).toBe('derived');
+  });
+
+  // `api.localhost` strips to the bare `localhost` the API already answers on, so only the port
+  // tells app and API apart — that is the flat port split the localhost defaults describe.
+  it('should keep the localhost app default when the api. label strips to bare localhost', () => {
+    for (const baseUrl of ['http://api.localhost:3000', 'https://api.localhost', 'http://api.localhost']) {
+      const result = resolveServerUrls({ baseUrl, env: 'local' });
+      expect(result.appUrl).toBe('http://localhost:3001');
+      expect(result.appUrlSource).toBe('localhost-default');
+    }
+  });
+
   // deriveAppUrl only governs the api.-strip derivation; the localhost defaults are an
   // explicit, documented behavior of the local/ci/e2e environments.
   it('should still apply localhost defaults when deriveAppUrl is false', () => {
     const result = resolveServerUrls({ deriveAppUrl: false, env: 'ci' });
+    expect(result.appUrl).toBe('http://localhost:3001');
+    expect(result.appUrlSource).toBe('localhost-default');
+  });
+
+  it('should fall back to the localhost default when deriveAppUrl is false on a host split', () => {
+    const result = resolveServerUrls({ baseUrl: 'https://api.crm.localhost', deriveAppUrl: false, env: 'local' });
     expect(result.appUrl).toBe('http://localhost:3001');
     expect(result.appUrlSource).toBe('localhost-default');
   });
