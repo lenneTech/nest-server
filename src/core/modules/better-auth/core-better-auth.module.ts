@@ -31,12 +31,12 @@ import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { CoreBetterAuthController } from './core-better-auth.controller';
 import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
-import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, CoreBetterAuthService } from './core-better-auth.service';
+import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+import { CoreBetterAuthService } from './core-better-auth.service';
 
-/**
- * Token for injecting the better-auth instance
- */
-export const BETTER_AUTH_INSTANCE = 'BETTER_AUTH_INSTANCE';
+// Re-exported for backward compatibility: the tokens are declared in
+// core-better-auth.constants.ts so that module and service stay acyclic (SWC-safe).
+export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 
 /**
  * Options for CoreBetterAuthModule.forRoot()

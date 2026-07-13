@@ -39,6 +39,7 @@ export * from './core-better-auth-signup-validator.service';
 export * from './core-better-auth-token.helper';
 export * from './core-better-auth-user.mapper';
 export * from './core-better-auth-web.helper';
+export * from './core-better-auth.constants';
 export * from './core-better-auth.controller';
 export * from './core-better-auth.middleware';
 export * from './core-better-auth.module';

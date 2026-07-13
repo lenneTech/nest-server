@@ -13,7 +13,7 @@ import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helpe
 import { BetterAuthInstance } from './better-auth.config';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
-import { BETTER_AUTH_INSTANCE } from './core-better-auth.module';
+import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 
 /**
  * Result of a session validation
@@ -27,6 +27,10 @@ export interface SessionResult {
   };
   user: BetterAuthSessionUser | null;
 }
+
+// Re-exported for backward compatibility: the tokens are declared in
+// core-better-auth.constants.ts so that module and service stay acyclic (SWC-safe).
+export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 
 /**
  * CoreBetterAuthService provides a NestJS-friendly wrapper around the better-auth instance.
@@ -51,17 +55,6 @@ export interface SessionResult {
  * }
  * ```
  */
-/**
- * Injection token for resolved BetterAuth configuration
- */
-export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
-
-/**
- * Injection token for resolved cross-subdomain cookie domain.
- * Set during Better-Auth instance creation, undefined if disabled.
- */
-export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
-
 @Injectable()
 export class CoreBetterAuthService implements OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
