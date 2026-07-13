@@ -112,3 +112,4 @@ permissions.md
 
 # Throwaway SWC build used by check:swc-tdz (kept only on failure, for inspecting the emit)
 dist-swc-tdz
+.lt-dev/
