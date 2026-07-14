@@ -199,6 +199,8 @@ The BetterAuth module provides two RolesGuard implementations:
 **Solution:** `BetterAuthRolesGuard` with NO constructor dependencies:
 
 ```typescript
+import { getBetterAuthTokenService } from './core-better-auth.registry';
+
 @Injectable()
 export class BetterAuthRolesGuard implements CanActivate {
   // NO constructor dependencies - avoids mixin DI conflict
@@ -207,13 +209,18 @@ export class BetterAuthRolesGuard implements CanActivate {
     // Use Reflect.getMetadata directly (not NestJS Reflector)
     const roles = Reflect.getMetadata('roles', context.getHandler());
 
-    // Access services via static module reference
-    const tokenService = CoreBetterAuthModule.getTokenServiceInstance();
+    // Read the token service from the registry LEAF — never from CoreBetterAuthModule.
+    // Importing the module here re-creates the guard <-> module import cycle (see §6).
+    const tokenService = getBetterAuthTokenService();
 
     // ... role checking logic identical to RolesGuard
   }
 }
 ```
+
+> The guard must NOT do `CoreBetterAuthModule.getTokenServiceInstance()`. That static accessor is
+> still public API and still works — but calling it *from the guard* means importing the module,
+> which is exactly the cycle §6 exists to prevent. Everywhere else, the static accessor is fine.
 
 ### Guard Selection Logic
 
