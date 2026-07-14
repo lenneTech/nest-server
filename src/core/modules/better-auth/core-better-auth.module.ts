@@ -28,15 +28,34 @@ import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
+import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 import { CoreBetterAuthController } from './core-better-auth.controller';
 import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
+import {
+  getBetterAuthTokenService,
+  resetBetterAuthRegistry,
+  setBetterAuthTokenService,
+} from './core-better-auth.registry';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver';
-import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
-// Re-exported for backward compatibility: the tokens are declared in
-// core-better-auth.constants.ts so that module and service stay acyclic (SWC-safe).
-export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+/**
+ * @deprecated Import from `./core-better-auth.constants` instead. Re-exported only
+ * so existing deep imports keep working; it will be dropped in a future MINOR.
+ *
+ * Do NOT import this token from here inside the better-auth module itself — the
+ * token must come from the constants leaf, or module and service start importing
+ * each other again and SWC builds crash with a temporal-dead-zone ReferenceError
+ * (see core-better-auth.constants.ts).
+ *
+ * NOTE: the `@deprecated` tag above is documentation only — TypeScript does not
+ * honor JSDoc on an `export … from` declaration. Do NOT try to "fix" that by
+ * re-declaring the token as a local `const`: that would give the barrel two
+ * distinct declarations of the same name and turn its `export *` into a TS2308
+ * ambiguity error. The mechanical guards are `pnpm run check:swc-tdz` and
+ * `tests/unit/better-auth-di-tokens.spec.ts`.
+ */
+export { BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
 
 /**
  * Options for CoreBetterAuthModule.forRoot()
@@ -239,10 +258,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   // Safety Net: Track if forRoot() has already been called to detect duplicate registration
   private static forRootCalled = false;
   private static cachedDynamicModule: DynamicModule | null = null;
-  // Static references for lazy GraphQL driver (autoRegister: false) and BetterAuthRolesGuard
+  // Static references for lazy GraphQL driver (autoRegister: false).
+  // The BetterAuthTokenService reference lives in core-better-auth.registry.ts instead,
+  // so BetterAuthRolesGuard can read it without importing this module (cycle-free).
   private static serviceInstance: CoreBetterAuthService | null = null;
   private static userMapperInstance: CoreBetterAuthUserMapper | null = null;
-  private static tokenServiceInstance: BetterAuthTokenService | null = null;
   private static resolvedCookieDomain: string | undefined = undefined;
 
   /**
@@ -279,11 +299,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
 
   /**
    * Gets the static BetterAuthTokenService instance.
-   * Used by BetterAuthRolesGuard for token verification when user isn't already on request.
    * Safe because guards are invoked only after module initialization.
+   *
+   * Delegates to the core-better-auth.registry leaf module, which is the single
+   * source of truth. BetterAuthRolesGuard reads the registry directly instead of
+   * calling this method, so that guard and module never import each other.
    */
   static getTokenServiceInstance(): BetterAuthTokenService | null {
-    return this.tokenServiceInstance;
+    return getBetterAuthTokenService();
   }
 
   /**
@@ -315,7 +338,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       CoreBetterAuthModule.userMapperInstance = this.userMapper;
     }
     if (this.tokenService) {
-      CoreBetterAuthModule.tokenServiceInstance = this.tokenService;
+      setBetterAuthTokenService(this.tokenService);
     }
 
     // Configure rate limiter with stored config
@@ -747,6 +770,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     this.serviceInstance = null;
     this.userMapperInstance = null;
     this.resolvedCookieDomain = undefined;
+    // Reset the BetterAuthTokenService reference used by BetterAuthRolesGuard.
+    // Without this a token service from a previous testing module leaks into the next one.
+    resetBetterAuthRegistry();
     // Reset shared RolesGuard registry (shared with CoreAuthModule)
     RolesGuardRegistry.reset();
   }

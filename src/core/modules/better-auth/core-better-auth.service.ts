@@ -28,9 +28,23 @@ export interface SessionResult {
   user: BetterAuthSessionUser | null;
 }
 
-// Re-exported for backward compatibility: the tokens are declared in
-// core-better-auth.constants.ts so that module and service stay acyclic (SWC-safe).
-export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+/**
+ * @deprecated Import from `./core-better-auth.constants` instead. Re-exported only
+ * so existing deep imports keep working; it will be dropped in a future MINOR.
+ *
+ * Do NOT import these tokens from here inside the better-auth module itself — they
+ * must come from the constants leaf, or module and service start importing each
+ * other again and SWC builds crash with a temporal-dead-zone ReferenceError
+ * (see core-better-auth.constants.ts).
+ *
+ * NOTE: the `@deprecated` tag above is documentation only — TypeScript does not
+ * honor JSDoc on an `export … from` declaration. Do NOT try to "fix" that by
+ * re-declaring the tokens as local `const`s: that would give the barrel two
+ * distinct declarations of the same name and turn its `export *` into a TS2308
+ * ambiguity error. The mechanical guards are `pnpm run check:swc-tdz` and
+ * `tests/unit/better-auth-di-tokens.spec.ts`.
+ */
+export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-auth.constants';
 
 /**
  * CoreBetterAuthService provides a NestJS-friendly wrapper around the better-auth instance.

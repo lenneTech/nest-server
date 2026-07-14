@@ -43,5 +43,6 @@ export * from './core-better-auth.constants';
 export * from './core-better-auth.controller';
 export * from './core-better-auth.middleware';
 export * from './core-better-auth.module';
+export * from './core-better-auth.registry';
 export * from './core-better-auth.resolver';
 export * from './core-better-auth.service';

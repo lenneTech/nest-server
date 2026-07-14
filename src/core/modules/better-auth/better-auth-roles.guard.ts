@@ -13,7 +13,7 @@ import { ErrorCode } from '../error-code';
 import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthenticatedUser } from './better-auth.types';
-import { CoreBetterAuthModule } from './core-better-auth.module';
+import { getBetterAuthTokenService } from './core-better-auth.registry';
 
 /**
  * BetterAuth Roles Guard
@@ -33,7 +33,8 @@ import { CoreBetterAuthModule } from './core-better-auth.module';
  * IMPORTANT: This guard has NO constructor dependencies. This is intentional because
  * NestJS DI has issues resolving Reflector/ModuleRef for APP_GUARD providers in dynamic modules.
  * Instead, we use Reflect.getMetadata directly to read decorator metadata, and access
- * BetterAuthTokenService via CoreBetterAuthModule static reference.
+ * BetterAuthTokenService via the core-better-auth.registry leaf module — NOT via
+ * CoreBetterAuthModule, which would make guard and module import each other.
  */
 @Injectable()
 export class BetterAuthRolesGuard implements CanActivate {
@@ -41,12 +42,17 @@ export class BetterAuthRolesGuard implements CanActivate {
   private tokenService: BetterAuthTokenService | null = null;
 
   /**
-   * Get BetterAuthTokenService lazily from CoreBetterAuthModule
-   * This avoids DI issues while still allowing token verification
+   * Get BetterAuthTokenService lazily from the better-auth registry.
+   * This avoids DI issues while still allowing token verification.
+   *
+   * The lookup goes through core-better-auth.registry.ts rather than
+   * CoreBetterAuthModule on purpose: importing the module here would make guard
+   * and module import each other, and that cycle is one decorator away from the
+   * SWC temporal-dead-zone crash documented in core-better-auth.constants.ts.
    */
   private getTokenService(): BetterAuthTokenService | null {
     if (!this.tokenService) {
-      this.tokenService = CoreBetterAuthModule.getTokenServiceInstance();
+      this.tokenService = getBetterAuthTokenService();
     }
     return this.tokenService;
   }
