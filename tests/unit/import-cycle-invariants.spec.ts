@@ -28,14 +28,26 @@
  *
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SRC = join(__dirname, '..', '..', 'src');
 
 function read(...segments: string[]): string {
   return readFileSync(join(SRC, ...segments), 'utf8');
+}
+
+/**
+ * Strip comments before looking for imports.
+ *
+ * These leaf files document the bug they exist to prevent, so their docblocks legitimately contain
+ * the words `import`, `require()` and even whole `@example` import statements. Matching the raw
+ * source flags those as violations — the guard would fail on its own explanation. Only the code is
+ * evidence.
+ */
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
 describe('SWC/TDZ import-cycle invariants', () => {
@@ -212,20 +224,82 @@ describe('SWC/TDZ import-cycle invariants', () => {
     });
   });
 
-  describe('AI services — the type-only import is load-bearing', () => {
+  describe('every DI token lives in an import-free leaf', () => {
     /**
-     * `core-ai-interaction.service` ↔ `core-ai.service` is kept off a real runtime cycle by ONE
-     * thing: `AiInteractionRecord` is pulled in with `import type`, which both tsc and SWC erase.
-     * `core-ai.service` has a constructor `@Inject`, so `decoratorMetadata` emits `design:paramtypes`
-     * at top level — an evaluation-time deref. Widen that `import type` to a value import (an IDE
-     * "organize imports" or a lint autofix will do it without asking) and the cycle becomes real and
-     * armed at the same instant.
+     * The rule, and the reason it is a test rather than a note: a token declared in a module or a
+     * service puts an import edge between the file that DECLARES it and every file that INJECTS it.
+     * `@Inject(TOKEN)` is a constructor-parameter decorator, evaluated at class-definition time — so
+     * the moment such an edge closes a cycle, the token is read while still in its temporal dead
+     * zone and SWC-compiled builds die at startup.
+     *
+     * Both of these were live violations: `TUS_CONFIG` sat in `tus.module.ts`, and 22 `AI_*` tokens
+     * were spread across eleven `ai/services/*.service.ts` files. Neither had crashed — the graphs
+     * happened to be acyclic — but each was one back-import from arming, and `tsc`, `pnpm test` and
+     * `oxlint` are all blind to that.
      */
-    it('core-ai-interaction.service.ts imports from core-ai.service with `import type`', () => {
-      const source = read('core', 'modules', 'ai', 'services', 'core-ai-interaction.service.ts');
-      const valueImport = /^import\s+(?!type\b)[^;]*from\s+'\.\/core-ai\.service'/m;
+    const LEAVES = [
+      ['modules/tus/tus.constants.ts', 'TUS_CONFIG'],
+      ['modules/ai/core-ai.constants.ts', 'AI_CONNECTION_MODEL'],
+      ['modules/better-auth/core-better-auth.constants.ts', 'BETTER_AUTH_INSTANCE'],
+    ] as const;
 
-      expect(source).not.toMatch(valueImport);
+    it.each(LEAVES)('%s is a true leaf and declares %s', (file, token) => {
+      const source = readFileSync(join(SRC, 'core', ...file.split('/')), 'utf8');
+      const body = code(source);
+
+      expect(source).toMatch(new RegExp(`^export const ${token} = '`, 'm'));
+      // Import-free: no import, no export-from, no require. Anything else and it is not a leaf.
+      expect(body).not.toMatch(/^import\s/m);
+      expect(body).not.toMatch(/^export .* from /m);
+      expect(body).not.toMatch(/\brequire\s*\(/);
+    });
+
+    it('no DI token is declared in a *.module.ts or a *.service.ts', () => {
+      // A token here re-creates the very edge the leaves exist to remove. Re-exports are fine (they
+      // are the backward-compat shims) — only DECLARATIONS are the problem.
+      const offenders: string[] = [];
+      const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walk(full);
+          } else if (/\.(module|service)\.ts$/.test(entry.name)) {
+            const source = readFileSync(full, 'utf8');
+            // `export const SOME_TOKEN = 'string'` — the DI-token shape.
+            for (const match of source.matchAll(/^export const ([A-Z][A-Z0-9_]*) = '[^']*';/gm)) {
+              offenders.push(`${relative(SRC, full)} declares ${match[1]}`);
+            }
+          }
+        }
+      };
+      walk(join(SRC, 'core'));
+
+      expect(offenders, 'move these into an import-free *.constants.ts leaf').toEqual([]);
+    });
+  });
+
+  describe('AI services — the interaction record no longer closes a cycle', () => {
+    /**
+     * `core-ai.service` imports `core-ai-interaction.service` (it needs the class), and the
+     * interaction service needs the `AiInteractionRecord` type back. While that type lived in
+     * `core-ai.service`, the pair was a cycle held apart by ONE keyword: the `import type`, which
+     * both compilers erase. `core-ai.service` has a constructor `@Inject`, so `decoratorMetadata`
+     * emits `design:paramtypes` at top level — the exact eval-time deref that turns a cycle fatal.
+     * An IDE "organize imports" widening that import would have armed it silently.
+     *
+     * The type now lives in its own leaf, so the edge is gone rather than merely erased.
+     */
+    it('core-ai-interaction.service.ts does not import from core-ai.service at all', () => {
+      const source = read('core', 'modules', 'ai', 'services', 'core-ai-interaction.service.ts');
+
+      expect(source).not.toMatch(/from '\.\/core-ai\.service'/);
+    });
+
+    it('AiInteractionRecord is declared in the interfaces leaf', () => {
+      const leaf = read('core', 'modules', 'ai', 'interfaces', 'ai-interaction-record.interface.ts');
+
+      expect(leaf).toMatch(/^export interface AiInteractionRecord\b/m);
+      expect(code(leaf)).not.toMatch(/^import\s/m);
     });
   });
 });

@@ -3,3 +3,5 @@
 - [Doc places to check for config features](doc-surfaces-for-config-features.md) — the full set of doc surfaces a new configurable feature must update in this repo
 - [AI module doc coverage gaps](ai-module-doc-coverage-gaps.md) — AI features exported in index.ts (hooks, tool-grants, modes, attachments, claudeCli, compaction) but missing from user-facing docs
 - [Migration-guide behavior-change count trap](migration-guide-behavior-change-count-trap.md) — derive behavior changes from better-auth.config.ts/cookies.helper.ts diffs; guide Overview counts have under-reported before
+- [Review committed state vs working tree](review-committed-vs-working-tree.md) — `git status` FIRST; the author's uncommitted delta can be a better revision than the commits, and untracked keystone files ship breaks
+- [Vendor-mode atomic file-set check](vendor-mode-atomic-file-set-check.md) — every new file under src/core/ that an existing core file imports must be an enumerated atomic set in the guide

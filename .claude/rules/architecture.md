@@ -94,21 +94,31 @@ Whether such a cycle throws depends on **which module the graph is entered throu
 
 ### Status per module
 
-Repo-wide cycles went from **10 → 6** while fixing this. The six that remain are, per an SWC-emit audit, almost all **not runtime cycles at all** (type-only imports that madge reports but both compilers erase — their emits are empty).
+Repo-wide cycles went from **10 → 5**, and **every DI token in `src/core/` now lives in an import-free leaf**. The five that remain are, per an SWC-emit audit, **not runtime cycles at all** — type-only imports that madge reports but both compilers erase (their emits are empty).
 
-| Module | Status |
-|--------|--------|
-| `better-auth` | ✅ `core-better-auth.constants.ts` (tokens) + `core-better-auth.registry.ts` (static service refs, `import type` only) |
-| `tenant` | ✅ `core-tenant.enums.ts` |
-| `auth` | ✅ `interfaces/auth-provider.interface.ts` |
-| `common/inputs` | ✅ `FilterInput` + `CombinedFilterInput` merged into `filter.input.ts` (declaration order is load-bearing). Split apart, a direct `require()` of `combined-filter.input` **crashed** — it was a live bug, masked by the barrel. |
-| `common/helpers` | ✅ `id.helper.ts` (ID cluster, extracted from `db.helper`) + `clone.helper.ts` (`clone`/`deepFreeze`, extracted from `input.helper`). Both are true leaves. |
-| `common/decorators` | ✅ `restricted.decorator` is now on **zero** cycles. It took BOTH leaves: `id.helper` killed `→ db.helper → input.helper →`, `clone.helper` killed `→ core-tenant.helpers → config.service → input.helper →`. Its three exports are additionally hoisted `function` declarations (TDZ-immune) as defense in depth. |
-| `ai` | ⚠️ `core-ai-interaction.service` ↔ `core-ai.service` is kept off a real cycle **only** by an `import type` on `AiInteractionRecord`. An IDE "organize imports" could silently widen it to a value import and arm a `design:paramtypes` deref. Pinned by `tests/unit/import-cycle-invariants.spec.ts`; moving the type to a leaf would settle it. |
-| `tus` | ⚠️ `TUS_CONFIG` declared in `tus.module.ts` — currently acyclic, but unguarded |
-| `ai` (tokens) | ⚠️ `AI_*_CLASS` / `AI_*_MODEL` declared in 9 `ai/services/*.service.ts` — currently acyclic, but unguarded |
+Both invariants are enforced by `tests/unit/import-cycle-invariants.spec.ts`, which fails if a token reappears in a `*.module.ts` / `*.service.ts` or if a leaf grows an import. That matters, because the guard below catches the *crash*, not the *disarming* of a safety property — those are different things, and only the second one is silent.
 
-The ⚠️ entries are each one refactor away from the identical crash. `check:swc-tdz` will catch it if they are ever armed — but move the binding to a leaf when you touch them.
+| Module | Token / type leaf |
+|--------|-------------------|
+| `better-auth` | `core-better-auth.constants.ts` (tokens) + `core-better-auth.registry.ts` (static service refs, `import type` only, deliberately **not** barrel-exported) |
+| `ai` | `core-ai.constants.ts` (all 22 `AI_*` tokens) + `interfaces/ai-interaction-record.interface.ts` |
+| `tus` | `tus.constants.ts` (`TUS_CONFIG`) |
+| `tenant` | `core-tenant.enums.ts` |
+| `auth` | `interfaces/auth-provider.interface.ts` |
+| `common/helpers` | `id.helper.ts` (ID cluster, out of `db.helper`) + `clone.helper.ts` (`clone`/`deepFreeze`, out of `input.helper`) |
+| `common/inputs` | `FilterInput` + `CombinedFilterInput` merged into `filter.input.ts` — declaration order is load-bearing |
+| `common/decorators` | `restricted.decorator` is on **zero** cycles; its exports are hoisted `function` declarations (TDZ-immune) as defense in depth |
+
+Every old location re-exports what it lost, so no import path broke — the public API is byte-identical (472 exports, verified by diffing both versions).
+
+### What each of these actually was
+
+Worth knowing, because the pattern repeats:
+
+- **`CombinedFilterInput` was already crashing.** `require('.../combined-filter.input.js')` threw. It stayed hidden because the barrel happens to pull `filter.input` in first — a deep import or a reordering of `src/index.ts` would have surfaced it. A lazy thunk does **not** fix that shape: `emitDecoratorMetadata` still emits an eager `design:type`.
+- **`restricted.decorator` sat on two cycles at once**, in the file that drives field-level access control. Removing the `db.helper` edge felt like the fix and left the `config.service` one fully intact. **Removing one edge is not removing the cycle** — re-run madge and confirm the file appears in *zero* cycles.
+- **The AI interaction record was held apart by one keyword.** `import type` erases the edge; an IDE "organize imports" widening it to a value import would have armed a `design:paramtypes` deref, silently.
+- **`TUS_CONFIG` and the 22 `AI_*` tokens** never crashed — their graphs happened to be acyclic. Each was one back-import away, with nothing watching.
 
 ### The lesson that cost the most time
 
