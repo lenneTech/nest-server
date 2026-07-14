@@ -161,6 +161,57 @@ describe('SWC/TDZ import-cycle invariants', () => {
     });
   });
 
+  describe('the backward-compat re-exports must not be "cleaned up"', () => {
+    /**
+     * Moving a symbol to a leaf only stays non-breaking because its old home re-exports it. This
+     * package has no `exports` map and ships `src/**` as well as `dist/**`, so consumers CAN and DO
+     * deep-import these files directly — `from '@lenne.tech/nest-server/dist/core/common/helpers/db.helper'`
+     * resolves.
+     *
+     * Every one of these re-export lines therefore carries a public contract, while looking exactly
+     * like dead code to anyone tidying up imports. Deleting one is a silent breaking change for every
+     * deep importer, and nothing else in the suite would notice: the symbol is still exported from
+     * the package root, so the barrel tests stay green.
+     */
+    it.each([
+      ['helpers/db.helper.ts', ['equalIds', 'getIncludedIds', 'getObjectIds', 'getStringIds'], './id.helper'],
+      ['helpers/input.helper.ts', ['clone', 'deepFreeze'], './clone.helper'],
+    ])('%s still re-exports %j', (file, symbols, from) => {
+      const source = read('core', 'common', ...file.split('/'));
+      const reExport = new RegExp(`export \\{[^}]*\\} from '${from.replace('.', '\\.')}'`);
+      const line = source.match(reExport)?.[0] ?? '';
+
+      expect(line, `${file} must re-export from ${from}`).not.toBe('');
+      for (const symbol of symbols as string[]) {
+        expect(line, `${file} dropped the re-export of ${symbol}`).toContain(symbol);
+      }
+    });
+
+    it.each([
+      ['core-better-auth.module.ts', ['BETTER_AUTH_INSTANCE']],
+      ['core-better-auth.service.ts', ['BETTER_AUTH_CONFIG', 'BETTER_AUTH_COOKIE_DOMAIN']],
+    ])('%s still re-exports its original tokens (and only those)', (file, symbols) => {
+      const source = read('core', 'modules', 'better-auth', file);
+      const line = source.match(/export \{[^}]*\} from '\.\/core-better-auth\.constants'/)?.[0] ?? '';
+
+      expect(line, `${file} must keep its compat token re-export`).not.toBe('');
+      for (const symbol of symbols as string[]) {
+        expect(line, `${file} dropped the re-export of ${symbol}`).toContain(symbol);
+      }
+      // …and only those: widening this back out gives three valid import paths per token, which is
+      // precisely how the original module <-> service cycle was born.
+      const exported = line.match(/\{([^}]*)\}/)?.[1].split(',').map((s) => s.trim()) ?? [];
+      expect(exported.sort()).toEqual([...(symbols as string[])].sort());
+    });
+
+    it('the registry stays OUT of the better-auth barrel (setBetterAuthTokenService is not public API)', () => {
+      // Exporting it would let a consumer swap or null the token service that BetterAuthRolesGuard
+      // makes its authorization decisions with.
+      const barrel = read('core', 'modules', 'better-auth', 'index.ts');
+      expect(barrel).not.toMatch(/^export \* from '\.\/core-better-auth\.registry'/m);
+    });
+  });
+
   describe('AI services — the type-only import is load-bearing', () => {
     /**
      * `core-ai-interaction.service` ↔ `core-ai.service` is kept off a real runtime cycle by ONE

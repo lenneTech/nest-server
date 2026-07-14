@@ -43,6 +43,13 @@ export * from './core-better-auth.constants';
 export * from './core-better-auth.controller';
 export * from './core-better-auth.middleware';
 export * from './core-better-auth.module';
-export * from './core-better-auth.registry';
+// NOT exported: './core-better-auth.registry'.
+//
+// It is module-internal plumbing that only exists so BetterAuthRolesGuard can reach
+// BetterAuthTokenService without importing CoreBetterAuthModule (see .claude/rules/better-auth.md
+// §6). Re-exporting it would put `setBetterAuthTokenService()` on the public API — letting a
+// consumer swap or null the very token service the guard makes its authorization decisions with.
+// Consumers that need the instance already have the public, read-only
+// `CoreBetterAuthModule.getTokenServiceInstance()`.
 export * from './core-better-auth.resolver';
 export * from './core-better-auth.service';
