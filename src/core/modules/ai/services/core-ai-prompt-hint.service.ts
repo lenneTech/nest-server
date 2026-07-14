@@ -9,11 +9,14 @@ import { CoreAiPromptHintCreateInput } from '../inputs/core-ai-prompt-hint-creat
 import { CoreAiPromptHintInput } from '../inputs/core-ai-prompt-hint.input';
 import { AiPromptHintDocument, CoreAiPromptHint } from '../models/core-ai-prompt-hint.model';
 
-/** Mongoose injection token for the prompt-hint model. */
-export const AI_PROMPT_HINT_MODEL = 'AiPromptHint';
+import { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants';
 
-/** DI token for the prompt-hint model constructor. */
-export const AI_PROMPT_HINT_CLASS = 'AI_PROMPT_HINT_CLASS';
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants';
 
 /** A failure signal recorded by the orchestrator for the learning loop. */
 export interface AiPromptFeedbackSignal {

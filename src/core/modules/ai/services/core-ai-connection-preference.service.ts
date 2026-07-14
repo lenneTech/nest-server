@@ -10,10 +10,14 @@ import {
   CoreAiConnectionPreference,
 } from '../models/core-ai-connection-preference.model';
 
-/** Mongoose injection token for the connection-preference model. */
-export const AI_CONNECTION_PREFERENCE_MODEL = 'AiConnectionPreference';
-/** DI token for the connection-preference model constructor. */
-export const AI_CONNECTION_PREFERENCE_CLASS = 'AI_CONNECTION_PREFERENCE_CLASS';
+import { AI_CONNECTION_PREFERENCE_CLASS, AI_CONNECTION_PREFERENCE_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_CONNECTION_PREFERENCE_CLASS, AI_CONNECTION_PREFERENCE_MODEL } from '../core-ai.constants';
 
 /**
  * CRUD + lookup for {@link CoreAiConnectionPreference} (tenant/user connection

@@ -10,8 +10,14 @@ import { CoreAiPromptCreateInput } from '../inputs/core-ai-prompt-create.input';
 import { CoreAiPromptUpdateInput } from '../inputs/core-ai-prompt-update.input';
 import { AiPromptDocument, CoreAiPrompt } from '../models/core-ai-prompt.model';
 
-export const AI_PROMPT_MODEL = 'AiPrompt';
-export const AI_PROMPT_CLASS = 'AI_PROMPT_CLASS';
+import { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants';
 
 const VALID_SCOPES = new Set(['tenant', 'user']);
 

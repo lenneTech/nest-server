@@ -6,10 +6,14 @@ import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
 import { AiToolGrantDocument, CoreAiToolGrant } from '../models/core-ai-tool-grant.model';
 
-/** Mongoose injection token. */
-export const AI_TOOL_GRANT_MODEL = 'AiToolGrant';
-/** DI token for the model constructor. */
-export const AI_TOOL_GRANT_CLASS = 'AI_TOOL_GRANT_CLASS';
+import { AI_TOOL_GRANT_CLASS, AI_TOOL_GRANT_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_TOOL_GRANT_CLASS, AI_TOOL_GRANT_MODEL } from '../core-ai.constants';
 
 /** Scope of a persisted permission decision. */
 export type AiToolGrantScope = 'conversation' | 'tenant' | 'user';

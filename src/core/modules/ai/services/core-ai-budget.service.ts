@@ -11,10 +11,14 @@ import { CoreAiBudgetLimitInput } from '../inputs/core-ai-budget-limit.input';
 import { AiBudgetLimitDocument, CoreAiBudgetLimit } from '../models/core-ai-budget-limit.model';
 import { CoreAiBudgetSummary, CoreAiUsageInfo, CoreAiUsageScope } from '../models/core-ai-usage-info.model';
 
-/** Mongoose injection token for the budget-limit model. */
-export const AI_BUDGET_LIMIT_MODEL = 'AiBudgetLimit';
-/** DI token for the budget-limit model constructor. */
-export const AI_BUDGET_LIMIT_CLASS = 'AI_BUDGET_LIMIT_CLASS';
+import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants';
 
 /** Resolved effective limit for a scope. */
 export interface ResolvedAiBudgetLimit {
