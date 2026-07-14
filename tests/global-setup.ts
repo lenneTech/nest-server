@@ -1,7 +1,7 @@
 import { MongoClient } from 'mongodb';
 
 import envConfig from '../src/config.env';
-import { splitMongoUri } from './db-lifecycle.reporter';
+import { SAFE_TEST_DB_PATTERN, splitMongoUri } from './db-lifecycle.reporter';
 
 /**
  * Vitest global setup: give every test run its OWN database.
@@ -24,12 +24,27 @@ import { splitMongoUri } from './db-lifecycle.reporter';
  *
  * An externally provided MONGODB_URI (e.g. CI service container) opts out of
  * the unique-name scheme: that URI is used as-is and dropped up front, exactly
- * like the previous behavior.
+ * like the previous behavior — but only if it names a disposable test database
+ * (see the guard below).
  */
 export async function setup() {
   if (process.env.MONGODB_URI) {
     const connection = await MongoClient.connect(process.env.MONGODB_URI);
     const db = connection.db();
+
+    // Never drop a database that is not recognizably a test database. This branch drops
+    // whatever MONGODB_URI points at, and that variable is not always a test DB: a running
+    // `lt dev` session exports it pointing at the project's DEVELOPMENT database, so without
+    // this guard, running the suite from that shell silently wipes the developer's data.
+    if (!SAFE_TEST_DB_PATTERN.test(db.databaseName)) {
+      await connection.close();
+      throw new Error(
+        `Refusing to dropDatabase("${db.databaseName}"): not a recognized test database `
+          + `(expected a name matching ${SAFE_TEST_DB_PATTERN}). `
+          + 'MONGODB_URI must point at a disposable test database.',
+      );
+    }
+
     await db.dropDatabase();
     console.info(`Dropped externally configured test database: ${db.databaseName}`);
     await connection.close();

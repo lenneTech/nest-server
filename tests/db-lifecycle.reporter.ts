@@ -9,6 +9,16 @@ import { MongoClient } from 'mongodb';
 export const RUN_DB_PATTERN = /-run-(\d+)-p(\d+)$/;
 
 /**
+ * A database name MUST match this before anything here is willing to drop it.
+ *
+ * The safety net for a MONGODB_URI that does not point where the test setup
+ * assumes: a running `lt dev` session exports it pointing at the project's
+ * DEVELOPMENT database, so without this guard a test run started from that
+ * shell would silently wipe the developer's data.
+ */
+export const SAFE_TEST_DB_PATTERN = /(e2e|ci|test|acctest)/i;
+
+/**
  * Age limit for stale run databases. Normally staleness is detected via a dead
  * PID; this cap only exists for the rare case of PID recycling (the old PID now
  * belongs to an unrelated long-lived process, so the DB would never be
@@ -137,7 +147,8 @@ export default class DbLifecycleReporter {
             const legacy = name.match(legacyTimestamped);
             stale = legacy ? Date.now() - Number(legacy[1]) > 60 * 60 * 1000 : false;
           }
-          if (stale) {
+          // Belt and braces: never drop anything that is not recognizably a test database.
+          if (stale && SAFE_TEST_DB_PATTERN.test(name)) {
             await connection.db(name).dropDatabase();
             dropped.push(name);
           }
