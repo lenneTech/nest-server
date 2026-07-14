@@ -45,15 +45,25 @@
  * Brute force is the feature.
  */
 import { fork } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
-import { dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SELF = fileURLToPath(import.meta.url);
 const ROOT = join(dirname(SELF), '..');
-const DIST = join(ROOT, 'dist');
+
+/**
+ * A THROWAWAY output dir, deliberately not `dist/`.
+ *
+ * `dist/` is the real artifact: tsc-built, plus the copied types, templates and type references that
+ * `pnpm run build` adds, and it is what `pnpm start:prod` runs. Writing the SWC build there meant a
+ * standalone `pnpm run check:swc-tdz` silently replaced the user's build with a partial SWC one, and
+ * it coupled the check chain to a specific step order for no reason. With its own directory the
+ * guard is side-effect free and order-independent. See tsconfig.swc-tdz.json.
+ */
+const DIST = join(ROOT, 'dist-swc-tdz');
 
 /**
  * Two kinds of file are deliberately not loaded. Both are excluded because requiring them proves
@@ -69,10 +79,30 @@ const DIST = join(ROOT, 'dist');
  *    entire import graph is covered anyway: every module it pulls in is checked individually.
  */
 const EXCLUDED_DIR_SEGMENTS = ['/templates/'];
-const EXCLUDED_FILES = [join(DIST, 'main.js')];
+
+// Matched by BASENAME, not by an absolute path. A path literal (`join(DIST, 'main.js')`) silently
+// stops matching the moment the emit layout shifts (e.g. to `<out>/src/main.js`) — and the failure
+// mode of missing this one is not a red check, it is a child that BOOTS A NEST SERVER and hangs.
+const EXCLUDED_BASENAMES = ['main.js'];
+
+/**
+ * A floor on how many modules must actually be loaded.
+ *
+ * Without it, an empty or mis-emitted output directory means `files = []`, every shard gets nothing
+ * to do, no failure is reported, and the script prints "0 modules load clean" and exits 0. The one
+ * check that exists because everything else is blind to this bug class would itself go quietly
+ * blind. The number is a sanity floor, not a target — the tree has ~325 modules.
+ */
+const MIN_EXPECTED_MODULES = 200;
+
+/**
+ * Hard ceiling per shard. A healthy shard finishes in a couple of seconds; this only ever fires when
+ * a module blocks inside `require()`, which must fail loudly rather than hang the whole check.
+ */
+const SHARD_TIMEOUT_MS = 120_000;
 
 function isExcluded(file) {
-  if (EXCLUDED_FILES.includes(file)) {
+  if (EXCLUDED_BASENAMES.includes(basename(file))) {
     return true;
   }
   const posix = file.split(sep).join('/');
@@ -118,15 +148,19 @@ if (process.send && process.env.SWC_TDZ_SHARD) {
     }
   }
 
-  process.send({ failures });
-  process.exit(0);
+  // Exit only once the message is actually flushed. `process.exit()` immediately after `send()` can
+  // truncate it on some platforms, and the parent treats a missing report as a dead shard — a
+  // flaky red on a healthy run.
+  process.send({ failures }, () => process.exit(0));
 }
 
 // ---------------------------------------------------------------------------------------------
 // Parent: shard the file list, fan out, aggregate.
 // ---------------------------------------------------------------------------------------------
 if (!existsSync(DIST)) {
-  process.stderr.write('[swc-tdz] dist/ not found — run the SWC build first.\n');
+  process.stderr.write(
+    `[swc-tdz] ${relative(ROOT, DIST)}/ not found — run \`nest build -b swc -p tsconfig.swc-tdz.json\` first.\n`,
+  );
   process.exit(1);
 }
 
@@ -137,6 +171,17 @@ const files = allFiles.filter((file) => !isExcluded(file));
 // Never let an exclusion pass silently — a skipped file must be visible, or "all green" is a lie.
 for (const file of excluded) {
   process.stdout.write(`[swc-tdz] skipped (not a loadable library module): ${relative(ROOT, file)}\n`);
+}
+
+// A guard that checked nothing must not report success. See MIN_EXPECTED_MODULES.
+if (files.length < MIN_EXPECTED_MODULES) {
+  process.stderr.write(
+    `\n[swc-tdz] only ${files.length} loadable modules found in ${relative(ROOT, DIST)}/ ` +
+      `(expected at least ${MIN_EXPECTED_MODULES}).\n` +
+      '  Refusing to report success on a build that looks empty or mis-emitted — this guard is the\n' +
+      '  only thing that sees SWC temporal-dead-zone crashes, so it must never pass by accident.\n\n',
+  );
+  process.exit(1);
 }
 
 /**
@@ -176,17 +221,35 @@ const results = await Promise.all(
           stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
         });
 
+        // A child can BLOCK inside require() — a module that opens a socket, waits on stdin, or
+        // (if an exclusion ever stops matching) boots a server. With no timer the parent would sit
+        // in Promise.all forever, and the check would hang with no output and no error: exactly the
+        // failure mode this guard exists to make impossible. Fail loudly instead.
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(
+            new Error(
+              `shard timed out after ${SHARD_TIMEOUT_MS / 1000}s — a module is blocking inside require(). ` +
+                'Loading it must not start a server, open a socket, or wait on input.',
+            ),
+          );
+        }, SHARD_TIMEOUT_MS);
+
         let reported = null;
         child.on('message', (message) => {
           reported = message;
         });
-        child.on('error', reject);
+        child.on('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
         child.on('exit', (code) => {
+          clearTimeout(timer);
           if (reported) {
             resolve(reported.failures);
           } else {
             // A child that dies without reporting is itself a finding: some module in its slice took
-            // the process down (a top-level crash, an `process.exit`, an OOM). Never swallow it.
+            // the process down (a top-level crash, a `process.exit`, an OOM). Never swallow it.
             reject(new Error(`shard died without reporting (exit code ${code})`));
           }
         });
@@ -207,10 +270,17 @@ if (failures.length) {
     '\n  A "Cannot access \'X\' before initialization" means an import cycle is dereferenced at\n' +
       '  module-evaluation time (decorator argument, design:type metadata, static field initializer).\n' +
       '  Break the cycle — a lazy thunk is usually NOT enough, because emitDecoratorMetadata still\n' +
-      '  emits an eager design:type. See .claude/rules/architecture.md.\n\n',
+      '  emits an eager design:type. See .claude/rules/architecture.md.\n\n' +
+      `  The failing SWC build is kept in ${relative(ROOT, DIST)}/ so you can inspect the emit.\n\n`,
   );
+  // Deliberately NOT cleaned up on failure: the emitted JS is the evidence — it shows exactly where
+  // the cyclic binding is dereferenced (top-level statement vs. inside a function body).
   process.exit(1);
 }
+
+// Clean up on success: this directory is a throwaway, and leaving a second build tree around invites
+// someone to mistake it for the real one.
+rmSync(DIST, { force: true, recursive: true });
 
 process.stdout.write(
   `[swc-tdz] ${files.length} modules load clean as standalone entry points (${shardCount} shards)\n`,
