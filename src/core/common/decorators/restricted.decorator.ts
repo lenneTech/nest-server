@@ -1,10 +1,35 @@
+/**
+ * NOTE ON `export function` VS `export const` (do not "modernize" these to arrow functions).
+ *
+ * `Restricted`, `getRestricted` and `checkRestricted` are declared as FUNCTION DECLARATIONS on
+ * purpose. This file sits on an import cycle:
+ *
+ *   restricted.decorator → helpers/db.helper → helpers/input.helper → restricted.decorator
+ *
+ * so when `input.helper`'s module body runs, THIS module is still mid-evaluation. A `const` arrow is
+ * a temporal-dead-zone binding: any evaluation-time read of it from `input.helper` (a top-level
+ * alias, an `@Restricted`-decorated class, `design:type` metadata) would throw under SWC → CommonJS:
+ *
+ *   ReferenceError: Cannot access 'checkRestricted' before initialization
+ *
+ * Function declarations are HOISTED and fully initialized before any module body runs, so they are
+ * immune. `input.helper` today only calls `checkRestricted` from inside a function body, which is
+ * why nothing has crashed — but that is one careless top-level line away, in the file that drives
+ * field-level access control. The hoisting removes the hazard rather than relying on vigilance.
+ *
+ * The proper fix is to break the cycle (extract the ID helpers out of `db.helper` into a leaf), and
+ * that is worth doing. Until then, `pnpm run check:swc-tdz` is the mechanical guard.
+ * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
+ */
 import { UnauthorizedException } from '@nestjs/common';
 import 'reflect-metadata';
 import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
-import { equalIds, getIncludedIds } from '../helpers/db.helper';
+// Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
+// imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
+import { equalIds, getIncludedIds } from '../helpers/id.helper';
 import { RequestContext } from '../services/request-context.service';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
 import { checkRoleAccess } from '../../modules/tenant/core-tenant.helpers';
@@ -40,9 +65,9 @@ export type RestrictedType = (
  *    properties of the processed item, which is specified by the value of `memberOf`
  *    Via processType the restriction can be set for input or output only
  */
-export const Restricted = (...rolesOrMember: RestrictedType): ClassDecorator & PropertyDecorator => {
+export function Restricted(...rolesOrMember: RestrictedType): ClassDecorator & PropertyDecorator {
   return Reflect.metadata(restrictedMetaKey, rolesOrMember);
-};
+}
 
 /**
  * Cache for Restricted metadata — decorators are static, metadata never changes at runtime.
@@ -60,7 +85,7 @@ const restrictedMetadataCache = new WeakMap<object, Map<string, RestrictedType>>
 /**
  * Get restricted data for (property of) object
  */
-export const getRestricted = (object: unknown, propertyKey?: string): RestrictedType => {
+export function getRestricted(object: unknown, propertyKey?: string): RestrictedType {
   if (!object) {
     return null;
   }
@@ -94,13 +119,13 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
 
   classCache.set(cacheKey, metadata);
   return metadata;
-};
+}
 
 /**
  * Check data for restricted properties (properties with `Restricted` decorator)
  * For special Roles and member of group checking the dbObject must be set in options
  */
-export const checkRestricted = (
+export function checkRestricted(
   data: any,
   user: {
     emailVerified?: any;
@@ -125,7 +150,7 @@ export const checkRestricted = (
     throwError?: boolean;
   } = {},
   processedObjects: WeakSet<object> = new WeakSet(),
-) => {
+) {
   // Act like Roles handling: checkObjectItself = false & mergeRoles = true
   // For Input: throwError = true
   // For Output: throwError = false
@@ -394,4 +419,4 @@ export const checkRestricted = (
 
   // Return processed data
   return data;
-};
+}

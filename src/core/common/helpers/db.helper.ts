@@ -1,5 +1,4 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
-import _ = require('lodash');
 import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
@@ -7,7 +6,18 @@ import { CoreModel } from '../models/core-model.model';
 import { FieldSelection } from '../types/field-selection.type';
 import { IdsType } from '../types/ids.type';
 import { StringOrObjectId } from '../types/string-or-object-id.type';
+import { equalIds, getObjectIds, getStringIds } from './id.helper';
 import { removePropertiesDeep } from './input.helper';
+
+/**
+ * The ID helpers moved to `./id.helper` and are re-exported here so every existing import path keeps
+ * working. They were extracted because `restricted.decorator` needs `equalIds` / `getIncludedIds`,
+ * and pulling them from HERE put that decorator on a runtime import cycle
+ * (restricted.decorator → db.helper → input.helper → restricted.decorator) that is one top-level
+ * line away from an SWC temporal-dead-zone crash. `id.helper` imports no framework code, so it can
+ * never be part of a cycle. Do NOT move them back.
+ */
+export { equalIds, getIncludedIds, getObjectIds, getStringIds } from './id.helper';
 
 // =====================================================================================================================
 // Export functions
@@ -71,7 +81,9 @@ export function addIds(
   // Convert array
   if (['object', 'string'].includes(convert as string)) {
     for (let i = 0; i < result.length; i++) {
-      result[i] = convert === 'string' ? getStringId(result[i]) : getObjectIds(result[i]);
+      // getStringIds() delegates to the (module-private) getStringId() for a non-array argument, so
+      // this is the same conversion the removed private helper performed — result[i] is a single ID.
+      result[i] = convert === 'string' ? getStringIds(result[i]) : getObjectIds(result[i]);
     }
   }
 
@@ -95,20 +107,6 @@ export function checkStringIds(ids: string | string[]): boolean {
     return true;
   } catch (e) {}
   return false;
-}
-
-/**
- * Checks if all IDs are equal
- */
-export function equalIds(...ids: IdsType[]): boolean {
-  if (!ids) {
-    return false;
-  }
-  const compare = getStringIds(ids[0]);
-  if (!compare) {
-    return false;
-  }
-  return ids.every((id) => getStringIds(id) === compare);
 }
 
 /**
@@ -161,48 +159,6 @@ export function getElementsViaIds<T = any>(
   return elements;
 }
 /**
- * Get included ids
- * @param includes IdsType, which should be checked if it contains the ID
- * @param ids IdsType, which should be included
- * @param convert If set the result array will be converted to pure type String array or ObjectId array
- * @return IdsType with IDs which are included, undefined if includes or ids are missing or null if none is included
- */
-export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'string'): string[];
-export function getIncludedIds(includes: IdsType, ids: IdsType, convert?: 'object'): Types.ObjectId[];
-
-export function getIncludedIds<T = IdsType>(
-  includes: IdsType,
-  ids: IdsType | T,
-  convert?: 'object' | 'string',
-): null | T[] | undefined {
-  if (!includes || !ids) {
-    return undefined;
-  }
-
-  if (!Array.isArray(includes)) {
-    includes = [includes];
-  }
-
-  if (!Array.isArray(ids)) {
-    ids = [ids];
-  }
-
-  let result = [];
-  const includesStrings = getStringIds(includes);
-  for (const id of ids) {
-    if (includesStrings.includes(getStringIds(id))) {
-      result.push(id);
-    }
-  }
-
-  if (convert) {
-    result = convert === 'string' ? getStringIds(result) : getObjectIds(result);
-  }
-
-  return result.length ? result : null;
-}
-
-/**
  * Get indexes of IDs in an array
  */
 export function getIndexesViaIds(ids: IdsType, array: IdsType): number[] {
@@ -250,18 +206,6 @@ export function getNextFieldNodes(nodes: readonly SelectionNode[]): FieldNode[] 
     }
   }
   return result;
-}
-
-/**
- * Convert string(s) to ObjectId(s)
- */
-export function getObjectIds(ids: any[]): Types.ObjectId[];
-export function getObjectIds(ids: any): Types.ObjectId;
-export function getObjectIds<T extends any | any[]>(ids: T): Types.ObjectId | Types.ObjectId[] {
-  if (Array.isArray(ids)) {
-    return ids.map((id) => new Types.ObjectId(getStringId(id)));
-  }
-  return new Types.ObjectId(getStringId(ids));
 }
 
 /**
@@ -354,55 +298,6 @@ export function getPopulatOptionsFromSelections(selectionNodes: readonly Selecti
   }
 
   return populateOptions;
-}
-
-/**
- * Get IDs from string of ObjectId array in a flat string array
- */
-export function getStringIds(elements: any[], options?: { deep?: boolean; unique?: boolean }): string[];
-
-export function getStringIds(elements: any, options?: { deep?: boolean; unique?: boolean }): string;
-
-export function getStringIds<T extends any | any[]>(
-  elements: T,
-  options?: { deep?: boolean; unique?: boolean },
-): string | string[] {
-  // Process options
-  const { deep, unique } = {
-    deep: false,
-    unique: false,
-    ...options,
-  };
-
-  // Check elements
-  if (!elements) {
-    return elements as any;
-  }
-
-  // Init ids
-  let ids = [];
-
-  // Process non array
-  if (!Array.isArray(elements)) {
-    return getStringId(elements);
-  }
-
-  // Process array
-  for (const element of elements) {
-    if (Array.isArray(element)) {
-      if (deep) {
-        ids = ids.concat(getStringIds(element, { deep }));
-      }
-    } else {
-      const id = getStringId(element);
-      if (id) {
-        ids.push(id);
-      }
-    }
-  }
-
-  // Return (unique) ID array
-  return unique ? _.uniq(ids) : ids;
 }
 
 /**
@@ -664,45 +559,3 @@ export async function setPopulates<T = Document | Query<any, any>>(
 // =====================================================================================================================
 // Not exported helper functions
 // =====================================================================================================================
-/**
- * Get ID of element as string
- */
-function getStringId(element: any): string {
-  // Check element
-  if (!element) {
-    return element;
-  }
-
-  // Buffer handling
-  if (element instanceof Buffer) {
-    return element.toString();
-  }
-
-  // String handling
-  if (typeof element === 'string') {
-    return element;
-  }
-
-  // Object handling
-  if (typeof element === 'object') {
-    if (element instanceof Types.ObjectId) {
-      return element.toHexString();
-    }
-
-    if (element.id) {
-      if (element.id instanceof Buffer && element.toHexString) {
-        return element.toHexString();
-      }
-      return getStringId(element.id);
-    } else if (element._id) {
-      return getStringId(element._id);
-    }
-  }
-
-  // Other types
-  if (typeof element.toString === 'function') {
-    return element.toString();
-  }
-
-  return undefined;
-}

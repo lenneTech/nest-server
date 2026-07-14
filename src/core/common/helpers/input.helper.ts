@@ -3,16 +3,23 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
 import { Kind } from 'graphql/index';
-import * as inspector from 'inspector';
-import _ = require('lodash');
-import rfdc = require('rfdc');
-import * as util from 'util';
 
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
+import { clone } from './clone.helper';
 import { merge } from './config.helper';
-import { equalIds } from './db.helper';
+import { equalIds } from './id.helper';
+
+/**
+ * `clone` and `deepFreeze` moved to `./clone.helper` and are re-exported here so every existing
+ * import path keeps working. They were extracted because `config.service` needs `clone`/`deepFreeze`,
+ * and pulling them from HERE put it on a runtime import cycle
+ * (restricted.decorator → core-tenant.helpers → config.service → input.helper → restricted.decorator)
+ * that is one top-level line away from an SWC temporal-dead-zone crash. `clone.helper` imports no
+ * framework code, so it can never be part of a cycle. Do NOT move them back.
+ */
+export { clone, deepFreeze } from './clone.helper';
 
 /**
  * Helper class for inputs
@@ -342,89 +349,10 @@ export function checkAndGetDate(input: any): Date {
 }
 
 /**
- * Clone object
- * @param object Any object
- * @param options Finetuning of rfdc cloning
- * @param options.checkResult Whether to compare object and cloned object via JSON.stringify and try alternative cloning
- *                            methods if they are not equal
- * @param options.circles Keeping track of circular references will slow down performance with an additional 25% overhead.
- *                        Even if an object doesn't have any circular references, the tracking overhead is the cost.
- *                        By default if an object with a circular reference is passed to rfdc, it will throw
- *                        (similar to how JSON.stringify would throw). Use the circles option to detect and preserve
- *                        circular references in the object. If performance is important, try removing the circular
- *                        reference from the object (set to undefined) and then add it back manually after cloning
- *                        instead of using this option.
- * @param options.debug Whether to shoe console.debug messages
- * @param options.proto Copy prototype properties as well as own properties into the new object.
- *                      It's marginally faster to allow enumerable properties on the prototype to be copied into the
- *                      cloned object (not onto it's prototype, directly onto the object).
- */
-export function clone(object: any, options?: { checkResult?: boolean; circles?: boolean; proto?: boolean }) {
-  const config = {
-    checkResult: true,
-    circles: true,
-    debug: inspector.url() !== undefined,
-    proto: false,
-    ...options,
-  };
-
-  try {
-    const cloned = rfdc(config)(object);
-    if (config.checkResult && !util.isDeepStrictEqual(object, cloned)) {
-      throw new Error('Cloned object differs from original object');
-    }
-    return cloned;
-  } catch (e) {
-    if (!config.circles) {
-      if (config.debug) {
-        console.debug(e, config, object, 'automatic try to use rfdc with circles');
-      }
-      try {
-        const clonedWithCircles = rfdc({
-          ...config,
-          circles: true,
-        })(object);
-        if (config.checkResult && !util.isDeepStrictEqual(object, clonedWithCircles)) {
-          throw new Error('Cloned object differs from original object', { cause: e });
-        }
-        return clonedWithCircles;
-      } catch (innerError) {
-        if (config.debug) {
-          console.debug(innerError, 'rfcd with circles did not work => automatic use of _.clone!');
-        }
-        return _.cloneDeep(object);
-      }
-    } else {
-      if (config.debug) {
-        console.debug(e, config, object, 'automatic try to use _.clone instead rfdc');
-      }
-      return _.cloneDeep(object);
-    }
-  }
-}
-
-/**
  * Combines objects to a new single plain object and ignores undefined
  */
 export function combinePlain(...args: Record<any, any>[]): any {
   return assignPlain({}, ...args);
-}
-
-/**
- * Get deep frozen object
- */
-export function deepFreeze(object: any, visited: WeakSet<object> = new WeakSet()) {
-  if (!object || typeof object !== 'object') {
-    return object;
-  }
-  if (visited.has(object)) {
-    return object;
-  }
-  visited.add(object);
-  for (const [key, value] of Object.entries(object)) {
-    object[key] = deepFreeze(value, visited);
-  }
-  return Object.freeze(object);
 }
 
 /**
