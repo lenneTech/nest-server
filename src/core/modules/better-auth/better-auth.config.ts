@@ -476,6 +476,22 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
       finalConfig.advanced = {
         ...(betterAuthConfig.advanced as Record<string, unknown>),
         ...(optionsAdvanced as Record<string, unknown>),
+        // `defaultCookieAttributes` needs a DEEP merge, not the shallow spread above.
+        // It is the key that carries our restored `secure: true` (see the `useSecureCookies: false`
+        // block), so a consumer setting it for an entirely unrelated reason — `{ partitioned: true }`,
+        // `{ domain: … }` — would wholesale-replace the object and silently strip `Secure` from every
+        // session cookie the native handlers forward (2FA verify, social callback, magic link) on an
+        // https deployment. Session-establishing cookies, in the clear, with no error anywhere.
+        // Re-apply `secure: true` as the BASE and let the consumer's keys spread over it, so an
+        // EXPLICIT `secure: false` still wins while an unrelated key can no longer clobber it.
+        ...(secureCookies && {
+          defaultCookieAttributes: {
+            secure: true,
+            ...((optionsAdvanced as Record<string, unknown>).defaultCookieAttributes as
+              | Record<string, unknown>
+              | undefined),
+          },
+        }),
       };
     }
   } else {
