@@ -11,11 +11,14 @@ import { CoreAiSlotCreateInput } from '../inputs/core-ai-slot-create.input';
 import { CoreAiSlotUpdateInput } from '../inputs/core-ai-slot-update.input';
 import { AiSlotDocument, CoreAiSlot } from '../models/core-ai-slot.model';
 
-/** Mongoose injection token for the slot model. */
-export const AI_SLOT_MODEL = 'AiSlot';
+import { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants';
 
-/** DI token for the slot model constructor. */
-export const AI_SLOT_CLASS = 'AI_SLOT_CLASS';
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants';
 
 /** A resolved prompt fragment ready for placeholder rendering + assembly. */
 export interface ResolvedPromptFragment {

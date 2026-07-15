@@ -161,6 +161,29 @@ function parseLint(out) {
 // ── audit (faithful: runs the project's OWN audit command) ──────────────────
 const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
 
+// The audit could not RUN (as opposed to running and finding vulnerabilities).
+//
+// npm has retired the `/-/npm/v1/security/audits/quick` + `/audits` endpoints (both now 410), and
+// every pnpm version — up to and including 11.13.0 — still calls them rather than the working
+// `/security/advisories/bulk` endpoint. So `pnpm audit` currently exits non-zero for EVERY project,
+// everywhere, with no vulnerability actually reported. Blocking `check` on that is wrong twice over:
+// it is not a finding, and no version bump fixes it — it would just paint every `check` red until
+// pnpm ships the migration, which trains people to ignore a red audit (the real hazard).
+//
+// This matches ONLY that infrastructure signature. A genuine vulnerability produces parseable JSON
+// counts (handled below, still fatal), and any other non-zero exit stays fatal too — we degrade the
+// retired-endpoint case specifically, never "audit failed for some reason".
+//
+// Why not fall back to `npm audit`? It reaches the working bulk endpoint, but it audits the WRONG
+// tree: npm resolves dependencies from package.json alone and ignores both pnpm-lock.yaml and all
+// of `pnpm.overrides` — which is exactly where this repo pins vulnerable transitive deps onto
+// patched versions. A forced `npm audit` here reports ~18 phantom findings for CVEs the overrides
+// already fix in the real install. A misleading red is worse than an honest "could not run"; the
+// real fix is upstream pnpm adopting the bulk endpoint, or a pnpm-lock-aware scanner (osv-scanner).
+function isAuditEndpointUnavailable(out) {
+  return /ERR_PNPM_AUDIT_BAD_RESPONSE/.test(out) || (/\baudit\b/i.test(out) && /\bretired\b/i.test(out));
+}
+
 // Run the audit command exactly as the check chain defines it (same scope /
 // --prod / --audit-level), only appending --json for the counts. The gate is
 // the command's own exit code, so `check` blocks precisely when a bare
@@ -176,7 +199,10 @@ async function runAudit(auditCmd) {
     /* fall through to raw reason */
   }
   const total = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
-  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total };
+  // Non-zero exit with no parseable counts AND the retired-endpoint signature = infrastructure
+  // failure, not a finding. Surface it loudly (degraded) but do not block.
+  const degraded = code !== 0 && !counts && isAuditEndpointUnavailable(out);
+  return { auditCmd, blocking: code !== 0 && !degraded, counts, degraded, reason: counts ? null : out, total };
 }
 
 // ── command runner ─────────────────────────────────────────────────────────
@@ -522,9 +548,17 @@ async function main() {
         started,
       );
     }
-    console.log(
-      `${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}`,
-    );
+    if (audit.degraded) {
+      // Not green: audit could not run. Yellow ⚠, never a green ✓ — a ✓ here would read as
+      // "no vulnerabilities", which is a claim we did not verify.
+      console.log(
+        `${C.yellow("⚠")} audit  ${C.yellow("could not run — npm retired the audit endpoint pnpm uses; not blocking")} ${C.dim(`(${fmtDuration(dur)})`)}`,
+      );
+    } else {
+      console.log(
+        `${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}`,
+      );
+    }
     results.push({ audit, kind: "audit" });
   }
 
@@ -614,7 +648,13 @@ function report(started, results) {
     `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
   );
   console.log(
-    `  ${audit?.counts ? renderVulnLine(audit.counts) : C.dim(audit ? "counts unavailable" : "—")}`,
+    `  ${
+      audit?.counts
+        ? renderVulnLine(audit.counts)
+        : audit?.degraded
+          ? C.yellow("audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT checked")
+          : C.dim(audit ? "counts unavailable" : "—")
+    }`,
   );
 
   console.log(`\n${C.bold("Tests")}`);

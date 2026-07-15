@@ -5,23 +5,49 @@ import { defineConfig } from 'vitest/config';
 
 import { E2E_TEST_INCLUDE } from './vitest.include-globs';
 
-// Opt-in low-resource mode — for running MANY e2e suites at once on one machine
-// (e.g. several parallel `lt dev` / `lt ticket` environments). Set
-// CHECK_LOW_RESOURCE=1 to cap parallel forks and raise timeouts so the suites
-// share CPU/mongod without starving each other into request timeouts (the
-// failure mode observed when 2+ full e2e runs overlap — tests hang past the
-// 30s testTimeout and auth queries fail as 401s). Unset (default) = full speed,
-// no cap. Optionally pin the fork cap with CHECK_LOW_RESOURCE_FORKS=<n>.
+// Low-resource mode — caps parallel forks and raises timeouts so many e2e suites can share one
+// machine's CPU and mongod without starving each other. The failure mode it prevents is real and
+// nasty: when two full e2e runs overlap (several `lt dev` / `lt ticket` environments, or simply a
+// forgotten background run), requests queue past the 30s testTimeout, auth queries come back as
+// 401s, and supertest connections die with `socket hang up` — all of which read like genuine
+// product bugs while being pure resource starvation.
+//
+// It used to be OPT-IN via CHECK_LOW_RESOURCE=1, and that is the wrong default: the mode only helps
+// the developer who already knows the env var exists, which is exactly the developer who does not
+// need it. Whoever gets bitten is the one who has never heard of it, staring at a "flaky" auth test.
+//
+// So it now AUTO-ENABLES when the machine is already loaded, using the 1-minute load average
+// normalised per core. Explicit settings still win, in both directions:
+//
+//   CHECK_LOW_RESOURCE=1 / true  -> force on   (CI, or a machine you know is busy)
+//   CHECK_LOW_RESOURCE=0 / false -> force off  (benchmarking; never auto-throttle)
+//   unset                        -> auto       (on iff normalised load >= LOAD_THRESHOLD)
+//
+// Load average is unavailable on Windows (os.loadavg() returns zeros), where auto-detection simply
+// stays off — the explicit flag remains available.
+const LOAD_THRESHOLD = 0.7;
+
+const CORES = os.availableParallelism?.() ?? os.cpus()?.length ?? 4;
+const NORMALISED_LOAD = (os.loadavg()?.[0] ?? 0) / CORES;
+
 const LOW_RESOURCE_RAW = process.env.CHECK_LOW_RESOURCE;
-const LOW_RESOURCE = !!LOW_RESOURCE_RAW && LOW_RESOURCE_RAW !== '0' && LOW_RESOURCE_RAW !== 'false';
+const LOW_RESOURCE_FORCED_OFF = LOW_RESOURCE_RAW === '0' || LOW_RESOURCE_RAW === 'false';
+const LOW_RESOURCE_FORCED_ON = !!LOW_RESOURCE_RAW && !LOW_RESOURCE_FORCED_OFF;
+const LOW_RESOURCE_AUTO = LOW_RESOURCE_RAW === undefined && NORMALISED_LOAD >= LOAD_THRESHOLD;
+const LOW_RESOURCE = LOW_RESOURCE_FORCED_ON || LOW_RESOURCE_AUTO;
+
 const LOW_RESOURCE_FORKS = (() => {
   if (!LOW_RESOURCE) return undefined;
   const explicit = Number(process.env.CHECK_LOW_RESOURCE_FORKS);
   if (Number.isInteger(explicit) && explicit > 0) return explicit;
-  return Math.max(2, Math.floor((os.cpus()?.length || 4) / 3));
+  return Math.max(2, Math.floor(CORES / 3));
 })();
+
 if (LOW_RESOURCE) {
-  process.stderr.write(`[e2e] low-resource mode active: maxForks=${LOW_RESOURCE_FORKS}, timeouts raised\n`);
+  const why = LOW_RESOURCE_AUTO
+    ? `machine is busy (load ${NORMALISED_LOAD.toFixed(2)}/core >= ${LOAD_THRESHOLD})`
+    : 'CHECK_LOW_RESOURCE set';
+  process.stderr.write(`[e2e] low-resource mode: ${why} -> maxForks=${LOW_RESOURCE_FORKS}, timeouts raised\n`);
 }
 
 export default defineConfig({

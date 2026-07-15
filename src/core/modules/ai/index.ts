@@ -20,6 +20,7 @@ export * from './inputs/core-ai-slot-update.input';
 export * from './inputs/core-ai-prompt.input';
 export * from './hooks/ai-hook.base';
 export * from './hooks/ai-hook.registry';
+export * from './interfaces/ai-interaction-record.interface';
 export * from './interfaces/ai-hook.interface';
 export * from './interfaces/ai-placeholder.interface';
 export * from './interfaces/ai-tool.interface';

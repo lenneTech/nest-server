@@ -38,6 +38,16 @@ jobs:
       - name: Optimize and check
         run: pnpm run prepublishOnly
 
+      # Compiles with SWC to CommonJS and loads every module under Node's CJS loader.
+      # This is the ONLY step that can catch a temporal-dead-zone crash from an import
+      # cycle: `nest build` uses tsc, and vitest runs SWC through Vite's module runner,
+      # whose getter-based live bindings tolerate cycles. Consumers running
+      # `nest start -b swc` do not get that safety net.
+      # Builds into its own throwaway dir, so it cannot disturb the dist/ that Build
+      # produces and Save build uploads.
+      - name: SWC module-graph guard (TDZ)
+        run: pnpm run check:swc-tdz
+
       - name: Build
         run: pnpm run build
 

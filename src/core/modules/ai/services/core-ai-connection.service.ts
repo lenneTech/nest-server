@@ -23,15 +23,14 @@ import { LlmProviderFactory } from '../providers/llm-provider.factory';
 import { AiCryptoService } from './ai-crypto.service';
 import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
 
-/**
- * Mongoose injection token for the AI connection model.
- */
-export const AI_CONNECTION_MODEL = 'AiConnection';
+import { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
 
 /**
- * DI token for the AI connection model constructor (used by CrudService mapping).
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
  */
-export const AI_CONNECTION_CLASS = 'AI_CONNECTION_CLASS';
+export { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
 
 /**
  * CRUD service for {@link CoreAiConnection} — the database-backed LLM

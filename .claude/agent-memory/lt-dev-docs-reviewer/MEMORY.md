@@ -1,4 +1,7 @@
-- [FRAMEWORK-API generator interface allowlist](framework-api-generator-allowlist.md) — FRAMEWORK-API.md only documents config interfaces hardcoded in generate-framework-api.ts; new interfaces silently omitted
+- [FRAMEWORK-API generator interface allowlist](framework-api-generator-allowlist.md) — only allowlisted config interfaces are expanded; consts/DI tokens/helpers are out of scope, and a date-only diff is build churn
+- [Patch-release migration-guide convention](patch-release-migration-guide-convention.md) — every 11.27.x patch has a guide, incl. zero-effort internal bugfixes; don't auto-grade "bugfix → no guide" as N/A
 - [Doc places to check for config features](doc-surfaces-for-config-features.md) — the full set of doc surfaces a new configurable feature must update in this repo
 - [AI module doc coverage gaps](ai-module-doc-coverage-gaps.md) — AI features exported in index.ts (hooks, tool-grants, modes, attachments, claudeCli, compaction) but missing from user-facing docs
 - [Migration-guide behavior-change count trap](migration-guide-behavior-change-count-trap.md) — derive behavior changes from better-auth.config.ts/cookies.helper.ts diffs; guide Overview counts have under-reported before
+- [Review committed state vs working tree](review-committed-vs-working-tree.md) — `git status` FIRST; the author's uncommitted delta can be a better revision than the commits, and untracked keystone files ship breaks
+- [Vendor-mode atomic file-set check](vendor-mode-atomic-file-set-check.md) — every new file under src/core/ that an existing core file imports must be an enumerated atomic set in the guide

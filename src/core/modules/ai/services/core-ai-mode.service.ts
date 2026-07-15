@@ -6,8 +6,14 @@ import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
 import { AiModeDocument, CoreAiMode } from '../models/core-ai-mode.model';
 
-export const AI_MODE_MODEL = 'AiMode';
-export const AI_MODE_CLASS = 'AI_MODE_CLASS';
+import { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants';
 
 /**
  * Named-mode store. See {@link CoreAiMode}. Override via

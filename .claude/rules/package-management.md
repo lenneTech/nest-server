@@ -97,9 +97,23 @@ peerDependencies may use ranges when necessary for compatibility with consuming 
 
 The `pnpm-lock.yaml` file must always be committed. It provides additional reproducibility even if someone accidentally introduces a version range.
 
+## Package Manager: pnpm 11
+
+This repo is pinned to **pnpm 11** via the `packageManager` field (corepack/`pnpm/action-setup` follow it, so CI and Docker use it automatically — no version is hardcoded anywhere else).
+
+pnpm 11 **no longer reads the `pnpm` field in `package.json`**, and `.npmrc` is auth/registry only. All pnpm-specific settings live in **`pnpm-workspace.yaml`**:
+
+- `overrides:` — the security overrides (see below)
+- `allowBuilds:` — a **map** of `pkg: true|false` classifying every package that has an install script (canonical v11 form; replaces `onlyBuiltDependencies`). Native builds we need are `true` (`bcrypt`, `@swc/core`, …); telemetry like `@scarf/scarf` is `false`. **Every build-script package must be classified**, or `pnpm install` exits non-zero with `ERR_PNPM_IGNORED_BUILDS` and appends a broken stub.
+- `nodeLinker`, `autoInstallPeers`, `strictPeerDependencies`, `peerDependencyRules` — moved here from `.npmrc` (camelCase).
+
+`pnpm audit`: pnpm 10.x is broken (npm retired the legacy audit endpoint → HTTP 410); pnpm 11 uses the working bulk-advisory endpoint. `scripts/check.mjs` degrades the retired-endpoint failure to a non-blocking warning as a safety net, so `check` stays green + honest even if a future endpoint change lands.
+
 ## Overrides
 
-Package overrides are configured in the `pnpm.overrides` section of `package.json` and are typically used to force transitive dependencies to a security-patched version.
+Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
+
+**Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 still load-bearing — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
 
 ### Rule: Override Targets MUST Be Fixed Versions
 
@@ -115,19 +129,14 @@ The **target** of an override (the value on the right-hand side) MUST be a fixed
 
 The **key** (left-hand side) of an override entry selects which installed versions the override applies to. Both forms are valid:
 
-```json
-{
-  "pnpm": {
-    "overrides": {
-      // Form 1: Replace ALL versions of a package with a fixed one
-      "lodash": "4.17.23",
-
-      // Form 2: Replace only vulnerable versions with a fixed patched one
-      "minimatch@<3.1.4": "3.1.4",
-      "path-to-regexp@>=8.0.0 <8.4.0": "8.4.2"
-    }
-  }
-}
+```yaml
+# pnpm-workspace.yaml
+overrides:
+  # Form 1: Replace ALL versions of a package with a fixed one
+  'lodash': '4.17.23'
+  # Form 2: Replace only vulnerable versions with a fixed patched one
+  'minimatch@<3.1.4': '3.1.4'
+  'path-to-regexp@>=8.0.0 <8.4.0': '8.4.2'
 ```
 
 Form 2 is preferred for security-driven overrides because it leaves non-vulnerable versions untouched, which reduces the blast radius of the override.

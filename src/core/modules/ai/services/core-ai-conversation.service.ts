@@ -8,15 +8,14 @@ import { CoreAiConversationCreateInput } from '../inputs/core-ai-conversation-cr
 import { CoreAiConversationInput } from '../inputs/core-ai-conversation.input';
 import { AiConversationDocument, CoreAiConversation } from '../models/core-ai-conversation.model';
 
-/**
- * Mongoose injection token for the AI conversation model.
- */
-export const AI_CONVERSATION_MODEL = 'AiConversation';
+import { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants';
 
 /**
- * DI token for the AI conversation model constructor.
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
  */
-export const AI_CONVERSATION_CLASS = 'AI_CONVERSATION_CLASS';
+export { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants';
 
 /**
  * CRUD service for multi-turn {@link CoreAiConversation}s.
