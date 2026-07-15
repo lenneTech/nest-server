@@ -35,19 +35,13 @@ peerDependencyRules:
 overrides:
   # Security: prototype pollution - transitive via @nestjs/cli>@angular-devkit
   'ajv@>=7.0.0-alpha.0 <8.18.0': '8.18.0'
-  # Security: @babel/core <7.29.6 advisory - transitive via @compodoc/compodoc>@babel/preset-env
-  '@babel/core@<7.29.6': '7.29.6'
   # Security: ReDoS - transitive via vitest and vite
   'picomatch@>=4.0.0 <4.0.4': '4.0.4'
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p) - transitive via @nestjs/graphql
   'ws@>=8.0.0 <8.21.0': '8.21.0'
   # Security: Missing buffer bounds check in v3/v5/v6 (GHSA-w5hq-g745-h8pq) - transitive via @compodoc/compodoc and @compodoc/compodoc>@compodoc/live-server>http-auth
   'uuid@<14.0.0': '14.0.0'
-  # Security: fs.deny bypass on Windows alternate paths + file read CVEs - transitive via better-auth>vitest
-  'vite@>=8.0.0 <8.0.16': '8.0.16'
-  # Security: email/header injection CVEs <9.0.1 - direct dependency
-  'nodemailer@<9.0.1': '9.0.1'
-  # Security: unhandled multipart errors / DoS <2.2.0 - transitive via @nestjs/platform-express
-  'multer@<2.2.0': '2.2.0'
-  # Security: special-character handling / prototype pollution (patched in 4.2.0; 4.1.2 was never published) - transitive via @nestjs/swagger
+  # Security: Arbitrary file read via sourceMappingURL (GHSA-4x5r-pxfx-6jf8, patched >=7.29.1) - transitive via @compodoc/compodoc>@babel/core (resolves to vulnerable 7.28.6 without this)
+  '@babel/core@<7.29.6': '7.29.6'
+  # Security: Quadratic-complexity DoS in merge key (GHSA-h67p-54hq-rp68, patched >=4.1.2 but 4.1.2 was never published, so 4.2.0 is the minimum available fix) - transitive via @nestjs/swagger + @compodoc/compodoc (resolves to vulnerable 4.1.1 without this)
   'js-yaml@<4.2.0': '4.2.0'

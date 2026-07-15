@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import * as ejs from 'ejs';
+import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
 
