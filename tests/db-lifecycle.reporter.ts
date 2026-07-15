@@ -104,10 +104,29 @@ export default class DbLifecycleReporter {
     }
 
     if (reason !== 'passed' || unhandledErrors.length > 0) {
+      // The actual test data lives in the per-worker fork databases (`${dbName}-w<N>`, created in
+      // tests/setup.ts), NOT in `${dbName}` itself — the main process's URI names the base, but every
+      // fork suffixes it with its pool id. List the fork DBs so a developer debugging a failure
+      // connects to the right ones. Best-effort: fall back to the base name if the listing fails.
+      let debugTargets = [dbName];
+      try {
+        const connection = await MongoClient.connect(uri);
+        try {
+          const { databases } = await connection.db().admin().listDatabases({ nameOnly: true });
+          const forks = databases.map((d) => d.name).filter((n) => n.startsWith(`${dbName}-w`));
+          if (forks.length > 0) {
+            debugTargets = forks;
+          }
+        } finally {
+          await connection.close();
+        }
+      } catch {
+        /* keep the base-name fallback */
+      }
       console.info(
-        `\n⚠ Test database kept for debugging: ${dbName}`
-        + `\n  URI: ${serverUri}/${dbName}`
-        + '\n  It will be removed automatically by the next successful test run.',
+        `\n⚠ Test database(s) kept for debugging:`
+        + debugTargets.map((name) => `\n  ${serverUri}/${name}`).join('')
+        + '\n  Removed automatically by the next successful test run.',
       );
       return;
     }
