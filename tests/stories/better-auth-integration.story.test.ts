@@ -955,14 +955,12 @@ describe('Story: BetterAuth Integration', () => {
   // ===================================================================================================================
 
   describe('JWT Token Resolution (Bug #4)', () => {
-    beforeAll(async () => {
-      // Clear stale JWKS keys that may have been encrypted with a different secret
-      // This prevents "Failed to decrypt private key" errors during JWT generation
-      if (db) {
-        await db.collection('jwks').deleteMany({});
-      }
-    });
-
+    // NOTE: this block must NOT wipe the `jwks` collection. All e2e files share one database per
+    // run and execute in parallel forks, so dropping the BetterAuth signing keyset invalidates
+    // every JWT that other files already minted (they cache their tokens in beforeAll) — which
+    // surfaced as sporadic 401s elsewhere, e.g. in tests/ai.e2e-spec.ts. The wipe guarded against
+    // keys left over from an earlier run under a different secret; since 11.24.4 every run gets a
+    // fresh, unique database (tests/global-setup.ts), so that state can no longer exist.
     it('should return a proper JWT (not session token) from REST sign-in when cookies are disabled', async () => {
       const cookiesDisabled = configService.getFastButReadOnly('cookies') === false;
       if (!cookiesDisabled) {
