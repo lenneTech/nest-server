@@ -8,10 +8,10 @@
 
 import { Project, type InterfaceDeclaration } from 'ts-morph';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// The package is CommonJS (no "type": "module"), so tsx runs this as CJS and __dirname is native.
+// An import.meta.url shim would not typecheck against the root tsconfig (module: commonjs).
 const ROOT = resolve(__dirname, '..');
 const OUTPUT = resolve(ROOT, 'FRAMEWORK-API.md');
 

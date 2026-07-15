@@ -728,8 +728,10 @@ describe('Native access security gates', () => {
   });
 
   function createTestService(mockModel: any) {
+    // CrudService is resolved at runtime via a dynamic import, so its compile-time type is `any`.
+    // TypeScript rejects `override` against an `any` base (TS4113); the method still overrides at runtime.
     class TestService extends CrudService {
-      override get() { return null; }
+      get() { return null; }
       callCollection(reason: string) { return this.getNativeCollection(reason); }
       callConnection(reason: string) { return this.getNativeConnection(reason); }
     }

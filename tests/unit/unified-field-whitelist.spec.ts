@@ -35,7 +35,7 @@ class ChildInput extends BaseInput {
 
 class ChildWithExclude extends BaseInput {
   @UnifiedField({ exclude: true })
-  override email?: string;
+  override email?: string = undefined;
 
   @UnifiedField({ description: 'Phone', isOptional: true })
   phone?: string;
@@ -43,12 +43,12 @@ class ChildWithExclude extends BaseInput {
 
 class GrandchildReEnable extends ChildWithExclude {
   @UnifiedField({ exclude: false, description: 'Email re-enabled', isOptional: true })
-  override email?: string;
+  override email?: string = undefined;
 }
 
 class ChildImplicitOverrideAttempt extends ChildWithExclude {
   @UnifiedField({ description: 'Email implicit', isOptional: true })
-  override email?: string;
+  override email?: string = undefined;
 }
 
 class NoUnifiedFieldClass {
