@@ -101,7 +101,7 @@ class SecurityTestController {
   /**
    * Locked endpoint - S_NO_ONE should always deny access
    * @Roles(S_NO_ONE) means NO ONE can access, even admins
-   * RolesGuard will reject ALL requests with 401
+   * RolesGuard will reject ALL requests with 403 (authenticating can never unlock it)
    */
   @Get('locked')
   @Roles(RoleEnum.S_NO_ONE)
@@ -718,9 +718,11 @@ describe('Story: BetterAuth REST Security', () => {
 
   describe('Locked Endpoints (S_NO_ONE)', () => {
     it('SECURITY: should REJECT unauthenticated requests', async () => {
+      // 403, not 401, even without a token: S_NO_ONE is locked permanently, so 'authenticate and
+      // retry' (401) would be a lie — logging in can never grant access to this endpoint.
       const result = await testHelper.rest('/security-test/locked', {
         method: 'GET',
-        statusCode: 401,
+        statusCode: 403,
       });
 
       expect(result.success).not.toBe(true);
@@ -735,7 +737,7 @@ describe('Story: BetterAuth REST Security', () => {
       // S_NO_ONE should deny access to everyone
       const result = await testHelper.rest('/security-test/locked', {
         method: 'GET',
-        statusCode: 401, // S_NO_ONE returns 401 Unauthorized
+        statusCode: 403, // S_NO_ONE is locked permanently → 403 for everyone, even admins
         token: adminUserToken,
       });
 
@@ -1061,7 +1063,7 @@ describe('Story: BetterAuth REST Security', () => {
       const result = await testHelper.rest('/security-test/locked', {
         cookies: adminUserSessionToken,
         method: 'GET',
-        statusCode: 401,
+        statusCode: 403,
       });
 
       expect(result.success).not.toBe(true);

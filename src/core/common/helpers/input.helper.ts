@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
@@ -7,6 +7,8 @@ import { Kind } from 'graphql/index';
 import { checkRestricted } from '../decorators/restricted.decorator';
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
+import { accessDeniedException } from '../exceptions/access-denied.exception';
+import { ErrorCode } from '../../modules/error-code/error-codes';
 import { clone } from './clone.helper';
 import { merge } from './config.helper';
 import { equalIds } from './id.helper';
@@ -248,9 +250,11 @@ export async function check(
     }
     let valid = false;
 
-    // Prevent access for everyone, including administrators
+    // Prevent access for everyone, including administrators. Always 403, never 401: the resource is
+    // locked permanently, so authenticating can never grant access and telling an anonymous
+    // requester to "authenticate and retry" (401) would be a lie. Both role guards do the same.
     if (roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new UnauthorizedException('No access');
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     // Check access
@@ -276,7 +280,8 @@ export async function check(
       valid = true;
     }
     if (!valid) {
-      throw new UnauthorizedException('Missing rights');
+      // 403 when authenticated, 401 otherwise — policy documented in accessDeniedException
+      throw accessDeniedException(user);
     }
   }
 

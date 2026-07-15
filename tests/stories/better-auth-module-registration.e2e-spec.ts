@@ -331,11 +331,12 @@ describe('Story: BetterAuth Module Registration', () => {
       });
     });
 
-    it('should enforce @Roles(S_NO_ONE) — 401 always', async () => {
-      // S_NO_ONE throws UnauthorizedException (401) in RolesGuard, not ForbiddenException (403)
+    it('should enforce @Roles(S_NO_ONE) — 403 always', async () => {
+      // S_NO_ONE is locked permanently — authenticating can never unlock it, so 403 is the correct
+      // code for EVERY requester. A 401 would tell the client to retry after logging in.
       await testHelper.rest('/security-test/no-one', {
         method: 'GET',
-        statusCode: 401,
+        statusCode: 403,
         token: userToken,
       });
     });

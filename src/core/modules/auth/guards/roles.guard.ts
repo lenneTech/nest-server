@@ -137,9 +137,10 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     ]);
     const roles = mergeRolesMetadata(reflectorRoles);
 
-    // Check if locked - always deny
+    // Check if locked - always deny. 403, never 401: the endpoint is locked permanently, so
+    // authenticating can never grant access and a 401 ("authenticate and retry") would be a lie.
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     // If no roles required, or S_EVERYONE is set, allow access without authentication
@@ -293,9 +294,9 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     ]);
     const roles = mergeRolesMetadata(reflectorRoles);
 
-    // Check if locked
+    // Check if locked — 403, never 401 (see canActivate: authenticating can never unlock it)
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     // Check roles

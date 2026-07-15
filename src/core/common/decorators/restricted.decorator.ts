@@ -21,12 +21,12 @@
  * that is worth doing. Until then, `pnpm run check:swc-tdz` is the mechanical guard.
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
-import { UnauthorizedException } from '@nestjs/common';
 import 'reflect-metadata';
 import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
 import { RoleEnum } from '../enums/role.enum';
+import { accessDeniedException } from '../exceptions/access-denied.exception';
 // Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
 // imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
 import { equalIds, getIncludedIds } from '../helpers/id.helper';
@@ -293,15 +293,32 @@ export function checkRestricted(
         return false;
       }
 
+      // Ownership (S_SELF, S_CREATOR) must be decided from the PERSISTED object, never from `data`.
+      //
+      // On the INPUT path `data` is the caller-supplied DTO, so every ownership claim in it is
+      // attacker-controlled. An authenticated attacker could otherwise unlock an owner-restricted
+      // field on someone ELSE's record just by asserting ownership in the payload — the service
+      // applies the input to the target it was called with, not to the ids in the body:
+      //
+      //   PATCH /users/<victim>  { "id": "<own-id>", "createdBy": "<own-id>", "<restricted>": ... }
+      //
+      // `check()` (input.helper.ts) already reads both from `config.dbObject`; this is the same
+      // check and must agree with it. Where no dbObject exists (e.g. create), ownership cannot be
+      // established — exactly what check() does too.
+      //
+      // On the OUTPUT path there is no attacker-controlled input: `data` IS the persisted object
+      // (and a list yields one `data` per item), so it stays the source of truth there.
+      const owner = config.processType === ProcessType.INPUT ? config.dbObject : data;
+
       // Check access rights
       if (
         roles.includes(RoleEnum.S_EVERYONE) ||
         user?.hasRole?.(roles) ||
         (user?.id && roles.includes(RoleEnum.S_USER)) ||
-        (roles.includes(RoleEnum.S_SELF) && equalIds(data, user)) ||
+        (roles.includes(RoleEnum.S_SELF) && equalIds(owner, user)) ||
         (roles.includes(RoleEnum.S_CREATOR) &&
-          (('createdBy' in data && equalIds(data.createdBy, user)) ||
-            (config.allowCreatorOfParent && !('createdBy' in data) && config.isCreatorOfParent))) ||
+          ((owner && 'createdBy' in owner && equalIds(owner.createdBy, user)) ||
+            (config.allowCreatorOfParent && owner && !('createdBy' in owner) && config.isCreatorOfParent))) ||
         (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified)) ||
         (user?.id && checkRoleAccess(roles, user?.roles, RequestContext.get()?.tenantRole))
       ) {
@@ -365,9 +382,10 @@ export function checkRestricted(
       if (config.debug) {
         console.debug(`The current user has no access rights for ${data.constructor?.name}`);
       }
-      // Throw error
+      // 403 when authenticated, 401 otherwise (see accessDeniedException). The class name stays in
+      // the debug log above — the client gets the translatable ErrorCode the role guards also use.
       if (config.throwError) {
-        throw new UnauthorizedException(`The current user has no access rights for ${data.constructor?.name}`);
+        throw accessDeniedException(user);
       }
       return null;
     }
@@ -393,9 +411,14 @@ export function checkRestricted(
 
     // Check rights
     if (valid) {
-      // Check if data is user or user is creator of data (for nested plain objects)
+      // Check if the parent is the user, or the user created it (for nested plain objects).
+      // Same rule as above: on INPUT the ownership claim must come from the persisted object, not
+      // from the DTO — otherwise a forged `id`/`createdBy` in the payload would propagate a faked
+      // "creator of parent" trust down into every nested object.
+      const parent = config.processType === ProcessType.INPUT ? config.dbObject : data;
       config.isCreatorOfParent =
-        equalIds(data, user) || ('createdBy' in data ? equalIds(data.createdBy, user) : config.isCreatorOfParent);
+        equalIds(parent, user) ||
+        (parent && 'createdBy' in parent ? equalIds(parent.createdBy, user) : config.isCreatorOfParent);
 
       // Check deep
       data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
@@ -405,11 +428,10 @@ export function checkRestricted(
           `The current user has no access rights for ${propertyKey}${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
         );
       }
-      // Throw error
+      // 403 when authenticated, 401 otherwise (see accessDeniedException). The field and class name
+      // stay in the debug log above — the client gets the translatable ErrorCode the guards also use.
       if (config.throwError) {
-        throw new UnauthorizedException(
-          `The current user has no access rights for ${propertyKey}${data.constructor?.name ? ` of ${data.constructor.name}` : ''}`,
-        );
+        throw accessDeniedException(user);
       }
 
       // Remove property

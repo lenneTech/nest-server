@@ -1,4 +1,4 @@
-import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Injectable, Module, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule, Prop, Schema, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -10,6 +10,7 @@ import { Roles } from '../src/core/common/decorators/roles.decorator';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { mongooseTenantPlugin } from '../src/core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from '../src/core/common/services/config.service';
+import { ErrorCode } from '../src/core/modules/error-code/error-codes';
 import { IRequestContext, RequestContext } from '../src/core/common/services/request-context.service';
 import { CoreTenantMemberModel } from '../src/core/modules/tenant/core-tenant-member.model';
 import { CoreTenantGuard } from '../src/core/modules/tenant/core-tenant.guard';
@@ -488,13 +489,13 @@ describe('CoreTenantGuard (e2e)', () => {
   // B3) Header + no user → 403
   // =========================================================================
 
-  it('should deny unauthenticated access when header is present', async () => {
+  it('should deny unauthenticated access when header is present (401)', async () => {
     const res = await request(app.getHttpServer())
       .get('/test/tenant-member')
       .set('X-Tenant-Id', TENANT_A)
-      .expect(403);
+      .expect(401);
 
-    expect(res.body.message).toContain('Authentication required');
+    expect(res.body.message).toContain(ErrorCode.UNAUTHORIZED);
   });
 
   // =========================================================================
@@ -590,12 +591,12 @@ describe('CoreTenantGuard (e2e)', () => {
     expect(res.body.message).toContain('Insufficient role');
   });
 
-  it('should deny unauthenticated user with hierarchy roles and no header', async () => {
+  it('should deny unauthenticated user with hierarchy roles and no header (401)', async () => {
     const res = await request(app.getHttpServer())
       .get('/test/tenant-member')
-      .expect(403);
+      .expect(401);
 
-    expect(res.body.message).toContain('Authentication required');
+    expect(res.body.message).toContain(ErrorCode.UNAUTHORIZED);
   });
 
   it('should resolve filtered tenantIds when no header + hierarchy role', async () => {
@@ -806,12 +807,12 @@ describe('CoreTenantGuard (e2e)', () => {
 
   it('should deny @SkipTenantCheck + non-system role when user is unauthenticated (defense-in-depth)', async () => {
     // No X-Test-User-Id → req.user is undefined
-    // skipWithUserRoleCheck: checkableRoles.length > 0 && !user → 403 'Authentication required'
+    // skipWithUserRoleCheck: checkableRoles.length > 0 && !user → 401 (re-auth is the remedy)
     const res = await request(app.getHttpServer())
       .get('/test/skip-tenant-with-normal-role')
-      .expect(403);
+      .expect(401);
 
-    expect(res.body.message).toContain('Authentication required');
+    expect(res.body.message).toContain(ErrorCode.UNAUTHORIZED);
   });
 
   // =========================================================================
@@ -1037,14 +1038,15 @@ describe('CoreTenantGuard (e2e)', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  it('[regression] S_USER on method with ADMIN on class: unauthenticated user should get 403', async () => {
+  it('[regression] S_USER on method with ADMIN on class: unauthenticated user should get 401', async () => {
     // S_USER means "must be logged in" — unauthenticated access must be blocked.
     // With the corrected OR-semantics: S_USER is checked as an alternative BEFORE real roles.
-    // When S_USER is in the active role set and no user is present, the guard throws 403.
+    // When S_USER is in the active role set and no user is present, the guard throws 401:
+    // authenticating IS the remedy, so the client must be told to (RFC 9110).
     // (In production, RolesGuard would block unauthenticated requests earlier with 401.)
     await request(app.getHttpServer())
       .get('/admin-fallback/user-only-no-auth')
-      .expect(403);
+      .expect(401);
   });
 
   it('[regression] no @Roles on method with ADMIN on class: non-admin user should get 403', async () => {
@@ -1161,12 +1163,12 @@ describe('CoreTenantGuard (e2e)', () => {
     expect(res.body.tenantId).toBeUndefined();
   });
 
-  // J4: S_USER on method + ADMIN on class → 403 for unauthenticated
-  it('S_USER on method + ADMIN on class: unauthenticated user gets 403', async () => {
-    // S_USER present, no user → throws ForbiddenException('Authentication required')
+  // J4: S_USER on method + ADMIN on class → 401 for unauthenticated
+  it('S_USER on method + ADMIN on class: unauthenticated user gets 401', async () => {
+    // S_USER present, no user → 401 (authenticating is the remedy, so the client must be told)
     await request(app.getHttpServer())
       .get('/admin-fallback/user-only')
-      .expect(403);
+      .expect(401);
   });
 
   // J5: S_USER on method + X-Tenant-Id header → 200 for tenant member
@@ -1211,11 +1213,11 @@ describe('CoreTenantGuard (e2e)', () => {
       .expect(403);
   });
 
-  // J9: S_VERIFIED on method → 403 for unauthenticated user
-  it('S_VERIFIED on method: unauthenticated user gets 403', async () => {
+  // J9: S_VERIFIED on method → 401 for unauthenticated user
+  it('S_VERIFIED on method: unauthenticated user gets 401', async () => {
     await request(app.getHttpServer())
       .get('/test/verified-only')
-      .expect(403);
+      .expect(401);
   });
 
   // J10: S_VERIFIED + X-Tenant-Id header → 200 for verified tenant member
@@ -2634,10 +2636,13 @@ describe('CoreTenantMemberModel.securityCheck()', () => {
     expect(() => member.securityCheck(null, true)).not.toThrow();
   });
 
-  it('should deny access when no user is provided', () => {
+  it('should deny access when no user is provided (401 Unauthorized)', () => {
     const member = createMember();
-    expect(() => member.securityCheck(null)).toThrow('Access to tenant membership denied');
-    expect(() => member.securityCheck(undefined)).toThrow('Access to tenant membership denied');
+    // No user at all → 401: authenticating IS the remedy, so the client must be told to.
+    for (const user of [null, undefined]) {
+      expect(() => member.securityCheck(user)).toThrow(UnauthorizedException);
+      expect(() => member.securityCheck(user)).toThrow(ErrorCode.UNAUTHORIZED);
+    }
   });
 
   it('should allow access for the membership owner (same user)', () => {
@@ -2686,7 +2691,10 @@ describe('CoreTenantMemberModel.securityCheck()', () => {
     ConfigService.setConfig({ multiTenancy: { roleHierarchy: DEFAULT_ROLE_HIERARCHY } } as any);
     try {
       RequestContext.run(context, () => {
-        expect(() => member.securityCheck(memberUser)).toThrow('Access to tenant membership denied');
+        // Authenticated, but below manager level → 403, never 401 (a 401 would make the frontend
+        // treat a mere permission error as an expired session and log the user out).
+        expect(() => member.securityCheck(memberUser)).toThrow(ForbiddenException);
+        expect(() => member.securityCheck(memberUser)).toThrow(ErrorCode.ACCESS_DENIED);
       });
     } finally {
       ConfigService.setConfig({ multiTenancy: {} } as any);
@@ -2700,16 +2708,21 @@ describe('CoreTenantMemberModel.securityCheck()', () => {
     ConfigService.setConfig({ multiTenancy: { roleHierarchy: DEFAULT_ROLE_HIERARCHY } } as any);
     try {
       RequestContext.run(context, () => {
-        expect(() => member.securityCheck(otherUser)).toThrow('Access to tenant membership denied');
+        // Authenticated manager, but of a DIFFERENT tenant → 403, not 401
+        expect(() => member.securityCheck(otherUser)).toThrow(ForbiddenException);
+        expect(() => member.securityCheck(otherUser)).toThrow(ErrorCode.ACCESS_DENIED);
       });
     } finally {
       ConfigService.setConfig({ multiTenancy: {} } as any);
     }
   });
 
-  it('should deny access for unauthenticated user without tenant context', () => {
+  it('should deny an authenticated non-member without tenant context (403 Forbidden)', () => {
     const member = createMember();
-    expect(() => member.securityCheck(memberUser)).toThrow('Access to tenant membership denied');
+    // memberUser IS authenticated (it has an id) — it just is not the owner, not an admin and has
+    // no tenant context. That is a permission problem → 403.
+    expect(() => member.securityCheck(memberUser)).toThrow(ForbiddenException);
+    expect(() => member.securityCheck(memberUser)).toThrow(ErrorCode.ACCESS_DENIED);
   });
 });
 
