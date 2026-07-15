@@ -141,6 +141,39 @@ function extractForRootSignatures(): string[] {
 
 // ─── Module overview ────────────────────────────────────────────
 
+// ─── Exception extraction ────────────────────────────────────────
+
+/**
+ * Collect the exported error helpers (classes and factories) from the exception directories.
+ *
+ * Extracted from source rather than hard-coded: a new exception must show up here automatically,
+ * otherwise a public export that changes HTTP semantics stays invisible in the very file CLAUDE.md
+ * advertises as the framework's machine-readable API surface.
+ */
+function extractExceptions(): string[] {
+  const rows: string[] = [];
+
+  for (const sf of project.getSourceFiles(['src/core/**/exceptions/*.ts'])) {
+    const file = sf.getFilePath().replace(`${ROOT}/`, '');
+
+    for (const [name, decls] of sf.getExportedDeclarations()) {
+      const decl = decls[0];
+      if (!decl) continue;
+
+      const kind = decl.getKindName();
+      if (kind !== 'ClassDeclaration' && kind !== 'FunctionDeclaration') continue;
+
+      const doc = (decl as any).getJsDocs?.()[0]?.getDescription?.() ?? '';
+      const summary = truncateDescription(doc.trim().split('\n')[0] ?? '');
+      const signature = kind === 'FunctionDeclaration' ? `${name}()` : name;
+
+      rows.push(`| \`${signature}\` | ${summary || '—'} | \`${file}\` |`);
+    }
+  }
+
+  return rows.sort();
+}
+
 function extractCoreModules(): string[] {
   const lines: string[] = [];
   const modulesDir = resolve(ROOT, 'src/core/modules');
@@ -248,6 +281,9 @@ function main() {
   // Core modules overview
   const coreModules = extractCoreModules();
 
+  // Exported error helpers
+  const exceptions = extractExceptions();
+
   // ─── Assemble document ─────────────────────────────────────────
 
   const version = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8')).version;
@@ -285,6 +321,27 @@ ${crudMethods.join('\n')}
 |--------|------|------|
 ${coreModules.join('\n')}
 
+## Errors & Status Codes
+
+One 401/403 policy across all permission layers (role guards, tenant guard, \`check()\`,
+\`checkRestricted()\`, model \`securityCheck()\`):
+
+| Situation | Status | Message |
+|-----------|--------|---------|
+| Requester is **not authenticated** | **401** | \`ErrorCode.UNAUTHORIZED\` |
+| Requester **is authenticated** but lacks a right | **403** | \`ErrorCode.ACCESS_DENIED\` |
+| \`S_NO_ONE\` (locked for everyone, even admins) | **403 always** | \`ErrorCode.ACCESS_DENIED\` |
+
+Never hand-roll the decision — use \`accessDeniedException(user)\`. It returns the **native**
+\`ForbiddenException\` / \`UnauthorizedException\`, so \`instanceof\` checks and \`@Catch(...)\` filters
+in consuming projects keep working.
+
+### Exported error helpers
+
+| Export | Purpose | Path |
+|--------|---------|------|
+${exceptions.join('\n')}
+
 ## Key Source Files
 
 | File | Purpose |
@@ -295,6 +352,7 @@ ${coreModules.join('\n')}
 | \`src/core/common/services/crud.service.ts\` | CrudService base class |
 | \`src/core/common/services/config.service.ts\` | ConfigService (global) |
 | \`src/core/common/decorators/\` | @Restricted, @Roles, @CurrentUser, @UnifiedField |
+| \`src/core/common/exceptions/\` | accessDeniedException — the 401/403 policy |
 | \`src/core/common/interceptors/\` | CheckResponse, CheckSecurity, ResponseModel |
 | \`docs/REQUEST-LIFECYCLE.md\` | Complete request lifecycle |
 | \`.claude/rules/\` | Detailed rules for architecture, security, testing |

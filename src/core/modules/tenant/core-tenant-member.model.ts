@@ -1,10 +1,10 @@
-import { UnauthorizedException } from '@nestjs/common';
 import { ObjectType } from '@nestjs/graphql';
 import { Schema } from '@nestjs/mongoose';
 
 import { Restricted } from '../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
 import { CorePersistenceModel } from '../../common/models/core-persistence.model';
 import { RequestContext } from '../../common/services/request-context.service';
 import { DefaultHR, TenantMemberStatus } from './core-tenant.enums';
@@ -98,7 +98,11 @@ export class CoreTenantMemberModel extends CorePersistenceModel {
    */
   override securityCheck(user: any, force?: boolean): this {
     if (force) return this;
-    if (!user) throw new UnauthorizedException('Access to tenant membership denied');
+    // accessDeniedException picks the status from the requester's auth state: 401 here (no user),
+    // 403 below (authenticated, but not owner / admin / tenant manager). Model-level denials must
+    // use this helper too — a permission error must never reach the client as a 401, or frontends
+    // treat it as an expired session and log the user out.
+    if (!user) throw accessDeniedException(user);
 
     // Own membership or system admin
     if (user.id === this.user || user.hasRole?.(RoleEnum.ADMIN)) return this;
@@ -116,6 +120,7 @@ export class CoreTenantMemberModel extends CorePersistenceModel {
       return this;
     }
 
-    throw new UnauthorizedException('Access to tenant membership denied');
+    // Reached only when `user` is set (the `!user` case returned above), so this is a 403.
+    throw accessDeniedException(user);
   }
 }

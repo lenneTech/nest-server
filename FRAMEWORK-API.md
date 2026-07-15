@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-15 (v11.27.7)
+> Auto-generated from source code on 2026-07-15 (v11.28.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -283,6 +283,31 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `tus` | README, CHECKLIST | `src/core/modules/tus/` |
 | `user` | — | `src/core/modules/user/` |
 
+## Errors & Status Codes
+
+One 401/403 policy across all permission layers (role guards, tenant guard, `check()`,
+`checkRestricted()`, model `securityCheck()`):
+
+| Situation | Status | Message |
+|-----------|--------|---------|
+| Requester is **not authenticated** | **401** | `ErrorCode.UNAUTHORIZED` |
+| Requester **is authenticated** but lacks a right | **403** | `ErrorCode.ACCESS_DENIED` |
+| `S_NO_ONE` (locked for everyone, even admins) | **403 always** | `ErrorCode.ACCESS_DENIED` |
+
+Never hand-roll the decision — use `accessDeniedException(user)`. It returns the **native**
+`ForbiddenException` / `UnauthorizedException`, so `instanceof` checks and `@Catch(...)` filters
+in consuming projects keep working.
+
+### Exported error helpers
+
+| Export | Purpose | Path |
+|--------|---------|------|
+| `ExpiredRefreshTokenException` | Exception for expired refresh token | `src/core/modules/auth/exceptions/expired-refresh-token.exception.ts` |
+| `ExpiredTokenException` | Exception for expired token | `src/core/modules/auth/exceptions/expired-token.exception.ts` |
+| `InvalidTokenException` | Exception for invalid token | `src/core/modules/auth/exceptions/invalid-token.exception.ts` |
+| `LegacyAuthDisabledException` | Exception thrown when Legacy Auth endpoints are accessed but disabled | `src/core/modules/auth/exceptions/legacy-auth-disabled.exception.ts` |
+| `accessDeniedException()` | Creates the access error that matches the requester's auth state (RFC 9110, mirrors RolesGuard): | `src/core/common/exceptions/access-denied.exception.ts` |
+
 ## Key Source Files
 
 | File | Purpose |
@@ -293,6 +318,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `src/core/common/services/crud.service.ts` | CrudService base class |
 | `src/core/common/services/config.service.ts` | ConfigService (global) |
 | `src/core/common/decorators/` | @Restricted, @Roles, @CurrentUser, @UnifiedField |
+| `src/core/common/exceptions/` | accessDeniedException — the 401/403 policy |
 | `src/core/common/interceptors/` | CheckResponse, CheckSecurity, ResponseModel |
 | `docs/REQUEST-LIFECYCLE.md` | Complete request lifecycle |
 | `.claude/rules/` | Detailed rules for architecture, security, testing |

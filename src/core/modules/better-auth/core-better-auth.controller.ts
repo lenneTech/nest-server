@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   InternalServerErrorException,
   Logger,
@@ -932,12 +933,10 @@ export class CoreBetterAuthController {
     } catch (error) {
       this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 
-      // Re-throw NestJS exceptions
-      if (
-        error instanceof BadRequestException ||
-        error instanceof UnauthorizedException ||
-        error instanceof InternalServerErrorException
-      ) {
+      // Re-throw NestJS exceptions. Matching HttpException (not an enumeration of subclasses) keeps
+      // any deliberately thrown status intact — an enumeration silently masks everything it forgets
+      // (e.g. a 403 from the rights checks) as a 500.
+      if (error instanceof HttpException) {
         throw error;
       }
 

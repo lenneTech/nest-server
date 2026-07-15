@@ -98,9 +98,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    */
   async setAvatar(file: Express.Multer.File, user: User): Promise<string> {
     const dbUser = await this.mainDbModel.findOne({ id: user.id }).exec();
-    // Check user
+    // Check user: the token is valid but the account no longer exists, so the session really is
+    // invalid — 401 is right here. (A permission error would have to be 403, see accessDeniedException.)
     if (!dbUser) {
-      throw new UnauthorizedException('User is not allowed to set the avatar');
+      throw new UnauthorizedException('User of the current session no longer exists');
     }
 
     // Check file
