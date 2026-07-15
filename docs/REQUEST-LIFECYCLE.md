@@ -949,6 +949,41 @@ The `process()` method in `ModuleService` is the **primary** way to handle CRUD 
   +---------------------------------------------------------------+
 ```
 
+### Status Codes: 401 vs 403 (v11.28.0+)
+
+One policy across **all five** permission layers — the role guards, the tenant guard, `check()` /
+`checkRights`, `checkRestricted()` (object and field level), and a model's `securityCheck()`:
+
+| Situation | Status | Thrown by |
+|-----------|--------|-----------|
+| Requester is **not authenticated** | **401** `ErrorCode.UNAUTHORIZED` | guards, `accessDeniedException(undefined)` |
+| Requester **is authenticated** but lacks a right | **403** `ErrorCode.ACCESS_DENIED` | guards, `accessDeniedException(user)` |
+| Resource is locked via `S_NO_ONE` | **403**, always — even for anonymous requesters | guards, `check()` |
+
+`S_NO_ONE` is 403 for everyone because authenticating can never unlock it; a 401 would tell the
+client to retry after logging in, which is a lie.
+
+**Why this matters:** SPA auth layers commonly treat 401 as "session expired" and clear the session
+(the `@lenne.tech/nuxt-extensions` auth interceptor patches `$fetch`/`fetch` globally and does exactly
+this). A permission error answered with 401 therefore logs the user out of the whole app. With this
+policy a frontend may treat 401 as "session invalid" — with one exception:
+`ErrorCode.EMAIL_VERIFICATION_REQUIRED` is a legitimate 401 (no session exists yet at sign-in) that
+must **not** trigger a logout. Branch on the ErrorCode, not on the status alone.
+
+**Writing new denial code:** use the exported factory rather than hand-rolling the decision. It
+returns the **native** `ForbiddenException` / `UnauthorizedException`, so `instanceof` checks and
+`@Catch(...)` filters in consuming projects keep working:
+
+```typescript
+import { accessDeniedException } from '@lenne.tech/nest-server';
+
+// In a service, a custom guard, or a model's securityCheck():
+throw accessDeniedException(currentUser);
+```
+
+See `src/core/common/exceptions/access-denied.exception.ts` and
+`migration-guides/11.27.7-to-11.28.0.md`.
+
 ### Depth-Based Optimization (v11.23.0+)
 
 When `process()` is called from within another `process()` call (service cascades like A.create → B.create → C.create), steps 4–6 are **conditionally skipped** on inner calls to avoid redundant work:
@@ -1094,6 +1129,10 @@ Controls who can access a resolver/controller method. Evaluated by the RolesGuar
 ### @Restricted() — Field-Level Access Control
 
 Controls who can see or modify specific properties. Evaluated by `CheckResponseInterceptor` (output) and `checkRights()` (input).
+
+On **output** a denied field is silently removed (no exception). On **input** the request is
+rejected: **403** for an authenticated requester, **401** for an anonymous one, and **403 always**
+for `S_NO_ONE` — see [Status Codes: 401 vs 403](#status-codes-401-vs-403-v11280) above.
 
 ```typescript
 export class User extends CorePersistenceModel {

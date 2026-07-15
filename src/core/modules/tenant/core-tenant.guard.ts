@@ -1,4 +1,12 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { InjectModel } from '@nestjs/mongoose';
@@ -6,6 +14,7 @@ import { Model } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
+import { ErrorCode } from '../error-code/error-codes';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
 import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators';
 import { TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
@@ -73,9 +82,14 @@ interface CachedTenantIds {
  * 5. @SkipTenantCheck → role check against user.roles, no tenant context
  * 6. BetterAuth auto-skip (betterAuth.skipTenantCheck config + no header) → skip, no tenant context
  *
+ * Status codes (RFC 9110, aligned with RolesGuard since v11.28.0):
+ * - Missing authentication → 401 (re-authenticating IS the remedy, so the client must be told to)
+ * - Authenticated but lacking a right / membership → 403
+ * - S_NO_ONE → always 403 (authenticating can never unlock it)
+ *
  * HEADER PRESENT:
  *   - System ADMIN (adminBypass: true) → set req.tenantId + isAdminBypass
- *   - No user → 403 "Authentication required for tenant access"
+ *   - No user → 401 (tenant access requires authentication)
  *   - Authenticated non-admin user:
  *     - Active member → checkRoleAccess against membership.role → set req.tenantId + tenantRole
  *     - Not active member → ALWAYS 403
@@ -86,7 +100,7 @@ interface CachedTenantIds {
  *     → resolveUserTenantIds with minLevel filter
  *   - Authenticated + no checkable roles → resolveUserTenantIds (all memberships)
  *   - No user + no checkable roles → pass (plugin safety net catches tenantId-schema access)
- *   - No user + checkable roles → 403 "Authentication required"
+ *   - No user + checkable roles → 401 (authentication required)
  */
 @Injectable()
 export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
@@ -216,8 +230,9 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
 
     // Defense-in-depth: S_NO_ONE is normally caught by RolesGuard/BetterAuthRolesGuard upstream,
     // but guard it here too in case CoreTenantGuard runs standalone (e.g., custom guard chains).
+    // Always 403 — the same code the role guards return since v11.28.0.
     if (roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new ForbiddenException('Access denied');
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     const sEveryoneGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_EVERYONE);
@@ -258,7 +273,7 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     const sUserGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_USER);
     if (sUserGrantsAccess) {
       if (!user) {
-        throw new ForbiddenException('Authentication required');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
       if (headerTenantId && !hasSkipDecorator) {
         return this.handleSystemRoleWithTenantHeader(user, headerTenantId, request, isAdmin);
@@ -276,7 +291,7 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     const sVerifiedGrantsAccess: boolean = systemCheckRoles.includes(RoleEnum.S_VERIFIED);
     if (sVerifiedGrantsAccess) {
       if (!user) {
-        throw new ForbiddenException('Authentication required');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
       const isVerified = !!(user.verified || user.verifiedAt || user.emailVerified);
       if (!isVerified) {
@@ -337,9 +352,9 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
         return true;
       }
 
-      // No user + header → 403 (tenant access requires authentication)
+      // No user + header → 401 (tenant access requires authentication; re-auth is the remedy)
       if (!user) {
-        throw new ForbiddenException('Authentication required for tenant access');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
 
       // Authenticated non-admin user: MUST be active member
@@ -375,9 +390,9 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
 
     // Checkable roles present
     if (checkableRoles.length > 0) {
-      // No user + roles required → 403
+      // No user + roles required → 401 (re-auth is the remedy, so it must not be a 403)
       if (!user) {
-        throw new ForbiddenException('Authentication required');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
 
       // Check role access against user.roles (hierarchy: level comparison, normal: exact match)
@@ -604,7 +619,7 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     if (checkableRoles.length > 0) {
       // Defense-in-depth: reject unauthenticated access even if RolesGuard is absent
       if (!user) {
-        throw new ForbiddenException('Authentication required');
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
       if (!isAdmin && !checkRoleAccess(checkableRoles, user.roles, undefined)) {
         throw new ForbiddenException('Insufficient role');

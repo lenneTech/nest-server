@@ -5,6 +5,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import {
   ComparisonOperatorEnum,
   ConfigService,
+  ErrorCode,
   getPlain,
   HttpExceptionLogFilter,
   scimToMongo,
@@ -488,8 +489,34 @@ describe('ServerModule (e2e)', () => {
     );
 
     expect(res.errors.length).toBeGreaterThanOrEqual(1);
+    // 403, not 401: the user is authenticated and merely lacks rights — 401 is reserved for
+    // unauthenticated requesters so frontends don't treat permission errors as expired sessions
+    expect(res.errors[0].extensions.originalError.statusCode).toEqual(403);
+    // The client gets the translatable ErrorCode the role guards also throw; the field and class
+    // name that used to be in this message are logged instead of returned
+    expect(res.errors[0].message).toEqual(ErrorCode.ACCESS_DENIED);
+    expect(res.errors[0].extensions.originalError.error).toEqual('Forbidden');
+    expect(res.data).toBe(null);
+  });
+
+  /**
+   * The 401 branch of the rights checks is defense-in-depth, not an end-to-end path: every endpoint
+   * whose input carries a @Restricted field also requires authentication, so the role guards answer
+   * an anonymous requester with 401 long before checkRestricted()/check() run. The branch is covered
+   * exhaustively in tests/unit/access-denied-exception.spec.ts; here we only pin that an anonymous
+   * request really is rejected by the guard with 401 and the translatable ErrorCode.
+   */
+  it('anonymous request is rejected by the guard with 401, not 403', async () => {
+    const res: any = await testHelper.graphQl({
+      arguments: { id: gId },
+      fields: ['id', 'email'],
+      name: 'getUser',
+      type: TestGraphQLType.QUERY,
+    });
+
+    expect(res.errors.length).toBeGreaterThanOrEqual(1);
     expect(res.errors[0].extensions.originalError.statusCode).toEqual(401);
-    expect(res.errors[0].message).toEqual('The current user has no access rights for roles of UserInput');
+    expect(res.errors[0].extensions.originalError.error).toEqual('Unauthorized');
     expect(res.data).toBe(null);
   });
 

@@ -88,9 +88,11 @@ export class BetterAuthRolesGuard implements CanActivate {
     // Combine handler and class roles (handler takes precedence, like Reflector.getAll)
     const roles = mergeRolesMetadata([handlerRoles, classRoles]);
 
-    // Check if locked - always deny
+    // Check if locked - always deny. 403, never 401: the endpoint is locked permanently, so
+    // authenticating can never grant access and a 401 ("authenticate and retry") would be a lie.
+    // Kept in sync with RolesGuard (see .claude/rules/better-auth.md).
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
-      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
     // If no roles required, or S_EVERYONE is set, allow access without authentication

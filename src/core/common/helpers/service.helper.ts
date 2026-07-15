@@ -1,10 +1,10 @@
-import { UnauthorizedException } from '@nestjs/common';
 import bcrypt = require('bcrypt');
 import { sha256 } from 'js-sha256';
 import _ = require('lodash');
 import { Types } from 'mongoose';
 
 import { RoleEnum } from '../enums/role.enum';
+import { accessDeniedException } from '../exceptions/access-denied.exception';
 import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
 import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
 import { ResolveSelector } from '../interfaces/resolve-selector.interface';
@@ -151,15 +151,17 @@ export async function prepareInput<T = any>(
     value === undefined && delete input[key];
   }
 
-  // Process roles
+  // Process roles — 403 when authenticated, 401 otherwise (see accessDeniedException). The rejected
+  // roles are logged rather than returned: the client gets the translatable ErrorCode the guards use.
   if (config.checkRoles && (input as Record<string, any>).roles && !currentUser?.hasRole?.(RoleEnum.ADMIN)) {
     if (!(currentUser as any)?.roles) {
-      throw new UnauthorizedException('Missing roles of current user');
+      throw accessDeniedException(currentUser);
     } else {
       const allowedRoles = _.intersection((input as Record<string, any>).roles, (currentUser as any).roles);
       if (allowedRoles.length !== (input as Record<string, any>).roles.length) {
         const missingRoles = _.difference((input as Record<string, any>).roles, (currentUser as any).roles);
-        throw new UnauthorizedException(`Current user not allowed setting roles: ${missingRoles}`);
+        console.debug(`Current user not allowed setting roles: ${missingRoles}`);
+        throw accessDeniedException(currentUser);
       }
       (input as Record<string, any>).roles = allowedRoles;
     }

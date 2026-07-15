@@ -86,8 +86,12 @@ describe('AI module (e2e)', () => {
    * `iam.session_token` Set-Cookie. We forward that cookie to
    * `betterAuthService.getToken({ headers: { cookie } })` (the JWT plugin's
    * /iam/token endpoint underneath), which deterministically returns a JWT —
-   * regardless of whether the sign-in body contained one. This eliminates the
-   * pre-existing flaky 401s in this file.
+   * regardless of whether the sign-in body contained one.
+   *
+   * Note: this makes token ACQUISITION deterministic. The sporadic 401s this file used to see had a
+   * second, unrelated cause — another e2e file wiped the shared `jwks` keyset mid-run, which
+   * invalidated tokens that had already been issued here. That wipe has been removed; see
+   * tests/stories/better-auth-integration.story.test.ts.
    */
   async function createHttpUser(email: string, roles: string[]): Promise<string> {
     await testHelper.rest('/iam/sign-up/email', {
@@ -537,14 +541,15 @@ describe('AI module (e2e)', () => {
     const own = await getUserTool!.execute({ id: ownerId.toString() }, context);
     expect((own as any).success).not.toBe(false);
 
-    // A regular user must NOT read another user's record — and the denial must be an
-    // authorization error (401/403), not just any thrown error.
+    // A regular user must NOT read another user's record. The requester IS authenticated and merely
+    // lacks the right, so checkRestricted() answers with a deterministic 403 — pinning it (instead of
+    // accepting [401, 403]) is what makes this test able to detect a regression to the old 401.
     const denial = await getUserTool!.execute({ id: otherId.toString() }, context).then(
       () => null,
       (e) => e,
     );
     expect(denial).toBeTruthy();
-    expect([401, 403]).toContain(denial.status);
+    expect(denial.status).toBe(403);
 
     await db.collection('users').deleteMany({ _id: { $in: [ownerId, otherId] } });
   });
@@ -922,9 +927,10 @@ describe('AI module (e2e)', () => {
   });
 
   it('exposes prompt endpoints to authenticated users (REST list + GraphQL) and rejects anonymous calls', async () => {
-    // Anonymous call → 401/403 on REST and an error on GraphQL.
+    // Anonymous call → a deterministic 401 on REST (no session at all; 403 is reserved for an
+    // authenticated requester who lacks a right) and an error on GraphQL.
     const anon = await request(app.getHttpServer()).get('/ai/prompts');
-    expect([401, 403]).toContain(anon.status);
+    expect(anon.status).toBe(401);
 
     // Authenticated REST list works (default scope filters apply; at minimum returns an array).
     const restList = await request(app.getHttpServer())

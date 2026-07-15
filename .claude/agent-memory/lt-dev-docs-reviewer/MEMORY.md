@@ -5,3 +5,6 @@
 - [Migration-guide behavior-change count trap](migration-guide-behavior-change-count-trap.md) — derive behavior changes from better-auth.config.ts/cookies.helper.ts diffs; guide Overview counts have under-reported before
 - [Review committed state vs working tree](review-committed-vs-working-tree.md) — `git status` FIRST; the author's uncommitted delta can be a better revision than the commits, and untracked keystone files ship breaks
 - [Vendor-mode atomic file-set check](vendor-mode-atomic-file-set-check.md) — every new file under src/core/ that an existing core file imports must be an enumerated atomic set in the guide
+- [FRAMEWORK-API generator blind spots](framework-api-generator-allowlist.md) — FRAMEWORK-API.md only documents allowlisted config interfaces and has NO exceptions/classes concept; new public exports are silently omitted
+- [Release version artifacts](release-version-artifacts.md) — a version bump must touch package.json AND spectaql.yml; the lockstep is a git-history convention, written in no rule doc
+- [Migration-guide self-description traps](migration-guide-behavior-change-count-trap.md) — never trust a guide's Overview counts or its "aligns with existing pattern X" claims; derive both from the source diff
