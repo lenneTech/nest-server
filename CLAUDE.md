@@ -114,9 +114,15 @@ npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process   # Debu
 pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
 
 # Linting & Formatting
-pnpm run lint           # ESLint check
+pnpm run lint           # oxlint check
 pnpm run lint:fix       # Auto-fix
-pnpm run format         # Prettier format
+pnpm run format         # oxfmt format
+
+# Import-cycle / SWC safety (part of `check`)
+pnpm run check:swc-tdz  # SWC→CJS build, loads EVERY module as its own entry point.
+                        # The only step that catches a temporal-dead-zone crash from an
+                        # import cycle — tsc, vitest and oxlint are all blind to it.
+                        # See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)"
 
 # Package Development
 pnpm run build:dev      # Build for local development (use with pnpm link)

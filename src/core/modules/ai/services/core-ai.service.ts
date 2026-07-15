@@ -27,20 +27,17 @@ import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-promp
 import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
 import { CoreAiToolPolicyService } from './core-ai-tool-policy.service';
 import { CoreAiModeService } from './core-ai-mode.service';
+import type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface';
 
 /**
- * Record passed to {@link CoreAiService.audit} for each prompt run.
+ * @deprecated Import from `../interfaces/ai-interaction-record.interface` instead. Re-exported only
+ * so existing imports keep working.
+ *
+ * The type was moved out of this file because `core-ai-interaction.service` needs it while this file
+ * imports THAT service — an import cycle held apart only by an `import type`. See the interface's
+ * docblock.
  */
-export interface AiInteractionRecord {
-  actions: { name: string; success: boolean }[];
-  connectionId: string;
-  iterations: number;
-  prompt: string;
-  responseText: string;
-  tenantId?: string;
-  usage?: { completionTokens?: number; promptTokens?: number; totalTokens?: number };
-  userId?: string;
-}
+export type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface';
 
 /**
  * Event emitted by {@link CoreAiService.promptStream} over SSE.

@@ -5,17 +5,16 @@ import { Model } from 'mongoose';
 import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
 import { AiInteractionDocument, CoreAiInteraction } from '../models/core-ai-interaction.model';
-import type { AiInteractionRecord } from './core-ai.service';
+import type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface';
+
+import { AI_INTERACTION_CLASS, AI_INTERACTION_MODEL } from '../core-ai.constants';
 
 /**
- * Mongoose injection token for the AI interaction model.
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
  */
-export const AI_INTERACTION_MODEL = 'AiInteraction';
-
-/**
- * DI token for the AI interaction model constructor.
- */
-export const AI_INTERACTION_CLASS = 'AI_INTERACTION_CLASS';
+export { AI_INTERACTION_CLASS, AI_INTERACTION_MODEL } from '../core-ai.constants';
 
 /**
  * CRUD + write service for {@link CoreAiInteraction} audit records.

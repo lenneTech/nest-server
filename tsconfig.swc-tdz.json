@@ -1,0 +1,16 @@
+{
+  // Throwaway build config for `pnpm run check:swc-tdz`.
+  //
+  // The guard compiles with SWC and loads the result under Node's CommonJS loader. It must NOT write
+  // into `dist/`: that directory is the real, tsc-built artifact (plus the copied types, templates
+  // and type references that `pnpm run build` adds), and `pnpm start:prod` runs `dist/main.js`.
+  // Pointing the SWC build at `dist/` meant a standalone `pnpm run check:swc-tdz` silently replaced
+  // the user's build with a partial SWC one — and it forced the check chain into a specific order
+  // (guard before build) for no good reason.
+  //
+  // With its own outDir the guard is side-effect free and order-independent.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-swc-tdz"
+  }
+}

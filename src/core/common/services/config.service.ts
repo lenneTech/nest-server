@@ -4,7 +4,10 @@ import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 
 import { merge } from '../helpers/config.helper';
-import { clone, deepFreeze } from '../helpers/input.helper';
+// Import from the clone.helper LEAF, never from input.helper: input.helper imports
+// restricted.decorator, which reaches back here via core-tenant.helpers — that cycle is what the
+// extraction removed. See clone.helper's docblock.
+import { clone, deepFreeze } from '../helpers/clone.helper';
 import { IServerOptions } from '../interfaces/server-options.interface';
 
 /**

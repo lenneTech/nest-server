@@ -5,12 +5,17 @@ import { Connection } from 'mongoose';
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { CoreTusController } from './core-tus.controller';
 import { CoreTusService } from './core-tus.service';
+import { TUS_CONFIG } from './tus.constants';
 import { normalizeTusConfig } from './interfaces/tus-config.interface';
 
 /**
- * Token for injecting the TUS configuration
+ * @deprecated Import from `./tus.constants` instead. Re-exported only so existing deep imports keep
+ * working; the token is declared in an import-free leaf so module and services stay acyclic
+ * (SWC-safe — see tus.constants.ts).
+ *
+ * Do NOT import it from here inside the TUS module itself — that is what re-creates the cycle.
  */
-export const TUS_CONFIG = 'TUS_CONFIG';
+export { TUS_CONFIG } from './tus.constants';
 
 /**
  * Options for TusModule.forRoot()

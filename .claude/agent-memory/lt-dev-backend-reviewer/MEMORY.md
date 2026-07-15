@@ -1,2 +1,3 @@
 - [Core ErrorCode in framework repo](project_core-errorcode.md) — src/core has its own ErrorCode registry; modern core modules use it, but the baseline is mixed (core-user still raw strings).
 - [AI module prompt/slot service raw exceptions](project_ai-module-prompt-service-errors.md) — most of the AI module routes through ErrorCode, but CoreAiPromptService + CoreAiSlotService still throw raw-string ForbiddenExceptions; consistency cleanup, not a security gap.
+- [SWC TDZ import cycles](project_swc-tdz-import-cycles.md) — cycles crash under `-b swc` only when deref'd at module-eval time; full 9-cycle audit: only 3 are real, `filter.input ↔ combined-filter.input` already throws on deep import.

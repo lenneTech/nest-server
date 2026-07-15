@@ -6,10 +6,14 @@ import { CrudService } from '../../../common/services/crud.service';
 import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
 import { AiToolPolicyDocument, CoreAiToolPolicy } from '../models/core-ai-tool-policy.model';
 
-/** Mongoose injection token. */
-export const AI_TOOL_POLICY_MODEL = 'AiToolPolicy';
-/** DI token for the model constructor. */
-export const AI_TOOL_POLICY_CLASS = 'AI_TOOL_POLICY_CLASS';
+import { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants';
+
+/**
+ * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
+ * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
+ * (SWC-safe — see core-ai.constants.ts).
+ */
+export { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants';
 
 export interface AiToolPolicyDecision {
   /** Final decision: 'allow', 'deny' or 'ask'. */

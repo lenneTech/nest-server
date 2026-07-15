@@ -9,6 +9,16 @@ import { MongoClient } from 'mongodb';
 export const RUN_DB_PATTERN = /-run-(\d+)-p(\d+)$/;
 
 /**
+ * A database name MUST match this before anything here is willing to drop it.
+ *
+ * The safety net for a MONGODB_URI that does not point where the test setup
+ * assumes: a running `lt dev` session exports it pointing at the project's
+ * DEVELOPMENT database, so without this guard a test run started from that
+ * shell would silently wipe the developer's data.
+ */
+export const SAFE_TEST_DB_PATTERN = /(e2e|ci|test|acctest)/i;
+
+/**
  * Age limit for stale run databases. Normally staleness is detected via a dead
  * PID; this cap only exists for the rare case of PID recycling (the old PID now
  * belongs to an unrelated long-lived process, so the DB would never be
@@ -94,10 +104,29 @@ export default class DbLifecycleReporter {
     }
 
     if (reason !== 'passed' || unhandledErrors.length > 0) {
+      // The actual test data lives in the per-worker fork databases (`${dbName}-w<N>`, created in
+      // tests/setup.ts), NOT in `${dbName}` itself — the main process's URI names the base, but every
+      // fork suffixes it with its pool id. List the fork DBs so a developer debugging a failure
+      // connects to the right ones. Best-effort: fall back to the base name if the listing fails.
+      let debugTargets = [dbName];
+      try {
+        const connection = await MongoClient.connect(uri);
+        try {
+          const { databases } = await connection.db().admin().listDatabases({ nameOnly: true });
+          const forks = databases.map((d) => d.name).filter((n) => n.startsWith(`${dbName}-w`));
+          if (forks.length > 0) {
+            debugTargets = forks;
+          }
+        } finally {
+          await connection.close();
+        }
+      } catch {
+        /* keep the base-name fallback */
+      }
       console.info(
-        `\n⚠ Test database kept for debugging: ${dbName}`
-        + `\n  URI: ${serverUri}/${dbName}`
-        + '\n  It will be removed automatically by the next successful test run.',
+        `\n⚠ Test database(s) kept for debugging:`
+        + debugTargets.map((name) => `\n  ${serverUri}/${name}`).join('')
+        + '\n  Removed automatically by the next successful test run.',
       );
       return;
     }
@@ -137,7 +166,8 @@ export default class DbLifecycleReporter {
             const legacy = name.match(legacyTimestamped);
             stale = legacy ? Date.now() - Number(legacy[1]) > 60 * 60 * 1000 : false;
           }
-          if (stale) {
+          // Belt and braces: never drop anything that is not recognizably a test database.
+          if (stale && SAFE_TEST_DB_PATTERN.test(name)) {
             await connection.db(name).dropDatabase();
             dropped.push(name);
           }

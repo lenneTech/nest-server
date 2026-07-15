@@ -199,6 +199,8 @@ The BetterAuth module provides two RolesGuard implementations:
 **Solution:** `BetterAuthRolesGuard` with NO constructor dependencies:
 
 ```typescript
+import { getBetterAuthTokenService } from './core-better-auth.registry';
+
 @Injectable()
 export class BetterAuthRolesGuard implements CanActivate {
   // NO constructor dependencies - avoids mixin DI conflict
@@ -207,13 +209,18 @@ export class BetterAuthRolesGuard implements CanActivate {
     // Use Reflect.getMetadata directly (not NestJS Reflector)
     const roles = Reflect.getMetadata('roles', context.getHandler());
 
-    // Access services via static module reference
-    const tokenService = CoreBetterAuthModule.getTokenServiceInstance();
+    // Read the token service from the registry LEAF — never from CoreBetterAuthModule.
+    // Importing the module here re-creates the guard <-> module import cycle (see §6).
+    const tokenService = getBetterAuthTokenService();
 
     // ... role checking logic identical to RolesGuard
   }
 }
 ```
+
+> The guard must NOT do `CoreBetterAuthModule.getTokenServiceInstance()`. That static accessor is
+> still public API and still works — but calling it *from the guard* means importing the module,
+> which is exactly the cycle §6 exists to prevent. Everywhere else, the static accessor is fine.
 
 ### Guard Selection Logic
 
@@ -250,6 +257,84 @@ Both guards implement identical security logic:
 2. **New system roles** → Add to BOTH guards
 3. **Token verification changes** → Update `BetterAuthTokenService` (shared by both)
 4. **Testing** → Test both Legacy Mode and IAM-Only Mode
+5. **Reaching services from `BetterAuthRolesGuard`** → go through `core-better-auth.registry.ts`,
+   **never** through `CoreBetterAuthModule` (see §6 — importing the module from the guard
+   re-creates an import cycle)
+
+## 6. DI Token Placement (SWC-Safe)
+
+### The rule
+
+**DI tokens and static service references belong in an import-free leaf file — never in
+`*.module.ts` or `*.service.ts`.**
+
+| File | Contents | Imports |
+|------|----------|---------|
+| `core-better-auth.constants.ts` | `BETTER_AUTH_INSTANCE`, `BETTER_AUTH_CONFIG`, `BETTER_AUTH_COOKIE_DOMAIN` | **none** |
+| `core-better-auth.registry.ts` | `BetterAuthTokenService` reference for `BetterAuthRolesGuard` | **`import type` only** (erased by tsc and SWC) |
+
+### The problem
+
+The tokens used to live in the module (`BETTER_AUTH_INSTANCE`) and the service (`BETTER_AUTH_CONFIG`,
+`BETTER_AUTH_COOKIE_DOMAIN`), so module and service imported each other.
+
+**Error (only under `nest start -b swc` / `nest build -b swc`):**
+
+```
+ReferenceError: Cannot access 'BETTER_AUTH_INSTANCE' before initialization
+```
+
+The lethal ingredient is **not the cycle by itself** — it is a cycle **plus a read of the cyclic
+binding at module-evaluation time**. `@Inject(BETTER_AUTH_INSTANCE)` is a constructor-parameter
+decorator, and decorator arguments are evaluated when the class is *defined*, i.e. while the module
+is still initializing. On a cycle, the importing side then reads a `const` that is still in its
+temporal dead zone.
+
+This is why the same cycle is harmless when both sides only dereference each other **inside method
+bodies** (deferred to call time) — and why such a cycle is nonetheless a loaded gun: hoisting a
+lazy lookup into a static field, or adding a typed constructor parameter (which emits
+`design:paramtypes` at top level), weaponizes it instantly.
+
+### The solution
+
+```typescript
+// core-better-auth.constants.ts — imports NOTHING
+export const BETTER_AUTH_INSTANCE = 'BETTER_AUTH_INSTANCE';
+
+// core-better-auth.module.ts AND core-better-auth.service.ts
+import { BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+```
+
+A file with zero imports can never be mid-evaluation when someone imports it — in any module
+system, under any compiler.
+
+### Why you cannot rely on the test suite here
+
+This bug class is **invisible** to everything except one specific step:
+
+| Tool | Sees it? | Why |
+|------|:--------:|-----|
+| `tsc` / `pnpm run build` | ❌ | Compiles the cycle without complaint |
+| `pnpm test` (vitest) | ❌ | vitest runs SWC through **Vite's module runner**, whose getter-based live bindings tolerate cycles |
+| `oxlint` | ❌ | oxlint does **not** implement `import/no-cycle` |
+| `pnpm run check:swc-tdz` | ✅ | SWC → CommonJS → `require()`: the exact path consumers hit |
+| `tests/unit/better-auth-di-tokens.spec.ts` | ✅ | Asserts the leaf invariant structurally |
+
+The bug shipped to `develop` with a fully green CI. Treat a green `pnpm test` as **no evidence** on
+this question.
+
+### Common mistakes
+
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| Importing a token from `./core-better-auth.module` or `./core-better-auth.service` inside the better-auth module | Green tsc + green tests; `ReferenceError` for consumers on SWC | Import from `./core-better-auth.constants` |
+| Adding any runtime `import` to `core-better-auth.constants.ts` | `better-auth-di-tokens.spec.ts` fails | Keep it a leaf; move whatever you needed elsewhere |
+| Importing `CoreBetterAuthModule` into `better-auth-roles.guard.ts` | Re-creates the guard ↔ module cycle | Use `getBetterAuthTokenService()` from `./core-better-auth.registry` |
+| Hoisting `getBetterAuthTokenService()` into a static field / class property initializer | Evaluation-time deref → TDZ crash returns | Keep the lookup inside the method body |
+
+> The backward-compat re-exports in `core-better-auth.module.ts` / `core-better-auth.service.ts` are
+> marked `@deprecated` and exist **only** for external deep importers. Never use them from inside
+> the module — that is precisely the path that re-creates the cycle.
 
 ## Summary
 
@@ -260,3 +345,4 @@ Both guards implement identical security logic:
 | Testing | Full coverage, all tests pass, security tests included |
 | Customization | Use correct registration pattern, re-declare Resolver decorators |
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
+| DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
