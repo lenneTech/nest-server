@@ -50,6 +50,42 @@ All Better-Auth code must be implemented with maximum security:
 3. **One-time use** - Tokens/challenges must be deleted after use
 4. **Secrets protection** - Never expose internal tokens to clients
 5. **Cookie signing** - Use proper HMAC signatures for cookies
+6. **Server-managed user fields are `input: false`** - Any user field that must never be settable
+   from client input (privilege/verification/2FA/identity boundaries) MUST be registered with
+   `input: false` on the Better-Auth additional-fields schema, and re-asserted AFTER the
+   `additionalUserFields` merge so a project override cannot re-open it (see below)
+
+### Rule: Server-managed user fields must be `input: false` (and re-asserted after the merge)
+
+`buildUserFields()` (`better-auth.config.ts`) builds the Better-Auth `user.additionalFields`. Better-Auth
+defaults `input: true`, so **any additional field is client-settable via `POST /iam/sign-up/email` and
+`POST /iam/update-user`** — and `/iam/update-user` runs under Better-Auth's native `sessionMiddleware`
+(any authenticated user), bypassing the controller's class-level `@Roles(ADMIN)` and nest-server's
+`checkRoles`. A server-managed field left at the default is therefore a direct vulnerability:
+
+| Field | If client-settable |
+|-------|--------------------|
+| `roles` | vertical privilege escalation (self-granting `admin`) |
+| `verified` / `verifiedAt` | email-verification bypass |
+| `twoFactorEnabled` | self-toggling the 2FA state |
+| `iamId` | identity / account-linking hijack |
+
+**Invariants (enforced in `buildUserFields()`):**
+
+1. Every server-managed core field is declared with `input: false`.
+2. The security-critical subset lives in a single `PROTECTED_INPUT_FALSE_KEYS` constant and is
+   **re-asserted after** the project `additionalUserFields` merge — an override (even one that
+   replaces the field wholesale, dropping `input`) cannot silently re-open a protected key.
+3. The re-assertion also locks any **shadow field** whose `fieldName` maps to a protected column
+   (e.g. `{ customRoles: { fieldName: 'roles', input: true } }`), so the lock is column-scoped, not
+   just key-scoped.
+4. `input: false` only gates Better-Auth's native input parsing. nest-server's own role path
+   (`UserService.setRoles`, `CrudService.update` via `checkRoles`, the user mapper's `$set`) does
+   **not** use it and stays fully functional — verify with a positive no-regression test.
+
+When adding a new server-managed field, add `input: false`; if it is a privilege/verification/identity
+boundary, also add its key to `PROTECTED_INPUT_FALSE_KEYS`. Regression coverage lives in
+`tests/stories/better-auth-privilege-escalation.e2e-spec.ts`.
 
 ### Security Review Checklist
 

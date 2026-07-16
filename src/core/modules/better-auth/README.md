@@ -641,12 +641,34 @@ const config = {
       department: { type: 'string', required: true },
       preferences: { type: 'string', defaultValue: '{}' },
       isActive: { type: 'boolean', defaultValue: true },
+      // Server-managed field: reject any client-supplied value (sign-up / update-user)
+      internalScore: { type: 'number', defaultValue: 0, input: false },
     },
   },
 };
 ```
 
 **Available field types:** `'string'`, `'number'`, `'boolean'`, `'date'`, `'json'`, `'string[]'`, `'number[]'`
+
+**Field options:**
+
+| Option         | Type       | Default                      | Description                                                                                                                                                                                                                                                     |
+| -------------- | ---------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`         | field type | —                            | Required. One of the field types above.                                                                                                                                                                                                                         |
+| `defaultValue` | any        | —                            | Value used when the client does not (or may not) supply one.                                                                                                                                                                                                    |
+| `required`     | boolean    | `false`                      | Whether the field is required.                                                                                                                                                                                                                                  |
+| `input`        | boolean    | `true` (Better-Auth default) | When `false`, Better-Auth rejects client-supplied values: it throws `FIELD_NOT_ALLOWED` (HTTP 400) on `POST /iam/update-user` and substitutes the server default on sign-up. Use it to mark **server-managed** fields that must never be set from client input. |
+
+> **⚠️ Security — server-managed core fields are hard-locked.** The core fields `roles`, `verified`,
+> `verifiedAt`, `twoFactorEnabled` and `iamId` are registered with `input: false` and **re-asserted
+> after** your `additionalUserFields` are merged, so a project override **cannot** re-open them for
+> client input. This closes a vertical privilege-escalation path (a client can no longer self-grant
+> `roles: ['admin']`, self-verify, or toggle 2FA via `POST /iam/update-user`). The lock also applies
+> to any shadow field whose `fieldName` maps to one of those columns. `roles`/`verified` etc. are
+> still assigned server-side through nest-server's own service layer (`UserService.setRoles`,
+> `CrudService.update` with `checkRoles`) — that path does not use Better-Auth input parsing and is
+> unaffected. (`termsAndPrivacyAcceptedAt` is `input: false` by default but is intentionally NOT
+> hard-locked — it is a consent timestamp, not a privilege boundary, so a project may re-open it.)
 
 ### Module Integration (Recommended Pattern)
 

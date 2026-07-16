@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.28.1",
+  "version": "11.29.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -23,9 +23,10 @@
     "build:dev": "pnpm run build",
     "c": "pnpm run check",
     "check": "node scripts/check.mjs",
-    "check:raw": "pnpm audit && pnpm run format:check && pnpm run lint && pnpm run check:swc-tdz && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
-    "check:fix": "pnpm install && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm run check:swc-tdz && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
-    "check:naf": "pnpm install && pnpm run format && pnpm run lint:fix && pnpm run check:swc-tdz && pnpm test && pnpm run build && bash scripts/check-server-start.sh",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm audit && pnpm run format:check && pnpm run lint && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:fix": "pnpm install && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:naf": "pnpm install && pnpm run format && pnpm run lint:fix && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:manifest": "node scripts/check-package-manifest.mjs",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",
     "cf": "pnpm run check:fix",
     "cnaf": "pnpm run check:naf",
@@ -75,7 +76,8 @@
     "url": "https://github.com/lenneTech/nest-server/issues"
   },
   "engines": {
-    "node": ">= 22"
+    "node": ">= 22",
+    "pnpm": "^11.0.0"
   },
   "dependencies": {
     "@apollo/server": "5.5.1",
@@ -187,6 +189,5 @@
   ],
   "watch": {
     "build:dev": "src"
-  },
-  "packageManager": "pnpm@11.13.0"
+  }
 }

@@ -232,7 +232,7 @@ function main() {
   }
 
   // IBetterAuth is a type alias (union), extract the underlying interfaces
-  const betterAuthInterfaces = ['IBetterAuthPasskeyConfig', 'IBetterAuthTwoFactorConfig', 'IBetterAuthJwtConfig', 'IBetterAuthEmailVerificationConfig', 'IBetterAuthRateLimit', 'IBetterAuthSignUpChecksConfig'];
+  const betterAuthInterfaces = ['IBetterAuthPasskeyConfig', 'IBetterAuthTwoFactorConfig', 'IBetterAuthJwtConfig', 'IBetterAuthEmailVerificationConfig', 'IBetterAuthRateLimit', 'IBetterAuthSignUpChecksConfig', 'IBetterAuthUserField'];
 
   for (const name of betterAuthInterfaces) {
     const iface = serverOptionsSf.getInterface(name);

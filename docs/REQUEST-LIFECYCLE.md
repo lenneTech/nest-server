@@ -528,6 +528,18 @@ Authenticates the request using three strategies in priority order:
 
 If authentication succeeds, `req.user` is set with the authenticated user (including `hasRole()` method).
 
+> **Native `/iam/*` routes bypass the `@Roles()`/`checkRoles` layer.** Better-Auth's own endpoints
+> (e.g. `POST /iam/update-user`, `POST /iam/sign-up/email`) that are **not** in
+> `CONTROLLER_HANDLED_PATHS` are forwarded raw by `CoreBetterAuthApiMiddleware` to Better-Auth's
+> native handler under its `sessionMiddleware` — i.e. reachable by **any authenticated user**,
+> independent of the controller's class-level `@Roles(ADMIN)` and nest-server's `checkRoles`. This is
+> why server-managed user fields (`roles`, `verified`, `verifiedAt`, `twoFactorEnabled`, `iamId`) are
+> locked at the Better-Auth schema layer with `input: false` (see `betterAuth.additionalUserFields[].input`
+> in `.claude/rules/configurable-features.md` and `.claude/rules/better-auth.md` §2): field-level
+> input rejection is the correct control here because the guard layer does not run on these
+> raw-forwarded routes. A forged `POST /iam/update-user {"roles":["admin"]}` is rejected with
+> `FIELD_NOT_ALLOWED` (HTTP 400) at the input-parse stage, before any persistence.
+
 #### 3. graphqlUploadExpress
 
 Only for GraphQL routes. Handles multipart file upload requests according to the [GraphQL multipart request specification](https://github.com/jaydenseric/graphql-multipart-request-spec).

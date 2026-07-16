@@ -53,6 +53,19 @@ export abstract class CoreUserService<
     serviceOptions = prepareServiceOptionsForCreate(serviceOptions);
     return this.process(
       async (data) => {
+        // Application-level email-uniqueness check. The unique index alone is NOT
+        // sufficient: on a FRESH database Mongoose builds indexes asynchronously
+        // (autoIndex), so an early duplicate sign-up can slip through before the
+        // index exists — observed as a load-dependent e2e flake, and the same
+        // window exists on a freshly deployed production database. The index
+        // remains the backstop for truly concurrent duplicate requests.
+        if (data.input?.email) {
+          const existing = await this.mainDbModel.findOne({ email: data.input.email }).lean().exec();
+          if (existing) {
+            throw new BadRequestException('Email address already in use');
+          }
+        }
+
         // Create user with verification token
         const currentUserId = serviceOptions?.currentUser?._id;
         const createdUser = new this.mainDbModel({
@@ -66,7 +79,7 @@ export abstract class CoreUserService<
         try {
           await createdUser.save();
         } catch (error) {
-          if (error?.errors?.email?.kind === 'unique') {
+          if (error?.errors?.email?.kind === 'unique' || error?.code === 11000) {
             throw new BadRequestException('Email address already in use');
           } else {
             throw new UnprocessableEntityException();

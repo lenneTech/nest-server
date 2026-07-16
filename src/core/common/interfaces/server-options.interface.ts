@@ -728,6 +728,18 @@ export interface IBetterAuthUserField {
   fieldName?: string;
 
   /**
+   * Whether a client may supply this field's value via Better-Auth's native input parsing
+   * (sign-up create / update-user).
+   *
+   * When `false`, Better-Auth rejects client-supplied values: it throws `FIELD_NOT_ALLOWED`
+   * on the update-user route and silently substitutes the server-side default on sign-up.
+   * Use this to mark server-managed fields that must never be set from client input.
+   *
+   * @default true (Better-Auth default when omitted)
+   */
+  input?: boolean;
+
+  /**
    * Whether this field is required
    */
   required?: boolean;
