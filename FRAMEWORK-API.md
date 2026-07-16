@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-15 (v11.28.1)
+> Auto-generated from source code on 2026-07-16 (v11.29.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -195,6 +195,14 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `enabled?`: `boolean` (default: `true (enabled by default when BetterAuth is active)`) — Whether sign-up checks are enabled.
   - `requiredFields?`: `string[]` (default: `['termsAndPrivacyAccepted']`) — Fields that must be provided and truthy during sign-up.
+
+### IBetterAuthUserField
+
+  - `defaultValue?`: `unknown` — Default value for the field
+  - `fieldName?`: `string` — Database field name (if different from key)
+  - `input?`: `boolean` (default: `true (Better-Auth default when omitted)`) — Whether a client may supply this field's value via Better-Auth's native input parsing
+  - `required?`: `boolean` — Whether this field is required
+  - `type`: `BetterAuthFieldType` — Field type
 
 ### ServiceOptions
 

@@ -45,3 +45,5 @@ overrides:
   '@babel/core@<7.29.6': '7.29.6'
   # Security: Quadratic-complexity DoS in merge key (GHSA-h67p-54hq-rp68, patched >=4.1.2 but 4.1.2 was never published, so 4.2.0 is the minimum available fix) - transitive via @nestjs/swagger + @compodoc/compodoc (resolves to vulnerable 4.1.1 without this)
   'js-yaml@<4.2.0': '4.2.0'
+  # Security: Message corruption via protocol length headers (GHSA-xv26-6w52-cph6, critical) + resource-limit bypass via message compression (GHSA-mp7j-qc5w-4988, moderate), patched >=0.7.5 - transitive via @compodoc/compodoc>@compodoc/live-server>faye-websocket (dev-only doc toolchain)
+  'websocket-driver@<0.7.5': '0.7.5'

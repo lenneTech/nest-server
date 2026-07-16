@@ -39,14 +39,17 @@ import { AuthModule } from '../../src/server/modules/auth/auth.module';
 import { BetterAuthModule } from '../../src/server/modules/better-auth/better-auth.module';
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
+import { deriveTestDbUri } from '../db-lifecycle.reporter';
 
-// Isolated database to avoid interfering with parallel tests
-const SYSTEM_SETUP_DB = `nest-server-e2e-setup-${Date.now()}`;
+// Isolated database to avoid interfering with parallel tests. Derived from the
+// current (per-run, per-worker) test DB name so the db-lifecycle cleanup owns it —
+// a hardcoded `...-setup-${Date.now()}` name escaped the per-run scheme and leaked
+// two databases per run (collected only by the 1h legacy rule).
 const testConfig = {
   ...envConfig,
   mongoose: {
     ...envConfig.mongoose,
-    uri: `mongodb://127.0.0.1/${SYSTEM_SETUP_DB}`,
+    uri: deriveTestDbUri('setup'),
   },
 };
 
@@ -107,6 +110,13 @@ describe('Story: System Setup', () => {
   });
 
   afterAll(async () => {
+    // Close the app BEFORE dropping: modules still finishing async initialisation
+    // (e.g. AI module collection/index creation) re-create the database when it is
+    // dropped while the app is alive — that race is exactly how dropped `-setup-`
+    // databases used to reappear as empty leftovers.
+    if (app) {
+      await app.close();
+    }
     // Drop the entire temporary database (no shared data to worry about)
     if (db) {
       try {
@@ -115,12 +125,8 @@ describe('Story: System Setup', () => {
         // Ignore cleanup errors
       }
     }
-
     if (mongoClient) {
       await mongoClient.close();
-    }
-    if (app) {
-      await app.close();
     }
     CoreBetterAuthModule.reset();
   });
@@ -255,7 +261,6 @@ describe('Story: System Setup', () => {
 // =============================================================================
 
 describe('Story: System Setup - Auto-Creation via Config', () => {
-  const AUTO_DB = `nest-server-e2e-setup-auto-${Date.now()}`;
   const AUTO_ADMIN_EMAIL = `auto-admin-${Date.now()}@test.com`;
   const AUTO_ADMIN_PASSWORD = 'AutoPassword123!';
   const AUTO_ADMIN_NAME = 'Auto Admin';
@@ -269,7 +274,7 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
     ...envConfig,
     mongoose: {
       ...envConfig.mongoose,
-      uri: `mongodb://127.0.0.1/${AUTO_DB}`,
+      uri: deriveTestDbUri('setup-auto'),
     },
     systemSetup: {
       initialAdmin: {
@@ -320,6 +325,11 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
   });
 
   afterAll(async () => {
+    // App first — see the first afterAll above: dropping while the app is alive
+    // races against async module initialisation re-creating the database.
+    if (app) {
+      await app.close();
+    }
     if (db) {
       try {
         await db.dropDatabase();
@@ -329,9 +339,6 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
     }
     if (mongoClient) {
       await mongoClient.close();
-    }
-    if (app) {
-      await app.close();
     }
     CoreBetterAuthModule.reset();
   });
@@ -469,6 +476,11 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
   });
 
   afterAll(async () => {
+    // App first — see the first afterAll above: dropping while the app is alive
+    // races against async module initialisation re-creating the database.
+    if (app) {
+      await app.close();
+    }
     if (db) {
       try {
         await db.dropDatabase();
@@ -478,9 +490,6 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
     }
     if (mongoClient) {
       await mongoClient.close();
-    }
-    if (app) {
-      await app.close();
     }
     CoreBetterAuthModule.reset();
   });

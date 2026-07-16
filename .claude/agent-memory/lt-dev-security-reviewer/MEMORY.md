@@ -8,6 +8,7 @@
 - [project-ai-mcp-oauth-refresh-token-binding.md](project-ai-mcp-oauth-refresh-token-binding.md) — CoreAiMcpOAuthService.exchangeRefreshToken ignores rotating client_id; cross-client token theft risk when ai.mcp.oauth=true
 - [project-betterauth-native-cookie-forwarding.md](project-betterauth-native-cookie-forwarding.md) — BetterAuth's helper vs native-forward cookie paths; SEC-001 ("useSecureCookies:false strips Secure") is FIXED — do not re-report
 - [project-betterauth-di-failclosed-and-cycle-triage.md](project-betterauth-di-failclosed-and-cycle-triage.md) — @Optional() auth-instance injection degrades fail-CLOSED (401, not bypass); how to triage madge cycles as TDZ-risky (decorator-arg) vs benign (method-body)
+- [project-betterauth-input-false-enforcement.md](project-betterauth-input-false-enforcement.md) — BA `input:false` privesc fix: single chokepoint parseInputData covers create/update/social; keyed on object-KEY not fieldName (shadow-key gap); nest-server native $set path disjoint
 
 ## Review Methodology
 

@@ -71,6 +71,42 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Is `name` a leftover test database of the given base name that no live run owns?
+ *
+ * Shared between the end-of-run cleanup (reporter below) and the START-of-run sweep in
+ * tests/global-setup.ts. The startup sweep is what makes cleanup survive every abnormal
+ * end: a SIGKILLed run (check.mjs watchdog escalation), a run started with an explicit
+ * `--reporter` CLI flag (which replaces the config reporters, including this one), or a
+ * crashed terminal — none of them can clean up after themselves, so the NEXT run cleans
+ * up BEFORE it starts instead.
+ *
+ * Callers must additionally apply SAFE_TEST_DB_PATTERN before dropping.
+ */
+export function isStaleTestDb(name: string, base: string, now: number = Date.now()): boolean {
+  if (name === base) {
+    // Legacy fixed-name test DB (pre unique-name scheme) — nothing writes it anymore.
+    return true;
+  }
+  if (name.startsWith(`${base}-run-`)) {
+    // Another run's DB (or a DB derived from it): stale when its creating
+    // process is dead or it exceeded the age cap.
+    const match = name.match(/-run-(\d+)-p(\d+)/);
+    return match
+      ? !isPidAlive(Number(match[2])) || now - Number(match[1]) > STALE_MAX_AGE_MS
+      : false;
+  }
+  // Legacy pre-unique-scheme leftovers carrying a trailing timestamp,
+  // e.g. `<base>-setup-1783062745355` from aborted runs of older code.
+  // The 1h age guard protects a concurrently running old-code suite.
+  const legacy = name.match(new RegExp(`^${escapeRegExp(base)}-.+-(\\d{13})$`));
+  return legacy ? now - Number(legacy[1]) > 60 * 60 * 1000 : false;
+}
+
 /**
  * Vitest reporter managing the lifecycle of per-run test databases
  * (created by tests/global-setup.ts):
@@ -105,28 +141,26 @@ export default class DbLifecycleReporter {
 
     if (reason !== 'passed' || unhandledErrors.length > 0) {
       // The actual test data lives in the per-worker fork databases (`${dbName}-w<N>`, created in
-      // tests/setup.ts), NOT in `${dbName}` itself — the main process's URI names the base, but every
-      // fork suffixes it with its pool id. List the fork DBs so a developer debugging a failure
-      // connects to the right ones. Best-effort: fall back to the base name if the listing fails.
-      let debugTargets = [dbName];
+      // tests/setup.ts), NOT in `${dbName}` itself. COMPACT on purpose: this block prints inside
+      // the failure output, and check.mjs shows only the LAST ~40 lines of a failed step — a
+      // full 27-line DB listing used to flood that window and push the actual test failure out
+      // of sight. The pattern + count is enough to connect to the right database.
+      let forkCount = 0;
       try {
         const connection = await MongoClient.connect(uri);
         try {
           const { databases } = await connection.db().admin().listDatabases({ nameOnly: true });
-          const forks = databases.map((d) => d.name).filter((n) => n.startsWith(`${dbName}-w`));
-          if (forks.length > 0) {
-            debugTargets = forks;
-          }
+          forkCount = databases.filter((d) => d.name.startsWith(`${dbName}-w`)).length;
         } finally {
           await connection.close();
         }
       } catch {
-        /* keep the base-name fallback */
+        /* count stays 0 — the pattern line below is still correct */
       }
       console.info(
-        `\n⚠ Test database(s) kept for debugging:`
-        + debugTargets.map((name) => `\n  ${serverUri}/${name}`).join('')
-        + '\n  Removed automatically by the next successful test run.',
+        `\n⚠ Test databases kept for debugging: ${serverUri}/${dbName}-w<N>`
+        + (forkCount > 0 ? ` (${forkCount} databases, one per worker fork + derived)` : '')
+        + '\n  Removed automatically when the next test run starts (startup sweep).',
       );
       return;
     }
@@ -139,33 +173,14 @@ export default class DbLifecycleReporter {
         dropped.push(dbName);
 
         const base = dbName.replace(RUN_DB_PATTERN, '');
-        // Legacy pre-unique-scheme leftovers carrying a trailing timestamp,
-        // e.g. `<base>-setup-skip-1783062745355` from aborted runs of older
-        // code. The 1h age guard protects a concurrently running old-code suite.
-        const legacyTimestamped = new RegExp(`^${base}-.+-(\\d{13})$`);
         const { databases } = await connection.db().admin().listDatabases({ nameOnly: true });
         for (const { name } of databases) {
           if (name === dbName) {
             continue;
           }
-          let stale = false;
-          if (name.startsWith(`${dbName}-`)) {
-            // DB derived from THIS run's name (e.g. its setup-skip DB) — the run is over.
-            stale = true;
-          } else if (name === base) {
-            // Legacy fixed-name test DB (pre unique-name scheme) — nothing writes it anymore.
-            stale = true;
-          } else if (name.startsWith(`${base}-run-`)) {
-            // Another run's DB (or a DB derived from it): stale when its
-            // creating process is dead or it exceeded the age cap.
-            const match = name.match(/-run-(\d+)-p(\d+)/);
-            stale = match
-              ? !isPidAlive(Number(match[2])) || Date.now() - Number(match[1]) > STALE_MAX_AGE_MS
-              : false;
-          } else {
-            const legacy = name.match(legacyTimestamped);
-            stale = legacy ? Date.now() - Number(legacy[1]) > 60 * 60 * 1000 : false;
-          }
+          // DBs derived from THIS run's name (per-worker `-w<N>` and their derived
+          // suffixes) — the run is over, they go regardless of PID/age.
+          const stale = name.startsWith(`${dbName}-`) || isStaleTestDb(name, base);
           // Belt and braces: never drop anything that is not recognizably a test database.
           if (stale && SAFE_TEST_DB_PATTERN.test(name)) {
             await connection.db(name).dropDatabase();

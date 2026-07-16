@@ -3,6 +3,7 @@ import os from 'node:os';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
+import { countOtherActiveRuns } from './tests/e2e-run-slots';
 import { E2E_TEST_INCLUDE } from './vitest.include-globs';
 
 // Low-resource mode — caps parallel forks and raises timeouts so many e2e suites can share one
@@ -16,24 +17,33 @@ import { E2E_TEST_INCLUDE } from './vitest.include-globs';
 // the developer who already knows the env var exists, which is exactly the developer who does not
 // need it. Whoever gets bitten is the one who has never heard of it, staring at a "flaky" auth test.
 //
-// So it now AUTO-ENABLES when the machine is already loaded, using the 1-minute load average
-// normalised per core. Explicit settings still win, in both directions:
+// So it AUTO-ENABLES on either of two signals. Explicit settings still win, in both directions:
 //
 //   CHECK_LOW_RESOURCE=1 / true  -> force on   (CI, or a machine you know is busy)
 //   CHECK_LOW_RESOURCE=0 / false -> force off  (benchmarking; never auto-throttle)
-//   unset                        -> auto       (on iff normalised load >= LOAD_THRESHOLD)
+//   unset                        -> auto       (on iff another e2e run is active OR load is high)
 //
-// Load average is unavailable on Windows (os.loadavg() returns zeros), where auto-detection simply
-// stays off — the explicit flag remains available.
+// Signal 1 — another e2e run is ACTIVE right now (slot files of tests/e2e-run-slots.ts, checked
+// by PID-liveness). This is the deterministic signal: measured on 12 cores, a single full-speed
+// run only drives the 1-minute load average up near its END (~2.5 -> 9 over 34s), so a second
+// run starting 15s in still sees a "calm" machine — the load heuristic alone structurally cannot
+// catch overlapping starts. The slot count can.
+//
+// Signal 2 — the 1-minute load average normalised per core is already high (>= LOAD_THRESHOLD).
+// This catches machine pressure from anything that is NOT an e2e run (builds, dev servers, other
+// tools). Load average is unavailable on Windows (os.loadavg() returns zeros), where this signal
+// simply stays off — the slot signal and the explicit flag remain available.
 const LOAD_THRESHOLD = 0.7;
 
 const CORES = os.availableParallelism?.() ?? os.cpus()?.length ?? 4;
 const NORMALISED_LOAD = (os.loadavg()?.[0] ?? 0) / CORES;
+const ACTIVE_E2E_RUNS = countOtherActiveRuns();
 
 const LOW_RESOURCE_RAW = process.env.CHECK_LOW_RESOURCE;
 const LOW_RESOURCE_FORCED_OFF = LOW_RESOURCE_RAW === '0' || LOW_RESOURCE_RAW === 'false';
 const LOW_RESOURCE_FORCED_ON = !!LOW_RESOURCE_RAW && !LOW_RESOURCE_FORCED_OFF;
-const LOW_RESOURCE_AUTO = LOW_RESOURCE_RAW === undefined && NORMALISED_LOAD >= LOAD_THRESHOLD;
+const LOW_RESOURCE_AUTO =
+  LOW_RESOURCE_RAW === undefined && (ACTIVE_E2E_RUNS > 0 || NORMALISED_LOAD >= LOAD_THRESHOLD);
 const LOW_RESOURCE = LOW_RESOURCE_FORCED_ON || LOW_RESOURCE_AUTO;
 
 const LOW_RESOURCE_FORKS = (() => {
@@ -44,9 +54,11 @@ const LOW_RESOURCE_FORKS = (() => {
 })();
 
 if (LOW_RESOURCE) {
-  const why = LOW_RESOURCE_AUTO
-    ? `machine is busy (load ${NORMALISED_LOAD.toFixed(2)}/core >= ${LOAD_THRESHOLD})`
-    : 'CHECK_LOW_RESOURCE set';
+  const why = LOW_RESOURCE_FORCED_ON
+    ? 'CHECK_LOW_RESOURCE set'
+    : ACTIVE_E2E_RUNS > 0
+      ? `${ACTIVE_E2E_RUNS} other e2e run(s) active on this machine`
+      : `machine is busy (load ${NORMALISED_LOAD.toFixed(2)}/core >= ${LOAD_THRESHOLD})`;
   process.stderr.write(`[e2e] low-resource mode: ${why} -> maxForks=${LOW_RESOURCE_FORKS}, timeouts raised\n`);
 }
 
@@ -105,9 +117,14 @@ export default defineConfig({
     // db-lifecycle: drops this run's unique DB on success (+ collects stale
     // run DBs), keeps it for debugging on failure — see tests/db-lifecycle.reporter.ts
     reporters: ['default', './tests/db-lifecycle.reporter.ts'],
-    // Retry flaky tests up to 3 times before failing
-    // This handles intermittent MongoDB race conditions
-    retry: 5,
+    // Retry flaky tests before failing (intermittent MongoDB race conditions).
+    // Deliberately LOW: retry multiplies worst-case runtime per test. Observed
+    // failure mode with retry: 5 — one spec file whose app/socket state broke
+    // under resource pressure ground through (1+5) attempts × 30s testTimeout ×
+    // 22 tests ≈ an hour at 0% CPU, indistinguishable from a deadlock (this is
+    // what the check.mjs watchdog used to kill). The e2e-run governor removes
+    // the pressure trigger; retry: 2 caps the multiplier at 3× as backstop.
+    retry: 2,
     root: './',
     teardownTimeout: 30000,
     testTimeout: LOW_RESOURCE ? 60000 : 30000,

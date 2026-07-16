@@ -275,6 +275,14 @@ interface SocialProviderConfig {
 interface UserFieldConfig {
   defaultValue?: unknown;
   fieldName?: string;
+  /**
+   * Whether a client may supply this field's value via Better-Auth's native input parsing
+   * (sign-up create / update-user). When `false`, Better-Auth rejects client-supplied values
+   * (throws FIELD_NOT_ALLOWED on update, silently substitutes the server default on create).
+   * Defaults to `true` in Better-Auth when omitted. Used to lock server-managed fields
+   * (e.g. `roles`) so authenticated users cannot self-set them.
+   */
+  input?: boolean;
   required?: boolean;
   type: BetterAuthFieldType;
 }
@@ -809,6 +817,28 @@ export function buildTrustedOrigins(
 }
 
 /**
+ * Server-managed, security-critical user fields whose `input: false` MUST be re-asserted after
+ * merging project-supplied `additionalUserFields`, so a project override cannot silently re-open
+ * a protected key. Each of these, if client-settable, is a concrete vulnerability:
+ *
+ * - `roles`            → vertical privilege escalation (self-granting `admin`)
+ * - `verified`         → email-verification bypass
+ * - `verifiedAt`       → email-verification bypass
+ * - `twoFactorEnabled` → self-toggling the 2FA state
+ * - `iamId`            → identity / account-linking hijack
+ *
+ * Note: `termsAndPrivacyAcceptedAt` is server-managed by default (input:false above) but is
+ * intentionally NOT hard-locked here — a project may legitimately choose to accept a client-set
+ * consent timestamp; it is not a privilege boundary.
+ *
+ * These protections only concern Better-Auth's native input parsing (sign-up / update-user).
+ * nest-server's own role assignment (UserService/CrudService `checkRoles` + Mongoose writes,
+ * `setRoles`, and the user mapper's native `$set` writes) does NOT use Better-Auth input parsing
+ * and is therefore unaffected by `input: false`.
+ */
+const PROTECTED_INPUT_FALSE_KEYS = ['iamId', 'roles', 'twoFactorEnabled', 'verified', 'verifiedAt'] as const;
+
+/**
  * Builds the user additional fields configuration.
  * Merges core fields (firstName, lastName, etc.) with custom fields from config.
  * Custom fields override core fields if they have the same key.
@@ -824,6 +854,9 @@ function buildUserFields(config: IBetterAuth): Record<string, UserFieldConfig> {
     iamId: {
       defaultValue: null,
       fieldName: 'iamId',
+      // Server-managed: linked to the Better-Auth identity by the user mapper (native DB write),
+      // never from client input. input:false blocks identity/account-linking hijack.
+      input: false,
       type: 'string',
     },
     lastName: {
@@ -834,42 +867,80 @@ function buildUserFields(config: IBetterAuth): Record<string, UserFieldConfig> {
     roles: {
       defaultValue: [],
       fieldName: 'roles',
+      // Server-managed: assigned via UserService/CrudService (checkRoles guard) + setRoles,
+      // never from client input. input:false blocks vertical privilege escalation
+      // (e.g. a self-registered user POSTing {"roles":["admin"]} to /iam/update-user).
+      input: false,
       type: 'string[]',
     },
     // Track when terms and privacy policy were accepted (for sign-up checks)
     termsAndPrivacyAcceptedAt: {
       defaultValue: null,
       fieldName: 'termsAndPrivacyAcceptedAt',
+      // Server-managed consent timestamp: set by the sign-up flow, not client input.
+      input: false,
       type: 'date',
     },
     twoFactorEnabled: {
       defaultValue: false,
       fieldName: 'twoFactorEnabled',
+      // Server-managed: toggled by the 2FA enable/disable flow, never from client input.
+      // input:false blocks self-toggling the 2FA state.
+      input: false,
       type: 'boolean',
     },
     verified: {
       defaultValue: false,
       fieldName: 'verified',
+      // Server-managed: synced from Better-Auth email verification, never from client input.
+      // input:false blocks email-verification bypass.
+      input: false,
       type: 'boolean',
     },
     // Track when email was verified (synced from Better-Auth)
     verifiedAt: {
       defaultValue: null,
       fieldName: 'verifiedAt',
+      // Server-managed: synced from Better-Auth email verification, never from client input.
+      // input:false blocks email-verification bypass.
+      input: false,
       type: 'date',
     },
   };
 
   // Merge with custom additional fields from configuration
-  // Custom fields can override core fields or add new ones
+  // Custom fields can override core fields or add new ones.
+  // The `input` flag is carried through so projects can mark their own fields as server-managed.
   if (config.additionalUserFields) {
     for (const [key, field] of Object.entries(config.additionalUserFields)) {
       coreFields[key] = {
         defaultValue: field.defaultValue,
         fieldName: field.fieldName || key,
+        input: field.input,
         required: field.required,
         type: field.type,
       };
+    }
+  }
+
+  // Security: re-assert input:false on server-managed, security-critical fields AFTER the merge,
+  // so a project-supplied additionalUserFields override cannot silently re-open a protected key
+  // (privilege escalation, email-verification bypass, 2FA bypass, identity hijack).
+  for (const key of PROTECTED_INPUT_FALSE_KEYS) {
+    if (coreFields[key]) {
+      coreFields[key].input = false;
+    }
+  }
+
+  // Security (defense-in-depth): the loop above keys on the well-known object key. A project could
+  // still reopen a protected COLUMN by registering a shadow field under a different key that maps to
+  // it, e.g. `additionalUserFields: { customRoles: { fieldName: 'roles', input: true } }`. Lock any
+  // such field too, so no additionalUserFields entry — regardless of its key — can feed client input
+  // into a protected column.
+  const protectedColumns = new Set<string>(PROTECTED_INPUT_FALSE_KEYS);
+  for (const [key, field] of Object.entries(coreFields)) {
+    if (!protectedColumns.has(key) && field.fieldName && protectedColumns.has(field.fieldName)) {
+      field.input = false;
     }
   }
 
