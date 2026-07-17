@@ -4,7 +4,7 @@ This document defines the rules for managing dependencies in package.json.
 
 ## Package Manager: pnpm
 
-This project uses **pnpm** for development. The `packageManager` field in `package.json` ensures the correct version is used (via Corepack).
+This project uses **pnpm** for development. The `packageManager` field in `package.json` pins the exact version and is the single source of truth — pnpm itself follows it (`managePackageManagerVersions`, on by default since pnpm 10), so no Corepack is involved. See [The pnpm pin contract](#the-pnpm-pin-contract-packagemanager-as-single-source-of-truth).
 
 ```bash
 # Install dependencies
@@ -99,7 +99,7 @@ The `pnpm-lock.yaml` file must always be committed. It provides additional repro
 
 ## Package Manager: pnpm 11
 
-This repo is pinned to **pnpm 11** via the `packageManager` field (corepack/`pnpm/action-setup` follow it, so CI and Docker use it automatically — no version is hardcoded anywhere else).
+This repo is pinned to **pnpm 11** via the `packageManager` field — see [The pnpm pin contract](#the-pnpm-pin-contract-packagemanager-as-single-source-of-truth) for how CI and Docker consume it without corepack.
 
 pnpm 11 **no longer reads the `pnpm` field in `package.json`**, and `.npmrc` is auth/registry only. All pnpm-specific settings live in **`pnpm-workspace.yaml`**:
 
@@ -108,6 +108,61 @@ pnpm 11 **no longer reads the `pnpm` field in `package.json`**, and `.npmrc` is 
 - `nodeLinker`, `autoInstallPeers`, `strictPeerDependencies`, `peerDependencyRules` — moved here from `.npmrc` (camelCase).
 
 `pnpm audit`: pnpm 10.x is broken (npm retired the legacy audit endpoint → HTTP 410); pnpm 11 uses the working bulk-advisory endpoint. `scripts/check.mjs` degrades the retired-endpoint failure to a non-blocking warning as a safety net, so `check` stays green + honest even if a future endpoint change lands.
+
+## The pnpm pin contract: `packageManager` as single source of truth
+
+**Rule: the pnpm version is pinned in exactly one place — `package.json#packageManager`. Nothing may hardcode it, and nothing may rely on corepack.**
+
+```jsonc
+{
+  "packageManager": "pnpm@11.13.1+sha512.b2fc7683…",  // THE pin: exact, with integrity hash
+  "engines": { "node": ">= 22", "pnpm": "^11.0.0" }   // soft major gate — NOT a pin
+}
+```
+
+**Corepack is not part of this contract.** It used to be the thing that read `packageManager`, but **Node >= 25 no longer ships it** — a build stage running `corepack enable` on such an image dies with `corepack: not found`. Nothing here needs it: pnpm follows the field itself (`managePackageManagerVersions`, on by default since pnpm 10), and `pnpm/action-setup` reads it directly.
+
+### How each consumer gets the pinned pnpm
+
+| Consumer | Mechanism |
+|----------|-----------|
+| Local dev | pnpm self-switches to the pinned version (`managePackageManagerVersions`) |
+| GitHub Actions | `pnpm/action-setup@v6` with **no** `version:` input — it reads `packageManager` |
+| Docker / other CI | the derive-line (below), once per pnpm-running stage |
+
+### The derive-line
+
+```dockerfile
+# Provision the exact pnpm declared in package.json (single source of truth).
+# No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+# npm enforces registry integrity for the tarball itself.
+RUN npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
+```
+
+`.split('+')[0]` reduces `pnpm@11.13.1+sha512.…` to the plain spec `npm install -g` accepts. Dropping the hash does not weaken integrity — npm verifies the tarball against the registry's own metadata.
+
+Two ordering rules, both enforced by the contract test:
+
+1. It must run **after** the `COPY` that puts `package.json` in the WORKDIR — it reads that file.
+2. It must be repeated in **every** stage that runs `pnpm`. A global install in `deps` does not survive into `builder`; stages inherit only what is explicitly `COPY --from=`'d.
+
+### Rules
+
+| Rule | Why |
+|------|-----|
+| `packageManager` is exact (`x.y.z+sha512.<hash>`), never a range | Same fixed-version rule as dependencies; corepack rejects ranges outright |
+| `engines.pnpm` tracks the pin's major (`^<major>.0.0`) | A soft gate that warns pnpm 10 users. It is not a pin and cannot tell CI what to install |
+| Never declare `devEngines.packageManager` | npm/npx abort with `EBADDEVENGINES`; corepack rejects ranges inside it |
+| Never pass `version:` to `pnpm/action-setup` | Two sources drift; the action hard-errors on a mismatch |
+| Never `RUN corepack …` | Absent on Node >= 25 |
+| Never `npm install -g pnpm@<literal>` | That is a second pin — derive it instead |
+| Monorepo: pin at the **workspace root** | The derive-line reads `/app/package.json`, which in monorepo mode (`API_DIR=projects/api`) is the root manifest. Missing there → `TypeError: Cannot read properties of undefined (reading 'split')` |
+
+### Enforcement
+
+`tests/unit/pnpm-pin-contract.spec.ts` asserts every rule above structurally (unit suite, no network), so a re-introduced `with: version: 11` or a stray `corepack enable` fails the build rather than drifting silently. A twelfth test proves the chain functionally — derive the spec, `npm install -g` it into a throwaway prefix, assert the binary reports the pinned version. It needs network + ~10 MB and is gated to `CI` / `PIN_PROVISION_TEST=1`.
+
+**When bumping pnpm:** run `pnpm self-update` (writes the field with a fresh hash), align `engines.pnpm` if the major moved, and commit `package.json` + `pnpm-lock.yaml` together. Nothing else needs touching — that is the point.
 
 ## Overrides
 

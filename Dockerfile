@@ -12,7 +12,7 @@ FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432
 WORKDIR /app
 
 # Build tools for bcrypt native addon
-RUN apk add --no-cache python3 make g++ && corepack enable
+RUN apk add --no-cache python3 make g++
 
 # Copy all manifests for dependency resolution.
 # In monorepo mode pnpm needs workspace config + all project manifests;
@@ -25,6 +25,11 @@ RUN find /tmp/src -maxdepth 3 -name "package.json" -not -path "*/node_modules/*"
     && cp -f /tmp/src/.npmrc /app/ 2>/dev/null || true \
     && rm -rf /tmp/src
 
+# Provision the exact pnpm declared in package.json (single source of truth).
+# No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+# npm enforces registry integrity for the tarball itself.
+RUN npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
+
 # Install dependencies (--ignore-scripts prevents husky/prepare errors in Docker)
 # Rebuild bcrypt native addon separately
 RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild bcrypt
@@ -33,10 +38,14 @@ RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild bcrypt
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS builder
 ARG API_DIR=.
 WORKDIR /app
-RUN corepack enable
 
 COPY --from=deps /app ./
 COPY ${API_DIR}/ ./${API_DIR}/
+
+# Provision the exact pnpm declared in package.json (single source of truth).
+# No corepack: Node >= 25 no longer ships it. The +sha512 suffix is stripped;
+# npm enforces registry integrity for the tarball itself.
+RUN npm install -g "$(node -p "require('./package.json').packageManager.split('+')[0]")"
 
 RUN cd ${API_DIR} && pnpm run build
 
