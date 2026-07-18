@@ -671,10 +671,29 @@ function report(started, results) {
   console.log(C.green(bar));
 
   console.log(`\n${C.bold("Steps")}`);
-  for (const r of results.filter((x) => x.kind !== "audit")) {
-    console.log(
-      `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
-    );
+  const steps = results.filter((x) => x.kind !== "audit");
+  // Group by project when more than one is involved: workspace-level steps
+  // (hoisted install/audit, root-only checks) under "monorepo", then one block
+  // per member. Steps within a project run sequentially, so per-group order is
+  // chain order. A single-project run keeps the flat list — a header is noise.
+  const stepGroups = [...new Set(steps.map((r) => r.project))].sort((a, b) =>
+    a === "." ? -1 : b === "." ? 1 : shortRel(a).localeCompare(shortRel(b)),
+  );
+  if (stepGroups.length > 1) {
+    for (const project of stepGroups) {
+      console.log(`  ${C.bold(project === "." ? "monorepo" : shortRel(project))}`);
+      for (const r of steps.filter((x) => x.project === project)) {
+        console.log(
+          `    ${C.green("✓")} ${r.label.padEnd(24)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+        );
+      }
+    }
+  } else {
+    for (const r of steps) {
+      console.log(
+        `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+      );
+    }
   }
 
   console.log(
