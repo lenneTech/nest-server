@@ -380,9 +380,23 @@ function asProject(rel, check) {
   return { check, dir: rel === "." ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
 }
 
-// Workspace sub-projects whose `check` is a real chain; if there are none (a
+// Workspace sub-projects and their real check chain; if there are none (a
 // single-package repo), fall back to the root project — whose real chain lives
 // in `check:raw`, because the root `check` is THIS wrapper.
+//
+// A member's `check` is frequently THIS wrapper too: the lt starters ship their
+// own scripts/check.mjs so they also work standalone (`lt server create`), and
+// `lt fullstack init` clones them verbatim into projects/*. Treating that as
+// "no real chain" silently dropped EVERY member — the run then fell back to the
+// root, whose chain is just `pnpm -r run check`, and reported the whole
+// monorepo as one opaque step with "no test step / 0 passed" while the members'
+// tests were in fact running, unseen. So resolve a member exactly like the root:
+// wrapper `check` means the real chain lives in `check:raw`.
+function realChain(pkg) {
+  if (!IS_ORCHESTRATOR(pkg.scripts?.check)) return pkg.scripts?.check ?? null;
+  return pkg.scripts?.["check:raw"] ?? null;
+}
+
 function discoverProjects() {
   const projects = [];
   for (const glob of workspaceGlobs()) {
@@ -393,15 +407,29 @@ function discoverProjects() {
       } catch {
         continue;
       }
-      if (!IS_ORCHESTRATOR(pkg.scripts?.check)) projects.push(asProject(rel, pkg.scripts.check));
+      const chain = realChain(pkg);
+      if (chain) projects.push(asProject(rel, chain));
     }
   }
+  const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  const rootChain =
+    root.scripts?.["check:raw"] ??
+    (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
   if (projects.length === 0) {
-    const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const chain =
-      root.scripts?.["check:raw"] ??
-      (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
-    if (chain) projects.push(asProject(".", chain));
+    if (rootChain) projects.push(asProject(".", rootChain));
+  } else if (rootChain) {
+    // With members present, the root's own chain must not be dropped: beyond
+    // install/audit (hoisted later) and the member fan-out (replaced by the
+    // member expansion above) it may carry root-ONLY steps — in the assembled
+    // monorepo that is `check:workspace` / `check:pin`, which exist precisely
+    // for the case where members are present. Strip the fan-out command and
+    // keep whatever remains as a root project.
+    const ownSteps = rootChain
+      .split("&&")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((c) => !/\bpnpm\s+(?:-r|--recursive)\b.*\brun\s+check\b/.test(c));
+    if (ownSteps.length) projects.unshift(asProject(".", ownSteps.join(" && ")));
   }
   if (PROJECT_FILTERS.length)
     return projects.filter((p) =>
