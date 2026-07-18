@@ -29,21 +29,12 @@ peerDependencyRules:
     - 'vis-util'
 
 # Security overrides: force vulnerable transitive deps onto patched versions.
-# Pruned on the pnpm 11 upgrade to the 9 still load-bearing (each verified: removing it lets the
-# package resolve back INTO the vulnerable range). 27 obsolete no-ops removed (parents upgraded);
-# pnpm 11 `pnpm audit` (working again via the bulk endpoint) is the safety net for regressions.
+# Pruned again on the 2026-07 maintenance run to the 1 still load-bearing (verified empirically:
+# all overrides removed, reinstalled, `pnpm audit` + lockfile resolution checked). Removed as
+# obsolete no-ops: ajv (@angular-devkit now pins 8.18.0+), picomatch (vite/vitest resolve 4.0.4+),
+# js-yaml (@nestjs/swagger 11.4.6 requests >=4.2.0), uuid + @babel/core + websocket-driver
+# (@compodoc/compodoc 2.0.0 dropped the live-server/babel chains and uses uuid 14.0.1 directly).
+# pnpm 11 `pnpm audit` is the safety net for regressions.
 overrides:
-  # Security: prototype pollution - transitive via @nestjs/cli>@angular-devkit
-  'ajv@>=7.0.0-alpha.0 <8.18.0': '8.18.0'
-  # Security: ReDoS - transitive via vitest and vite
-  'picomatch@>=4.0.0 <4.0.4': '4.0.4'
-  # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p) - transitive via @nestjs/graphql
-  'ws@>=8.0.0 <8.21.0': '8.21.0'
-  # Security: Missing buffer bounds check in v3/v5/v6 (GHSA-w5hq-g745-h8pq) - transitive via @compodoc/compodoc and @compodoc/compodoc>@compodoc/live-server>http-auth
-  'uuid@<14.0.0': '14.0.0'
-  # Security: Arbitrary file read via sourceMappingURL (GHSA-4x5r-pxfx-6jf8, patched >=7.29.1) - transitive via @compodoc/compodoc>@babel/core (resolves to vulnerable 7.28.6 without this)
-  '@babel/core@<7.29.6': '7.29.6'
-  # Security: Quadratic-complexity DoS in merge key (GHSA-h67p-54hq-rp68, patched >=4.1.2 but 4.1.2 was never published, so 4.2.0 is the minimum available fix) - transitive via @nestjs/swagger + @compodoc/compodoc (resolves to vulnerable 4.1.1 without this)
-  'js-yaml@<4.2.0': '4.2.0'
-  # Security: Message corruption via protocol length headers (GHSA-xv26-6w52-cph6, critical) + resource-limit bypass via message compression (GHSA-mp7j-qc5w-4988, moderate), patched >=0.7.5 - transitive via @compodoc/compodoc>@compodoc/live-server>faye-websocket (dev-only doc toolchain)
-  'websocket-driver@<0.7.5': '0.7.5'
+  # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
+  'ws@>=8.0.0 <8.21.0': '8.21.1'

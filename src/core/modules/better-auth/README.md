@@ -297,13 +297,14 @@ const localConfig = {
 - **Graceful Degradation**: If auto-detection fails (no baseUrl), Passkey is disabled with a warning - other auth methods (Email/Password, 2FA) continue to work
 
 **Auto-Detection Resolution:**
-| Value | Priority | Source |
-|-------|----------|--------|
-| `baseUrl` | 1. Explicit `betterAuth.baseUrl` → 2. Root-level `baseUrl` → 3. Localhost default (env: 'local') |
-| `appUrl` | 1. Root-level `appUrl` → 2. Derived from `baseUrl` (removes `api.` prefix) → 3. Localhost default |
-| `rpId` | 1. Explicit `passkey.rpId` → 2. Auto-detect from appUrl hostname |
-| `origin` | 1. Explicit `passkey.origin` → 2. Auto-detect from appUrl |
-| `trustedOrigins` | 1. Explicit `trustedOrigins` → 2. Auto-detect from appUrl |
+
+| Value            | Priority                                                                                          | Source |
+| ---------------- | ------------------------------------------------------------------------------------------------- | ------ |
+| `baseUrl`        | 1. Explicit `betterAuth.baseUrl` → 2. Root-level `baseUrl` → 3. Localhost default (env: 'local')  |
+| `appUrl`         | 1. Root-level `appUrl` → 2. Derived from `baseUrl` (removes `api.` prefix) → 3. Localhost default |
+| `rpId`           | 1. Explicit `passkey.rpId` → 2. Auto-detect from appUrl hostname                                  |
+| `origin`         | 1. Explicit `passkey.origin` → 2. Auto-detect from appUrl                                         |
+| `trustedOrigins` | 1. Explicit `trustedOrigins` → 2. Auto-detect from appUrl                                         |
 
 ### Explicit Passkey Configuration (Advanced)
 

@@ -273,9 +273,7 @@ export class FindUsersAiTool extends AiTool {
     // Routes through CrudService with the caller's serviceOptions → permissions apply.
     const users = await this.userService.find(
       {
-        filterQuery: {
-          /* … */
-        },
+        filterQuery: {/* … */},
       },
       context.serviceOptions,
     );
