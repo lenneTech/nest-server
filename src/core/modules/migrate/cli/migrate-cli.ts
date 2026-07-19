@@ -17,6 +17,7 @@
  *   --store, -s            Path to state store module
  *   --compiler, -c         Compiler to use (e.g., ts:./path/to/ts-compiler.js)
  *   --template-file, -t    Template file for creating migrations
+ *   --strict               Fail if a recorded migration's file is missing (default: off / tolerate)
  */
 
 import * as fs from 'fs';
@@ -29,6 +30,7 @@ interface CliOptions {
   compiler?: string;
   migrationsDir: string;
   store?: string;
+  strict?: boolean;
   templateFile?: string;
 }
 
@@ -90,6 +92,7 @@ async function listMigrations(options: CliOptions) {
   const runner = new MigrationRunner({
     migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
+    strict: options.strict,
   });
 
   const status = await runner.status();
@@ -198,6 +201,9 @@ function parseArgs(): { command: string; name?: string; options: CliOptions } {
   let name: string | undefined;
   const options: CliOptions = {
     migrationsDir: './migrations',
+    // Off by default: a recorded migration whose file was deleted is tolerated so the
+    // server still starts. Enable per-run via `--strict` or globally via NSC__MIGRATE__STRICT.
+    strict: ['1', 'true', 'yes'].includes((process.env.NSC__MIGRATE__STRICT ?? '').toLowerCase()),
   };
 
   // Check if second arg is a name (not a flag)
@@ -217,6 +223,8 @@ function parseArgs(): { command: string; name?: string; options: CliOptions } {
       options.compiler = args[++i];
     } else if (arg === '--template-file' || arg === '-t') {
       options.templateFile = args[++i];
+    } else if (arg === '--strict') {
+      options.strict = true;
     }
   }
 
@@ -254,6 +262,7 @@ async function runDown(options: CliOptions) {
   const runner = new MigrationRunner({
     migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
+    strict: options.strict,
   });
 
   await runner.down();
@@ -269,6 +278,7 @@ async function runUp(options: CliOptions) {
   const runner = new MigrationRunner({
     migrationsDirectory: path.resolve(process.cwd(), options.migrationsDir),
     stateStore,
+    strict: options.strict,
   });
 
   await runner.up();
@@ -292,6 +302,7 @@ Options:
   --store, -s <path>                 Path to state store module
   --compiler, -c <compiler>          Compiler to use (e.g., ts:./path/to/ts-compiler.js)
   --template-file, -t <path>         Template file for creating migrations
+  --strict                           Fail if a recorded migration's file is missing (default: off / tolerate)
 
 Examples:
   migrate create add-user-email
@@ -302,6 +313,7 @@ Examples:
 
 Environment Variables:
   NODE_ENV                           Set environment (e.g., development, production)
+  NSC__MIGRATE__STRICT               true → fail on a missing recorded migration file (default: tolerate)
 `);
 }
 
