@@ -17,13 +17,14 @@
  *   --store, -s            Path to state store module
  *   --compiler, -c         Compiler to use (e.g., ts:./path/to/ts-compiler.js)
  *   --template-file, -t    Template file for creating migrations
- *   --strict               Fail if a recorded migration's file is missing (default: off / tolerate)
+ *   --strict               Fail if a recorded migration's file is missing (default: off / tolerate).
+ *                          Applies to up/list; down always fails hard on a missing rollback file.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { MigrationRunner } from '../migration-runner';
+import { MigrationRunner, parseStrictEnv } from '../migration-runner';
 import { MongoStateStore } from '../mongo-state-store';
 
 interface CliOptions {
@@ -96,6 +97,7 @@ async function listMigrations(options: CliOptions) {
   });
 
   const status = await runner.status();
+  const missing = new Set(status.missing);
 
   console.log('\nMigration Status:');
   console.log('=================\n');
@@ -103,7 +105,7 @@ async function listMigrations(options: CliOptions) {
   if (status.completed.length > 0) {
     console.log('Completed:');
     status.completed.forEach((name) => {
-      console.log(`  ✓ ${name}`);
+      console.log(`  ✓ ${name}${missing.has(name) ? '  (file missing)' : ''}`);
     });
     console.log('');
   }
@@ -118,6 +120,14 @@ async function listMigrations(options: CliOptions) {
 
   if (status.completed.length === 0 && status.pending.length === 0) {
     console.log('No migrations found\n');
+  }
+
+  // In strict mode, integrity drift is an error also on the inspection surface —
+  // exit non-zero (via main's error handler) instead of hiding it in the listing.
+  if (options.strict && status.missing.length > 0) {
+    throw new Error(
+      `Strict mode: ${status.missing.length} recorded migration file(s) missing: ${status.missing.join(', ')}`,
+    );
   }
 }
 
@@ -203,7 +213,7 @@ function parseArgs(): { command: string; name?: string; options: CliOptions } {
     migrationsDir: './migrations',
     // Off by default: a recorded migration whose file was deleted is tolerated so the
     // server still starts. Enable per-run via `--strict` or globally via NSC__MIGRATE__STRICT.
-    strict: ['1', 'true', 'yes'].includes((process.env.NSC__MIGRATE__STRICT ?? '').toLowerCase()),
+    strict: parseStrictEnv(),
   };
 
   // Check if second arg is a name (not a flag)
@@ -302,7 +312,8 @@ Options:
   --store, -s <path>                 Path to state store module
   --compiler, -c <compiler>          Compiler to use (e.g., ts:./path/to/ts-compiler.js)
   --template-file, -t <path>         Template file for creating migrations
-  --strict                           Fail if a recorded migration's file is missing (default: off / tolerate)
+  --strict                           Fail if a recorded migration's file is missing (default: off / tolerate).
+                                     Applies to up/list; down always fails hard on a missing rollback file.
 
 Examples:
   migrate create add-user-email
@@ -313,7 +324,7 @@ Examples:
 
 Environment Variables:
   NODE_ENV                           Set environment (e.g., development, production)
-  NSC__MIGRATE__STRICT               true → fail on a missing recorded migration file (default: tolerate)
+  NSC__MIGRATE__STRICT               1|true|yes → fail on a missing recorded migration file (default: tolerate)
 `);
 }
 
@@ -325,4 +336,5 @@ if (require.main === module) {
   });
 }
 
-export { main };
+// parseArgs is exported for unit testing only (same pattern as resolveCliPath in bin/migrate.js)
+export { main, parseArgs };

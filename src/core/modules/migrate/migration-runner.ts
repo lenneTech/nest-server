@@ -34,6 +34,12 @@ export interface MigrationFile {
 export const DEFAULT_MIGRATION_FILE_PATTERN = /(?:(?<!\.d)\.ts|\.js)$/;
 
 /**
+ * Matches the trailing `.ts`/`.js` extension stripped by {@link migrationId}.
+ * Hoisted to module level so `migrationId` allocates no per-call RegExp wrapper.
+ */
+const MIGRATION_EXTENSION_PATTERN = /\.(ts|js)$/;
+
+/**
  * Migration identity = the timestamped file stem WITHOUT its `.ts`/`.js` extension.
  *
  * A migration keeps its identity when a project switches its production image from
@@ -42,9 +48,42 @@ export const DEFAULT_MIGRATION_FILE_PATTERN = /(?:(?<!\.d)\.ts|\.js)$/;
  * every compiled `.js` migration look "pending" against a state recorded under `.ts`
  * names and re-run already-applied migrations (data corruption on existing DBs).
  * Normalising both sides makes the transition safe with no state rewrite.
+ *
+ * @param title Migration title, usually the filename (e.g. `1699000000000-foo.ts`)
+ * @returns The extension-agnostic identity (e.g. `1699000000000-foo`)
+ * @example
+ * migrationId('1699000000000-foo.ts'); // '1699000000000-foo'
+ * migrationId('1699000000000-foo.js'); // '1699000000000-foo'
+ * migrationId('1699000000000-foo');    // '1699000000000-foo' (already extensionless)
  */
 export function migrationId(title: string): string {
-  return title.replace(/\.(ts|js)$/, '');
+  return title.replace(MIGRATION_EXTENSION_PATTERN, '');
+}
+
+/**
+ * Parse the `NSC__MIGRATE__STRICT` environment variable into a boolean.
+ *
+ * Truthy values: `1`, `true`, `yes` (case-insensitive, surrounding whitespace ignored —
+ * a real risk with Docker/compose env files). Every other value means `false` (tolerate,
+ * the safe default); non-empty unrecognized values additionally emit a warning so a typo
+ * like `NSC__MIGRATE__STRICT=on` does not silently disable the control the operator
+ * intended to enable.
+ *
+ * Shared by the CLI (`migrate-cli.ts`) and the {@link MigrationRunner} constructor, so
+ * the env var behaves identically for CLI and programmatic runners.
+ */
+export function parseStrictEnv(value: string | undefined = process.env.NSC__MIGRATE__STRICT): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (normalized !== '' && !['0', 'false', 'no'].includes(normalized)) {
+    console.warn(`[migrate] Unrecognized NSC__MIGRATE__STRICT value "${value}" — treating as false (tolerate).`);
+  }
+  return false;
 }
 
 /**
@@ -60,11 +99,18 @@ export interface MigrationRunnerOptions {
   /**
    * Fail hard when a migration recorded in the state has no file on disk.
    *
-   * Default `false` (tolerate): recorded migrations whose files were deleted are
-   * ignored — `up` skips them (with a warning) and the server still starts. Migrations
-   * are tracked in git and can be restored if a rollback is ever needed, so old
+   * Default: resolved from the `NSC__MIGRATE__STRICT` environment variable (see
+   * {@link parseStrictEnv}), falling back to `false` (tolerate) — recorded migrations
+   * whose files were deleted are ignored: `up()` skips them (with a warning) and the
+   * server still starts. Migrations are tracked in git and can be restored, so old
    * migration files can be pruned without blocking boot. Set `true` to enforce
-   * state/disk integrity (missing file → error).
+   * state/disk integrity (missing file → error in `up()` and `migrate list`).
+   *
+   * Applies to `up()` and `status()`/`migrate list` only — `down()` ALWAYS fails hard
+   * on a missing rollback file, because rollback is an explicit operator action and
+   * never a boot path (an exit 0 with no rollback performed would mislead scripts).
+   *
+   * @see `--strict` CLI flag and `NSC__MIGRATE__STRICT` env var in `cli/migrate-cli.ts`
    */
   strict?: boolean;
 }
@@ -96,12 +142,21 @@ export class MigrationRunner {
   private pattern: RegExp;
 
   constructor(options: MigrationRunnerOptions) {
-    this.options = options;
+    // Resolve the strict default from the environment so NSC__MIGRATE__STRICT works
+    // identically for programmatic runners and the CLI (which parses it itself).
+    this.options = { ...options, strict: options.strict ?? parseStrictEnv() };
     this.pattern = options.pattern || DEFAULT_MIGRATION_FILE_PATTERN;
   }
 
   /**
    * Load all migration files from the migrations directory
+   *
+   * Files are deduplicated by {@link migrationId}: when both `foo.ts` and `foo.js`
+   * are present (overlapping `outDir`, source + build output copied into one image),
+   * they are ONE migration — loading both would execute it twice in a single `up()`
+   * run (the exact double-execution the identity concept exists to prevent). The
+   * `.js` file wins deterministically (`.js` sorts before `.ts`), matching the
+   * compiled-production intent; the duplicate is skipped with a warning.
    */
   private async loadMigrationFiles(): Promise<MigrationFile[]> {
     const files = fs
@@ -110,8 +165,17 @@ export class MigrationRunner {
       .sort(); // Sort alphabetically (timestamp-based filenames will be in order)
 
     const migrations: MigrationFile[] = [];
+    const seenIds = new Set<string>();
 
     for (const file of files) {
+      const id = migrationId(file);
+      if (seenIds.has(id)) {
+        console.warn(
+          `[migrate] duplicate files for migration "${id}" — skipping ${file} (a same-named file was already loaded)`,
+        );
+        continue;
+      }
+
       const filePath = path.join(this.options.migrationsDirectory, file);
 
       const module = require(filePath);
@@ -125,6 +189,7 @@ export class MigrationRunner {
       const timestampMatch = file.match(/^(\d+)-/);
       const timestamp = timestampMatch ? parseInt(timestampMatch[1], 10) : Date.now();
 
+      seenIds.add(id);
       migrations.push({
         down: module.down,
         filePath,
@@ -220,16 +285,14 @@ export class MigrationRunner {
 
     const lastMigration = completedMigrations[completedMigrations.length - 1];
     const allMigrations = await this.loadMigrationFiles();
-    const migrationToRollback = allMigrations.find((m) => migrationId(m.title) === migrationId(lastMigration.title));
+    const rollbackId = migrationId(lastMigration.title);
+    const migrationToRollback = allMigrations.find((m) => migrationId(m.title) === rollbackId);
 
     if (!migrationToRollback) {
-      if (this.options.strict) {
-        throw new Error(`Migration file not found: ${lastMigration.title}`);
-      }
-      console.warn(
-        `[migrate] last recorded migration "${lastMigration.title}" has no file — cannot roll back (strict=false); leaving state unchanged.`,
-      );
-      return;
+      // Always a hard error, independent of `strict`: down() is an explicit operator
+      // action and never a boot path — the boot-tolerance rationale does not apply,
+      // and an exit 0 with no rollback performed would mislead scripted rollbacks.
+      throw new Error(`Migration file not found: ${lastMigration.title} — restore the file from git to roll back.`);
     }
 
     if (!migrationToRollback.down) {
@@ -261,18 +324,26 @@ export class MigrationRunner {
 
   /**
    * Get migration status
+   *
+   * `missing` lists recorded migrations whose file is gone from disk (identity-based,
+   * so a `.ts`-recorded migration with a compiled `.js` on disk is NOT missing) — the
+   * same integrity drift `up()` warns about, surfaced here so `migrate list` can show
+   * it before a deploy or file pruning.
    */
   async status(): Promise<{
     completed: string[];
+    missing: string[];
     pending: string[];
   }> {
     const allMigrations = await this.loadMigrationFiles();
     const state = await this.options.stateStore.loadAsync();
     const completedMigrations = (state.migrations || []).map((m) => m.title);
     const completedIds = new Set(completedMigrations.map(migrationId));
+    const presentIds = new Set(allMigrations.map((m) => migrationId(m.title)));
 
     return {
       completed: completedMigrations,
+      missing: completedMigrations.filter((title) => !presentIds.has(migrationId(title))),
       pending: allMigrations.filter((m) => !completedIds.has(migrationId(m.title))).map((m) => m.title),
     };
   }

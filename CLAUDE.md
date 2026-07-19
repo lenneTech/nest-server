@@ -207,6 +207,8 @@ docker build --build-arg API_DIR=projects/api -t api .   # Monorepo
 Key files: `Dockerfile`, `docker-entrypoint.sh` (migrations + server start), `.dockerignore`
 
 The migration store uses `NSC__MONGOOSE__URI` env var (not `config.env.ts`) for Docker compatibility.
+Set `NSC__MIGRATE__STRICT=true` in production images to fail the boot when a recorded migration
+file is missing (default: tolerate with a warning) — see `src/core/modules/migrate/README.md`.
 
 ## Environment Configuration
 

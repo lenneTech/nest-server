@@ -432,6 +432,62 @@ The `migrate` command comes from `@lenne.tech/nest-server` - no external package
 
 See the [Migration Guide](./MIGRATION_FROM_NODEPIT.md) for detailed migration instructions from @nodepit.
 
+## Migration Identity & Strict Mode
+
+### Extension-agnostic identity (safe ts-node → compiled-JS transition)
+
+A migration's identity is its timestamped file stem **without** the `.ts`/`.js` extension
+(`migrationId('1699-foo.ts') === migrationId('1699-foo.js') === '1699-foo'`). `up`, `down`,
+and `list`/`status` all compare identities, not raw filenames.
+
+This makes the recommended production setup — running compiled `.js` migrations in the image
+while the state was recorded under `.ts` names via ts-node — safe: already-applied migrations
+are **not** re-run after the switch, and no state rewrite is needed. If both `foo.ts` and
+`foo.js` are present in the migrations directory (e.g. an overlapping `outDir`), they count
+as ONE migration: only the `.js` file is loaded and executed, and a warning is emitted.
+
+Note: identity normalization applies to the `MigrationRunner`/CLI path only. The legacy
+`synchronizedUp()` helper drives the external `migrate` package's own state handling and
+keeps raw-filename identity.
+
+### Missing migration files & strict mode
+
+Old, already-applied migration files can be deleted (they live in git and can be restored).
+By default the runner **tolerates** a recorded migration whose file is gone:
+
+- `migrate up` warns (`[migrate] N recorded migration file(s) missing — tolerated`) and continues, so the server still boots.
+- `migrate list` marks the entry with `(file missing)`.
+- `migrate down` **always fails hard** on a missing rollback file — independent of strict mode. Rollback is an explicit operator action, never a boot path; exiting 0 without rolling anything back would mislead scripts. Restore the file from git, then retry.
+
+Strict mode turns the tolerated drift into a hard error (`up` throws, `list` exits non-zero).
+Enable it via any of:
+
+| Activation path                              | Scope                                                                            |
+| -------------------------------------------- | -------------------------------------------------------------------------------- |
+| `--strict` CLI flag                          | single invocation                                                                |
+| `NSC__MIGRATE__STRICT=1\|true\|yes` env var  | CLI **and** programmatic runners (resolved in the `MigrationRunner` constructor) |
+| `new MigrationRunner({ strict: true, ... })` | programmatic                                                                     |
+
+**Recommended for production images:** set `NSC__MIGRATE__STRICT=true` in the container
+environment. In an immutable image, a recorded-but-missing migration file can only mean a
+broken build (empty/miscopied `migrations/` directory) or a state-store mismatch (wrong
+database) — both are conditions where refusing to boot is correct.
+
+### Programmatic usage (MigrationRunner)
+
+```typescript
+import { MigrationRunner, MongoStateStore } from '@lenne.tech/nest-server';
+
+const runner = new MigrationRunner({
+  migrationsDirectory: './migrations',
+  stateStore: new MongoStateStore(process.env.NSC__MONGOOSE__URI),
+  strict: true, // optional; defaults to NSC__MIGRATE__STRICT, else false
+});
+
+await runner.up();
+const { completed, missing, pending } = await runner.status();
+```
+
 ## Project Integration
 
 The migration utilities are designed to minimize boilerplate in your projects. Instead of copying multiple utility files, you can:
