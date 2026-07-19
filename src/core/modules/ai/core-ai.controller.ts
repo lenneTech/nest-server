@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 
 import { RESTServiceOptions } from '../../common/decorators/rest-service-options.decorator';
@@ -266,7 +266,9 @@ export class CoreAiController {
   }
 
   /**
-   * Find the current user's AI conversations (admins see all).
+   * Find the current user's AI conversations (own only by default). An admin may
+   * pass `?all=true` to list every user's conversations; each result carries its
+   * `createdBy` owner id for attribution. The flag is ignored for non-admins.
    *
    * The `messages` subdocument array is excluded from the list result — clients
    * fetching the conversation detail via `getConversation` get the full message
@@ -274,13 +276,14 @@ export class CoreAiController {
    */
   @Get('conversations')
   @Roles(RoleEnum.S_USER)
-  async findConversations(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiConversation[]> {
-    const currentUser = serviceOptions?.currentUser;
-    const filterQuery = currentUser?.roles?.includes(RoleEnum.ADMIN) ? {} : { createdBy: currentUser?.id };
-    return this.conversationService.find(
-      { filterQuery },
-      { ...serviceOptions, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF], select: '-messages' },
-    );
+  async findConversations(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Query('all') all?: string,
+  ): Promise<CoreAiConversation[]> {
+    // Owner-scoped list shared with the GraphQL resolver — see
+    // CoreAiConversationService.findForCurrentUser for the role/ownership rationale.
+    // Admins default to their own conversations and opt in to the cross-user view via ?all=true.
+    return this.conversationService.findForCurrentUser(serviceOptions, { all: all === 'true' });
   }
 
   /**

@@ -6,6 +6,7 @@ import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
 import { RoleEnum } from '../../../common/enums/role.enum';
 import { CorePersistenceModel } from '../../../common/models/core-persistence.model';
+import { JSON } from '../../../common/scalars/json.scalar';
 import { CoreAiMessage } from './core-ai-message.model';
 
 export type AiConversationDocument = CoreAiConversation & Document;
@@ -46,6 +47,22 @@ export class CoreAiConversation extends CorePersistenceModel {
   createdBy?: string = undefined;
 
   /**
+   * Resolved creator identity (`{ id, email, firstName, lastName, username }`),
+   * attached at read time ONLY for an admin's cross-user list view (`all: true`)
+   * so each conversation is attributable to a named user. Not persisted and left
+   * unset on a normal own-only fetch, where the owner is the caller.
+   */
+  @UnifiedField({
+    description:
+      'Resolved creator identity (id, email, name) — set only in the admin cross-user list view, not persisted',
+    gqlType: JSON,
+    isOptional: true,
+    roles: RoleEnum.S_USER,
+    type: () => Object,
+  })
+  createdByUser?: Record<string, any> = undefined;
+
+  /**
    * Conversation messages (appended via $push).
    */
   @UnifiedField({
@@ -76,7 +93,7 @@ export class CoreAiConversation extends CorePersistenceModel {
     if (force) {
       return this;
     }
-    if (user && (user.hasRole?.(RoleEnum.ADMIN) || (this.createdBy && String(this.createdBy) === user.id))) {
+    if (user && (user.hasRole?.(RoleEnum.ADMIN) || (this.createdBy && String(this.createdBy) === String(user.id)))) {
       return this;
     }
     // Hide conversations owned by other users (filtered out of list responses).

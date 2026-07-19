@@ -270,21 +270,26 @@ export class CoreAiResolver {
   }
 
   /**
-   * Find the current user's AI conversations (admins see all).
+   * Find the current user's AI conversations (own only by default). An admin may
+   * pass `all: true` to list every user's conversations; each result carries its
+   * `createdBy` owner id for attribution. The argument is ignored for non-admins.
    *
    * The `messages` subdocument array is excluded from the list result — clients
    * fetching the conversation detail via `getAiConversation` get the full message
    * history. List payloads stay small even for users with many long conversations.
    */
-  @Query(() => [CoreAiConversation], { description: 'Find AI conversations of the current user' })
+  @Query(() => [CoreAiConversation], {
+    description: "Find AI conversations of the current user (admins may pass all: true to see every user's)",
+  })
   @Roles(RoleEnum.S_USER)
-  async findAiConversations(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiConversation[]> {
-    const currentUser = serviceOptions?.currentUser;
-    const filterQuery = currentUser?.roles?.includes(RoleEnum.ADMIN) ? {} : { createdBy: currentUser?.id };
-    return this.conversationService.find(
-      { filterQuery },
-      { ...serviceOptions, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR, RoleEnum.S_SELF], select: '-messages' },
-    );
+  async findAiConversations(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('all', { nullable: true, type: () => Boolean }) all?: boolean,
+  ): Promise<CoreAiConversation[]> {
+    // Owner-scoped list shared with the REST controller — see
+    // CoreAiConversationService.findForCurrentUser for the role/ownership rationale.
+    // Admins default to their own conversations and opt in to the cross-user view via all: true.
+    return this.conversationService.findForCurrentUser(serviceOptions, { all: all === true });
   }
 
   /**
