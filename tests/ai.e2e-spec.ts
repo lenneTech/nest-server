@@ -343,6 +343,105 @@ describe('AI module (e2e)', () => {
     await conversationService.delete(conversation.id, { currentUser: admin, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR] });
   });
 
+  it('scopes AI conversation listing: non-admin own-only (200 not 403), admin own-by-default with ?all opt-in, createdBy attribution', async () => {
+    // Regression: findConversations passed roles [ADMIN, S_CREATOR, S_SELF] on a LIST.
+    // A list has no single dbObject, so the per-document roles S_CREATOR / S_SELF can
+    // never be satisfied — every non-admin was rejected at the operation level (403)
+    // before ownership scoping ran. The list now uses roles [S_USER]; the createdBy
+    // filterQuery + the model securityCheck still scope the result to the owner.
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const myTitle = `Mine ${suffix}`;
+    const theirTitle = `Theirs ${suffix}`;
+
+    // A second, independent non-admin user for the isolation half.
+    const otherEmail = `ai-http-regular2-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+    const otherToken = await createHttpUser(otherEmail, []);
+
+    // Each non-admin creates a conversation over HTTP.
+    const mineRes = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ title: myTitle });
+    expect(mineRes.status).toBe(201);
+
+    const theirRes = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ title: theirTitle });
+    expect(theirRes.status).toBe(201);
+
+    // The non-admin lists their own conversations — must be 200 (was 403).
+    const listRes = await request(app.getHttpServer())
+      .get('/ai/conversations')
+      .set('Authorization', `Bearer ${httpRegularToken}`);
+    expect(listRes.status).toBe(200);
+    const titles = (listRes.body as any[]).map((c) => c.title);
+    expect(titles).toContain(myTitle);
+    // Isolation: a non-admin never sees another user's conversation.
+    expect(titles).not.toContain(theirTitle);
+    // The heavy messages array is omitted from the list payload.
+    expect((listRes.body as any[]).every((c) => c.messages === undefined)).toBe(true);
+    // Each result carries its createdBy owner id (attribution).
+    const mineRow = (listRes.body as any[]).find((c) => c.title === myTitle);
+    expect(mineRow?.createdBy).toBeDefined();
+    // Own-only fetch does not resolve creators (the owner is the caller) — createdByUser stays unset.
+    expect(mineRow?.createdByUser).toBeUndefined();
+
+    // A non-admin cannot escalate to the cross-user view via ?all=true — still own only.
+    const regularAllRes = await request(app.getHttpServer())
+      .get('/ai/conversations?all=true')
+      .set('Authorization', `Bearer ${httpRegularToken}`);
+    expect(regularAllRes.status).toBe(200);
+    const regularAllTitles = (regularAllRes.body as any[]).map((c) => c.title);
+    expect(regularAllTitles).toContain(myTitle);
+    expect(regularAllTitles).not.toContain(theirTitle);
+
+    // Admin default fetch → own only (must NOT contain the two non-admins' conversations).
+    const adminOwnRes = await request(app.getHttpServer())
+      .get('/ai/conversations')
+      .set('Authorization', `Bearer ${httpAdminToken}`);
+    expect(adminOwnRes.status).toBe(200);
+    const adminOwnTitles = (adminOwnRes.body as any[]).map((c) => c.title);
+    expect(adminOwnTitles).not.toContain(myTitle);
+    expect(adminOwnTitles).not.toContain(theirTitle);
+
+    // Admin opt-in ?all=true → sees every user's conversations, each attributable via createdBy.
+    const adminAllRes = await request(app.getHttpServer())
+      .get('/ai/conversations?all=true')
+      .set('Authorization', `Bearer ${httpAdminToken}`);
+    expect(adminAllRes.status).toBe(200);
+    const adminAll = adminAllRes.body as any[];
+    const adminAllTitles = adminAll.map((c) => c.title);
+    expect(adminAllTitles).toContain(myTitle);
+    expect(adminAllTitles).toContain(theirTitle);
+    const mineOwned = adminAll.find((c) => c.title === myTitle);
+    const theirOwned = adminAll.find((c) => c.title === theirTitle);
+    expect(mineOwned?.createdBy).toBeDefined();
+    expect(theirOwned?.createdBy).toBeDefined();
+    // The owner mapping distinguishes the two conversations' users.
+    expect(mineOwned.createdBy).not.toBe(theirOwned.createdBy);
+    // The admin cross-user view resolves each creator to a named user (createdByUser).
+    expect(mineOwned.createdByUser?.email).toBe(httpRegularEmail);
+    expect(theirOwned.createdByUser?.email).toBe(otherEmail);
+
+    // Clean up both conversations + the extra user and its auth artifacts.
+    await db.collection('aiConversations').deleteMany({ title: { $in: [myTitle, theirTitle] } });
+    const otherUser = await db.collection('users').findOne({ email: otherEmail });
+    await db.collection('users').deleteOne({ email: otherEmail });
+    await db.collection('iam_user').deleteMany({ email: otherEmail });
+    if (otherUser?.iamId) {
+      await db.collection('account').deleteMany({ userId: otherUser.iamId });
+      await db.collection('session').deleteMany({ userId: otherUser.iamId });
+    }
+  });
+
+  it('rejects an unauthenticated AI conversation list with 401 (not 403)', async () => {
+    // @Roles(S_USER) with no token → unauthenticated → 401 (per the 401/403 policy);
+    // authenticating could grant access, so a 401 (not 403) is the correct signal.
+    const res = await request(app.getHttpServer()).get('/ai/conversations');
+    expect(res.status).toBe(401);
+  });
+
   it('exposes an MCP endpoint that rejects unauthenticated requests with 401', async () => {
     const res = await request(app.getHttpServer())
       .post('/ai/mcp')
@@ -761,6 +860,72 @@ describe('AI module (e2e)', () => {
     );
     expect(res.errors).toBeDefined();
     expect(res.errors[0].message).toMatch(/Access denied|Forbidden|Insufficient|Unauthorized/i);
+  });
+
+  it('lets a non-admin list their own conversations over GraphQL (not Access denied) and isolates them', async () => {
+    // Regression twin of the REST fix: findAiConversations passed roles [ADMIN, S_CREATOR,
+    // S_SELF] on a LIST, so every non-admin was rejected with "Access denied" over GraphQL —
+    // exactly the bug the REST fix targeted, on the parallel API surface. Both endpoints now
+    // delegate to CoreAiConversationService.findForCurrentUser ([S_USER] + createdBy filterQuery
+    // + model securityCheck), so a non-admin sees only their own conversations here too.
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const myTitle = `GqlMine ${suffix}`;
+    const theirTitle = `GqlTheirs ${suffix}`;
+
+    // A second, independent non-admin user for the isolation half.
+    const otherEmail = `ai-gql-regular2-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+    const otherToken = await createHttpUser(otherEmail, []);
+
+    const mineRes = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ title: myTitle });
+    expect(mineRes.status).toBe(201);
+    const theirRes = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ title: theirTitle });
+    expect(theirRes.status).toBe(201);
+
+    // List via GraphQL as the non-admin — must return data, never an Access-denied error (was 403-equivalent).
+    const res = await testHelper.graphQl(
+      { fields: ['id', 'title'], name: 'findAiConversations', type: TestGraphQLType.QUERY },
+      { token: httpRegularToken },
+    );
+    expect(res.errors).toBeUndefined();
+    expect(Array.isArray(res)).toBe(true);
+    const titles = (res as any[]).map((c) => c.title);
+    expect(titles).toContain(myTitle);
+    // Isolation: a non-admin never sees another user's conversation over GraphQL either.
+    expect(titles).not.toContain(theirTitle);
+
+    // Admin opt-in over GraphQL: `all: true` returns every user's conversations, each with createdBy + resolved createdByUser.
+    const adminAll = await testHelper.graphQl(
+      {
+        arguments: { all: true },
+        fields: ['id', 'title', 'createdBy', 'createdByUser'],
+        name: 'findAiConversations',
+        type: TestGraphQLType.QUERY,
+      },
+      { token: httpAdminToken },
+    );
+    expect(adminAll.errors).toBeUndefined();
+    const adminAllTitles = (adminAll as any[]).map((c) => c.title);
+    expect(adminAllTitles).toContain(myTitle);
+    expect(adminAllTitles).toContain(theirTitle);
+    // The resolved creator identity is present over GraphQL too (admin cross-user view).
+    const gqlMineRow = (adminAll as any[]).find((c) => c.title === myTitle);
+    expect(gqlMineRow?.createdByUser?.email).toBe(httpRegularEmail);
+
+    // Clean up both conversations + the extra user and its auth artifacts.
+    await db.collection('aiConversations').deleteMany({ title: { $in: [myTitle, theirTitle] } });
+    const otherUser = await db.collection('users').findOne({ email: otherEmail });
+    await db.collection('users').deleteOne({ email: otherEmail });
+    await db.collection('iam_user').deleteMany({ email: otherEmail });
+    if (otherUser?.iamId) {
+      await db.collection('account').deleteMany({ userId: otherUser.iamId });
+      await db.collection('session').deleteMany({ userId: otherUser.iamId });
+    }
   });
 
   // ===================================================================================================================
