@@ -20,6 +20,7 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 // which is purely cosmetic and carries promotional content. Warnings (`⚠`) for genuine
 // misconfiguration still surface.
 dotenv.config({ quiet: true });
+
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   // CI environment
@@ -141,6 +142,10 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: false,
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-ci',
     },
+    hub: {
+      collectors: { queries: { warnMs: 1 } },
+      mailbox: { mode: 'capture' },
+    },
     permissions: true,
     port: Number(process.env.PORT) || 3000,
     security: {
@@ -259,6 +264,14 @@ const config: { [env: string]: IServerOptions } = {
       },
       modelDocumentation: false,
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-dev',
+    },
+    // Hub (operator cockpit) — OPTIONAL and enabled PER ENVIRONMENT (it is never on implicitly).
+    // `queries` (query profiler) and `mailbox` are opt-in; the whole thing stays ADMIN-gated.
+    // See src/core/modules/hub/README.md. In production it is off by default (see that block for how
+    // to enable it safely). Also toggleable via `NSC__HUB__*` env vars (see .env.example).
+    hub: {
+      collectors: { queries: true },
+      mailbox: { mode: 'capture' },
     },
     permissions: true,
     port: Number(process.env.PORT) || 3000,
@@ -404,6 +417,10 @@ const config: { [env: string]: IServerOptions } = {
       },
       modelDocumentation: false,
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-e2e',
+    },
+    hub: {
+      collectors: { queries: { warnMs: 1 } },
+      mailbox: { mode: 'capture' },
     },
     permissions: true,
     port: Number(process.env.PORT) || 3000,
@@ -559,9 +576,14 @@ const config: { [env: string]: IServerOptions } = {
       modelDocumentation: true,
       uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1/nest-server-local',
     },
-    permissions: {
-      role: false,
+    hub: {
+      collectors: { queries: true },
+      mailbox: { mode: 'capture' },
     },
+    // Authored intent: ADMIN-gated (reach it via the Hub's "Routes / Permissions" panel). The
+    // permissions-follows-hub invariant is enforced centrally by enforcePermissionsSecurity() below —
+    // e.g. if the Hub here is disabled, that pass flips this to a public localhost-only report.
+    permissions: true,
     port: Number(process.env.PORT) || 3000,
     security: {
       checkResponseInterceptor: {
@@ -665,6 +687,18 @@ const config: { [env: string]: IServerOptions } = {
       },
       enabled: true,
     },
+    // Hub (operator cockpit) is OFF in production by default (never enabled implicitly). To turn it
+    // on here — it stays ADMIN-gated — uncomment the block below. Note the production guard-rails:
+    //   - mailbox: NEVER 'capture' in production/staging (it suppresses real mail; it throws at
+    //     startup). Use `false`, or `{ mode: 'copy' }` if you want a redacted audit copy.
+    //   - collectors.queries: opt-in (it opts the MongoDB driver into command monitoring).
+    // The standalone permissions report follows the Hub (see enforcePermissionsSecurity below), so
+    // enabling the Hub also makes the ADMIN-gated "Routes / Permissions" panel available.
+    // See src/core/modules/hub/README.md; also configurable via NSC__HUB__* (see .env.example).
+    // hub: {
+    //   collectors: { queries: false },
+    //   mailbox: false,
+    // },
     ignoreSelectionsForPopulate: true,
     jwt: {
       refresh: {
@@ -715,6 +749,45 @@ const config: { [env: string]: IServerOptions } = {
     },
   },
 };
+
+/**
+ * Enforce the permissions-report security invariant across every environment.
+ *
+ * The report is the full authorization map (every route + its required roles + `@Restricted` field
+ * rules) — a reconnaissance goldmine. The Hub does NOT need it (its "Routes / Permissions" panel
+ * reuses the scanner but degrades gracefully when the module is absent), so the rule is about the
+ * DANGEROUS direction: the report must never become a standalone, reachable surface.
+ *
+ * Derived per environment from THAT env's Hub state:
+ * - Hub OFF, non-`local` → report NOT registered (no in-app consumer → pure attack surface). This
+ *   makes the combination "non-local + Hub off + visible permissions" impossible to configure.
+ * - Hub OFF, `local`     → public (`role: false`) report allowed — frictionless, safe ONLY because
+ *   `local` is a non-reachable localhost env with no admin surface.
+ * - Hub ON               → left as authored (ADMIN when enabled, or off — the panel just degrades),
+ *   EXCEPT a public (`role: false`) report is forced back to ADMIN in every non-`local` stage.
+ *
+ * NOTE: runs on the statically-authored config; `NSC__HUB__*` / `NSC__PERMISSIONS__*` env overrides
+ * are applied afterwards by getEnvironmentConfig and take precedence.
+ */
+export function enforcePermissionsSecurity(cfg: { [env: string]: IServerOptions }): void {
+  for (const [envName, opts] of Object.entries(cfg)) {
+    const hub = opts.hub;
+    const hubOn =
+      hub === true || (typeof hub === 'object' && hub !== null && (hub as { enabled?: boolean }).enabled !== false);
+    const perms = opts.permissions;
+    const isPublic = typeof perms === 'object' && perms !== null && (perms as { role?: unknown }).role === false;
+
+    if (!hubOn) {
+      // Hub off: only a public localhost report (in `local`) is allowed; never register it elsewhere.
+      opts.permissions = envName === 'local' ? { role: false } : false;
+    } else if (envName !== 'local' && isPublic) {
+      // Reachable stage with the Hub on: the report must never be public — force the ADMIN gate.
+      opts.permissions = true;
+    }
+  }
+}
+
+enforcePermissionsSecurity(config);
 
 /**
  * Export config merged with other configs and environment variables as default

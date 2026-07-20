@@ -57,3 +57,30 @@ jobs:
         with:
           name: build
           path: ./dist
+
+  typecheck:
+    name: Type-Check Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        # No version input: the exact version is read from package.json's packageManager field.
+        uses: pnpm/action-setup@v6
+
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Type-check the test suites (tests/ + src/**/*.spec.ts). `nest build`
+      # (tsconfig.build.json) excludes tests + specs, and vitest runs through
+      # unplugin-swc without type-checking — so spec type errors would land
+      # unnoticed. Own job: needs no MongoDB / matrix, and stays off the build job.
+      - name: Type-check test suites
+        run: pnpm run typecheck:tests

@@ -241,6 +241,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
       ['modules/tus/tus.constants.ts', 'TUS_CONFIG'],
       ['modules/ai/core-ai.constants.ts', 'AI_CONNECTION_MODEL'],
       ['modules/better-auth/core-better-auth.constants.ts', 'BETTER_AUTH_INSTANCE'],
+      ['modules/hub/hub.constants.ts', 'HUB_CONFIG'],
     ] as const;
 
     it.each(LEAVES)('%s is a true leaf and declares %s', (file, token) => {

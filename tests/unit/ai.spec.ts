@@ -1336,7 +1336,9 @@ describe('CoreAiConversationService.loadRecentMessages (defensive input)', () =>
     const lean = vi.fn(() => ({ exec }));
     const findById = vi.fn(() => ({ lean }));
     const model: any = { findById };
-    const svc = new CoreAiConversationService(model, CoreAiConversationService as any);
+    // 3rd arg (Mongoose connection) added to the service constructor in 11.31.2; the early-return
+    // branches under test never touch it, so a stub is sufficient.
+    const svc = new CoreAiConversationService(model, CoreAiConversationService as any, {} as any);
     return { svc, findById };
   }
 

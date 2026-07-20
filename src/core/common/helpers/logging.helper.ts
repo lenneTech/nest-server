@@ -132,3 +132,51 @@ export function maskToken(token: null | string | undefined): string {
   }
   return `${token.substring(0, 4)}...${token.substring(token.length - 4)}`;
 }
+
+/**
+ * Redacts secrets from a free-form log line.
+ *
+ * Composes the individual maskers above into a single regex-based pass for text where the sensitive
+ * value is not at a known position (log messages, error strings). Applied by the Hub log collector
+ * before truncation, so a truncation cut can never leak the prefix of a secret.
+ *
+ * Covers: JWTs anywhere in the line, `Authorization: Bearer …`, common `key=value` secrets
+ * (password/token/secret/apiKey/client_secret/refresh_token/…), and cookie headers.
+ *
+ * @param text - The log line to redact
+ * @returns The line with secret values replaced by masked placeholders
+ *
+ * @example
+ * redactSensitiveText('password=hunter2') // 'password=***'
+ */
+export function redactSensitiveText(text: string): string {
+  if (!text) {
+    return text;
+  }
+  return (
+    text
+      // JWTs anywhere in the line
+      .replace(/eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{4,}/g, (match) => maskToken(match))
+      // reset/verification/invite tokens carried as a URL PATH segment (e.g. /verify/<token>,
+      // /reset/<token>) — these have no `key=value`, so the query-style rule below misses them.
+      .replace(
+        /(\/(?:verify|reset|confirm|activate|invite|magic-?link|set-password|change-email)\/)([A-Za-z0-9._~-]{16,})/gi,
+        (_m, prefix, token) => `${prefix}${maskToken(token)}`,
+      )
+      // authorization: Bearer xyz / Authorization=xyz
+      .replace(
+        /(authorization["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"',;]+)/gi,
+        (_m, prefix, value) => `${prefix}${maskToken(value)}`,
+      )
+      // cookie headers (mask every value, keep names)
+      .replace(
+        /((?:^|[\s,;])cookie["']?\s*[:=]\s*)([^\n]+)/gi,
+        (_m, prefix, value) => `${prefix}${maskCookieHeader(value)}`,
+      )
+      // key/value secrets: password=..., token: "...", apiKey=..., secret=..., client_secret=..., refresh_token=...
+      .replace(
+        /((?:password|passwd|pwd|token|secret|api[-_]?key|client[-_]?secret|refresh[-_]?token|access[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)([^\s"',;&}]+)/gi,
+        (_m, prefix, value) => `${prefix}${maskSensitive(value)}`,
+      )
+  );
+}

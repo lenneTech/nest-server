@@ -38,3 +38,5 @@ peerDependencyRules:
 overrides:
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
   'ws@>=8.0.0 <8.21.0': '8.21.1'
+  # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via @getbrevo/brevo>axios and node-mailjet>axios
+  'axios@<1.18.0': '1.18.1'

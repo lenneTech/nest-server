@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_COMMIT_ENV, getBuildInfo, getCommit, UNKNOWN_COMMIT } from '../../src/core/common/helpers/meta.helper';
+import { DEFAULT_COMMIT_ENV, getBuildInfo, getCommit, getVersion, UNKNOWN_COMMIT } from '../../src/core/common/helpers/meta.helper';
 
 describe('meta.helper', () => {
   const originalEnv = { ...process.env };
@@ -53,12 +53,20 @@ describe('meta.helper', () => {
       });
     });
 
-    it('defaults version to "unknown" and leaves env undefined', () => {
-      expect(getBuildInfo()).toEqual({
-        commit: UNKNOWN_COMMIT,
-        env: undefined,
-        version: UNKNOWN_COMMIT,
-      });
+    it('falls back to the package.json version and leaves env undefined', () => {
+      const info = getBuildInfo();
+      expect(info.commit).toBe(UNKNOWN_COMMIT);
+      expect(info.env).toBeUndefined();
+      // Reads this repo's package.json version (a real semver), never the "unknown" placeholder.
+      expect(info.version).toBe(getVersion());
+      expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
+    });
+  });
+
+  describe('getVersion', () => {
+    it('resolves the semantic version from package.json (cached)', () => {
+      expect(getVersion()).toMatch(/^\d+\.\d+\.\d+/);
+      expect(getVersion()).toBe(getVersion());
     });
   });
 });

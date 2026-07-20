@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-19 (v11.31.2)
+> Auto-generated from source code on 2026-07-20 (v11.31.3)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -33,6 +33,7 @@
   - `graphQl?`: `false | { driver?: ApolloDriverConfig; enableSubscriptionAuth?: boolean; maxC...` — Configuration of the GraphQL module
   - `healthCheck?`: `{ configs?: { build?: { enabled?: boolean; }; database?: { enabled?: boolean;...` — Whether to activate health check endpoints
   - `hostname?`: `string | undefined` — Hostname of the server
+  - `hub?`: `boolean | IHubConfig | undefined` (default: `undefined (disabled)`) — Hub admin area (operator cockpit).
   - `ignoreSelectionsForPopulate?`: `boolean | undefined` — Ignore selections in fieldSelection
   - `jwt?`: `(IJwt & JwtModuleOptions & { refresh?: IJwt & { renewal?: boolean; }; sameTok...` — Configuration of JavaScript Web Token (JWT) module
   - `loadLocalConfig?`: `string | boolean | undefined` — Load local configuration
@@ -146,6 +147,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; } | undefined` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; } | undefined` — Override ErrorCode controller and/or service.
+  - `hub?`: `{ actionsController?: Type<any>; actionsService?: Type<any>; controller?: Typ...` — Override Hub controllers and/or services with project-specific subclasses.
 
 ### IBetterAuthPasskeyConfig
 
@@ -284,6 +286,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |
 | `file` | README | `src/core/modules/file/` |
 | `health-check` | — | `src/core/modules/health-check/` |
+| `hub` | README, CHECKLIST | `src/core/modules/hub/` |
 | `migrate` | README | `src/core/modules/migrate/` |
 | `permissions` | README, CHECKLIST | `src/core/modules/permissions/` |
 | `system-setup` | README, CHECKLIST | `src/core/modules/system-setup/` |

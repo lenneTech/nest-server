@@ -15,11 +15,17 @@
  * @see getBuildInfo
  */
 
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+
 /** Default environment variable the build commit SHA is baked into. */
 export const DEFAULT_COMMIT_ENV = 'APP_VERSION_COMMIT';
 
 /** Defined value returned when no commit could be resolved. */
 export const UNKNOWN_COMMIT = 'unknown';
+
+/** Cached package.json version lookup (`null` = looked up and not found). */
+let cachedVersion: null | string | undefined;
 
 /**
  * Build identity of the running process.
@@ -64,6 +70,45 @@ export function getBuildInfo(options: { commitEnvName?: string; env?: string; ve
   return {
     commit: getCommit(options.commitEnvName),
     env: options.env,
-    version: options.version || UNKNOWN_COMMIT,
+    version: options.version || getVersion(),
   };
+}
+
+/**
+ * Resolve the semantic version of the running app from its `package.json`.
+ *
+ * Reads the `version` field of the nearest `package.json` (searching up from the current working
+ * directory), cached after the first lookup. This is the deployed app's own version — in a consumer
+ * project that is the API's version, in this repo it is the framework version. Falls back to
+ * `'unknown'` when no `package.json` / version can be resolved.
+ *
+ * Prefer an explicit `IServerOptions.version` when set; this is the zero-config default.
+ */
+export function getVersion(): string {
+  if (cachedVersion !== undefined) {
+    return cachedVersion ?? UNKNOWN_COMMIT;
+  }
+  cachedVersion = null;
+  try {
+    // Walk up from cwd so a monorepo `projects/api` started from the repo root still resolves.
+    let dir = process.cwd();
+    for (let i = 0; i < 6; i++) {
+      const pkgPath = join(dir, 'package.json');
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+        if (typeof pkg.version === 'string' && pkg.version) {
+          cachedVersion = pkg.version;
+          break;
+        }
+      }
+      const parent = join(dir, '..');
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
+    }
+  } catch {
+    /* ignore — fall back to 'unknown' */
+  }
+  return cachedVersion ?? UNKNOWN_COMMIT;
 }

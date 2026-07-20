@@ -1,12 +1,14 @@
 import { createHash } from 'crypto';
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { MailTransportOptions } from '../interfaces/server-options.interface';
+import { HUB_EMAIL_CAPTURE } from '../../modules/hub/hub.constants';
 import { ConfigService } from './config.service';
 import { TemplateService } from './template.service';
+import type { IHubEmailCapture } from '../../modules/hub/interfaces/hub-config.interface';
 
 /**
  * Email service
@@ -26,6 +28,9 @@ export class EmailService implements OnModuleDestroy {
   constructor(
     protected configService: ConfigService,
     protected templateService: TemplateService,
+    // Optional Hub mailbox hook. When the Hub mailbox is enabled it captures outgoing mail (and, in
+    // capture mode, suppresses the actual send). Undefined otherwise — zero cost.
+    @Optional() @Inject(HUB_EMAIL_CAPTURE) protected readonly emailCapture?: IHubEmailCapture,
   ) {}
 
   onModuleDestroy(): void {
@@ -101,6 +106,33 @@ export class EmailService implements OnModuleDestroy {
           'JSONTransport (jsonTransport: true) is not permitted in production/staging environments. ' +
             'It silently discards all outgoing email. Check email.smtp in your config.',
         );
+      }
+    }
+
+    // Hub mailbox capture (Mailpit-style). Runs after templates are rendered, before the transport.
+    // In capture mode it records the mail and suppresses the send (returns a jsonTransport-like ack).
+    // Fully guarded: a broken mailbox hook must never break (or crash) the mail path.
+    if (this.emailCapture) {
+      let skipTransport = false;
+      try {
+        skipTransport = this.emailCapture.capture({
+          from: `"${senderName}" <${senderEmail}>`,
+          html,
+          subject,
+          templateName: htmlTemplate ?? textTemplate,
+          text,
+          to: Array.isArray(recipients) ? recipients.join(', ') : recipients,
+        });
+      } catch {
+        /* mailbox capture must never break mail sending */
+      }
+      if (skipTransport) {
+        return {
+          accepted: Array.isArray(recipients) ? recipients : [recipients],
+          captured: true,
+          messageId: 'hub-mailbox',
+          rejected: [],
+        };
       }
     }
 

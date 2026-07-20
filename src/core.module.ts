@@ -43,6 +43,8 @@ import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-aut
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
+import { CoreHubModule } from './core/modules/hub/core-hub.module';
+import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
 import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
 import { CoreTenantModule } from './core/modules/tenant/core-tenant.module';
@@ -335,6 +337,16 @@ export class CoreModule implements NestModule {
     // and: https://mongoosejs.com/docs/guide.html#strictQuery
     mongoose.set('strictQuery', config.mongoose.strictQuery || false);
 
+    // Opt the MongoDB driver into command monitoring only when the Hub query profiler is enabled
+    // (zero cost otherwise). An explicit `monitorCommands: false` by the consumer wins — the profiler
+    // then warns once and stays inert.
+    if (isHubQueriesEnabled(config.hub)) {
+      config.mongoose.options = config.mongoose.options || {};
+      if ((config.mongoose.options as { monitorCommands?: boolean }).monitorCommands === undefined) {
+        (config.mongoose.options as { monitorCommands?: boolean }).monitorCommands = true;
+      }
+    }
+
     const imports: any[] = [MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
 
     if (isGraphQlEnabled && config.graphQl) {
@@ -375,8 +387,37 @@ export class CoreModule implements NestModule {
 
     // Permissions report (development tool)
     const permissionsConfig = config.permissions;
-    if (permissionsConfig === true || (typeof permissionsConfig === 'object' && permissionsConfig.enabled !== false)) {
+    const permissionsEnabled =
+      permissionsConfig === true || (typeof permissionsConfig === 'object' && permissionsConfig.enabled !== false);
+    if (permissionsEnabled) {
       imports.push(CorePermissionsModule.forRoot(permissionsConfig));
+    }
+
+    // Hub admin area (operator cockpit). Presence implies enabled — but NEVER implicitly:
+    // it must be switched on per environment. Overrides pass project subclasses through.
+    if (isHubEnabled(config.hub)) {
+      const permissionsPath =
+        permissionsEnabled && typeof permissionsConfig === 'object' && permissionsConfig.path
+          ? permissionsConfig.path
+          : permissionsEnabled
+            ? 'permissions'
+            : undefined;
+      imports.push(
+        CoreHubModule.forRoot({
+          actionsController: overrides?.hub?.actionsController,
+          actionsService: overrides?.hub?.actionsService,
+          config: config.hub,
+          controller: overrides?.hub?.controller,
+          ctx: {
+            env: config.env,
+            graphQlEnabled: isGraphQlEnabled,
+            permissionsPath,
+            version: config.version ?? 'unknown',
+          },
+          htmlService: overrides?.hub?.htmlService,
+          service: overrides?.hub?.service,
+        }),
+      );
     }
 
     // Add CoreBetterAuthModule based on mode
@@ -434,6 +475,25 @@ export class CoreModule implements NestModule {
             serverCorsConfig: config.cors,
             serverEnv: config.env,
           }),
+        );
+      }
+    }
+
+    // SECURITY: the Hub's ADMIN gate is enforced by the app-wide roles guard, which is registered by
+    // BetterAuth (IAM mode) or the legacy Auth module. When the Hub is enabled and gated but NEITHER is
+    // active, nothing enforces its @Roles(ADMIN) metadata — the whole cockpit, INCLUDING destructive
+    // migration/file-delete/cron actions, would be reachable unauthenticated, silently. A project may
+    // still register its own APP_GUARD, so this is a loud warning rather than a hard error.
+    if (isHubEnabled(config.hub)) {
+      const hubIsGated = !(typeof config.hub === 'object' && config.hub.roles === false);
+      const noBuiltInRolesGuard = isIamOnlyMode && !isBetterAuthEnabled;
+      if (hubIsGated && noBuiltInRolesGuard) {
+        console.warn(
+          'CoreModule: the Hub is enabled and ADMIN-gated, but neither BetterAuth (IAM) nor the legacy ' +
+            'Auth module is active — so no built-in guard enforces its @Roles(ADMIN) metadata. Unless you ' +
+            'have registered your own APP_GUARD that reads @Roles, the Hub (including its destructive ' +
+            'migration/file-delete/cron actions) is reachable UNAUTHENTICATED. Enable an auth module or ' +
+            'register a roles guard.',
         );
       }
     }
