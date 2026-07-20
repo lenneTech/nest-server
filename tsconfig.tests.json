@@ -1,0 +1,26 @@
+{
+  // CLI type-check gate for the test suites (tests/ + src/**/*.spec.ts).
+  //
+  // Neither the build (`nest build` → tsconfig.build.json, include ["src/**/*"],
+  // excludes `tests` and `**/*.spec.ts`) nor the linter type-checks the tests,
+  // and vitest runs through unplugin-swc, which transpiles without
+  // type-checking. So type errors in specs (wrong TestHelper arity, missing
+  // imports, stale API shapes) land unnoticed. `pnpm run typecheck:tests`
+  // (wired into `check` and CI) runs tsc over this config to close that gap.
+  //
+  // Extends the base tsconfig — path aliases, decorators, es2022 target,
+  // vitest/globals + node — so specs resolve exactly as they do under vitest.
+  // Adds only the test file scope, skipLibCheck, and noEmit; it is a pure gate.
+  //
+  // The include covers every spec the two vitest configs run (src/**/*.spec.ts,
+  // tests/unit/**, tests/**/*.e2e-spec.ts, tests/stories/**) AND the type
+  // assertion tests under tests/types/** — so it supersedes the narrow
+  // `test:types` (tests/types/tsconfig.json), which stays as a fast focused
+  // alias for iterating on just those files.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.spec.ts", "tests/**/*.ts"]
+}

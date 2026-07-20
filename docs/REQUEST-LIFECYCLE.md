@@ -213,6 +213,7 @@ JWT-based authentication for existing projects:
 | **Health Check Module** | `GET /health` + GraphQL `healthCheck` query |
 | **Error Code Module** | Centralized error registry with unique IDs |
 | **Permissions Report** | Interactive HTML dashboard, JSON, and Markdown reports |
+| **Hub (Operator Cockpit)** | Build-free ADMIN-gated dashboard at `/hub` (config-gated per environment). Adds an optional HTTP trace middleware (registered by `CoreHubModule.configure()` only when traces are enabled), a chaining `Logger.overrideLogger()` delegate for the log buffer, an optional `EmailService` capture hook (`HUB_EMAIL_CAPTURE` token) for the mailbox, and — when the query profiler is enabled — opts the MongoDB driver into `monitorCommands` from `core.module.ts`. See `src/core/modules/hub/README.md`. |
 | **System Setup Module** | Initial admin creation for fresh deployments |
 | **Cron Jobs** | `CoreCronJobsService` with timezone/UTC offset support |
 | **Model Documentation** | Auto-generated model docs via `ModelDocService` |

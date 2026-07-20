@@ -139,7 +139,9 @@ pnpm run reinit         # Clean reinstall + tests + build
 **Key Components:**
 - `CoreModule` - Dynamic module with GraphQL (optional, disable via `graphQl: false`), MongoDB, security
 - `src/core/common/` - Decorators, helpers, interceptors, services
-- `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Migrate, SystemSetup, Tus, User
+- `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Hub, Migrate, Permissions, SystemSetup, Tus, User
+  - **Hub** - Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 16 panels, runtime collectors, mailbox, admin actions). See `src/core/modules/hub/README.md`.
+  - **Permissions** - ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel.
 
 See `.claude/rules/architecture.md` for detailed documentation.
 See [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) for the complete request lifecycle, security architecture, and interceptor/decorator reference.
@@ -421,3 +423,28 @@ Details: [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-
 | [`docs/native-driver-security.md`](docs/native-driver-security.md) | Native MongoDB Driver restrictions, secure alternatives, review checklist |
 | [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations |
 | [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md) | SubDocument array handling (implemented): pushToArray/pullFromArray, checkRestricted optimization, bug fixes |
+
+<!-- lt-dev:url-block:start -->
+
+## Local Development (lt dev)
+
+This project is registered with `lt dev` (slug: `nest-server`). Use these commands to run alongside other lt projects without cross-wiring or port collisions:
+
+```bash
+lt dev up        # Start API + App behind Caddy with project-specific URLs
+lt dev down      # Stop the detached processes + remove Caddy block
+lt dev status    # Show running PIDs + bound URLs
+lt dev test      # Ensure up + run the E2E suite with project URLs injected
+lt dev doctor    # Diagnose Caddy/CA/DNS/port issues
+```
+
+**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.
+
+**Active URLs for THIS project:**
+
+- API: `https://api.nest-server.localhost`
+- DB: `mongodb://127.0.0.1/nest-server-local`
+
+Env vars set automatically by `lt dev up`: `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Never assume `localhost:3000` / `localhost:3001` for this project** — those are the framework defaults, not the active URLs.
+
+<!-- lt-dev:url-block:end -->

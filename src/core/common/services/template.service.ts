@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { TemplateFunction } from 'ejs';
 import ejs = require('ejs');
 import fs = require('fs');
-import { join } from 'path';
+import { resolve, sep } from 'path';
 
 import { ConfigService } from './config.service';
 
@@ -36,27 +36,32 @@ export class TemplateService {
    * @param filePath Directory names (separated via '/' if template is in subdirectory) + name of the template file without extension
    */
   protected async getTemplate(filePath: string): Promise<TemplateFunction> {
-    return new Promise<TemplateFunction>((resolve, reject) => {
+    // Resolve the template file to an absolute path and enforce that it stays within the configured
+    // templates directory. Legitimate template names never contain '..'; this guard is a defense in
+    // depth against path traversal for any caller that forwards user-influenced template names.
+    const baseDir = resolve(this.configService.getFastButReadOnly('templates.path'));
+    const fullPath = resolve(baseDir, `${filePath}.ejs`);
+    if (fullPath !== baseDir && !fullPath.startsWith(baseDir + sep)) {
+      throw new Error(`Invalid template path "${filePath}".`);
+    }
+
+    return new Promise<TemplateFunction>((res, reject) => {
       // Get template from cache
       if (this.templates[filePath]) {
-        resolve(this.templates[filePath]);
+        res(this.templates[filePath]);
         return;
       }
 
       // Get template file
-      fs.readFile(
-        `${join(this.configService.getFastButReadOnly('templates.path'), filePath)}.ejs`,
-        { encoding: 'utf8' },
-        (err, data) => {
-          if (err) {
-            reject(err);
-          } else {
-            // Compile and return template
-            this.templates[filePath] = ejs.compile(data);
-            resolve(this.templates[filePath]);
-          }
-        },
-      );
+      fs.readFile(fullPath, { encoding: 'utf8' }, (err, data) => {
+        if (err) {
+          reject(err);
+        } else {
+          // Compile and return template
+          this.templates[filePath] = ejs.compile(data);
+          res(this.templates[filePath]);
+        }
+      });
     });
   }
 }

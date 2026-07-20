@@ -18,6 +18,7 @@ import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type * as StreamTransport from 'nodemailer/lib/stream-transport';
 
 import { Falsy } from '../types/falsy.type';
+import { IHubConfig } from '../../modules/hub/interfaces/hub-config.interface';
 import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface';
 import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface';
 import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface';
@@ -1848,6 +1849,24 @@ export interface IServerOptions {
   hostname?: string;
 
   /**
+   * Hub admin area (operator cockpit).
+   *
+   * A build-free, ADMIN-gated dashboard of runtime information and admin tools (dashboard,
+   * diagnostics, logs, request traces, query profiler, migrations, DB stats, models/ERD, files,
+   * cron jobs, error codes, masked config, auth-migration progress, email preview, built-in mailbox,
+   * AI panel).
+   *
+   * Follows "presence implies enabled" — but is NEVER enabled implicitly. It must be switched on per
+   * environment (here or via `NSC__HUB__*`); no environment inherits it.
+   * - `true` / `{}`: enabled at `/hub`, admin-only, default collectors (logs + traces on, queries off)
+   * - `{ path: 'admin/hub', collectors: { queries: true } }`: custom path + query profiling
+   * - `{ enabled: false }` / `undefined`: disabled — every Hub route answers 404
+   *
+   * @default undefined (disabled)
+   */
+  hub?: boolean | IHubConfig;
+
+  /**
    * Ignore selections in fieldSelection
    * [ConfigService must be integrated in ModuleService]
    * If truly (default): select fields will be ignored and only populate fields in fieldSelection will be respected
@@ -3310,6 +3329,33 @@ export interface ICoreModuleOverrides {
    */
   errorCode?: {
     controller?: Type<any>;
+    service?: Type<any>;
+  };
+
+  /**
+   * Override Hub controllers and/or services with project-specific subclasses.
+   *
+   * - `actionsController` must extend `CoreHubActionsController`
+   * - `actionsService` must extend `CoreHubActionsService`
+   * - `controller` must extend `CoreHubController`
+   * - `htmlService` must extend `CoreHubHtmlService`
+   * - `service` must extend `CoreHubService`
+   *
+   * @example
+   * ```typescript
+   * {
+   *   hub: {
+   *     service: MyHubService,
+   *     htmlService: MyHubHtmlService,
+   *   },
+   * }
+   * ```
+   */
+  hub?: {
+    actionsController?: Type<any>;
+    actionsService?: Type<any>;
+    controller?: Type<any>;
+    htmlService?: Type<any>;
     service?: Type<any>;
   };
 }

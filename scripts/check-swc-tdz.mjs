@@ -77,8 +77,15 @@ const DIST = join(ROOT, 'dist-swc-tdz');
  *  - `main.js` — the server bootstrap. Its last line calls `bootstrap()`, so requiring it does not
  *    load a module graph, it STARTS A NEST SERVER (opens a Mongo connection, binds a port). Its
  *    entire import graph is covered anyway: every module it pulls in is checked individually.
+ *  - `.spec.js` / `.test.js` files — colocated unit tests. They import `vitest`, which cannot be
+ *    `require()`d in CommonJS, and they are never part of the runtime module graph. Requiring them
+ *    proves nothing about import cycles — the same rationale as the two above. (SWC's file discovery
+ *    ignores the tsconfig `exclude`, so they must be filtered here, not at build time.)
  */
 const EXCLUDED_DIR_SEGMENTS = ['/templates/'];
+
+// Matched by BASENAME suffix. Test files are emitted by the SWC build but are not runtime modules.
+const EXCLUDED_BASENAME_SUFFIXES = ['.spec.js', '.test.js'];
 
 // Matched by BASENAME, not by an absolute path. A path literal (`join(DIST, 'main.js')`) silently
 // stops matching the moment the emit layout shifts (e.g. to `<out>/src/main.js`) — and the failure
@@ -102,7 +109,11 @@ const MIN_EXPECTED_MODULES = 200;
 const SHARD_TIMEOUT_MS = 120_000;
 
 function isExcluded(file) {
-  if (EXCLUDED_BASENAMES.includes(basename(file))) {
+  const base = basename(file);
+  if (EXCLUDED_BASENAMES.includes(base)) {
+    return true;
+  }
+  if (EXCLUDED_BASENAME_SUFFIXES.some((suffix) => base.endsWith(suffix))) {
     return true;
   }
   const posix = file.split(sep).join('/');
