@@ -35,6 +35,18 @@ Performance profile of the AI module (`src/core/modules/ai/`), reassessed 2026-0
 - Context-window detection persisted on the connection doc (Ollama probe + known-model heuristic).
 - Prompt builder runs `approvedHints` only when `hintService` wired and learning is enabled.
 
+**Prompt-catalog token duplication for NATIVE providers (measured 2026-07-22, still open):**
+The `tool_catalog` prompt fragment has `capability: 'native'` as well as an emulated twin, so a native
+connection receives every tool description TWICE — once as prose in the system prompt via
+`{{toolCatalog}}`, once structurally in the `tools` payload from `buildToolSchemas()`. With
+`deferToolSchemas: false` (the default) the JSON schemas are duplicated too. Rough token cost
+(~4 chars/token), 40 tools × 400-char descriptions × 300-char schemas: tools payload 7,400 tok
+(unavoidable) + prompt catalog 7,510 tok (`defer:false`) or 4,200 tok (`defer:true`). A names-only
+catalog for native would cost 180 tok and lose nothing the model was not already given. At 120 tools
+the duplicated catalog is 12,600–25,500 tokens. **How to apply:** for native providers, the lever is
+*omitting* the descriptions from the prompt catalog, not truncating them — truncation only recovers
+~1k of the ~4k.
+
 **Known open trade-offs (current, low priority):**
 - `approvedHints` runs on every `renderContext` when learning is enabled — bounded, small result set, but no cache. OK while learning rows stay small.
 - `aiSlots` has no `{tenantId, enabled}` compound — current `tenantId` single-field index is OK for low slot counts; revisit if a tenant accumulates many overrides.
