@@ -77,6 +77,8 @@ typings/
 # dotenv environment variables files (but keep .env.example tracked)
 .env
 .env.*
+# Keep the tracked template and any future *.example variants reachable without `git add -f`.
+!.env.example
 !.env.example
 
 # next.js build output

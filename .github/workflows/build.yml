@@ -36,6 +36,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # The security `overrides:` block in pnpm-workspace.yaml is only ever validated by
+      # `pnpm audit`, which otherwise runs solely in the maintainer-local `check` script — so a
+      # regression (an override deleted, or one silently holding a package BELOW a newer patch)
+      # would reach a release with a fully green pipeline. pnpm 11 uses the working bulk-advisory
+      # endpoint; pnpm 10 and earlier hit the retired one and return HTTP 410.
+      - name: Audit dependencies
+        run: pnpm audit
+
       - name: Optimize and check
         run: pnpm run prepublishOnly
 

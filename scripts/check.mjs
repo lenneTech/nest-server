@@ -25,18 +25,16 @@
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
-import { execSync, spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { execSync, spawn } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const VERBOSE = process.argv.includes("--verbose") || process.argv.includes("-v");
-const SEQUENTIAL = process.argv.includes("--sequential") || process.argv.includes("--seq");
-const NO_FIX = process.argv.includes("--no-fix");
-const PROJECT_FILTERS = process.argv
-  .filter((a) => a.startsWith("--project="))
-  .map((a) => a.slice("--project=".length));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const VERBOSE = process.argv.includes('--verbose') || process.argv.includes('-v');
+const SEQUENTIAL = process.argv.includes('--sequential') || process.argv.includes('--seq');
+const NO_FIX = process.argv.includes('--no-fix');
+const PROJECT_FILTERS = process.argv.filter((a) => a.startsWith('--project=')).map((a) => a.slice('--project='.length));
 // Watchdog: kill a TEST step whose child produces NO output for this long. A
 // wedged test run (workers deadlocked at 0% CPU) otherwise spins the live view
 // forever — the spinner only proves the child process exists, not that it
@@ -45,10 +43,10 @@ const PROJECT_FILTERS = process.argv
 // watching them would false-kill a slow-but-progressing run. Override with
 // --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT (seconds); 0 disables it.
 const IDLE_TIMEOUT_MS = (() => {
-  const flag = process.argv.find((a) => a.startsWith("--idle-timeout="));
-  const raw = flag ? flag.slice("--idle-timeout=".length) : process.env.CHECK_IDLE_TIMEOUT;
+  const flag = process.argv.find((a) => a.startsWith('--idle-timeout='));
+  const raw = flag ? flag.slice('--idle-timeout='.length) : process.env.CHECK_IDLE_TIMEOUT;
   const DEFAULT_MS = 300 * 1000;
-  if (raw === undefined || raw === "") return DEFAULT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_MS;
   const seconds = Number(raw);
   if (seconds === 0) return 0; // explicit opt-out
   // Invalid value (typo, unit suffix, negative) → keep the protection at its
@@ -72,8 +70,9 @@ const C = {
   red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
 };
-const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-const shortRel = (rel) => rel.replace(/^projects\//, "");
+// oxlint-disable-next-line no-control-regex -- ESC (\x1b) is exactly what an ANSI sequence is made of
+const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+const shortRel = (rel) => rel.replace(/^projects\//, '');
 
 function fmtDuration(ms) {
   const s = ms / 1000;
@@ -87,35 +86,34 @@ function fmtDuration(ms) {
 // report stays readable regardless of the underlying tool (oxfmt/oxlint/tsc/…).
 function classify(cmd) {
   const c = cmd.toLowerCase();
-  if (c.includes("vendor-freshness"))
-    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
-  if (c.includes("audit")) return { fatal: true, kind: "audit", label: "audit" };
-  if (c.includes("format:check") || c.includes("oxfmt") || c.includes("prettier"))
-    return { fatal: true, kind: "format", label: "format" };
-  if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
+  if (c.includes('vendor-freshness')) return { fatal: false, kind: 'vendor', label: 'vendor-freshness' };
+  if (c.includes('audit')) return { fatal: true, kind: 'audit', label: 'audit' };
+  if (c.includes('format:check') || c.includes('oxfmt') || c.includes('prettier'))
+    return { fatal: true, kind: 'format', label: 'format' };
+  if (c.includes('lint')) return { fatal: true, kind: 'lint', label: 'lint' };
   if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:unit|test:ci/.test(c))
-    return { fatal: true, kind: "test", label: "test" };
-  if (c.includes("build") || c.includes("nuxt build") || c.includes("tsc"))
-    return { fatal: true, kind: "build", label: "build" };
-  if (c.includes("check-server-start") || c.includes("server-start"))
-    return { fatal: true, kind: "server", label: "server-start" };
-  return { fatal: true, kind: "other", label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
+    return { fatal: true, kind: 'test', label: 'test' };
+  if (c.includes('build') || c.includes('nuxt build') || c.includes('tsc'))
+    return { fatal: true, kind: 'build', label: 'build' };
+  if (c.includes('check-server-start') || c.includes('server-start'))
+    return { fatal: true, kind: 'server', label: 'server-start' };
+  return { fatal: true, kind: 'other', label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
 }
 
 // Rewrite a check-only format/lint command into its auto-fixing variant, so a
 // `check` run repairs every fixable finding instead of only reporting it.
 function toFixCommand(kind, cmd) {
   if (NO_FIX) return cmd;
-  if (kind === "format") {
-    if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, "format");
-    if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, "");
-    if (/\bprettier\b/.test(cmd)) return cmd.replace(/\s--check\b/, " --write");
+  if (kind === 'format') {
+    if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, 'format');
+    if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, '');
+    if (/\bprettier\b/.test(cmd)) return cmd.replace(/\s--check\b/, ' --write');
     return cmd;
   }
-  if (kind === "lint") {
+  if (kind === 'lint') {
     if (/\blint:fix\b/.test(cmd) || /--fix\b/.test(cmd)) return cmd;
-    if (/\brun\s+lint\b/.test(cmd)) return cmd.replace(/\brun\s+lint\b/, "run lint:fix");
-    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, "oxlint --fix --fix-suggestions");
+    if (/\brun\s+lint\b/.test(cmd)) return cmd.replace(/\brun\s+lint\b/, 'run lint:fix');
+    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, 'oxlint --fix --fix-suggestions');
     return cmd;
   }
   return cmd;
@@ -159,7 +157,7 @@ function parseLint(out) {
 }
 
 // ── audit (faithful: runs the project's OWN audit command) ──────────────────
-const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
+const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info'];
 
 // The audit could not RUN (as opposed to running and finding vulnerabilities).
 //
@@ -194,7 +192,7 @@ async function runAudit(auditCmd) {
   const { code, out } = await capture(cmd, ROOT);
   let counts = null;
   try {
-    counts = JSON.parse(out.slice(out.indexOf("{")))?.metadata?.vulnerabilities ?? null;
+    counts = JSON.parse(out.slice(out.indexOf('{')))?.metadata?.vulnerabilities ?? null;
   } catch {
     /* fall through to raw reason */
   }
@@ -212,22 +210,23 @@ const RUNNING = new Set();
 // fork workers). Killing only the direct child orphans the tree — exactly the
 // zombie workers a deadlock leaves behind. Children are collected via pgrep
 // and killed leaves-first.
-function killTree(child, signal = "SIGTERM") {
+function killTree(child, signal = 'SIGTERM') {
   const pids = [];
   const collect = (pid) => {
     pids.push(pid);
-    let out = "";
+    let out = '';
     try {
-      out = execSync(`pgrep -P ${pid}`, { stdio: ["ignore", "pipe", "ignore"] })
+      out = execSync(`pgrep -P ${pid}`, { stdio: ['ignore', 'pipe', 'ignore'] })
         .toString()
         .trim();
     } catch {
       /* no children */
     }
-    if (out) for (const p of out.split("\n")) collect(Number(p));
+    if (out) for (const p of out.split('\n')) collect(Number(p));
   };
   collect(child.pid);
-  for (const pid of pids.reverse()) {
+  // Children before parents, without mutating `pids` — the caller still reads it afterwards.
+  for (const pid of pids.toReversed()) {
     try {
       process.kill(pid, signal);
     } catch {
@@ -240,10 +239,10 @@ function killTree(child, signal = "SIGTERM") {
 // runs it unwatched. Only callers that KNOW the child streams progress (test
 // steps) should pass a timeout — see runGroup.
 function capture(cmd, cwd, idleTimeoutMs = 0) {
-  return new Promise((resolve) => {
+  return new Promise((settle) => {
     const child = spawn(cmd, { cwd, shell: true });
     RUNNING.add(child);
-    let out = "";
+    let out = '';
     let idleTimer = null;
     let killTimer = null;
     let watchdogHit = false;
@@ -259,7 +258,7 @@ function capture(cmd, cwd, idleTimeoutMs = 0) {
         // Track the SIGKILL escalation so a child that honors SIGTERM and exits
         // within the grace window cancels it in done() — otherwise the stray
         // timer could SIGKILL an unrelated process that reused the freed PID.
-        killTimer = setTimeout(() => killTree(child, "SIGKILL"), 5000);
+        killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 5000);
         killTimer.unref();
       }, idleTimeoutMs);
     };
@@ -269,8 +268,8 @@ function capture(cmd, cwd, idleTimeoutMs = 0) {
       if (VERBOSE) process.stdout.write(d);
     };
     armWatchdog();
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
     const done = (code, extra) => {
       clearTimeout(idleTimer);
       clearTimeout(killTimer);
@@ -278,14 +277,14 @@ function capture(cmd, cwd, idleTimeoutMs = 0) {
       if (watchdogHit) {
         const note =
           `[watchdog] step produced no output for ${Math.round(idleTimeoutMs / 1000)}s — ` +
-          "process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), " +
+          'process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), ' +
           `not a slow run. Re-run the step directly to debug: \`${cmd}\``;
-        return resolve({ code: 1, out: `${out}\n${note}` });
+        return settle({ code: 1, out: `${out}\n${note}` });
       }
-      resolve({ code, out: extra ? `${out}\n${extra}` : out });
+      settle({ code, out: extra ? `${out}\n${extra}` : out });
     };
-    child.on("close", (code) => done(code ?? 1));
-    child.on("error", (err) => done(1, err.message));
+    child.on('close', (code) => done(code ?? 1));
+    child.on('error', (err) => done(1, err.message));
   });
 }
 function killAll() {
@@ -299,7 +298,7 @@ function killAll() {
 }
 
 // ── live multi-line status (one line per running project) ────────────────────
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 let liveCount = 0;
 let frame = 0;
 function drawLive(lines) {
@@ -312,31 +311,30 @@ function statusLines(order, states) {
   frame += 1;
   return order.map((rel) => {
     const s = states.get(rel);
-    if (s.failed) return `${C.red("✗")} ${shortRel(rel).padEnd(5)} ${C.red(`${s.failed} FAILED`)}`;
-    if (s.done)
-      return `${C.green("✓")} ${shortRel(rel).padEnd(5)} ${C.dim(`done (${fmtDuration(s.total)})`)}`;
+    if (s.failed) return `${C.red('✗')} ${shortRel(rel).padEnd(5)} ${C.red(`${s.failed} FAILED`)}`;
+    if (s.done) return `${C.green('✓')} ${shortRel(rel).padEnd(5)} ${C.dim(`done (${fmtDuration(s.total)})`)}`;
     const spin = C.cyan(FRAMES[frame % FRAMES.length]);
-    const el = s.stepStart ? C.dim(` (${fmtDuration(Date.now() - s.stepStart)})`) : "";
-    return `${spin} ${shortRel(rel).padEnd(5)} ${s.current || "queued"}${el}`;
+    const el = s.stepStart ? C.dim(` (${fmtDuration(Date.now() - s.stepStart)})`) : '';
+    return `${spin} ${shortRel(rel).padEnd(5)} ${s.current || 'queued'}${el}`;
   });
 }
 
 // ── project discovery + step grouping ────────────────────────────────────────
-const IS_ORCHESTRATOR = (script) => !script || script.includes("check.mjs");
+const IS_ORCHESTRATOR = (script) => !script || script.includes('check.mjs');
 
 // Read the `packages:` globs from pnpm-workspace.yaml (monorepos). A simple
 // value-list parse — enough for the globs lt projects use (e.g. `projects/*`).
 function workspaceGlobs() {
   let text;
   try {
-    text = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
+    text = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');
   } catch {
     return [];
   }
   const globs = [];
   let inPackages = false;
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*$/, "");
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/#.*$/, '');
     if (/^packages:\s*$/.test(line)) {
       inPackages = true;
       continue;
@@ -352,7 +350,7 @@ function workspaceGlobs() {
 
 // Expand a workspace glob to concrete directories (handles `dir/*` and literals).
 function expandGlob(glob) {
-  if (glob.endsWith("/*")) {
+  if (glob.endsWith('/*')) {
     const base = glob.slice(0, -2);
     try {
       return readdirSync(join(ROOT, base), { withFileTypes: true })
@@ -368,16 +366,11 @@ function expandGlob(glob) {
 function asProject(rel, check) {
   let pkg = {};
   try {
-    pkg = JSON.parse(
-      readFileSync(
-        rel === "." ? join(ROOT, "package.json") : join(ROOT, rel, "package.json"),
-        "utf8",
-      ),
-    );
+    pkg = JSON.parse(readFileSync(rel === '.' ? join(ROOT, 'package.json') : join(ROOT, rel, 'package.json'), 'utf8'));
   } catch {
     /* keep defaults */
   }
-  return { check, dir: rel === "." ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
+  return { check, dir: rel === '.' ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
 }
 
 // Workspace sub-projects and their real check chain; if there are none (a
@@ -394,7 +387,7 @@ function asProject(rel, check) {
 // wrapper `check` means the real chain lives in `check:raw`.
 function realChain(pkg) {
   if (!IS_ORCHESTRATOR(pkg.scripts?.check)) return pkg.scripts?.check ?? null;
-  return pkg.scripts?.["check:raw"] ?? null;
+  return pkg.scripts?.['check:raw'] ?? null;
 }
 
 function discoverProjects() {
@@ -403,7 +396,7 @@ function discoverProjects() {
     for (const rel of expandGlob(glob)) {
       let pkg;
       try {
-        pkg = JSON.parse(readFileSync(join(ROOT, rel, "package.json"), "utf8"));
+        pkg = JSON.parse(readFileSync(join(ROOT, rel, 'package.json'), 'utf8'));
       } catch {
         continue;
       }
@@ -411,12 +404,10 @@ function discoverProjects() {
       if (chain) projects.push(asProject(rel, chain));
     }
   }
-  const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-  const rootChain =
-    root.scripts?.["check:raw"] ??
-    (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
+  const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  const rootChain = root.scripts?.['check:raw'] ?? (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
   if (projects.length === 0) {
-    if (rootChain) projects.push(asProject(".", rootChain));
+    if (rootChain) projects.push(asProject('.', rootChain));
   } else if (rootChain) {
     // With members present, the root's own chain must not be dropped: beyond
     // install/audit (hoisted later) and the member fan-out (replaced by the
@@ -425,16 +416,14 @@ function discoverProjects() {
     // for the case where members are present. Strip the fan-out command and
     // keep whatever remains as a root project.
     const ownSteps = rootChain
-      .split("&&")
+      .split('&&')
       .map((s) => s.trim())
       .filter(Boolean)
       .filter((c) => !/\bpnpm\s+(?:-r|--recursive)\b.*\brun\s+check\b/.test(c));
-    if (ownSteps.length) projects.unshift(asProject(".", ownSteps.join(" && ")));
+    if (ownSteps.length) projects.unshift(asProject('.', ownSteps.join(' && ')));
   }
   if (PROJECT_FILTERS.length)
-    return projects.filter((p) =>
-      PROJECT_FILTERS.some((f) => p.rel.includes(f) || p.name.includes(f)),
-    );
+    return projects.filter((p) => PROJECT_FILTERS.some((f) => p.rel.includes(f) || p.name.includes(f)));
   return projects;
 }
 
@@ -446,11 +435,11 @@ function buildGroups(projects) {
   const groups = projects.map((project) => {
     const steps = [];
     for (const raw of project.check
-      .split("&&")
+      .split('&&')
       .map((s) => s.trim())
       .filter(Boolean)) {
       const meta = classify(raw);
-      if (meta.kind === "audit") {
+      if (meta.kind === 'audit') {
         if (!auditCmd) auditCmd = raw;
         continue;
       }
@@ -478,10 +467,10 @@ function signalExitHint(out) {
   // 143" a test happens to log, so a real assertion failure isn't mislabeled.
   const m = clean.match(/Command failed with exit code (137|143)\b/);
   if (!m) return null;
-  const sig = m[1] === "143" ? "SIGTERM" : "SIGKILL";
+  const sig = m[1] === '143' ? 'SIGTERM' : 'SIGKILL';
   return (
     `[check] step ended via ${sig} (exit ${m[1]}) — the process was killed, not an assertion failure. ` +
-    "Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. " +
+    'Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. ' +
     "Re-run this project's check alone to confirm."
   );
 }
@@ -497,15 +486,15 @@ async function runGroup(group, states, results, abort) {
     if (abort.hit) return;
     st.current = step.label;
     st.stepStart = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
+    if (!TTY) process.stdout.write(`  ${C.dim('→')} ${shortRel(rel)} · ${step.label}\n`);
     // Watchdog only on test steps (see IDLE_TIMEOUT_MS): a test runner streams
     // output continuously, so prolonged silence == deadlocked workers. Other
     // steps buffer their output and must run unwatched.
-    const { code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0);
+    const { code, out } = await capture(step.cmd, step.cwd, step.kind === 'test' ? IDLE_TIMEOUT_MS : 0);
     const dur = Date.now() - st.stepStart;
     const r = { dur, kind: step.kind, label: step.label, project: rel };
-    if (step.kind === "test") r.tests = parseVitest(out);
-    if (step.kind === "lint") r.lint = parseLint(out);
+    if (step.kind === 'test') r.tests = parseVitest(out);
+    if (step.kind === 'lint') r.lint = parseLint(out);
     results.push(r);
     if (code !== 0 && step.fatal) {
       st.failed = step.label;
@@ -523,7 +512,7 @@ async function runGroup(group, states, results, abort) {
     }
     if (!TTY)
       process.stdout.write(
-        `  ${C.green("✓")} ${shortRel(rel)} · ${step.label}${metricSuffix(r)} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green('✓')} ${shortRel(rel)} · ${step.label}${metricSuffix(r)} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
   }
   st.done = true;
@@ -535,21 +524,21 @@ async function main() {
   const started = Date.now();
   const projects = discoverProjects();
   if (projects.length === 0) {
-    console.error(C.red("No workspace projects with a `check` script found."));
+    console.error(C.red('No workspace projects with a `check` script found.'));
     process.exit(1);
   }
   const { auditCmd, groups } = buildGroups(projects);
   const stepCount = groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0);
-  const mode = SEQUENTIAL ? "sequential" : "parallel";
-  const pkgName = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).name;
+  const mode = SEQUENTIAL ? 'sequential' : 'parallel';
+  const pkgName = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name;
 
   console.log(C.bold(`\nRunning checks for ${C.cyan(pkgName)}`));
   console.log(
     C.dim(
-      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? "none"}` +
-        `${NO_FIX ? "" : " · auto-fix format+lint"}` +
-        ` · watchdog: ${IDLE_TIMEOUT_MS ? `${fmtDuration(IDLE_TIMEOUT_MS)} (tests)` : "off"}` +
-        `${VERBOSE ? " · verbose" : ""}\n`,
+      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? 'none'}` +
+        `${NO_FIX ? '' : ' · auto-fix format+lint'}` +
+        ` · watchdog: ${IDLE_TIMEOUT_MS ? `${fmtDuration(IDLE_TIMEOUT_MS)} (tests)` : 'off'}` +
+        `${VERBOSE ? ' · verbose' : ''}\n`,
     ),
   );
 
@@ -560,44 +549,38 @@ async function main() {
   // the chain has no audit step.
   if (auditCmd) {
     const t = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} audit\n`);
+    if (!TTY) process.stdout.write(`  ${C.dim('→')} audit\n`);
     else drawLive([`${C.cyan(FRAMES[0])} audit`]);
     const audit = await runAudit(auditCmd);
     const dur = Date.now() - t;
     if (audit.blocking) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
-      const summary = audit.counts
-        ? `${audit.total} vuln (${renderVulnLine(audit.counts)})`
-        : "failed";
-      console.log(`${C.red("✗")} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
-      return fail(
-        `audit (${auditCmd})`,
-        audit.counts ? renderVulnLine(audit.counts) : audit.reason,
-        started,
-      );
+      const summary = audit.counts ? `${audit.total} vuln (${renderVulnLine(audit.counts)})` : 'failed';
+      console.log(`${C.red('✗')} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
+      return fail(`audit (${auditCmd})`, audit.counts ? renderVulnLine(audit.counts) : audit.reason, started);
     }
     if (audit.degraded) {
       // Not green: audit could not run. Yellow ⚠, never a green ✓ — a ✓ here would read as
       // "no vulnerabilities", which is a claim we did not verify. Warnings stay visible.
       liveCount = 0;
       console.log(
-        `${C.yellow("⚠")} audit  ${C.yellow("could not run — npm retired the audit endpoint pnpm uses; not blocking")} ${C.dim(`(${fmtDuration(dur)})`)}`,
+        `${C.yellow('⚠')} audit  ${C.yellow('could not run — npm retired the audit endpoint pnpm uses; not blocking')} ${C.dim(`(${fmtDuration(dur)})`)}`,
       );
     } else if (!TTY) {
       process.stdout.write(
-        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green('✓')} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim('0')} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
     }
     // TTY success: NO permanent line — the live status view overwrites the audit
     // row (like every other step), and the result lands in the report twice:
     // the Steps list (entry below) and the Vulnerabilities section.
-    results.push({ audit, kind: "audit" });
-    results.push({ dur, kind: "step", label: "audit", project: "." });
+    results.push({ audit, kind: 'audit' });
+    results.push({ dur, kind: 'step', label: 'audit', project: '.' });
   }
 
   // Per-project steps — parallel by default, serial with --sequential.
   const order = groups.map((g) => g.project.rel);
-  const states = new Map(order.map((rel) => [rel, { current: "queued" }]));
+  const states = new Map(order.map((rel) => [rel, { current: 'queued' }]));
   const abort = { failure: null, hit: false };
   const ticker = TTY ? setInterval(() => drawLive(statusLines(order, states)), 80) : null;
   if (TTY) drawLive(statusLines(order, states));
@@ -625,111 +608,99 @@ function renderVulnLine(counts) {
   return SEVERITIES.map((s) => {
     const n = counts[s] || 0;
     const txt = `${s} ${n}`;
-    if (n > 0 && (s === "critical" || s === "high")) return C.red(txt);
+    if (n > 0 && (s === 'critical' || s === 'high')) return C.red(txt);
     return n > 0 ? C.yellow(txt) : C.dim(txt);
-  }).join(C.dim(" · "));
+  }).join(C.dim(' · '));
 }
 
 function metricSuffix(r) {
-  if (r.kind === "test" && r.tests?.passed != null) {
-    const failed = r.tests.failed ? C.red(` / ${r.tests.failed} failed`) : "";
-    return `  ${C.dim(`${r.tests.passed} passed${r.tests.files != null ? ` / ${r.tests.files} files` : ""}`)}${failed}`;
+  if (r.kind === 'test' && r.tests?.passed != null) {
+    const failed = r.tests.failed ? C.red(` / ${r.tests.failed} failed`) : '';
+    return `  ${C.dim(`${r.tests.passed} passed${r.tests.files != null ? ` / ${r.tests.files} files` : ''}`)}${failed}`;
   }
-  if (r.kind === "lint" && r.lint) {
+  if (r.kind === 'lint' && r.lint) {
     return r.lint.warnings > 0
-      ? `  ${C.yellow(`${r.lint.warnings} warning${r.lint.warnings === 1 ? "" : "s"}`)}`
-      : `  ${C.dim("clean")}`;
+      ? `  ${C.yellow(`${r.lint.warnings} warning${r.lint.warnings === 1 ? '' : 's'}`)}`
+      : `  ${C.dim('clean')}`;
   }
-  return "";
+  return '';
 }
 
 function fail(stepLabel, reason, started) {
   console.log(`\n${C.red(`──── reason · ${stepLabel} ────`)}`);
-  console.log(stripAnsi(String(reason)).trimEnd().split("\n").slice(-40).join("\n"));
-  console.log(C.red("────────────────────────────────────────\n"));
-  console.log(
-    C.bold(
-      C.red(`✗ Check FAILED at step "${stepLabel}" after ${fmtDuration(Date.now() - started)}.`),
-    ),
-  );
-  console.log(C.dim("Re-run with --verbose for the full output of every step."));
+  console.log(stripAnsi(String(reason)).trimEnd().split('\n').slice(-40).join('\n'));
+  console.log(C.red('────────────────────────────────────────\n'));
+  console.log(C.bold(C.red(`✗ Check FAILED at step "${stepLabel}" after ${fmtDuration(Date.now() - started)}.`)));
+  console.log(C.dim('Re-run with --verbose for the full output of every step.'));
   process.exit(1);
 }
 
 function report(started, results) {
-  const audit = results.find((r) => r.kind === "audit")?.audit;
-  const tests = results.filter((r) => r.kind === "test");
-  const unit = tests.find((r) => r.project?.includes("app"))?.tests;
-  const api = tests.find((r) => r.project?.includes("api"))?.tests;
+  const audit = results.find((r) => r.kind === 'audit')?.audit;
+  const tests = results.filter((r) => r.kind === 'test');
+  const unit = tests.find((r) => r.project?.includes('app'))?.tests;
+  const api = tests.find((r) => r.project?.includes('api'))?.tests;
   const totalPassed = tests.reduce((n, r) => n + (r.tests?.passed || 0), 0);
 
-  const bar = "═".repeat(52);
+  const bar = '═'.repeat(52);
   console.log(`\n${C.green(bar)}`);
-  console.log(
-    C.bold(`  ${C.green("✓ Check PASSED")}  ${C.dim(`(${fmtDuration(Date.now() - started)})`)}`),
-  );
+  console.log(C.bold(`  ${C.green('✓ Check PASSED')}  ${C.dim(`(${fmtDuration(Date.now() - started)})`)}`));
   console.log(C.green(bar));
 
-  console.log(`\n${C.bold("Steps")}`);
-  const steps = results.filter((x) => x.kind !== "audit");
+  console.log(`\n${C.bold('Steps')}`);
+  const steps = results.filter((x) => x.kind !== 'audit');
   // Group by project when more than one is involved: workspace-level steps
   // (hoisted install/audit, root-only checks) under "monorepo", then one block
   // per member. Steps within a project run sequentially, so per-group order is
   // chain order. A single-project run keeps the flat list — a header is noise.
   const stepGroups = [...new Set(steps.map((r) => r.project))].sort((a, b) =>
-    a === "." ? -1 : b === "." ? 1 : shortRel(a).localeCompare(shortRel(b)),
+    a === '.' ? -1 : b === '.' ? 1 : shortRel(a).localeCompare(shortRel(b)),
   );
   if (stepGroups.length > 1) {
     for (const project of stepGroups) {
-      console.log(`  ${C.bold(project === "." ? "monorepo" : shortRel(project))}`);
+      console.log(`  ${C.bold(project === '.' ? 'monorepo' : shortRel(project))}`);
       for (const r of steps.filter((x) => x.project === project)) {
         console.log(
-          `    ${C.green("✓")} ${r.label.padEnd(24)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+          `    ${C.green('✓')} ${r.label.padEnd(24)}${metricSuffix(r) || '  '} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
         );
       }
     }
   } else {
     for (const r of steps) {
       console.log(
-        `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+        `  ${C.green('✓')} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || '  '} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
       );
     }
   }
 
-  console.log(
-    `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
-  );
+  console.log(`\n${C.bold('Vulnerabilities')} ${C.dim(audit ? `(${audit.auditCmd})` : '(no audit step)')}`);
   console.log(
     `  ${
       audit?.counts
         ? renderVulnLine(audit.counts)
         : audit?.degraded
-          ? C.yellow("audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT checked")
-          : C.dim(audit ? "counts unavailable" : "—")
+          ? C.yellow('audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT checked')
+          : C.dim(audit ? 'counts unavailable' : '—')
     }`,
   );
 
-  console.log(`\n${C.bold("Tests")}`);
+  console.log(`\n${C.bold('Tests')}`);
   if (unit || api) {
     // Monorepo with app and/or api projects → the canonical area breakdown.
-    console.log(
-      `  ${"Unit (app)".padEnd(18)}${unit?.passed != null ? `${unit.passed} passed` : C.dim("—")}`,
-    );
-    console.log(
-      `  ${"API (api)".padEnd(18)}${api?.passed != null ? `${api.passed} passed` : C.dim("—")}`,
-    );
-    console.log(`  ${"Playwright".padEnd(18)}${C.dim("— (run via `lt dev test` / CI)")}`);
+    console.log(`  ${'Unit (app)'.padEnd(18)}${unit?.passed != null ? `${unit.passed} passed` : C.dim('—')}`);
+    console.log(`  ${'API (api)'.padEnd(18)}${api?.passed != null ? `${api.passed} passed` : C.dim('—')}`);
+    console.log(`  ${'Playwright'.padEnd(18)}${C.dim('— (run via `lt dev test` / CI)')}`);
   } else {
     // Single-package repo → one line per test-bearing project.
     for (const r of tests)
       console.log(
-        `  ${shortRel(r.project).padEnd(18)}${r.tests?.passed != null ? `${r.tests.passed} passed` : C.dim("—")}`,
+        `  ${shortRel(r.project).padEnd(18)}${r.tests?.passed != null ? `${r.tests.passed} passed` : C.dim('—')}`,
       );
-    if (tests.length === 0) console.log(`  ${C.dim("no test step")}`);
+    if (tests.length === 0) console.log(`  ${C.dim('no test step')}`);
   }
-  console.log(`  ${C.bold("Total".padEnd(18))}${C.bold(`${totalPassed} passed`)}`);
+  console.log(`  ${C.bold('Total'.padEnd(18))}${C.bold(`${totalPassed} passed`)}`);
 
-  console.log(`\n${C.green("All checks passed.")}\n`);
+  console.log(`\n${C.green('All checks passed.')}\n`);
 }
 
 // Run the pipeline only when invoked as a script. Importing this module (the metric parsers are

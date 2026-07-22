@@ -23,14 +23,11 @@
 ## Release Process
 
 1. Make changes and ensure all tests pass (`pnpm test`)
-2. **Bump the version in BOTH version-carrying files — they must never drift:**
-   - `package.json` → `version`
-   - `spectaql.yml` → `info.version` (feeds the published GraphQL API docs)
-
-   `spectaql.yml` is derived from `package.json` by `extras/update-spectaql-version.mjs`, but that
-   script only runs via `pnpm run docs` — it is **not** part of `pnpm run build`. A release commit
-   that bumps only `package.json` therefore ships API docs advertising the previous version. Run
-   `node extras/update-spectaql-version.mjs` (or edit the file) and commit both together.
+2. **Bump the version in `package.json` → `version`.** `spectaql.yml` → `info.version` (which feeds
+   the published GraphQL API docs) is **auto-synced from `package.json`**: `pnpm run check` runs a
+   `spectaql:sync` step (`extras/update-spectaql-version.mjs`) that rewrites `spectaql.yml`'s version
+   to match, so the two can no longer drift. Just bump `package.json`, run `check`, and commit both.
+   (You can also sync manually any time via `pnpm run spectaql:sync`.)
 3. Build the package (`pnpm run build`) — this also regenerates `FRAMEWORK-API.md` with the new version
 4. Publish to npm
 5. Update and test in [nest-server-starter](https://github.com/lenneTech/nest-server-starter)

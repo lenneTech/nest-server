@@ -180,15 +180,25 @@ export class CoreBetterAuthEmailVerificationService {
     if (this.config.brevoTemplateId && this.brevoService) {
       try {
         const appName = this.getAppName();
-        await this.brevoService.sendMail(user.email, this.config.brevoTemplateId, {
+        const result = await this.brevoService.sendMail(user.email, this.config.brevoTemplateId, {
           appName,
           expiresIn: this.formatExpiresIn(this.config.expiresIn),
           link: url,
           name: user.name || user.email.split('@')[0],
         });
-        this.trackSend(user.email);
-        this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
-        return;
+
+        // `sendMail()` swallows SDK errors and resolves to `null` (unless `brevo.throwOnError` is
+        // set), so "did not throw" is NOT "was delivered". Recording a send here on a null would
+        // mark the address as mailed, log success, and skip the SMTP fallback below — leaving the
+        // user with no verification email at all on a Brevo outage or a revoked key.
+        if (result === null) {
+          this.logger.error(`Brevo verification send failed for ${this.maskEmail(user.email)} — falling back to SMTP`);
+          // Deliberately no `return`: fall through to the EmailService path.
+        } else {
+          this.trackSend(user.email);
+          this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
+          return;
+        }
       } catch (error) {
         this.logger.error(
           `Failed to send verification email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,

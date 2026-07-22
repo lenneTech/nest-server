@@ -509,6 +509,7 @@ pnpm run unlink:nest-server   # pnpm unlink @lenne.tech/nest-server && pnpm inst
 ## Documentation
 
 - [Request Lifecycle](docs/REQUEST-LIFECYCLE.md) — Complete request pipeline, security architecture, interceptor chain
+- [Security Overrides](docs/security-overrides.md) — **Read this**: pnpm `overrides:` are not inherited from this package, so two known-vulnerable transitive deps need an entry in *your* project
 - [Migration Guides](migration-guides/) — Version upgrade instructions
 - [Starter Project](https://github.com/lenneTech/nest-server-starter) — Reference implementation
 - [CLI](https://github.com/lenneTech/cli) — Code generation tools

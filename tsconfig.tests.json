@@ -22,5 +22,9 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.spec.ts", "tests/**/*.ts"]
+  // `scripts/**/*.ts` is in scope for the same reason the specs are: it is TypeScript that the
+  // build never compiles (tsconfig.build.json is `src/**/*` only), so nothing else would catch a
+  // type error there. That matters most for scripts that stand in for automated coverage —
+  // `brevo-smoke.ts` is the manual verification for a MAJOR SDK upgrade, so it must not rot.
+  "include": ["scripts/**/*.ts", "src/**/*.spec.ts", "tests/**/*.ts"]
 }

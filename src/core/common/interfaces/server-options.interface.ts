@@ -1521,12 +1521,44 @@ export interface IServerOptions {
     exclude?: RegExp;
 
     /**
+     * How often the SDK retries a failed send (408 / 429 / 5xx).
+     *
+     * The Brevo SDK defaults to 2 retries and honours `Retry-After` with a cap of 60 SECONDS per
+     * attempt. `BrevoService.sendMail()` is awaited inside request handlers (e.g. the BetterAuth
+     * email-verification hook), so a rate-limited Brevo can otherwise park a user-facing HTTP
+     * request for roughly two minutes. The framework default of `0` keeps the request fast and
+     * leaves retrying to the caller.
+     *
+     * @default 0
+     */
+    maxRetries?: number;
+
+    /**
      * Default sender for Brevo
      */
     sender: {
       email: string;
       name: string;
     };
+
+    /**
+     * Whether a failed send should throw instead of resolving to `null`.
+     *
+     * `false` (default) preserves the historical contract: errors are logged and the method
+     * resolves to `null`. Set `true` when the caller must not proceed on a silent failure — the
+     * framework's own email-verification path checks the `null` either way.
+     *
+     * @default false
+     */
+    throwOnError?: boolean;
+
+    /**
+     * Per-request timeout in seconds. Unset means no timeout — a hung connection is then bounded
+     * only by the HTTP agent's own (300 s) limits, multiplied by `maxRetries`.
+     *
+     * @default 10
+     */
+    timeoutInSeconds?: number;
   };
 
   /**
