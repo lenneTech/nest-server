@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildErDiagram, type HubModelDescriptor } from './hub-mermaid.helper';
+// Value and type imports are deliberately split into two statements. The lt CLI's vendor
+// conversion drops an INLINE `type` specifier from a mixed import — `{ buildErDiagram, type
+// HubModelDescriptor }` arrives in a vendored project as `{ buildErDiagram }`, and the file then
+// fails to compile with TS2304. Keeping the two forms separate survives the conversion.
+// (The CLI defect is tracked separately; this keeps src/core/ vendor-safe meanwhile.)
+import type { HubModelDescriptor } from './hub-mermaid.helper';
+
+import { buildErDiagram } from './hub-mermaid.helper';
 
 describe('buildErDiagram', () => {
   const models: HubModelDescriptor[] = [

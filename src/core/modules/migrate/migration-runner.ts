@@ -159,6 +159,23 @@ export class MigrationRunner {
    * compiled-production intent; the duplicate is skipped with a warning.
    */
   private async loadMigrationFiles(): Promise<MigrationFile[]> {
+    // A MISSING directory means the same thing as an EMPTY one: there are no migrations.
+    // Treat it that way instead of throwing ENOENT.
+    //
+    // This is a boot blocker otherwise: `pnpm start` is `migrate:up && start:local`, so the `&&`
+    // turns a readdirSync ENOENT into a server that will not start — with an error that does not
+    // point at the cause. And it is a state people produce routinely: "delete all migrations"
+    // reads to most as "throw the folder away".
+    //
+    // The runner already tolerates the RELATED case — a migration recorded in the database whose
+    // file is gone is non-fatal unless `NSC__MIGRATE__STRICT` is set. Only the wholly absent
+    // directory fell outside that tolerance. `down()` stays hard, consistent with its own
+    // reasoning. See DEV-2634.
+    if (!fs.existsSync(this.options.migrationsDirectory)) {
+      console.warn(`[migrate] migrations directory not found — treating as empty: ${this.options.migrationsDirectory}`);
+      return [];
+    }
+
     const files = fs
       .readdirSync(this.options.migrationsDirectory)
       .filter((file) => this.pattern.test(file))
