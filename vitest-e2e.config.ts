@@ -91,6 +91,10 @@ export default defineConfig({
     // full Nest app can exceed 60s under load (parallel transform/import),
     // which failed whole files without any retry. Be generous here.
     hookTimeout: LOW_RESOURCE ? 240000 : 120000,
+    // Matches the unit runner — see vitest.config.ts for the timing (restore happens
+    // BEFORE each attempt, so a `beforeAll`-installed spy does not survive) and for
+    // why a leaked spy is worse than it looks.
+    restoreMocks: true,
     // Suites that need the mongod + globalSetup this config provides: e2e specs and story
     // tests. Naming the patterns explicitly (instead of `tests/**/*.ts`) keeps helpers,
     // setup and reporters out — and, crucially, keeps `tests/unit/**` out: those are plain

@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-22 (v11.32.1)
+> Auto-generated from source code on 2026-07-22 (v11.32.2)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -113,6 +113,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `claudeCli?`: `{ bin?: string; extraArgs?: string[]; maxBudgetUsd?: number; } | undefined` — Optional config for the `ClaudeCliProvider` (LLM backend that invokes a local
   - `compaction?`: `boolean | undefined` (default: `true`) — LLM-driven context compaction: when a session would overflow the connection's
   - `deferToolSchemas?`: `boolean | undefined` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
+  - `deferToolSummaryChars?`: `number | undefined` (default: `0`) — Maximum characters per tool description in the DEFERRED catalog
   - `maxIterations?`: `number | undefined` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
   - `maxToolResultChars?`: `number | undefined` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; } | undefined` — Governed self-improvement loop for the system prompt. The orchestrator records

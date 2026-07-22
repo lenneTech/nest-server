@@ -6,6 +6,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
+import { ErrorCode } from '../error-code/error-codes';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 
@@ -59,10 +60,13 @@ export class CoreAiMcpController {
       try {
         ({ StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js'));
       } catch (err) {
-        // The MCP SDK is a peer-style optional dependency — it must be installed
-        // by the consumer project when `ai.mcp.enabled` is true. Surface a
-        // 503 with an actionable hint instead of the raw "Cannot find module"
-        // 500 that bubbles from the lazy `import()`.
+        // Imported lazily so a consumer that never enables MCP does not pay for
+        // loading the SDK at startup. It IS a regular dependency of this package and
+        // reaches BOTH consumption modes — npm-mode transitively, CLI-vendored
+        // projects through the dependency merge — so a failure here is a resolution
+        // problem, not an absent package. Surface a 503 instead of the raw
+        // "Cannot find module" 500 that bubbles from the lazy `import()`.
+        // See mcpUnavailable() below for the full reasoning.
         return this.mcpUnavailable(res, err as Error);
       }
       const { randomUUID } = await import('node:crypto');
@@ -167,19 +171,31 @@ export class CoreAiMcpController {
   }
 
   /**
-   * 503 Service Unavailable when the optional `@modelcontextprotocol/sdk` peer
-   * dependency is not installed. The SDK is lazy-imported because not every
-   * consumer needs MCP — when `ai.mcp.enabled` is set but the SDK is missing,
-   * we surface the actionable install hint rather than the raw require-stack
-   * trace from the failed `import()`.
+   * 503 Service Unavailable when `@modelcontextprotocol/sdk` cannot be loaded.
+   * The SDK is lazy-imported because not every consumer needs MCP — when
+   * `ai.mcp.enabled` is set but the import fails, we surface an actionable hint
+   * rather than the raw require-stack trace from the failed `import()`.
+   *
+   * The SDK is a regular `dependency` of this package and reaches BOTH consumption
+   * modes: npm-mode consumers resolve it transitively, and CLI-vendored projects get
+   * it merged into their own `package.json` (`convertCloneToVendored()` copies every
+   * upstream dependency, and the import-closure scan additionally backfills bare
+   * specifiers found in dynamic `import()` calls). A failure here is therefore
+   * almost always a RESOLUTION problem — a bundler or test runner with its own
+   * module resolution can fail on the subpath export while plain Node succeeds — not
+   * a genuinely absent package.
+   *
+   * The underlying error goes to the log only, never into the response: it carries
+   * filesystem paths.
    */
   private mcpUnavailable(res: Response, err: Error): void {
     this.logger.error(`MCP SDK not available: ${err.message}`);
     res.status(503).json({
       error:
-        'MCP server unavailable: the @modelcontextprotocol/sdk peer dependency is not installed. ' +
-        'Run `pnpm add @modelcontextprotocol/sdk` (or `npm i @modelcontextprotocol/sdk`) ' +
-        'in your project and restart the server.',
+        `${ErrorCode.SERVICE_UNAVAILABLE} — MCP server unavailable: ` +
+        '@modelcontextprotocol/sdk could not be loaded. It ships as a dependency of ' +
+        '@lenne.tech/nest-server, so this usually means the module could not be resolved ' +
+        'rather than that it is missing; see the server log for the underlying error.',
       statusCode: 503,
     });
   }

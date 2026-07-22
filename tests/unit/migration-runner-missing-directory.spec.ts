@@ -20,7 +20,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MigrationSet, MongoStateStore } from '../../src/core/modules/migrate/mongo-state-store';
 
@@ -63,6 +63,12 @@ afterEach(() => {
 });
 
 describe('MigrationRunner with a missing migrations directory', () => {
+  beforeEach(() => {
+    // See migration-runner-identity.spec.ts: `console.log` output crosses the worker
+    // RPC channel and can abort the run on teardown. Spied, not silenced globally.
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
   it('up() resolves instead of throwing ENOENT', async () => {
     const dir = missingDir();
     expect(fs.existsSync(dir)).toBe(false);

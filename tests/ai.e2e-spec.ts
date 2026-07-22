@@ -967,8 +967,18 @@ describe('AI module (e2e)', () => {
 
     await aiService.prompt({ prompt: 'use e2e_boom' } as any, { currentUser: admin });
 
-    // A suggested hint was recorded for the failure (governed default — not yet active).
-    const hint = await db.collection('aiPromptHints').findOne({ scope: 'e2e_boom', trigger: 'tool_exception' });
+    // The learning signal is recorded FIRE-AND-FORGET (`void this.recordSignal(...)` in
+    // executeToolCall) — deliberately, so learning never blocks or breaks a prompt run.
+    // So the write can still be in flight when prompt() returns; poll for it instead of
+    // reading once and racing it. Under full-check parallel load this race is what made
+    // the assertion intermittently see `null`.
+    let hint = null;
+    for (let i = 0; i < 100 && !hint; i++) {
+      hint = await db.collection('aiPromptHints').findOne({ scope: 'e2e_boom', trigger: 'tool_exception' });
+      if (!hint) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
     expect(hint).toBeTruthy();
     expect(hint.status).toBe('suggested');
     expect(await promptHintService.approvedHints(['e2e_boom'])).toHaveLength(0);

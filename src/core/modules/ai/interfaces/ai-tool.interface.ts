@@ -84,10 +84,18 @@ export interface IAiTool {
   readonly mutating?: boolean;
 
   /**
-   * Optional pre-flight authorization check used by plan mode (and recommended
-   * for data-level checks). MUST NOT mutate anything — it only decides whether
-   * the user may run the tool with these arguments (e.g. load the target record
-   * and verify ownership). When omitted, only the registry role filter applies.
+   * Optional pre-flight authorization check. MUST NOT mutate anything — it only
+   * decides whether the user may run the tool with these arguments (e.g. load the
+   * target record and verify ownership).
+   *
+   * **Runs in PLAN MODE ONLY.** Auto mode (the default, `ai.defaultMode`) and the
+   * MCP endpoint call {@link IAiTool.execute} directly, without consulting this
+   * method. A data-level check placed ONLY here therefore does not run for most
+   * callers — put ownership and tenant checks INSIDE `execute()`, routed through
+   * `CrudService` with `context.serviceOptions`, and treat `authorize()` as the
+   * plan-mode pre-flight that lets a whole plan be rejected before any step runs.
+   *
+   * When omitted, only the registry role filter applies.
    */
   authorize?(args: Record<string, any>, context: AiToolContext): Promise<AiToolAuthorization | boolean>;
 
