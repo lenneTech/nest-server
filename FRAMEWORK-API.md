@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-20 (v11.31.3)
+> Auto-generated from source code on 2026-07-22 (v11.32.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -18,7 +18,7 @@
   - `automaticObjectIdFiltering?`: `boolean | undefined` — Automatically detect ObjectIds in string values in FilterQueries
   - `baseUrl?`: `string | undefined` — Base URL of the API server.
   - `betterAuth?`: `boolean | IBetterAuth | undefined` (default: `undefined (enabled with defaults)`) — Configuration for better-auth authentication framework.
-  - `brevo?`: `{ apiKey: string; exclude?: RegExp; sender: { email: string; name: string; };...` — Configuration for Brevo
+  - `brevo?`: `{ apiKey: string; exclude?: RegExp; maxRetries?: number; sender: { email: str...` — Configuration for Brevo
   - `compression?`: `boolean | compression.CompressionOptions | undefined` — Whether to use the compression middleware package to enable gzip compression.
   - `cookies?`: `boolean | ICookiesConfig | undefined` (default: `true`) — Cookie configuration for authentication handling.
   - `cors?`: `boolean | ICorsConfig | undefined` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
@@ -331,5 +331,7 @@ in consuming projects keep working.
 | `src/core/common/decorators/` | @Restricted, @Roles, @CurrentUser, @UnifiedField |
 | `src/core/common/exceptions/` | accessDeniedException — the 401/403 policy |
 | `src/core/common/interceptors/` | CheckResponse, CheckSecurity, ResponseModel |
+| `src/core/common/helpers/process-diagnostics.helper.ts` | installProcessDiagnostics() / handleFatalBootstrapError — opt-in, wire into your own main.ts |
 | `docs/REQUEST-LIFECYCLE.md` | Complete request lifecycle |
+| `docs/security-overrides.md` | pnpm overrides are NOT inherited — two entries your project needs |
 | `.claude/rules/` | Detailed rules for architecture, security, testing |

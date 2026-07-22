@@ -13,9 +13,14 @@ metadata:
 
 ## The generator's TOTAL scope (everything else is legitimately N/A)
 
-It emits exactly five things: (1) `CoreModule.forRoot()` overload signatures, (2) the allowlisted config interfaces, (3) `ServiceOptions`, (4) `CrudService` public method signatures, (5) a core-modules table built by scanning `src/core/modules/*` dirs for the mere *presence* of README.md / INTEGRATION-CHECKLIST.md.
+**Re-verified 2026-07-22 — the scope GREW since first recorded; do not trust an older reading.** It now emits seven things: (1) `CoreModule.forRoot()` overload signatures, (2) the allowlisted config interfaces, (3) `ServiceOptions`, (4) `CrudService` public method signatures, (5) a core-modules table built by scanning `src/core/modules/*` dirs for the mere *presence* of README.md / INTEGRATION-CHECKLIST.md, (6) **an "Errors & Status Codes" + "Exported error helpers" section** — `extractExceptions()` auto-discovers every exported class/function under `src/core/**/exceptions/*.ts` (genuinely auto-discovered, no allowlist), (7) a **"Key Source Files" table that is a hardcoded template literal** at the bottom of `main()`.
 
-Consequence: **exported `const`s, DI tokens, helpers, guards, middleware and new non-interface files can never appear in FRAMEWORK-API.md.** For such a change, FRAMEWORK-API.md being absent from the diff is CORRECT — do not flag it as a missed Living-Documentation update. Adding a new `.ts` file inside an existing module dir also changes nothing (the table only checks whether the two doc files exist).
+Two consequences that changed:
+
+- The earlier note that the file "has NO exceptions/classes concept" is **WRONG as of 11.31.x** — a new file under any `exceptions/` dir DOES appear automatically, with its first JSDoc line as the summary. Only the `exceptions/` path is auto-discovered this way.
+- `targetInterfaces` has grown to include `IAi`, `IAiRateLimit`, `IAiDefaultConnection` (they now have dedicated `###` sections). Re-read the array rather than reciting it.
+
+Still true: **exported `const`s, DI tokens, and helpers under `src/core/common/helpers/` can never appear.** For such a change FRAMEWORK-API.md being date-only in the diff is structurally CORRECT, not staleness — but see [[main-ts-optin-api-has-no-doc-surface]]: "the generator can't emit it" is a reason to document it *elsewhere*, not a reason to grade the change fully documented. The hardcoded "Key Source Files" table is the one cheap lever for surfacing a new keystone file to Claude Code.
 
 ## Date-stamp churn is not a doc gap
 

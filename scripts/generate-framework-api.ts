@@ -31,7 +31,10 @@ function getSourceFile(relativePath: string) {
 function extractInterfaceFields(iface: InterfaceDeclaration): string[] {
   return iface.getProperties().map((prop) => {
     const name = prop.getName();
-    const type = prop.getType().getText(prop).replace(/import\([^)]+\)\./g, '');
+    const type = prop
+      .getType()
+      .getText(prop)
+      .replace(/import\([^)]+\)\./g, '');
     const optional = prop.hasQuestionToken() ? '?' : '';
     const jsDocs = prop.getJsDocs();
     let defaultVal = '';
@@ -84,12 +87,18 @@ function extractCrudServiceMethods(): string[] {
     const isAsync = method.isAsync();
     const params = method.getParameters().map((p) => {
       const paramName = p.getName();
-      const paramType = p.getType().getText(p).replace(/import\([^)]+\)\./g, '');
+      const paramType = p
+        .getType()
+        .getText(p)
+        .replace(/import\([^)]+\)\./g, '');
       const optional = p.hasQuestionToken() || p.hasInitializer() ? '?' : '';
       return `${paramName}${optional}: ${truncateType(paramType)}`;
     });
 
-    const returnType = method.getReturnType().getText(method).replace(/import\([^)]+\)\./g, '');
+    const returnType = method
+      .getReturnType()
+      .getText(method)
+      .replace(/import\([^)]+\)\./g, '');
 
     // Get first line of JSDoc
     let desc = '';
@@ -124,11 +133,17 @@ function extractForRootSignatures(): string[] {
   for (const overload of overloads) {
     const params = overload.getParameters().map((p) => {
       const name = p.getName();
-      const type = p.getType().getText(p).replace(/import\([^)]+\)\./g, '');
+      const type = p
+        .getType()
+        .getText(p)
+        .replace(/import\([^)]+\)\./g, '');
       const optional = p.hasQuestionToken() ? '?' : '';
       return `${name}${optional}: ${truncateType(type)}`;
     });
-    const returnType = overload.getReturnType().getText(overload).replace(/import\([^)]+\)\./g, '');
+    const returnType = overload
+      .getReturnType()
+      .getText(overload)
+      .replace(/import\([^)]+\)\./g, '');
     // The legacy 3+ param signature is deprecated; the IAM-only (1-2 params) is recommended.
     const isDeprecated = overload.getParameters().length > 2;
     const prefix = isDeprecated ? '~~' : '';
@@ -232,7 +247,15 @@ function main() {
   }
 
   // IBetterAuth is a type alias (union), extract the underlying interfaces
-  const betterAuthInterfaces = ['IBetterAuthPasskeyConfig', 'IBetterAuthTwoFactorConfig', 'IBetterAuthJwtConfig', 'IBetterAuthEmailVerificationConfig', 'IBetterAuthRateLimit', 'IBetterAuthSignUpChecksConfig', 'IBetterAuthUserField'];
+  const betterAuthInterfaces = [
+    'IBetterAuthPasskeyConfig',
+    'IBetterAuthTwoFactorConfig',
+    'IBetterAuthJwtConfig',
+    'IBetterAuthEmailVerificationConfig',
+    'IBetterAuthRateLimit',
+    'IBetterAuthSignUpChecksConfig',
+    'IBetterAuthUserField',
+  ];
 
   for (const name of betterAuthInterfaces) {
     const iface = serverOptionsSf.getInterface(name);
@@ -354,7 +377,9 @@ ${exceptions.join('\n')}
 | \`src/core/common/decorators/\` | @Restricted, @Roles, @CurrentUser, @UnifiedField |
 | \`src/core/common/exceptions/\` | accessDeniedException — the 401/403 policy |
 | \`src/core/common/interceptors/\` | CheckResponse, CheckSecurity, ResponseModel |
+| \`src/core/common/helpers/process-diagnostics.helper.ts\` | installProcessDiagnostics() / handleFatalBootstrapError — opt-in, wire into your own main.ts |
 | \`docs/REQUEST-LIFECYCLE.md\` | Complete request lifecycle |
+| \`docs/security-overrides.md\` | pnpm overrides are NOT inherited — two entries your project needs |
 | \`.claude/rules/\` | Detailed rules for architecture, security, testing |
 `;
 

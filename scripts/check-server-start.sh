@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the built server against a free port, verify the "Server startet at …"
+# Start the built server against a free port, verify the "Server started at …"
 # log line, then exit cleanly.
 #
 # Previously this script also streamed logs via a parallel `tail -f` and waited
@@ -47,7 +47,10 @@ SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null || true
 
 for _ in $(seq 1 60); do
-  if grep -q "Server startet at" "$LOG_FILE" 2>/dev/null; then
+  # Accept both spellings: the historical message carried a typo ("startet") that was
+  # corrected to "started". Matching both keeps this gate working across the change and for
+  # consumer projects whose main.ts still has the old string.
+  if grep -qE "Server start(ed|et) at" "$LOG_FILE" 2>/dev/null; then
     tail -n 5 "$LOG_FILE"
     echo "Server started successfully - check complete"
     exit 0

@@ -397,7 +397,6 @@ These rules apply when building features that execute many times per minute (mon
 9. **Queue-based crons must prevent re-enqueue of in-progress items** — if a cron adds jobs to a BullMQ queue faster than the processor consumes them, the queue grows unbounded. Guard with `getWaitingCount()` check before enqueuing.
 
 Details: [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md)
-Details: [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md)
 
 ## Mongoose Index Placement
 
@@ -421,8 +420,9 @@ Details: [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-
 |------|---------|
 | [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |
 | [`docs/native-driver-security.md`](docs/native-driver-security.md) | Native MongoDB Driver restrictions, secure alternatives, review checklist |
-| [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations |
-| [`docs/subdocument-array-optimization-plan.md`](docs/subdocument-array-optimization-plan.md) | SubDocument array handling (implemented): pushToArray/pullFromArray, checkRestricted optimization, bug fixes |
+| [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations, SubDocument array handling (pushToArray/pullFromArray) |
+| [`docs/security-overrides.md`](docs/security-overrides.md) | Why pnpm `overrides:` do NOT reach consumers, which two are load-bearing, and the rules for writing your own |
+| [`docs/brevo-manual-test.md`](docs/brevo-manual-test.md) | Manual smoke test for `BrevoService` against the live Brevo API (framework repo only) |
 
 <!-- lt-dev:url-block:start -->
 

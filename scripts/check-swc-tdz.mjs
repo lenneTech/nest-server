@@ -208,10 +208,7 @@ if (files.length < MIN_EXPECTED_MODULES) {
  * Four is also the point where the sweep stops being the check's variance hot-spot, which matters
  * more than the raw seconds. Override with SWC_TDZ_SHARDS to re-measure on other hardware.
  */
-const shardCount = Math.max(
-  1,
-  Math.min(Number(process.env.SWC_TDZ_SHARDS) || 4, availableParallelism(), files.length),
-);
+const shardCount = Math.max(1, Math.min(Number(process.env.SWC_TDZ_SHARDS) || 4, availableParallelism(), files.length));
 const shards = Array.from({ length: shardCount }, () => []);
 files.forEach((file, index) => shards[index % shardCount].push(file));
 

@@ -43,6 +43,7 @@ export * from './core/common/helpers/input.helper';
 export * from './core/common/helpers/logging.helper';
 export * from './core/common/helpers/meta.helper';
 export * from './core/common/helpers/model.helper';
+export * from './core/common/helpers/process-diagnostics.helper';
 export * from './core/common/helpers/register-enum.helper';
 export * from './core/common/helpers/scim.helper';
 export * from './core/common/helpers/service.helper';

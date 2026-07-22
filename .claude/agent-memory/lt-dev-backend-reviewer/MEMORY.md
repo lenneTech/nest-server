@@ -2,3 +2,6 @@
 - [AI module prompt/slot service raw exceptions](project_ai-module-prompt-service-errors.md) — most of the AI module routes through ErrorCode, but CoreAiPromptService + CoreAiSlotService still throw raw-string ForbiddenExceptions; consistency cleanup, not a security gap.
 - [SWC TDZ import cycles](project_swc-tdz-import-cycles.md) — cycles crash under `-b swc` only when deref'd at module-eval time; full 9-cycle audit: only 3 are real, `filter.input ↔ combined-filter.input` already throws on deep import.
 - [401/403 permission-denial surface](project_401-403-denial-surface.md) — 5 layers deny permission with inconsistent status codes (S_NO_ONE alone has 3); map all five before grading any auth-status change.
+- [Hub admin cockpit module](project_hub-module.md) — src/core/modules/hub deliberately bypasses the 4 response interceptors via @Res() (maskConfigDeep compensates); role gating is runtime class-metadata, not source @Roles. Don't re-flag either.
+- [src/core spec files run in vendor projects](project_core-spec-vendor-hazard.md) — core specs are copied verbatim by the CLI and executed there; any process.cwd() / repo-root read breaks every vendored consumer.
+- [Brevo SDK v3→v6](project_brevo-sdk-v6.md) — awaited shape identical (dropping `.body` is correct); real breaks are removed symbols, new BrevoError type, and new default retries.

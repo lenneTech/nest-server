@@ -1,0 +1,22 @@
+---
+name: project-hub-module-security-model
+description: Hub (operator cockpit) security model — gating mechanics, the external-guard dependency gap, roles:false prod guard, CSRF resting on X-Hub-Request+CORS. For re-reviews of src/core/modules/hub/.
+metadata:
+  type: project
+---
+
+Reviewed 2026-07-20 (uncommitted `develop`; files were being LIVE-EDITED during the review — always re-read `core-hub.module.ts` before trusting an earlier read). Non-obvious facts a future Hub re-review will otherwise re-derive the hard way:
+
+1. **Gating = method-level `@Roles(S_EVERYONE)` on shell/`hub.js`/`auth` + class-level ADMIN metadata written at runtime in `forRoot` via `Reflect.defineMetadata('roles', roles, Ctrl)`.** Every `*.json` sidecar, `emails/preview`, `mailbox/:seq/html`, `session.json`, and ALL action endpoints have NO method-level `@Roles` → inherit class ADMIN. This works because `mergeRolesMetadata([handler, class])` (core-tenant.helpers.ts) UNIONs the two: `[S_EVERYONE, ADMIN]` on the shell (public), `[ADMIN]` on sidecars. `@Res()` manual responses bypass response interceptors but NOT guards, so gating holds. Default config verified sound.
+
+2. **TOP RESIDUAL RISK — the Hub registers NO guard of its own.** The APP_GUARD (RolesGuard/BetterAuthRolesGuard) is registered ONLY by CoreAuthModule (legacy) or CoreBetterAuthModule (`registerRolesGuardGlobally: isIamOnlyMode`, core.module.ts:467). If a consumer runs `CoreModule.forRoot(cfg)` with `betterAuth: false` (or `{enabled:false}`) and no legacy auth, but enables `hub`, then the ADMIN metadata is set but NOTHING enforces it → the ENTIRE cockpit + destructive actions are public. No guard, no warning for this combo (the autoRegister:false path DOES warn — core-better-auth.module.ts:375 — but full-disable does not).
+
+3. **`hub.roles: false` (fully-public opt-out) NOW HAS a prod guard** (core-hub.module.ts:85-96, added mid-review): throws in `env==='production'||'staging'` unless `hub.allowPublicAccessInProduction: true`. LIMITATION: exact-string match on those two env names only — a reachable env named `prod`/`live`/`preprod`/`staging-2` bypasses the guard (same limitation as the mailbox-capture guard at :68-77).
+
+4. **CSRF rests entirely on the `X-Hub-Request` custom header + CORS.** The confirm keywords are PUBLIC CONSTANTS ('RUN','DOWN','CLEAR', or the cron/file name) — zero CSRF value against anyone who reads the OSS source. `X-Hub-Request` forces a preflight, which a restrictive CORS allowlist rejects for foreign origins (safe). BUT `cors.allowAll:true` → `{credentials:true, origin:true}` (cookies.helper.ts buildCorsConfig) mirrors any origin AND, with `allowedHeaders` unset, reflects the requested header → preflight passes. So `allowAll:true` + a `SameSite=None` session cookie (cross-subdomain setup) → destructive actions are CSRF-able. Bearer-token auth and default `SameSite=Lax` are immune.
+
+5. **Data-exposure collectors are structurally sound but redaction is best-effort:** query profiler `normalizeCommandShape` is genuinely value-free (scalars→'?', keys/operators kept); trace buffer strips the query string (only method/route-pattern/status/duration/userId/graphqlOperation NAME). Gaps: (a) copy-mode mailbox `redactSensitiveText` is pattern-based (`token=`,JWT,Bearer,cookie,`key=val`) → misses tokens embedded as URL PATH segments (`/verify/<token>`), so the "can't be replayed" claim is partial; (b) query profiler `errorMessage` is best-effort-redacted only → Mongo dup-key errors embed the offending field value. Both are ADMIN-only.
+
+6. **Minor:** `buildShell()` claims "no version" but the `hub.js?v=<version>` URL exposes it in the PUBLIC shell (INFO). XSS surface is clean: client is DOM-only (`textContent`/`createElement`, `style.cssText` via CSSOM, no `innerHTML`); both preview iframes use `sandbox=''` + a script-less CSP. Collector hosts (query-profiler driver events, email `capture()` hook, trace middleware, log delegating logger) are all try/catch-guarded — can't crash the host. Audit user id comes from `RequestContext.getCurrentUser()` (lazy getter → real authenticated `req.user`, not spoofable).
+
+**Why/how to apply:** #2 and #4 are the real ones — both are configuration-conditional, not default-config bugs. When re-reviewing, verify #3's guard still exists and whether its env allow-list was broadened; check whether a "Hub enabled but no auth guard" assertion/warning was ever added (#2).
