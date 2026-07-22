@@ -56,6 +56,8 @@ ai: {
   systemPrompt: 'You are a helpful assistant for …',
   contextWindow: 8192,            // fallback when a connection has no detected window
   maxToolResultChars: 12000,      // cap a tool-results payload fed back to the model
+  deferToolSchemas: false,        // catalog lists names + descriptions only; schemas via search_tools
+  deferToolSummaryChars: 0,       // 0 = full descriptions; set ~200-400 together with deferToolSchemas
   promptLearning: { autoApply: false }, // governed self-improvement (admin approves hints)
   // Optional one-time seed of a default connection (DB is the source of truth):
   defaultConnection: {
@@ -345,16 +347,27 @@ export class TransferFundsTool extends AiTool {
   readonly name = 'transfer_funds';
   readonly mutating = true; // governed by the confirmation policy
   readonly destructive = true; // always requires confirmation
-  // Pre-flight check WITHOUT mutating — decides if the user may run this:
+
+  // PLAN-MODE pre-flight, without mutating: lets the whole plan be rejected before
+  // any step runs. It does NOT run in auto mode or over MCP — so it must never be
+  // the only place a permission is checked.
   async authorize(args, context) {
     const account = await this.accountService.get(args.fromId, context.serviceOptions).catch(() => null);
     return { allowed: !!account, reason: account ? undefined : 'No access to source account' };
   }
+
   async execute(args, context) {
-    /* … */
+    // The REAL gate, on every path: route through the service with the caller's
+    // serviceOptions so `@Restricted`, `securityCheck()` and tenant scoping apply.
+    // Do not rely on authorize() having run.
+    const account = await this.accountService.getForUser(args.fromId, context.serviceOptions);
+    return this.accountService.transfer(account, args.toId, args.amount, context.serviceOptions);
   }
 }
 ```
+
+> **Do not put a permission check only in `authorize()`.** It runs in plan mode
+> only — auto mode (the default) and MCP go straight to `execute()`.
 
 ## Confirmation for changes
 
@@ -421,9 +434,10 @@ The model also receives **structured tool errors** (`{ error: { code, message, h
 so it can recover within the run.
 
 > **Security:** learned hints and template overrides only ever **add textual guidance** —
-> they can never relax the permission model. Tool role-filtering, `authorize()`,
+> they can never relax the permission model. Tool role-filtering,
 > `CrudService`/`@Restricted` and `secretFields` are enforced backend-side regardless of
-> the prompt.
+> the prompt. (`authorize()` is _not_ part of that unconditional set — it runs in plan
+> mode only; see [Deferred tool schemas](#deferred-tool-schemas-large-registries) below.)
 
 ```typescript
 ai: {
@@ -448,6 +462,55 @@ When a user's session history would overflow, the **oldest non-system turns are 
 (the latest turn is truncated if still too large) and oversized tool-results are capped to
 `ai.maxToolResultChars` (default `12000`) — so long-running conversations never exceed the
 model's limit.
+
+## Deferred tool schemas (large registries)
+
+The system prompt normally carries every tool's full JSON parameter schema. With a large
+registry that catalog can dominate a small context window. Set `ai.deferToolSchemas: true`
+and the catalog lists only tool **names + descriptions**; the model fetches a specific
+schema on demand through the built-in `search_tools` meta-tool.
+
+With many tools the **descriptions alone** can then re-inflate the prompt the deferral was
+meant to shrink. `ai.deferToolSummaryChars` caps each description in that deferred catalog:
+whole sentences up to the cap (always at least the first one), a word-boundary cut when the
+first sentence already exceeds it, and a `…` marker appended **on top of** the cap.
+
+```typescript
+ai: {
+  deferToolSchemas: true,
+  deferToolSummaryChars: 300,  // 0 (default) = keep descriptions untruncated
+}
+```
+
+The default of `0` is deliberate: enabling `deferToolSchemas` alone never changes what a
+tool description _says_. The saving is therefore opt-in — when you defer schemas to reclaim
+context, set `deferToolSummaryChars` alongside it (roughly 200–400 works well).
+
+> **Scoped to the emulated tool protocol, not to the provider.** In auto mode a connection
+> with `supportsNativeTools: true` receives every full description and JSON schema through
+> the native `tools` payload anyway, so truncation is skipped there and no `search_tools`
+> banner is emitted — telling the model a description was cut while handing it the full text
+> in the same request would only buy a wasted round-trip against `maxIterations`.
+>
+> **Plan mode always uses the emulated protocol**, so a native connection IS truncated there.
+> Because plan mode returns a complete plan in one call without executing anything, the model
+> cannot act on a `search_tools` hint before committing — the catalog therefore carries a
+> different banner there ("descriptions are abbreviated, plan conservatively") instead of
+> promising a lookup that would arrive too late. The dropped tail stays unrecoverable for
+> planning, so keep the cap generous if you rely on plan mode.
+
+> **The truncated tail is where preconditions and role restrictions usually live.** The
+> catalog banner instructs the model to fetch the full text via `search_tools` before
+> calling a `…`-marked tool. This is model **guidance only** — it never affects
+> authorization. Which tools a user sees and may run is decided server-side by the registry's
+> role filter (`AiToolRegistry.forUser()`), re-checked when the call executes; and the
+> confirmation gate reads a tool's `mutating`/`destructive` **flags**, never its description
+> — so a truncated "requires confirmation" sentence cannot disable it.
+>
+> Note `AiTool.authorize()` is **not** part of that chain in every mode: it runs in **plan
+> mode only**. In auto mode (the default) and over MCP, tools go straight to `execute()` — so
+> data-level checks (ownership, tenant scope) must live **inside `execute()`**, routed through
+> `CrudService` with `context.serviceOptions`, not in `authorize()` alone.
 
 ## Token budgets & usage
 
@@ -483,17 +546,16 @@ The `AiToolRegistry` also feeds a real **MCP server** at `POST/GET/DELETE /ai/mc
 (Streamable HTTP), so external MCP clients use the same backend tools with the
 same role gating. Enable with `ai: { mcp: true }`.
 
-**Install the SDK** in your project (it is a peer-style optional dependency that
-the controller lazy-imports only when an MCP request arrives — projects that
-don't enable MCP pay no install cost):
+**No install step needed.** `@modelcontextprotocol/sdk` ships as a regular
+dependency of `@lenne.tech/nest-server` and reaches both consumption modes:
+npm-mode projects resolve it transitively, and CLI-vendored projects get it
+merged into their own `package.json`. The controller still `import()`s it
+lazily, so a project that never enables MCP does not pay the startup cost.
 
-```bash
-pnpm add @modelcontextprotocol/sdk
-```
-
-When `ai.mcp` is set but the SDK is missing, `/ai/mcp` returns **503 Service
-Unavailable** with an actionable install-hint message instead of a 500 stack
-trace.
+If `/ai/mcp` nevertheless returns **503 Service Unavailable**, the module could
+not be _resolved_ — a bundler or test runner with its own module resolution can
+fail on the subpath export while plain Node succeeds. The underlying error is in
+the server log; the response carries only a stable `#LTNS_0901` code.
 
 - Auth: the request must carry a valid Bearer token/session (resolved by the
   framework's existing auth) — the MCP session is bound to that user, and

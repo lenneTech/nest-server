@@ -18,7 +18,7 @@ export type AiToolGrantDocument = CoreAiToolGrant & Document;
  * revokes it.
  *
  * Grants only ever say "skip the confirmation gate" — they never relax the
- * permission model itself (`@Restricted`, `@Roles`, `authorize()` and scoped
+ * permission model itself (`@Restricted`, `@Roles`, `securityCheck()` and scoped
  * tool-policies still apply). `destructive` tools are excluded from grants by
  * convention: irreversible actions always confirm.
  */

@@ -7,5 +7,8 @@
 ## Build & Startup
 - [SWC/CJS TDZ + CI Gap](swc-cjs-tdz-and-ci-gap.md) — circular-import crashes hit `nest start -b swc` but NOT CI (vitest's unplugin-swc misses it); includes the cycle-triage rule.
 
+## Micro-costs (measured, reusable)
+- [ConfigService.get cost](config-service-get-cost.md) — measured 152 ns/call (rfdc factory rebuilt every call); `getFastButReadOnly` is the 79 ns option. Only matters inside loops.
+
 ## Memory & Process
 - [Heap Ceiling + Sync stderr](heap-ceiling-and-sync-stderr.md) — measured: `--max-old-space-size=4096` is a no-op on 32GB hosts; bare `node` in prod is correct (cgroup auto-sizing); `writeSync(2)` blocks forever on a stalled pipe.

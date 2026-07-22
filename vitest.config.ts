@@ -16,6 +16,15 @@ export default defineConfig({
     globals: true,
     // Shared with test-file-routing.spec.ts — see vitest.include-globs.ts.
     include: UNIT_TEST_INCLUDE,
+    // Restore every `vi.spyOn` before each test attempt (vitest does this in
+    // `onBeforeTryTask`, i.e. ahead of `beforeEach` and of every retry). Without it, a
+    // spy whose manual `mockRestore()` is skipped because an assertion threw stays
+    // installed for the rest of the worker — and a stubbed `Logger.prototype.error`
+    // silences real error output during exactly the run that is already failing.
+    // Note the timing: a spy installed in `beforeAll` does NOT survive to the first
+    // test. Install spies in `beforeEach` or inside the test body.
+    // Only `vi.spyOn` is affected; plain `vi.fn()` and `vi.mock()` factories are not.
+    restoreMocks: true,
     root: './',
     // Same setup as the e2e runner: restricts the Nest Logger to error/fatal and filters the
     // intentional @UnifiedField deprecation warnings. Without it the unit run drowns in expected

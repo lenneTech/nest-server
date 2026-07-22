@@ -137,6 +137,8 @@ ai: {
   },
   contextWindow: 8192,                 // fallback when a connection has no auto-detected window
   maxToolResultChars: 12000,           // cap tool-results fed back to the model
+  deferToolSchemas: false,             // catalog = names + descriptions only; schemas via search_tools
+  deferToolSummaryChars: 0,            // 0 = full descriptions; set ~200-400 WITH deferToolSchemas
   promptLearning: { autoApply: false },// governed self-improvement (admins approve learned hints)
   mcp: { oauth: true, oauthSecret: process.env.NSC__AI__ENCRYPTION_SECRET },
 }
@@ -165,21 +167,41 @@ ai: {
 - **Context window:** detected automatically per connection and persisted; no setup needed.
   Override per connection (`contextWindow`) or globally (`ai.contextWindow`) if a backend
   isn't recognized.
+- **Many tools?** `deferToolSchemas: true` keeps the full JSON schemas out of the system
+  prompt (the model fetches one on demand via the built-in `search_tools` meta-tool). Set
+  `deferToolSummaryChars` (~200–400) ALONGSIDE it — otherwise the descriptions alone
+  re-inflate the prompt you just shrank. Both are scoped to the **emulated tool protocol**:
+  in auto mode a connection with `supportsNativeTools: true` gets every full description and
+  schema in the native `tools` payload regardless, so truncation and the banner are skipped
+  there. **Plan mode always uses the emulated protocol**, so a native connection IS truncated
+  there — and since plan mode plans in one call without executing, it cannot follow the
+  `search_tools` hint. Keep the cap generous if you use plan mode.
+  The truncated tail is typically where a tool's preconditions and role limits are written;
+  the model is told to fetch the full text first, but that is guidance only — authorization
+  stays with the registry's role filter, the execution-time re-check, and the
+  `mutating`/`destructive` flags behind the confirmation gate, none of which read the
+  description.
+- **Where data-level checks belong:** `authorize()` runs in **plan mode only**. In auto mode
+  (the default) and over MCP, the orchestrator calls `execute()` directly. Put ownership and
+  tenant checks INSIDE `execute()` (via `CrudService` + `context.serviceOptions`) — a check
+  that lives only in `authorize()` will not run for most callers.
 
 ### MCP server (only when `ai.mcp.enabled` or `ai.mcp` is truthy)
 
-**Install the MCP SDK** in your project:
+**No install step needed.** `@modelcontextprotocol/sdk` is a regular dependency of
+`@lenne.tech/nest-server` and reaches both consumption modes — npm-mode projects
+resolve it transitively, CLI-vendored projects get it merged into their own
+`package.json`. `CoreAiMcpController` still `import()`s it lazily, so a project
+that never enables MCP pays no startup cost.
 
-```bash
-pnpm add @modelcontextprotocol/sdk
-# or: npm install @modelcontextprotocol/sdk
-```
+A **503 Service Unavailable** from `/ai/mcp` therefore means the module could not be
+_resolved_, not that it is missing — check the server log for the underlying error.
+The response body carries the stable `#LTNS_0901` code, never the raw error.
 
-The SDK is a peer-style optional dependency — it is `import()`-ed lazily by
-`CoreAiMcpController` only when an MCP request actually arrives, so projects
-that don't enable MCP pay no install cost. When `ai.mcp` is set but the SDK
-is not installed, `/ai/mcp` returns **503 Service Unavailable** with an
-install-hint message instead of a 500 trace.
+> **No confirmation gate over MCP.** `mcpCallTool` does not consult the
+> `mutating`/`destructive` flags, and `authorize()` does not run there either. A
+> destructive tool invoked through `/ai/mcp` executes immediately. Only expose MCP to
+> clients you trust, and put every permission check inside `execute()`.
 
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 

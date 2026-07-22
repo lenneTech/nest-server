@@ -1294,6 +1294,55 @@ export interface IAi {
    */
   deferToolSchemas?: boolean;
 
+  /**
+   * Maximum characters per tool description in the DEFERRED catalog
+   * (`deferToolSchemas: true`). Whole sentences are kept up to this cap (always
+   * at least the first one); when the first sentence alone exceeds the cap the
+   * text is cut on a word boundary. A shortened description always ends in `…`,
+   * which is appended ON TOP of the cap — a shortened entry is therefore
+   * `deferToolSummaryChars + 1` characters, not exactly the cap. The full text
+   * stays available through the `search_tools` meta-tool.
+   *
+   * Without a cap a large tool registry re-inflates the very prompt that
+   * `deferToolSchemas` was meant to shrink: with enough tools the descriptions
+   * alone can outweigh the schemas they replaced and consume the majority of a
+   * small context window. With a cap, mind that the omitted tail is where tool
+   * authors typically put preconditions and role restrictions; the catalog
+   * banner tells the model to fetch the full text before calling such a tool.
+   * Note this is model GUIDANCE only — it never relaxes authorization. Which tools
+   * a caller sees and may run is decided server-side by the registry's role filter
+   * (`AiToolRegistry.forUser()`), re-checked at execution time, and the
+   * confirmation gate reads the `mutating`/`destructive` FLAGS, never the
+   * description text. (`AiTool.authorize()` runs in plan mode only — in auto mode
+   * and over MCP, data-level checks belong inside `execute()`.)
+   *
+   * Applies to the EMULATED tool protocol, not to a provider as such. In auto mode
+   * a connection with native tool calling receives every full description and schema
+   * through `buildToolSchemas()` regardless, so no truncation is applied there and no
+   * `search_tools` banner is emitted — capping would otherwise assert a truncation
+   * that the tool payload right next to it contradicts.
+   *
+   * **Plan mode always uses the emulated protocol** (it sends no native schemas), so a
+   * native connection IS truncated there. Because plan mode returns a complete plan in
+   * one call and executes nothing, the model cannot act on a `search_tools` hint before
+   * committing — the catalog therefore carries a different banner there, telling it the
+   * descriptions are abbreviated and to plan conservatively. The dropped tail stays
+   * unrecoverable for planning, so keep the cap generous if you rely on plan mode.
+   *
+   * `0` (the default) keeps the untruncated descriptions, so enabling
+   * `deferToolSchemas` alone never changes what a tool description says. That
+   * backward-compatible default means the prompt saving is opt-in: when you turn
+   * on `deferToolSchemas` to reclaim context, set this too — roughly 200–400 is
+   * a good starting point, low enough to shrink a large catalog while still
+   * carrying a full first sentence per tool.
+   *
+   * Setting this WITHOUT `deferToolSchemas` does nothing (the cap only applies to
+   * the deferred catalog); the framework logs a warning once at runtime rather
+   * than ignoring it silently.
+   * @default 0
+   */
+  deferToolSummaryChars?: number;
+
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
 

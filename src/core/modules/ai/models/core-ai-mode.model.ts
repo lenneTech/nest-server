@@ -18,7 +18,8 @@ export type AiModeDocument = CoreAiMode & Document;
  * Modes are an opinionated, end-user-friendly way for admins to ship
  * domain-specialized assistants without forking the orchestrator. Like every
  * other ai layer, modes can only ADD restrictions; they cannot relax the
- * permission model (`@Restricted` / `@Roles` / `authorize()` still apply).
+ * permission model (`@Restricted` / `@Roles` / `securityCheck()` still apply;
+ * `authorize()` only in plan mode).
  */
 @MongooseSchema({ collection: 'aiModes', timestamps: true })
 @ObjectType({ description: 'Named agent mode' })

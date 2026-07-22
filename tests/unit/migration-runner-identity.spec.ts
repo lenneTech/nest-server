@@ -115,6 +115,12 @@ describe('MigrationRunner', () => {
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrate-runner-'));
+    // The runner logs its progress via `console.log`. That output crosses the worker
+    // RPC channel (`onUserConsoleLog`), and a call still pending when the worker is
+    // torn down aborts the whole run with `EnvironmentTeardownError` — a red exit code
+    // with zero failed tests. `Logger.overrideLogger` does not cover raw `console.*`.
+    // (`restoreMocks: true` in vitest.config.ts restores this before the next test.)
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
   });
 
   afterEach(() => {

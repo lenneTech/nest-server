@@ -38,7 +38,8 @@ export interface AiHookEvent {
  *
  * **Security:** hooks can only ADD restrictions (block calls, redact args) — they
  * cannot relax the permission system. A hook returning no block does not bypass
- * `@Restricted`/`@Roles`/`authorize()`; those still apply.
+ * `@Restricted`/`@Roles`/`securityCheck()`; those still apply on every path
+ * (`authorize()` only runs in plan mode).
  */
 export interface IAiHook {
   /** Unique hook name (for diagnostics and deterministic ordering). */
