@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-22 (v11.32.2)
+> Auto-generated from source code on 2026-07-24 (v11.32.3)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -103,6 +103,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `allowedBaseUrlHosts?`: `string[] | undefined` — Optional SSRF allowlist for connection base URLs. When set (non-empty), the
   - `audit?`: `boolean | undefined` (default: `false`) — Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
   - `budget?`: `{ period?: "day" | "month" | "none"; tenant?: { maxPrompts?: number; maxToken...` — Token/prompt budgets for AI prompts, enforced before a run (HTTP 429 + translated
+  - `capabilityDriftCheck?`: `boolean | undefined` (default: `false`) — Opt-in boot self-check: after startup, probe each enabled connection that declares
   - `confirmation?`: `{ mutating?: { default?: boolean; enforced?: boolean; }; } | undefined` — Confirmation policy for mutating tool actions (create/update/delete).
   - `documentation?`: `string | undefined` — System documentation injected into the system prompt to inform the LLM
   - `defaultConnection?`: `IAiDefaultConnection | undefined` — Optional one-time seed for a default connection (see {@link IAiDefaultConnection}).
@@ -133,6 +134,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `apiKeyEnv?`: `string | undefined` — Name of an environment variable holding the API key (e.g. 'AI_API_KEY').
   - `baseUrl`: `string` — Base URL of the OpenAI-compatible endpoint.
   - `capabilities?`: `string[] | undefined` — Capability tags (free-form, e.g. 'analysis', 'vision').
+  - `contextWindow?`: `number | undefined` — Total context window (input + output tokens) the model supports. Drives the
   - `defaultMaxTokens?`: `number | undefined` — Default maximum number of tokens for completions.
   - `defaultTemperature?`: `number | undefined` — Default sampling temperature.
   - `description?`: `string | undefined` — Human-readable description.

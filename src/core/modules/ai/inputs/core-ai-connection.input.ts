@@ -1,4 +1,5 @@
 import { InputType } from '@nestjs/graphql';
+import { IsInt, Min } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -72,6 +73,7 @@ export class CoreAiConnectionInput {
     isOptional: true,
     roles: RoleEnum.ADMIN,
     type: () => Number,
+    validator: (options) => [IsInt(options), Min(1, options)],
   })
   contextWindow?: number = undefined;
 
