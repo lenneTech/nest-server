@@ -1110,6 +1110,16 @@ export interface IAiDefaultConnection {
   /** Capability tags (free-form, e.g. 'analysis', 'vision'). */
   capabilities?: string[];
 
+  /**
+   * Total context window (input + output tokens) the model supports. Drives the
+   * orchestrator's context budget (system prompt + history + tool results). Omit to
+   * auto-detect by probing the endpoint / `knownContextWindow()`; set it explicitly
+   * when the endpoint exposes no limit and the model id is unknown to the heuristic
+   * (otherwise the orchestrator assumes the conservative `ai.contextWindow` default
+   * of 8192 and trims the prompt + tool results on every turn).
+   */
+  contextWindow?: number;
+
   /** Default maximum number of tokens for completions. */
   defaultMaxTokens?: number;
 
@@ -1211,6 +1221,19 @@ export interface IAi {
     /** Default limit applied per user. */
     user?: { maxPrompts?: number; maxTokens?: number };
   };
+
+  /**
+   * Opt-in boot self-check: after startup, probe each enabled connection that declares
+   * an EXPLICIT `supportsNativeTools` / `supportsJsonResponse` and warn (log only) when
+   * the declared value contradicts what the endpoint actually reports — a wrong explicit
+   * flag otherwise silently degrades the assistant (e.g. forcing fragile emulated
+   * tool-calling on a backend that supports native function calling). OFF by default
+   * because it makes outbound calls to the LLM endpoints on every boot; the declared
+   * value is never changed (clear it in the admin UI to re-enable auto-detection). Also
+   * skipped in the ci/e2e runners.
+   * @default false
+   */
+  capabilityDriftCheck?: boolean;
 
   /**
    * Confirmation policy for mutating tool actions (create/update/delete).

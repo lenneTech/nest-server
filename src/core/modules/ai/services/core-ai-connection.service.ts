@@ -33,6 +33,29 @@ import { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
 export { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
 
 /**
+ * Minimal shape of a persisted (lean) connection document that the boot-time drift
+ * check needs to build a provider for a probe. It mirrors the fields
+ * {@link CoreAiConnectionService.resolve} reads, declared locally so the drift check can
+ * use the bulk `find()` result directly (no per-connection re-read / N+1).
+ */
+type ResolvableConnectionDoc = {
+  _id: unknown;
+  apiKeyEncrypted?: string;
+  apiKeyEnv?: string;
+  baseUrl: string;
+  contextWindow?: number;
+  defaultMaxTokens?: number;
+  defaultTemperature?: number;
+  defaultUserMaxPeriod?: string;
+  defaultUserMaxTokens?: number;
+  model: string;
+  name: string;
+  providerType?: string;
+  supportsJsonResponse?: boolean;
+  supportsNativeTools?: boolean;
+};
+
+/**
  * CRUD service for {@link CoreAiConnection} — the database-backed LLM
  * configuration. Admin-only (enforced by the model's `@Restricted(ADMIN)` plus
  * `@Roles(ADMIN)` on the resolver/controller).
@@ -75,6 +98,9 @@ export class CoreAiConnectionService
   async onModuleInit(): Promise<void> {
     await this.seedDefaultConnection();
     await this.assertStoredKeysDecryptable();
+    // Best-effort, non-blocking: probe endpoints and warn on capability drift. Never
+    // awaited so a slow/unreachable endpoint cannot delay boot.
+    void this.warnOnCapabilityDrift();
   }
 
   /**
@@ -139,6 +165,115 @@ export class CoreAiConnectionService
       }
     } catch (err) {
       this.logger.warn(`AI key decryptability self-check skipped: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Opt-in boot self-check (`ai.capabilityDriftCheck`, default OFF): warn when a
+   * connection DECLARES a capability that contradicts what its endpoint actually
+   * reports. Capabilities are auto-detected only for flags left UNDEFINED (create +
+   * lazy runtime path); an EXPLICIT `supportsNativeTools` / `supportsJsonResponse` is
+   * authoritative and is never re-probed by the normal path — so a wrong explicit flag
+   * silently degrades the assistant forever (e.g. `supportsNativeTools: false` on an
+   * endpoint that DOES support native function calling forces fragile emulated
+   * tool-calling, which weaker models do not sustain once the prompt grows).
+   *
+   * To observe the endpoint's REAL capability for a DECLARED flag, it builds the provider
+   * with the flags cleared to `undefined` — otherwise the provider's `detectCapabilities()`,
+   * which probes ONLY undefined flags, would return nothing to compare against (the whole
+   * point of the check) — then diffs the probed booleans against the stored declaration.
+   *
+   * It NEVER changes the stored value (the admin's explicit choice stays authoritative),
+   * NEVER blocks boot (fire-and-forget, all errors swallowed), and issues outbound calls
+   * to the LLM endpoints — hence it is OFF by default and additionally skipped in the
+   * ci/e2e runners. It reads every enabled connection in a single query (no per-connection
+   * re-read). Connections that leave BOTH flags undefined are handled by
+   * {@link detectAndPersistCapabilities} and are skipped here (nothing declared to check).
+   */
+  protected async warnOnCapabilityDrift(): Promise<void> {
+    // Opt-in: a framework boot must not contact third-party endpoints unless asked.
+    if (!ConfigService.get<boolean>('ai.capabilityDriftCheck')) {
+      return;
+    }
+    // Defense in depth: never probe from the integration test runner (real module boot).
+    // The unit runner (NODE_ENV=test) is intentionally NOT excluded so the method stays
+    // unit-testable with a mocked providerFactory — the opt-in flag above already prevents
+    // accidental probing there.
+    if (!this.providerFactory || ['ci', 'e2e'].includes(process.env.NODE_ENV ?? '')) {
+      return;
+    }
+    try {
+      // Single read (no per-connection re-resolve): the full docs carry everything the
+      // provider factory needs, so there is no N+1 findById per connection.
+      const docs = (await this.mainDbModel
+        .find({ enabled: { $ne: false } })
+        .lean()
+        .exec()) as unknown as ResolvableConnectionDoc[];
+      for (const doc of docs) {
+        // Only a connection that DECLARES a capability can drift; undefined flags are
+        // auto-detected on first use, so there is nothing to reconcile here.
+        if (typeof doc.supportsNativeTools !== 'boolean' && typeof doc.supportsJsonResponse !== 'boolean') {
+          continue;
+        }
+        let provider: { detectCapabilities?: () => Promise<{ jsonResponse?: boolean; nativeTools?: boolean }> };
+        try {
+          // Clear the declared flags so detectCapabilities() actually probes them (it
+          // skips any flag that is already a boolean on the connection).
+          const probeConnection: ResolvedAiConnection = {
+            apiKey: this.resolveApiKeyFromDoc(doc) ?? '',
+            baseUrl: doc.baseUrl,
+            contextWindow: doc.contextWindow,
+            defaultMaxTokens: doc.defaultMaxTokens,
+            defaultTemperature: doc.defaultTemperature,
+            defaultUserMaxPeriod: doc.defaultUserMaxPeriod,
+            defaultUserMaxTokens: doc.defaultUserMaxTokens,
+            id: String(doc._id),
+            model: doc.model,
+            name: doc.name,
+            providerType: doc.providerType || 'openai-compatible',
+            supportsJsonResponse: undefined,
+            supportsNativeTools: undefined,
+          };
+          provider = this.providerFactory.create(probeConnection);
+        } catch {
+          continue; // unresolvable / unbuildable — nothing to compare against
+        }
+        if (typeof provider.detectCapabilities !== 'function') {
+          continue;
+        }
+        const detected = await provider.detectCapabilities().catch(() => undefined);
+        if (!detected) {
+          continue; // probe failed (endpoint down / transport error) — not a drift signal
+        }
+        const drift: string[] = [];
+        if (
+          typeof doc.supportsNativeTools === 'boolean' &&
+          typeof detected.nativeTools === 'boolean' &&
+          doc.supportsNativeTools !== detected.nativeTools
+        ) {
+          drift.push(
+            `supportsNativeTools declared ${doc.supportsNativeTools} but the endpoint reports ${detected.nativeTools}`,
+          );
+        }
+        if (
+          typeof doc.supportsJsonResponse === 'boolean' &&
+          typeof detected.jsonResponse === 'boolean' &&
+          doc.supportsJsonResponse !== detected.jsonResponse
+        ) {
+          drift.push(
+            `supportsJsonResponse declared ${doc.supportsJsonResponse} but the endpoint reports ${detected.jsonResponse}`,
+          );
+        }
+        if (drift.length) {
+          this.logger.warn(
+            `AI connection "${doc.name || String(doc._id)}" capability drift: ${drift.join('; ')}. ` +
+              `The declared value is authoritative and was NOT changed — correct it in the admin UI, or clear it to ` +
+              `re-enable auto-detection, so the assistant uses the endpoint's real capabilities.`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`AI capability drift check skipped: ${(err as Error).message}`);
     }
   }
 

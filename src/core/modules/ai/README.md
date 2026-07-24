@@ -111,6 +111,12 @@ never probed). Detection runs in two complementary ways:
   once, persists, and uses the result. Until then the safe emulated baseline applies.
 - **On demand:** admins can re-probe via `detectAiConnectionCapabilities` /
   `POST /ai/connections/:id/detect-capabilities` (e.g. after changing `baseUrl`/`model`).
+- **Boot drift check (opt-in):** set `ai.capabilityDriftCheck: true` to probe every enabled
+  connection that has an EXPLICIT flag once at startup and log a warning when the declared
+  value contradicts what the endpoint reports (a wrong explicit flag otherwise degrades the
+  assistant silently, e.g. forcing emulated tool-calling on a native-capable backend). It only
+  warns — the stored value is never changed. OFF by default because it makes outbound calls to
+  the LLM endpoints on every boot; also skipped in the ci/e2e runners.
 
 The probe is provider-agnostic best effort: `response_format: json_object` is sent
 (2xx → JSON supported); a trivial tool with `tool_choice: 'required'` is sent (2xx

@@ -69,9 +69,21 @@ export interface IAiTool {
 
   /**
    * Whether the tool performs a destructive/irreversible action (delete, bulk
-   * update, payment, …). Destructive tools always require confirmation: they are
-   * NOT executed until the prompt is re-sent with `confirm: true`; the first
-   * response lists them as `pendingActions` with `requiresConfirmation: true`.
+   * update, payment, …). In the CHAT orchestrator destructive tools always require
+   * confirmation: they are NOT executed until the prompt is re-sent with
+   * `confirm: true`; the first response lists them as `pendingActions` with
+   * `requiresConfirmation: true`.
+   *
+   * **No confirmation gate over MCP.** `CoreAiMcpService.mcpCallTool` consults
+   * neither this flag nor {@link IAiTool.mutating}, so a destructive tool invoked
+   * through `/ai/mcp` executes IMMEDIATELY, on the first call. This flag is
+   * therefore a chat-orchestrator contract, not a global execution barrier. The
+   * barriers that DO hold on every path are the registry role filter ({@link
+   * IAiTool.roles}, applied by `forUser()` before `execute()`) and the authorization
+   * inside `execute()` itself — so a destructive tool restricted to a real role stays
+   * unreachable by lesser-privileged MCP clients; MCP only skips the extra confirmation
+   * step for clients that may already see the tool. Expose MCP only to clients you trust
+   * to obtain user consent themselves.
    */
   readonly destructive?: boolean;
 
@@ -80,6 +92,9 @@ export interface IAiTool {
    * mutating tools is governed by the `ai.confirmation` policy (admin default,
    * optionally client-overridable, optionally enforced). `destructive` is the
    * stronger flag and always requires confirmation regardless of policy.
+   *
+   * Same MCP caveat as {@link IAiTool.destructive}: the confirmation policy is not
+   * evaluated on the `/ai/mcp` path at all.
    */
   readonly mutating?: boolean;
 
