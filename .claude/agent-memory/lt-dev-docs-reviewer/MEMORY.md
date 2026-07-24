@@ -8,4 +8,4 @@
 - [main.ts opt-in APIs are invisible](main-ts-optin-api-has-no-doc-surface.md) — a helper consumers must wire into their OWN main.ts has no automatic doc surface; the migration guide is the only one that reaches them
 - [Release version artifacts](release-version-artifacts.md) — a version bump must touch package.json AND spectaql.yml; the lockstep is a git-history convention, written in no rule doc
 - [Migration-guide self-description traps](migration-guide-behavior-change-count-trap.md) — never trust a guide's Overview counts or its "aligns with existing pattern X" claims; derive both from the source diff
-- [AI module false doc claims](ai-module-false-doc-claims.md) — `authorize()` is plan-mode-only, and the MCP SDK is a regular dep; both are still asserted wrongly in several surfaces
+- [AI module false doc claims](ai-module-false-doc-claims.md) — `authorize()` is plan-mode-only, MCP has no confirmation gate, MCP SDK is a regular dep; both claims now CORRECTED in live surfaces as of 11.32.2 (facts still true; don't re-flag fixed surfaces)
