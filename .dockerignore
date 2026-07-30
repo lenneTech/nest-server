@@ -21,18 +21,50 @@ dist
 # Environment
 .env
 .env.*
+# Registry auth. Empty of secrets in git, but this is where CI writes
+# `//registry.npmjs.org/:_authToken=$NPM_TOKEN` before a build — and Dockerfile's
+# deps stage COPYs it, so a token would be baked into an image layer for good.
+.npmrc
+
+# Credentials / keys — defensive, none of these are in the repo today
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa*
 
 # Logs
-*.log
+# NOTE: Docker ignore patterns are NOT gitignore patterns. A pattern without a
+# leading `**` is anchored to the context root, and `*` never crosses a `/`. So
+# a bare `*.log` matches ONLY top-level files — hence the `**/` prefixes.
+# Two patterns rather than one `**/*.log*`: that shorter form would also swallow
+# a source file named `foo.logger.ts` and quietly drop it from the build.
+**/*.log
+**/*.log.*
 npm-debug.log*
 .pnpm-debug.log*
+
+# Runtime state — written while the server runs locally, never read by a build.
+# `uploads` is the TUS staging directory, i.e. real user documents; it is in
+# .gitignore for the same reason, which also means it never shows up in
+# `git status` to remind anyone it is sitting in the build context.
+# `**/` is load-bearing: the Dockerfile supports a monorepo build
+# (`--build-arg API_DIR=projects/api` from the repo root), where the directory is
+# `projects/api/uploads` and a bare `uploads` would not match it.
+**/uploads
+# `lt dev`'s directory: detached server logs + scratch state.
+**/.lt-dev
 
 # Testing
 tests
 coverage
 test-results
 playwright-report
+blob-report
 .nyc_output
+# Kept only when `check:swc-tdz` fails, and gitignored — so it is invisible in
+# `git status` while still sitting in the build context.
+dist-swc-tdz
 
 # Documentation (not needed in runtime image)
 docs
@@ -48,6 +80,7 @@ docker-compose*
 # CI/CD
 .gitlab-ci.yml
 .gitlab
+.github
 
 # Misc
 .DS_Store

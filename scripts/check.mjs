@@ -191,8 +191,25 @@ async function runAudit(auditCmd) {
   const cmd = /(^|\s)--json(\s|$)/.test(auditCmd) ? auditCmd : `${auditCmd} --json`;
   const { code, out } = await capture(cmd, ROOT);
   let counts = null;
+  let ignored = 0;
   try {
-    counts = JSON.parse(out.slice(out.indexOf('{')))?.metadata?.vulnerabilities ?? null;
+    const parsed = JSON.parse(out.slice(out.indexOf('{')));
+    // `metadata.vulnerabilities` is the RAW tally — pnpm deliberately leaves it
+    // unfiltered so it can report "(N ignored)" separately. `advisories` is the
+    // filtered set, i.e. what `auditConfig.ignoreGhsas` did NOT suppress.
+    // Reporting the raw tally would print a green check next to "high 1", which
+    // reads as an unaddressed finding and trains the reader to ignore the number.
+    const raw = parsed?.metadata?.vulnerabilities ?? null;
+    const advisories = Object.values(parsed?.advisories ?? {});
+    if (raw) {
+      counts = { critical: 0, high: 0, info: 0, low: 0, moderate: 0 };
+      for (const advisory of advisories) {
+        if (advisory?.severity in counts) {
+          counts[advisory.severity] += 1;
+        }
+      }
+      ignored = Math.max(0, SEVERITIES.reduce((n, s) => n + (raw[s] || 0), 0) - advisories.length);
+    }
   } catch {
     /* fall through to raw reason */
   }
@@ -200,7 +217,15 @@ async function runAudit(auditCmd) {
   // Non-zero exit with no parseable counts AND the retired-endpoint signature = infrastructure
   // failure, not a finding. Surface it loudly (degraded) but do not block.
   const degraded = code !== 0 && !counts && isAuditEndpointUnavailable(out);
-  return { auditCmd, blocking: code !== 0 && !degraded, counts, degraded, reason: counts ? null : out, total };
+  return {
+    auditCmd,
+    blocking: code !== 0 && !degraded,
+    counts,
+    degraded,
+    ignored,
+    reason: counts ? null : out,
+    total,
+  };
 }
 
 // ── command runner ─────────────────────────────────────────────────────────
@@ -555,9 +580,13 @@ async function main() {
     const dur = Date.now() - t;
     if (audit.blocking) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
-      const summary = audit.counts ? `${audit.total} vuln (${renderVulnLine(audit.counts)})` : 'failed';
+      const summary = audit.counts ? `${audit.total} vuln (${renderVulnLine(audit.counts, audit.ignored)})` : 'failed';
       console.log(`${C.red('✗')} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
-      return fail(`audit (${auditCmd})`, audit.counts ? renderVulnLine(audit.counts) : audit.reason, started);
+      return fail(
+        `audit (${auditCmd})`,
+        audit.counts ? renderVulnLine(audit.counts, audit.ignored) : audit.reason,
+        started,
+      );
     }
     if (audit.degraded) {
       // Not green: audit could not run. Yellow ⚠, never a green ✓ — a ✓ here would read as
@@ -568,7 +597,7 @@ async function main() {
       );
     } else if (!TTY) {
       process.stdout.write(
-        `  ${C.green('✓')} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim('0')} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green('✓')} audit  ${audit.counts ? renderVulnLine(audit.counts, audit.ignored) : C.dim('0')} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
     }
     // TTY success: NO permanent line — the live status view overwrites the audit
@@ -604,13 +633,16 @@ async function main() {
 }
 
 // ── rendering helpers ─────────────────────────────────────────────────────────
-function renderVulnLine(counts) {
-  return SEVERITIES.map((s) => {
+function renderVulnLine(counts, ignored = 0) {
+  const line = SEVERITIES.map((s) => {
     const n = counts[s] || 0;
     const txt = `${s} ${n}`;
     if (n > 0 && (s === 'critical' || s === 'high')) return C.red(txt);
     return n > 0 ? C.yellow(txt) : C.dim(txt);
   }).join(C.dim(' · '));
+  // Never hide a suppression: a silently filtered advisory is indistinguishable
+  // from one that never existed, which is exactly what makes `ignoreGhsas` risky.
+  return ignored > 0 ? `${line}${C.dim(' · ')}${C.yellow(`${ignored} ignored`)}` : line;
 }
 
 function metricSuffix(r) {
@@ -677,7 +709,7 @@ function report(started, results) {
   console.log(
     `  ${
       audit?.counts
-        ? renderVulnLine(audit.counts)
+        ? renderVulnLine(audit.counts, audit.ignored)
         : audit?.degraded
           ? C.yellow('audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT checked')
           : C.dim(audit ? 'counts unavailable' : '—')

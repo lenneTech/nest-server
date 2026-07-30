@@ -1,5 +1,5 @@
 ---
-name: ai-mcp-oauth-refresh-token-binding
+name: project-ai-mcp-oauth-refresh-token-binding
 description: MCP OAuth refresh-token rotation in CoreAiMcpOAuthService.exchangeRefreshToken does not validate the rotating client matches the issuing client — cross-client token theft risk when ai.mcp.oauth is enabled
 metadata:
   type: project

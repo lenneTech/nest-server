@@ -1,5 +1,5 @@
 ---
-name: ai-module-secret-stripping
+name: project-ai-module-secret-stripping
 description: AI module 3-layer apiKeyEncrypted protection; secretFields now MERGES with defaults (11.26.0 fix — fragility resolved); MCP PKCE enforced by SDK
 metadata:
   type: project
