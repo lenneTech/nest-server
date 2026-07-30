@@ -3,6 +3,81 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 
 /**
+ * What an upload endpoint accepts: exact mimetypes and exact file extensions.
+ *
+ * Prefer this over the legacy `RegExp` form. A single expression `.test()`ed
+ * against BOTH the mimetype and the extension searches for a SUBSTRING, so every
+ * alternative matches anywhere inside either value. An allow-list of `text` /
+ * `txt` therefore also accepts `text/html` and `text/xml`, and one containing
+ * `md` accepts every mimetype with "md" in it. Consumers hit this in practice:
+ * a filter documented as "no html" happily accepted a file named `x.txt` that
+ * was sent as `text/html`.
+ *
+ * Two separate sets also remove the reason the expression could not simply be
+ * anchored: it had to carry mimetype FRAGMENTS (`wordprocessingml`, `ms-excel`)
+ * next to bare extensions, and no anchoring satisfies both at once.
+ */
+export interface UploadAllowList {
+  /** Allowed file extensions, lowercase and WITH the leading dot. */
+  extensions: readonly string[];
+  /** Allowed mimetypes, lowercase and without parameters. */
+  mimeTypes: readonly string[];
+}
+
+/**
+ * Default for image uploads — the exact-matching equivalent of the legacy
+ * `/jpeg|jpg|png/`.
+ */
+export const IMAGE_UPLOAD_ALLOW_LIST: UploadAllowList = {
+  extensions: ['.jpeg', '.jpg', '.png'],
+  mimeTypes: ['image/jpeg', 'image/png'],
+};
+
+/**
+ * Types a browser may execute as script when it renders the stored file.
+ *
+ * These are rejected by {@link multerFileFilter} REGARDLESS of the allow-list,
+ * because the danger does not depend on what a given endpoint meant to accept:
+ * an upload served back from the API origin with one of these content types
+ * runs in that origin, with the victim's session. The check is what makes the
+ * legacy `RegExp` path safe for existing consumers without breaking their
+ * expressions — see `allowScriptableTypes` to opt out.
+ */
+export const SCRIPTABLE_UPLOAD_MIME_TYPES: readonly string[] = [
+  'application/javascript',
+  'application/xhtml+xml',
+  'application/xml',
+  'image/svg+xml',
+  'text/html',
+  'text/javascript',
+  'text/xml',
+];
+
+/** Extensions matching {@link SCRIPTABLE_UPLOAD_MIME_TYPES}. */
+export const SCRIPTABLE_UPLOAD_EXTENSIONS: readonly string[] = [
+  '.htm',
+  '.html',
+  '.js',
+  '.mjs',
+  '.svg',
+  '.xhtml',
+  '.xml',
+];
+
+/** Options for {@link multerFileFilter}. */
+export interface MulterFileFilterOptions {
+  /**
+   * Accept markup and script types too (`text/html`, `image/svg+xml`, …).
+   *
+   * Only set this when the stored file is never served from an origin that
+   * carries a session — e.g. a separate download host, or a route that always
+   * answers with `Content-Disposition: attachment` AND
+   * `X-Content-Type-Options: nosniff`.
+   */
+  allowScriptableTypes?: boolean;
+}
+
+/**
  * Helper class for inputs
  * @deprecated use functions directly
  */
@@ -18,14 +93,18 @@ export default class FileHelper {
   /**
    * Get function to filter files for multer with a certain mimetype & extname
    */
-  public static multerFileFilter(fileTypeRegex = /jpeg|jpg|png/) {
-    return multerFileFilter(fileTypeRegex);
+  public static multerFileFilter(
+    accept: RegExp | UploadAllowList = IMAGE_UPLOAD_ALLOW_LIST,
+    options?: MulterFileFilterOptions,
+  ) {
+    return multerFileFilter(accept, options);
   }
 
   /**
    * Get multer options for image upload
    */
   public static multerOptionsForImageUpload(options: {
+    allowList?: UploadAllowList;
     destination?: string;
     fileSize?: number;
     fileTypeRegex?: RegExp;
@@ -35,24 +114,80 @@ export default class FileHelper {
 }
 
 /**
- * Get function to filter files for multer with a certain mimetype & extname
+ * Reduce a reported mimetype to the bare type: lowercase, trimmed, without the
+ * `; charset=…` parameters a user agent may append.
  */
-export function multerFileFilter(fileTypeRegex = /jpeg|jpg|png/) {
-  return (req, file, cb) => {
-    const mimetype = fileTypeRegex.test(file.mimetype);
-    const extName = fileTypeRegex.test(extname(file.originalname).toLowerCase());
+function normalizeMimeType(value: string): string {
+  return String(value || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+}
 
-    if (mimetype && extName) {
+/**
+ * Get a multer `fileFilter` that accepts only the given mimetypes / extensions.
+ *
+ * Pass an {@link UploadAllowList} — both the mimetype and the extension must
+ * appear in it, each compared as a WHOLE value. The two conditions are
+ * independent: either one alone rejects the file, while a pair that is odd yet
+ * individually allowed (`report.txt` announced as `application/pdf`) passes.
+ * An extension→mimetype MAPPING is deliberately not enforced: user agents
+ * genuinely disagree about office and audio types (macOS reports `.csv` as
+ * `text/plain`), so a mapping rejects legitimate uploads.
+ *
+ * A `RegExp` is still accepted for backwards compatibility but is
+ * **deprecated**: it is `.test()`ed against both values and therefore matches
+ * SUBSTRINGS, which is how `te?xt` ends up accepting `text/html`. Whichever form
+ * is used, the types in {@link SCRIPTABLE_UPLOAD_MIME_TYPES} /
+ * {@link SCRIPTABLE_UPLOAD_EXTENSIONS} are rejected first unless
+ * `options.allowScriptableTypes` is set — that is what closes the hole for
+ * expressions that already exist in consumer projects.
+ *
+ * Rejections are reported as a real `Error`. Passing a bare string (as this
+ * helper did before) leaves multer with an "error" that has no `message`, which
+ * NestJS's `transformException` cannot map to a 4xx.
+ */
+export function multerFileFilter(
+  accept: RegExp | UploadAllowList = IMAGE_UPLOAD_ALLOW_LIST,
+  options?: MulterFileFilterOptions,
+) {
+  return (req, file, cb) => {
+    const mimeType = normalizeMimeType(file?.mimetype);
+    const extension = extname(String(file?.originalname || '')).toLowerCase();
+
+    if (
+      !options?.allowScriptableTypes &&
+      (SCRIPTABLE_UPLOAD_MIME_TYPES.includes(mimeType) || SCRIPTABLE_UPLOAD_EXTENSIONS.includes(extension))
+    ) {
+      return cb(new Error(`File upload rejected: ${mimeType || 'unknown type'} may execute as script`));
+    }
+
+    const accepted =
+      accept instanceof RegExp
+        ? accept.test(mimeType) && accept.test(extension)
+        : accept.mimeTypes.includes(mimeType) && accept.extensions.includes(extension);
+
+    if (accepted) {
       return cb(null, true);
     }
-    cb(`Error: File upload only supports the following filetypes - ${fileTypeRegex}`);
+    cb(new Error(`File upload only supports the following filetypes - ${describeAccept(accept)}`));
   };
+}
+
+/** Render the accepted types for the rejection message. */
+function describeAccept(accept: RegExp | UploadAllowList): string {
+  return accept instanceof RegExp ? String(accept) : accept.extensions.join(', ');
 }
 
 /**
  * Get multer options for image upload
+ *
+ * Pass `allowList` for exact matching; `fileTypeRegex` is deprecated (see
+ * {@link multerFileFilter}). When neither is set, {@link IMAGE_UPLOAD_ALLOW_LIST}
+ * applies.
  */
 export function multerOptionsForImageUpload(options: {
+  allowList?: UploadAllowList;
   destination?: string;
   fileSize?: number;
   fileTypeRegex?: RegExp;
@@ -60,13 +195,16 @@ export function multerOptionsForImageUpload(options: {
   // Set config
   const config = {
     fileSize: 1024 * 1024, // 1MB
-    fileTypeRegex: /jpeg|jpg|png/, // Images only
     ...options,
   };
 
+  // An explicit regex keeps precedence so existing callers behave as before
+  // (minus the scriptable types); otherwise the exact-matching default applies.
+  const accept: RegExp | UploadAllowList = config.fileTypeRegex ?? config.allowList ?? IMAGE_UPLOAD_ALLOW_LIST;
+
   return {
     // File filter
-    fileFilter: config.fileTypeRegex ? multerFileFilter(config.fileTypeRegex) : undefined,
+    fileFilter: multerFileFilter(accept),
 
     // Limits
     limits: {

@@ -93,7 +93,17 @@ if (require.main === module) {
     }
   }
 
-  // Load and run the CLI
-  const { main } = require(cliPath);
-  main();
+  // Load and run the CLI.
+  //
+  // Prefer runCli(): it drains stdout and then exits explicitly, so a handle left
+  // behind by MongoDB/GridFS cannot keep the process alive after the work is done
+  // (a migration step that never returns blocks the container before the server
+  // ever starts). main() is the fallback for a dist built before runCli existed —
+  // it resolves normally but relies on the event loop draining by itself.
+  const cli = require(cliPath);
+  const run = cli.runCli || cli.main;
+  Promise.resolve(run()).catch((error) => {
+    console.error('Fatal error:', error);
+    process.exitCode = 1;
+  });
 }

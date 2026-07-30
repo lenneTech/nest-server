@@ -18,6 +18,31 @@ allowBuilds:
   '@apollo/protobufjs': true
   '@scarf/scarf': false
 
+# ----------------------------------------------------------------------------------
+# Advisories we knowingly do NOT fix, with the reason. `pnpm audit` treats these as
+# resolved, so the CI gate stays meaningful for everything else.
+# Rules for adding one: name the advisory, say why it cannot be fixed, say why the
+# residual risk is acceptable, and date the verification. If you cannot write those
+# three sentences honestly, fix the dependency instead.
+# ----------------------------------------------------------------------------------
+auditConfig:
+  ignoreGhsas:
+    # brace-expansion DoS via unbounded expansion (HIGH). Patched ONLY in 5.0.8 — verified
+    # 2026-07-28 that neither 1.1.16 nor 2.1.2 contains a length guard, so there is no 1.x
+    # backport to move to. After the `minimatch@>=5.0.0 <10.2.6 -> 10.2.6` override above
+    # (10.2.6 requests the patched ^5.0.8) exactly ONE path remains:
+    #   @nestjs/cli > fork-ts-checker-webpack-plugin > minimatch@3 > brace-expansion@1
+    # Not fixable: fork-ts-checker calls `__importDefault(require('minimatch')).default(...)`.
+    # minimatch@10 sets `__esModule: true` without a `.default`, so substituting it throws
+    # "minimatch_1.default is not a function"; forcing brace-expansion@5.0.8 under minimatch@3
+    # throws "expand is not a function". Both reproduced 2026-07-28.
+    # Residual accepted: dev-only build tooling, running on a developer machine or CI runner
+    # over repo-local input. It is not a dependency of the published package (`files` ships
+    # dist + docs only), so no consumer and no runtime ever reaches this code.
+    # Re-verify when @nestjs/cli drops fork-ts-checker-webpack-plugin — then delete this entry.
+    # Verified 2026-07-28 (DEV-2698).
+    - GHSA-mh99-v99m-4gvg
+
 peerDependencyRules:
   allowedVersions:
     '@apollo/server': '5'
@@ -56,17 +81,37 @@ overrides:
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Inert today (axios already resolves >=1.18.0). Remove once node-mailjet requests >=1.18.0 itself.
   'axios@<1.18.0': '1.18.1'
-  # Security: brace-expansion DoS via exponential-time expansion of consecutive non-expanding {} groups (GHSA-3jxr-9vmj-r5cp, high) - one entry per affected major, each a patch bump INSIDE that major.
+  # Security: brace-expansion DoS - two advisories. GHSA-3jxr-9vmj-r5cp (exponential-time expansion of
+  # consecutive non-expanding {} groups) and GHSA-mh99-v99m-4gvg (unbounded expansion length -> OOM,
+  # patched ONLY in 5.0.8; verified 2026-07-28 that 1.1.16 and 2.1.2 carry no length guard at all).
+  # One entry per affected major, each a patch bump INSIDE that major.
   # v5 (prod): ts-morph>@ts-morph/common>minimatch, directly and via @nestjs/graphql + @nestjs/apollo. v2/v1 (dev only): @nestjs/cli + @swc/cli > minimatch, @nestjs/cli>fork-ts-checker-webpack-plugin>minimatch.
   # The v5 key is floored at >=5.0.0 on purpose: a wider `>=3.0.0` would ALSO match a future 3.x/4.x
   # dependency and silently force it across two majors - which is not what "patch bump" means.
   # Inert today (all three resolve patched). Remove once minimatch requests the patched ranges.
-  'brace-expansion@>=5.0.0 <5.0.7': '5.0.7'
+  'brace-expansion@>=5.0.0 <5.0.8': '5.0.8'
+  # The 2.x line no longer resolves at all since the minimatch lift below removed its only parent.
+  # Kept anyway, and deliberately: it is not inert because the dependency was fixed, but because
+  # ANOTHER override happens to hide it. Drop the minimatch entry and 2.x returns immediately, so
+  # deleting this one would couple two unrelated lines. Remove it once minimatch@9 is gone for good.
   'brace-expansion@>=2.0.0 <2.1.2': '2.1.2'
   'brace-expansion@<1.1.16': '1.1.16'
+  # Security: the real lever for GHSA-mh99-v99m-4gvg. Only brace-expansion 5.0.8 carries the fix, and
+  # forcing it onto a minimatch@3 consumer throws "expand is not a function" (5.x exports a namespace
+  # object, not a callable). minimatch 10.2.6 REQUESTS ^5.0.8, so lifting every 9.x consumer onto it
+  # removes the vulnerable 2.x line from the tree legitimately.
+  # Floored at >=9.0.0, NOT >=5.0.0: only 9 and 10 share the non-callable CJS export shape. Verified
+  # 2026-07-30 that majors 5-8 export a CALLABLE function (5.1.6: `typeof m === 'function'`; 6-8 add a
+  # `.default`), so forcing them onto 10 would throw the very "is not a function" documented below as
+  # the reason minimatch@3 is excluded. Nothing resolves in 5-8 today, so the wider floor was latent
+  # rather than broken - but it pre-authorized exactly the break it warns about.
+  # minimatch@3 is deliberately NOT matched - see auditConfig above.
+  'minimatch@>=9.0.0 <10.2.6': '10.2.6'
   # Security: js-yaml quadratic CPU consumption via YAML merge-key chains (GHSA-52cp-r559-cp3m, high, patched >=4.3.0) - dev only, transitive via @compodoc/compodoc>cosmiconfig and @nestjs/cli>fork-ts-checker-webpack-plugin>cosmiconfig
   # Inert today. Remove once cosmiconfig requests >=4.3.0.
   'js-yaml@>=4.0.0 <4.3.0': '4.3.0'
+  # Security: js-yaml exponential parsing time in flow collections (GHSA-pm4m-ph32-ghv5, high, patched >=5.2.2) - transitive via @nestjs/swagger>js-yaml. Separate line from the 4.x entry above: same package, different major.
+  'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
   # Security: fast-uri host confusion via failed IDN canonicalization (GHSA-v2hh-gcrm-f6hx, high, patched >=3.1.3) and via literal backslash authority delimiter (high, patched >=3.1.4) - transitive via @modelcontextprotocol/sdk>ajv and @modelcontextprotocol/sdk>ajv-formats>ajv
   # Inert today. Remove once ajv / ajv-formats request >=3.1.4.
   'fast-uri@>=3.0.0 <3.1.4': '3.1.4'

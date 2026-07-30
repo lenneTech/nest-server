@@ -328,13 +328,76 @@ Environment Variables:
 `);
 }
 
-// Run CLI if executed directly
-if (require.main === module) {
-  main().catch((error) => {
+/**
+ * Exit with `code`, but never before our own output has actually left the process.
+ *
+ * `process.exit()` does NOT drain stdout, and stdout is asynchronous whenever it
+ * is a pipe — which is exactly the Docker / CI / `| tee` case. Exiting straight
+ * after the completion log therefore discards the record of what this run did,
+ * and the line at risk is the last one ("All migrations completed successfully"),
+ * which is precisely what a CI step greps for. Measured: past the 64 KiB pipe
+ * buffer everything beyond it is lost.
+ *
+ * `process.exitCode` is assigned first so that a future `exitCode = 1` elsewhere
+ * is honoured rather than overwritten by a hardcoded 0. The timer is the safety
+ * net for the opposite failure — a consumer that never reads — and is `unref`'d
+ * so it cannot itself keep the process alive.
+ */
+const flushAndExit = async (code: number): Promise<void> => {
+  process.exitCode = code;
+
+  const guard = setTimeout(() => process.exit(code), 5000);
+  guard.unref();
+
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) =>
+        new Promise<void>((resolve) => {
+          if (!stream.writableLength) {
+            resolve();
+            return;
+          }
+          stream.write('', () => resolve());
+        }),
+    ),
+  );
+
+  clearTimeout(guard);
+  process.exit(code);
+};
+
+/**
+ * Run the CLI and terminate the process when it is done.
+ *
+ * This is the entry point the `migrate` / `nest-migrate` bin uses. It exists
+ * separately from `main()` because the shell around it matters: migrations touch
+ * MongoDB, GridFS and — via the state store — a second connection, and any handle
+ * one of them leaves behind keeps Node alive forever. The CLI then prints
+ * "All migrations completed successfully" and simply never returns: a CI job
+ * blocks until its timeout, and a container entrypoint that runs migrations
+ * before `exec`ing the server never reaches the server at all.
+ *
+ * Note this must NOT be guarded by `require.main === module`: the shipped
+ * `bin/migrate.js` loads this module and calls in, so `require.main` is the shim,
+ * never this file. A guard here would make the exit unreachable on every path
+ * that actually ships.
+ */
+const runCli = async (): Promise<void> => {
+  try {
+    await main();
+  } catch (error) {
     console.error('Fatal error:', error);
-    process.exit(1);
-  });
+    await flushAndExit(1);
+    return;
+  }
+  await flushAndExit(0);
+};
+
+// Run CLI if executed directly (`node migrate-cli.js`). The bin shim calls
+// runCli() itself, so this only covers a direct invocation of the compiled file.
+if (require.main === module) {
+  void runCli();
 }
 
 // parseArgs is exported for unit testing only (same pattern as resolveCliPath in bin/migrate.js)
-export { main, parseArgs };
+export { flushAndExit, main, parseArgs, runCli };

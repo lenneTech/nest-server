@@ -387,6 +387,41 @@ const fileId = await uploadFileToGridFS('mongodb://localhost/mydb', '../assets/i
 });
 ```
 
+`relativePath` is resolved against the **helper module's** directory, not the migration file's — the
+paths in this example and in the migration template are written accordingly.
+
+The returned promise settles only after three guarantees hold:
+
+| Guarantee                       | Behaviour                                                                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The bytes are stored            | Chunk completeness is verified before resolving (see `assertGridFsFileComplete()` below). An incomplete upload **rejects** and the incomplete file is removed, rather than returning an id that points at nothing |
+| An unreadable source fails fast | A missing or unreadable file **rejects** with the underlying `ENOENT`. It used to hang forever, because `pipe()` does not forward read-stream errors                                                              |
+| The connection is released      | The MongoClient it opens is always closed, on the success and the failure path alike. A leaked connection keeps the Node event loop alive and `migrate up` never exits                                            |
+
+Since these are hard failures, a seed migration whose asset is missing or only partially stored now
+fails the migration — and with the default `MIGRATE_FAILURE_POLICY=abort` in `docker-entrypoint.sh`,
+the container refuses to start rather than booting with broken data. That is intentional: the point
+of running migrations before the server is to find exactly this.
+
+### assertGridFsFileComplete()
+
+Verifies that every chunk of an already-stored GridFS file is present. `uploadFileToGridFS()` calls
+it for you; call it directly to check files written by something else (a restored dump, another
+service, a manual upload):
+
+```typescript
+import { assertGridFsFileComplete, getDb } from '@lenne.tech/nest-server';
+
+const db = await getDb('mongodb://localhost/mydb');
+await assertGridFsFileComplete(db, 'images', fileId, 'logo.png'); // throws if incomplete
+```
+
+Throws when the files document is missing entirely, or when fewer chunks are stored than its
+`length` implies. It counts chunk documents rather than reading bytes back, so a chunk that was
+written but truncated is **not** detected — the check targets the failure that actually occurs, a
+connection lost mid-upload. Empty files are valid and pass: GridFS stores a zero-byte file with no
+chunk documents at all.
+
 ### Migration Templates
 
 Ready-to-use template for nest-server projects:
