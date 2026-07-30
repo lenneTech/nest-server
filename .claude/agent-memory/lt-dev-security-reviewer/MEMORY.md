@@ -14,10 +14,11 @@
 - [project-template-render-traversal.md](project-template-render-traversal.md) — UPDATED 2026-07-20: renderTemplate NOW HAS an absolute-path containment guard + Hub sendTestEmail inventory-validates; both old findings FIXED — re-verify before re-reporting
 - [project-hub-module-security-model.md](project-hub-module-security-model.md) — Hub cockpit gating mechanics; TOP risks = external-guard dependency (Hub+no-auth=open) and CSRF under cors.allowAll+SameSite=None; roles:false prod guard now exists
 - [project-process-diagnostics-helper.md](project-process-diagnostics-helper.md) — writeSync(2) EBADF/EPIPE throw exits 7 and masks the error; signal abdication vs Nest traced; unhandledRejection flips Node's fail-fast default
+- [project-gridfs-and-express-response-facts.md](project-gridfs-and-express-response-facts.md) — GridFS stores 0 chunks for a 0-byte file; res.json() keeps a preset Content-Type; pipe() leaks the source on client abort; process.exit() truncates piped stdout
 
 ## Review Methodology
 
-- [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — workspace overrides never reach npm consumers (@nestjs/graphql exact-pins vulnerable ws@8.20.1); override-necessity test recipe; pnpm overrides are downgrade-LOCKS
+- [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; TWO exact-pin leaks (ws@8.20.1, js-yaml@5.2.1); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
 
 - [project-e2e-node-env-trap.md](project-e2e-node-env-trap.md) — e2e without NODE_ENV=e2e fabricates 5 bogus BetterAuth "Invalid credentials" failures; reproduces on base branch too, so a control-diff won't catch it
 - [project-betterauth-native-cookie-forwarding.md](project-betterauth-native-cookie-forwarding.md) — BetterAuth native-handler paths forward Set-Cookie verbatim, bypass the cookie helper's Secure flag; useSecureCookies:false (11.27.6) drops Secure on 2FA/social/magic-link session cookies

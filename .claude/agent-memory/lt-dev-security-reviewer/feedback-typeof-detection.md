@@ -1,5 +1,5 @@
 ---
-name: CoreModule.forRoot() typeof detection and Type<any> classification
+name: feedback-typeof-detection
 description: The isIamOnlyMode detection changed from undefined-check to typeof-check in 11.22.0; Type<any> in ICoreModuleOverrides is the correct NestJS pattern
 type: project
 ---

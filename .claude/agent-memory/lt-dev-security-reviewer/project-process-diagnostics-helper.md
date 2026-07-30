@@ -1,5 +1,5 @@
 ---
-name: process-diagnostics-helper
+name: project-process-diagnostics-helper
 description: process-diagnostics.helper.ts semantics verified 2026-07-22 — writeSync(2) throws EBADF/EPIPE and a throw inside uncaughtException exits 7 masking the original; signal abdication is correct vs Nest but unconditional; unhandledRejection flips Node's fail-fast default.
 metadata:
   type: project

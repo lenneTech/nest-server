@@ -1,5 +1,5 @@
 ---
-name: npm files array includes .claude/rules and CLAUDE.md
+name: project-npm-files-exposure
 description: Since 11.22.0, .claude/rules/**/* and CLAUDE.md are explicitly included in the npm package files array for AI-assisted development in consuming projects
 type: project
 ---

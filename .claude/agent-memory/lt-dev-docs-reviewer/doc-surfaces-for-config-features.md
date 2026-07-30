@@ -16,4 +16,18 @@ When a branch adds a new configurable feature or core module, these doc surfaces
 7. `docs/REQUEST-LIFECYCLE.md` — only if new controllers/resolvers/interceptors/middleware/routes change the request flow.
 8. `migration-guides/` — required when a developer must do more than `pnpm update` to use/accommodate the feature (a new opt-in module with new env vars + a main.ts edit for MCP OAuth qualifies). See .claude/rules/migration-guides.md.
 
+## Dependency-governance surfaces (separate set — easy to miss entirely)
+
+A change to `pnpm-workspace.yaml` has its own doc obligations, and the two rule docs are BOTH incomplete:
+
+- `docs/security-overrides.md` — advertised in CLAUDE.md as *"the rules for writing your own"* overrides.
+- `.claude/rules/package-management.md` §Overrides — has "Safe Override Workflow" + "Document Why Each Override Exists".
+
+**Neither documents `auditConfig.ignoreGhsas` or `minimumReleaseAgeExclude`** (verified 2026-07-30: zero hits
+across all repo `.md`). When a diff introduces a *knowingly-unfixed advisory* the governing rule ends up living
+only as a YAML comment — which the next editor writes around. A new dependency-governance MECHANISM (not just a
+new entry) must land in `.claude/rules/package-management.md`; a new *entry* under an existing mechanism only
+needs its inline rationale comment. Note that every `overrides:` entry in that file carries a rationale comment
+— an entry without one is an outlier worth flagging.
+
 **Common consistency trap:** the override-field list often diverges across (a) the runtime `CoreXxxModule.forRoot()` options interface, (b) the public `ICoreModuleOverrides.<mod>` type, and (c) the two configurable-features.md tables. core.module.ts typically spreads `...overrides?.<mod>` into forRoot, so runtime may accept MORE fields than the public type declares — meaning some documented/runtime fields are not passable via the typed API. Cross-check all three.

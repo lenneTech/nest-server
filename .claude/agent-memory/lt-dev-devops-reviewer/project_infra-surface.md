@@ -1,17 +1,22 @@
 ---
 name: project-infra-surface
-description: nest-server is a library but DOES ship reference Docker infra (Dockerfile, docker-entrypoint.sh, .dockerignore, .env.example) that downstream projects copy — plus JS/TS build tooling
+description: nest-server is a library but DOES ship reference Docker infra (Dockerfile, docker-entrypoint.sh, .dockerignore, .env.example) that downstream projects copy — plus JS/TS build tooling and a blocking pnpm audit CI gate
 metadata:
   type: project
 ---
 
-**CORRECTED 2026-07-22** — an earlier version of this memory claimed "no Docker/compose/CI-YAML infra". That is WRONG. Verify with `ls` before trusting any inventory here.
+**CORRECTED 2026-07-22, RE-VERIFIED 2026-07-30** — an early version claimed "no Docker/compose/CI-YAML
+infra" (wrong), and the 2026-07-22 version's "known gaps" list is now largely stale (see below).
+Verify with `ls` / `grep` before trusting any inventory here.
 
-`@lenne.tech/nest-server` is a published **framework library**, but it ALSO ships **reference infrastructure** that `nest-server-starter` and consumer projects copy and adapt:
+`@lenne.tech/nest-server` is a published **framework library**, but it ALSO ships **reference
+infrastructure** that `nest-server-starter` and consumer projects copy and adapt:
 
-- `Dockerfile` — 3-stage (deps/builder/runner), `node:24-alpine` **digest-pinned**, non-root `nodejs:1001`, `HEALTHCHECK` on `GET /health-check`, `EXPOSE 3000`, `ARG API_DIR` for standalone-vs-monorepo builds.
-- `docker-entrypoint.sh` — migrations then `exec node …/main.js`. **`exec` ⇒ node becomes PID 1.**
-- `.dockerignore`, `.env.example` (`.env` + `.env.*` gitignored; `.env.example` tracked).
+- `Dockerfile` — 3-stage (deps/builder/runner), `node:24-alpine` **digest-pinned**, non-root
+  `nodejs:1001`, `HEALTHCHECK` on `GET /health-check`, `EXPOSE 3000`, `ARG API_DIR` for
+  standalone-vs-monorepo builds, **`tini` as PID 1**.
+- `docker-entrypoint.sh` — migrations, then `exec $SERVER_CMD`.
+- `.dockerignore`, `.env.example` (`.env` + `.env.*` gitignored AND dockerignored; `.env.example` tracked).
 - `.github/workflows/{build,publish}.yml`.
 
 **Deployment shape lives elsewhere:** there is NO compose file in this repo. The real one is
@@ -19,26 +24,29 @@ metadata:
 `restart: unless-stopped`, no host port for mongo). Always read it when judging runtime behaviour —
 this repo's Dockerfile alone does not show the deployed configuration.
 
-**Known infra gaps in the reference stack (verified 2026-07-22, still open):**
-- **No memory limit anywhere** — not in the Dockerfile, not in the monorepo compose (no
-  `deploy.resources.limits.memory` / `mem_limit` on api, app or mongo).
-- **No `NODE_OPTIONS` / heap ceiling in production** — it exists only in `nodemon.json` (dev).
-  Note V8's default already lands ~4 GB on a ≥16 GB host, so `--max-old-space-size=4096` is a
-  measured no-op there; V8 is cgroup-blind, so the value only matters against a container limit.
-- **`enableShutdownHooks()` is never called** anywhere in the repo — only mentioned in comments.
-  Combined with node-at-PID-1 this governs signal behaviour; see [[project-pid1-signal-contract]].
-- `docker-entrypoint.sh` here has **drifted** from the starter's (which is best-effort, layout-aware,
-  seam-injected and unit-tested via `tests/unit/docker-entrypoint.spec.ts`). Diff both before judging.
-  The starter deliberately lets a FAILED migration continue to server start; this repo's `set -e` copy aborts.
-- This repo's entrypoint hardcodes `dist/src/main.js`, but this repo's own build emits `dist/main.js`
-  (`start:prod`). The path is correct for the **starter** layout only.
+**Fixed since the 2026-07-22 snapshot (do NOT re-report these as gaps):**
+- **`tini` IS now PID 1** (`RUN apk add --no-cache tini`, `ENTRYPOINT ["/sbin/tini", "--", …]`) and
+  **`server.enableShutdownHooks()` IS now called** (`src/main.ts:124`). Both landed in 11.32.0
+  (commit d0e56d1). This supersedes the old [[project-pid1-signal-contract]] analysis.
+- **The entrypoint no longer hardcodes a main.js path** — it probes `$DIST/src/main.js` then
+  `$DIST/main.js` and errors explicitly if neither exists, so it is correct for BOTH this repo's
+  layout (`dist/main.js`) and the starter's (`dist/src/main.js`).
+- **`pnpm audit` IS in CI** — `.github/workflows/build.yml` step "Audit dependencies", **blocking**
+  (no `continue-on-error`). It runs on every branch push. `publish.yml` still does NOT audit.
+
+**Still-open infra gaps (verified 2026-07-30):**
+- **No memory limit anywhere** — not in the Dockerfile, not in the monorepo compose.
+- **No production `NODE_OPTIONS` heap ceiling — and that is now DELIBERATE**, documented in
+  `docker-entrypoint.sh` (pinning a literal disables Node's cgroup-aware auto-sizing, so the cgroup
+  OOM-killer fires before V8's graceful FATAL). Do not "fix" this.
+- **No `docker-entrypoint` unit test in this repo** — only `tests/unit/pnpm-pin-contract.spec.ts`.
+  The starter has `tests/unit/docker-entrypoint.spec.ts`; diff both before judging.
+  The starter deliberately lets a FAILED migration continue; this repo aborts by default
+  (`MIGRATE_FAILURE_POLICY=warn` opts out).
+- No coverage upload, no `lt server permissions` gate (the scanner targets consumer projects).
 
 **Other (non-Docker) review surface:** `scripts/check.mjs`, `vitest.config.ts` + `vitest-e2e.config.ts`,
-`pnpm-workspace.yaml` `overrides:` (targets must be fixed versions; moved out of `package.json` in the
-pnpm 11 upgrade), `bin/migrate.js` (3-layout resolver).
-
-**CI reality:** both workflows run `pnpm run prepublishOnly` (= `lint && test:ci`) + `pnpm run build`.
-**`pnpm audit` is NOT in CI** — it lives only in the maintainer-run `check`/`check:raw` chain. So
-security overrides are validated locally, never by the pipeline. No coverage upload, no permissions gate.
+`pnpm-workspace.yaml` (see [[project-pnpm-audit-and-overrides]] — non-obvious pnpm 11 mechanics),
+`bin/migrate.js` (3-layout resolver).
 
 See [[feedback-review-uncommitted-worktree]] for how these reviews are requested.
