@@ -24,6 +24,18 @@ export interface CronJobConfig<OC extends CronOnCompleteCommand | null = null, C
   disabled?: boolean;
 
   /**
+   * Whether the job is deduplicated across replicas in multi-replica deployments.
+   *
+   * When `true` (default), only ONE replica executes each tick: via BullMQ job
+   * schedulers when Redis is configured, otherwise via a MongoDB lease per tick.
+   * Set to `false` for jobs that must deliberately run on EVERY replica
+   * (e.g. refreshing a process-local cache).
+   *
+   * @default true
+   */
+  distributed?: boolean;
+
+  /**
    * A function that will fire when the job is complete, when it is stopped.
    */
   onComplete?: CronJobParams<OC, C>['onComplete'];

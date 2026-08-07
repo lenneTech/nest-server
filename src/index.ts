@@ -87,6 +87,8 @@ export * from './core/common/scalars/json.scalar';
 export * from './core/common/services/brevo.service';
 export * from './core/common/services/config.service';
 export * from './core/common/services/core-cron-jobs.service';
+export * from './core/common/services/core-redis.service';
+export * from './core/common/services/rate-limit-store';
 export * from './core/common/services/crud.service';
 export * from './core/common/services/email.service';
 export * from './core/common/services/mailjet.service';

@@ -17,6 +17,8 @@ allowBuilds:
   '@compodoc/compodoc': true
   '@apollo/protobufjs': true
   '@scarf/scarf': false
+  # Optional native accelerator for msgpackr (via bullmq); pure-JS fallback works fine.
+  'msgpackr-extract': false
 
 # ----------------------------------------------------------------------------------
 # Advisories we knowingly do NOT fix, with the reason. `pnpm audit` treats these as
@@ -129,3 +131,8 @@ overrides:
   # Verified safe: the SDK's only consumed symbol is `getRequestListener` (server/streamableHttp.js, loaded by core-ai-mcp.controller.ts), unchanged in 2.x as `(fetchCallback, options?)` and confirmed present at runtime. Engines `>=20` fit this package's `>= 22`, peer `hono@^4` is satisfied by the resolved 4.12.31.
   # LOAD-BEARING. Drop this entry as soon as @modelcontextprotocol/sdk moves its own range to ^2.
   '@hono/node-server@<2.0.10': '2.0.11'
+
+minimumReleaseAgeExclude:
+  - '@aws-sdk/client-s3@3.1105.0'
+  - '@aws-sdk/s3-request-presigner@3.1105.0'
+  - bullmq@6.0.9

@@ -33,6 +33,7 @@ import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
+import { CoreRedisService } from './core/common/services/core-redis.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
@@ -274,6 +275,7 @@ export class CoreModule implements NestModule {
       },
 
       // Core Services
+      CoreRedisService,
       EmailService,
       TemplateService,
       MailjetService,
@@ -530,7 +532,7 @@ export class CoreModule implements NestModule {
     }
 
     // Set exports
-    const exports: any[] = [ConfigService, EmailService, TemplateService, MailjetService];
+    const exports: any[] = [ConfigService, CoreRedisService, EmailService, TemplateService, MailjetService];
     if (!process.env.VITEST && isGraphQlEnabled) {
       exports.push(ComplexityPlugin);
     }

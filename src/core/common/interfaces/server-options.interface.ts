@@ -1793,6 +1793,17 @@ export interface IServerOptions {
   execAfterInit?: string;
 
   /**
+   * Storage driver for CoreFileService.
+   *
+   * - 'gridfs': store files in MongoDB GridFS (default, no extra infrastructure)
+   * - 's3': store files in the configured S3 bucket (requires `s3` config);
+   *   GridFS remains available as fallback for existing files
+   *
+   * @default 'gridfs'
+   */
+  fileStorage?: 'gridfs' | 's3';
+
+  /**
    * Filter configuration and defaults
    */
   filter?: {
@@ -2124,6 +2135,31 @@ export interface IServerOptions {
   port?: number;
 
   /**
+   * Optional central Redis connection used by all distributed features
+   * (rate limiting, cron deduplication, GraphQL subscriptions, caches, Hub collectors).
+   *
+   * Follows the "presence implies enabled" pattern:
+   * - undefined: no Redis — all features fall back to their process-local behavior
+   * - true or {}: enabled with defaults (localhost:6379, db 0)
+   * - { enabled: false, ... }: pre-configured but disabled
+   *
+   * Requires the optional peer dependency `ioredis` to be installed.
+   */
+  redis?: boolean | IRedisConfig;
+
+  /**
+   * Optional central S3-compatible object storage (AWS S3, MinIO, ...).
+   *
+   * Used by CoreFileService (when `fileStorage: 's3'`) and as TUS upload staging.
+   * Follows the "presence implies enabled" pattern; without this config,
+   * files stay in GridFS and TUS stages on local disk as before.
+   *
+   * Requires the optional peer dependency `@aws-sdk/client-s3`
+   * (and `@aws-sdk/s3-request-presigner` for presigned downloads).
+   */
+  s3?: IS3Config;
+
+  /**
    * Configuration for security pipes and interceptors
    */
   security?: {
@@ -2392,6 +2428,16 @@ export interface IServerOptions {
   sha256?: boolean;
 
   /**
+   * Delay in milliseconds between receiving a shutdown signal and starting the
+   * NestJS shutdown sequence. Gives load balancers time to deregister the
+   * instance before in-flight connections are drained (zero-downtime deploys).
+   * Requires `server.enableShutdownHooks()` in main.ts (present in the starter).
+   *
+   * @default 0 (no delay)
+   */
+  shutdownDelayMs?: number;
+
+  /**
    * Configuration for useStaticAssets
    */
   staticAssets?: {
@@ -2486,6 +2532,151 @@ export interface IServerOptions {
    * @since 11.8.0
    */
   tus?: boolean | ITusConfig;
+}
+
+/**
+ * Central Redis connection configuration (see IServerOptions.redis).
+ *
+ * All distributed features share this single configuration. Individual features
+ * automatically use Redis when this is enabled and fall back to their
+ * process-local behavior when it is not.
+ */
+export interface IRedisConfig {
+  /**
+   * Redis database index
+   * @default 0
+   */
+  db?: number;
+
+  /**
+   * Whether Redis is enabled.
+   * Presence of the config object implies true.
+   * @default true (when config object is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Redis host
+   * @default 'localhost'
+   */
+  host?: string;
+
+  /**
+   * Prefix prepended to every framework-managed Redis key
+   * (rate limits, locks, caches, Hub collectors, BullMQ queue prefix).
+   * Set this when multiple applications share one Redis instance.
+   *
+   * Note: applied by the framework per key — NOT passed as ioredis `keyPrefix`,
+   * which would conflict with BullMQ's own prefix handling.
+   *
+   * @default 'nest-server'
+   */
+  keyPrefix?: string;
+
+  /**
+   * Additional ioredis options passed through to the client constructor
+   * (e.g. `tls`, `sentinels`, `retryStrategy`).
+   * @default undefined
+   */
+  options?: Record<string, unknown>;
+
+  /**
+   * Redis password
+   * @default undefined (no auth)
+   */
+  password?: string;
+
+  /**
+   * Redis port
+   * @default 6379
+   */
+  port?: number;
+
+  /**
+   * Full Redis connection URL (e.g. 'redis://user:pass@host:6379/0').
+   * Takes precedence over host/port/db/password/username.
+   * @default undefined
+   */
+  url?: string;
+
+  /**
+   * Redis username (Redis 6+ ACL)
+   * @default undefined
+   */
+  username?: string;
+}
+
+/**
+ * S3-compatible object storage configuration (see IServerOptions.s3).
+ * Works with AWS S3, MinIO, RustFS and other S3-compatible services.
+ */
+export interface IS3Config {
+  /**
+   * Access key ID.
+   * Falls back to the AWS SDK default credential chain when omitted
+   * (environment variables, instance profiles, ...).
+   * @default undefined
+   */
+  accessKeyId?: string;
+
+  /**
+   * Bucket for files stored via CoreFileService
+   */
+  bucket: string;
+
+  /**
+   * Whether S3 is enabled.
+   * Presence of the config object implies true.
+   * @default true (when config object is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Custom endpoint URL for S3-compatible services (MinIO, RustFS, ...).
+   * Omit for AWS S3.
+   * @default undefined
+   */
+  endpoint?: string;
+
+  /**
+   * Use path-style addressing (required by most self-hosted S3 services).
+   * @default false
+   */
+  forcePathStyle?: boolean;
+
+  /**
+   * Serve downloads as presigned URL redirects instead of streaming
+   * through the API (offloads traffic from the server).
+   * `true` / `{}` enables with defaults.
+   * @default false
+   */
+  presignedDownloads?: boolean | {
+    /**
+     * Presigned URL validity in seconds
+     * @default 300
+     */
+    expiresInSeconds?: number;
+  };
+
+  /**
+   * AWS region
+   * @default 'us-east-1'
+   */
+  region?: string;
+
+  /**
+   * Secret access key.
+   * Falls back to the AWS SDK default credential chain when omitted.
+   * @default undefined
+   */
+  secretAccessKey?: string;
+
+  /**
+   * Bucket used as staging area for resumable TUS uploads.
+   * Configure a lifecycle rule on this bucket to expire aborted uploads.
+   * @default same as `bucket`
+   */
+  stagingBucket?: string;
 }
 
 export interface ISystemSetup {
@@ -2614,6 +2805,15 @@ export interface ITusConfig {
   path?: string;
 
   /**
+   * Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
+   * `stagingBucket`) instead of local disk, so resumable uploads survive
+   * replica restarts and work without sticky sessions.
+   * Only effective when S3 is configured; set to `false` to force local disk.
+   * @default true (when S3 is configured)
+   */
+  s3Staging?: boolean;
+
+  /**
    * Termination extension configuration.
    * Allows deleting uploads via DELETE.
    * @default true
@@ -2622,6 +2822,7 @@ export interface ITusConfig {
 
   /**
    * Directory for temporary upload chunks.
+   * Only used when uploads are NOT staged in S3 (see `s3Staging`).
    * @default 'uploads/tus'
    */
   uploadDir?: string;
