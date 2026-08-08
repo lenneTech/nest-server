@@ -36,7 +36,6 @@ import { ConfigService } from './core/common/services/config.service';
 import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
 import { CoreRedisService } from './core/common/services/core-redis.service';
 import { CoreS3Service } from './core/common/services/core-s3.service';
-import { CoreShutdownDelayService } from './core/common/services/core-shutdown-delay.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
@@ -281,7 +280,6 @@ export class CoreModule implements NestModule {
       CoreCronJobsInitializer,
       CoreRedisService,
       CoreS3Service,
-      CoreShutdownDelayService,
       EmailService,
       TemplateService,
       MailjetService,

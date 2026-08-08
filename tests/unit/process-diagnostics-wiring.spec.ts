@@ -58,20 +58,35 @@ describe('framework dogfooding (src/main.ts)', () => {
     expect(mainSource).not.toMatch(/^bootstrap\(\);\s*$/m);
   });
 
-  it('enables shutdown hooks so SIGTERM actually terminates the container', () => {
+  it('installs signal handling so SIGTERM actually terminates the container', () => {
     // Without this, the diagnostics handler is the ONLY signal listener, so it takes the
     // re-raise branch — and `process.kill(self, SIGTERM)` is a no-op at PID 1 (a PID-namespace
     // init is SIGNAL_UNKILLABLE for a default-disposition signal). The listening HTTP server
     // keeps the event loop busy, so `docker stop` waits out its grace period and SIGKILLs:
     // in-flight requests dropped, every onModuleDestroy() skipped.
+    //
+    // `installGracefulShutdown()` IS `enableShutdownHooks()` when no `shutdownDelayMs` is
+    // configured; with one it additionally keeps the instance healthy for that long first. What
+    // this guard pins is the property both share: a signal listener exists, and it is armed
+    // BEFORE the server starts accepting — a signal arriving in between would otherwise find no
+    // handler at all.
     const mainSource = readSourceWithoutComments('src/main.ts');
-    expect(mainSource).toContain('enableShutdownHooks()');
+    expect(mainSource).toContain('installGracefulShutdown(');
 
-    const hooksIndex = mainSource.indexOf('enableShutdownHooks()');
+    const hooksIndex = mainSource.indexOf('installGracefulShutdown(');
     const listenIndex = mainSource.indexOf('server.listen(');
     expect(hooksIndex).toBeGreaterThan(-1);
     expect(listenIndex).toBeGreaterThan(-1);
     expect(hooksIndex).toBeLessThan(listenIndex);
+  });
+
+  it('keeps installGracefulShutdown the single owner of shutdown signals', () => {
+    // A stray `enableShutdownHooks()` alongside it would give Nest its own listener for the same
+    // signals, and Nest would close the app immediately — in parallel with the deregistration
+    // wait, silently making `shutdownDelayMs` do nothing.
+    const mainSource = readSourceWithoutComments('src/main.ts');
+
+    expect(mainSource).not.toContain('enableShutdownHooks()');
   });
 });
 
