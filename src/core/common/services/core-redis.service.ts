@@ -147,7 +147,18 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
    * Quit all created connections
    */
   async onApplicationShutdown(): Promise<void> {
-    await Promise.allSettled(this.clients.map((client) => client.quit()));
+    await Promise.allSettled(
+      this.clients.map(async (client) => {
+        try {
+          // A client in a reconnect loop QUEUES the quit rather than executing it, so the promise
+          // stays pending for the whole retry budget — while the reconnect timer, which is not
+          // unref'd, keeps the process alive. Bound the wait and take the socket down either way.
+          await Promise.race([client.quit(), new Promise((resolve) => setTimeout(resolve, 2000).unref())]);
+        } finally {
+          client.disconnect();
+        }
+      }),
+    );
     this.clients = [];
     this.sharedClient = undefined;
     this.subscriberClient = undefined;
@@ -162,6 +173,11 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     }
     const { db, host, options, password, port, url, username } = this.config;
     const baseOptions: RedisOptions = {
+      // Without a command timeout a command issued while Redis is down neither resolves nor
+      // rejects — it waits in the offline queue for the entire retry budget. The rate limiter
+      // degrades on a REJECTION, so a blip would stall every sign-in instead of falling back.
+      // Listed before the spread so a project's own `redis.options` can still override it.
+      commandTimeout: 2000,
       ...(options as RedisOptions),
     };
     const client = url

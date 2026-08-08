@@ -83,6 +83,12 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
+    // Idempotent on purpose: a second init would replace `tusServer` and `cleanupInterval`, and
+    // the replaced interval — no longer referenced — could never be cleared again.
+    if (this.tusServer) {
+      return;
+    }
+
     // Initialize GridFS bucket
     this.files = new mongo.GridFSBucket(this.connection.db, { bucketName: 'fs' });
 
@@ -469,6 +475,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       },
       60 * 60 * 1000,
     );
+    // An hourly sweep must never be the thing keeping the process alive.
+    this.cleanupInterval.unref?.();
 
     this.logger.debug(`Expiration cleanup scheduled (expire after ${expiresIn})`);
   }

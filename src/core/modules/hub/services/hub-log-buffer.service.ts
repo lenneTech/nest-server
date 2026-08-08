@@ -96,6 +96,13 @@ export class HubLogBufferService implements OnModuleDestroy, OnModuleInit {
   private cfg?: Exclude<ResolvedHubConfig['collectors']['logs'], false>;
   private delegating?: HubDelegatingLogger;
   private excludeContexts = new Set<string>();
+
+  /**
+   * Set by onModuleDestroy. The Nest Logger override is PROCESS-GLOBAL, and with a shutdown
+   * delay the HTTP server keeps serving while the app drains — so a Hub poll arriving in that
+   * window could re-install a logger belonging to an app that no longer exists.
+   */
+  private destroyed = false;
   private previousRef?: LoggerService;
 
   constructor(
@@ -105,7 +112,7 @@ export class HubLogBufferService implements OnModuleDestroy, OnModuleInit {
 
   /** Idempotent install of the delegating logger. Public so reads can self-heal after a foreign override. */
   attach(): void {
-    if (this.config.collectors.logs === false) {
+    if (this.destroyed || this.config.collectors.logs === false) {
       return;
     }
     if (!this.cfg) {
@@ -164,6 +171,7 @@ export class HubLogBufferService implements OnModuleDestroy, OnModuleInit {
   }
 
   onModuleDestroy(): void {
+    this.destroyed = true;
     this.detach();
   }
 

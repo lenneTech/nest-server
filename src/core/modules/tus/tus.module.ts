@@ -178,8 +178,10 @@ export class TusModule implements OnModuleInit {
           ) => {
             const service = new CoreTusService(connection, { configService, s3Service });
             service.configure(tusConfig);
-            // Manually call onModuleInit since useFactory bypasses lifecycle hooks
-            await service.onModuleInit();
+            // NestJS DOES call onModuleInit on a factory-provided instance — its hook iterates
+            // every non-alias provider, however it was constructed. Calling it here as well ran
+            // init TWICE per boot: two TUS servers, two S3 stores, and two hourly expiration
+            // intervals of which onModuleDestroy clears only the second.
             return service;
           },
         },

@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Logger, Optional, Post, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Logger, OnModuleDestroy, Optional, Post, Req, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { hostname } from 'node:os';
@@ -41,7 +41,7 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
 @ApiExcludeController()
 @Controller('ai/mcp')
 @Roles(RoleEnum.S_EVERYONE)
-export class CoreAiMcpController {
+export class CoreAiMcpController implements OnModuleDestroy {
   protected readonly logger = new Logger(CoreAiMcpController.name);
 
   /** Active transports keyed by MCP session id. */
@@ -241,14 +241,37 @@ export class CoreAiMcpController {
   }
 
   /** Drop the session from the shared registry (close/evict). Fire-and-forget. */
-  protected releaseSession(sessionId: string): void {
+  protected releaseSession(sessionId: string): Promise<void> {
     if (!this.redisService?.enabled) {
-      return;
+      return Promise.resolve();
     }
-    this.redisService
+    return this.redisService
       .getClient()
       .del(this.sessionKey(sessionId))
+      .then(() => undefined)
       .catch((err: Error) => this.logger.debug(`MCP session registry delete failed: ${err.message}`));
+  }
+
+  /**
+   * Close every live transport and drop this instance's sessions from the shared registry.
+   *
+   * Each transport holds an OPEN response stream, and an open stream keeps the HTTP server from
+   * closing — so without this, `app.close()` waits on clients that will never disconnect on their
+   * own. Releasing the registry keys matters too: a restarted replica's sessions would otherwise
+   * keep answering 409 "owned by another replica" — naming a replica that no longer exists —
+   * until their TTL expires an hour later.
+   */
+  async onModuleDestroy(): Promise<void> {
+    const sessions = [...this.transports.keys()];
+    for (const [, entry] of this.transports) {
+      try {
+        await entry.transport?.close?.();
+      } catch (error) {
+        this.logger.debug(`MCP transport close failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      }
+    }
+    this.transports.clear();
+    await Promise.allSettled(sessions.map((sessionId) => this.releaseSession(sessionId)));
   }
 
   protected sessionKey(sessionId: string): string {

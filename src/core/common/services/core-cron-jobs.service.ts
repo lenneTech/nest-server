@@ -162,6 +162,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     const bullMqActive = await this.initBullMq();
+    const bullScheduled = new Set<string>();
 
     // Init cron jobs
     for (const [name, CronExpressionOrConfig] of Object.entries(this.cronJobs)) {
@@ -219,6 +220,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       if (bullMqActive && distributed) {
         if (typeof config.cronTime === 'string' && !config.utcOffset) {
           await this.registerBullJob(name, config);
+          bullScheduled.add(name);
           continue;
         }
         console.debug(
@@ -232,6 +234,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       this.registerLocalJob(name, config, distributed);
     }
 
+    await this.removeStaleBullSchedulers(bullScheduled);
     this.startBullWorker();
   }
 
@@ -394,6 +397,33 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     });
 
     return true;
+  }
+
+  /**
+   * Drop schedulers in the shared queue that this version no longer registers.
+   *
+   * `upsertJobScheduler` writes PERMANENT state into Redis, while the config that justifies it
+   * lives only in the process-local `jobConfigs`. Disabling a job, renaming it, removing it from
+   * `cronJobs`, or switching it to `distributed: false` therefore only stops re-registering it —
+   * the scheduler keeps producing queue jobs forever. Every replica then drops them with the
+   * "no registered config" warning, and in the `distributed: false` case they duplicate the
+   * local timer.
+   */
+  protected async removeStaleBullSchedulers(active: Set<string>): Promise<void> {
+    if (!this.bullQueue) {
+      return;
+    }
+    try {
+      for (const scheduler of await this.bullQueue.getJobSchedulers()) {
+        if (scheduler?.key && !active.has(scheduler.key)) {
+          await this.bullQueue.removeJobScheduler(scheduler.key);
+          console.info(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
+        }
+      }
+    } catch (error) {
+      // Reconciliation is housekeeping: a failure here must not stop the jobs from starting.
+      console.warn('Failed to reconcile BullMQ job schedulers', error);
+    }
   }
 
   /**

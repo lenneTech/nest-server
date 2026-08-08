@@ -49,6 +49,15 @@ export interface RateLimitStore {
 
   /** Number of active entries, or -1 when not cheaply known (Redis) */
   size(): number;
+
+  /**
+   * Release timers and connections the store owns (graceful shutdown).
+   *
+   * On the interface, not just on the in-memory class: a RedisRateLimitStore owns an in-memory
+   * FALLBACK store, so an owner that released only `instanceof InMemoryRateLimitStore` left that
+   * fallback's cleanup interval running for the life of the process.
+   */
+  destroy?(): void;
 }
 
 /**
@@ -184,7 +193,9 @@ export class RedisRateLimitStore implements RateLimitStore {
 
   async clear(): Promise<void> {
     await this.fallback.clear();
-    await this.guard(() => this.deleteByPattern(this.redisKey('*')), undefined);
+    // The wildcard is OURS, not caller input — routing it through redisKey() would escape it to
+    // a literal `\*` that matches nothing, making clear() a no-op against Redis.
+    await this.guard(() => this.deleteByPattern(`${this.redisService.key('rate-limit', this.namespace)}:*`), undefined);
   }
 
   async hit(key: string, windowSeconds: number): Promise<RateLimitStoreHit> {

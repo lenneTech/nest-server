@@ -281,10 +281,22 @@ export class CoreBetterAuthEmailVerificationService {
     }
 
     if (this.coreRedisService?.enabled) {
-      const result = await this.coreRedisService
-        .getClient()
-        .set(this.cooldownKey(email), '1', 'PX', cooldown * 1000, 'NX');
-      return result === 'OK';
+      try {
+        const result = await this.coreRedisService
+          .getClient()
+          .set(this.cooldownKey(email), '1', 'PX', cooldown * 1000, 'NX');
+        return result === 'OK';
+      } catch (error) {
+        // Degrade to the process-local cooldown rather than failing closed. An unhandled error
+        // here reads as "cooldown active" and would stop verification mail entirely for the
+        // duration of a Redis blip — locking new users out of their accounts. The local counter
+        // is the pre-Redis behavior: still a real anti-flood bound, just per replica.
+        this.logger.warn(
+          `Redis cooldown unavailable, falling back to the per-replica counter: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+        );
+      }
     }
 
     if (this.isInCooldown(email)) {
@@ -304,7 +316,13 @@ export class CoreBetterAuthEmailVerificationService {
     }
 
     if (this.coreRedisService?.enabled) {
-      await this.coreRedisService.getClient().del(this.cooldownKey(email));
+      // Releasing runs in a `finally` after a FAILED send. Letting a Redis error escape here
+      // would replace the real send failure with a connection error in the caller's log — and
+      // the key expires on its own TTL anyway, so the worst case is one cooldown served out.
+      await this.coreRedisService
+        .getClient()
+        .del(this.cooldownKey(email))
+        .catch(() => undefined);
       return;
     }
 

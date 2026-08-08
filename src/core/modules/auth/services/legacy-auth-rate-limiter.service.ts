@@ -196,9 +196,9 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
    * Stop the in-memory cleanup interval (for graceful shutdown)
    */
   onModuleDestroy(): void {
-    if (this.store instanceof InMemoryRateLimitStore) {
-      this.store.destroy();
-    }
+    // Not `instanceof InMemoryRateLimitStore`: a RedisRateLimitStore owns an in-memory fallback
+    // whose cleanup interval would otherwise outlive the app.
+    this.store?.destroy?.();
   }
 
   /**
