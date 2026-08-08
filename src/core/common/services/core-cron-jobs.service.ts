@@ -146,8 +146,17 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Close the BullMQ worker and queue
    */
   async onApplicationShutdown(): Promise<void> {
-    await this.bullWorker?.close();
-    await this.bullQueue?.close();
+    await this.drainRunningJobs();
+
+    // Settled, not sequential-and-throwing: a rejection from the worker's close would abort the
+    // whole chain, leaving the queue open and its Redis connections dangling — so a shutdown
+    // hiccup in one component would strand the others.
+    const results = await Promise.allSettled([this.bullWorker?.close(), this.bullQueue?.close()]);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('BullMQ shutdown failed', result.reason);
+      }
+    }
     this.bullWorker = undefined;
     this.bullQueue = undefined;
   }
@@ -418,6 +427,33 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     });
 
     return true;
+  }
+
+  /**
+   * Give a tick that is already running a bounded chance to finish.
+   *
+   * `runningJobs` is the only record that a job is mid-execution. Closing the worker out from
+   * under it abandons the work AND leaves its lease held for the rest of the TTL, so the next
+   * replica skips that tick too — the job silently does not happen. Waiting is bounded because a
+   * job that runs longer than the orchestrator's grace period cannot be saved either way; it is
+   * better to say so than to hang the shutdown.
+   */
+  protected async drainRunningJobs(timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    const running = () => Object.values(this.runningJobs).reduce((sum, dates) => sum + (dates?.length ?? 0), 0);
+
+    if (!running()) {
+      return;
+    }
+    console.info(`Waiting up to ${timeoutMs}ms for ${running()} running cron job(s) to finish`);
+
+    while (running() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (running()) {
+      console.warn(`${running()} cron job(s) still running after ${timeoutMs}ms — shutting down anyway`);
+    }
   }
 
   /**

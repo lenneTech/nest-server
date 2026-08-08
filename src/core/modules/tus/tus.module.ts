@@ -4,6 +4,7 @@ import { Connection } from 'mongoose';
 
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
 import { CoreTusController } from './core-tus.controller';
 import { CoreTusService } from './core-tus.service';
@@ -168,15 +169,22 @@ export class TusModule implements OnModuleInit {
           useValue: config,
         },
         {
-          inject: [getConnectionToken(), TUS_CONFIG, ConfigService, { optional: true, token: CoreS3Service }],
+          inject: [
+            getConnectionToken(),
+            TUS_CONFIG,
+            ConfigService,
+            { optional: true, token: CoreS3Service },
+            { optional: true, token: CoreRedisService },
+          ],
           provide: CoreTusService,
           useFactory: async (
             connection: Connection,
             tusConfig: ITusConfig,
             configService: ConfigService,
             s3Service?: CoreS3Service,
+            redisService?: CoreRedisService,
           ) => {
-            const service = new CoreTusService(connection, { configService, s3Service });
+            const service = new CoreTusService(connection, { configService, redisService, s3Service });
             service.configure(tusConfig);
             // NestJS DOES call onModuleInit on a factory-provided instance — its hook iterates
             // every non-alias provider, however it was constructed. Calling it here as well ran

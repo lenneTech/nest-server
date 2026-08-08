@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { PubSubEngine } from 'graphql-subscriptions';
 
 import type { CoreRedisService } from './core-redis.service';
@@ -36,14 +36,18 @@ function reviveDates(_key: string, value: unknown): unknown {
   return typeof value === 'string' && ISO_DATE.test(value) ? new Date(value) : value;
 }
 
-export class CoreRedisPubSub extends PubSubEngine {
+export class CoreRedisPubSub extends PubSubEngine implements OnModuleDestroy {
   protected readonly logger = new Logger(CoreRedisPubSub.name);
 
   /** Channel → (subscription id → handler) */
   protected readonly handlers = new Map<string, Map<number, (...args: any[]) => void>>();
 
-  /** Whether the 'message' listener has been attached to the shared subscriber */
-  protected messageListenerAttached = false;
+  /**
+   * The 'message' listener attached to the SHARED subscriber connection, kept so it can be
+   * removed again. Several features listen on that one connection, so a listener left behind by
+   * a closed app keeps dispatching into its dead handler maps for the life of the process.
+   */
+  protected messageListener?: (channel: string, message: string) => void;
 
   /** Subscription id → channel */
   protected readonly subscriptions = new Map<number, string>();
@@ -141,11 +145,38 @@ export class CoreRedisPubSub extends PubSubEngine {
   /**
    * Shared subscriber connection with the 'message' listener attached once
    */
+  /**
+   * Unsubscribe every channel and detach the shared listener.
+   *
+   * Without this the subscriptions and the 'message' listener outlive the application — and
+   * because the subscriber connection is shared, a second app in the same process (a test suite,
+   * any multi-app host) inherits the previous one's listener alongside its own.
+   */
+  async onModuleDestroy(): Promise<void> {
+    const channels = [...this.handlers.keys()];
+    this.handlers.clear();
+    this.subscriptions.clear();
+
+    try {
+      const subscriber = this.redisService.getSubscriber();
+      if (this.messageListener) {
+        subscriber.off('message', this.messageListener);
+        this.messageListener = undefined;
+      }
+      if (channels.length) {
+        await subscriber.unsubscribe(...channels);
+      }
+    } catch (error) {
+      // Redis already gone: the connection is being torn down anyway.
+      this.logger.debug(`PubSub teardown skipped: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   protected getSubscriber(): Redis {
     const subscriber = this.redisService.getSubscriber();
-    if (!this.messageListenerAttached) {
-      this.messageListenerAttached = true;
-      subscriber.on('message', (channel: string, message: string) => this.dispatch(channel, message));
+    if (!this.messageListener) {
+      this.messageListener = (channel: string, message: string) => this.dispatch(channel, message);
+      subscriber.on('message', this.messageListener);
     }
     return subscriber;
   }

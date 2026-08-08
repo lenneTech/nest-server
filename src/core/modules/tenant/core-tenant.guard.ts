@@ -122,6 +122,12 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    * Key: `${userId}:${tenantId}`, Value: cached membership result with expiry.
    * Eliminates repeated DB queries for the same user+tenant combination.
    */
+  /** Channel this guard subscribed to, so it can unsubscribe again */
+  private invalidationChannel?: string;
+
+  /** The shared-subscriber listener, kept so it can be detached on destroy */
+  private invalidationListener?: (channel: string, message: string) => void;
+
   private readonly membershipCache = new Map<string, CachedMembership>();
 
   /**
@@ -164,11 +170,17 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     const channel = this.redisService.key('tenant-cache', 'invalidate');
     try {
       const subscriber = this.redisService.getSubscriber();
-      subscriber.on('message', (incomingChannel: string, message: string) => {
+      // Held in a field, not an anonymous closure: the subscriber connection is SHARED between
+      // features, so a listener that is never detached keeps dispatching into a destroyed
+      // guard's caches for the life of the process — and a second app in the same process
+      // inherits the previous one's listener alongside its own.
+      this.invalidationChannel = channel;
+      this.invalidationListener = (incomingChannel: string, message: string) => {
         if (incomingChannel === channel) {
           this.applyInvalidation(message);
         }
-      });
+      };
+      subscriber.on('message', this.invalidationListener);
       await subscriber.subscribe(channel);
     } catch (error) {
       this.logger.debug(`Tenant cache invalidation subscribe failed: ${(error as Error).message}`);
@@ -176,6 +188,19 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   }
 
   onModuleDestroy(): void {
+    if (this.invalidationListener) {
+      try {
+        const subscriber = this.redisService?.getSubscriber();
+        subscriber?.off('message', this.invalidationListener);
+        if (this.invalidationChannel) {
+          void subscriber?.unsubscribe(this.invalidationChannel).catch(() => undefined);
+        }
+      } catch {
+        // Redis already gone — nothing to detach from
+      }
+      this.invalidationListener = undefined;
+    }
+
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;

@@ -237,6 +237,16 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'Keeps THIS request\'s upload lock alive while it is being served. The lock itself lives in '
+      + 'Redis and is exclusive across replicas; only the refresh timer for the request in flight '
+      + 'is local, and it is cleared in unlock(). A holder that dies stops refreshing and the key '
+      + 'expires, so the upload frees itself.',
+    classification: 'local',
+    file: 'modules/tus/tus-redis-locker.ts',
+    name: 'heartbeat',
+  },
+  {
+    because:
       'Heartbeat that keeps the migration lock alive while a migration runs. unref\'d, and stopped '
       + 'in the finally that releases the lock.',
     classification: 'local',

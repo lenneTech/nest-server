@@ -9,8 +9,10 @@ import { Readable } from 'stream';
 import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
+import { TusRedisLocker } from './tus-redis-locker';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
   DEFAULT_TUS_CONFIG,
@@ -27,6 +29,10 @@ import {
  */
 export interface CoreTusServiceOptions {
   configService?: ConfigService;
+
+  /** Central Redis; when present, upload locks are shared across replicas */
+  redisService?: CoreRedisService;
+
   s3Service?: CoreS3Service;
 }
 
@@ -201,6 +207,18 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
+   * Locker for upload exclusivity, or undefined to keep @tus/server's in-process default.
+   */
+  protected createLocker(): any {
+    const redisService = this.options?.redisService;
+    if (!redisService?.enabled) {
+      return undefined;
+    }
+    this.logger.debug('TUS upload locks are shared via Redis');
+    return new TusRedisLocker(redisService);
+  }
+
+  /**
    * Import the optional peer dependency `@tus/s3-store`.
    * Separate method so tests can substitute the module.
    */
@@ -334,9 +352,18 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   private async createTusServer(uploadDir: string): Promise<Server> {
     const datastore = (await this.createS3Store()) || new FileStore({ directory: uploadDir });
 
+    // @tus/server's default locker is in-memory, which is exclusive within ONE process only:
+    // behind a load balancer two replicas each hold their own lock for the same upload id and
+    // both accept a PATCH, interleaving two byte ranges into one file. Resumable uploads are
+    // long-lived and clients retry, so requests for one upload landing on different replicas is
+    // the normal case. With Redis the lock is shared; without it the default stands, which is
+    // correct for the single-replica deployment that configuration describes.
+    const locker = this.createLocker();
+
     const server = new Server({
       allowedHeaders: this.config.allowedHeaders || DEFAULT_TUS_ALLOWED_HEADERS,
       datastore,
+      ...(locker ? { locker } : {}),
       maxSize: this.config.maxSize,
       onUploadCreate: async (_req, upload) => {
         // Validate file type if allowedTypes is configured
