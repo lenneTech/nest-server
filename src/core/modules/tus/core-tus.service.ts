@@ -395,8 +395,16 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
           await this.onUploadComplete(upload);
           return {};
         } catch (error) {
+          // Do NOT swallow this. `onUploadComplete` is what moves the finished upload into its
+          // permanent store; returning `{}` after it failed answers the client with a 204 that
+          // says the upload completed while nothing was persisted. The client then deletes its
+          // local copy and the file is gone — a silent data loss, and the one failure mode a
+          // resumable-upload protocol exists to prevent. Failing loudly lets the client retry.
           this.logger.error(`Upload finish error: ${error.message}`);
-          return {};
+          throw Object.assign(new Error(`Upload could not be stored: ${error.message}`), {
+            body: 'Upload could not be stored',
+            status_code: 500,
+          });
         }
       },
       path: this.config.path || DEFAULT_TUS_CONFIG.path,

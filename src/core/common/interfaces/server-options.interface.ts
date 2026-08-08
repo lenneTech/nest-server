@@ -2431,7 +2431,15 @@ export interface IServerOptions {
    * Delay in milliseconds between receiving a shutdown signal and starting the
    * NestJS shutdown sequence. Gives load balancers time to deregister the
    * instance before in-flight connections are drained (zero-downtime deploys).
-   * Requires `server.enableShutdownHooks()` in main.ts (present in the starter).
+   *
+   * Requires `installGracefulShutdown(app)` in main.ts, which REPLACES
+   * `server.enableShutdownHooks()` — keeping both makes Nest close the app in
+   * parallel with the wait, so the delay silently never happens.
+   *
+   * Keep it well below the orchestrator grace period and leave room for the
+   * drain that follows (Compose 10s, Kubernetes 30s, diagnostics watchdog 30s);
+   * exceeding any of them means SIGKILL mid-wait and no shutdown hook runs.
+   * Warns above 10000, capped at 60000.
    *
    * @default 0 (no delay)
    */

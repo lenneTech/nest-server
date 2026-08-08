@@ -70,8 +70,9 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 # SIGNAL_UNKILLABLE, so a default-disposition signal sent from userspace is silently discarded by
 # the kernel. The listening HTTP server keeps the event loop busy, so `docker stop` then waits out
 # its whole grace period and SIGKILLs: in-flight requests dropped, every onModuleDestroy() skipped.
-# tini forwards signals properly and reaps orphans. (`server.enableShutdownHooks()` in main.ts is
-# the other half — it is what actually drains the loop.)
+# tini forwards signals properly and reaps orphans. (`installGracefulShutdown(server)` in main.ts is
+# the other half — it is what actually drains the loop. It replaces enableShutdownHooks(); keeping
+# both makes Nest close in parallel with any configured shutdownDelayMs, voiding the delay.)
 RUN apk add --no-cache tini
 
 # Create writable directories for runtime files (TUS uploads, GraphQL schema)

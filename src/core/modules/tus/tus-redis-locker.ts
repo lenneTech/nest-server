@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { CoreRedisService } from '../../common/services/core-redis.service';
 
@@ -40,7 +41,11 @@ export class TusRedisLock {
    */
   async lock(signal: AbortSignal, cancelReq: RequestRelease): Promise<void> {
     const deadline = Date.now() + this.acquireTimeoutMs;
-    const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+    // randomUUID, not Math.random: this token is the ONLY thing separating "holds the lock" from
+    // "does not" in the compare-and-delete below and in the heartbeat's PEXPIRE. A collision lets
+    // one holder refresh or release another's lock, and two replicas then interleave byte ranges
+    // into one upload — the exact corruption this locker exists to prevent.
+    const token = `${process.pid}-${randomUUID()}`;
 
     for (;;) {
       const acquired = await this.redisService.getClient().set(this.key, token, 'PX', this.ttlMs, 'NX');

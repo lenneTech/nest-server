@@ -403,8 +403,17 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     // in the fleet. It also requires unlimited retries on a blocking connection.
     const blockingOptions = { commandTimeout: undefined, maxRetriesPerRequest: null };
 
+    // The QUEUE issues ordinary, non-blocking commands and must NOT inherit the opt-out above.
+    // `maxRetriesPerRequest: null` tells ioredis to retry forever and never flush the offline
+    // queue with an error — so against an unreachable Redis `upsertJobScheduler()` neither
+    // resolves nor rejects. Since initCronJobs() is awaited from onApplicationBootstrap, which
+    // runs BEFORE app.listen(), that turns a Redis outage at boot into a process that hangs
+    // silently: no health endpoint, no readiness, no error, no log. Bounded retries make the
+    // same outage a real rejection that the caller can report.
+    const queueOptions = { commandTimeout: 10_000, maxRetriesPerRequest: 3 };
+
     this.bullQueue = new bullmq.Queue(CRON_QUEUE_NAME, {
-      connection: service.createClient('cron-queue', blockingOptions),
+      connection: service.createClient('cron-queue', queueOptions),
       prefix,
     });
 

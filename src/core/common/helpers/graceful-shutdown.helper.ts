@@ -13,6 +13,21 @@ const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
 const MAX_SHUTDOWN_DELAY_MS = 60_000;
 
 /**
+ * Above this, the delay is very likely longer than what actually gets to run.
+ *
+ * The cap above catches typos; it does NOT describe the real ceiling, and the gap between the two
+ * is where this silently breaks. Three separate limits sit BELOW the 60s cap:
+ * Docker/Compose `stop_grace_period` defaults to 10s, Kubernetes `terminationGracePeriodSeconds`
+ * to 30s, and this framework's own `installProcessDiagnostics()` arms a 30s watchdog that calls
+ * `exit(1)`. A delay of, say, 45s passes the cap without a word and is then force-killed mid-wait:
+ * no drain, and not one `onModuleDestroy` / `onApplicationShutdown` hook runs — precisely the
+ * ending the delay exists to prevent. Warning here means the dangerous band is no longer silent.
+ *
+ * The delay is only part of the budget: whatever `app.close()` needs to drain comes after it.
+ */
+const SHUTDOWN_DELAY_ADVISORY_MS = 10_000;
+
+/**
  * Install signal handling that keeps the app healthy for `IServerOptions.shutdownDelayMs`
  * before shutting it down, then closes it cleanly.
  *
@@ -51,24 +66,39 @@ export function installGracefulShutdown<T extends INestApplication>(app: T): T {
       `shutdownDelayMs is ${delayMs}ms, which exceeds the ${MAX_SHUTDOWN_DELAY_MS}ms cap and is longer than a typical ` +
         `orchestrator grace period — capping it, since a longer wait only ends in SIGKILL.`,
     );
+  } else if (delayMs > SHUTDOWN_DELAY_ADVISORY_MS) {
+    logger.warn(
+      `shutdownDelayMs is ${delayMs}ms. Keep it well below your orchestrator's grace period AND leave room for the ` +
+        'drain that follows it — Docker/Compose stop_grace_period defaults to 10s, Kubernetes ' +
+        'terminationGracePeriodSeconds to 30s, and installProcessDiagnostics() force-exits after 30s. Exceeding any ' +
+        'of them means the process is killed mid-wait and no shutdown hook runs at all.',
+    );
   }
   const effectiveDelayMs = Math.min(delayMs, MAX_SHUTDOWN_DELAY_MS);
 
   // Deliberately NOT enableShutdownHooks(): Nest would install its own listener for the same
   // signals and close the app immediately, in parallel with the wait below.
   let shuttingDown = false;
+  // Hoisted out of the handler so a second signal can CANCEL the pending wait. Left inside, the
+  // timer stayed armed and fired after the impatient close had already run, calling app.close()
+  // a second time and re-running every onApplicationShutdown hook against a closed app.
+  let timer: NodeJS.Timeout | undefined;
 
   const handle = (signal: NodeJS.Signals): void => {
     if (shuttingDown) {
       // A second signal means someone is impatient. Stop waiting and close now.
       logger.warn(`${signal} received again — closing immediately`);
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       void app.close();
       return;
     }
     shuttingDown = true;
     logger.log(`${signal} received — staying healthy for ${effectiveDelayMs}ms so the load balancer can deregister`);
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       app
         .close()
         .then(() => logger.log('Shutdown complete'))

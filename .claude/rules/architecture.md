@@ -38,7 +38,7 @@ Key areas: JWT, MongoDB, GraphQL, email, security, static assets
 | **Security** | Response/security interceptors, input validation pipes |
 | **Scalars** | Custom GraphQL scalars (Date, JSON, Any) |
 | **Services** | CRUD operations, email (Mailjet/SMTP), template rendering |
-| **Central infrastructure (optional)** | `CoreRedisService` + `CoreRedisPubSub` (`redis` config), `CoreS3Service` (`s3` config), `RateLimitStore`, `CoreShutdownDelayService`. All inert without their config — see below |
+| **Central infrastructure (optional)** | `CoreRedisService` + `CoreRedisPubSub` (`redis` config), `CoreS3Service` (`s3` config), `RateLimitStore`, the `installGracefulShutdown()` helper. All inert without their config — see below |
 
 ### Optional central infrastructure
 
