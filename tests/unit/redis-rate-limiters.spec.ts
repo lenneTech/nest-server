@@ -16,26 +16,38 @@ import type { CoreRedisService } from '../../src/core/common/services/core-redis
  * cooldown use.
  */
 function createFakeRedis() {
-  const store = new Map<string, number>();
+  const store = new Map<string, unknown>();
   return {
     del: vi.fn(async (...keys: string[]) => {
       keys.forEach(key => store.delete(key));
       return keys.length;
     }),
-    eval: vi.fn(async (_script: string, _numKeys: number, key: string, windowSeconds: number) => {
-      const count = (store.get(key) ?? 0) + 1;
+    eval: vi.fn(async (script: string, _numKeys: number, key: string, arg: unknown) => {
+      // Two different scripts share this fake: the rate-limit hit counter, and the cooldown's
+      // compare-and-delete. Dispatch on the script so the release actually frees the key —
+      // otherwise the test cannot tell a correct release from one that did nothing.
+      if (script.includes('DEL')) {
+        if (store.get(key) !== arg) {
+          return 0;
+        }
+        store.delete(key);
+        return 1;
+      }
+      const count = ((store.get(key) as number) ?? 0) + 1;
       store.set(key, count);
-      return [count, Number(windowSeconds)];
+      return [count, Number(arg)];
     }),
     scan: vi.fn(async (_cursor: string, _match: string, pattern: string) => {
       const regex = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`);
       return ['0', [...store.keys()].filter(key => regex.test(key))];
     }),
-    set: vi.fn(async (key: string) => {
+    set: vi.fn(async (key: string, value?: unknown) => {
       if (store.has(key)) {
         return null;
       }
-      store.set(key, 1);
+      // Keep the VALUE, not a placeholder — the cooldown's compare-and-delete is only meaningful
+      // if the fake remembers which token holds the key.
+      store.set(key, value ?? 1);
       return 'OK';
     }),
     store,
@@ -219,23 +231,24 @@ describe('CoreBetterAuthEmailVerificationService send slot', () => {
   it('acquires once and blocks the second attempt in memory', async () => {
     const service = createService(60);
 
-    expect(await service.acquireSendSlot('User@Test.com')).toBe(true);
-    expect(await service.acquireSendSlot('user@test.com')).toBe(false);
+    expect(await service.acquireSendSlot('User@Test.com')).toBeTruthy();
+    expect(await service.acquireSendSlot('user@test.com')).toBeNull();
   });
 
   it('releases the slot so a failed send does not burn the cooldown', async () => {
     const service = createService(60);
 
-    expect(await service.acquireSendSlot('user@test.com')).toBe(true);
-    await service.releaseSendSlot('user@test.com');
-    expect(await service.acquireSendSlot('user@test.com')).toBe(true);
+    const slot = await service.acquireSendSlot('user@test.com');
+    expect(slot).toBeTruthy();
+    await service.releaseSendSlot('user@test.com', slot);
+    expect(await service.acquireSendSlot('user@test.com')).toBeTruthy();
   });
 
   it('never blocks when the cooldown is disabled', async () => {
     const service = createService(0);
 
-    expect(await service.acquireSendSlot('user@test.com')).toBe(true);
-    expect(await service.acquireSendSlot('user@test.com')).toBe(true);
+    expect(await service.acquireSendSlot('user@test.com')).toBeTruthy();
+    expect(await service.acquireSendSlot('user@test.com')).toBeTruthy();
     expect(service.isInCooldown('user@test.com')).toBe(false);
   });
 
@@ -243,20 +256,29 @@ describe('CoreBetterAuthEmailVerificationService send slot', () => {
     const { client, redisService } = createRedisService(true);
     const service = createService(60, redisService);
 
-    expect(await service.acquireSendSlot('User@Test.com')).toBe(true);
+    const token = await service.acquireSendSlot('User@Test.com');
+    expect(token).toBeTruthy();
     expect(client.set).toHaveBeenCalledWith(
       'test-prefix:email-verification-cooldown:user@test.com',
-      '1',
+      token,
       'PX',
       60000,
       'NX',
     );
 
-    expect(await service.acquireSendSlot('user@test.com')).toBe(false);
+    expect(await service.acquireSendSlot('user@test.com')).toBeNull();
 
-    await service.releaseSendSlot('user@test.com');
-    expect(client.del).toHaveBeenCalledWith('test-prefix:email-verification-cooldown:user@test.com');
-    expect(await service.acquireSendSlot('user@test.com')).toBe(true);
+    // Release is a compare-and-delete against the acquired token, never a bare DEL: a send can
+    // fail slower than the cooldown, and by then the key belongs to a LATER request.
+    await service.releaseSendSlot('user@test.com', token);
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining('DEL'),
+      1,
+      'test-prefix:email-verification-cooldown:user@test.com',
+      token,
+    );
+    expect(client.del).not.toHaveBeenCalled();
+    expect(await service.acquireSendSlot('user@test.com')).toBeTruthy();
   });
 
   it('releases the slot when the send throws', async () => {
@@ -268,7 +290,7 @@ describe('CoreBetterAuthEmailVerificationService send slot', () => {
     ).rejects.toThrow('smtp down');
 
     // Cooldown was not burnt — a retry is allowed immediately
-    expect(await service.acquireSendSlot('fail@test.com')).toBe(true);
+    expect(await service.acquireSendSlot('fail@test.com')).toBeTruthy();
   });
 
   it('burns the cooldown on a successful send', async () => {
@@ -281,6 +303,6 @@ describe('CoreBetterAuthEmailVerificationService send slot', () => {
       user: { email: 'ok@test.com', id: '1' },
     });
 
-    expect(await service.acquireSendSlot('ok@test.com')).toBe(false);
+    expect(await service.acquireSendSlot('ok@test.com')).toBeNull();
   });
 });

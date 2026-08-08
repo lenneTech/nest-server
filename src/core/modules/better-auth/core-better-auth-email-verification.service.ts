@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
@@ -76,7 +77,6 @@ export interface SendVerificationEmailOptions {
  * @example
  * ```typescript
  * // Override to customize email sending
- * @Injectable()
  * export class MyEmailVerificationService extends CoreBetterAuthEmailVerificationService {
  *   override async sendVerificationEmail(options: SendVerificationEmailOptions): Promise<void> {
  *     // Custom logic before
@@ -88,6 +88,12 @@ export interface SendVerificationEmailOptions {
  *
  * @since 11.13.0
  */
+/**
+ * Sentinel returned when the slot was taken on the process-local path, where there is no Redis key
+ * to compare against. Distinguishes "acquired locally" from "acquired in Redis with this token".
+ */
+const LOCAL_SLOT_TOKEN = 'local';
+
 @Injectable()
 export class CoreBetterAuthEmailVerificationService {
   protected readonly logger = new Logger(CoreBetterAuthEmailVerificationService.name);
@@ -164,8 +170,10 @@ export class CoreBetterAuthEmailVerificationService {
     const { token, user } = options;
     let { url } = options;
 
-    // Reserve the cooldown slot per email address (atomic across replicas with Redis)
-    if (!(await this.acquireSendSlot(user.email))) {
+    // Reserve the cooldown slot per email address (atomic across replicas with Redis).
+    // `slotToken`, not `token` — `token` is already the verification token from the options.
+    const slotToken = await this.acquireSendSlot(user.email);
+    if (!slotToken) {
       this.logger.debug(`Resend cooldown active for ${this.maskEmail(user.email)}, skipping email send`);
       return;
     }
@@ -260,7 +268,7 @@ export class CoreBetterAuthEmailVerificationService {
       }
     } finally {
       if (!sent) {
-        await this.releaseSendSlot(user.email);
+        await this.releaseSendSlot(user.email, slotToken);
       }
     }
   }
@@ -272,20 +280,24 @@ export class CoreBetterAuthEmailVerificationService {
    * handling concurrent resend requests cannot both pass the cooldown. Without
    * Redis it falls back to the process-local {@link isInCooldown}/{@link trackSend}.
    *
-   * @returns `true` when the caller may send, `false` while the cooldown is active
+   * @returns a truthy slot token when the caller may send, `null` while the cooldown is active.
+   *   The token is what {@link releaseSendSlot} compares against before deleting the key, so a
+   *   release can only ever clear the slot IT acquired. A subclass overriding this and returning a
+   *   plain `true` still works — release then falls back to the previous unconditional delete.
    */
-  protected async acquireSendSlot(email: string): Promise<boolean> {
+  protected async acquireSendSlot(email: string): Promise<null | string> {
     const cooldown = this.config.resendCooldownSeconds;
     if (cooldown <= 0) {
-      return true;
+      return LOCAL_SLOT_TOKEN;
     }
 
     if (this.coreRedisService?.enabled) {
       try {
+        const token = randomUUID();
         const result = await this.coreRedisService
           .getClient()
-          .set(this.cooldownKey(email), '1', 'PX', cooldown * 1000, 'NX');
-        return result === 'OK';
+          .set(this.cooldownKey(email), token, 'PX', cooldown * 1000, 'NX');
+        return result === 'OK' ? token : null;
       } catch (error) {
         // Degrade to the process-local cooldown rather than failing closed. An unhandled error
         // here reads as "cooldown active" and would stop verification mail entirely for the
@@ -300,17 +312,17 @@ export class CoreBetterAuthEmailVerificationService {
     }
 
     if (this.isInCooldown(email)) {
-      return false;
+      return null;
     }
     this.trackSend(email);
-    return true;
+    return LOCAL_SLOT_TOKEN;
   }
 
   /**
    * Release a slot reserved by {@link acquireSendSlot} — used when no email was
    * actually sent, so a failed send does not burn the cooldown.
    */
-  protected async releaseSendSlot(email: string): Promise<void> {
+  protected async releaseSendSlot(email: string, token?: null | string): Promise<void> {
     if (this.config.resendCooldownSeconds <= 0) {
       return;
     }
@@ -319,10 +331,26 @@ export class CoreBetterAuthEmailVerificationService {
       // Releasing runs in a `finally` after a FAILED send. Letting a Redis error escape here
       // would replace the real send failure with a connection error in the caller's log — and
       // the key expires on its own TTL anyway, so the worst case is one cooldown served out.
-      await this.coreRedisService
-        .getClient()
-        .del(this.cooldownKey(email))
-        .catch(() => undefined);
+      // Compare-and-delete, never a bare DEL. Releasing runs in a `finally` after a FAILED send,
+      // and a send can fail SLOWER than the cooldown (an SMTP socket timeout outlives a 60s
+      // window comfortably). By then our key has expired and a later request holds a new one — an
+      // unconditional delete would clear THAT request's cooldown, and repeating the trick floods
+      // a chosen address with valid verification links. Same pattern as the migration lock and
+      // the TUS locker.
+      if (typeof token === 'string' && token !== LOCAL_SLOT_TOKEN) {
+        const script = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
+        await this.coreRedisService
+          .getClient()
+          .eval(script, 1, this.cooldownKey(email), token)
+          .catch(() => undefined);
+      } else if (token === undefined) {
+        // No token supplied (a subclass acquired the slot the old way) — preserve the previous
+        // behavior rather than silently skipping the release.
+        await this.coreRedisService
+          .getClient()
+          .del(this.cooldownKey(email))
+          .catch(() => undefined);
+      }
       // Deliberately NOT `return`: when acquire fell back to the local counter because Redis
       // errored, the Redis key was never written and only the local entry exists. Branching on
       // `enabled` alone would leave it in place, so the failed send would burn the cooldown —

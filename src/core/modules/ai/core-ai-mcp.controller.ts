@@ -44,8 +44,17 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
 export class CoreAiMcpController implements OnModuleDestroy {
   protected readonly logger = new Logger(CoreAiMcpController.name);
 
-  /** Active transports keyed by MCP session id. */
-  private readonly transports = new Map<string, { lastUsed: number; transport: any }>();
+  /**
+   * Active transports keyed by MCP session id.
+   *
+   * `ownerId` is load-bearing, not bookkeeping. The transport is built once via
+   * `createServer(user)` and stays bound to THAT user's identity and role-filtered tools for its
+   * whole life, while the lookup below is driven by a client-supplied `mcp-session-id` header.
+   * Authenticating the caller only proves they are *some* user, so without comparing the owner,
+   * anyone holding another user's session id drives that user's server — the id travels in a
+   * response header, through proxies and client logs.
+   */
+  private readonly transports = new Map<string, { lastUsed: number; ownerId: string; transport: any }>();
 
   /** Cap on concurrent MCP sessions (oldest evicted on overflow). */
   private readonly maxSessions = 500;
@@ -76,6 +85,15 @@ export class CoreAiMcpController implements OnModuleDestroy {
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let entry = sessionId ? this.transports.get(sessionId) : undefined;
+
+    // A session belongs to the user it was created for. Treat someone else's id as unknown
+    // rather than as an authorization error — confirming it exists would turn the endpoint into
+    // an oracle for valid session ids.
+    if (entry && entry.ownerId !== user.id) {
+      entry = undefined;
+      res.status(404).json({ error: 'Unknown or expired MCP session' });
+      return;
+    }
 
     if (!entry && sessionId) {
       const owner = await this.foreignSessionOwner(sessionId);
@@ -112,7 +130,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
           this.releaseSession(transport.sessionId);
         }
       };
-      entry = { lastUsed: Date.now(), transport };
+      entry = { lastUsed: Date.now(), ownerId: user.id, transport };
     }
 
     entry.lastUsed = Date.now();
@@ -196,7 +214,9 @@ export class CoreAiMcpController implements OnModuleDestroy {
       return;
     }
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    const entry = sessionId ? this.transports.get(sessionId) : undefined;
+    const held = sessionId ? this.transports.get(sessionId) : undefined;
+    // Same ownership rule as the POST path: another user's session is not ours to serve.
+    const entry = held && held.ownerId === user.id ? held : undefined;
     if (!entry) {
       const owner = sessionId ? await this.foreignSessionOwner(sessionId) : undefined;
       if (owner) {
