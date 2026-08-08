@@ -16,6 +16,14 @@ import { ErrorCode } from '../error-code/error-codes';
  */
 const SETUP_LOCK_COLLECTION = 'system-setup-locks';
 
+/**
+ * How long an initial-admin claim may stand before another replica takes it over.
+ *
+ * Long enough that a slow but live creation is never stolen, short enough that a crashed
+ * claimer does not lock the deployment out for good.
+ */
+const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = 5 * 60_000;
+
 /** `_id` of the marker claiming the initial-admin creation */
 const INITIAL_ADMIN_LOCK_ID = 'initial-admin';
 
@@ -152,13 +160,21 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   protected async claimInitialAdminSetup(): Promise<boolean> {
     try {
-      const previous = await this.connection
-        .collection(SETUP_LOCK_COLLECTION)
-        .findOneAndUpdate(
-          { _id: INITIAL_ADMIN_LOCK_ID as any },
-          { $setOnInsert: { claimedAt: new Date() } },
-          { returnDocument: 'before', upsert: true },
-        );
+      const collection = this.connection.collection(SETUP_LOCK_COLLECTION);
+
+      // The marker is a CLAIM, not a permanent record: a replica SIGKILLed between claiming and
+      // creating (OOM, node drain, a failed first rollout — all ordinary) never reaches the
+      // release in the catch below. Without an expiry that leaves a deployment with zero users
+      // and no way in, recoverable only by deleting a document from an undocumented collection.
+      // A stale claim is therefore taken over rather than obeyed.
+      const staleBefore = new Date(Date.now() - INITIAL_ADMIN_CLAIM_STALE_AFTER_MS);
+      await collection.deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any, claimedAt: { $lt: staleBefore } });
+
+      const previous = await collection.findOneAndUpdate(
+        { _id: INITIAL_ADMIN_LOCK_ID as any },
+        { $setOnInsert: { claimedAt: new Date() } },
+        { returnDocument: 'before', upsert: true },
+      );
 
       // No previous document → this instance inserted the marker and owns the setup
       return !previous;

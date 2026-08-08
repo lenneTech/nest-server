@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Db, MongoClient } from 'mongodb';
 import { hostname } from 'os';
 import { promisify } from 'util';
@@ -182,14 +183,20 @@ export async function synchronizedMigration(
     throw new Error('`lockCollectionName` in MongoStateStore is not set');
   }
 
+  let heartbeat: undefined | { stop: () => void };
+  let lockToken: string | undefined;
   try {
-    await acquireLock(stateStore.mongodbHost, lockCollectionName);
+    lockToken = await acquireLock(stateStore.mongodbHost, lockCollectionName);
+    heartbeat = startLockHeartbeat(stateStore.mongodbHost, lockCollectionName, lockToken);
 
     // Load migration set using async method
     const set = await stateStore.loadAsync();
     await callback(set);
   } finally {
-    await releaseLock(stateStore.mongodbHost, lockCollectionName);
+    heartbeat?.stop();
+    if (lockToken) {
+      await releaseLock(stateStore.mongodbHost, lockCollectionName, lockToken);
+    }
   }
 }
 
@@ -238,13 +245,13 @@ export async function withMigrationLock<T>(stateStore: MongoStateStore, fn: () =
     return fn();
   }
 
-  await acquireLock(stateStore.mongodbHost, lockCollectionName);
-  const heartbeat = startLockHeartbeat(stateStore.mongodbHost, lockCollectionName);
+  const token = await acquireLock(stateStore.mongodbHost, lockCollectionName);
+  const heartbeat = startLockHeartbeat(stateStore.mongodbHost, lockCollectionName, token);
   try {
     return await fn();
   } finally {
     heartbeat.stop();
-    await releaseLock(stateStore.mongodbHost, lockCollectionName);
+    await releaseLock(stateStore.mongodbHost, lockCollectionName, token);
   }
 }
 
@@ -270,10 +277,12 @@ const LOCK_WAIT_TIMEOUT_MS = 15 * 60_000;
  * stopped refreshing it, which for a live process cannot happen. Without the heartbeat,
  * breaking a stale lock and a long-running migration would be indistinguishable.
  */
-function startLockHeartbeat(url: string, lockCollectionName: string): { stop: () => void } {
+function startLockHeartbeat(url: string, lockCollectionName: string, token: string): { stop: () => void } {
   const timer = setInterval(() => {
     dbRequest(url, (db) =>
-      db.collection(lockCollectionName).updateOne({ lock: 'lock' }, { $set: { acquiredAt: new Date() } }),
+      // Also scoped: once our lock has been broken and re-taken, our heartbeat must not keep
+      // the NEW holder's lock alive on our behalf.
+      db.collection(lockCollectionName).updateOne({ lock: 'lock', owner: token }, { $set: { acquiredAt: new Date() } }),
     ).catch((error) => {
       // A missed heartbeat is not fatal on its own — the next one may succeed, and only
       // a sustained gap makes the lock breakable.
@@ -290,8 +299,8 @@ function startLockHeartbeat(url: string, lockCollectionName: string): { stop: ()
  * @param url - MongoDB connection URI
  * @param lockCollectionName - Name of the collection to use for locking
  */
-async function acquireLock(url: string, lockCollectionName: string): Promise<void> {
-  await dbRequest(url, async (db) => {
+async function acquireLock(url: string, lockCollectionName: string): Promise<string> {
+  return dbRequest(url, async (db) => {
     const collection = db.collection(lockCollectionName);
 
     // Create unique index for atomicity
@@ -300,6 +309,7 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
     // https://stackoverflow.com/questions/33346175/mongodb-upsert-operation-seems-not-atomic-which-throws-duplicatekeyexception/34784533
     await collection.createIndex({ lock: 1 }, { unique: true });
 
+    const token = lockOwnerId();
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     let showMessage = true;
 
@@ -309,12 +319,12 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
       // update never refreshes the holder's staleness clock.
       const result = await collection.updateOne(
         { lock: 'lock' },
-        { $set: { lock: 'lock' }, $setOnInsert: { acquiredAt: new Date(), owner: lockOwnerId() } },
+        { $set: { lock: 'lock' }, $setOnInsert: { acquiredAt: new Date(), owner: token } },
         { upsert: true },
       );
 
       if (result.upsertedCount > 0) {
-        return;
+        return token;
       }
 
       // The holder may be gone: migrations run on every container boot, so a replica
@@ -367,7 +377,9 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
  * Identifies the process holding the lock, so a stale-lock warning names something actionable
  */
 function lockOwnerId(): string {
-  return `${hostname()}:${process.pid}`;
+  // Random suffix, not just host+pid: a restarted process can reuse a pid, and the token is what
+  // decides whose lock a release may delete.
+  return `${hostname()}:${process.pid}:${randomUUID()}`;
 }
 
 /**
@@ -394,6 +406,9 @@ async function dbRequest<T>(url: string, callback: (db: Db) => Promise<T> | T): 
  * @param url - MongoDB connection URI
  * @param lockCollectionName - Name of the collection used for locking
  */
-async function releaseLock(url: string, lockCollectionName: string): Promise<void> {
-  await dbRequest(url, (db) => db.collection(lockCollectionName).deleteOne({ lock: 'lock' }));
+async function releaseLock(url: string, lockCollectionName: string, token: string): Promise<void> {
+  // Scoped to OUR token. An unscoped delete removes whatever lock exists — so after a missed
+  // heartbeat let another replica break and re-take the lock, the original holder's `finally`
+  // would delete the NEW holder's lock and let a third replica start a concurrent migration.
+  await dbRequest(url, (db) => db.collection(lockCollectionName).deleteOne({ lock: 'lock', owner: token }));
 }

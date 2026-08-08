@@ -77,6 +77,9 @@ export abstract class CoreFileService {
     const { createReadStream, filename, mimetype } = await file;
     const readStream = createReadStream();
     if (this.s3Storage) {
+      // Only buffer when the size is unknown: a GraphQL upload stream carries no length, and the
+      // S3 SDK needs one. Callers that know it (TUS) pass `body` + `contentLength` instead and
+      // stream straight through — see S3FileHelper.writeFile.
       const s3FileInfo = await S3FileHelper.writeFile(this.options.s3Service, this.s3Files, {
         buffer: await streamToBuffer(readStream),
         contentType: mimetype,
@@ -112,9 +115,28 @@ export abstract class CoreFileService {
    * Duplicate file by name
    */
   async duplicateByName(name: string, newName: string): Promise<any> {
-    return GridFSHelper.openDownloadStreamByName(this.files, name).pipe(
-      GridFSHelper.openUploadStream(this.files, newName),
-    );
+    // Route through the storage dispatch like every other read/write. Going straight to GridFS
+    // meant that with `fileStorage: 's3'` the source simply is not there — and the resulting
+    // FileNotFound arrives on a stream with NO error handler, so it becomes an uncaught
+    // exception that takes the process down instead of a 404.
+    const s3FileInfo = await this.findS3FileByName(name);
+    if (s3FileInfo) {
+      const source = await this.getFileStreamByName(name);
+      return this.createFile({
+        createReadStream: () => source,
+        filename: newName,
+        mimetype: s3FileInfo.contentType || 'application/octet-stream',
+      });
+    }
+
+    return new Promise((resolve, reject) => {
+      const downloadStream = GridFSHelper.openDownloadStreamByName(this.files, name);
+      downloadStream.on('error', reject);
+      const uploadStream = GridFSHelper.openUploadStream(this.files, newName);
+      uploadStream.on('error', reject);
+      uploadStream.on('finish', () => resolve(uploadStream));
+      downloadStream.pipe(uploadStream);
+    });
   }
 
   /**
@@ -123,6 +145,19 @@ export abstract class CoreFileService {
   async duplicateById(id: string): Promise<string> {
     const objectId = getObjectIds(id);
     const file = await this.getFileInfo(objectId);
+
+    // Same dispatch as duplicateByName: an S3-stored file has no GridFS counterpart.
+    const s3FileInfo = await this.findS3FileById(objectId);
+    if (s3FileInfo) {
+      const source = await this.getFileStream(objectId);
+      const copy = await this.createFile({
+        createReadStream: () => source,
+        filename: file.filename,
+        mimetype: file.contentType || 'application/octet-stream',
+      });
+      return copy.id;
+    }
+
     return new Promise((resolve, reject) => {
       const downloadStream = GridFSHelper.openDownloadStream(this.files, objectId);
 
@@ -155,12 +190,28 @@ export abstract class CoreFileService {
       return null;
     }
     const filterQuery = convertFilterArgsToQuery(filterArgs);
-    const docs = await GridFSHelper.findFiles(this.files, filterQuery[0], filterQuery[1]);
-    if (this.s3Storage) {
-      const s3Docs = await S3FileHelper.findFiles(this.s3Files, filterQuery[0], filterQuery[1]);
-      return this.prepareOutput([...s3Docs, ...docs] as unknown as CoreFileInfo[], serviceOptions);
+    if (!this.s3Storage) {
+      const docs = await GridFSHelper.findFiles(this.files, filterQuery[0], filterQuery[1]);
+      return this.prepareOutput(docs as unknown as CoreFileInfo[], serviceOptions);
     }
-    return this.prepareOutput(docs as unknown as CoreFileInfo[], serviceOptions);
+
+    // Two stores, one page. Applying `limit`/`skip` to each and concatenating returns up to
+    // twice the page size and advances the offset independently in each store, so rows are both
+    // duplicated and skipped — and a project on `fileStorage: 's3'` with pre-migration GridFS
+    // files (an explicitly supported state) hits exactly that. So: fetch enough from both to
+    // cover skip+limit, merge, then page the merged result once.
+    const { limit, skip, ...rest } = (filterQuery[1] ?? {}) as { limit?: number; skip?: number };
+    const upperBound = limit === undefined ? undefined : (skip ?? 0) + limit;
+    const pageOptions = upperBound === undefined ? rest : { ...rest, limit: upperBound };
+
+    const [s3Docs, docs] = await Promise.all([
+      S3FileHelper.findFiles(this.s3Files, filterQuery[0], pageOptions),
+      GridFSHelper.findFiles(this.files, filterQuery[0], pageOptions),
+    ]);
+
+    const merged = [...s3Docs, ...docs];
+    const paged = limit === undefined ? merged.slice(skip ?? 0) : merged.slice(skip ?? 0, (skip ?? 0) + limit);
+    return this.prepareOutput(paged as unknown as CoreFileInfo[], serviceOptions);
   }
 
   /**

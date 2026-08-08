@@ -10,7 +10,7 @@ import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
-import { S3_FILES_COLLECTION, S3FileHelper, streamToBuffer } from '../file/s3-file.helper';
+import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
   DEFAULT_TUS_CONFIG,
@@ -168,7 +168,9 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         const fileInfo = await S3FileHelper.writeFile(
           this.options.s3Service,
           this.connection.db.collection(S3_FILES_COLLECTION),
-          { buffer: await streamToBuffer(readStream), contentType, filename, metadata: fileMetadata },
+          // Streamed with the length TUS already knows, so a multi-GB resumable upload is never
+          // materialised in memory.
+          { body: readStream, contentLength: upload.size, contentType, filename, metadata: fileMetadata },
         );
         this.logger.debug(`Upload ${upload.id} migrated to S3 as ${fileInfo._id} (filename: ${filename})`);
       } else {

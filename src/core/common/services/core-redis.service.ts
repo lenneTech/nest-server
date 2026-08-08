@@ -138,9 +138,9 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
    * Create a NEW dedicated connection (e.g. for BullMQ, blocking commands).
    * The connection is tracked and closed on application shutdown.
    */
-  createClient(label = 'extra'): Redis {
+  createClient(label = 'extra', overrides?: RedisOptions): Redis {
     this.getClient();
-    return this.newConnection(label);
+    return this.newConnection(label, overrides);
   }
 
   /**
@@ -167,7 +167,7 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
   /**
    * Create a tracked ioredis connection from the normalized config
    */
-  protected newConnection(label: string): Redis {
+  protected newConnection(label: string, overrides?: RedisOptions): Redis {
     if (!this.config || !this.RedisCtor) {
       throw new Error('CoreRedisService is not initialized yet (onModuleInit pending)');
     }
@@ -179,6 +179,10 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
       // Listed before the spread so a project's own `redis.options` can still override it.
       commandTimeout: 2000,
       ...(options as RedisOptions),
+      // Per-connection opt-out. A BLOCKING consumer (BullMQ's BZPOPMIN waits up to 10s by
+      // design) must not inherit the timeout: ioredis would abort the wait, BullMQ would
+      // classify it as a real error, and its fetch loop would stop for good.
+      ...overrides,
     };
     const client = url
       ? new this.RedisCtor(url, baseOptions)

@@ -68,6 +68,12 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   protected readonly store = new Map<string, { count: number; resetTime: number }>();
   protected cleanupInterval: NodeJS.Timeout | null = null;
 
+  /** Set by evictOldest() when nothing could be freed without deleting a live counter */
+  protected atCapacity = false;
+
+  /** So the capacity warning is logged once, not per request */
+  protected capacityWarned = false;
+
   constructor(protected readonly maxEntries = 10000) {
     // Clean up expired entries every 5 minutes; never keep the process alive
     this.cleanupInterval = setInterval(() => this.removeExpired(), 5 * 60 * 1000);
@@ -83,7 +89,18 @@ export class InMemoryRateLimitStore implements RateLimitStore {
     let entry = this.store.get(key);
     if (!entry || now >= entry.resetTime) {
       if (!entry && this.store.size >= this.maxEntries) {
+        this.atCapacity = false;
         this.evictOldest();
+        if (this.atCapacity) {
+          if (!this.capacityWarned) {
+            this.capacityWarned = true;
+            console.warn(
+              `Rate limit store is at capacity (${this.maxEntries} live counters). New clients are counted from 1 ` +
+                'until entries expire; existing limits are unaffected.',
+            );
+          }
+          return { count: 1, resetIn: windowSeconds };
+        }
       }
       entry = { count: 1, resetTime: now + windowSeconds * 1000 };
       this.store.set(key, entry);
@@ -130,17 +147,16 @@ export class InMemoryRateLimitStore implements RateLimitStore {
    * to expiry until the store is at 90% capacity.
    */
   protected evictOldest(): void {
-    this.removeExpired();
-    if (this.store.size >= this.maxEntries) {
-      const targetSize = Math.floor(this.maxEntries * 0.9);
-      const entries = [...this.store.entries()].sort((a, b) => a[1].resetTime - b[1].resetTime);
-      for (const [key] of entries) {
-        if (this.store.size <= targetSize) {
-          break;
-        }
-        this.store.delete(key);
-      }
+    const removed = this.removeExpired();
+    if (removed > 0 || this.store.size < this.maxEntries) {
+      return;
     }
+    // Every entry is still LIVE. Dropping the ones closest to expiry would delete active
+    // counters — and for a rate limiter that means resetting the window of whoever is being
+    // limited, which is exactly the caller flooding the store in the first place. Refusing the
+    // new entry instead lets an attacker deny NEW clients a counter, but it cannot clear an
+    // existing one; and the cap only binds until the next natural expiry a window later.
+    this.atCapacity = true;
   }
 }
 

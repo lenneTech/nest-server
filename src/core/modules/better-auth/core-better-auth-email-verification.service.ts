@@ -323,7 +323,11 @@ export class CoreBetterAuthEmailVerificationService {
         .getClient()
         .del(this.cooldownKey(email))
         .catch(() => undefined);
-      return;
+      // Deliberately NOT `return`: when acquire fell back to the local counter because Redis
+      // errored, the Redis key was never written and only the local entry exists. Branching on
+      // `enabled` alone would leave it in place, so the failed send would burn the cooldown —
+      // the exact semantics the acquire/release split exists to preserve. Clearing both is
+      // harmless: the local map is empty whenever Redis actually served the acquire.
     }
 
     // Clear the pending cleanup timer too. Left running, it would fire `cooldown` seconds

@@ -35,14 +35,36 @@ describe('InMemoryRateLimitStore', () => {
     expect((await store.hit('a', 60)).resetIn).toBe(30);
   });
 
-  it('evicts when at capacity instead of growing unbounded', async () => {
+  it('reclaims expired entries at capacity', async () => {
     for (let i = 0; i < 5; i++) {
       await store.hit(`key-${i}`, 60);
     }
     expect(store.size()).toBe(5);
-    await store.hit('key-new', 60);
-    expect(store.size()).toBeLessThanOrEqual(5);
+
+    // Once the window passes, the space is genuinely free and a new client is counted normally
+    vi.advanceTimersByTime(61_000);
+    expect((await store.hit('key-new', 60)).count).toBe(1);
     expect((await store.hit('key-new', 60)).count).toBe(2);
+    expect(store.size()).toBeLessThanOrEqual(5);
+  });
+
+  it('never evicts a LIVE counter to make room', async () => {
+    // Evicting the entries closest to expiry looks like sensible cache behavior and is the
+    // opposite of what a rate limiter needs: those are ACTIVE counters, so dropping them resets
+    // the window of whoever is being limited — which is precisely the caller flooding the store.
+    // An attacker who exhausts their own limit could then clear it by inventing 10k identities.
+    for (let i = 0; i < 5; i++) {
+      await store.hit('victim', 60);
+    }
+    expect((await store.hit('victim', 60)).count).toBe(6);
+
+    // Fill every remaining slot with live entries, then push well past the cap
+    for (let i = 0; i < 20; i++) {
+      await store.hit(`flood-${i}`, 60);
+    }
+
+    // The victim's counter survived and kept counting — it was never reset
+    expect((await store.hit('victim', 60)).count).toBe(7);
   });
 
   it('resetByPrefix removes only matching keys', async () => {

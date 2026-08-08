@@ -18,6 +18,24 @@ import type { Redis } from 'ioredis';
  * so this engine keeps its own channel → handler map and only issues a Redis
  * SUBSCRIBE/UNSUBSCRIBE when the first handler for a channel arrives / the last one leaves.
  */
+/** ISO-8601 with a time component — the shape `Date.prototype.toJSON()` produces */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Turn ISO-8601 strings back into `Date`s while parsing.
+ *
+ * The in-memory PubSub passed live objects, so subscribers received real `Date`s; a JSON round
+ * trip hands them strings instead, and `DateScalar.serialize()` throws on those. Enabling Redis
+ * is documented as a drop-in, so it must not change the shape of what a subscriber receives.
+ *
+ * Only strings that look exactly like a serialized Date are converted, which cannot distinguish
+ * a genuine ISO-timestamp STRING from a Date — a deliberate trade: the in-memory behavior is
+ * the reference, and there a Date stays a Date.
+ */
+function reviveDates(_key: string, value: unknown): unknown {
+  return typeof value === 'string' && ISO_DATE.test(value) ? new Date(value) : value;
+}
+
 export class CoreRedisPubSub extends PubSubEngine {
   protected readonly logger = new Logger(CoreRedisPubSub.name);
 
@@ -37,7 +55,16 @@ export class CoreRedisPubSub extends PubSubEngine {
   }
 
   async publish(triggerName: string, payload: any): Promise<void> {
-    await this.redisService.getClient().publish(this.channel(triggerName), JSON.stringify(payload));
+    try {
+      await this.redisService.getClient().publish(this.channel(triggerName), JSON.stringify(payload));
+    } catch (error) {
+      // The in-memory PubSub this replaces could not fail, so callers do not guard their
+      // publishes. Letting a Redis blip escape would turn a missed NOTIFICATION into a failed
+      // business operation — a user written to the database but reported as a failed sign-up.
+      this.logger.warn(
+        `Subscription publish to "${triggerName}" failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
   async subscribe(triggerName: string, onMessage: (...args: any[]) => void): Promise<number> {
@@ -101,7 +128,7 @@ export class CoreRedisPubSub extends PubSubEngine {
     }
     let payload: any;
     try {
-      payload = JSON.parse(message);
+      payload = JSON.parse(message, reviveDates);
     } catch {
       this.logger.warn(`Ignoring non-JSON message on channel ${channel}`);
       return;

@@ -25,7 +25,17 @@ class TestCronJobs extends CoreCronJobs {
   calls: string[] = [];
 
   constructor(jobs: Record<string, any>, options: CoreCronJobsOptions & { bullMq?: any }) {
-    super({ addCronJob: vi.fn(), getCronJob: vi.fn(() => ({})) } as unknown as SchedulerRegistry, jobs, options);
+    super(
+      // `doesExist` + `addCronJob`: BullMQ-mode jobs are registered as STOPPED CronJobs so the
+      // Hub's cron panel — which reads only SchedulerRegistry — can see and control them.
+      {
+        addCronJob: vi.fn(),
+        doesExist: vi.fn(() => false),
+        getCronJob: vi.fn(() => ({})),
+      } as unknown as SchedulerRegistry,
+      jobs,
+      options,
+    );
     this.bullMqModule = options.bullMq;
   }
 
@@ -33,7 +43,7 @@ class TestCronJobs extends CoreCronJobs {
     return this.bullMqModule ? Promise.resolve(this.bullMqModule) : Promise.reject(new Error('Cannot find module'));
   }
 
-  override runDistributedTick(name: string, fireTime: Date): Promise<void> {
+  override runDistributedTick(name: string, fireTime: Date | 'init' | 'manual'): Promise<void> {
     return super.runDistributedTick(name, fireTime);
   }
 
@@ -51,7 +61,11 @@ function fakeConnection(collection: FakeLockCollection) {
 
 function fakeRedisService(overrides: Record<string, any> = {}) {
   return {
-    createClient: vi.fn(() => ({ options: {} })),
+    // Models the real contract: per-connection overrides land in `options`, which is how the
+    // BullMQ connections opt out of the shared commandTimeout.
+    createClient: vi.fn((_label?: string, connectionOptions?: Record<string, unknown>) => ({
+      options: { commandTimeout: 2000, ...connectionOptions },
+    })),
     enabled: true,
     getClient: vi.fn(),
     getConfig: () => ({ keyPrefix: 'nest-server' }),
@@ -302,6 +316,8 @@ describe('CoreCronJobs multi-replica deduplication', () => {
         Worker: class {
           close = vi.fn(async () => undefined);
           concurrency = 1;
+          // The service attaches an 'error' listener, so the fake needs the EventEmitter surface
+          on = vi.fn();
           // Created with autorun: false and started only after every job config is
           // registered, so the fake has to offer run() the way BullMQ does.
           run = vi.fn(async () => undefined);

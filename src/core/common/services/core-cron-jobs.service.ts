@@ -244,11 +244,16 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Returns `true` when this replica may run the tick — including when no lease
    * backend is available at all (fail open: a missing lock must never stop the job).
    */
-  protected async acquireLease(name: string, fireTime: Date | 'init'): Promise<boolean> {
+  protected async acquireLease(name: string, fireTime: Date | 'init' | 'manual'): Promise<boolean> {
+    // 'manual' is an operator-triggered run: they asked for THIS execution, so it must not be
+    // deduplicated against a scheduled tick, and it is one replica acting deliberately rather
+    // than N replicas racing. Hence a unique key rather than a shared one.
     const leaseKey =
-      fireTime === 'init'
-        ? `${name}:init`
-        : `${name}:${new Date(Math.floor(fireTime.getTime() / 1000) * 1000).toISOString()}`;
+      fireTime === 'manual'
+        ? `${name}:manual:${Date.now()}:${process.pid}`
+        : fireTime === 'init'
+          ? `${name}:init`
+          : `${name}:${new Date(Math.floor(fireTime.getTime() / 1000) * 1000).toISOString()}`;
     const ttlSeconds = fireTime === 'init' ? CRON_INIT_LOCK_TTL_SECONDS : CRON_LOCK_TTL_SECONDS;
 
     const redis = this.getRedisClient();
@@ -381,11 +386,20 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     const prefix = `${service.getConfig().keyPrefix}:bull`;
-    this.bullQueue = new bullmq.Queue(CRON_QUEUE_NAME, { connection: service.createClient('cron-queue'), prefix });
 
-    const workerConnection = service.createClient('cron-worker');
-    // BullMQ blocks on its worker connection and requires unlimited retries there
-    (workerConnection as any).options.maxRetriesPerRequest = null;
+    // BullMQ owns the lifetime of its commands and must be exempt from the shared defaults:
+    // its fetch loop issues a BLOCKING BZPOPMIN that waits up to 10s on purpose, so the
+    // `commandTimeout` every other connection carries would abort it. BullMQ then classifies
+    // the abort as a real error, emits it, and stops fetching — silently ending all cron work
+    // in the fleet. It also requires unlimited retries on a blocking connection.
+    const blockingOptions = { commandTimeout: undefined, maxRetriesPerRequest: null };
+
+    this.bullQueue = new bullmq.Queue(CRON_QUEUE_NAME, {
+      connection: service.createClient('cron-queue', blockingOptions),
+      prefix,
+    });
+
+    const workerConnection = service.createClient('cron-worker', blockingOptions);
     // autorun: false — initBullMq() runs BEFORE the loop that fills `jobConfigs`, so a worker
     // that starts consuming here would hand `runTick` a job it has no config for. That path
     // returns without throwing, which BullMQ records as COMPLETED: the tick is lost silently
@@ -394,6 +408,13 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       autorun: false,
       connection: workerConnection,
       prefix,
+    });
+
+    // Without a listener an emitted 'error' is an UNHANDLED 'error' event, which rejects the
+    // promise from run() and takes the fetch loop down with it — after which no replica runs
+    // any job again. A transient error must stay transient.
+    this.bullWorker.on('error', (error: Error) => {
+      console.error(`BullMQ cron worker error: ${error.message}`);
     });
 
     return true;
@@ -414,8 +435,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       return;
     }
     try {
+      // Only schedulers this application configured are candidates. The queue name and prefix
+      // derive from `keyPrefix`, whose default is shared — two apps (or a dev and a staging
+      // deployment) pointing at one Redis without overriding it would otherwise wipe each
+      // other's schedulers on every boot. `known` is every job name in OUR config, so a job that
+      // exists but is currently disabled or non-distributed is still recognised as ours.
+      const known = new Set(Object.keys(this.cronJobs ?? {}));
       for (const scheduler of await this.bullQueue.getJobSchedulers()) {
-        if (scheduler?.key && !active.has(scheduler.key)) {
+        if (scheduler?.key && known.has(scheduler.key) && !active.has(scheduler.key)) {
           await this.bullQueue.removeJobScheduler(scheduler.key);
           console.info(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
         }
@@ -469,6 +496,28 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       this.runInitTick(name);
     }
 
+    // Register a STOPPED local CronJob as the registry entry for this job.
+    //
+    // `SchedulerRegistry` is the only thing the Hub's cron panel reads, so without an entry a
+    // BullMQ-scheduled job is invisible there and every start/stop/trigger action throws for a
+    // job that plainly exists. It is created with `start = false` so it never fires on its own —
+    // the BullMQ scheduler owns the schedule — while `nextDate()`/`lastDate()` still answer for
+    // the panel, and a manual trigger goes through the same leased tick as everywhere else.
+    if (!this.schedulerRegistry.doesExist('cron', name)) {
+      const registryJob = new CronJob(
+        config.cronTime,
+        () => this.runInitTick(name),
+        null,
+        false,
+        config.timeZone,
+        config.context,
+        false,
+        config.utcOffset,
+        config.unrefTimeout,
+      );
+      this.schedulerRegistry.addCronJob(name, registryJob);
+    }
+
     if (this.config.log) {
       console.info(`CronJob ${name} initialized with "${config.cronTime}" (BullMQ scheduler)`);
     }
@@ -480,6 +529,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   protected registerLocalJob(name: string, config: CronJobConfigWithTimeZone, distributed: boolean): void {
     // Filled after construction; runOnInit fires DURING construction, where the fire time is simply "now"
     const ref: { job?: CronJob } = {};
+    /** Fire time of the last SCHEDULED tick, to tell a manual trigger apart from a repeat */
+    let lastLeasedFireTime: number | undefined;
 
     const job = new CronJob(
       config.cronTime,
@@ -495,6 +546,15 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
             this.runInitTick(name);
             return;
           }
+          // `cron` only advances lastDate() on a SCHEDULED fire, so a manual fireOnTick() (the
+          // Hub's "Run now") reports the previous tick's instant — whose lease this replica
+          // already holds. Reusing it would lose the race against itself and silently do
+          // nothing, while the operator sees a success response. A manual run gets its own key.
+          if (scheduled.getTime() === lastLeasedFireTime) {
+            await this.runDistributedTick(name, 'manual');
+            return;
+          }
+          lastLeasedFireTime = scheduled.getTime();
           await this.runDistributedTick(name, scheduled);
           return;
         }
@@ -518,7 +578,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   /**
    * Run a tick only if this replica wins the lease for it
    */
-  protected async runDistributedTick(name: string, fireTime: Date | 'init'): Promise<void> {
+  protected async runDistributedTick(name: string, fireTime: Date | 'init' | 'manual'): Promise<void> {
     if (!(await this.acquireLease(name, fireTime))) {
       return;
     }

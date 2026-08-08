@@ -54,11 +54,28 @@ export class S3FileHelper {
   static async writeFile(
     s3Service: CoreS3Service,
     collection: FileCollection,
-    options: { buffer: Buffer; contentType?: string; filename: string; metadata?: Record<string, any> },
+    options: {
+      body?: Readable;
+      buffer?: Buffer;
+      contentLength?: number;
+      contentType?: string;
+      filename: string;
+      metadata?: Record<string, any>;
+    },
   ): Promise<S3FileInfo> {
     const _id = new Types.ObjectId();
     const key = _id.toHexString();
-    await s3Service.putObject(key, options.buffer, options.contentType);
+
+    // A stream with a known length streams straight through. Reading it into a Buffer first —
+    // which every caller used to do — materialises the WHOLE file in one process: a 4 GB
+    // resumable upload (well inside the 50 GB default cap) then either throws
+    // "Array buffer allocation failed" or gets the container OOM-killed at 100% progress,
+    // taking every other in-flight request with it.
+    const body = options.body ?? options.buffer;
+    if (!body) {
+      throw new Error('S3FileHelper.writeFile needs either a body stream or a buffer');
+    }
+    await s3Service.putObject(key, body, options.contentType, options.contentLength ?? options.buffer?.length);
 
     if (!(await s3Service.objectExists(key))) {
       throw new Error('File uploaded but not found in S3');
@@ -68,7 +85,7 @@ export class S3FileHelper {
       _id,
       contentType: options.contentType,
       filename: options.filename,
-      length: options.buffer.length,
+      length: options.contentLength ?? options.buffer?.length,
       metadata: options.metadata,
       uploadDate: new Date(),
     };
