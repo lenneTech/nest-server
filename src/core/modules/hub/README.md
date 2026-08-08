@@ -146,6 +146,24 @@ Three in-memory ring buffers (fixed capacity, no timers, per-app-instance — pa
 - **Queries** — MongoDB driver command monitoring; records value-free query SHAPES (N+1 templates), never values.
   Enabling it opts the driver into `monitorCommands` from `core.module.ts`.
 
+The mailbox (`hub.mailbox`) uses the same buffer.
+
+### Multi-replica
+
+**Without Redis** each buffer is process-local, so a pod only ever shows the logs, traces,
+queries and mails it produced itself. Behind a load balancer that makes the panels look
+lossy — every poll may hit a different pod and show a different slice. Route `/hub` to a
+single replica (sticky routing) if you need a coherent view.
+
+**With Redis** (`ServerOptions.redis`) all four collectors mirror into shared, capped Redis
+lists (`<keyPrefix>:hub:{logs,traces,queries,mailbox}`) and read from there, so every pod
+shows the merged cluster-wide view and "clear" clears it everywhere. Sequence numbers come
+from a shared counter, so the panels' cursor-based polling keeps working across replicas.
+
+Writes are fire-and-forget — the collectors sit in hot paths and their API stays synchronous.
+If Redis is unreachable a read silently falls back to the local buffer (a diagnostics panel
+must not be the thing that breaks), so a partial view during an outage is expected.
+
 ## Overrides
 
 ```typescript

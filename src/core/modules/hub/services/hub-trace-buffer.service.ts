@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+import { CoreRedisService } from '../../../common/services/core-redis.service';
 import { HUB_CONFIG } from '../hub.constants';
-import { HubRingBuffer } from '../hub-ring-buffer';
+import { HubBuffer } from '../hub-buffer';
 import { HubTraceRecord, HubTracesData } from '../interfaces/hub-panels.interface';
 import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
 
@@ -19,14 +20,17 @@ interface TraceRecord extends HubTraceRecord {
  */
 @Injectable()
 export class HubTraceBufferService {
-  private readonly buffer?: HubRingBuffer<TraceRecord>;
+  private readonly buffer?: HubBuffer<TraceRecord>;
   private readonly cfg?: Exclude<ResolvedHubConfig['collectors']['traces'], false>;
   private readonly excludePrefixes: string[];
 
-  constructor(@Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig) {
+  constructor(
+    @Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig,
+    @Optional() protected readonly redis?: CoreRedisService,
+  ) {
     if (config.collectors.traces !== false) {
       this.cfg = config.collectors.traces;
-      this.buffer = new HubRingBuffer<TraceRecord>(this.cfg.capacity);
+      this.buffer = new HubBuffer<TraceRecord>(this.cfg.capacity, 'traces', redis);
     }
     // Always exclude the Hub's own routes so polling does not flood the trace list with self-noise.
     this.excludePrefixes = [...(this.cfg?.excludePaths ?? []), '/' + config.path];
@@ -40,8 +44,9 @@ export class HubTraceBufferService {
     return this.config.collectors.traces !== false;
   }
 
-  getData(since?: number): HubTracesData {
-    const records = !this.buffer ? [] : since === undefined ? this.buffer.recent() : this.buffer.since(since);
+  async getData(since?: number): Promise<HubTracesData> {
+    const data = this.buffer ? await this.buffer.read(since) : { cursor: -1, dropped: -1, entries: [] };
+    const records = data.entries;
     let totalMs = 0;
     let slowCount = 0;
     let errorCount = 0;
@@ -55,8 +60,8 @@ export class HubTraceBufferService {
       }
     }
     return {
-      cursor: this.buffer?.lastSeq ?? -1,
-      dropped: this.buffer?.firstRetainedSeq ?? -1,
+      cursor: data.cursor,
+      dropped: data.dropped,
       summary: { avgMs: records.length ? totalMs / records.length : 0, errorCount, slowCount, total: records.length },
       traces: records,
     };

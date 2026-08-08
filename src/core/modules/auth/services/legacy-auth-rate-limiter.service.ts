@@ -1,15 +1,13 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 
 import { IAuthRateLimit } from '../../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
-
-/**
- * Rate limit entry for tracking requests
- */
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
+import { CoreRedisService } from '../../../common/services/core-redis.service';
+import {
+  InMemoryRateLimitStore,
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../../common/services/rate-limit-store';
 
 /**
  * Result of a rate limit check
@@ -41,10 +39,11 @@ const DEFAULT_CONFIG: Required<IAuthRateLimit> = {
 };
 
 /**
- * In-memory rate limiter for Legacy Auth endpoints
+ * Rate limiter for Legacy Auth endpoints
  *
  * This service provides rate limiting to protect against brute-force attacks
- * on authentication endpoints. It uses an in-memory store with automatic cleanup.
+ * on authentication endpoints. Counters live in a {@link RateLimitStore}: shared
+ * via Redis when `ServerOptions.redis` is configured, process-local otherwise.
  *
  * Features:
  * - Configurable request limits and time windows
@@ -68,15 +67,11 @@ const DEFAULT_CONFIG: Required<IAuthRateLimit> = {
  */
 @Injectable()
 export class LegacyAuthRateLimiter implements OnModuleInit {
-  private readonly logger = new Logger(LegacyAuthRateLimiter.name);
-  private readonly store = new Map<string, RateLimitEntry>();
-  private config: Required<IAuthRateLimit> = DEFAULT_CONFIG;
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  protected readonly logger = new Logger(LegacyAuthRateLimiter.name);
+  protected config: Required<IAuthRateLimit> = DEFAULT_CONFIG;
+  protected store?: RateLimitStore;
 
-  constructor() {
-    // Start cleanup interval (every 5 minutes)
-    this.startCleanup();
-  }
+  constructor(@Optional() protected readonly coreRedisService?: CoreRedisService) {}
 
   /**
    * Auto-configure from ConfigService on module initialization
@@ -127,7 +122,7 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
    * @param endpoint - Endpoint name (e.g., 'signIn', 'signUp')
    * @returns Rate limit check result
    */
-  check(ip: string, endpoint: string): RateLimitResult {
+  async check(ip: string, endpoint: string): Promise<RateLimitResult> {
     // If rate limiting is disabled, always allow
     if (!this.config.enabled) {
       return {
@@ -140,43 +135,18 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
     }
 
     const limit = this.config.max;
-    const key = `${ip}:${endpoint}`;
-    const now = Date.now();
+    const { count, resetIn } = await this.getStore().hit(`${ip}:${endpoint}`, this.config.windowSeconds);
 
-    // Get or create entry
-    let entry = this.store.get(key);
-
-    if (!entry || now >= entry.resetTime) {
-      // Create new entry or reset expired one
-      entry = {
-        count: 1,
-        resetTime: now + this.config.windowSeconds * 1000,
-      };
-      this.store.set(key, entry);
-
-      return {
-        allowed: true,
-        current: 1,
-        limit,
-        remaining: limit - 1,
-        resetIn: this.config.windowSeconds,
-      };
-    }
-
-    // Increment count
-    entry.count++;
-
-    const resetIn = Math.ceil((entry.resetTime - now) / 1000);
-    const allowed = entry.count <= limit;
-    const remaining = Math.max(0, limit - entry.count);
+    const allowed = count <= limit;
+    const remaining = Math.max(0, limit - count);
 
     if (!allowed) {
-      this.logger.warn(`Rate limit exceeded for IP ${this.maskIp(ip)} on ${endpoint}: ${entry.count}/${limit}`);
+      this.logger.warn(`Rate limit exceeded for IP ${this.maskIp(ip)} on ${endpoint}: ${count}/${limit}`);
     }
 
     return {
       allowed,
-      current: entry.count,
+      current: count,
       limit,
       remaining,
       resetIn,
@@ -202,39 +172,50 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
    *
    * @param ip - Client IP address
    */
-  reset(ip: string): void {
-    for (const key of this.store.keys()) {
-      if (key.startsWith(`${ip}:`)) {
-        this.store.delete(key);
-      }
-    }
+  async reset(ip: string): Promise<void> {
+    await this.getStore().resetByPrefix(`${ip}:`);
   }
 
   /**
    * Clear all rate limit entries (useful for testing)
    */
-  clear(): void {
-    this.store.clear();
+  async clear(): Promise<void> {
+    await this.getStore().clear();
   }
 
   /**
    * Get statistics about the rate limiter
+   *
+   * `activeEntries` is `-1` when a Redis store is in use — the entry count is
+   * not cheaply known there.
    */
   getStats(): { activeEntries: number; enabled: boolean } {
     return {
-      activeEntries: this.store.size,
+      activeEntries: this.store?.size() ?? 0,
       enabled: this.config.enabled,
     };
   }
 
   /**
-   * Stop the cleanup interval (for graceful shutdown)
+   * Stop the in-memory cleanup interval (for graceful shutdown)
    */
   onModuleDestroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
+    if (this.store instanceof InMemoryRateLimitStore) {
+      this.store.destroy();
     }
+  }
+
+  /**
+   * Lazily select the counter store: Redis when configured and enabled,
+   * process-local otherwise.
+   */
+  protected getStore(): RateLimitStore {
+    if (!this.store) {
+      this.store = this.coreRedisService?.enabled
+        ? new RedisRateLimitStore(this.coreRedisService, 'legacy-auth')
+        : new InMemoryRateLimitStore();
+    }
+    return this.store;
   }
 
   /**
@@ -249,35 +230,5 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
     // IPv6: show first segment
     const parts = ip.split(':');
     return `${parts[0]}:****`;
-  }
-
-  /**
-   * Start periodic cleanup of expired entries
-   */
-  private startCleanup(): void {
-    // Clean up every 5 minutes
-    this.cleanupInterval = setInterval(
-      () => {
-        const now = Date.now();
-        let cleaned = 0;
-
-        for (const [key, entry] of this.store.entries()) {
-          if (now >= entry.resetTime) {
-            this.store.delete(key);
-            cleaned++;
-          }
-        }
-
-        if (cleaned > 0) {
-          this.logger.debug(`Cleaned up ${cleaned} expired rate limit entries`);
-        }
-      },
-      5 * 60 * 1000,
-    );
-
-    // Prevent the interval from keeping the process alive
-    if (this.cleanupInterval.unref) {
-      this.cleanupInterval.unref();
-    }
   }
 }

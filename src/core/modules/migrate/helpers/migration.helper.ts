@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import { Db, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
 
+import { MongoStateStore } from '../mongo-state-store';
+
 /**
  * Migration helper functions for database operations
  */
@@ -247,9 +249,13 @@ export const uploadFileToGridFS = async (
 /**
  * Create a migration state store factory
  *
+ * The lock collection is set by DEFAULT, so `migrate up` from N replicas booting at
+ * the same time serializes instead of applying the same migration twice (the container
+ * entrypoint runs migrations on every boot). Pass an empty string to opt out.
+ *
  * @param mongoUrl - MongoDB connection URI
  * @param collectionName - Optional collection name (default: 'migrations')
- * @param lockCollectionName - Optional lock collection name for cluster environments
+ * @param lockCollectionName - Lock collection name (default: 'migrations_lock'); `''` disables locking
  * @returns MongoStateStore class that can be used with migrate CLI
  *
  * @example
@@ -264,15 +270,16 @@ export const uploadFileToGridFS = async (
 export const createMigrationStore = (
   mongoUrl: string,
   collectionName: string = 'migrations',
-  lockCollectionName?: string,
-) => {
-  const { MongoStateStore } = require('../mongo-state-store');
-
+  lockCollectionName: string = 'migrations_lock',
+  // Explicit return type: the returned class is anonymous to the declaration emitter, and
+  // MongoStateStore has private members, so an inferred type cannot be written to the .d.ts
+  // (TS4094).
+): new () => MongoStateStore => {
   return class MigrationStateStore extends MongoStateStore {
     constructor() {
       super({
         collectionName,
-        lockCollectionName,
+        lockCollectionName: lockCollectionName || undefined,
         uri: mongoUrl,
       });
     }

@@ -4,9 +4,13 @@ import { Server, Upload } from '@tus/server';
 import * as fs from 'fs';
 import { Connection, mongo } from 'mongoose';
 import * as path from 'path';
+import { Readable } from 'stream';
 
 import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
+import { ConfigService } from '../../common/services/config.service';
+import { CoreS3Service } from '../../common/services/core-s3.service';
+import { S3_FILES_COLLECTION, S3FileHelper, streamToBuffer } from '../file/s3-file.helper';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
   DEFAULT_TUS_CONFIG,
@@ -15,10 +19,31 @@ import {
 } from './interfaces/tus-config.interface';
 
 /**
+ * Optional dependencies of CoreTusService.
+ *
+ * With an enabled CoreS3Service, in-progress uploads are staged in the S3
+ * staging bucket instead of on local disk (`tus.s3Staging`), which keeps
+ * resumable uploads working across replica restarts.
+ */
+export interface CoreTusServiceOptions {
+  configService?: ConfigService;
+  s3Service?: CoreS3Service;
+}
+
+/**
  * Core TUS Service
  *
  * Provides integration with @tus/server for resumable file uploads.
- * After upload completion, files are migrated to GridFS and a File entity is created.
+ * After upload completion, files are migrated to the configured file storage
+ * (S3 when `fileStorage: 's3'`, otherwise GridFS).
+ *
+ * Uploads in progress are staged either on local disk (`@tus/file-store`) or,
+ * when S3 is configured and `tus.s3Staging` is not disabled, in the S3 staging
+ * bucket (`@tus/s3-store`).
+ *
+ * NOTE: give the staging bucket a lifecycle rule that expires incomplete
+ * multipart uploads — aborted TUS uploads leave parts behind that nothing else
+ * cleans up (the local-disk store is swept by the expiration cleanup below).
  *
  * This service follows the Module Inheritance Pattern and can be extended in projects.
  */
@@ -30,7 +55,13 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   private files: mongo.GridFSBucket;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
-  constructor(private readonly connection: Connection) {
+  /** Datastore of the TUS server; set when uploads are staged in S3 */
+  protected s3Store: any = null;
+
+  constructor(
+    private readonly connection: Connection,
+    protected readonly options?: CoreTusServiceOptions,
+  ) {
     // Initialize with defaults - will be configured in onModuleInit or via configure()
     this.config = { ...DEFAULT_TUS_CONFIG };
   }
@@ -60,7 +91,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
     await this.ensureUploadDir(uploadDir);
 
     // Create TUS server instance
-    this.tusServer = this.createTusServer(uploadDir);
+    this.tusServer = await this.createTusServer(uploadDir);
 
     // Setup expiration cleanup if enabled
     this.setupExpirationCleanup();
@@ -111,45 +142,134 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    * what happens after an upload completes.
    */
   protected async onUploadComplete(upload: Upload): Promise<void> {
-    const uploadDir = this.config.uploadDir || DEFAULT_TUS_CONFIG.uploadDir;
-    const filePath = path.join(uploadDir, upload.id);
-
     try {
       // Extract metadata
       const metadata = this.parseMetadata(upload.metadata);
       const filename = metadata.filename || upload.id;
       const contentType = metadata.filetype || 'application/octet-stream';
+      const fileMetadata = {
+        originalMetadata: metadata,
+        tusUploadId: upload.id,
+        uploadedAt: new Date(),
+      };
 
-      // Check if file exists
-      const fileExists = await fs.promises
-        .access(filePath)
-        .then(() => true)
-        .catch(() => false);
-      if (!fileExists) {
-        this.logger.warn(`Upload file not found at ${filePath}, skipping GridFS migration`);
+      const readStream = await this.readStagedUpload(upload.id);
+      if (!readStream) {
         return;
       }
 
-      // Read the completed file and upload to GridFS
-      const readStream = fs.createReadStream(filePath);
-      const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
-        contentType,
-        filename,
-        metadata: {
-          originalMetadata: metadata,
-          tusUploadId: upload.id,
-          uploadedAt: new Date(),
-        },
-      });
+      if (this.s3FileStorage) {
+        const fileInfo = await S3FileHelper.writeFile(
+          this.options.s3Service,
+          this.connection.db.collection(S3_FILES_COLLECTION),
+          { buffer: await streamToBuffer(readStream), contentType, filename, metadata: fileMetadata },
+        );
+        this.logger.debug(`Upload ${upload.id} migrated to S3 as ${fileInfo._id} (filename: ${filename})`);
+      } else {
+        const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
+          contentType,
+          filename,
+          metadata: fileMetadata,
+        });
+        this.logger.debug(`Upload ${upload.id} migrated to GridFS as ${fileInfo._id} (filename: ${filename})`);
+      }
 
-      this.logger.debug(`Upload ${upload.id} migrated to GridFS as ${fileInfo._id} (filename: ${filename})`);
-
-      // Clean up the temporary file
-      await this.deleteTemporaryFile(upload.id);
+      // Clean up the staged upload
+      await this.deleteStagedUpload(upload.id);
     } catch (error) {
-      this.logger.error(`Failed to migrate upload ${upload.id} to GridFS: ${error.message}`);
+      this.logger.error(`Failed to migrate upload ${upload.id}: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Whether finished uploads are stored in S3 (`fileStorage: 's3'`) instead of GridFS
+   */
+  protected get s3FileStorage(): boolean {
+    return (
+      !!this.options?.s3Service?.enabled
+      && this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
+    );
+  }
+
+  /**
+   * Import the optional peer dependency `@tus/s3-store`.
+   * Separate method so tests can substitute the module.
+   */
+  protected importS3Store(): Promise<any> {
+    return import('@tus/s3-store');
+  }
+
+  /**
+   * Create the S3 staging datastore.
+   * Returns null when S3 staging is not available, so the caller falls back to the local FileStore.
+   */
+  protected async createS3Store(): Promise<any> {
+    const s3Service = this.options?.s3Service;
+    if (!s3Service?.enabled || this.config.s3Staging === false) {
+      return null;
+    }
+
+    let s3StoreModule: any;
+    try {
+      s3StoreModule = await this.importS3Store();
+    } catch {
+      this.logger.warn(
+        'S3 is configured but the optional peer dependency "@tus/s3-store" is not installed — TUS uploads are '
+        + 'staged on local disk. Run: pnpm add @tus/s3-store',
+      );
+      return null;
+    }
+
+    const { accessKeyId, endpoint, forcePathStyle, region, secretAccessKey, stagingBucket } = s3Service.getConfig();
+    this.s3Store = new s3StoreModule.S3Store({
+      s3ClientConfig: {
+        bucket: stagingBucket,
+        forcePathStyle,
+        region,
+        ...(endpoint ? { endpoint } : {}),
+        ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+      },
+    });
+    this.logger.log(`TUS uploads staged in S3 bucket ${stagingBucket}`);
+    return this.s3Store;
+  }
+
+  /**
+   * Read a completed upload from its staging location (S3 or local disk).
+   * Returns null when the staged data is gone.
+   */
+  protected async readStagedUpload(uploadId: string): Promise<null | Readable> {
+    if (this.s3Store) {
+      return await this.s3Store.read(uploadId);
+    }
+
+    const uploadDir = this.config.uploadDir || DEFAULT_TUS_CONFIG.uploadDir;
+    const filePath = path.join(uploadDir, uploadId);
+    const fileExists = await fs.promises
+      .access(filePath)
+      .then(() => true)
+      .catch(() => false);
+    if (!fileExists) {
+      this.logger.warn(`Upload file not found at ${filePath}, skipping migration`);
+      return null;
+    }
+    return fs.createReadStream(filePath);
+  }
+
+  /**
+   * Delete a staged upload from its staging location (S3 or local disk)
+   */
+  protected async deleteStagedUpload(uploadId: string): Promise<void> {
+    if (this.s3Store) {
+      try {
+        await this.s3Store.remove(uploadId);
+      } catch (error) {
+        this.logger.warn(`Failed to remove staged upload ${uploadId} from S3: ${error.message}`);
+      }
+      return;
+    }
+    await this.deleteTemporaryFile(uploadId);
   }
 
   /**
@@ -157,7 +277,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    */
   protected async onUploadTerminate(upload: Upload): Promise<void> {
     this.logger.debug(`Upload ${upload.id} terminated`);
-    await this.deleteTemporaryFile(upload.id);
+    await this.deleteStagedUpload(upload.id);
   }
 
   /**
@@ -203,8 +323,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   /**
    * Create the TUS server instance with configured extensions
    */
-  private createTusServer(uploadDir: string): Server {
-    const datastore = new FileStore({ directory: uploadDir });
+  private async createTusServer(uploadDir: string): Promise<Server> {
+    const datastore = (await this.createS3Store()) || new FileStore({ directory: uploadDir });
 
     const server = new Server({
       allowedHeaders: this.config.allowedHeaders || DEFAULT_TUS_ALLOWED_HEADERS,
@@ -357,6 +477,11 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    * Clean up expired incomplete uploads
    */
   private async cleanupExpiredUploads(maxAgeMs: number): Promise<void> {
+    if (this.s3Store) {
+      // Aborted uploads live in the S3 staging bucket — expire them with a
+      // bucket lifecycle rule for incomplete multipart uploads instead.
+      return;
+    }
     const uploadDir = this.config.uploadDir || DEFAULT_TUS_CONFIG.uploadDir;
     const now = Date.now();
 

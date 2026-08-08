@@ -21,10 +21,19 @@
  * 4. Even if tests fail, cleanup still occurs (try-catch blocks)
  */
 
+import * as fs from 'fs';
 import { MongoClient } from 'mongodb';
+import * as os from 'os';
+import * as path from 'path';
 import { promisify } from 'util';
 
-import { MigrationOptions, MongoStateStore, synchronizedMigration } from '../../src';
+import {
+  createMigrationStore,
+  MigrationOptions,
+  MigrationRunner,
+  MongoStateStore,
+  synchronizedMigration,
+} from '../../src';
 import { deriveTestDbUri } from '../db-lifecycle.reporter';
 
 describe('MongoDB State Store for Migrations (e2e)', () => {
@@ -41,6 +50,8 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
     'custom_migrations_test',
     'custom_migrations_save_test',
     'test_lock_collection',
+    'concurrent_migrations',
+    'concurrent_migrations_lock',
   ];
 
   const migrationDoc = {
@@ -373,6 +384,58 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       // Lock should be released after all migrations
       const numDocsInLockCollection = await client.db().collection(lockCollectionName).countDocuments();
       expect(numDocsInLockCollection).toBe(0);
+    }, 30000);
+  });
+
+  describe('Concurrent migrate up (multi-replica)', () => {
+    const collectionName = 'concurrent_migrations';
+    const lockCollectionName = 'concurrent_migrations_lock';
+
+    let dir: string;
+
+    /**
+     * Migration fixture that records every execution and stays busy long enough for a
+     * second, unsynchronized runner to load the still-empty state and start it as well.
+     */
+    const writeSlowMigration = (marker: string) => {
+      fs.writeFileSync(
+        path.join(dir, '1699000000001-concurrent.js'),
+        `module.exports.up = async () => {
+          require('fs').appendFileSync(${JSON.stringify(marker)}, 'up\\n');
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        };\n`,
+      );
+    };
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrate-concurrent-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(dir, { force: true, recursive: true });
+    });
+
+    it('applies a pending migration exactly once when two replicas run up() at the same time', async () => {
+      const marker = path.join(dir, 'executions.marker');
+      writeSlowMigration(marker);
+
+      // Two independent stores, exactly as two replicas would build them from config.
+      const Store = createMigrationStore(mongoUrl, collectionName, lockCollectionName);
+      const runners = [new Store(), new Store()].map(
+        (stateStore) => new MigrationRunner({ migrationsDirectory: dir, stateStore }),
+      );
+
+      await Promise.all(runners.map((runner) => runner.up()));
+
+      // Without the lock, both runners read the empty state and apply the migration.
+      expect(fs.readFileSync(marker, 'utf-8')).toBe('up\n');
+
+      const state = await client.db().collection(collectionName).find({}).toArray();
+      expect(state).toHaveLength(1);
+      expect((state[0] as any).migrations.map((m: any) => m.title)).toEqual(['1699000000001-concurrent.js']);
+
+      // Lock released by both runners
+      expect(await client.db().collection(lockCollectionName).countDocuments()).toBe(0);
     }, 30000);
   });
 

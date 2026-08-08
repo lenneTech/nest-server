@@ -23,6 +23,7 @@ function responseStub(headersSent = false) {
   const calls = {
     destroyed: false,
     json: undefined as unknown,
+    redirect: undefined as string | undefined,
     removed: [] as string[],
     set: {} as Record<string, string>,
     status: 0,
@@ -33,9 +34,18 @@ function responseStub(headersSent = false) {
       calls.destroyed = true;
       return res;
     },
+    // Express aliases `header()` to `set()`; the handlers use the former
+    header: (name: string, value: string) => {
+      calls.set[name] = value;
+      return res;
+    },
     headersSent,
     json: (body: unknown) => {
       calls.json = body;
+      return res;
+    },
+    redirect: (_status: number, url: string) => {
+      calls.redirect = url;
       return res;
     },
     removeHeader: (name: string) => {
@@ -120,9 +130,13 @@ describe('pipeFileToResponse', () => {
     // has a protected constructor (it is abstract by design), and a subclass added
     // only to widen that visibility is exactly what `no-useless-constructor`
     // strips — leaving code that no longer compiles.
+    // The receiver is `Object.create(prototype)`, not a bare `{ fileService }`:
+    // the handler calls sibling methods on `this` (`resolveDownloadUrl`), and an
+    // object literal would make those `undefined` — turning this security pin into
+    // a TypeError that asserts nothing about the 404-vs-404 answer it exists to check.
     const download = (service: Partial<CoreFileService>, res: Response) =>
       (CoreFileController.prototype.getFileById as (this: unknown, id: string, res: Response) => Promise<unknown>).call(
-        { fileService: service },
+        Object.create(CoreFileController.prototype, { fileService: { value: service } }),
         'abc',
         res,
       );
@@ -144,6 +158,46 @@ describe('pipeFileToResponse', () => {
     // Byte-identical answers: same status, same message.
     expect((refusedErr as NotFoundException).getStatus()).toBe((unknownErr as NotFoundException).getStatus());
     expect((refusedErr as NotFoundException).getResponse()).toEqual((unknownErr as NotFoundException).getResponse());
+  });
+
+  it('still delivers the file when the presigned URL cannot be produced', async () => {
+    // The presigned S3 redirect is an OPTIMIZATION — it moves bytes off the API.
+    // So its failure modes (S3 unreachable, `@aws-sdk/s3-request-presigner` not
+    // installed, a project service predating the method) must cost nothing: the
+    // download falls back to streaming. Letting the rejection escape would turn
+    // every download into a 500 the moment S3 hiccups, and a 500 on an id that
+    // exists — next to a 404 on one that does not — is also an existence oracle.
+    const body = Buffer.from('file bytes');
+    const file = { contentType: 'image/png', filename: 'photo.png', id: 'abc' };
+
+    const download = (service: Partial<CoreFileService>, res: Response) =>
+      (CoreFileController.prototype.getFileById as (this: unknown, id: string, res: Response) => Promise<unknown>).call(
+        Object.create(CoreFileController.prototype, { fileService: { value: service } }),
+        'abc',
+        res,
+      );
+
+    for (const brokenUrlSource of [
+      // Throws — S3 outage or missing presigner peer dependency
+      { getDownloadUrl: async () => { throw new Error('S3 unreachable'); } },
+      // Absent — a consumer service written before this method existed
+      {},
+    ]) {
+      const stream = Readable.from([body]);
+      const { calls, res } = responseStub(false);
+
+      await download(
+        {
+          getFileInfo: async () => file,
+          getFileStream: async () => stream,
+          ...brokenUrlSource,
+        } as unknown as Partial<CoreFileService>,
+        res,
+      );
+
+      expect(calls.redirect).toBeUndefined();
+      expect(calls.set['Content-Type']).toBe('image/png');
+    }
   });
 
   it('destroys the source stream when the client goes away', async () => {

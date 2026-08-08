@@ -1,6 +1,5 @@
 import { Inject, Injectable, Optional, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import fs = require('fs');
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
 
@@ -94,9 +93,17 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
   }
 
   /**
-   * Set avatar image
+   * Point the user's avatar at an already-stored file
+   *
+   * Takes the file ID rather than the upload itself: the bytes belong in the central
+   * file storage (GridFS/S3) so every replica can serve them, and putting that
+   * dependency here is not possible — `UserService` is instantiated by
+   * `CoreAuthModule`, which knows nothing about the project's `FileModule`.
+   * `AvatarController` therefore stores the file and calls this with the resulting id.
+   *
+   * @returns the PREVIOUS avatar id, so the caller can delete the orphaned file
    */
-  async setAvatar(file: Express.Multer.File, user: User): Promise<string> {
+  async setAvatar(avatarId: string, user: User): Promise<string> {
     const dbUser = await this.mainDbModel.findOne({ id: user.id }).exec();
     // Check user: the token is valid but the account no longer exists, so the session really is
     // invalid — 401 is right here. (A permission error would have to be 403, see accessDeniedException.)
@@ -105,25 +112,17 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     }
 
     // Check file
-    if (!file) {
+    if (!avatarId) {
       throw new UnprocessableEntityException('Missing avatar file');
     }
 
-    // Remove old avatar image
-    if (user.avatar) {
-      fs.unlink(`${this.configService.configFastButReadOnly.staticAssets.path}/avatars/${user.avatar}`, (err) => {
-        if (err) {
-          console.error(err);
-        }
-      });
-    }
+    const previousAvatar = dbUser.avatar;
 
-    // Update user
-    dbUser.avatar = file.filename;
+    // The avatar is referenced by file id and served via GET /files/id/:id
+    dbUser.avatar = avatarId;
 
     await dbUser.save();
 
-    // Return user
-    return file.filename;
+    return previousAvatar;
   }
 }

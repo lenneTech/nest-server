@@ -1,6 +1,4 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { createWriteStream } from 'fs';
-import fs = require('fs');
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
@@ -61,21 +59,11 @@ export class FileResolver {
   @Mutation(() => Boolean)
   @Roles(RoleEnum.ADMIN)
   async uploadFiles(@Args({ name: 'files', type: () => [GraphQLUpload] }) files: FileUpload[]) {
-    // Save files in filesystem
-    const promises: Promise<any>[] = [];
-    for (const file of files) {
-      const { createReadStream, filename } = await file;
-      await fs.promises.mkdir('./uploads', { recursive: true });
-      promises.push(
-        new Promise((resolve, reject) =>
-          createReadStream()
-            .pipe(createWriteStream(`./uploads/${filename}`))
-            .on('finish', () => resolve(true))
-            .on('error', (error) => reject(error)),
-        ),
-      );
-    }
-    await Promise.allSettled(promises);
+    // Store in the central file storage (GridFS/S3), never on the pod's own disk:
+    // `./uploads` is relative to the process working directory, so with more than
+    // one replica the file lands wherever the request happened to be routed and is
+    // unreadable everywhere else — and gone after a restart.
+    await this.fileService.createFiles(files);
     return true;
   }
 }

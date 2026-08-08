@@ -70,12 +70,12 @@ describe('HubTraceBufferService', () => {
   });
 
   describe('record + getData', () => {
-    it('records a completed request with method, path and duration, and summarises', () => {
+    it('records a completed request with method, path and duration, and summarises', async () => {
       const service = new HubTraceBufferService(makeConfig());
       const { req, res } = reqRes('/permissions/json');
       service.record(req, res, 12.5, false, '/permissions/json');
 
-      const data = service.getData();
+      const data = await service.getData();
       expect(data.traces).toHaveLength(1);
       expect(data.traces[0].method).toBe('GET');
       expect(data.traces[0].path).toBe('/permissions/json');
@@ -84,27 +84,27 @@ describe('HubTraceBufferService', () => {
       expect(data.summary.avgMs).toBe(12.5);
     });
 
-    it('flags slow and error traces in the summary', () => {
+    it('flags slow and error traces in the summary', async () => {
       const service = new HubTraceBufferService(makeConfig());
       const slow = reqRes('/slow');
       service.record(slow.req, slow.res, 5000, false, '/slow');
       const err = reqRes('/boom', 'GET', 500);
       service.record(err.req, err.res, 3, false, '/boom');
 
-      const data = service.getData();
+      const data = await service.getData();
       expect(data.summary.slowCount).toBe(1);
       expect(data.summary.errorCount).toBe(1);
     });
 
-    it('supports cursor-based polling via since', () => {
+    it('supports cursor-based polling via since', async () => {
       const service = new HubTraceBufferService(makeConfig());
       const a = reqRes('/a');
       service.record(a.req, a.res, 1, false, '/a');
-      const cursor = service.getData().cursor;
+      const cursor = (await service.getData()).cursor;
       const b = reqRes('/b');
       service.record(b.req, b.res, 2, false, '/b');
 
-      const next = service.getData(cursor);
+      const next = await service.getData(cursor);
       expect(next.traces).toHaveLength(1);
       expect(next.traces[0].path).toBe('/b');
     });

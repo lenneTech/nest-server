@@ -3,6 +3,8 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
+import { ConfigService } from '../../common/services/config.service';
+import { CoreS3Service } from '../../common/services/core-s3.service';
 import { CoreTusController } from './core-tus.controller';
 import { CoreTusService } from './core-tus.service';
 import { TUS_CONFIG } from './tus.constants';
@@ -166,10 +168,20 @@ export class TusModule implements OnModuleInit {
           useValue: config,
         },
         {
-          inject: [getConnectionToken(), TUS_CONFIG],
+          inject: [
+            getConnectionToken(),
+            TUS_CONFIG,
+            ConfigService,
+            { optional: true, token: CoreS3Service },
+          ],
           provide: CoreTusService,
-          useFactory: async (connection: Connection, tusConfig: ITusConfig) => {
-            const service = new CoreTusService(connection);
+          useFactory: async (
+            connection: Connection,
+            tusConfig: ITusConfig,
+            configService: ConfigService,
+            s3Service?: CoreS3Service,
+          ) => {
+            const service = new CoreTusService(connection, { configService, s3Service });
             service.configure(tusConfig);
             // Manually call onModuleInit since useFactory bypasses lifecycle hooks
             await service.onModuleInit();

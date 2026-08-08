@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import { redactSensitiveText } from '../../../common/helpers/logging.helper';
+import { CoreRedisService } from '../../../common/services/core-redis.service';
 import { HUB_CONFIG } from '../hub.constants';
-import { HubRingBuffer } from '../hub-ring-buffer';
+import { HubBuffer } from '../hub-buffer';
 import { HubMailboxData, HubMailboxEntry } from '../interfaces/hub-panels.interface';
 import { IHubCapturedMailInput, IHubEmailCapture, ResolvedHubConfig } from '../interfaces/hub-config.interface';
 
@@ -24,14 +25,17 @@ const TRUNCATION_MARKER = '… [truncated]';
  */
 @Injectable()
 export class CoreHubMailboxService implements IHubEmailCapture {
-  protected readonly buffer: HubRingBuffer<StoredMail>;
+  protected readonly buffer: HubBuffer<StoredMail>;
   protected readonly mode: 'capture' | 'copy';
 
-  constructor(@Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig) {
+  constructor(
+    @Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig,
+    @Optional() protected readonly redis?: CoreRedisService,
+  ) {
     const mailbox =
       config.mailbox === false ? { capacity: 100, maxMailSize: 262144, mode: 'capture' as const } : config.mailbox;
     this.mode = mailbox.mode;
-    this.buffer = new HubRingBuffer<StoredMail>(mailbox.capacity);
+    this.buffer = new HubBuffer<StoredMail>(mailbox.capacity, 'mailbox', redis);
   }
 
   /** Record a mail. Returns true when the caller should SKIP the transport (capture mode). */
@@ -40,7 +44,13 @@ export class CoreHubMailboxService implements IHubEmailCapture {
     return this.mode === 'capture';
   }
 
-  /** Convenience for tests/actions: capture and return the assigned seq. */
+  /**
+   * Convenience for tests/actions: capture and return the assigned seq.
+   *
+   * The returned seq is the PROCESS-LOCAL one. When the mailbox is Redis-backed, the seq the
+   * panels (and {@link CoreHubMailboxService.getMailHtml}) use comes from the shared counter and
+   * will differ — read it from `getMailbox()` instead of assuming this value.
+   */
   captureAndGetSeq(mail: IHubCapturedMailInput): number {
     return this.store(mail).seq;
   }
@@ -51,8 +61,8 @@ export class CoreHubMailboxService implements IHubEmailCapture {
   }
 
   /** Stored HTML (or text fallback) for a mail, for the sandboxed preview iframe. */
-  getMailHtml(seq: number): string | undefined {
-    const mail = this.buffer.recent().find((m) => m.seq === seq);
+  async getMailHtml(seq: number): Promise<string | undefined> {
+    const mail = (await this.buffer.read()).entries.find((m) => m.seq === seq);
     if (!mail) {
       return undefined;
     }
@@ -60,11 +70,11 @@ export class CoreHubMailboxService implements IHubEmailCapture {
   }
 
   /** Mailbox listing (metadata only), oldest→newest, optionally since a cursor. */
-  getMailbox(since?: number): HubMailboxData {
-    const entries = since === undefined ? this.buffer.recent() : this.buffer.since(since);
+  async getMailbox(since?: number): Promise<HubMailboxData> {
+    const { cursor, dropped, entries } = await this.buffer.read(since);
     return {
-      cursor: this.buffer.lastSeq,
-      dropped: this.buffer.firstRetainedSeq,
+      cursor,
+      dropped,
       mails: entries.map(toEntry),
       mode: this.mode,
     };

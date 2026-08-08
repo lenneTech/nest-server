@@ -46,6 +46,7 @@ export const DEFAULT_TUS_CONFIG: Required<
   expiration: { enabled: true, expiresIn: '24h' },
   maxSize: 50 * 1024 * 1024 * 1024, // 50 GB
   path: '/tus',
+  s3Staging: true,
   termination: true,
   uploadDir: 'uploads/tus',
 };

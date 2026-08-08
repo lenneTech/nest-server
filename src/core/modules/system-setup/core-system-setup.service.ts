@@ -9,6 +9,17 @@ import { CoreBetterAuthService } from '../better-auth/core-better-auth.service';
 import { ErrorCode } from '../error-code/error-codes';
 
 /**
+ * Collection holding the bootstrap claim markers.
+ *
+ * Native collection access is intentional here: no Mongoose schema exists for it
+ * (see docs/native-driver-security.md).
+ */
+const SETUP_LOCK_COLLECTION = 'system-setup-locks';
+
+/** `_id` of the marker claiming the initial-admin creation */
+const INITIAL_ADMIN_LOCK_ID = 'initial-admin';
+
+/**
  * Input for creating the initial admin user
  */
 export interface SystemSetupInitInput {
@@ -101,6 +112,14 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       return;
     }
 
+    // Atomic claim: the zero-users check above is check-then-act, so N replicas booting
+    // at the same time would each pass it and each create an admin. Only the replica that
+    // INSERTS the marker proceeds.
+    if (!(await this.claimInitialAdminSetup())) {
+      this.logger.debug('Initial admin auto-creation skipped (claimed by another instance)');
+      return;
+    }
+
     try {
       const result = await this.createInitialAdmin({
         email: initialAdmin.email,
@@ -109,6 +128,10 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       });
       this.logger.log(`Auto-created initial admin on startup: ${result.email}`);
     } catch (error) {
+      // Release the claim, otherwise a replica that crashed mid-creation would block
+      // setup on every future boot.
+      await this.releaseInitialAdminSetupClaim();
+
       if (error instanceof ForbiddenException) {
         this.logger.log('Initial admin auto-creation skipped (users already exist)');
       } else {
@@ -116,6 +139,48 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
           `Initial admin auto-creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
       }
+    }
+  }
+
+  /**
+   * Try to claim the initial-admin creation for this instance
+   *
+   * The upsert on a fixed `_id` is atomic, so exactly one of N concurrently booting
+   * replicas sees no previous document and wins the claim.
+   *
+   * @returns true when this instance may create the initial admin
+   */
+  protected async claimInitialAdminSetup(): Promise<boolean> {
+    try {
+      const previous = await this.connection.collection(SETUP_LOCK_COLLECTION).findOneAndUpdate(
+        { _id: INITIAL_ADMIN_LOCK_ID as any },
+        { $setOnInsert: { claimedAt: new Date() } },
+        { returnDocument: 'before', upsert: true },
+      );
+
+      // No previous document → this instance inserted the marker and owns the setup
+      return !previous;
+    } catch (error) {
+      // Two replicas upserting the same `_id` at the very same moment: one insert wins,
+      // the other gets a duplicate key error — which means the claim is taken.
+      if (error instanceof Error && (error.message?.includes('duplicate key') || error.message?.includes('E11000'))) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Remove the initial-admin claim marker so a later boot can retry the setup
+   */
+  protected async releaseInitialAdminSetupClaim(): Promise<void> {
+    try {
+      await this.connection.collection(SETUP_LOCK_COLLECTION).deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any });
+    } catch (error) {
+      // Never mask the failure that triggered the release
+      this.logger.warn(
+        `Failed to release initial admin setup claim: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 

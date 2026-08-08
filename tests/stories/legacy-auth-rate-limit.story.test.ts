@@ -40,32 +40,29 @@ describe('Story: Legacy Auth Rate Limiting', () => {
     });
 
     describe('Disabled State (Default - Backward Compatible)', () => {
-      it('should be disabled by default', () => {
+      it('should be disabled by default', async () => {
         expect(rateLimiter.isEnabled()).toBe(false);
       });
 
-      it('should allow all requests when disabled', () => {
-        const result = rateLimiter.check('192.168.1.1', 'signIn');
+      it('should allow all requests when disabled', async () => {
+        const result = await rateLimiter.check('192.168.1.1', 'signIn');
 
         expect(result.allowed).toBe(true);
         expect(result.limit).toBe(Infinity);
         expect(result.remaining).toBe(Infinity);
       });
 
-      it('should not throw when no configuration is provided', () => {
+      it('should not throw when no configuration is provided', async () => {
         // This tests backward compatibility - no config means rate limiting is off
-        expect(() => {
-          const result = rateLimiter.check('192.168.1.1', 'signIn');
-          expect(result.allowed).toBe(true);
-        }).not.toThrow();
+        await expect(rateLimiter.check('192.168.1.1', 'signIn')).resolves.toMatchObject({ allowed: true });
       });
 
-      it('should allow unlimited requests when disabled', () => {
+      it('should allow unlimited requests when disabled', async () => {
         const ip = '192.168.1.100';
 
         // Make 100 requests - all should be allowed when disabled
         for (let i = 0; i < 100; i++) {
-          const result = rateLimiter.check(ip, 'signIn');
+          const result = await rateLimiter.check(ip, 'signIn');
           expect(result.allowed).toBe(true);
         }
       });
@@ -81,93 +78,93 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         });
       });
 
-      it('should be enabled after configuration', () => {
+      it('should be enabled after configuration', async () => {
         expect(rateLimiter.isEnabled()).toBe(true);
       });
 
-      it('should return configured message', () => {
+      it('should return configured message', async () => {
         expect(rateLimiter.getMessage()).toBe('Too many login attempts');
       });
 
-      it('should allow first request', () => {
-        const result = rateLimiter.check('192.168.1.1', 'signIn');
+      it('should allow first request', async () => {
+        const result = await rateLimiter.check('192.168.1.1', 'signIn');
 
         expect(result.allowed).toBe(true);
         expect(result.current).toBe(1);
         expect(result.remaining).toBe(4);
       });
 
-      it('should track multiple requests from same IP', () => {
+      it('should track multiple requests from same IP', async () => {
         const ip = '192.168.1.100';
 
         // First request
-        const result1 = rateLimiter.check(ip, 'signIn');
+        const result1 = await rateLimiter.check(ip, 'signIn');
         expect(result1.current).toBe(1);
         expect(result1.remaining).toBe(4);
 
         // Second request
-        const result2 = rateLimiter.check(ip, 'signIn');
+        const result2 = await rateLimiter.check(ip, 'signIn');
         expect(result2.current).toBe(2);
         expect(result2.remaining).toBe(3);
 
         // Third request
-        const result3 = rateLimiter.check(ip, 'signIn');
+        const result3 = await rateLimiter.check(ip, 'signIn');
         expect(result3.current).toBe(3);
         expect(result3.remaining).toBe(2);
       });
 
-      it('should block requests after limit exceeded', () => {
+      it('should block requests after limit exceeded', async () => {
         const ip = '192.168.1.101';
 
         // Make 5 allowed requests
         for (let i = 0; i < 5; i++) {
-          const result = rateLimiter.check(ip, 'signIn');
+          const result = await rateLimiter.check(ip, 'signIn');
           expect(result.allowed).toBe(true);
         }
 
         // 6th request should be blocked
-        const blocked = rateLimiter.check(ip, 'signIn');
+        const blocked = await rateLimiter.check(ip, 'signIn');
         expect(blocked.allowed).toBe(false);
         expect(blocked.remaining).toBe(0);
         expect(blocked.current).toBe(6);
       });
 
-      it('should track different endpoints separately', () => {
+      it('should track different endpoints separately', async () => {
         const ip = '192.168.1.102';
 
         // Make 5 requests to signIn
         for (let i = 0; i < 5; i++) {
-          rateLimiter.check(ip, 'signIn');
+          await rateLimiter.check(ip, 'signIn');
         }
 
         // signIn should now be blocked
-        const signInBlocked = rateLimiter.check(ip, 'signIn');
+        const signInBlocked = await rateLimiter.check(ip, 'signIn');
         expect(signInBlocked.allowed).toBe(false);
 
         // But signUp should still be allowed (different endpoint)
-        const signUpAllowed = rateLimiter.check(ip, 'signUp');
+        const signUpAllowed = await rateLimiter.check(ip, 'signUp');
         expect(signUpAllowed.allowed).toBe(true);
         expect(signUpAllowed.current).toBe(1);
       });
 
-      it('should track different IPs separately', () => {
+      it('should track different IPs separately', async () => {
         const ip1 = '192.168.1.10';
         const ip2 = '192.168.1.11';
 
         // Exhaust limit for ip1
         for (let i = 0; i < 5; i++) {
-          rateLimiter.check(ip1, 'signIn');
+          await rateLimiter.check(ip1, 'signIn');
         }
-        expect(rateLimiter.check(ip1, 'signIn').allowed).toBe(false);
+        expect((await await rateLimiter.check(ip1, 'signIn')).allowed).toBe(false);
 
         // ip2 should still be allowed
-        const result = rateLimiter.check(ip2, 'signIn');
+        const result = await rateLimiter.check(ip2, 'signIn');
         expect(result.allowed).toBe(true);
         expect(result.current).toBe(1);
       });
 
-      it('should provide resetIn time', () => {
-        const result = rateLimiter.check('192.168.1.200', 'signIn');
+      it('should provide resetIn time', async () => {
+        const result = await rateLimiter.check('192.168.1.200', 'signIn');
         expect(result.resetIn).toBeGreaterThan(0);
         expect(result.resetIn).toBeLessThanOrEqual(60);
       });
@@ -182,32 +179,32 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         });
       });
 
-      it('should reset rate limit for specific IP', () => {
+      it('should reset rate limit for specific IP', async () => {
         const ip = '192.168.1.50';
 
         // Exhaust limit
         for (let i = 0; i < 3; i++) {
-          rateLimiter.check(ip, 'signIn');
+          await rateLimiter.check(ip, 'signIn');
         }
-        expect(rateLimiter.check(ip, 'signIn').allowed).toBe(false);
+        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
 
         // Reset
-        rateLimiter.reset(ip);
+        await rateLimiter.reset(ip);
 
         // Should be allowed again
-        const result = rateLimiter.check(ip, 'signIn');
+        const result = await rateLimiter.check(ip, 'signIn');
         expect(result.allowed).toBe(true);
         expect(result.current).toBe(1);
       });
 
-      it('should clear all entries', () => {
-        rateLimiter.check('192.168.1.1', 'signIn');
-        rateLimiter.check('192.168.1.2', 'signIn');
+      it('should clear all entries', async () => {
+        await rateLimiter.check('192.168.1.1', 'signIn');
+        await rateLimiter.check('192.168.1.2', 'signIn');
 
         const statsBefore = rateLimiter.getStats();
         expect(statsBefore.activeEntries).toBeGreaterThan(0);
 
-        rateLimiter.clear();
+        await rateLimiter.clear();
 
         const statsAfter = rateLimiter.getStats();
         expect(statsAfter.activeEntries).toBe(0);
@@ -215,7 +212,7 @@ describe('Story: Legacy Auth Rate Limiting', () => {
     });
 
     describe('Statistics', () => {
-      it('should report enabled status', () => {
+      it('should report enabled status', async () => {
         expect(rateLimiter.getStats().enabled).toBe(false);
 
         rateLimiter.configure({ enabled: true });
@@ -223,21 +220,21 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         expect(rateLimiter.getStats().enabled).toBe(true);
       });
 
-      it('should report active entries count', () => {
+      it('should report active entries count', async () => {
         rateLimiter.configure({ enabled: true });
 
         expect(rateLimiter.getStats().activeEntries).toBe(0);
 
-        rateLimiter.check('192.168.1.1', 'signIn');
+        await rateLimiter.check('192.168.1.1', 'signIn');
         expect(rateLimiter.getStats().activeEntries).toBe(1);
 
-        rateLimiter.check('192.168.1.2', 'signUp');
+        await rateLimiter.check('192.168.1.2', 'signUp');
         expect(rateLimiter.getStats().activeEntries).toBe(2);
       });
     });
 
     describe('Configuration Defaults - Presence Implies Enabled Pattern', () => {
-      it('should enable with defaults when empty object is passed', () => {
+      it('should enable with defaults when empty object is passed', async () => {
         // Just passing {} should enable with all default values
         rateLimiter.configure({});
 
@@ -246,27 +243,27 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         // Should use defaults: max=10, windowSeconds=60
         const ip = '192.168.1.200';
         for (let i = 0; i < 10; i++) {
-          expect(rateLimiter.check(ip, 'signIn').allowed).toBe(true);
+          expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
         }
-        expect(rateLimiter.check(ip, 'signIn').allowed).toBe(false);
+        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
       });
 
-      it('should use default message when not configured', () => {
+      it('should use default message when not configured', async () => {
         rateLimiter.configure({});
         expect(rateLimiter.getMessage()).toBe('Too many requests, please try again later.');
       });
 
-      it('should stay disabled when config is undefined (backward compatible)', () => {
+      it('should stay disabled when config is undefined (backward compatible)', async () => {
         rateLimiter.configure(undefined);
         expect(rateLimiter.isEnabled()).toBe(false);
       });
 
-      it('should stay disabled when config is null (backward compatible)', () => {
+      it('should stay disabled when config is null (backward compatible)', async () => {
         rateLimiter.configure(null);
         expect(rateLimiter.isEnabled()).toBe(false);
       });
 
-      it('should allow pre-configuring without enabling via enabled: false', () => {
+      it('should allow pre-configuring without enabling via enabled: false', async () => {
         rateLimiter.configure({
           enabled: false,
           max: 20,
@@ -276,10 +273,10 @@ describe('Story: Legacy Auth Rate Limiting', () => {
 
         expect(rateLimiter.isEnabled()).toBe(false);
         // All requests should be allowed when disabled
-        expect(rateLimiter.check('192.168.1.1', 'signIn').allowed).toBe(true);
+        expect((await await rateLimiter.check('192.168.1.1', 'signIn')).allowed).toBe(true);
       });
 
-      it('should enable automatically when any config property is set', () => {
+      it('should enable automatically when any config property is set', async () => {
         // Just setting max should enable the feature
         rateLimiter.configure({ max: 5 });
         expect(rateLimiter.isEnabled()).toBe(true);
@@ -287,9 +284,9 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         // Use configured max
         const ip = '192.168.1.201';
         for (let i = 0; i < 5; i++) {
-          expect(rateLimiter.check(ip, 'signIn').allowed).toBe(true);
+          expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
         }
-        expect(rateLimiter.check(ip, 'signIn').allowed).toBe(false);
+        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
       });
     });
 
@@ -301,23 +298,23 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         });
       });
 
-      it('should handle IPv4 addresses', () => {
+      it('should handle IPv4 addresses', async () => {
         // This tests that the rate limiter can process IPv4 addresses
-        const result = rateLimiter.check('192.168.1.1', 'signIn');
+        const result = await rateLimiter.check('192.168.1.1', 'signIn');
         expect(result.allowed).toBe(true);
       });
 
-      it('should handle IPv6 addresses', () => {
+      it('should handle IPv6 addresses', async () => {
         // This tests that the rate limiter can process IPv6 addresses
-        const result = rateLimiter.check('2001:db8:85a3::8a2e:370:7334', 'signIn');
+        const result = await rateLimiter.check('2001:db8:85a3::8a2e:370:7334', 'signIn');
         expect(result.allowed).toBe(true);
       });
 
-      it('should handle localhost addresses', () => {
-        const result1 = rateLimiter.check('127.0.0.1', 'signIn');
+      it('should handle localhost addresses', async () => {
+        const result1 = await rateLimiter.check('127.0.0.1', 'signIn');
         expect(result1.allowed).toBe(true);
 
-        const result2 = rateLimiter.check('::1', 'signUp');
+        const result2 = await rateLimiter.check('::1', 'signUp');
         expect(result2.allowed).toBe(true);
       });
     });

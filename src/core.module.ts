@@ -33,7 +33,10 @@ import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
+import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
 import { CoreRedisService } from './core/common/services/core-redis.service';
+import { CoreS3Service } from './core/common/services/core-s3.service';
+import { CoreShutdownDelayService } from './core/common/services/core-shutdown-delay.service';
 import { EmailService } from './core/common/services/email.service';
 import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
@@ -275,7 +278,10 @@ export class CoreModule implements NestModule {
       },
 
       // Core Services
+      CoreCronJobsInitializer,
       CoreRedisService,
+      CoreS3Service,
+      CoreShutdownDelayService,
       EmailService,
       TemplateService,
       MailjetService,
@@ -532,7 +538,7 @@ export class CoreModule implements NestModule {
     }
 
     // Set exports
-    const exports: any[] = [ConfigService, CoreRedisService, EmailService, TemplateService, MailjetService];
+    const exports: any[] = [ConfigService, CoreRedisService, CoreS3Service, EmailService, TemplateService, MailjetService];
     if (!process.env.VITEST && isGraphQlEnabled) {
       exports.push(ComplexityPlugin);
     }

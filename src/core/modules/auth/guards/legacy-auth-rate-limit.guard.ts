@@ -26,14 +26,14 @@ import { LegacyAuthRateLimiter } from '../services/legacy-auth-rate-limiter.serv
 export class LegacyAuthRateLimitGuard implements CanActivate {
   constructor(private readonly rateLimiter: LegacyAuthRateLimiter) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // If rate limiting is disabled, always allow
     if (!this.rateLimiter.isEnabled()) {
       return true;
     }
 
     const { endpoint, ip } = this.extractRequestInfo(context);
-    const result = this.rateLimiter.check(ip, endpoint);
+    const result = await this.rateLimiter.check(ip, endpoint);
 
     if (!result.allowed) {
       throw new HttpException(

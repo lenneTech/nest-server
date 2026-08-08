@@ -2,9 +2,25 @@ import { WriteStream } from 'fs-capacitor';
 import { Readable } from 'stream';
 
 /**
+ * What a file store actually needs from an upload.
+ *
+ * `FileUpload` additionally carries the graphql-upload `capacitor`, which no
+ * store touches — so requiring the full type would exclude every upload that did
+ * not arrive over GraphQL (a multer REST upload being the case in point, see
+ * `multerFileToUpload()`). `FileUpload` satisfies this structurally, so both
+ * paths share a single service signature.
+ */
+export interface FileUploadSource {
+  createReadStream: (options?: unknown) => Readable;
+  encoding?: string;
+  filename: string;
+  mimetype: string;
+}
+
+/**
  * Interface for file uploads
  */
-export interface FileUpload {
+export interface FileUpload extends FileUploadSource {
   /**
    * A private implementation detail that shouldn’t be used outside
    */

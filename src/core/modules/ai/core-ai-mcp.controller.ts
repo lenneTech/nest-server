@@ -1,10 +1,12 @@
-import { Controller, Delete, Get, Logger, Post, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Logger, Optional, Post, Req, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
+import { hostname } from 'node:os';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
@@ -26,6 +28,15 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
  *
  * When `ai.mcp.oauth` is enabled, the handler additionally accepts OAuth 2.1 access
  * tokens (see `mountAiMcpOAuth`); otherwise it authenticates via Bearer/session token.
+ *
+ * ## Multi-replica
+ *
+ * A Streamable-HTTP transport is a live object holding the open response stream — it cannot
+ * be serialized, so the session map is inherently process-local and `/ai/mcp` REQUIRES sticky
+ * sessions behind a load balancer. When Redis is configured, session ids are additionally
+ * registered in a shared registry (owner = `<hostname>:<pid>`), which turns a mis-routed
+ * request into an explicit 409 naming the owning replica instead of a misleading
+ * "unknown session" 404. Without Redis the behavior is unchanged.
  */
 @ApiExcludeController()
 @Controller('ai/mcp')
@@ -39,9 +50,20 @@ export class CoreAiMcpController {
   /** Cap on concurrent MCP sessions (oldest evicted on overflow). */
   private readonly maxSessions = 500;
 
+  /** Owner id written into the shared registry — identifies THIS replica. */
+  protected readonly instanceId = `${hostname()}:${process.pid}`;
+
+  /**
+   * TTL of a shared registry entry. The local map is bounded by `maxSessions`, not by time,
+   * so this TTL exists only to let a crashed replica's entries expire from Redis. It is
+   * refreshed on every request of a session.
+   */
+  protected readonly sessionTtlSeconds = 3600;
+
   constructor(
     private readonly mcpService: CoreAiMcpService,
     private readonly oauthService: CoreAiMcpOAuthService,
+    @Optional() protected readonly redisService?: CoreRedisService,
   ) {}
 
   @Post()
@@ -54,6 +76,14 @@ export class CoreAiMcpController {
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let entry = sessionId ? this.transports.get(sessionId) : undefined;
+
+    if (!entry && sessionId) {
+      const owner = await this.foreignSessionOwner(sessionId);
+      if (owner) {
+        this.foreignSession(res, owner);
+        return;
+      }
+    }
 
     if (!entry) {
       let StreamableHTTPServerTransport: any;
@@ -79,6 +109,7 @@ export class CoreAiMcpController {
       transport.onclose = () => {
         if (transport.sessionId) {
           this.transports.delete(transport.sessionId);
+          this.releaseSession(transport.sessionId);
         }
       };
       entry = { lastUsed: Date.now(), transport };
@@ -88,9 +119,13 @@ export class CoreAiMcpController {
     await entry.transport.handleRequest(req, res, req.body);
 
     // The sessionId is assigned during handleRequest (initialize); register after.
-    if (entry.transport.sessionId && !this.transports.has(entry.transport.sessionId)) {
-      this.evictIfNeeded();
-      this.transports.set(entry.transport.sessionId, entry);
+    if (entry.transport.sessionId) {
+      if (!this.transports.has(entry.transport.sessionId)) {
+        this.evictIfNeeded();
+        this.transports.set(entry.transport.sessionId, entry);
+      }
+      // Also refreshes the TTL for an already-registered session.
+      this.registerSession(entry.transport.sessionId);
     }
   }
 
@@ -163,11 +198,76 @@ export class CoreAiMcpController {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     const entry = sessionId ? this.transports.get(sessionId) : undefined;
     if (!entry) {
+      const owner = sessionId ? await this.foreignSessionOwner(sessionId) : undefined;
+      if (owner) {
+        this.foreignSession(res, owner);
+        return;
+      }
       res.status(404).json({ error: 'Unknown or expired MCP session' });
       return;
     }
     entry.lastUsed = Date.now();
+    this.registerSession(sessionId as string);
     await entry.transport.handleRequest(req, res, (req as any).body);
+  }
+
+  /**
+   * Owner of a session that this process does not hold, or undefined when Redis is disabled,
+   * the session is unknown or it belongs to this instance. Never throws: a registry outage
+   * must degrade to the plain "unknown session" path, not to a 500.
+   */
+  protected async foreignSessionOwner(sessionId: string): Promise<string | undefined> {
+    if (!this.redisService?.enabled) {
+      return undefined;
+    }
+    try {
+      const owner = await this.redisService.getClient().get(this.sessionKey(sessionId));
+      return owner && owner !== this.instanceId ? owner : undefined;
+    } catch (err) {
+      this.logger.debug(`MCP session registry lookup failed: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /** Register the session (or refresh its TTL) in the shared registry. Fire-and-forget. */
+  protected registerSession(sessionId: string): void {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    this.redisService
+      .getClient()
+      .set(this.sessionKey(sessionId), this.instanceId, 'EX', this.sessionTtlSeconds)
+      .catch((err: Error) => this.logger.debug(`MCP session registry write failed: ${err.message}`));
+  }
+
+  /** Drop the session from the shared registry (close/evict). Fire-and-forget. */
+  protected releaseSession(sessionId: string): void {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    this.redisService
+      .getClient()
+      .del(this.sessionKey(sessionId))
+      .catch((err: Error) => this.logger.debug(`MCP session registry delete failed: ${err.message}`));
+  }
+
+  protected sessionKey(sessionId: string): string {
+    return this.redisService!.key('ai-mcp-session', sessionId);
+  }
+
+  /**
+   * 409 Conflict when the session exists — on another replica. The live transport cannot be
+   * moved, so the only fix is routing: name the owner and state the sticky-session requirement
+   * instead of returning a 404 that reads like "your session expired".
+   */
+  protected foreignSession(res: Response, owner: string): void {
+    res.status(409).json({
+      error:
+        `MCP session belongs to another server instance (${owner}); this instance is ${this.instanceId}. `
+        + 'The MCP transport is held in process memory and cannot be shared, so /ai/mcp requires sticky '
+        + 'sessions — route every request of one MCP session to the same replica.',
+      statusCode: 409,
+    });
   }
 
   /**
@@ -229,6 +329,7 @@ export class CoreAiMcpController {
     if (oldestKey) {
       const evicted = this.transports.get(oldestKey);
       this.transports.delete(oldestKey);
+      this.releaseSession(oldestKey);
       try {
         evicted?.transport.close?.();
       } catch {

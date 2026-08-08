@@ -231,11 +231,12 @@ describe('File (e2e)', () => {
   });
 
   it('uploadFilesViaGraphQL', async () => {
-    // Set paths
+    // The multi-upload mutation stores into the CENTRAL file storage (GridFS/S3), not
+    // the process working directory — so this asserts the files are afterwards
+    // retrievable through the API, which is what a second replica would see too.
+    // A `../uploads/<name>` stat would pass on a single pod and prove nothing.
     const local1 = path.join(__dirname, 'test1.txt');
     const local2 = path.join(__dirname, 'test2.txt');
-    const remote1 = path.join(__dirname, '..', 'uploads', 'test1.txt');
-    const remote2 = path.join(__dirname, '..', 'uploads', 'test2.txt');
 
     // Write and send file
     await fs.promises.writeFile(local1, 'Hello GraphQL 1');
@@ -255,15 +256,26 @@ describe('File (e2e)', () => {
 
     expect(res).toEqual(true);
 
-    // Check uploaded files
-    const stat1 = await fs.promises.stat(remote1);
-    expect(!!stat1).toEqual(true);
-    const stat2 = await fs.promises.stat(remote2);
-    expect(!!stat2).toEqual(true);
+    // Both files are downloadable from the store, with their content intact
+    for (const [filename, content] of [
+      ['test1.txt', 'Hello GraphQL 1'],
+      ['test2.txt', 'Hello GraphQL 2'],
+    ]) {
+      const download = await testHelper.download(`/files/${filename}`);
+      expect(download.statusCode).toEqual(200);
+      expect(download.data).toEqual(content);
 
-    // Remove remote files
-    await fs.promises.unlink(remote1);
-    await fs.promises.unlink(remote2);
+      // Clean up the stored file again
+      await testHelper.graphQl(
+        {
+          arguments: { filename },
+          fields: ['id'],
+          name: 'deleteFile',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: users[0].token },
+      );
+    }
   });
 
   // ===================================================================================================================

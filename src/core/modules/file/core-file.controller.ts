@@ -101,6 +101,28 @@ export abstract class CoreFileController {
   }
 
   /**
+   * Presigned S3 URL for a download, or undefined to stream through the API.
+   *
+   * Deliberately fail-soft. A presigned URL is an OPTIMIZATION — it offloads bytes
+   * from the API — so nothing about it may cost the caller their download: a
+   * missing `@aws-sdk/s3-request-presigner`, an S3 outage or a project service
+   * predating this method must all fall through to the streaming path, which
+   * still runs the same rights check and answers a refusal exactly like an
+   * unknown id. Turning any of those into a 500 would also leak that the file
+   * exists, which the streaming path takes care never to do.
+   */
+  protected async resolveDownloadUrl(id: string): Promise<string | undefined> {
+    try {
+      return await this.fileService.getDownloadUrl?.(id);
+    } catch (error) {
+      fileStreamLogger.warn(
+        `Presigned download URL unavailable, falling back to streaming: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Download file by ID
    *
    * More reliable than filename-based download as IDs are unique.
@@ -116,6 +138,12 @@ export abstract class CoreFileController {
     const file = await this.fileService.getFileInfo(id);
     if (!file) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
+    }
+    // S3-stored file with presigned downloads enabled: let the client fetch the
+    // bytes from S3 directly instead of streaming them through the API
+    const url = await this.resolveDownloadUrl(id);
+    if (url) {
+      return res.redirect(302, url);
     }
     const filestream = await this.fileService.getFileStream(id);
     // `getFileStream` answers null when the service's own rights check refuses.
@@ -144,6 +172,10 @@ export abstract class CoreFileController {
     const file = await this.fileService.getFileInfoByName(filename);
     if (!file) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
+    }
+    const url = await this.resolveDownloadUrl(file.id);
+    if (url) {
+      return res.redirect(302, url);
     }
     const filestream = await this.fileService.getFileStream(file.id);
     if (!filestream) {

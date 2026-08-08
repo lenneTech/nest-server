@@ -36,7 +36,7 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
     private readonly betterAuthService: CoreBetterAuthService,
   ) {}
 
-  use(req: Request, res: Response, next: NextFunction) {
+  async use(req: Request, res: Response, next: NextFunction) {
     // Skip if Better-Auth is not enabled
     if (!this.betterAuthService.isEnabled()) {
       return next();
@@ -55,7 +55,7 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
     const path = req.path.startsWith(basePath) ? req.path.substring(basePath.length) : req.path;
 
     // Check rate limit
-    const result = this.rateLimiter.check(ip, path);
+    const result = await this.rateLimiter.check(ip, path);
 
     // Add rate limit headers
     this.addRateLimitHeaders(res, result);

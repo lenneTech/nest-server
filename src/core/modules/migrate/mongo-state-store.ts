@@ -218,6 +218,34 @@ export async function synchronizedUp(opts: MigrationOptions): Promise<void> {
 }
 
 /**
+ * Runs `fn` while holding the migration lock of the given state store
+ *
+ * When the store has no `lockCollectionName`, `fn` runs unsynchronized — a single
+ * replica keeps behaving exactly as before. Stores built by `createMigrationStore()`
+ * carry the default lock collection, so concurrent `migrate up` runs from several
+ * replicas serialize here: the second replica waits, then re-reads the migration
+ * state and finds nothing pending.
+ *
+ * @param stateStore - State store holding the connection URI and lock collection name
+ * @param fn - Work to execute under the lock
+ * @returns Promise with the result of `fn`
+ */
+export async function withMigrationLock<T>(stateStore: MongoStateStore, fn: () => Promise<T>): Promise<T> {
+  const lockCollectionName = stateStore.lockCollectionName;
+
+  if (!lockCollectionName) {
+    return fn();
+  }
+
+  await acquireLock(stateStore.mongodbHost, lockCollectionName);
+  try {
+    return await fn();
+  } finally {
+    await releaseLock(stateStore.mongodbHost, lockCollectionName);
+  }
+}
+
+/**
  * Acquires a lock in MongoDB to ensure only one migration runs at a time
  *
  * @param url - MongoDB connection URI

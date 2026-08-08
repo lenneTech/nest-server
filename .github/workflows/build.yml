@@ -33,6 +33,17 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
 
+      # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
+      # rate limiting, cron dedup, pubsub, S3 file storage). Plain docker runs —
+      # both images boot in ~1s and need no auth setup beyond env vars.
+      - name: Start Redis
+        # 6380 matches the local convention: 6379 is occupied by an auth-protected
+        # TurboOps Redis on lt dev machines, so tests default to 6380 (no auth).
+        run: docker run -d --name ci-redis -p 6380:6379 redis:7-alpine
+
+      - name: Start RustFS (S3)
+        run: docker run -d --name ci-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data -e RUSTFS_OBS_LOGGER_LEVEL=warn rustfs/rustfs:latest server /data
+
       - name: Install dependencies
         run: pnpm install
 
