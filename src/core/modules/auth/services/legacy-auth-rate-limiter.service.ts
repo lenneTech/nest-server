@@ -3,11 +3,7 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IAuthRateLimit } from '../../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreRedisService } from '../../../common/services/core-redis.service';
-import {
-  InMemoryRateLimitStore,
-  RateLimitStore,
-  RedisRateLimitStore,
-} from '../../../common/services/rate-limit-store';
+import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../../common/services/rate-limit-store';
 
 /**
  * Result of a rate limit check

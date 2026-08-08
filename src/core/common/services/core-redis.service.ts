@@ -101,8 +101,8 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
       this.RedisCtor = mod.Redis ?? mod.default;
     } catch {
       throw new Error(
-        'Redis is configured (ServerOptions.redis) but the optional peer dependency "ioredis" is not installed. '
-        + 'Run: pnpm add ioredis',
+        'Redis is configured (ServerOptions.redis) but the optional peer dependency "ioredis" is not installed. ' +
+          'Run: pnpm add ioredis',
       );
     }
     this.sharedClient = this.newConnection('shared');
@@ -147,7 +147,7 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
    * Quit all created connections
    */
   async onApplicationShutdown(): Promise<void> {
-    await Promise.allSettled(this.clients.map(client => client.quit()));
+    await Promise.allSettled(this.clients.map((client) => client.quit()));
     this.clients = [];
     this.sharedClient = undefined;
     this.subscriberClient = undefined;

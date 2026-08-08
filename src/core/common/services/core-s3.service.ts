@@ -89,8 +89,8 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       this.sdk = await import('@aws-sdk/client-s3');
     } catch {
       throw new Error(
-        'S3 is configured (ServerOptions.s3) but the optional peer dependency "@aws-sdk/client-s3" is not installed. '
-        + 'Run: pnpm add @aws-sdk/client-s3',
+        'S3 is configured (ServerOptions.s3) but the optional peer dependency "@aws-sdk/client-s3" is not installed. ' +
+          'Run: pnpm add @aws-sdk/client-s3',
       );
     }
     const { accessKeyId, endpoint, forcePathStyle, region, secretAccessKey } = this.config;
@@ -118,18 +118,57 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
   }
 
   /**
-   * Upload an object to the main bucket
+   * Upload an object to the main bucket.
+   *
+   * A stream needs its length: without `Content-Length` the SDK switches to aws-chunked
+   * encoding and then fails on a missing `x-amz-decoded-content-length`, so a stream of
+   * unknown size is read into memory first. Pass `contentLength` whenever the size is
+   * known — that streams the body straight through instead of buffering it.
    */
-  async putObject(key: string, body: Buffer | Readable | string, contentType?: string): Promise<void> {
+  async putObject(
+    key: string,
+    body: Buffer | Readable | string,
+    contentType?: string,
+    contentLength?: number,
+  ): Promise<void> {
     const { client, config, sdk } = this.requireInit();
+
+    let payload: Buffer | Readable | string = body;
+    let length = contentLength;
+    if (this.isStream(body) && length === undefined) {
+      payload = await this.collect(body);
+      length = payload.length;
+    } else if (length === undefined && typeof body !== 'string') {
+      length = (body as Buffer).length;
+    }
+
     await client.send(
       new sdk.PutObjectCommand({
-        Body: body,
+        Body: payload,
         Bucket: config.bucket,
         ...(contentType ? { ContentType: contentType } : {}),
+        ...(length === undefined ? {} : { ContentLength: length }),
         Key: key,
       }),
     );
+  }
+
+  /**
+   * Whether the value is a readable stream rather than a Buffer or string
+   */
+  protected isStream(body: unknown): body is Readable {
+    return !!body && typeof (body as Readable).pipe === 'function';
+  }
+
+  /**
+   * Read a stream fully into memory (only for a body whose length is not known upfront)
+   */
+  protected async collect(stream: Readable): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -185,8 +224,8 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       presigner = await import('@aws-sdk/s3-request-presigner');
     } catch {
       throw new Error(
-        's3.presignedDownloads is enabled but the optional peer dependency "@aws-sdk/s3-request-presigner" is not installed. '
-        + 'Run: pnpm add @aws-sdk/s3-request-presigner',
+        's3.presignedDownloads is enabled but the optional peer dependency "@aws-sdk/s3-request-presigner" is not installed. ' +
+          'Run: pnpm add @aws-sdk/s3-request-presigner',
       );
     }
     const command = new sdk.GetObjectCommand({

@@ -3,11 +3,7 @@ import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreRedisService } from '../../../common/services/core-redis.service';
-import {
-  InMemoryRateLimitStore,
-  RateLimitStore,
-  RedisRateLimitStore,
-} from '../../../common/services/rate-limit-store';
+import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../../common/services/rate-limit-store';
 import { RequestContext } from '../../../common/services/request-context.service';
 import { ErrorCode } from '../../error-code';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
@@ -936,6 +932,16 @@ export class CoreAiService {
         : new InMemoryRateLimitStore(5000);
     }
     return this.rateLimitStore;
+  }
+
+  /**
+   * Stop the rate-limit store's cleanup interval (for graceful shutdown).
+   * `RedisRateLimitStore` owns an in-memory fallback store, so it needs releasing too.
+   */
+  onModuleDestroy(): void {
+    if (this.rateLimitStore instanceof InMemoryRateLimitStore || this.rateLimitStore instanceof RedisRateLimitStore) {
+      this.rateLimitStore.destroy();
+    }
   }
 
   /**

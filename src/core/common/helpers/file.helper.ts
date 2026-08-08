@@ -227,14 +227,14 @@ export function multerOptionsForImageUpload(options: {
     storage: config.memory
       ? memoryStorage()
       : diskStorage({
-        // Destination for uploaded file
-        // If destination is not set file will be buffered and can be processed
-        // in the method
-        destination: config.destination ? config.destination : undefined,
+          // Destination for uploaded file
+          // If destination is not set file will be buffered and can be processed
+          // in the method
+          destination: config.destination ? config.destination : undefined,
 
-        // Generated random file name
-        filename: multerRandomFileName(),
-      }),
+          // Generated random file name
+          filename: multerRandomFileName(),
+        }),
   };
 }
 
@@ -250,11 +250,15 @@ export function multerOptionsForImageUpload(options: {
  * The returned `createReadStream` is callable more than once: it builds a fresh
  * stream over the same buffer each time, matching graphql-upload's contract.
  */
-export function multerFileToUpload(file: { buffer?: Buffer; mimetype?: string; originalname?: string }): FileUploadSource {
+export function multerFileToUpload(file: {
+  buffer?: Buffer;
+  mimetype?: string;
+  originalname?: string;
+}): FileUploadSource {
   if (!file?.buffer) {
     throw new Error(
-      'multerFileToUpload() needs an in-memory upload: pass `memory: true` to the multer options '
-      + '(a disk-stored file has no buffer).',
+      'multerFileToUpload() needs an in-memory upload: pass `memory: true` to the multer options ' +
+        '(a disk-stored file has no buffer).',
     );
   }
   return {

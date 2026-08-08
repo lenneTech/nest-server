@@ -155,7 +155,7 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         for (let i = 0; i < 5; i++) {
           await rateLimiter.check(ip1, 'signIn');
         }
-        expect((await await rateLimiter.check(ip1, 'signIn')).allowed).toBe(false);
+        expect((await rateLimiter.check(ip1, 'signIn')).allowed).toBe(false);
 
         // ip2 should still be allowed
         const result = await rateLimiter.check(ip2, 'signIn');
@@ -186,7 +186,7 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         for (let i = 0; i < 3; i++) {
           await rateLimiter.check(ip, 'signIn');
         }
-        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
+        expect((await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
 
         // Reset
         await rateLimiter.reset(ip);
@@ -243,9 +243,9 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         // Should use defaults: max=10, windowSeconds=60
         const ip = '192.168.1.200';
         for (let i = 0; i < 10; i++) {
-          expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
+          expect((await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
         }
-        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
+        expect((await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
       });
 
       it('should use default message when not configured', async () => {
@@ -273,7 +273,7 @@ describe('Story: Legacy Auth Rate Limiting', () => {
 
         expect(rateLimiter.isEnabled()).toBe(false);
         // All requests should be allowed when disabled
-        expect((await await rateLimiter.check('192.168.1.1', 'signIn')).allowed).toBe(true);
+        expect((await rateLimiter.check('192.168.1.1', 'signIn')).allowed).toBe(true);
       });
 
       it('should enable automatically when any config property is set', async () => {
@@ -284,9 +284,9 @@ describe('Story: Legacy Auth Rate Limiting', () => {
         // Use configured max
         const ip = '192.168.1.201';
         for (let i = 0; i < 5; i++) {
-          expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
+          expect((await rateLimiter.check(ip, 'signIn')).allowed).toBe(true);
         }
-        expect((await await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
+        expect((await rateLimiter.check(ip, 'signIn')).allowed).toBe(false);
       });
     });
 

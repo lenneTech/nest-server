@@ -2650,13 +2650,15 @@ export interface IS3Config {
    * `true` / `{}` enables with defaults.
    * @default false
    */
-  presignedDownloads?: boolean | {
-    /**
-     * Presigned URL validity in seconds
-     * @default 300
-     */
-    expiresInSeconds?: number;
-  };
+  presignedDownloads?:
+    | boolean
+    | {
+        /**
+         * Presigned URL validity in seconds
+         * @default 300
+         */
+        expiresInSeconds?: number;
+      };
 
   /**
    * AWS region

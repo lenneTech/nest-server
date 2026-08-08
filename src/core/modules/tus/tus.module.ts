@@ -168,12 +168,7 @@ export class TusModule implements OnModuleInit {
           useValue: config,
         },
         {
-          inject: [
-            getConnectionToken(),
-            TUS_CONFIG,
-            ConfigService,
-            { optional: true, token: CoreS3Service },
-          ],
+          inject: [getConnectionToken(), TUS_CONFIG, ConfigService, { optional: true, token: CoreS3Service }],
           provide: CoreTusService,
           useFactory: async (
             connection: Connection,

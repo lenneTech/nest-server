@@ -179,7 +179,11 @@ describe('pipeFileToResponse', () => {
 
     for (const brokenUrlSource of [
       // Throws — S3 outage or missing presigner peer dependency
-      { getDownloadUrl: async () => { throw new Error('S3 unreachable'); } },
+      {
+        getDownloadUrl: async () => {
+          throw new Error('S3 unreachable');
+        },
+      },
       // Absent — a consumer service written before this method existed
       {},
     ]) {

@@ -152,11 +152,13 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   protected async claimInitialAdminSetup(): Promise<boolean> {
     try {
-      const previous = await this.connection.collection(SETUP_LOCK_COLLECTION).findOneAndUpdate(
-        { _id: INITIAL_ADMIN_LOCK_ID as any },
-        { $setOnInsert: { claimedAt: new Date() } },
-        { returnDocument: 'before', upsert: true },
-      );
+      const previous = await this.connection
+        .collection(SETUP_LOCK_COLLECTION)
+        .findOneAndUpdate(
+          { _id: INITIAL_ADMIN_LOCK_ID as any },
+          { $setOnInsert: { claimedAt: new Date() } },
+          { returnDocument: 'before', upsert: true },
+        );
 
       // No previous document → this instance inserted the marker and owns the setup
       return !previous;

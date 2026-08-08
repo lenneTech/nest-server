@@ -203,7 +203,9 @@ export class CoreBetterAuthEmailVerificationService {
           // mark the address as mailed, log success, and skip the SMTP fallback below — leaving the
           // user with no verification email at all on a Brevo outage or a revoked key.
           if (result === null) {
-            this.logger.error(`Brevo verification send failed for ${this.maskEmail(user.email)} — falling back to SMTP`);
+            this.logger.error(
+              `Brevo verification send failed for ${this.maskEmail(user.email)} — falling back to SMTP`,
+            );
             // Deliberately no `return`: fall through to the EmailService path.
           } else {
             sent = true;

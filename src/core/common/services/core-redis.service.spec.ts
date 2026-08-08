@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreRedisService } from './core-redis.service';
@@ -17,10 +18,16 @@ const redisMock = vi.hoisted(() => ({
 
 vi.mock('ioredis', () => {
   class FakeRedis {
+    handlers = new Map<string, (...args: unknown[]) => void>();
     quit = redisMock.quit;
     constructor(...args: unknown[]) {
       redisMock.constructorArgs.push(args);
       redisMock.instances.push(this);
+    }
+
+    on(event: string, handler: (...args: unknown[]) => void): this {
+      this.handlers.set(event, handler);
+      return this;
     }
   }
   return { Redis: FakeRedis, default: FakeRedis };
@@ -151,6 +158,44 @@ describe('CoreRedisService', () => {
       service.createClient('extra');
       await service.onApplicationShutdown();
       expect(redisMock.quit).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('connection errors', () => {
+    it('logs a connection error instead of crashing the process', async () => {
+      const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const service = createService(true);
+      await service.onModuleInit();
+      service.getClient();
+
+      const handler = redisMock.instances[0].handlers.get('error');
+      expect(handler).toBeDefined();
+      // ioredis emits 'error' on every failed reconnect — an unhandled throw here
+      // would take the whole process down.
+      expect(() => handler(new Error('ECONNREFUSED'))).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('ECONNREFUSED'));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('shared'));
+    });
+  });
+
+  describe('missing ioredis package', () => {
+    afterEach(() => {
+      vi.doUnmock('ioredis');
+      vi.resetModules();
+    });
+
+    it('onModuleInit() rejects with an actionable error naming the package and install command', async () => {
+      vi.resetModules();
+      vi.doMock('ioredis', () => {
+        throw new Error("Cannot find module 'ioredis'");
+      });
+      const { CoreRedisService: FreshService } = await import('./core-redis.service');
+      const service = new FreshService({
+        getFastButReadOnly: (key: string) => (key === 'redis' ? true : undefined),
+      } as unknown as ConfigService);
+
+      await expect(service.onModuleInit()).rejects.toThrow(/ioredis/);
+      await expect(service.onModuleInit()).rejects.toThrow(/pnpm add ioredis/);
     });
   });
 });

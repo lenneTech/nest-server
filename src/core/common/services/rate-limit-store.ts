@@ -10,7 +10,7 @@ import type { CoreRedisService } from './core-redis.service';
  * an unescaped `*` or `?` would silently widen the match to other callers' counters.
  */
 function escapeGlob(value: string): string {
-  return value.replace(/[?[\]*\\^]/g, char => `\\${char}`);
+  return value.replace(/[?[\]*\\^]/g, (char) => `\\${char}`);
 }
 
 /**

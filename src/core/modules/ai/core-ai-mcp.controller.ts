@@ -263,9 +263,9 @@ export class CoreAiMcpController {
   protected foreignSession(res: Response, owner: string): void {
     res.status(409).json({
       error:
-        `MCP session belongs to another server instance (${owner}); this instance is ${this.instanceId}. `
-        + 'The MCP transport is held in process memory and cannot be shared, so /ai/mcp requires sticky '
-        + 'sessions — route every request of one MCP session to the same replica.',
+        `MCP session belongs to another server instance (${owner}); this instance is ${this.instanceId}. ` +
+        'The MCP transport is held in process memory and cannot be shared, so /ai/mcp requires sticky ' +
+        'sessions — route every request of one MCP session to the same replica.',
       statusCode: 409,
     });
   }

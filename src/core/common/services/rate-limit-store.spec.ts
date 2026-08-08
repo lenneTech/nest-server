@@ -68,7 +68,7 @@ describe('RedisRateLimitStore', () => {
     return {
       counters,
       del: vi.fn(async (...keys: string[]) => {
-        keys.forEach(key => counters.delete(key));
+        keys.forEach((key) => counters.delete(key));
         return keys.length;
       }),
       eval: vi.fn(async (_script: string, _numKeys: number, key: string, windowSeconds: number) => {
@@ -78,7 +78,7 @@ describe('RedisRateLimitStore', () => {
       }),
       scan: vi.fn(async (_cursor: string, _match: string, pattern: string) => {
         const regex = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`);
-        return ['0', [...counters.keys()].filter(key => regex.test(key))];
+        return ['0', [...counters.keys()].filter((key) => regex.test(key))];
       }),
     };
   }

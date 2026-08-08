@@ -1937,6 +1937,27 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
       expect(captured.status).toBe(404);
     });
 
+    it('degrades to "unknown session" when the registry itself is down', async () => {
+      const redis: any = {
+        enabled: true,
+        getClient: () => ({
+          get: async () => {
+            throw new Error('Connection is closed.');
+          },
+        }),
+        key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+      };
+      const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+
+      // A Redis outage must not propagate — the caller gets the plain 404 path,
+      // never a 500 from the session lookup.
+      expect(await controller.foreignSessionOwner('sess-1')).toBeUndefined();
+
+      const { captured, res } = makeRes();
+      await controller.handleGet(makeReq({ method: 'GET', sessionId: 'sess-1', user: { id: 'u1', roles: [] } }), res);
+      expect(captured.status).toBe(404);
+    });
+
     it('without Redis the session handling is unchanged (no registry calls, plain 404)', async () => {
       const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
       const { captured, res } = makeRes();

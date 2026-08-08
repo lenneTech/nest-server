@@ -538,7 +538,14 @@ export class CoreModule implements NestModule {
     }
 
     // Set exports
-    const exports: any[] = [ConfigService, CoreRedisService, CoreS3Service, EmailService, TemplateService, MailjetService];
+    const exports: any[] = [
+      ConfigService,
+      CoreRedisService,
+      CoreS3Service,
+      EmailService,
+      TemplateService,
+      MailjetService,
+    ];
     if (!process.env.VITEST && isGraphQlEnabled) {
       exports.push(ComplexityPlugin);
     }

@@ -13,7 +13,7 @@ import { CoreS3Service } from '../../common/services/core-s3.service';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { CoreFileInfo } from './core-file-info.model';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
-import { FileUpload, FileUploadSource } from './interfaces/file-upload.interface';
+import { FileUploadSource } from './interfaces/file-upload.interface';
 import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo, streamToBuffer } from './s3-file.helper';
 
 /**
@@ -62,8 +62,8 @@ export abstract class CoreFileService {
    */
   protected get s3Storage(): boolean {
     return (
-      !!this.options?.s3Service?.enabled
-      && this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
+      !!this.options?.s3Service?.enabled &&
+      this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
     );
   }
 
@@ -181,7 +181,8 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
-    const fileInfo = (await this.findS3FileByName(filename)) || (await GridFSHelper.findFileByName(this.files, filename));
+    const fileInfo =
+      (await this.findS3FileByName(filename)) || (await GridFSHelper.findFileByName(this.files, filename));
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 

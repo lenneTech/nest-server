@@ -12,6 +12,10 @@ import type { ConfigService } from '../src/core/common/services/config.service';
  */
 const RUN_BUCKET = `nest-server-e2e-${Date.now()}-p${process.pid}`;
 
+const START_CONTAINER
+  = 'docker run -d --name nest-server-2985-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs '
+    + '-e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:latest server /data';
+
 function createService(): CoreS3Service {
   const s3Config = {
     accessKeyId: process.env.S3_ACCESS_KEY || 'rustfs',
@@ -42,14 +46,40 @@ describe('S3 infrastructure (real RustFS)', () => {
   beforeAll(async () => {
     service = createService();
     await service.onModuleInit();
-    await service.ensureBucket(RUN_BUCKET);
+    try {
+      await service.ensureBucket(RUN_BUCKET);
+    } catch (error) {
+      // A refused connection arrives as an AggregateError with an EMPTY message —
+      // the only readable part is `code`.
+      const reason
+        = error instanceof Error ? error.message || (error as { code?: string }).code || error.name : String(error);
+      throw new Error(
+        `No S3-compatible store reachable on ${process.env.S3_ENDPOINT || 'http://localhost:9102'} `
+        + `(${reason}). Start the test container:\n  ${START_CONTAINER}`, { cause: error },
+      );
+    }
   });
 
   afterAll(async () => {
+    // Drop everything this run created — without removing the bucket itself every
+    // run leaks one. Cleanup must never fail the suite.
     try {
-      await service.deleteObject('smoke/hello.txt');
+      const client = service.getClient();
+      const { DeleteBucketCommand, DeleteObjectsCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+      let continuationToken: string | undefined;
+      do {
+        const listed = await client.send(
+          new ListObjectsV2Command({ Bucket: RUN_BUCKET, ContinuationToken: continuationToken }),
+        );
+        const keys = (listed.Contents ?? []).map(object => ({ Key: object.Key as string }));
+        if (keys.length) {
+          await client.send(new DeleteObjectsCommand({ Bucket: RUN_BUCKET, Delete: { Objects: keys } }));
+        }
+        continuationToken = listed.NextContinuationToken;
+      } while (continuationToken);
+      await client.send(new DeleteBucketCommand({ Bucket: RUN_BUCKET }));
     } catch {
-      // already gone
+      // Store unreachable or bucket never created — nothing to clean up
     }
     await service.onApplicationShutdown();
   });

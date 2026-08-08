@@ -14,11 +14,16 @@ import type { ConfigService } from '../src/core/common/services/config.service';
  */
 const RUN_PREFIX = `nest-server-e2e-${Date.now()}-p${process.pid}`;
 
+const START_CONTAINER = 'docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7-alpine';
+
 function createService(): CoreRedisService {
   const redisConfig = {
     db: 15,
     host: process.env.REDIS_HOST || 'localhost',
     keyPrefix: RUN_PREFIX,
+    // Cap the retry budget: without a container ioredis would otherwise retry for
+    // ~43s and then fail with an opaque MaxRetriesPerRequestError.
+    options: { connectTimeout: 2000, maxRetriesPerRequest: 1, retryStrategy: () => null },
     port: process.env.REDIS_PORT ? Number(process.env.REDIS_PORT) : 6380,
   };
   const configService = {
@@ -33,20 +38,32 @@ describe('Redis infrastructure (real Redis)', () => {
   beforeAll(async () => {
     service = createService();
     await service.onModuleInit();
-    await service.getClient().ping();
+    try {
+      await service.getClient().ping();
+    } catch (error) {
+      throw new Error(
+        `No Redis reachable on ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6380} `
+        + `(${error instanceof Error ? error.message : String(error)}). Start the test container:\n  ${START_CONTAINER}`, { cause: error },
+      );
+    }
   });
 
   afterAll(async () => {
-    // Remove every key this run created, then close connections
-    const client = service.getClient();
-    let cursor = '0';
-    do {
-      const [next, keys] = await client.scan(cursor, 'MATCH', `${RUN_PREFIX}:*`, 'COUNT', 200);
-      if (keys.length) {
-        await client.del(...keys);
-      }
-      cursor = next;
-    } while (cursor !== '0');
+    // Remove every key this run created, then close connections. Cleanup must never
+    // replace the beforeAll error with a follow-up connection failure.
+    try {
+      const client = service.getClient();
+      let cursor = '0';
+      do {
+        const [next, keys] = await client.scan(cursor, 'MATCH', `${RUN_PREFIX}:*`, 'COUNT', 200);
+        if (keys.length) {
+          await client.del(...keys);
+        }
+        cursor = next;
+      } while (cursor !== '0');
+    } catch {
+      // Redis unreachable — nothing to clean up
+    }
     await service.onApplicationShutdown();
   });
 

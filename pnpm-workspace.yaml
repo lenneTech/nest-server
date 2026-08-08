@@ -91,13 +91,13 @@ overrides:
   # The v5 key is floored at >=5.0.0 on purpose: a wider `>=3.0.0` would ALSO match a future 3.x/4.x
   # dependency and silently force it across two majors - which is not what "patch bump" means.
   # Inert today (all three resolve patched). Remove once minimatch requests the patched ranges.
-  'brace-expansion@>=5.0.0 <5.0.8': '5.0.8'
+  'brace-expansion@>=5.0.0 <5.0.9': '5.0.9'
   # The 2.x line no longer resolves at all since the minimatch lift below removed its only parent.
   # Kept anyway, and deliberately: it is not inert because the dependency was fixed, but because
   # ANOTHER override happens to hide it. Drop the minimatch entry and 2.x returns immediately, so
   # deleting this one would couple two unrelated lines. Remove it once minimatch@9 is gone for good.
   'brace-expansion@>=2.0.0 <2.1.2': '2.1.2'
-  'brace-expansion@<1.1.16': '1.1.16'
+  'brace-expansion@<1.1.18': '1.1.18'
   # Security: the real lever for GHSA-mh99-v99m-4gvg. Only brace-expansion 5.0.8 carries the fix, and
   # forcing it onto a minimatch@3 consumer throws "expand is not a function" (5.x exports a namespace
   # object, not a callable). minimatch 10.2.6 REQUESTS ^5.0.8, so lifting every 9.x consumer onto it
@@ -111,12 +111,31 @@ overrides:
   'minimatch@>=9.0.0 <10.2.6': '10.2.6'
   # Security: js-yaml quadratic CPU consumption via YAML merge-key chains (GHSA-52cp-r559-cp3m, high, patched >=4.3.0) - dev only, transitive via @compodoc/compodoc>cosmiconfig and @nestjs/cli>fork-ts-checker-webpack-plugin>cosmiconfig
   # Inert today. Remove once cosmiconfig requests >=4.3.0.
-  'js-yaml@>=4.0.0 <4.3.0': '4.3.0'
+  'js-yaml@>=4.0.0 <4.3.1': '4.3.1'
   # Security: js-yaml exponential parsing time in flow collections (GHSA-pm4m-ph32-ghv5, high, patched >=5.2.2) - transitive via @nestjs/swagger>js-yaml. Separate line from the 4.x entry above: same package, different major.
   'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
   # Security: fast-uri host confusion via failed IDN canonicalization (GHSA-v2hh-gcrm-f6hx, high, patched >=3.1.3) and via literal backslash authority delimiter (high, patched >=3.1.4) - transitive via @modelcontextprotocol/sdk>ajv and @modelcontextprotocol/sdk>ajv-formats>ajv
   # Inert today. Remove once ajv / ajv-formats request >=3.1.4.
-  'fast-uri@>=3.0.0 <3.1.4': '3.1.4'
+  'fast-uri@>=3.0.0 <3.1.5': '3.1.5'
+  # Security: ip-address ReDoS + parser confusion (high + moderate, patched >=10.3.1) - dev/transitive
+  # via @modelcontextprotocol/sdk>express-rate-limit>ip-address.
+  # Remove once express-rate-limit requests >=10.3.1.
+  'ip-address@<10.3.1': '10.3.1'
+  # Security: nanoid predictable output with a non-integer size (high, patched >=3.3.17) - dev only,
+  # transitive via better-auth>vitest>vite>postcss>nanoid. Separate line per major: 5.x is unaffected.
+  # Remove once postcss requests >=3.3.17.
+  'nanoid@>=3.0.0 <3.3.17': '3.3.17'
+  # Security: postcss parsing DoS (moderate, patched >=8.5.23) - dev only, transitive via
+  # better-auth>vitest>vite>postcss. Remove once vite requests >=8.5.23.
+  'postcss@<8.5.23': '8.5.23'
+  # Security: undici request smuggling / header handling (moderate, patched >=7.29.0) - dev only,
+  # transitive via @compodoc/compodoc>cheerio>undici. Remove once cheerio requests >=7.29.0.
+  'undici@>=7.0.0 <7.29.0': '7.29.0'
+  # Security: hono path handling + body-limit bypass (moderate + low, patched >=4.12.34) - transitive
+  # via @modelcontextprotocol/sdk>hono and >@hono/node-server>hono. Floored at >=4.0.0 so the entry
+  # stays a patch bump inside major 4 and cannot drag a future 5.x across a major (see the note above
+  # about the earlier hard-pin form of this entry). Remove once the SDK requests >=4.12.34.
+  'hono@>=4.0.0 <4.12.34': '4.12.34'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'

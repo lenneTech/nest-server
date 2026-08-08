@@ -272,7 +272,7 @@ const LOCK_WAIT_TIMEOUT_MS = 15 * 60_000;
  */
 function startLockHeartbeat(url: string, lockCollectionName: string): { stop: () => void } {
   const timer = setInterval(() => {
-    dbRequest(url, db =>
+    dbRequest(url, (db) =>
       db.collection(lockCollectionName).updateOne({ lock: 'lock' }, { $set: { acquiredAt: new Date() } }),
     ).catch((error) => {
       // A missed heartbeat is not fatal on its own — the next one may succeed, and only
@@ -333,8 +333,8 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
           );
         } else if (Date.now() - acquiredAt.getTime() > LOCK_STALE_AFTER_MS) {
           console.warn(
-            `Breaking stale migration lock in "${lockCollectionName}" (last heartbeat ${acquiredAt.toISOString()}, `
-            + `owner ${holder.owner ?? 'unknown'}) — its holder is gone.`,
+            `Breaking stale migration lock in "${lockCollectionName}" (last heartbeat ${acquiredAt.toISOString()}, ` +
+              `owner ${holder.owner ?? 'unknown'}) — its holder is gone.`,
           );
           // Matching on acquiredAt makes the break safe under concurrency: if another
           // waiter already broke and re-acquired the lock, the timestamp differs and this
@@ -346,10 +346,10 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
 
       if (Date.now() > deadline) {
         throw new Error(
-          `Timed out after ${Math.round(LOCK_WAIT_TIMEOUT_MS / 60_000)} minutes waiting for the migration lock in `
-          + `collection "${lockCollectionName}". Another replica is still migrating, or the lock is held by a process `
-          + `that is alive but stuck. Inspect it with: db.getCollection("${lockCollectionName}").find({}) — and remove `
-          + `the document only once you are sure no migration is running.`,
+          `Timed out after ${Math.round(LOCK_WAIT_TIMEOUT_MS / 60_000)} minutes waiting for the migration lock in ` +
+            `collection "${lockCollectionName}". Another replica is still migrating, or the lock is held by a process ` +
+            `that is alive but stuck. Inspect it with: db.getCollection("${lockCollectionName}").find({}) — and remove ` +
+            `the document only once you are sure no migration is running.`,
         );
       }
 

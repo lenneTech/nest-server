@@ -35,14 +35,43 @@ jobs:
 
       # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
       # rate limiting, cron dedup, pubsub, S3 file storage). Plain docker runs —
-      # both images boot in ~1s and need no auth setup beyond env vars.
+      # both images boot in ~1s and need no auth setup beyond env vars. Each is
+      # followed by a readiness wait so a slow start fails the job with a clear
+      # message instead of an opaque connection error inside the test suite.
       - name: Start Redis
         # 6380 matches the local convention: 6379 is occupied by an auth-protected
         # TurboOps Redis on lt dev machines, so tests default to 6380 (no auth).
         run: docker run -d --name ci-redis -p 6380:6379 redis:7-alpine
 
+      - name: Wait for Redis
+        run: |
+          for i in $(seq 1 30); do
+            if [ "$(docker exec ci-redis redis-cli ping 2>/dev/null)" = "PONG" ]; then
+              echo "Redis ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Redis did not become ready within 30s"
+          docker logs ci-redis
+          exit 1
+
       - name: Start RustFS (S3)
-        run: docker run -d --name ci-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data -e RUSTFS_OBS_LOGGER_LEVEL=warn rustfs/rustfs:latest server /data
+        # Pinned to a concrete released tag (repo policy: fixed versions only).
+        run: docker run -d --name ci-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data -e RUSTFS_OBS_LOGGER_LEVEL=warn rustfs/rustfs:1.0.0-rc.1 server /data
+
+      - name: Wait for RustFS (S3)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://localhost:9102; then
+              echo "RustFS ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::RustFS did not become ready within 60s"
+          docker logs ci-rustfs
+          exit 1
 
       - name: Install dependencies
         run: pnpm install

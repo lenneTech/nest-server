@@ -242,8 +242,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * backend is available at all (fail open: a missing lock must never stop the job).
    */
   protected async acquireLease(name: string, fireTime: Date | 'init'): Promise<boolean> {
-    const leaseKey
-      = fireTime === 'init'
+    const leaseKey =
+      fireTime === 'init'
         ? `${name}:init`
         : `${name}:${new Date(Math.floor(fireTime.getTime() / 1000) * 1000).toISOString()}`;
     const ttlSeconds = fireTime === 'init' ? CRON_INIT_LOCK_TTL_SECONDS : CRON_LOCK_TTL_SECONDS;

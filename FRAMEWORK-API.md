@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-30 (v11.32.4)
+> Auto-generated from source code on 2026-08-08 (v11.33.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -29,6 +29,7 @@
   - `version?`: `string | undefined` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode | undefined` — Configuration for the error code module
   - `execAfterInit?`: `string | undefined` — Exec a command after server is initialized
+  - `fileStorage?`: `"gridfs" | "s3" | undefined` (default: `'gridfs'`) — Storage driver for CoreFileService.
   - `filter?`: `{ maxLimit?: number; } | undefined` — Filter configuration and defaults
   - `graphQl?`: `false | { driver?: ApolloDriverConfig; enableSubscriptionAuth?: boolean; maxC...` — Configuration of the GraphQL module
   - `healthCheck?`: `{ configs?: { build?: { enabled?: boolean; }; database?: { enabled?: boolean;...` — Whether to activate health check endpoints
@@ -42,8 +43,11 @@
   - `multiTenancy?`: `IMultiTenancy | undefined` (default: `undefined (disabled)`) — Multi-tenancy configuration for tenant-based data isolation.
   - `permissions?`: `boolean | IPermissions | undefined` (default: `undefined (disabled)`) — Permissions report module (development tool).
   - `port?`: `number | undefined` — Port number of the server
+  - `redis?`: `boolean | IRedisConfig | undefined` — Optional central Redis connection used by all distributed features
+  - `s3?`: `IS3Config | undefined` — Optional central S3-compatible object storage (AWS S3, MinIO, ...).
   - `security?`: `{ checkResponseInterceptor?: boolean | { checkObjectItself?: boolean; debug?:...` — Configuration for security pipes and interceptors
   - `sha256?`: `boolean | undefined` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
+  - `shutdownDelayMs?`: `number | undefined` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; } | undefined` — Configuration for useStaticAssets
   - `systemSetup?`: `ISystemSetup | undefined` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; } | undefined` — Templates

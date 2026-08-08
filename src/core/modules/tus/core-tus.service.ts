@@ -187,8 +187,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    */
   protected get s3FileStorage(): boolean {
     return (
-      !!this.options?.s3Service?.enabled
-      && this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
+      !!this.options?.s3Service?.enabled &&
+      this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
     );
   }
 
@@ -215,8 +215,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       s3StoreModule = await this.importS3Store();
     } catch {
       this.logger.warn(
-        'S3 is configured but the optional peer dependency "@tus/s3-store" is not installed — TUS uploads are '
-        + 'staged on local disk. Run: pnpm add @tus/s3-store',
+        'S3 is configured but the optional peer dependency "@tus/s3-store" is not installed — TUS uploads are ' +
+          'staged on local disk. Run: pnpm add @tus/s3-store',
       );
       return null;
     }
