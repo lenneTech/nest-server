@@ -26,12 +26,16 @@ export interface CronJobConfig<OC extends CronOnCompleteCommand | null = null, C
   /**
    * Whether the job is deduplicated across replicas in multi-replica deployments.
    *
-   * When `true` (default), only ONE replica executes each tick: via BullMQ job
-   * schedulers when Redis is configured, otherwise via a MongoDB lease per tick.
-   * Set to `false` for jobs that must deliberately run on EVERY replica
-   * (e.g. refreshing a process-local cache).
+   * When enabled, only ONE replica executes each tick: via BullMQ job schedulers when
+   * Redis is configured, otherwise via a MongoDB lease per tick. The lease is BEST EFFORT —
+   * an unreachable lease store runs the tick everywhere rather than stopping all scheduled
+   * work, because a silent fleet-wide outage of every cron job is the worse failure.
    *
-   * @default true
+   * Set to `false` for jobs that must deliberately run on EVERY replica (e.g. refreshing a
+   * process-local cache), or to `true` to deduplicate via the MongoDB lease in a
+   * multi-replica deployment that runs without Redis.
+   *
+   * @default true when `redis` is configured, otherwise false (unchanged single-replica behavior)
    */
   distributed?: boolean;
 

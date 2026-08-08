@@ -437,6 +437,64 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       // Lock released by both runners
       expect(await client.db().collection(lockCollectionName).countDocuments()).toBe(0);
     }, 30000);
+
+    it('breaks a lock whose holder died instead of blocking the boot forever', async () => {
+      // Migrations run on EVERY container boot, so a replica SIGKILLed mid-migration
+      // (OOM, node drain, failed deploy) leaves a lock document nobody holds and no
+      // `finally` ever releases. Before the heartbeat + break, acquireLock() spun in an
+      // unbounded loop on it: every future boot of every replica hung, and the whole
+      // service could not start again without manual database surgery.
+      const marker = path.join(dir, 'executions.marker');
+      writeSlowMigration(marker);
+
+      // A lock left behind by a process that is gone: last heartbeat well past the
+      // staleness window, and nothing refreshing it.
+      await client
+        .db()
+        .collection(lockCollectionName)
+        .insertOne({
+          acquiredAt: new Date(Date.now() - 10 * 60_000),
+          lock: 'lock',
+          owner: 'dead-replica:1',
+        });
+
+      const Store = createMigrationStore(mongoUrl, collectionName, lockCollectionName);
+      const runner = new MigrationRunner({ migrationsDirectory: dir, stateStore: new Store() });
+
+      await runner.up();
+
+      // The migration ran, and the run released its own lock afterwards
+      expect(fs.readFileSync(marker, 'utf-8')).toBe('up\n');
+      expect(await client.db().collection(lockCollectionName).countDocuments()).toBe(0);
+    }, 30000);
+
+    it('leaves a freshly held lock alone', async () => {
+      // The mirror image of the test above: a lock that IS being heart-beaten must never
+      // be broken, otherwise "recover from a dead holder" would silently become "run two
+      // migrations at once" — strictly worse than the deadlock it replaced.
+      const marker = path.join(dir, 'executions.marker');
+      writeSlowMigration(marker);
+
+      await client
+        .db()
+        .collection(lockCollectionName)
+        .insertOne({ acquiredAt: new Date(), lock: 'lock', owner: 'live-replica:1' });
+
+      const Store = createMigrationStore(mongoUrl, collectionName, lockCollectionName);
+      const runner = new MigrationRunner({ migrationsDirectory: dir, stateStore: new Store() });
+
+      // Still waiting on the live holder when the window closes — so no migration ran.
+      const finished = await Promise.race([
+        runner.up().then(() => 'finished'),
+        new Promise(resolve => setTimeout(() => resolve('still-waiting'), 1500)),
+      ]);
+
+      expect(finished).toBe('still-waiting');
+      expect(fs.existsSync(marker)).toBe(false);
+
+      // Release it so the pending runner can finish and not leak into the next test
+      await client.db().collection(lockCollectionName).deleteMany({});
+    }, 30000);
   });
 
   describe('Parameter Validation', () => {

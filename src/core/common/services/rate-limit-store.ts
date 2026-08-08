@@ -1,4 +1,24 @@
+import { Logger } from '@nestjs/common';
+
 import type { CoreRedisService } from './core-redis.service';
+
+/**
+ * Escape Redis glob metacharacters in caller-influenced key parts.
+ *
+ * Keys embed values the caller controls (an IP, an endpoint, an email). Those parts end up
+ * both in the key itself and — via `resetByPrefix` — inside a `SCAN MATCH` pattern, where
+ * an unescaped `*` or `?` would silently widen the match to other callers' counters.
+ */
+function escapeGlob(value: string): string {
+  return value.replace(/[?[\]*\\^]/g, char => `\\${char}`);
+}
+
+/**
+ * Human-readable limiter name for a log line
+ */
+function namespaceLabel(namespace: string): string {
+  return `namespace ${namespace}`;
+}
 
 /**
  * Result of a rate limit hit
@@ -140,31 +160,83 @@ return {c, ttl}
  * no cleanup or eviction needed.
  */
 export class RedisRateLimitStore implements RateLimitStore {
+  /**
+   * Process-local store used while Redis is unreachable.
+   *
+   * Neither of the obvious failure modes is acceptable for a rate limiter: letting the
+   * error escape turns every sign-in, sign-up and password-reset into a 500 for the
+   * duration of a Redis blip, and swallowing it into "allowed" silently removes the
+   * brute-force protection these endpoints exist to have. Degrading to the in-memory
+   * counter keeps a real bound — the exact one that applied before Redis was introduced —
+   * at the known cost that the effective limit is then per replica again.
+   */
+  protected readonly fallback = new InMemoryRateLimitStore();
+
+  /** Whether the current state is degraded, so the transitions are logged once each */
+  protected degraded = false;
+
+  protected readonly logger = new Logger(RedisRateLimitStore.name);
+
   constructor(
     protected readonly redisService: CoreRedisService,
     protected readonly namespace: string,
   ) {}
 
   async clear(): Promise<void> {
-    await this.deleteByPattern(this.redisKey('*'));
+    await this.fallback.clear();
+    await this.guard(() => this.deleteByPattern(this.redisKey('*')), undefined);
   }
 
   async hit(key: string, windowSeconds: number): Promise<RateLimitStoreHit> {
-    const client = this.redisService.getClient();
-    const [count, ttl] = (await client.eval(HIT_SCRIPT, 1, this.redisKey(key), windowSeconds)) as [number, number];
-    return { count, resetIn: ttl };
+    return this.guard(
+      async () => {
+        const client = this.redisService.getClient();
+        const [count, ttl] = (await client.eval(HIT_SCRIPT, 1, this.redisKey(key), windowSeconds)) as [number, number];
+        if (this.degraded) {
+          this.degraded = false;
+          this.logger.log('Redis rate limiting recovered — limits are shared across replicas again');
+        }
+        return { count, resetIn: ttl };
+      },
+      () => this.fallback.hit(key, windowSeconds),
+    );
   }
 
   async resetByPrefix(prefix: string): Promise<void> {
-    await this.deleteByPattern(`${this.redisKey(prefix)}*`);
+    await this.fallback.resetByPrefix(prefix);
+    await this.guard(() => this.deleteByPattern(`${this.redisKey(prefix)}*`), undefined);
   }
 
   size(): number {
     return -1;
   }
 
+  /** Release the fallback store's cleanup interval */
+  destroy(): void {
+    this.fallback.destroy();
+  }
+
+  /**
+   * Run a Redis operation, degrading to the local fallback instead of throwing
+   */
+  protected async guard<T>(operation: () => Promise<T>, onFailure: (() => Promise<T> | T) | undefined): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!this.degraded) {
+        this.degraded = true;
+        this.logger.error(
+          `Redis rate limiting unavailable (${namespaceLabel(this.namespace)}): ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }. Falling back to per-replica in-memory limits until Redis recovers.`,
+        );
+      }
+      return onFailure ? await onFailure() : (undefined as T);
+    }
+  }
+
   protected redisKey(key: string): string {
-    return this.redisService.key('rate-limit', this.namespace, key);
+    return this.redisService.key('rate-limit', this.namespace, escapeGlob(key));
   }
 
   protected async deleteByPattern(pattern: string): Promise<void> {

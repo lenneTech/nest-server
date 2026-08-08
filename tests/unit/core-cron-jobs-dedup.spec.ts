@@ -69,6 +69,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
   beforeEach(() => {
     collection = new FakeLockCollection();
     vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
@@ -97,7 +98,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       const registryCollection = new FakeLockCollection();
       setCronJobsInfrastructure({ connection: fakeConnection(registryCollection) });
       const service = new TestCronJobs(
-        { job1: { cronTime: NEVER, runOnInit: false } },
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
         { connection: fakeConnection(collection) },
       );
       await service.onApplicationBootstrap();
@@ -110,6 +111,38 @@ describe('CoreCronJobs multi-replica deduplication', () => {
   });
 
   describe('MongoDB lease mode', () => {
+    it('does not lease at all without a redis config', async () => {
+      // The ticket's hard constraint: with no `redis` config the service behaves exactly as
+      // before. A single-replica project that upgrades must not silently acquire a
+      // cron-locks collection, a lease write per tick, and a new way for a tick to be
+      // skipped. The Mongo lease stays reachable for a Redis-less multi-replica fleet, but
+      // only through an explicit `distributed: true`.
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, runOnInit: true } },
+        { connection: fakeConnection(collection) },
+      );
+
+      await service.onApplicationBootstrap();
+      await flush();
+
+      expect(service.calls).toEqual(['job1']);
+      expect(collection.ids.size).toBe(0);
+      expect(collection.createIndex).not.toHaveBeenCalled();
+    });
+
+    it('leases when a job opts in explicitly despite no redis', async () => {
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: true } },
+        { connection: fakeConnection(collection) },
+      );
+
+      await service.onApplicationBootstrap();
+      await flush();
+
+      expect(service.calls).toEqual(['job1']);
+      expect([...collection.ids]).toEqual(['job1:init']);
+    });
+
     it('never leases a job with distributed: false', async () => {
       const service = new TestCronJobs(
         { job1: { cronTime: NEVER, distributed: false, runOnInit: true } },
@@ -127,11 +160,11 @@ describe('CoreCronJobs multi-replica deduplication', () => {
     it('runs the callback only once when two replicas fire the same tick', async () => {
       const fireTime = new Date('2026-08-07T10:00:00.000Z');
       const replicaA = new TestCronJobs(
-        { job1: { cronTime: NEVER, runOnInit: false } },
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
         { connection: fakeConnection(collection) },
       );
       const replicaB = new TestCronJobs(
-        { job1: { cronTime: NEVER, runOnInit: false } },
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
         { connection: fakeConnection(collection) },
       );
       await replicaA.onApplicationBootstrap();
@@ -144,9 +177,59 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
     });
 
+    it('runs the startup tick once across replicas that boot at different moments', async () => {
+      // `runOnInit` DEFAULTS to true, so this is the common path, and it is the one a
+      // clock-derived lease key cannot deduplicate: replicas never boot at the same
+      // instant, so each would compute a different key and every one would run the job.
+      // The startup lease therefore uses one fixed key per job.
+      const replicaA = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: true } },
+        { connection: fakeConnection(collection) },
+      );
+      await replicaA.onApplicationBootstrap();
+      await flush();
+
+      // Second replica boots measurably later, as a rolling deploy does
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      const replicaB = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: true } },
+        { connection: fakeConnection(collection) },
+      );
+      await replicaB.onApplicationBootstrap();
+      await flush();
+
+      expect([...replicaA.calls, ...replicaB.calls]).toEqual(['job1']);
+      expect([...collection.ids]).toEqual(['job1:init']);
+    });
+
+    it('does not let a throwing startup run escape as an unhandled rejection', async () => {
+      // The startup tick is deliberately not awaited, so nothing up the stack can catch it —
+      // and `runTick` re-throws whenever `throwException` is set, which is the default.
+      const rejections: unknown[] = [];
+      const onRejection = (reason: unknown) => rejections.push(reason);
+      process.on('unhandledRejection', onRejection);
+
+      const service = new TestCronJobs(
+        { boom: { cronTime: NEVER, distributed: true, runOnInit: true, throwException: true } },
+        { connection: fakeConnection(collection) },
+      );
+      (service as any).boom = async () => {
+        throw new Error('startup boom');
+      };
+
+      await service.onApplicationBootstrap();
+      await flush();
+      await new Promise(resolve => setImmediate(resolve));
+
+      process.off('unhandledRejection', onRejection);
+      expect(rejections).toEqual([]);
+      expect(console.error).toHaveBeenCalledWith('CronJob boom failed on its startup run', expect.any(Error));
+    });
+
     it('logs the skipped tick on a duplicate key and creates the TTL index once', async () => {
       const service = new TestCronJobs(
-        { job1: { cronTime: NEVER, runOnInit: false } },
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
         { connection: fakeConnection(collection) },
       );
       await service.onApplicationBootstrap();
@@ -157,7 +240,10 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       expect(service.calls).toEqual(['job1']);
       expect(collection.createIndex).toHaveBeenCalledTimes(1);
-      expect(collection.createIndex).toHaveBeenCalledWith({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+      // expireAfterSeconds: 0 = "expire at the date in this field", so each lease can carry
+      // its own lifetime — a scheduled tick's hour and a startup lease's short window share
+      // one collection, which a fixed expireAfterSeconds could not express.
+      expect(collection.createIndex).toHaveBeenCalledWith({ expiresAt: 1 }, { expireAfterSeconds: 0 });
       expect(console.debug).toHaveBeenCalledWith(
         'CronJob tick job1:2026-08-07T10:00:00.000Z skipped, lease held by another replica',
       );
@@ -215,6 +301,10 @@ describe('CoreCronJobs multi-replica deduplication', () => {
         },
         Worker: class {
           close = vi.fn(async () => undefined);
+          concurrency = 1;
+          // Created with autorun: false and started only after every job config is
+          // registered, so the fake has to offer run() the way BullMQ does.
+          run = vi.fn(async () => undefined);
           constructor(...args: any[]) {
             workerArgs = args;
             processor = args[1];

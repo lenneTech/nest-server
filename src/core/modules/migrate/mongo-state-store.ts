@@ -1,4 +1,5 @@
 import { Db, MongoClient } from 'mongodb';
+import { hostname } from 'os';
 import { promisify } from 'util';
 
 /**
@@ -238,11 +239,49 @@ export async function withMigrationLock<T>(stateStore: MongoStateStore, fn: () =
   }
 
   await acquireLock(stateStore.mongodbHost, lockCollectionName);
+  const heartbeat = startLockHeartbeat(stateStore.mongodbHost, lockCollectionName);
   try {
     return await fn();
   } finally {
+    heartbeat.stop();
     await releaseLock(stateStore.mongodbHost, lockCollectionName);
   }
+}
+
+/**
+ * How long a lock may go without a heartbeat before another replica may break it.
+ *
+ * Only a lock whose holder stopped refreshing it is ever broken, so this is not a cap
+ * on migration runtime — a migration running for hours keeps its lock as long as the
+ * process lives.
+ */
+const LOCK_STALE_AFTER_MS = 60_000;
+
+/** Heartbeat interval — comfortably below {@link LOCK_STALE_AFTER_MS} */
+const LOCK_HEARTBEAT_INTERVAL_MS = 15_000;
+
+/** How long a replica waits for a held lock before giving up with a diagnosable error */
+const LOCK_WAIT_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * Keep refreshing `acquiredAt` while the migration runs.
+ *
+ * This is what makes lock-breaking safe: a lock is only ever taken over when its holder
+ * stopped refreshing it, which for a live process cannot happen. Without the heartbeat,
+ * breaking a stale lock and a long-running migration would be indistinguishable.
+ */
+function startLockHeartbeat(url: string, lockCollectionName: string): { stop: () => void } {
+  const timer = setInterval(() => {
+    dbRequest(url, db =>
+      db.collection(lockCollectionName).updateOne({ lock: 'lock' }, { $set: { acquiredAt: new Date() } }),
+    ).catch((error) => {
+      // A missed heartbeat is not fatal on its own — the next one may succeed, and only
+      // a sustained gap makes the lock breakable.
+      console.warn(`Migration lock heartbeat failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    });
+  }, LOCK_HEARTBEAT_INTERVAL_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
 }
 
 /**
@@ -261,15 +300,57 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
     // https://stackoverflow.com/questions/33346175/mongodb-upsert-operation-seems-not-atomic-which-throws-duplicatekeyexception/34784533
     await collection.createIndex({ lock: 1 }, { unique: true });
 
+    const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     let showMessage = true;
 
     for (;;) {
-      // Use updateOne with upsert for atomic lock acquisition (same as original package)
-      const result = await collection.updateOne({ lock: 'lock' }, { $set: { lock: 'lock' } }, { upsert: true });
-      const lockAcquired = result.upsertedCount > 0;
+      // Use updateOne with upsert for atomic lock acquisition (same as original package).
+      // `$setOnInsert` stamps the acquisition time only for the winner, so a loser's
+      // update never refreshes the holder's staleness clock.
+      const result = await collection.updateOne(
+        { lock: 'lock' },
+        { $set: { lock: 'lock' }, $setOnInsert: { acquiredAt: new Date(), owner: lockOwnerId() } },
+        { upsert: true },
+      );
 
-      if (lockAcquired) {
-        break;
+      if (result.upsertedCount > 0) {
+        return;
+      }
+
+      // The holder may be gone: migrations run on every container boot, so a replica
+      // SIGKILLed mid-migration (OOM, node drain, failed deploy) would otherwise leave a
+      // lock nobody holds — and every future boot of every replica would wait on it
+      // forever. Only a lock that stopped heart-beating is broken; see LOCK_STALE_AFTER_MS.
+      const holder = await collection.findOne({ lock: 'lock' });
+      if (holder) {
+        const acquiredAt = holder.acquiredAt instanceof Date ? holder.acquiredAt : undefined;
+        if (!acquiredAt) {
+          // Written by a version that did not stamp the lock. Start its clock now rather
+          // than breaking it immediately — the holder may well be alive.
+          await collection.updateOne(
+            { _id: holder._id, acquiredAt: { $exists: false } },
+            { $set: { acquiredAt: new Date() } },
+          );
+        } else if (Date.now() - acquiredAt.getTime() > LOCK_STALE_AFTER_MS) {
+          console.warn(
+            `Breaking stale migration lock in "${lockCollectionName}" (last heartbeat ${acquiredAt.toISOString()}, `
+            + `owner ${holder.owner ?? 'unknown'}) — its holder is gone.`,
+          );
+          // Matching on acquiredAt makes the break safe under concurrency: if another
+          // waiter already broke and re-acquired the lock, the timestamp differs and this
+          // deletes nothing.
+          await collection.deleteOne({ _id: holder._id, acquiredAt });
+          continue;
+        }
+      }
+
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Timed out after ${Math.round(LOCK_WAIT_TIMEOUT_MS / 60_000)} minutes waiting for the migration lock in `
+          + `collection "${lockCollectionName}". Another replica is still migrating, or the lock is held by a process `
+          + `that is alive but stuck. Inspect it with: db.getCollection("${lockCollectionName}").find({}) — and remove `
+          + `the document only once you are sure no migration is running.`,
+        );
       }
 
       if (showMessage) {
@@ -280,6 +361,13 @@ async function acquireLock(url: string, lockCollectionName: string): Promise<voi
       await promisify(setTimeout)(100);
     }
   });
+}
+
+/**
+ * Identifies the process holding the lock, so a stale-lock warning names something actionable
+ */
+function lockOwnerId(): string {
+  return `${hostname()}:${process.pid}`;
 }
 
 /**

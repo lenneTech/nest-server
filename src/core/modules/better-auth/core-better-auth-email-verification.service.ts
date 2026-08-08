@@ -100,6 +100,11 @@ export class CoreBetterAuthEmailVerificationService {
   protected readonly lastSendTimes = new Map<string, number>();
 
   /**
+   * Pending cleanup timer per email, so a released slot can never expire a LATER cooldown
+   */
+  protected readonly sendTimers = new Map<string, NodeJS.Timeout>();
+
+  /**
    * Token for optional BrevoService injection.
    * BrevoService cannot be injected directly with @Optional() because its
    * constructor throws when no brevo config exists. Instead, a factory
@@ -301,7 +306,14 @@ export class CoreBetterAuthEmailVerificationService {
       return;
     }
 
-    this.lastSendTimes.delete(email.toLowerCase());
+    // Clear the pending cleanup timer too. Left running, it would fire `cooldown` seconds
+    // after the FAILED send and delete whatever entry exists then — which is the entry of a
+    // later, successful send. The cooldown would end early and the anti-flood control it
+    // exists to be would quietly weaken.
+    const key = email.toLowerCase();
+    clearTimeout(this.sendTimers.get(key));
+    this.sendTimers.delete(key);
+    this.lastSendTimes.delete(key);
   }
 
   /**
@@ -515,10 +527,18 @@ export class CoreBetterAuthEmailVerificationService {
 
     this.lastSendTimes.set(key, Date.now());
 
-    // Schedule cleanup to prevent memory leak
+    // Schedule cleanup to prevent memory leak. Any timer left over from an earlier,
+    // RELEASED send is cancelled first — it would otherwise delete THIS entry when it
+    // fires and end the new cooldown early.
     const cooldown = this.config.resendCooldownSeconds;
     if (cooldown > 0) {
-      setTimeout(() => this.lastSendTimes.delete(key), cooldown * 1000);
+      clearTimeout(this.sendTimers.get(key));
+      const timer = setTimeout(() => {
+        this.lastSendTimes.delete(key);
+        this.sendTimers.delete(key);
+      }, cooldown * 1000);
+      timer.unref?.();
+      this.sendTimers.set(key, timer);
     }
   }
 

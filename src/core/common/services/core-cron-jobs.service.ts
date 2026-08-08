@@ -26,6 +26,22 @@ const CRON_LOCK_COLLECTION = 'cron-locks';
 const CRON_LOCK_TTL_SECONDS = 3600;
 
 /**
+ * Lifetime of the `runOnInit` lease.
+ *
+ * A scheduled tick has an instant every replica agrees on, so its lease key can be derived
+ * from the schedule. A STARTUP has no such instant: replicas boot milliseconds to minutes
+ * apart, so a key built from each replica's own clock is different on every replica and
+ * deduplicates nothing — which, since `runOnInit` defaults to true, would leave the most
+ * common path undeduplicated.
+ *
+ * The init lease therefore uses one fixed key per job plus this TTL, which defines the
+ * window in which a fleet counts as "starting up": replicas that boot within it run the
+ * init tick once between them, and a replica joining later (autoscaling, a much later
+ * restart) runs it again — which is the intended behavior for a newly started instance.
+ */
+const CRON_INIT_LOCK_TTL_SECONDS = 300;
+
+/**
  * Name of the shared BullMQ queue carrying all distributed cron jobs
  */
 const CRON_QUEUE_NAME = 'cron';
@@ -170,7 +186,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       // Set defaults
       // Declared as CronJobConfigWithTimeZone to avoid type errors, but it can also be CronJobConfigWithUtcOffset
       const config: CronJobConfigWithTimeZone = {
-        distributed: true,
+        // Deduplication follows "presence implies enabled": without a `redis` config the
+        // service must behave exactly as before, so a single-replica project that upgrades
+        // does not silently gain a `cron-locks` collection, a lease write per tick, and a
+        // new way for a tick to be skipped. The MongoDB lease stays available for a
+        // multi-replica fleet that runs without Redis — via an explicit `distributed: true`.
+        distributed: !!this.getRedisService()?.enabled,
         runOnInit: true,
         runParallel: true,
         throwException: true,
@@ -210,6 +231,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       // Init local cron job
       this.registerLocalJob(name, config, distributed);
     }
+
+    this.startBullWorker();
   }
 
   /**
@@ -218,23 +241,36 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Returns `true` when this replica may run the tick — including when no lease
    * backend is available at all (fail open: a missing lock must never stop the job).
    */
-  protected async acquireLease(name: string, fireTime: Date): Promise<boolean> {
-    const leaseKey = `${name}:${new Date(Math.floor(fireTime.getTime() / 1000) * 1000).toISOString()}`;
+  protected async acquireLease(name: string, fireTime: Date | 'init'): Promise<boolean> {
+    const leaseKey
+      = fireTime === 'init'
+        ? `${name}:init`
+        : `${name}:${new Date(Math.floor(fireTime.getTime() / 1000) * 1000).toISOString()}`;
+    const ttlSeconds = fireTime === 'init' ? CRON_INIT_LOCK_TTL_SECONDS : CRON_LOCK_TTL_SECONDS;
 
     const redis = this.getRedisClient();
     if (redis) {
-      const acquired = await redis.set(
-        this.getRedisService().key('cron-lock', leaseKey),
-        '1',
-        'EX',
-        CRON_LOCK_TTL_SECONDS,
-        'NX',
-      );
-      if (acquired === null) {
-        this.logSkippedTick(leaseKey);
-        return false;
+      try {
+        const acquired = await redis.set(
+          this.getRedisService().key('cron-lock', leaseKey),
+          '1',
+          'EX',
+          ttlSeconds,
+          'NX',
+        );
+        if (acquired === null) {
+          this.logSkippedTick(leaseKey);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        // Fail open, exactly like the Mongo branch below: a lease is there to prevent a
+        // DUPLICATE run, and treating an unreachable Redis as "someone else won" would
+        // instead stop every scheduled job on every replica — a silent, fleet-wide outage
+        // of all cron work, which is the worse failure of the two.
+        console.error(`Cron lease for ${leaseKey} failed on Redis, running the tick anyway`, e);
+        return true;
       }
-      return true;
     }
 
     const connection = this.getConnection();
@@ -245,7 +281,13 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
     await this.ensureLeaseIndex(connection);
     try {
-      await connection.db.collection(CRON_LOCK_COLLECTION).insertOne({ _id: leaseKey as any, createdAt: new Date() });
+      await connection.db.collection(CRON_LOCK_COLLECTION).insertOne({
+        _id: leaseKey as any,
+        createdAt: new Date(),
+        // Per-document expiry, so the short init window and the long tick window can
+        // share one collection (a fixed expireAfterSeconds could only express one).
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+      });
       return true;
     } catch (e: any) {
       if (e?.code === 11000) {
@@ -262,9 +304,11 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    */
   protected async ensureLeaseIndex(connection: Connection): Promise<void> {
     if (!this.leaseIndexReady) {
+      // expireAfterSeconds: 0 means "expire AT the date in this field", which lets each
+      // lease carry its own lifetime (see the insert in acquireLease).
       this.leaseIndexReady = connection.db
         .collection(CRON_LOCK_COLLECTION)
-        .createIndex({ createdAt: 1 }, { expireAfterSeconds: CRON_LOCK_TTL_SECONDS })
+        .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
         .then(() => undefined)
         .catch((e) => {
           console.error('Could not create TTL index on cron lock collection', e);
@@ -339,12 +383,32 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     const workerConnection = service.createClient('cron-worker');
     // BullMQ blocks on its worker connection and requires unlimited retries there
     (workerConnection as any).options.maxRetriesPerRequest = null;
+    // autorun: false — initBullMq() runs BEFORE the loop that fills `jobConfigs`, so a worker
+    // that starts consuming here would hand `runTick` a job it has no config for. That path
+    // returns without throwing, which BullMQ records as COMPLETED: the tick is lost silently
+    // and never retried. Consumption starts in startBullWorker(), after registration.
     this.bullWorker = new bullmq.Worker(CRON_QUEUE_NAME, async (job: any) => this.runTick(job.name), {
+      autorun: false,
       connection: workerConnection,
       prefix,
     });
 
     return true;
+  }
+
+  /**
+   * Start consuming once every job config is registered.
+   *
+   * Concurrency matches the number of registered jobs: BullMQ defaults to 1, which would put
+   * every job behind a single slow one — something one-timer-per-job never did, and which
+   * would also make `runParallel` unreachable.
+   */
+  protected startBullWorker(): void {
+    if (!this.bullWorker) {
+      return;
+    }
+    this.bullWorker.concurrency = Math.max(1, Object.keys(this.jobConfigs).length);
+    this.bullWorker.run().catch((e: unknown) => console.error('BullMQ cron worker stopped', e));
   }
 
   /**
@@ -368,8 +432,11 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
     // A BullMQ scheduler never fires immediately, so runOnInit is emulated locally under a lease.
     // Not awaited, so bootstrap is not blocked by the first run — same as the local timer path.
+    // That also means nothing is there to catch a rejection, and `runTick` re-throws when
+    // `throwException` is set (the default): without the catch below, a job that throws on
+    // its startup run takes the process down with an unhandled rejection.
     if (config.runOnInit) {
-      void this.runDistributedTick(name, new Date());
+      this.runInitTick(name);
     }
 
     if (this.config.log) {
@@ -388,7 +455,17 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       config.cronTime,
       async () => {
         if (distributed) {
-          await this.runDistributedTick(name, ref.job?.lastDate() ?? new Date());
+          // The runOnInit fire happens DURING construction, so `ref.job` is not assigned
+          // yet — that absence is exactly how the startup run identifies itself. It takes
+          // the fleet-wide init lease, because "startup" is not an instant the replicas
+          // agree on; a scheduled tick takes a lease keyed on the schedule instant, which
+          // every replica computes identically.
+          const scheduled = ref.job?.lastDate();
+          if (!scheduled) {
+            this.runInitTick(name);
+            return;
+          }
+          await this.runDistributedTick(name, scheduled);
           return;
         }
         await this.runTick(name);
@@ -411,11 +488,21 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   /**
    * Run a tick only if this replica wins the lease for it
    */
-  protected async runDistributedTick(name: string, fireTime: Date): Promise<void> {
+  protected async runDistributedTick(name: string, fireTime: Date | 'init'): Promise<void> {
     if (!(await this.acquireLease(name, fireTime))) {
       return;
     }
     await this.runTick(name);
+  }
+
+  /**
+   * Fire the `runOnInit` tick without blocking bootstrap and without letting a failure
+   * escape as an unhandled rejection.
+   */
+  protected runInitTick(name: string): void {
+    this.runDistributedTick(name, 'init').catch((e) => {
+      console.error(`CronJob ${name} failed on its startup run`, e);
+    });
   }
 
   /**
@@ -425,6 +512,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   protected async runTick(name: string): Promise<void> {
     const config = this.jobConfigs[name];
     if (!config) {
+      // Returning quietly here is how a mis-timed BullMQ delivery got recorded as a
+      // successful, completed tick. The guard stays, but it no longer stays silent.
+      console.warn(`CronJob tick for "${name}" dropped — no registered config`);
       return;
     }
 

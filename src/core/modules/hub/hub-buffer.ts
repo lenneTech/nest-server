@@ -1,5 +1,3 @@
-import { Logger } from '@nestjs/common';
-
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { HubBufferEntry, HubRingBuffer } from './hub-ring-buffer';
 
@@ -34,7 +32,6 @@ export interface HubBufferData<T> {
 export class HubBuffer<T extends HubBufferEntry> {
   protected readonly listKey: string;
   protected readonly local: HubRingBuffer<T>;
-  protected readonly logger = new Logger(HubBuffer.name);
   protected readonly redis?: CoreRedisService;
   protected readonly seqKey: string;
 
@@ -76,7 +73,12 @@ export class HubBuffer<T extends HubBufferEntry> {
       return;
     }
     const failed = (err: Error): void =>
-      this.logger.debug(`Hub buffer ${label} failed (${this.listKey}): ${err.message}`);
+      // console, NOT Logger: the Hub logs collector captures Logger output INTO a HubBuffer,
+      // so reporting a mirror failure through Logger re-enters this very method. With a
+      // synchronous throw from getClient() — exactly what happens for log lines emitted
+      // before CoreRedisService has connected — that recurses on one stack until it
+      // overflows, turning a Redis hiccup into a crashed process.
+      console.debug(`Hub buffer ${label} failed (${this.listKey}): ${err.message}`);
     try {
       run(this.redis.getClient()).catch(failed);
     } catch (err) {
@@ -120,7 +122,8 @@ export class HubBuffer<T extends HubBufferEntry> {
         entries: limit === undefined ? entries : entries.slice(-limit),
       };
     } catch (err) {
-      this.logger.debug(`Hub buffer read failed (${this.listKey}), using the local buffer: ${(err as Error).message}`);
+      // console, NOT Logger — same re-entrancy as in mirror() above
+      console.debug(`Hub buffer read failed (${this.listKey}), using the local buffer: ${(err as Error).message}`);
       return undefined;
     }
   }

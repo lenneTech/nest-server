@@ -89,6 +89,7 @@ export * from './core/common/services/config.service';
 export * from './core/common/services/core-cron-jobs.registry';
 export * from './core/common/services/core-cron-jobs.service';
 export * from './core/common/services/core-redis.service';
+export * from './core/common/services/core-shutdown-delay.service';
 export * from './core/common/services/core-redis-pubsub';
 export * from './core/common/services/core-s3.service';
 export * from './core/common/services/rate-limit-store';
