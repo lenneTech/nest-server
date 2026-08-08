@@ -118,6 +118,45 @@ describe('S3 infrastructure (real RustFS)', () => {
     await service.deleteObject('smoke/presigned.txt');
   });
 
+  it('reports a missing bucket at boot instead of letting the first upload 500', async () => {
+    // Found by running the real thing on a two-replica swarm: with `s3` configured but the
+    // bucket absent, nothing complained at startup and every upload came back as a bare
+    // `500 Internal Server Error`, with `NoSuchBucket` visible only in the server log — a
+    // configuration mistake reported as a server fault, at the worst possible moment.
+    const missing = `${RUN_BUCKET}-does-not-exist`;
+    const probe = createService();
+    (probe as any).config = { ...(probe as any).config, bucket: missing, stagingBucket: missing };
+
+    const errors: string[] = [];
+    (probe as any).logger = { error: (msg: string) => errors.push(msg), log: () => undefined };
+
+    await probe.onModuleInit();
+
+    expect(errors.join('\n')).toContain(missing);
+    expect(errors.join('\n')).toMatch(/autoCreateBucket/);
+    await probe.onApplicationShutdown();
+  });
+
+  it('creates the bucket at boot when autoCreateBucket is on', async () => {
+    const created = `${RUN_BUCKET}-auto`;
+    const creator = createService();
+    (creator as any).config = {
+      ...(creator as any).config,
+      autoCreateBucket: true,
+      bucket: created,
+      stagingBucket: created,
+    };
+
+    await creator.onModuleInit();
+
+    // Provable by using it: a put/get round-trip only works against a bucket that exists
+    await creator.putObject('auto/created.txt', 'auto', 'text/plain');
+    expect(await creator.objectExists('auto/created.txt')).toBe(true);
+
+    await creator.deleteObject('auto/created.txt');
+    await creator.onApplicationShutdown();
+  });
+
   it('is inert without config', async () => {
     const disabled = new CoreS3Service({
       getFastButReadOnly: () => undefined,

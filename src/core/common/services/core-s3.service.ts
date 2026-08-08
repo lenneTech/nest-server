@@ -51,6 +51,7 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
     const presigned = raw.presignedDownloads;
     this.config = {
       accessKeyId: raw.accessKeyId,
+      autoCreateBucket: raw.autoCreateBucket ?? false,
       bucket: raw.bucket,
       endpoint: raw.endpoint,
       forcePathStyle: raw.forcePathStyle ?? false,
@@ -101,6 +102,62 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       // Fall back to the SDK default credential chain when no keys are configured
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
     });
+
+    await this.verifyBuckets();
+  }
+
+  /**
+   * Check at boot that the configured buckets are reachable.
+   *
+   * Without this the first upload is the first time anyone finds out, and it surfaces as a bare
+   * `500 Internal Server Error` with `NoSuchBucket` buried in the server log — a configuration
+   * mistake reported as a server fault, at the worst possible moment.
+   *
+   * It logs rather than throws: S3 may be provisioned moments after the app, and an object store
+   * that is briefly unreachable should not stop a server whose other routes work fine.
+   * `autoCreateBucket` creates what is missing instead, which is what a self-hosted MinIO/RustFS
+   * or a local dev stack usually wants — production buckets normally come from infrastructure code
+   * and their credentials often carry no `CreateBucket` permission, hence the default of `false`.
+   */
+  protected async verifyBuckets(): Promise<void> {
+    const buckets = [...new Set([this.config.bucket, this.config.stagingBucket])];
+    for (const bucket of buckets) {
+      try {
+        if (await this.bucketExists(bucket)) {
+          continue;
+        }
+        if (this.config.autoCreateBucket) {
+          await this.ensureBucket(bucket);
+          this.logger.log(`Created S3 bucket "${bucket}" (s3.autoCreateBucket is on)`);
+          continue;
+        }
+        this.logger.error(
+          `S3 bucket "${bucket}" does not exist. Every upload will fail until it is created. ` +
+            'Create it in your object storage, or set s3.autoCreateBucket: true to have the server create it.',
+        );
+      } catch (error) {
+        this.logger.error(
+          `Could not verify S3 bucket "${bucket}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Whether a bucket exists, without treating "missing" as an error
+   */
+  protected async bucketExists(bucket: string): Promise<boolean> {
+    const { client, sdk } = this.requireInit();
+    try {
+      await client.send(new sdk.HeadBucketCommand({ Bucket: bucket }));
+      return true;
+    } catch (error: any) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (status === 404 || error?.name === 'NotFound' || error?.name === 'NoSuchBucket') {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /**

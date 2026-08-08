@@ -2620,6 +2620,19 @@ export interface IS3Config {
   accessKeyId?: string;
 
   /**
+   * Create the configured buckets at startup when they do not exist.
+   *
+   * Off by default: production buckets normally come from infrastructure code, and their
+   * credentials often carry no `CreateBucket` permission. Turn it on for a self-hosted
+   * MinIO/RustFS or a local dev stack. Either way the server verifies the buckets at boot and
+   * logs an actionable error when one is missing, instead of letting the first upload fail with
+   * an opaque 500.
+   *
+   * @default false
+   */
+  autoCreateBucket?: boolean;
+
+  /**
    * Bucket for files stored via CoreFileService
    */
   bucket: string;

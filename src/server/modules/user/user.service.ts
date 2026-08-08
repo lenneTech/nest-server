@@ -104,7 +104,11 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * @returns the PREVIOUS avatar id, so the caller can delete the orphaned file
    */
   async setAvatar(avatarId: string, user: User): Promise<string> {
-    const dbUser = await this.mainDbModel.findOne({ id: user.id }).exec();
+    // `findById`, not `findOne({ id })`: `id` is a Mongoose virtual, so it exists on the
+    // document but not in MongoDB — a filter on it matches nothing and every call ended in
+    // "session user no longer exists". Broken since the Mongoose migration and never noticed,
+    // because no test covers the avatar endpoint.
+    const dbUser = await this.mainDbModel.findById(user.id).exec();
     // Check user: the token is valid but the account no longer exists, so the session really is
     // invalid — 401 is right here. (A permission error would have to be 403, see accessDeniedException.)
     if (!dbUser) {
