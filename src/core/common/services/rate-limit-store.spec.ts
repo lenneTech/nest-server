@@ -48,6 +48,37 @@ describe('InMemoryRateLimitStore', () => {
     expect(store.size()).toBeLessThanOrEqual(5);
   });
 
+  it('still counts callers that do not fit, instead of waving them through', async () => {
+    // Refusing to STORE an entry at capacity must not mean refusing to COUNT it. Returning an
+    // uncounted 1 for every unknown key hands an attacker a total bypass for the price of filling
+    // the store: from then on every fresh key is a first request, so the limit never trips again.
+    // Both key parts are caller-influenced (a spoofable X-Forwarded-For and the request path), so
+    // filling it costs nothing. Overflow callers share coarse buckets — throttled earlier than
+    // their own traffic warrants, which is the safe direction to fail.
+    for (let i = 0; i < 5; i++) {
+      await store.hit(`filler-${i}`, 60);
+    }
+    expect(store.size()).toBe(5);
+
+    // Same overflowing caller, repeatedly: the count MUST climb.
+    const counts: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      counts.push((await store.hit('overflow-caller', 60)).count);
+    }
+    expect(counts).toEqual([1, 2, 3, 4]);
+
+    // And a flood of DISTINCT unknown keys must not each start at 1 forever — they are folded
+    // into a bounded set of shared counters, so the totals keep rising across the flood.
+    const floodCounts = [];
+    for (let i = 0; i < 300; i++) {
+      floodCounts.push((await store.hit(`flood-${i}`, 60)).count);
+    }
+    expect(Math.max(...floodCounts)).toBeGreaterThan(1);
+
+    // The overflow space itself stays bounded — it must not become the growth it prevents.
+    expect(store.size()).toBeLessThanOrEqual(5);
+  });
+
   it('never evicts a LIVE counter to make room', async () => {
     // Evicting the entries closest to expiry looks like sensible cache behavior and is the
     // opposite of what a rate limiter needs: those are ACTIVE counters, so dropping them resets

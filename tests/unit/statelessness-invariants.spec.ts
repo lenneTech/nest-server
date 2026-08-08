@@ -103,6 +103,16 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'Fixed set of 64 coarse counters that keys beyond `maxEntries` are folded into, so a '
+      + 'saturated store still enforces a limit instead of waving unknown keys through. Bounded by '
+      + 'construction and shares the fate of `store`: per-replica only when Redis is absent, which '
+      + 'is the documented pre-Redis behavior.',
+    classification: 'shared',
+    file: 'common/services/rate-limit-store.ts',
+    name: 'overflow',
+  },
+  {
+    because:
       'Eviction timer for the in-memory fallback above. unref\'d, and released via destroy() '
       + 'from each owner\'s onModuleDestroy.',
     classification: 'local',

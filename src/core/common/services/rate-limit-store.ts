@@ -60,6 +60,18 @@ export interface RateLimitStore {
   destroy?(): void;
 }
 
+/** How many shared counters a saturated {@link InMemoryRateLimitStore} folds unknown keys into */
+const OVERFLOW_BUCKETS = 64;
+
+/** Cheap, stable string hash — picks the overflow bucket for a key. Not security-sensitive. */
+function overflowSlot(key: string): number {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % OVERFLOW_BUCKETS;
+}
+
 /**
  * Process-local fixed-window store (previous behavior of all framework rate
  * limiters). Entries are capped and cleaned up periodically.
@@ -73,6 +85,22 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 
   /** So the capacity warning is logged once, not per request */
   protected capacityWarned = false;
+
+  /**
+   * Fixed set of shared counters that keys falling outside {@link maxEntries} are folded into.
+   *
+   * A full store must not become an open door. Returning an uncounted `1` for every unknown key —
+   * which is what "refuse new entries at capacity" naively means — hands an attacker the bypass
+   * for free: fill the store with distinct keys, and from then on every fresh key is a first
+   * request and no limit ever applies. Since both key parts are caller-influenced (a spoofable
+   * `X-Forwarded-For` and the request path), filling it is cheap.
+   *
+   * So overflow keys are still counted, just coarsely: each maps to one of a FIXED number of
+   * buckets, so the overflow map cannot grow either. The cost is that unrelated clients share a
+   * limit while the store is saturated — they are throttled earlier than they deserve. That is
+   * the right direction to fail: a degraded limit for new clients, never no limit at all.
+   */
+  protected readonly overflow = new Map<number, { count: number; resetTime: number }>();
 
   constructor(protected readonly maxEntries = 10000) {
     // Clean up expired entries every 5 minutes; never keep the process alive
@@ -95,11 +123,12 @@ export class InMemoryRateLimitStore implements RateLimitStore {
           if (!this.capacityWarned) {
             this.capacityWarned = true;
             console.warn(
-              `Rate limit store is at capacity (${this.maxEntries} live counters). New clients are counted from 1 ` +
-                'until entries expire; existing limits are unaffected.',
+              `Rate limit store is at capacity (${this.maxEntries} live counters). New clients now share ` +
+                `${OVERFLOW_BUCKETS} coarse counters until entries expire, so they may be limited earlier than ` +
+                'their own traffic warrants. Existing limits are unaffected.',
             );
           }
-          return { count: 1, resetIn: windowSeconds };
+          return this.hitOverflow(key, windowSeconds, now);
         }
       }
       entry = { count: 1, resetTime: now + windowSeconds * 1000 };
@@ -116,6 +145,24 @@ export class InMemoryRateLimitStore implements RateLimitStore {
         this.store.delete(key);
       }
     }
+  }
+
+  /**
+   * Count a key that did not fit in the store against its shared overflow bucket.
+   *
+   * The bucket count is what the caller sees, so a saturated store still enforces a limit.
+   */
+  protected hitOverflow(key: string, windowSeconds: number, now: number): RateLimitStoreHit {
+    const slot = overflowSlot(key);
+    const entry = this.overflow.get(slot);
+
+    if (!entry || now >= entry.resetTime) {
+      this.overflow.set(slot, { count: 1, resetTime: now + windowSeconds * 1000 });
+      return { count: 1, resetIn: windowSeconds };
+    }
+
+    entry.count++;
+    return { count: entry.count, resetIn: Math.ceil((entry.resetTime - now) / 1000) };
   }
 
   size(): number {
