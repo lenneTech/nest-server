@@ -107,8 +107,11 @@ describe('File (e2e)', () => {
       res.user.password = input.password;
       users.push(res.user);
 
-      // Verify user
-      await db.collection('users').updateOne({ _id: new ObjectId(res.id) }, { $set: { verified: true } });
+      // Verify user. NB: `res` is `{ user: {...} }` — this used to read `res.id`,
+      // which is undefined, and `new ObjectId(undefined)` mints a FRESH id rather
+      // than throwing, so the update silently matched zero documents and nobody
+      // was ever verified.
+      await db.collection('users').updateOne({ _id: new ObjectId(res.user.id) }, { $set: { verified: true } });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
   });
@@ -191,15 +194,15 @@ describe('File (e2e)', () => {
   });
 
   it('downloadGraphQLFileById', async () => {
-    // Download by ID uses /files/id/:id (public endpoint via CoreFileController)
-    const res = await testHelper.download(`/files/id/${fileInfo.id}`);
+    // Download by ID uses /files/id/:id (admin endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
   it('downloadGraphQLFileByFilename', async () => {
-    // Download by filename uses /files/:filename (public endpoint via CoreFileController)
-    const res = await testHelper.download(`/files/${fileInfo.filename}`);
+    // Download by filename uses /files/:filename (admin endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/${fileInfo.filename}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
@@ -261,7 +264,9 @@ describe('File (e2e)', () => {
       ['test1.txt', 'Hello GraphQL 1'],
       ['test2.txt', 'Hello GraphQL 2'],
     ]) {
-      const download = await testHelper.download(`/files/${filename}`);
+      // Admin token: uploads made through the GraphQL mutation carry no owner
+      // metadata, so only `file.downloadRoles` (default ADMIN) grants access.
+      const download = await testHelper.download(`/files/${filename}`, { token: users[0].token });
       expect(download.statusCode).toEqual(200);
       expect(download.data).toEqual(content);
 
@@ -312,17 +317,47 @@ describe('File (e2e)', () => {
   });
 
   it('downloadRESTFileById', async () => {
-    // Download by ID uses /files/id/:id (public endpoint via CoreFileController)
-    const res = await testHelper.download(`/files/id/${fileInfo.id}`);
+    // Download by ID uses /files/id/:id (admin endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
   it('downloadRESTFileByFilename', async () => {
-    // Download by filename uses /files/:filename (public endpoint via CoreFileController)
-    const res = await testHelper.download(`/files/${fileInfo.filename}`);
+    // Download by filename uses /files/:filename (admin endpoint via CoreFileController)
+    const res = await testHelper.download(`/files/${fileInfo.filename}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
+  });
+
+  it('refusesAnonymousDownloadById', async () => {
+    // Regression guard: both download routes carried @Roles(S_EVERYONE), which the
+    // roles guard turns into `return true` WITHOUT authenticating — every blob of
+    // the shared GridFS bucket was readable by anyone who could guess an ObjectId.
+    //
+    // 401 exactly, not "401 or 403": the framework's status policy is deterministic
+    // (unauthenticated => 401, authenticated-without-right => 403), and SPA auth
+    // layers branch on it — a 401 triggers the logout flow. Accepting either would
+    // let a regression of that policy pass unnoticed.
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`);
+    expect(res.statusCode).toEqual(401);
+    expect(res.data).not.toContain(fileContent);
+  });
+
+  it('refusesAnonymousDownloadByFilename', async () => {
+    // Weaker route still: getFileInfoByName() returns the FIRST match, so a
+    // guessable original filename would have been enough.
+    const res = await testHelper.download(`/files/${fileInfo.filename}`);
+    expect(res.statusCode).toEqual(401);
+    expect(res.data).not.toContain(fileContent);
+  });
+
+  it('refusesNonAdminDownload', async () => {
+    // users[1] is a regular, verified user without RoleEnum.ADMIN. 403, not 401 —
+    // the caller IS authenticated, they just lack the right.
+    const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[1].token });
+    expect(res.statusCode).toEqual(403);
+    expect(res.data).not.toContain(fileContent);
   });
 
   it('downloadRESTFileWithTokenOption', async () => {
@@ -332,11 +367,16 @@ describe('File (e2e)', () => {
     expect(res.data).toEqual(fileContent);
   });
 
-  it('downloadRESTFileWithCookies', async () => {
-    // Verify cookie auth path sets Cookie header without breaking the request
+  it('refusesInvalidSessionCookie', async () => {
+    // Renamed from `downloadRESTFileWithCookies`: with the route gated, a bogus
+    // cookie produces exactly the anonymous outcome, so the old name promised a
+    // positive cookie-auth check this assertion cannot make. The positive one
+    // lives in `downloadRESTFileWithValidSessionCookie` below.
+    //
+    // Before the routes were gated this asserted 200, which only ever proved the
+    // endpoint ignored credentials altogether.
     const res = await testHelper.download(`/files/id/${fileInfo.id}`, { cookies: 'test-session-token' });
-    expect(res.statusCode).toEqual(200);
-    expect(res.data).toEqual(fileContent);
+    expect(res.statusCode).toEqual(401);
   });
 
   it('downloadRESTFileWithBothTokenAndCookies', async () => {
@@ -356,7 +396,13 @@ describe('File (e2e)', () => {
   });
 
   it('downloadBufferWithCookies', async () => {
-    const buffer = await testHelper.downloadBuffer(`/files/id/${fileInfo.id}`, { cookies: 'test-session-token' });
+    // Subject here is downloadBuffer + the Cookie header, not authorization —
+    // the route is admin-gated, so a valid credential has to come along. The
+    // bogus cookie still exercises the header path (see the "both" case above).
+    const buffer = await testHelper.downloadBuffer(`/files/id/${fileInfo.id}`, {
+      cookies: 'test-session-token',
+      token: users[0].token,
+    });
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.toString()).toEqual(fileContent);
   });

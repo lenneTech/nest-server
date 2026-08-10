@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CoreModule } from '../src/core.module';
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
 import { CoreS3Service } from '../src/core/common/services/core-s3.service';
+import { dropS3Buckets } from './helpers/s3-test-cleanup';
 import { installGracefulShutdown } from '../src/core/common/helpers/graceful-shutdown.helper';
 import envConfig from '../src/config.env';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
@@ -121,6 +122,30 @@ describe('Graceful shutdown', () => {
       // Nothing to clean up
     }
     await cleaner.onApplicationShutdown();
+
+    // The suite's config sets `autoCreateBucket: true` with `bucket: RUN_ID`, so
+    // every run creates a bucket. Without this it stayed behind — empty, but one
+    // more per run in the shared store.
+    const s3Cleaner = new CoreS3Service({
+      getFastButReadOnly: (key: string) =>
+        key === 's3'
+          ? {
+              accessKeyId: process.env.S3_ACCESS_KEY || 'rustfs',
+              bucket: RUN_ID,
+              endpoint: process.env.S3_ENDPOINT || 'http://localhost:9102',
+              forcePathStyle: true,
+              region: 'us-east-1',
+              secretAccessKey: process.env.S3_SECRET_KEY || 'rustfs-secret',
+            }
+          : undefined,
+    } as any);
+    try {
+      await s3Cleaner.onModuleInit();
+      await dropS3Buckets(s3Cleaner.getClient(), [RUN_ID]);
+    } catch {
+      // Store unreachable — nothing to clean up
+    }
+    await s3Cleaner.onApplicationShutdown();
   }, 60_000);
 
   it('closes promptly — the delay lives in the signal handler, not inside close()', async () => {

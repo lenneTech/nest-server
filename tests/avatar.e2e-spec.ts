@@ -81,7 +81,30 @@ describe('Avatar upload (e2e)', () => {
 
     // ...and the bytes are reachable by id from the file storage, which is what lets a second
     // replica serve them. A pod-local path could not be.
-    const download = await testHelper.download(`/files/id/${avatarId}`);
+    //
+    // The uploader is a plain signed-in user, and `file.downloadRoles` defaults to ADMIN, so the
+    // coarse gate refuses them: 403 (authenticated, but no right) — never 401, which would make an
+    // SPA auth layer log them out over a missing avatar.
+    //
+    // This is deliberate for the reference server. A project that wants uploaders to reach their
+    // own files sets `file: { downloadRoles: [RoleEnum.S_USER] }` and adds the owner rule sketched
+    // in FileService; `AvatarController` already records the `metadata.ownerId` it reads.
+    const asOwner = await testHelper.download(`/files/id/${avatarId}`, { token: user.token });
+    expect(asOwner.statusCode).toBe(403);
+
+    // With the role the gate asks for, the bytes come back from central storage — which is what
+    // lets a second replica serve them. A pod-local path could not.
+    await mongoClient
+      .db()
+      .collection('users')
+      .updateOne({ email: user.email }, { $set: { roles: ['admin'] } });
+    const signInAsAdmin: any = await testHelper.graphQl({
+      arguments: { input: { email: user.email, password: user.password } },
+      fields: ['token'],
+      name: 'signIn',
+      type: TestGraphQLType.MUTATION,
+    });
+    const download = await testHelper.download(`/files/id/${avatarId}`, { token: signInAsAdmin.token });
     expect(download.statusCode).toBe(200);
   }, 60_000);
 });

@@ -33,6 +33,13 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
 
+      # The workflow provisions these itself, so the suites' own auto-start
+      # (tests/global-setup.ts → scripts/test-infra.mjs, which exists so a local
+      # `pnpm test` needs no manual docker command) must stay out of the way.
+      # Same images and ports either way; this only decides who starts them.
+      - name: Let CI own the test infrastructure
+        run: echo "LT_TEST_INFRA=0" >> "$GITHUB_ENV"
+
       # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
       # rate limiting, cron dedup, pubsub, S3 file storage). Plain docker runs —
       # both images boot in ~1s and need no auth setup beyond env vars. Each is

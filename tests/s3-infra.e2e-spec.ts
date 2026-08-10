@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreS3Service } from '../src/core/common/services/core-s3.service';
+import { dropS3Buckets } from './helpers/s3-test-cleanup';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
 
@@ -61,26 +62,10 @@ describe('S3 infrastructure (real RustFS)', () => {
   });
 
   afterAll(async () => {
-    // Drop everything this run created — without removing the bucket itself every
-    // run leaks one. Cleanup must never fail the suite.
-    try {
-      const client = service.getClient();
-      const { DeleteBucketCommand, DeleteObjectsCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-      let continuationToken: string | undefined;
-      do {
-        const listed = await client.send(
-          new ListObjectsV2Command({ Bucket: RUN_BUCKET, ContinuationToken: continuationToken }),
-        );
-        const keys = (listed.Contents ?? []).map(object => ({ Key: object.Key as string }));
-        if (keys.length) {
-          await client.send(new DeleteObjectsCommand({ Bucket: RUN_BUCKET, Delete: { Objects: keys } }));
-        }
-        continuationToken = listed.NextContinuationToken;
-      } while (continuationToken);
-      await client.send(new DeleteBucketCommand({ Bucket: RUN_BUCKET }));
-    } catch {
-      // Store unreachable or bucket never created — nothing to clean up
-    }
+    // Both buckets this suite can create: the run bucket and the one the
+    // autoCreateBucket case makes. Missing the second leaked one empty bucket
+    // per run into the shared store.
+    await dropS3Buckets(service.getClient(), [RUN_BUCKET, `${RUN_BUCKET}-auto`]);
     await service.onApplicationShutdown();
   });
 

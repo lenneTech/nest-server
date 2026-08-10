@@ -6,6 +6,8 @@ import { MongoClient } from 'mongodb';
 import envConfig from '../src/config.env';
 import { isStaleTestDb, SAFE_TEST_DB_PATTERN, splitMongoUri } from './db-lifecycle.reporter';
 import { acquireRunSlot } from './e2e-run-slots';
+// Plain .mjs helper, shared with the npm scripts and CI
+import { up as startTestInfra } from '../scripts/test-infra.mjs';
 
 /**
  * Vitest global setup: give every test run its OWN database.
@@ -119,10 +121,29 @@ export async function setup() {
     );
   }
 
-  // 2. Machine-wide run governor — wait for a free e2e slot before spawning forks.
+  // 2. Infrastructure containers (Redis + S3-compatible store).
+  //
+  // Four suites talk to the real thing and fail loudly when it is missing, which
+  // is correct — but it used to mean a developer had to read the failure and
+  // paste a docker command, while only CI provisioned them. Starting them here
+  // makes `pnpm test` work the same way in both places. Idempotent, so a running
+  // container is reused rather than restarted.
+  //
+  // Never fatal: a machine without Docker still runs every suite that needs no
+  // infrastructure, and the four that do report their own actionable error.
+  // CI sets LT_TEST_INFRA=0 because its workflow provisions the containers.
+  try {
+    await startTestInfra();
+  } catch (error) {
+    console.warn(
+      `Test infrastructure not started: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    );
+  }
+
+  // 3. Machine-wide run governor — wait for a free e2e slot before spawning forks.
   releaseRunSlot = await acquireRunSlot();
 
-  // 3. Unique per-run database.
+  // 4. Unique per-run database.
   const runDbName = `${dbName}-run-${Date.now()}-p${process.pid}`;
   process.env.MONGODB_URI = `${serverUri}/${runDbName}${query}`;
   console.info(`Test database for this run: ${runDbName}`);
