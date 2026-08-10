@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeCommandShape } from './hub-command-shape.helper';
+import { normalizeCommandShape } from '../../src/core/modules/hub/helpers/hub-command-shape.helper';
 
 describe('normalizeCommandShape', () => {
   it('replaces scalar values with a placeholder but keeps keys', () => {

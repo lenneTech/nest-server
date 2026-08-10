@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { HubRingBuffer } from './hub-ring-buffer';
+import { HubRingBuffer } from '../../src/core/modules/hub/hub-ring-buffer';
 
 interface TestEntry {
   seq: number;

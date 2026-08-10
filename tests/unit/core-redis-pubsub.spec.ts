@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CoreRedisPubSub } from './core-redis-pubsub';
+import { CoreRedisPubSub } from '../../src/core/common/services/core-redis-pubsub';
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from '../../src/core/common/services/core-redis.service';
 
 /**
  * Fake Redis pair: `publish` on the client re-emits a 'message' event on the

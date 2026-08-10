@@ -1,8 +1,8 @@
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 
-import { CoreHubController } from './core-hub.controller';
-import { CoreHubModule } from './core-hub.module';
+import { CoreHubController } from '../../src/core/modules/hub/core-hub.controller';
+import { CoreHubModule } from '../../src/core/modules/hub/core-hub.module';
 
 const ctx = { env: 'local', version: '1.0.0' };
 

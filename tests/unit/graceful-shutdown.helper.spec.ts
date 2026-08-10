@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ConfigService } from '../services/config.service';
-import { installGracefulShutdown } from './graceful-shutdown.helper';
+import { ConfigService } from '../../src/core/common/services/config.service';
+import { installGracefulShutdown } from '../../src/core/common/helpers/graceful-shutdown.helper';
 
 /**
  * The delay is deliberately NOT a NestJS lifecycle hook, and that is the whole point of these

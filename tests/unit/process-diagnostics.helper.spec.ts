@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { handleFatalBootstrapError, installProcessDiagnostics } from './process-diagnostics.helper';
+import { handleFatalBootstrapError, installProcessDiagnostics } from '../../src/core/common/helpers/process-diagnostics.helper';
 
 // `vi.spyOn(fs, 'writeSync')` cannot work here — an ESM module namespace is not configurable, so
 // the property cannot be redefined. Mocking the module is the only way to observe the default

@@ -3,8 +3,8 @@ import type { Response } from 'express';
 import { PassThrough, Readable } from 'stream';
 import { describe, expect, it } from 'vitest';
 
-import type { CoreFileService } from './core-file.service';
-import { CoreFileController, pipeFileToResponse } from './core-file.controller';
+import type { CoreFileService } from '../../src/core/modules/file/core-file.service';
+import { CoreFileController, pipeFileToResponse } from '../../src/core/modules/file/core-file.controller';
 
 /**
  * Build a response stub that records what the handler did to it.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { CoreHubMailboxService } from './core-hub-mailbox.service';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { CoreHubMailboxService } from '../../src/core/modules/hub/services/core-hub-mailbox.service';
+import { ResolvedHubConfig } from '../../src/core/modules/hub/interfaces/hub-config.interface';
 
 function makeConfig(overrides: Partial<ResolvedHubConfig> = {}): ResolvedHubConfig {
   return {

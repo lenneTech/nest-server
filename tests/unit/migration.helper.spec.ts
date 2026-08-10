@@ -2,7 +2,7 @@ import type { Db } from 'mongodb';
 import { ObjectId } from 'mongodb';
 import { describe, expect, it } from 'vitest';
 
-import { assertGridFsFileComplete } from './migration.helper';
+import { assertGridFsFileComplete } from '../../src/core/modules/migrate/helpers/migration.helper';
 
 /**
  * Minimal stand-in for the two collections the check reads.

@@ -7,7 +7,7 @@ import {
   escapeJsString,
   generateNonce,
   injectNonce,
-} from './hub-shell.helper';
+} from '../../src/core/modules/hub/helpers/hub-shell.helper';
 
 describe('hub-shell.helper', () => {
   describe('escapeHtml', () => {

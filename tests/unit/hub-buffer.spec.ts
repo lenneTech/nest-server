@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { HubBuffer } from './hub-buffer';
-import { HubBufferEntry } from './hub-ring-buffer';
+import { HubBuffer } from '../../src/core/modules/hub/hub-buffer';
+import { HubBufferEntry } from '../../src/core/modules/hub/hub-ring-buffer';
 
 interface TestEntry extends HubBufferEntry {
   message: string;

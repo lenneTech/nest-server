@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { HubTraceBufferService } from './hub-trace-buffer.service';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { HubTraceBufferService } from '../../src/core/modules/hub/services/hub-trace-buffer.service';
+import { ResolvedHubConfig } from '../../src/core/modules/hub/interfaces/hub-config.interface';
 
 function makeConfig(overrides: Partial<ResolvedHubConfig> = {}): ResolvedHubConfig {
   return {

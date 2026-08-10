@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isHubEnabled, isHubQueriesEnabled, normalizeHubConfig } from './hub-config.helper';
+import { isHubEnabled, isHubQueriesEnabled, normalizeHubConfig } from '../../src/core/modules/hub/hub-config.helper';
 
 describe('hub-config.helper', () => {
   describe('isHubEnabled', () => {

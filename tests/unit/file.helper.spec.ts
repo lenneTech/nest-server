@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { IMAGE_UPLOAD_ALLOW_LIST, multerFileFilter, multerOptionsForImageUpload, UploadAllowList } from './file.helper';
+import { IMAGE_UPLOAD_ALLOW_LIST, multerFileFilter, multerOptionsForImageUpload, UploadAllowList } from '../../src/core/common/helpers/file.helper';
 
 /**
  * The filter used to be ONE unanchored `RegExp`, `.test()`ed against the

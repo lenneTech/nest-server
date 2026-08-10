@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { redactSensitiveText } from './logging.helper';
+import { redactSensitiveText } from '../../src/core/common/helpers/logging.helper';
 
 describe('redactSensitiveText', () => {
   it('redacts JWTs appearing anywhere in a line', () => {

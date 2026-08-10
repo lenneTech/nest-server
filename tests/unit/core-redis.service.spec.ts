@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getProjectSlug } from '../helpers/project-name.helper';
-import { CoreRedisService } from './core-redis.service';
+import { getProjectSlug } from '../../src/core/common/helpers/project-name.helper';
+import { CoreRedisService } from '../../src/core/common/services/core-redis.service';
 
-import type { ConfigService } from './config.service';
+import type { ConfigService } from '../../src/core/common/services/config.service';
 
 /**
  * Shared handles into the mocked ioredis client. `vi.hoisted` runs before the
@@ -214,7 +214,7 @@ describe('CoreRedisService', () => {
       vi.doMock('ioredis', () => {
         throw new Error("Cannot find module 'ioredis'");
       });
-      const { CoreRedisService: FreshService } = await import('./core-redis.service');
+      const { CoreRedisService: FreshService } = await import('../../src/core/common/services/core-redis.service');
       const service = new FreshService({
         getFastButReadOnly: (key: string) => (key === 'redis' ? true : undefined),
       } as unknown as ConfigService);

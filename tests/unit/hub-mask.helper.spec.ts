@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { maskConfigDeep } from './hub-mask.helper';
+import { maskConfigDeep } from '../../src/core/modules/hub/helpers/hub-mask.helper';
 
 describe('maskConfigDeep', () => {
   it('masks values whose key matches the secret pattern', () => {

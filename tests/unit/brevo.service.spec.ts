@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Brevo, BrevoClient as RealBrevoClient } from '@getbrevo/brevo';
 
-import { BrevoService } from './brevo.service';
-import type { ConfigService } from './config.service';
+import { BrevoService } from '../../src/core/common/services/brevo.service';
+import type { ConfigService } from '../../src/core/common/services/config.service';
 
 /**
  * Type-level contract against the REAL SDK.

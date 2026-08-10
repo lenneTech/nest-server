@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InMemoryRateLimitStore, RedisRateLimitStore } from './rate-limit-store';
+import { InMemoryRateLimitStore, RedisRateLimitStore } from '../../src/core/common/services/rate-limit-store';
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from '../../src/core/common/services/core-redis.service';
 
 describe('InMemoryRateLimitStore', () => {
   let store: InMemoryRateLimitStore;

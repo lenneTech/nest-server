@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 // HubModelDescriptor }` arrives in a vendored project as `{ buildErDiagram }`, and the file then
 // fails to compile with TS2304. Keeping the two forms separate survives the conversion.
 // (The CLI defect is tracked separately; this keeps src/core/ vendor-safe meanwhile.)
-import type { HubModelDescriptor } from './hub-mermaid.helper';
+import type { HubModelDescriptor } from '../../src/core/modules/hub/helpers/hub-mermaid.helper';
 
-import { buildErDiagram } from './hub-mermaid.helper';
+import { buildErDiagram } from '../../src/core/modules/hub/helpers/hub-mermaid.helper';
 
 describe('buildErDiagram', () => {
   const models: HubModelDescriptor[] = [
