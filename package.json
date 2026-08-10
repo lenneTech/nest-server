@@ -144,7 +144,7 @@
     "@aws-sdk/s3-request-presigner": ">=3.1045.0 <4",
     "@tus/s3-store": ">=2.0.5 <3",
     "bullmq": ">=5.16.0 <7",
-    "ioredis": ">=5.0.0 <6"
+    "ioredis": ">=5.0.0 <7"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {
@@ -188,7 +188,7 @@
     "bullmq": "6.0.9",
     "find-file-up": "2.0.1",
     "husky": "9.1.7",
-    "ioredis": "5.10.0",
+    "ioredis": "6.0.0",
     "nodemon": "3.1.14",
     "npm-watch": "0.13.0",
     "otpauth": "9.5.1",
