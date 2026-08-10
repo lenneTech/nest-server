@@ -233,6 +233,11 @@ function main() {
     'IAi',
     'IAiRateLimit',
     'IAiDefaultConnection',
+    // 11.33.0 infrastructure — without these the reference shows only the type NAMES, so a
+    // consumer reading it from node_modules cannot see a single field or default.
+    'IRedisConfig',
+    'IS3Config',
+    'ITusConfig',
     'ICoreModuleOverrides',
   ];
 

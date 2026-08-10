@@ -2572,12 +2572,16 @@ export interface IRedisConfig {
   /**
    * Prefix prepended to every framework-managed Redis key
    * (rate limits, locks, caches, Hub collectors, BullMQ queue prefix).
-   * Set this when multiple applications share one Redis instance.
+   *
+   * Defaults to your own `package.json` name, slugified (`@acme/api` → `acme-api`),
+   * so two applications sharing one Redis do not collide. Set it explicitly only
+   * when sharing IS intended — giving two applications the same prefix makes one
+   * application's BullMQ worker consume the other's scheduled jobs.
    *
    * Note: applied by the framework per key — NOT passed as ioredis `keyPrefix`,
    * which would conflict with BullMQ's own prefix handling.
    *
-   * @default 'nest-server'
+   * @default the slugified `name` from package.json, or 'nest-server' if unreadable
    */
   keyPrefix?: string;
 
