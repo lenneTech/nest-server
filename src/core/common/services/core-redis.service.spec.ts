@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getProjectSlug } from '../helpers/project-name.helper';
 import { CoreRedisService } from './core-redis.service';
 
 import type { ConfigService } from './config.service';
@@ -41,6 +42,26 @@ function createService(redisConfig: unknown): CoreRedisService {
 }
 
 describe('CoreRedisService', () => {
+  describe('key prefix default', () => {
+    it('namespaces per APPLICATION, not per framework', () => {
+      // The old default was the constant 'nest-server' for every project. That is invisible until
+      // two applications share one Redis — a normal staging setup — and then their identically
+      // named cron jobs, rate-limit counters and Hub buffers collide silently: one app's worker
+      // consumes the other's scheduled jobs, so the job never runs where it was defined.
+      const service = createService({});
+
+      const prefix = service.getConfig()?.keyPrefix;
+      expect(prefix).toBeTruthy();
+      expect(prefix).toBe(getProjectSlug());
+      expect(service.key('cron-lock', 'cleanup')).toBe(`${getProjectSlug()}:cron-lock:cleanup`);
+    });
+
+    it('still honors an explicit keyPrefix — sharing stays possible when it is intended', () => {
+      const service = createService({ keyPrefix: 'shared-ns' });
+      expect(service.getConfig()?.keyPrefix).toBe('shared-ns');
+      expect(service.key('rate-limit', 'ip')).toBe('shared-ns:rate-limit:ip');
+    });
+  });
   beforeEach(() => {
     redisMock.constructorArgs.length = 0;
     redisMock.instances.length = 0;
@@ -77,7 +98,9 @@ describe('CoreRedisService', () => {
   describe('config normalization', () => {
     it('applies defaults for boolean shorthand', () => {
       const service = createService(true);
-      expect(service.getConfig()).toMatchObject({ db: 0, host: 'localhost', keyPrefix: 'nest-server', port: 6379 });
+      // keyPrefix is per-application now (see the "key prefix default" block), so assert the
+      // contract rather than a literal that would silently re-pin the old shared constant.
+      expect(service.getConfig()).toMatchObject({ db: 0, host: 'localhost', keyPrefix: getProjectSlug(), port: 6379 });
     });
 
     it('keeps explicit values and fills the rest', () => {
@@ -88,7 +111,9 @@ describe('CoreRedisService', () => {
 
   describe('key()', () => {
     it('prefixes keys with the configured prefix', () => {
-      expect(createService(true).key('rate-limit', 'auth', '1.2.3.4')).toBe('nest-server:rate-limit:auth:1.2.3.4');
+      expect(createService(true).key('rate-limit', 'auth', '1.2.3.4')).toBe(
+        `${getProjectSlug()}:rate-limit:auth:1.2.3.4`,
+      );
       expect(createService({ keyPrefix: 'myapp' }).key('lock')).toBe('myapp:lock');
     });
   });

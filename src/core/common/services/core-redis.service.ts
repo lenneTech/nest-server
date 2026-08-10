@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 
+import { getProjectSlug } from '../helpers/project-name.helper';
 import { ConfigService } from './config.service';
 
 import type { IRedisConfig } from '../interfaces/server-options.interface';
@@ -55,7 +56,12 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     this.config = {
       db: partial.db ?? 0,
       host: partial.host ?? 'localhost',
-      keyPrefix: partial.keyPrefix ?? 'nest-server',
+      // Default namespaced PER APPLICATION, not per framework. A constant default is invisible
+      // until two applications share one Redis — a normal staging setup — and then their
+      // identically-named cron jobs, rate-limit counters and Hub buffers collide on the same keys.
+      // The failure is silent: one app's BullMQ worker consumes the other's scheduled jobs, so the
+      // job never runs where it was defined. Override via `redis.keyPrefix` when you WANT sharing.
+      keyPrefix: partial.keyPrefix ?? getProjectSlug(),
       options: partial.options,
       password: partial.password,
       port: partial.port ?? 6379,
@@ -85,7 +91,7 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
    * which would conflict with BullMQ's own prefix handling.
    */
   key(...parts: string[]): string {
-    return [this.config?.keyPrefix ?? 'nest-server', ...parts].join(':');
+    return [this.config?.keyPrefix ?? getProjectSlug(), ...parts].join(':');
   }
 
   /**
@@ -106,6 +112,53 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
       );
     }
     this.sharedClient = this.newConnection('shared');
+    this.logActivationSummary();
+  }
+
+  /**
+   * State the consequences of `redis` being configured, once, at boot.
+   *
+   * Configuring Redis is not a local decision — it silently changes the behavior of a dozen
+   * subsystems at once, and several of those changes are only observable in production. The worst
+   * case is a project that never opted in at all: `redis` is a generic name, so a project may
+   * already carry that key in its server options for its OWN client, and then a mere version bump
+   * flips everything over. Cron stops being per-replica, rate limits get stricter (they were
+   * effectively `max × replicas` before), diagnostics leave the process. All correct, none of it
+   * announced.
+   *
+   * So the summary lists what actually changed FOR THIS CONFIG — features that are switched off
+   * are omitted rather than listed as inactive, because a list of non-events is noise.
+   */
+  protected logActivationSummary(): void {
+    if (!this.config) {
+      return;
+    }
+
+    const cfg = this.configService.configFastButReadOnly ?? ({} as Record<string, any>);
+    const changed: string[] = [
+      'rate limits (legacy auth, better-auth, AI) — now exact across replicas instead of per replica',
+      'cron jobs — deduplicated fleet-wide; per-job opt-out via `distributed: false`',
+      'email-verification cooldown — one slot fleet-wide instead of one per replica',
+    ];
+
+    if (cfg.graphQl !== false) {
+      changed.push('GraphQL subscriptions — via Redis pub/sub; payloads must be JSON-serializable');
+    }
+    if (cfg.multiTenancy) {
+      changed.push('tenant-membership cache — invalidation is broadcast to every replica');
+    }
+    if (cfg.hub) {
+      changed.push('Hub log/trace/query buffers — mirrored to Redis, so they outlive the process');
+    }
+    if (cfg.ai?.mcp) {
+      changed.push('MCP sessions — ownership registry (sticky sessions still required)');
+    }
+
+    this.logger.log(
+      `Redis configured (${this.config.url ? 'url' : `${this.config.host}:${this.config.port}`}, ` +
+        `db ${this.config.db}, keyPrefix "${this.config.keyPrefix}") — these subsystems are now ` +
+        `distributed:\n  - ${changed.join('\n  - ')}`,
+    );
   }
 
   /**
