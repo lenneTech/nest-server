@@ -79,7 +79,10 @@ peerDependencyRules:
 overrides:
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
   # LOAD-BEARING. Remove once @nestjs/graphql stops pinning ws 8.20.1 exactly.
-  'ws@>=8.0.0 <8.21.0': '8.21.1'
+  # Target raised 8.21.1 -> 8.21.3 on 2026-08-10 to match the direct `ws` dependency: with
+  # nodeLinker: hoisted a lower target would leave a SECOND, older ws copy in the tree next to
+  # the direct one. Keep the two in lockstep whenever the direct dependency moves.
+  'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Inert today (axios already resolves >=1.18.0). Remove once node-mailjet requests >=1.18.0 itself.
   'axios@<1.18.0': '1.18.1'
@@ -151,9 +154,17 @@ overrides:
   # LOAD-BEARING. Drop this entry as soon as @modelcontextprotocol/sdk moves its own range to ^2.
   '@hono/node-server@<2.0.10': '2.0.11'
 
+# NOTE (2026-08-10): `minimumReleaseAge` itself is NOT set anywhere - not here, not in .npmrc,
+# not in a global pnpm config - and pnpm defaults it to 0 (`minimumReleaseAge = opts.minimumReleaseAge ?? 0`).
+# The exclusions below therefore currently exclude packages from a hold-back that is not active,
+# i.e. the whole list is inert. Either set `minimumReleaseAge` (in minutes) to turn the
+# supply-chain hold-back on and make these entries meaningful, or drop the list. Until then,
+# "recently published" has to be judged by hand during maintenance runs.
 minimumReleaseAgeExclude:
-  - '@aws-sdk/client-s3@3.1105.0'
-  - '@aws-sdk/s3-request-presigner@3.1105.0'
+  # Bumped 3.1105.0 -> 3.1106.0 alongside the devDependency; the AWS SDK publishes almost daily,
+  # so this pair always trips a hold-back and the pinned version has to be carried along.
+  - '@aws-sdk/client-s3@3.1106.0'
+  - '@aws-sdk/s3-request-presigner@3.1106.0'
   - bullmq@6.0.9
   - '@nestjs/common@11.1.29'
   - '@nestjs/core@11.1.29'
