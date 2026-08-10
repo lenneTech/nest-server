@@ -130,7 +130,7 @@ export abstract class CoreFileController {
    */
   @Get('id/:id')
   @Roles(RoleEnum.S_EVERYONE)
-  async getFileById(@Param('id') id: string, @Res() res: Response) {
+  async getFileById(@Param('id') id: string, @Res() res: Response): Promise<Response> {
     if (!id) {
       throw new BadRequestException(ErrorCode.REQUIRED_FIELD_MISSING);
     }
@@ -143,7 +143,14 @@ export abstract class CoreFileController {
     // bytes from S3 directly instead of streaming them through the API
     const url = await this.resolveDownloadUrl(id);
     if (url) {
-      return res.redirect(302, url);
+      // `res.redirect()` is typed `void`, so returning it directly widened this method's inferred
+      // return type to `Promise<void | Response>` — a source-invisible BREAKING change for every
+      // project that overrides `getFileById`/`getFile` with an explicit `Promise<Response>` and
+      // delegates to super. Nest ignores the returned value once `@Res()` is used, so returning
+      // `res` is equivalent and keeps the published contract intact. The explicit annotation on
+      // both methods pins it, so inference can never silently widen it again.
+      res.redirect(302, url);
+      return res;
     }
     const filestream = await this.fileService.getFileStream(id);
     // `getFileStream` answers null when the service's own rights check refuses.
@@ -164,7 +171,7 @@ export abstract class CoreFileController {
    */
   @Get(':filename')
   @Roles(RoleEnum.S_EVERYONE)
-  async getFile(@Param('filename') filename: string, @Res() res: Response) {
+  async getFile(@Param('filename') filename: string, @Res() res: Response): Promise<Response> {
     if (!filename) {
       throw new BadRequestException(ErrorCode.REQUIRED_FIELD_MISSING);
     }
@@ -175,7 +182,8 @@ export abstract class CoreFileController {
     }
     const url = await this.resolveDownloadUrl(file.id);
     if (url) {
-      return res.redirect(302, url);
+      res.redirect(302, url);
+      return res;
     }
     const filestream = await this.fileService.getFileStream(file.id);
     if (!filestream) {
