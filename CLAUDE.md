@@ -142,7 +142,7 @@ pnpm run reinit         # Clean reinstall + tests + build
 - `src/core/modules/` - Auth, BetterAuth, ErrorCode, File, HealthCheck, Hub, Migrate, Permissions, SystemSetup, Tus, User
   - **Hub** - Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 16 panels, runtime collectors, mailbox, admin actions). See `src/core/modules/hub/README.md`.
   - **Permissions** - ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel.
-- **Optional central infrastructure** (11.33.0+) - `CoreRedisService` (`redis` config) and `CoreS3Service` (`s3` config) turn process-local state into shared state for multi-replica deployments: rate-limit counters, cron deduplication, GraphQL subscriptions, tenant-cache invalidation, Hub collectors, file storage (`fileStorage: 's3'`) and TUS staging. Both are inert without their config, and their client libraries are **optional peer dependencies** (`ioredis`, `bullmq`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@tus/s3-store`) — a project that uses neither installs nothing extra. When adding a distributed feature, always keep the non-configured fallback path.
+- **Optional central infrastructure** (11.33.0+) - `CoreRedisService` (`redis` config) and `CoreS3Service` (`s3` config) turn process-local state into shared state for multi-replica deployments: rate-limit counters, cron deduplication, GraphQL subscriptions, tenant-cache invalidation, Hub collectors, file storage (`file.storage: 's3'`; the driver is otherwise derived — S3 → GridFS → filesystem — and an unavailable one fails the boot rather than falling back) and TUS staging. Both are inert without their config, and their client libraries are **optional peer dependencies** (`ioredis`, `bullmq`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@tus/s3-store`) — a project that uses neither installs nothing extra. When adding a distributed feature, always keep the non-configured fallback path.
 
 See `.claude/rules/architecture.md` for detailed documentation.
 See [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) for the complete request lifecycle, security architecture, and interceptor/decorator reference.
@@ -237,6 +237,10 @@ file is missing (default: tolerate with a warning) — see `src/core/modules/mig
 
 1. **All code, comments, documentation in English**
 2. **Run tests before completing changes** - `pnpm test`
+2b. **Never put test files in `src/`** — unit tests go to `tests/unit/*.spec.ts`, e2e to
+   `tests/*.e2e-spec.ts`, stories to `tests/stories/*.story.test.ts`. `src/` ships in the npm
+   tarball and is copied verbatim into vendor-mode consumer projects, so a co-located spec becomes
+   part of THEIR codebase. Enforced by `tests/unit/test-file-placement.spec.ts`.
 3. **Follow existing patterns** for consistency
 4. **Never store S_ roles** in user.roles array
 5. **Use Module Inheritance Pattern** for core modules

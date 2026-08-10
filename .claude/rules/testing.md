@@ -6,13 +6,63 @@
 
 | Runner | Config | Test files | Needs MongoDB |
 |--------|--------|-----------|:-------------:|
-| Unit | `vitest.config.ts` | `src/**/*.spec.ts`, `tests/unit/**/*.spec.ts` | No |
+| Unit | `vitest.config.ts` | `tests/unit/**/*.spec.ts` | No |
 | E2E | `vitest-e2e.config.ts` | `tests/**/*.e2e-spec.ts`, `tests/stories/**/*.story.test.ts` | Yes |
+
+**Test files NEVER live in `src/`.** Not a style preference — `src/` is this framework's shipping
+artifact: `package.json` → `files` ships all of `src` recursively into the npm tarball, and
+vendor-mode consumers copy `src/core/` into their own tree as first-class project code (the CLI's
+`convertCloneToVendored` applies no spec filter). A co-located spec therefore reaches every consumer
+as a test file they neither run nor maintain, re-delivered on every core update. Co-location is a
+fine default for an application; for a library whose `src/` IS the delivery, separation wins.
+
+Enforced twice: the unit runner's glob no longer looks at `src/` at all, and
+`tests/unit/test-file-placement.spec.ts` fails on any `.spec.ts`/`.test.ts` found there — so a
+misplaced test surfaces as a failure rather than as silently skipped coverage.
+
+| Kind | Where | Suffix |
+|------|-------|--------|
+| Unit | `tests/unit/` | `*.spec.ts` |
+| E2E / integration | `tests/` | `*.e2e-spec.ts` |
+| Story (e2e-grade) | `tests/stories/` | `*.story.test.ts` |
+| Type-only (compiled, never run) | `tests/types/` | `*.type-test.ts` |
 
 A file matching neither pattern would run nowhere. `tests/unit/test-file-routing.spec.ts` asserts
 that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** runner, so a
 mis-named suite fails the build instead of silently passing. Type-only tests
 (`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
+
+## Infrastructure containers (Redis + S3)
+
+Four e2e suites (`redis-infra`, `s3-infra`, `multi-replica`, `redis-s3-bootstrap`, plus
+`file-storage-s3` and `graceful-shutdown`) talk to a **real** Redis and a **real** S3-compatible
+store rather than a mock, and they **fail loudly** when it is missing — a silently skipped
+infrastructure test is how an untested driver ships.
+
+`tests/global-setup.ts` starts both containers automatically, so `pnpm test` works from a clean
+machine with no manual docker command. It is idempotent (a running container is reused) and never
+fatal: without Docker every other suite still runs, and the six above report their own actionable
+error.
+
+```bash
+pnpm run test:infra          # start + wait for readiness (also runs automatically)
+pnpm run test:infra:status   # what is running
+pnpm run test:infra:down     # stop and remove
+```
+
+| | Redis | S3 (RustFS) |
+|---|---|---|
+| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 |
+| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` |
+
+**CI provisions its own** containers in `.github/workflows/*.yml` and sets `LT_TEST_INFRA=0` so the
+automatic start stays out of the way. Same images, same ports — only who starts them differs. Set
+`LT_TEST_INFRA=0` locally too if you want to manage them yourself.
+
+**Bucket cleanup:** every suite that creates a bucket names it per run and removes it in `afterAll`
+via `tests/helpers/s3-test-cleanup.ts`. Emptying and deleting belong together — a bucket cannot be
+deleted while it holds objects — which is why that lives in one helper rather than per suite. Before
+it existed, two empty buckets leaked into the store per run.
 
 ## Running Tests
 

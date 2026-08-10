@@ -158,9 +158,10 @@ JWT-based authentication for existing projects:
 | Feature | Description |
 |---------|-------------|
 | **File Module** | Upload/download with MongoDB GridFS storage |
-| **REST Endpoints** | `GET /files/:id`, `POST /files/upload`, `DELETE /files/:id` |
-| **GraphQL Endpoints** | `uploadFile`, `file`, `fileByFilename`, `deleteFile` |
-| **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration) |
+| **REST Endpoints** | `GET /files/id/:id`, `GET /files/:filename` (core, gated by `file.downloadRoles`, default ADMIN); `POST /files/upload`, `DELETE /files/:id` (project-specific) |
+| **GraphQL Endpoints** | `getFileInfo` (`file.downloadRoles`), `uploadFile` / `uploadFiles` (`file.uploadRoles`), `deleteFile` (`file.deleteRoles`) — all default ADMIN |
+| **File access control** | Roles are the coarse filter; per-file rules go in `CoreFileService.checkRights()` using metadata written at upload time. Both file classes carry `@SkipTenantCheck()` — GridFS is not tenant-scoped |
+| **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight |
 | **GridFS Migration** | Completed TUS uploads auto-migrate to GridFS |
 | **CORS Support** | Automatic CORS headers for browser uploads |
 
