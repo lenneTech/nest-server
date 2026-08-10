@@ -20,9 +20,13 @@ import { FileService } from './file.service';
 /**
  * File controller
  *
- * Extends CoreFileController to provide public download endpoints:
- * - GET /files/id/:id - Download file by ID (public)
- * - GET /files/:filename - Download file by filename (public)
+ * Extends CoreFileController and INHERITS its download endpoints unchanged:
+ * - GET /files/id/:id     - Download file by ID
+ * - GET /files/:filename  - Download file by filename
+ *
+ * Both are gated by `file.downloadRoles` (default ADMIN). They are deliberately
+ * not overridden here: role metadata lives on the function object, so an
+ * override would carry its own and silently opt the route out of that config.
  *
  * Adds admin-only endpoints:
  * - POST /files/upload - Upload file (admin)

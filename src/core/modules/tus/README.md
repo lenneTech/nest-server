@@ -262,7 +262,31 @@ upload.start(); // Resumes from where it left off
 
 ### Require Authentication
 
-By default, TUS allows everyone (`S_EVERYONE`) to upload. To require authentication, create a custom controller:
+Since 11.33.0 TUS requires a signed-in caller by default (`tus.roles`, default `[S_USER]`). The
+previous default was `S_EVERYONE`, which let anonymous callers write into — and, with the
+termination extension, delete from — the same GridFS bucket the download routes guard.
+
+Set it in `config.env.ts`:
+
+```typescript
+tus: {
+  roles: [RoleEnum.S_USER];
+} // default
+tus: {
+  roles: [RoleEnum.S_EVERYONE];
+} // opt back in to anonymous uploads
+tus: {
+  roles: ['editor', 'contributor'];
+} // project-specific roles work too
+```
+
+`roles: []` is rejected with a warning rather than honoured — an all-empty role set reads to the
+guards as "no roles required" and would open the endpoints instead of closing them.
+
+`OPTIONS` stays public regardless: it is the CORS preflight, which browsers send without
+credentials, and it discloses only server capabilities.
+
+Alternatively, create a custom controller:
 
 ```typescript
 // src/server/modules/tus/tus.controller.ts
@@ -332,7 +356,7 @@ GET /files/:filename
 
 # Via GraphQL
 query {
-  file(id: "...") {
+  getFileInfo(filename: "...") {
     id
     filename
     contentType
@@ -342,6 +366,15 @@ query {
 ```
 
 **Recommendation:** Use the ID-based endpoint (`/files/id/:id`) for TUS uploads as filenames may not be unique.
+
+> **These download routes are gated.** They require `file.downloadRoles`, which defaults to
+> `[RoleEnum.ADMIN]` — while uploading here only requires `tus.roles` (default `S_USER`). So out of
+> the box a signed-in user can upload but cannot read their own file back.
+>
+> Do not fix that by widening `downloadRoles` to `S_USER`: that would let every signed-in user read
+> _every_ file in the shared bucket. Write an owner into the file metadata at upload time and
+> authorize per file in `CoreFileService.checkRights()` — see the File module's README, section
+> "Access control".
 
 ### File Metadata
 

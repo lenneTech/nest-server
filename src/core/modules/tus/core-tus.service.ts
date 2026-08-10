@@ -11,6 +11,12 @@ import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
+import { resolveFileStorage } from '../file/file-storage.helper';
+import {
+  DEFAULT_FILESYSTEM_DIR,
+  FILESYSTEM_FILES_COLLECTION,
+  FilesystemFileHelper,
+} from '../file/filesystem-file.helper';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
 import { TusRedisLocker } from './tus-redis-locker';
 import {
@@ -41,7 +47,7 @@ export interface CoreTusServiceOptions {
  *
  * Provides integration with @tus/server for resumable file uploads.
  * After upload completion, files are migrated to the configured file storage
- * (S3 when `fileStorage: 's3'`, otherwise GridFS).
+ * (S3 when `file.storage: 's3'`, otherwise GridFS).
  *
  * Uploads in progress are staged either on local disk (`@tus/file-store`) or,
  * when S3 is configured and `tus.s3Staging` is not disabled, in the S3 staging
@@ -170,7 +176,14 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         return;
       }
 
-      if (this.s3FileStorage) {
+      if (this.fileStorageDriver === 'filesystem') {
+        const fileInfo = await FilesystemFileHelper.writeFile(
+          this.fileStorageDir,
+          this.connection.db.collection(FILESYSTEM_FILES_COLLECTION),
+          { body: readStream, contentType, filename, metadata: fileMetadata },
+        );
+        this.logger.debug(`Upload ${upload.id} migrated to the filesystem as ${fileInfo._id} (filename: ${filename})`);
+      } else if (this.s3FileStorage) {
         const fileInfo = await S3FileHelper.writeFile(
           this.options.s3Service,
           this.connection.db.collection(S3_FILES_COLLECTION),
@@ -197,13 +210,26 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
-   * Whether finished uploads are stored in S3 (`fileStorage: 's3'`) instead of GridFS
+   * Which store a finished upload is migrated into.
+   *
+   * Deliberately the SAME resolution `CoreFileService` uses. A tus upload has to
+   * land where the download routes look for it — resolving this independently is
+   * how an upload ends up written to one store and read from another.
+   */
+  protected get fileStorageDriver(): string {
+    return resolveFileStorage(ConfigService.configFastButReadOnly).driver;
+  }
+
+  /** Directory used when uploads are migrated to the local filesystem */
+  protected get fileStorageDir(): string {
+    return ConfigService.configFastButReadOnly?.file?.storageDir || DEFAULT_FILESYSTEM_DIR;
+  }
+
+  /**
+   * Whether finished uploads are stored in S3 (`file.storage: 's3'`) instead of GridFS
    */
   protected get s3FileStorage(): boolean {
-    return (
-      !!this.options?.s3Service?.enabled &&
-      this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
-    );
+    return !!this.options?.s3Service?.enabled && this.fileStorageDriver === 's3';
   }
 
   /**

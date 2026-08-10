@@ -816,6 +816,112 @@ export interface IErrorCode {
 }
 
 /**
+ * Interface for the file module (GridFS)
+ *
+ * All three knobs take PLAIN ROLE STRINGS, not `RoleEnum` members, because
+ * `@Roles()` itself is `(...roles: string[])`. A project may therefore gate the
+ * routes with its own role names (`'company-admin'`, `'editor'`) exactly as it
+ * would in a hand-written `@Roles()` call — see `RoleEnum` for the system roles
+ * (`S_USER`, `S_VERIFIED`, …) that keep their special meaning.
+ *
+ * The defaults are deliberately restrictive: a single GridFS bucket is shared by
+ * every feature of the consuming project, and the ids identifying its blobs are
+ * ObjectIds — not secrets. Widening any of these is a decision the project owner
+ * has to make explicitly, and it belongs in `config.env.ts` where it is
+ * reviewable, rather than in a decorator override where it is not.
+ *
+ * ROLES ARE THE COARSE FILTER ONLY. They answer "may this caller reach the
+ * route at all", never "may this caller have THIS file". For per-file rules —
+ * owner, tenant, published-flag — override `CoreFileService.checkRights()`,
+ * which receives the `currentUser` and the resolved file metadata.
+ *
+ * ⚠ With `multiTenancy` active, a non-system role is validated against
+ * `membership.role` rather than `user.roles` (see `CoreTenantGuard`). Since
+ * GridFS is accessed through the native driver, `mongooseTenantPlugin` never
+ * runs on `fs.files` — the bucket is NOT tenant-scoped. A per-tenant rule must
+ * therefore be expressed in `checkRights()`, not by a role name alone.
+ */
+export interface IFileConfig {
+  /**
+   * Roles allowed to DELETE files (`deleteFile` mutation).
+   *
+   * Kept separate from `uploadRoles` on purpose: "everyone signed in may upload"
+   * is a common and reasonable policy, "everyone signed in may delete anyone's
+   * file" almost never is.
+   *
+   * @default ['admin']
+   */
+  deleteRoles?: string[];
+
+  /**
+   * Roles allowed to DOWNLOAD files and read file info
+   * (`GET /files/id/:id`, `GET /files/:filename`, `getFileInfo` query).
+   *
+   * Note for browser-rendered files: an `<img src>` or `<a href>` cannot send an
+   * `Authorization` header, so anything stricter than `S_EVERYONE` only works
+   * for those tags when the session travels as a cookie.
+   *
+   * @default ['admin']
+   */
+  downloadRoles?: string[];
+
+  /**
+   * Storage driver for CoreFileService. Three equivalent options:
+   *
+   * - `'s3'`         — an S3-compatible bucket (needs `s3`). The only driver that
+   *                    survives horizontal scaling.
+   * - `'gridfs'`     — MongoDB GridFS. No extra infrastructure; bytes share the database.
+   * - `'filesystem'` — the local disk (`storageDir`). Pod-local: not shared between
+   *                    replicas and lost on restart unless the path is a mounted volume.
+   *
+   * **Set explicitly and it is enforced.** If the chosen store is not available,
+   * the boot FAILS rather than falling back — a silent fallback would put files
+   * in a store the operator does not believe they are in, with no way to tell
+   * afterwards which file went where.
+   *
+   * **Left unset, it is derived**, most capable first:
+   * 1. `'s3'` when `s3.bucket` is configured
+   * 2. `'gridfs'` when a database is configured
+   * 3. `'filesystem'` when neither is
+   *
+   * A configured-but-unreachable database is an error in its own right (Mongoose
+   * fails the boot), never a reason to fall through to the disk.
+   *
+   * **Metadata always lives in the database**, whichever driver stores the bytes:
+   * filename, content type, length and the custom `metadata` a per-file rule
+   * reads have to be queryable. Only a project running without a database at all
+   * has to keep its own bookkeeping.
+   *
+   * Orthogonal to the role knobs above: this decides WHERE the bytes live, they
+   * decide WHO may reach them. A per-file rule in `checkRights()` works under
+   * every driver — `getRawFileInfo()` checks all metadata stores.
+   *
+   * @default derived — see above
+   */
+  storage?: 'filesystem' | 'gridfs' | 's3';
+
+  /**
+   * Directory for the `'filesystem'` storage driver.
+   *
+   * Relative paths resolve against the process working directory. The directory
+   * is created on first write.
+   *
+   * @default 'uploads/files'
+   */
+  storageDir?: string;
+
+  /**
+   * Roles allowed to UPLOAD files (`uploadFile` / `uploadFiles` mutations).
+   *
+   * This does NOT cover TUS resumable uploads, which are served by their own
+   * controller — configure those via `tus.roles`.
+   *
+   * @default ['admin']
+   */
+  uploadRoles?: string[];
+}
+
+/**
  * Interface for JWT configuration (main and refresh)
  */
 export interface IJwt {
@@ -1793,15 +1899,10 @@ export interface IServerOptions {
   execAfterInit?: string;
 
   /**
-   * Storage driver for CoreFileService.
-   *
-   * - 'gridfs': store files in MongoDB GridFS (default, no extra infrastructure)
-   * - 's3': store files in the configured S3 bucket (requires `s3` config);
-   *   GridFS remains available as fallback for existing files
-   *
-   * @default 'gridfs'
+   * Configuration of the file module: where the bytes live (`storage`) and who
+   * may reach them (`downloadRoles` / `uploadRoles` / `deleteRoles`).
    */
-  fileStorage?: 'gridfs' | 's3';
+  file?: IFileConfig;
 
   /**
    * Filter configuration and defaults
@@ -2150,7 +2251,7 @@ export interface IServerOptions {
   /**
    * Optional central S3-compatible object storage (AWS S3, MinIO, ...).
    *
-   * Used by CoreFileService (when `fileStorage: 's3'`) and as TUS upload staging.
+   * Used by CoreFileService (when `file.storage: 's3'`) and as TUS upload staging.
    * Follows the "presence implies enabled" pattern; without this config,
    * files stay in GridFS and TUS stages on local disk as before.
    *
@@ -2832,11 +2933,42 @@ export interface ITusConfig {
   path?: string;
 
   /**
+   * Roles allowed to use the tus endpoints (create, write, read offset, terminate).
+   *
+   * Takes plain role strings, like `@Roles()` itself, so a project can use its
+   * own role names here.
+   *
+   * A tus upload writes into the SAME file store that `file.downloadRoles`
+   * guards — GridFS or S3, whichever `file.storage` selects — so leaving this at
+   * `S_EVERYONE` while the download side is restricted means anonymous callers
+   * may write into, and with the termination extension delete from, a store
+   * only privileged callers may read. That asymmetry is rarely intended;
+   * `S_USER` is the safer default for anything reachable from the internet.
+   *
+   * `OPTIONS` is exempt — it is the CORS preflight, which browsers send without
+   * credentials, and it returns only server capabilities.
+   *
+   * @default ['s_user']
+   */
+  roles?: string[];
+
+  /**
    * Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
    * `stagingBucket`) instead of local disk, so resumable uploads survive
    * replica restarts and work without sticky sessions.
-   * Only effective when S3 is configured; set to `false` to force local disk.
-   * @default true (when S3 is configured)
+   *
+   * **On by default whenever S3 is usable** — a configured `s3` block with a
+   * `bucket` is enough, no opt-in needed. Set to `false` to force local disk.
+   *
+   * "Usable" is the same test `file.storage`'s automatic default uses: a bucket
+   * must be named. An `s3` block without one is ignored entirely (with a
+   * warning), so staging can never be switched on against a bucket that does
+   * not exist.
+   *
+   * Independent of `file.storage`: chunks may stage in S3 while finished files
+   * are written to GridFS, or the other way round.
+   *
+   * @default true (when S3 is usable)
    */
   s3Staging?: boolean;
 

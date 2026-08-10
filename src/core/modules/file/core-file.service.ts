@@ -14,6 +14,19 @@ import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { CoreFileInfo } from './core-file-info.model';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUploadSource } from './interfaces/file-upload.interface';
+import {
+  assertFileStorageAvailable,
+  FileStorageDriver,
+  FileStorageResolution,
+  logFileStorage,
+  resolveFileStorage,
+} from './file-storage.helper';
+import {
+  DEFAULT_FILESYSTEM_DIR,
+  FILESYSTEM_FILES_COLLECTION,
+  FilesystemFileHelper,
+  FilesystemFileInfo,
+} from './filesystem-file.helper';
 import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo, streamToBuffer } from './s3-file.helper';
 
 /**
@@ -24,7 +37,7 @@ export type FileInputCheckType = 'file' | 'filename' | 'files' | 'filterArgs' | 
 /**
  * Optional dependencies of CoreFileService.
  *
- * Both are required for the S3 storage driver (`fileStorage: 's3'`); without
+ * Both are required for the S3 storage driver (`file.storage: 's3'`); without
  * them the service behaves exactly as before and stores everything in GridFS.
  */
 export interface CoreFileServiceOptions {
@@ -42,6 +55,12 @@ export abstract class CoreFileService {
   /** Metadata collection for files stored in S3 (no Mongoose schema) */
   protected s3Files: mongo.Collection<any>;
 
+  /** Metadata collection for files stored on the local filesystem (no Mongoose schema) */
+  protected filesystemFiles: mongo.Collection<any>;
+
+  /** Which driver new files are written to, and why */
+  protected readonly storageResolution: FileStorageResolution;
+
   /**
    * Include MongoDB connection and create File bucket
    */
@@ -53,18 +72,68 @@ export abstract class CoreFileService {
     // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
     this.files = new mongo.GridFSBucket(connection.db, { bucketName });
     this.s3Files = connection.db.collection(S3_FILES_COLLECTION);
+    this.filesystemFiles = connection.db.collection(FILESYSTEM_FILES_COLLECTION);
+
+    // Resolve from the global config rather than the optional injected
+    // ConfigService: a project on the pre-11.33 constructor (`super(connection)`)
+    // forwards no services, and must still get a correctly derived driver.
+    this.storageResolution = resolveFileStorage(ConfigService.configFastButReadOnly);
+    assertFileStorageAvailable(this.storageResolution, this.isStorageAvailable(this.storageResolution.driver));
+    logFileStorage(this.storageResolution);
   }
 
   /**
-   * Whether new files are stored in S3 (`fileStorage: 's3'` and S3 configured).
-   * Reads keep checking GridFS as fallback, so files written before the switch
-   * stay available.
+   * The driver new files are written to.
+   *
+   * Reads are not restricted to it: every store is consulted, so files written
+   * before a driver change stay readable and switching is forward-only with no
+   * migration step.
+   */
+  protected get storageDriver(): FileStorageDriver {
+    return this.storageResolution.driver;
+  }
+
+  /** Directory used by the `'filesystem'` driver */
+  protected get filesystemDir(): string {
+    return ConfigService.configFastButReadOnly?.file?.storageDir || DEFAULT_FILESYSTEM_DIR;
+  }
+
+  /**
+   * Whether a driver can actually be used right now.
+   *
+   * GridFS and the filesystem need nothing beyond what the constructor already
+   * has (a database connection, a writable directory). S3 needs both the client
+   * library and the service wired through `super()`.
+   */
+  protected isStorageAvailable(driver: FileStorageDriver): boolean {
+    return driver === 's3' ? !!this.options?.s3Service?.enabled : true;
+  }
+
+  /**
+   * @deprecated Use `storageDriver === 's3'`. Kept so an override or a project
+   * that read this keeps compiling.
    */
   protected get s3Storage(): boolean {
-    return (
-      !!this.options?.s3Service?.enabled &&
-      this.options?.configService?.getFastButReadOnly<string>('fileStorage') === 's3'
-    );
+    return this.storageDriver === 's3';
+  }
+
+  /** Whether new files go to the local filesystem */
+  protected get filesystemStorage(): boolean {
+    return this.storageDriver === 'filesystem';
+  }
+
+  /**
+   * Find the filesystem metadata of a file by ID (null when it is stored elsewhere)
+   */
+  protected async findFilesystemFileById(id: string | Types.ObjectId): Promise<FilesystemFileInfo | null> {
+    return FilesystemFileHelper.findFileById(this.filesystemFiles, getObjectIds(id));
+  }
+
+  /**
+   * Find the filesystem metadata of a file by filename (null when it is stored elsewhere)
+   */
+  protected async findFilesystemFileByName(filename: string): Promise<FilesystemFileInfo | null> {
+    return FilesystemFileHelper.findFileByName(this.filesystemFiles, filename);
   }
 
   /**
@@ -76,7 +145,16 @@ export abstract class CoreFileService {
     }
     const { createReadStream, filename, mimetype } = await file;
     const readStream = createReadStream();
-    if (this.s3Storage) {
+    if (this.filesystemStorage) {
+      const fsFileInfo = await FilesystemFileHelper.writeFile(this.filesystemDir, this.filesystemFiles, {
+        body: readStream,
+        contentType: mimetype,
+        filename,
+        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+      });
+      return this.prepareOutput(fsFileInfo as unknown as CoreFileInfo, serviceOptions);
+    }
+    if (this.storageDriver === 's3') {
       // Only buffer when the size is unknown: a GraphQL upload stream carries no length, and the
       // S3 SDK needs one. Callers that know it (TUS) pass `body` + `contentLength` instead and
       // stream straight through — see S3FileHelper.writeFile.
@@ -84,12 +162,14 @@ export abstract class CoreFileService {
         buffer: await streamToBuffer(readStream),
         contentType: mimetype,
         filename,
+        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
       });
       return this.prepareOutput(s3FileInfo as unknown as CoreFileInfo, serviceOptions);
     }
     const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
       contentType: mimetype,
       filename,
+      ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
     });
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
@@ -116,16 +196,16 @@ export abstract class CoreFileService {
    */
   async duplicateByName(name: string, newName: string): Promise<any> {
     // Route through the storage dispatch like every other read/write. Going straight to GridFS
-    // meant that with `fileStorage: 's3'` the source simply is not there — and the resulting
+    // meant that with `file.storage: 's3'` the source simply is not there — and the resulting
     // FileNotFound arrives on a stream with NO error handler, so it becomes an uncaught
     // exception that takes the process down instead of a 404.
-    const s3FileInfo = await this.findS3FileByName(name);
-    if (s3FileInfo) {
+    const nonGridFsSource = (await this.findS3FileByName(name)) || (await this.findFilesystemFileByName(name));
+    if (nonGridFsSource) {
       const source = await this.getFileStreamByName(name);
       return this.createFile({
         createReadStream: () => source,
         filename: newName,
-        mimetype: s3FileInfo.contentType || 'application/octet-stream',
+        mimetype: nonGridFsSource.contentType || 'application/octet-stream',
       });
     }
 
@@ -146,9 +226,9 @@ export abstract class CoreFileService {
     const objectId = getObjectIds(id);
     const file = await this.getFileInfo(objectId);
 
-    // Same dispatch as duplicateByName: an S3-stored file has no GridFS counterpart.
-    const s3FileInfo = await this.findS3FileById(objectId);
-    if (s3FileInfo) {
+    // Same dispatch as duplicateByName: a file stored outside GridFS has no GridFS counterpart.
+    const nonGridFsSource = (await this.findS3FileById(objectId)) || (await this.findFilesystemFileById(objectId));
+    if (nonGridFsSource) {
       const source = await this.getFileStream(objectId);
       const copy = await this.createFile({
         createReadStream: () => source,
@@ -190,26 +270,29 @@ export abstract class CoreFileService {
       return null;
     }
     const filterQuery = convertFilterArgsToQuery(filterArgs);
-    if (!this.s3Storage) {
+    if (this.storageDriver === 'gridfs') {
+      // Nothing was ever written to the other stores by this configuration, so the
+      // single-store path stays exact: no merging, no over-fetching.
       const docs = await GridFSHelper.findFiles(this.files, filterQuery[0], filterQuery[1]);
       return this.prepareOutput(docs as unknown as CoreFileInfo[], serviceOptions);
     }
 
-    // Two stores, one page. Applying `limit`/`skip` to each and concatenating returns up to
-    // twice the page size and advances the offset independently in each store, so rows are both
-    // duplicated and skipped — and a project on `fileStorage: 's3'` with pre-migration GridFS
-    // files (an explicitly supported state) hits exactly that. So: fetch enough from both to
-    // cover skip+limit, merge, then page the merged result once.
+    // Several stores, one page. Applying `limit`/`skip` to each and concatenating returns up to
+    // N times the page size and advances the offset independently in each store, so rows are both
+    // duplicated and skipped — and a project that switched drivers with files already written
+    // under the previous one (an explicitly supported state) hits exactly that. So: fetch enough
+    // from each to cover skip+limit, merge, then page the merged result once.
     const { limit, skip, ...rest } = (filterQuery[1] ?? {}) as { limit?: number; skip?: number };
     const upperBound = limit === undefined ? undefined : (skip ?? 0) + limit;
     const pageOptions = upperBound === undefined ? rest : { ...rest, limit: upperBound };
 
-    const [s3Docs, docs] = await Promise.all([
+    const [s3Docs, fsDocs, docs] = await Promise.all([
       S3FileHelper.findFiles(this.s3Files, filterQuery[0], pageOptions),
+      FilesystemFileHelper.findFiles(this.filesystemFiles, filterQuery[0], pageOptions),
       GridFSHelper.findFiles(this.files, filterQuery[0], pageOptions),
     ]);
 
-    const merged = [...s3Docs, ...docs];
+    const merged = [...s3Docs, ...fsDocs, ...docs];
     const paged = limit === undefined ? merged.slice(skip ?? 0) : merged.slice(skip ?? 0, (skip ?? 0) + limit);
     return this.prepareOutput(paged as unknown as CoreFileInfo[], serviceOptions);
   }
@@ -221,7 +304,12 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    const fileInfo = (await this.findS3FileById(id)) || (await GridFSHelper.findFileById(this.files, getObjectIds(id)));
+    // Every store is consulted, newest driver first, so a change of `file.storage`
+    // never hides files written under the previous one.
+    const fileInfo =
+      (await this.findS3FileById(id)) ||
+      (await this.findFilesystemFileById(id)) ||
+      (await GridFSHelper.findFileById(this.files, getObjectIds(id)));
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
@@ -233,7 +321,9 @@ export abstract class CoreFileService {
       return null;
     }
     const fileInfo =
-      (await this.findS3FileByName(filename)) || (await GridFSHelper.findFileByName(this.files, filename));
+      (await this.findS3FileByName(filename)) ||
+      (await this.findFilesystemFileByName(filename)) ||
+      (await GridFSHelper.findFileByName(this.files, filename));
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
 
@@ -246,6 +336,9 @@ export abstract class CoreFileService {
     }
     if (await this.findS3FileById(id)) {
       return S3FileHelper.getStream(this.options.s3Service, id);
+    }
+    if (await this.findFilesystemFileById(id)) {
+      return FilesystemFileHelper.getStream(this.filesystemDir, id);
     }
     return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream;
   }
@@ -278,6 +371,10 @@ export abstract class CoreFileService {
     if (s3FileInfo) {
       return S3FileHelper.getStream(this.options.s3Service, s3FileInfo._id);
     }
+    const fsFileInfo = await this.findFilesystemFileByName(filename);
+    if (fsFileInfo) {
+      return FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id);
+    }
     return GridFSHelper.openDownloadStreamByName(this.files, filename);
   }
 
@@ -290,6 +387,9 @@ export abstract class CoreFileService {
     }
     if (await this.findS3FileById(id)) {
       return S3FileHelper.getBuffer(this.options.s3Service, id);
+    }
+    if (await this.findFilesystemFileById(id)) {
+      return FilesystemFileHelper.getBuffer(this.filesystemDir, id);
     }
     return await GridFSHelper.readFileToBuffer(this.files, { _id: getObjectIds(id) });
   }
@@ -305,6 +405,10 @@ export abstract class CoreFileService {
     if (s3FileInfo) {
       return S3FileHelper.getBuffer(this.options.s3Service, s3FileInfo._id);
     }
+    const fsFileInfo = await this.findFilesystemFileByName(filename);
+    if (fsFileInfo) {
+      return FilesystemFileHelper.getBuffer(this.filesystemDir, fsFileInfo._id);
+    }
     return await GridFSHelper.readFileToBuffer(this.files, { filename });
   }
 
@@ -319,6 +423,10 @@ export abstract class CoreFileService {
     const fileInfo = await this.getFileInfo(objectId, serviceOptions);
     if (await this.findS3FileById(objectId)) {
       await S3FileHelper.deleteFile(this.options.s3Service, this.s3Files, objectId);
+      return fileInfo;
+    }
+    if (await this.findFilesystemFileById(objectId)) {
+      await FilesystemFileHelper.deleteFile(this.filesystemDir, this.filesystemFiles, objectId);
       return fileInfo;
     }
     await GridFSHelper.deleteFile(this.files, objectId);
@@ -358,8 +466,78 @@ export abstract class CoreFileService {
   }
 
   /**
+   * Read a file's raw document, bypassing `prepareOutput`.
+   *
+   * `getFileInfo()` runs the result through `prepareOutput` → `check()`, which
+   * strips fields the current user may not see — including `metadata`. That is
+   * correct for a response, and useless for an authorization decision, which
+   * has to look at the very field being protected.
+   *
+   * So this is the read side of a per-file rule: use it inside an overridden
+   * `checkRights()`, never to build a response.
+   *
+   * Checks S3 metadata first, then GridFS — the same order as `getFileInfo()`,
+   * so a rule written against this sees the same file the download would serve.
+   * Getting that order wrong would make an owner check pass on a stale GridFS
+   * document while the bytes come from S3.
+   *
+   * @param id file id
+   * @returns the raw document, or null when no file has that id
+   */
+  protected async getRawFileInfo(id: string | Types.ObjectId): Promise<null | Record<string, any>> {
+    const fileInfo =
+      (await this.findS3FileById(id)) ||
+      (await this.findFilesystemFileById(id)) ||
+      (await GridFSHelper.findFileById(this.files, getObjectIds(id)));
+    return (fileInfo as unknown as Record<string, any>) || null;
+  }
+
+  /**
+   * Read a file's raw document by filename, bypassing `prepareOutput`.
+   *
+   * Companion to {@link getRawFileInfo} for the `checkInputType: 'filename'`
+   * branch of `checkRights()`. Note that the filename route resolves the FIRST
+   * match, so a rule built on this is only as strong as filename uniqueness in
+   * your project — prefer authorizing by id where you can.
+   */
+  protected async getRawFileInfoByName(filename: string): Promise<null | Record<string, any>> {
+    const fileInfo =
+      (await this.findS3FileByName(filename)) || (await GridFSHelper.findFileByName(this.files, filename));
+    return (fileInfo as unknown as Record<string, any>) || null;
+  }
+
+  /**
    * Check rights before processing file handling
    * Can throw an exception if the rights do not fit
+   *
+   * Returning `false` makes the caller answer as if the file did not exist
+   * (`404`), so a refusal never confirms that an id is real.
+   *
+   * The role decorators on the controller and resolver are the COARSE filter —
+   * they decide who may reach the endpoint at all, and are configurable via
+   * `file.downloadRoles` / `uploadRoles` / `deleteRoles`. This hook is the fine
+   * one: it is the only place that can express "…but only their OWN file".
+   *
+   * `options.currentUser` is populated by the core controller for both download
+   * routes. Metadata to compare against must be written at upload time via
+   * `serviceOptions.metadata` and read back with `getRawFileInfo()`.
+   *
+   * @example
+   * ```typescript
+   * protected override async checkRights(
+   *   input: any,
+   *   options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+   * ): Promise<boolean> {
+   *   if (options?.checkInputType !== 'id' || options.force) {
+   *     return true;
+   *   }
+   *   if (options.currentUser?.hasRole([RoleEnum.ADMIN])) {
+   *     return true;
+   *   }
+   *   const raw = await this.getRawFileInfo(input);
+   *   return !!raw && String(raw.metadata?.ownerId) === String(options.currentUser?.id);
+   * }
+   * ```
    */
   protected checkRights(
     _input: any,

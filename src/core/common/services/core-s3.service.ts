@@ -22,7 +22,7 @@ export type NormalizedS3Config = Omit<IS3Config, 'enabled' | 'presignedDownloads
  * Central S3-compatible object storage service (see IServerOptions.s3).
  *
  * Works with AWS S3, MinIO, RustFS and other S3-compatible services. Used by
- * CoreFileService (fileStorage: 's3') and as TUS upload staging. Follows the
+ * CoreFileService (file.storage: 's3') and as TUS upload staging. Follows the
  * "presence implies enabled" pattern: without an `s3` config this service is
  * inert and files stay in GridFS / on local disk as before.
  *
@@ -46,6 +46,19 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
   constructor(protected readonly configService: ConfigService) {
     const raw = this.configService.getFastButReadOnly<IS3Config | undefined>('s3');
     if (!raw || raw.enabled === false) {
+      return;
+    }
+
+    // A bucket is the one thing S3 cannot default — region, endpoint and
+    // credentials all have fallbacks, "which bucket" does not. Without it the
+    // service can neither store nor stage anything, so it must not report itself
+    // enabled: `tus.s3Staging` defaults to true and keys off exactly this flag,
+    // so a bucket-less `s3` block used to switch tus staging on and then fail at
+    // the first upload with `stagingBucket: undefined`. It also kept this flag
+    // out of step with `resolveFileStorage()`, which has always required a
+    // bucket — the file module chose GridFS while tus chose S3.
+    if (!raw.bucket) {
+      this.logger.warn('Ignoring the `s3` configuration: no `bucket` is set, so S3 cannot be used.');
       return;
     }
     const presigned = raw.presignedDownloads;

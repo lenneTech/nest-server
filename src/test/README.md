@@ -181,10 +181,15 @@ await testHelper.rest('/protected-endpoint', {
 Download a file and return the response with a `data` string property for content comparison.
 
 ```typescript
-// No authentication
-const res = await testHelper.download('/files/id/abc123');
+// The core download routes are gated by `file.downloadRoles` (default ADMIN),
+// so a request without credentials answers 401 — pass a token or a session cookie.
+const res = await testHelper.download('/files/id/abc123', { token: adminToken });
 expect(res.statusCode).toEqual(200);
 expect(res.data).toEqual('file content');
+
+// Without credentials:
+const anonymous = await testHelper.download('/files/id/abc123');
+expect(anonymous.statusCode).toEqual(401);
 ```
 
 ### `downloadBuffer(url, tokenOrOptions?)`

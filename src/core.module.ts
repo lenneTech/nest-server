@@ -45,6 +45,7 @@ import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
+import { applyFileRoles } from './core/modules/file/file-roles.helper';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CoreHubModule } from './core/modules/hub/core-hub.module';
 import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
@@ -261,6 +262,15 @@ export class CoreModule implements NestModule {
       }
       return connection;
     };
+
+    // Apply the configured roles to the core file endpoints.
+    //
+    // The file module ships abstract classes only — there is no CoreFileModule
+    // with its own forRoot() — so this is the one place that runs early enough
+    // to rewrite the role metadata before Nest builds its route table.
+    // Consumers that OVERRIDE a member re-declare the metadata on their own
+    // function and opt out of this; see applyFileRoles() for why.
+    applyFileRoles(config.file);
 
     // Check secrets
     const jwtConfig = config.jwt;

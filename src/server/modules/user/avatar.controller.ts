@@ -5,6 +5,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../../../core/common/decorators/current-user.decorator';
 import { Roles } from '../../../core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
+import { getStringIds } from '../../../core/common/helpers/db.helper';
 import { multerFileToUpload, multerOptionsForImageUpload } from '../../../core/common/helpers/file.helper';
 import { FileService } from '../file/file.service';
 import { User } from './user.model';
@@ -42,7 +43,13 @@ export class AvatarController {
     ),
   )
   async uploadFile(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: User): Promise<string> {
-    const stored = await this.fileService.createFile(multerFileToUpload(file));
+    // Record the owner. `file.downloadRoles` defaults to ADMIN, so without this the
+    // uploader could not fetch their own avatar back — roles answer "may this caller
+    // reach the route", never "may this caller have THIS file". FileService.checkRights()
+    // reads this metadata to answer the second question.
+    const stored = await this.fileService.createFile(multerFileToUpload(file), {
+      metadata: { ownerId: getStringIds(user.id) },
+    });
     const previousAvatar = await this.usersService.setAvatar(stored.id, user);
 
     // Drop the replaced file. A failure here must not fail the upload: the new avatar

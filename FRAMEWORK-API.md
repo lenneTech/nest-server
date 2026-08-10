@@ -29,7 +29,7 @@
   - `version?`: `string | undefined` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode | undefined` — Configuration for the error code module
   - `execAfterInit?`: `string | undefined` — Exec a command after server is initialized
-  - `fileStorage?`: `"gridfs" | "s3" | undefined` (default: `'gridfs'`) — Storage driver for CoreFileService.
+  - `file?`: `IFileConfig | undefined` — Configuration of the file module: where the bytes live (`storage`) and who
   - `filter?`: `{ maxLimit?: number; } | undefined` — Filter configuration and defaults
   - `graphQl?`: `false | { driver?: ApolloDriverConfig; enableSubscriptionAuth?: boolean; maxC...` — Configuration of the GraphQL module
   - `healthCheck?`: `{ configs?: { build?: { enabled?: boolean; }; database?: { enabled?: boolean;...` — Whether to activate health check endpoints
@@ -186,7 +186,8 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `expiration?`: `boolean | ITusExpirationConfig | undefined` (default: `{ expiresIn: '24h' }`) — Expiration extension configuration.
   - `maxSize?`: `number | undefined` (default: `50 * 1024 * 1024 * 1024 (50 GB)`) — Maximum upload size in bytes
   - `path?`: `string | undefined` (default: `'/tus'`) — Base path for tus endpoints
-  - `s3Staging?`: `boolean | undefined` (default: `true (when S3 is configured)`) — Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
+  - `roles?`: `string[] | undefined` (default: `['s_user']`) — Roles allowed to use the tus endpoints (create, write, read offset, terminate).
+  - `s3Staging?`: `boolean | undefined` (default: `true (when S3 is usable)`) — Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
   - `termination?`: `boolean | undefined` (default: `true`) — Termination extension configuration.
   - `uploadDir?`: `string | undefined` (default: `'uploads/tus'`) — Directory for temporary upload chunks.
 
@@ -332,7 +333,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `auth` | — | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |
-| `file` | README | `src/core/modules/file/` |
+| `file` | README, CHECKLIST | `src/core/modules/file/` |
 | `health-check` | — | `src/core/modules/health-check/` |
 | `hub` | README, CHECKLIST | `src/core/modules/hub/` |
 | `migrate` | README | `src/core/modules/migrate/` |

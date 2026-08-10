@@ -2,9 +2,11 @@ import { BadRequestException, Controller, Get, Logger, NotFoundException, Param,
 import type { Response } from 'express';
 import type { Readable } from 'stream';
 
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ErrorCode } from '../error-code/error-codes';
+import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
 import { CoreFileService } from './core-file.service';
 
 const fileStreamLogger = new Logger('CoreFileController');
@@ -79,9 +81,24 @@ export function pipeFileToResponse(stream: Readable, res: Response): Response {
 
 /**
  * File controller
+ *
+ * TENANT SCOPING: the class carries `@SkipTenantCheck()`, so the roles below are
+ * checked against `user.roles` and never against `membership.role`.
+ *
+ * That is not a convenience — it is required for the gate to mean what it says.
+ * GridFS is reached through the NATIVE MongoDB driver, so `mongooseTenantPlugin`
+ * never runs on `fs.files`: one bucket holds every tenant's blobs, unscoped.
+ * Without this decorator and with `multiTenancy` active, a role string like
+ * `'admin'` would be satisfied by any member whose MEMBERSHIP role is `admin` —
+ * a workspace admin of tenant A could then read tenant B's files.
+ *
+ * A genuinely tenant-aware policy therefore cannot be expressed by a role name.
+ * Write `tenantId` into the file metadata at upload time and compare it in an
+ * overridden `CoreFileService.checkRights()`.
  */
 @Controller('files')
 @Roles(RoleEnum.ADMIN)
+@SkipTenantCheck()
 export abstract class CoreFileController {
   /**
    * Include services
@@ -127,20 +144,38 @@ export abstract class CoreFileController {
    *
    * More reliable than filename-based download as IDs are unique.
    * Recommended for TUS uploads and when filename uniqueness cannot be guaranteed.
+   *
+   * SECURITY: gated by `file.downloadRoles` (default `[ADMIN]`). The decorator
+   * below is the fallback — `CoreModule.forRoot()` rewrites it from config.
+   * See `src/core/modules/file/README.md` § Access control for the full model
+   * and the 11.32.4 → 11.33.0 migration guide for why the default changed.
    */
   @Get('id/:id')
-  @Roles(RoleEnum.S_EVERYONE)
-  async getFileById(@Param('id') id: string, @Res() res: Response): Promise<Response> {
+  @Roles(RoleEnum.ADMIN)
+  async getFileById(
+    @Param('id') id: string,
+    @Res() res: Response,
+    @CurrentUser() currentUser?: any,
+  ): Promise<Response> {
     if (!id) {
       throw new BadRequestException(ErrorCode.REQUIRED_FIELD_MISSING);
     }
 
-    const file = await this.fileService.getFileInfo(id);
+    const serviceOptions = { currentUser };
+    const file = await this.fileService.getFileInfo(id, serviceOptions);
     if (!file) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
     // S3-stored file with presigned downloads enabled: let the client fetch the
-    // bytes from S3 directly instead of streaming them through the API
+    // bytes from S3 directly instead of streaming them through the API.
+    //
+    // AUTHORIZATION on this branch rests entirely on the `getFileInfo()` call
+    // above, which runs `checkRights()` with the current user and throws 404 on
+    // refusal — `getFileStream()` is never reached here. Keep that call before
+    // this block. Note also that the issued URL is a bearer capability: anyone
+    // holding it can fetch the object until it expires, without a session. Keep
+    // the expiry short, and do not enable presigned downloads for files whose
+    // audience is narrower than "anyone who was once allowed to see the link".
     const url = await this.resolveDownloadUrl(id);
     if (url) {
       // `res.redirect()` is typed `void`, so returning it directly widened this method's inferred
@@ -152,14 +187,13 @@ export abstract class CoreFileController {
       res.redirect(302, url);
       return res;
     }
-    const filestream = await this.fileService.getFileStream(id);
+    const filestream = await this.fileService.getFileStream(id, serviceOptions);
     // `getFileStream` answers null when the service's own rights check refuses.
     // Same answer as an unknown id: never confirm that the file exists.
     if (!filestream) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
-    res.header('Content-Type', file.contentType || 'application/octet-stream');
-    res.header('Content-Disposition', `attachment; filename=${file.filename}`);
+    this.setFileHeaders(res, file);
     return this.pipeFileToResponse(filestream, res);
   }
 
@@ -168,29 +202,62 @@ export abstract class CoreFileController {
    *
    * Note: If multiple files have the same filename, only the first match is returned.
    * For unique file access, use GET /files/id/:id instead.
+   *
+   * SECURITY: gated by `file.downloadRoles` — see `getFileById()`. Prefer the
+   * id route when widening: this one resolves the FIRST match for a name a
+   * caller may be able to guess, so it leaks across files that share a name.
    */
   @Get(':filename')
-  @Roles(RoleEnum.S_EVERYONE)
-  async getFile(@Param('filename') filename: string, @Res() res: Response): Promise<Response> {
+  @Roles(RoleEnum.ADMIN)
+  async getFile(
+    @Param('filename') filename: string,
+    @Res() res: Response,
+    @CurrentUser() currentUser?: any,
+  ): Promise<Response> {
     if (!filename) {
       throw new BadRequestException(ErrorCode.REQUIRED_FIELD_MISSING);
     }
 
-    const file = await this.fileService.getFileInfoByName(filename);
+    const serviceOptions = { currentUser };
+    const file = await this.fileService.getFileInfoByName(filename, serviceOptions);
     if (!file) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
+    // See getFileById(): authorization on the presigned branch rests on the
+    // getFileInfoByName() call above.
     const url = await this.resolveDownloadUrl(file.id);
     if (url) {
       res.redirect(302, url);
       return res;
     }
-    const filestream = await this.fileService.getFileStream(file.id);
+    const filestream = await this.fileService.getFileStream(file.id, serviceOptions);
     if (!filestream) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
+    this.setFileHeaders(res, file);
+    return this.pipeFileToResponse(filestream, res);
+  }
+
+  /**
+   * Set the response headers that describe the file being delivered.
+   *
+   * `Cache-Control: private, no-store` is the security-relevant one. These
+   * routes are authorization-gated, and RFC 9111 lets a shared cache store a
+   * response that carries no cache directive. A reverse proxy or CDN with a
+   * blanket `/files/*` rule would then be free to hand an authorized response
+   * to the next, unauthorized requester — reopening at the proxy layer exactly
+   * what the role gate closes at the application layer. The directive costs one
+   * header and removes that entire class of misconfiguration.
+   *
+   * `no-store` also suppresses browser disk caching, which is the conservative
+   * choice for a bucket that may hold documents. A project serving public,
+   * immutable assets can override this to `public, max-age=…` — GridFS blobs
+   * are immutable once written, so a validator built from `_id` + `uploadDate`
+   * is sound. Do that only for files that are genuinely public.
+   */
+  protected setFileHeaders(res: Response, file: { contentType?: string; filename?: string }): void {
+    res.header('Cache-Control', 'private, no-store');
     res.header('Content-Type', file.contentType || 'application/octet-stream');
     res.header('Content-Disposition', `attachment; filename=${file.filename}`);
-    return this.pipeFileToResponse(filestream, res);
   }
 }

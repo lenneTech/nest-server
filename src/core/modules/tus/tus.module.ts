@@ -9,7 +9,7 @@ import { CoreS3Service } from '../../common/services/core-s3.service';
 import { CoreTusController } from './core-tus.controller';
 import { CoreTusService } from './core-tus.service';
 import { TUS_CONFIG } from './tus.constants';
-import { normalizeTusConfig } from './interfaces/tus-config.interface';
+import { DEFAULT_TUS_CONFIG, normalizeTusConfig } from './interfaces/tus-config.interface';
 
 /**
  * @deprecated Import from `./tus.constants` instead. Re-exported only so existing deep imports keep
@@ -115,6 +115,42 @@ export class TusModule implements OnModuleInit {
   }
 
   /**
+   * Write the configured roles onto the tus handlers.
+   *
+   * An empty array is rejected rather than honoured: the guards read an
+   * all-empty role set as "no roles required" and return true, so `roles: []`
+   * would OPEN the endpoints instead of closing them.
+   */
+  private static applyRoles(controller: Type<CoreTusController>, roles?: string[]): void {
+    if (
+      roles !== undefined &&
+      (!Array.isArray(roles) || roles.length === 0 || roles.some((r) => typeof r !== 'string'))
+    ) {
+      this.logger.warn(
+        `Ignoring tus.roles: expected a non-empty array of role strings, got ${JSON.stringify(roles)}. ` +
+          `Falling back to ${JSON.stringify(DEFAULT_TUS_CONFIG.roles)}.`,
+      );
+    }
+
+    const effective =
+      Array.isArray(roles) && roles.length > 0 && roles.every((r) => typeof r === 'string')
+        ? roles
+        : DEFAULT_TUS_CONFIG.roles;
+
+    Reflect.defineMetadata('roles', effective, controller);
+    // NOTE: handleTusOptions / handleTusOptionsWithId are deliberately absent.
+    // They answer the CORS preflight, which a browser sends WITHOUT credentials,
+    // so gating them would break every browser upload. They expose capabilities
+    // only, never upload data — see CoreTusController.
+    for (const member of ['handleTus', 'handleTusWithId']) {
+      const handler = (controller.prototype as Record<string, unknown>)[member];
+      if (typeof handler === 'function') {
+        Reflect.defineMetadata('roles', effective, handler);
+      }
+    }
+  }
+
+  /**
    * Creates a dynamic module for TUS uploads
    *
    * @param options - Configuration options (optional)
@@ -158,6 +194,16 @@ export class TusModule implements OnModuleInit {
 
     // Enable TUS
     this.tusEnabled = true;
+
+    // Apply the configured roles to the controller that will actually be
+    // registered. Same mechanism as CorePermissionsModule: the value is only
+    // known at runtime, and the guards read exactly this metadata key.
+    //
+    // A custom controller is covered too, as long as it INHERITS the handlers.
+    // One that re-declares @All()/@Roles() carries its own metadata and thereby
+    // opts out — which is the documented way to hard-code a policy that config
+    // must not be able to change.
+    this.applyRoles(this.getControllerClass(), config.roles);
 
     return {
       controllers: [this.getControllerClass()],
