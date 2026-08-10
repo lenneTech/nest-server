@@ -137,11 +137,11 @@
     "yuml-diagram": "1.2.0"
   },
   "peerDependencies": {
-    "@aws-sdk/client-s3": ">=3.1045.0",
-    "@aws-sdk/s3-request-presigner": ">=3.1045.0",
+    "@aws-sdk/client-s3": ">=3.1045.0 <4",
+    "@aws-sdk/s3-request-presigner": ">=3.1045.0 <4",
     "@tus/s3-store": ">=2.0.5 <3",
-    "bullmq": ">=6.0.0 <7",
-    "ioredis": ">=5.10.0 <6"
+    "bullmq": ">=5.16.0 <7",
+    "ioredis": ">=5.0.0 <6"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {
