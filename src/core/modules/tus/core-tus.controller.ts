@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
 import { CoreTusService } from './core-tus.service';
 
 /**
@@ -29,8 +30,18 @@ import { CoreTusService } from './core-tus.service';
  * tus: { roles: [RoleEnum.S_EVERYONE] }
  * ```
  */
+/**
+ * TENANT SCOPING: the same reasoning as `CoreFileController` — a tus upload lands in
+ * the SAME store the file routes read, and that store is reached through the native
+ * driver, so `mongooseTenantPlugin` never scopes it. Without this decorator a
+ * configured non-system `tus.roles` (e.g. `['admin']`) is resolved against
+ * `membership.role`, which would let a workspace "admin" of ANY tenant write into —
+ * and, via the termination extension, delete from — a store that has no tenant
+ * boundary at all.
+ */
 @Controller('tus')
 @Roles(RoleEnum.S_USER)
+@SkipTenantCheck()
 export class CoreTusController {
   private readonly logger = new Logger(CoreTusController.name);
 

@@ -5,9 +5,11 @@ import type { Readable } from 'stream';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
+import { buildContentDisposition } from '../../common/helpers/content-disposition.helper';
 import { ErrorCode } from '../error-code/error-codes';
 import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
 import { CoreFileService } from './core-file.service';
+import type { FileServiceOptions } from './interfaces/file-service-options.interface';
 
 const fileStreamLogger = new Logger('CoreFileController');
 
@@ -25,6 +27,16 @@ const fileStreamLogger = new Logger('CoreFileController');
  * Blob instead of the error message.
  */
 const FILE_DELIVERY_HEADERS = ['Cache-Control', 'Content-Disposition', 'Content-Type', 'ETag'];
+
+/**
+ * Re-exported from the leaf it now lives in, so no import path broke.
+ *
+ * It moved because the S3 presigned-URL branch in `src/core/common/services/` needs the SAME
+ * value, and `src/core/common/**` must not import from `src/core/modules/**`. While the two
+ * rendered it separately, the same file downloaded under a different name depending on whether
+ * `s3.presignedDownloads` was on.
+ */
+export { buildContentDisposition };
 
 /**
  * Pipe a GridFS download to the response without letting a read error kill the socket.
@@ -128,9 +140,17 @@ export abstract class CoreFileController {
    * unknown id. Turning any of those into a 500 would also leak that the file
    * exists, which the streaming path takes care never to do.
    */
-  protected async resolveDownloadUrl(id: string): Promise<string | undefined> {
+  protected async resolveDownloadUrl(id: string, serviceOptions?: FileServiceOptions): Promise<string | undefined> {
     try {
-      return await this.fileService.getDownloadUrl?.(id);
+      // `serviceOptions` carries the current user into the service's own rights
+      // check. Omitting it made this second check run with `currentUser:
+      // undefined`: for the ownership rule documented in the README that fails
+      // CLOSED, so presigned downloads silently never fired — not even for
+      // admins, since `currentUser?.hasRole(...)` was undefined too. For an
+      // override that reads a missing user as "system-internal, allow" it was a
+      // no-op instead. Neither is what the path that mints a session-less
+      // capability should be doing.
+      return await this.fileService.getDownloadUrl?.(id, serviceOptions);
     } catch (error) {
       fileStreamLogger.warn(
         `Presigned download URL unavailable, falling back to streaming: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -162,22 +182,32 @@ export abstract class CoreFileController {
     }
 
     const serviceOptions = { currentUser };
-    const file = await this.fileService.getFileInfo(id, serviceOptions);
+    // One lookup for both answers — metadata AND which store holds the bytes.
+    // getFileInfo() followed by getFileStream() had each probe the three stores
+    // from scratch, since neither told the other which one had answered. Same
+    // rights check, same 404-on-refusal.
+    const resolved = await this.fileService.resolveFile(id, serviceOptions);
+    const file = resolved?.info;
     if (!file) {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
     // S3-stored file with presigned downloads enabled: let the client fetch the
     // bytes from S3 directly instead of streaming them through the API.
     //
-    // AUTHORIZATION on this branch rests entirely on the `getFileInfo()` call
-    // above, which runs `checkRights()` with the current user and throws 404 on
-    // refusal — `getFileStream()` is never reached here. Keep that call before
-    // this block. Note also that the issued URL is a bearer capability: anyone
+    // AUTHORIZATION on this branch rests entirely on the `resolveFile()` call
+    // above, which runs the very same `checkRights()` `getFileInfo()` did and
+    // answers null on refusal, so the throw above turns it into a 404 —
+    // `getFileStream()` is never reached here. Keep that call before this
+    // block. Note also that the issued URL is a bearer capability: anyone
     // holding it can fetch the object until it expires, without a session. Keep
     // the expiry short, and do not enable presigned downloads for files whose
     // audience is narrower than "anyone who was once allowed to see the link".
-    const url = await this.resolveDownloadUrl(id);
+    // Only S3-stored bytes can be handed over as a presigned URL, and `resolveFile`
+    // already established the store — so a GridFS or filesystem download no longer
+    // pays a pointless S3 metadata lookup to find that out.
+    const url = resolved.store === 's3' ? await this.resolveDownloadUrl(id, serviceOptions) : undefined;
     if (url) {
+      this.setNoStore(res);
       // `res.redirect()` is typed `void`, so returning it directly widened this method's inferred
       // return type to `Promise<void | Response>` — a source-invisible BREAKING change for every
       // project that overrides `getFileById`/`getFile` with an explicit `Promise<Response>` and
@@ -187,7 +217,7 @@ export abstract class CoreFileController {
       res.redirect(302, url);
       return res;
     }
-    const filestream = await this.fileService.getFileStream(id, serviceOptions);
+    const filestream = await this.fileService.getFileStream(id, serviceOptions, resolved.store);
     // `getFileStream` answers null when the service's own rights check refuses.
     // Same answer as an unknown id: never confirm that the file exists.
     if (!filestream) {
@@ -225,8 +255,9 @@ export abstract class CoreFileController {
     }
     // See getFileById(): authorization on the presigned branch rests on the
     // getFileInfoByName() call above.
-    const url = await this.resolveDownloadUrl(file.id);
+    const url = await this.resolveDownloadUrl(file.id, serviceOptions);
     if (url) {
+      this.setNoStore(res);
       res.redirect(302, url);
       return res;
     }
@@ -256,8 +287,26 @@ export abstract class CoreFileController {
    * is sound. Do that only for files that are genuinely public.
    */
   protected setFileHeaders(res: Response, file: { contentType?: string; filename?: string }): void {
-    res.header('Cache-Control', 'private, no-store');
+    this.setNoStore(res);
     res.header('Content-Type', file.contentType || 'application/octet-stream');
-    res.header('Content-Disposition', `attachment; filename=${file.filename}`);
+    // See {@link buildContentDisposition} for why the two filename parameters are
+    // rendered differently, and for the injection cases the sanitiser closes.
+    res.header('Content-Disposition', buildContentDisposition(file.filename));
+  }
+
+  /**
+   * Mark a download response as uncacheable by any shared cache.
+   *
+   * Applies to BOTH delivery paths. On the streaming path it stops a reverse
+   * proxy or CDN with a blanket `/files/*` rule from handing an authorized
+   * response to the next, unauthorized requester. On the presigned path it
+   * matters more, not less: that response's `Location` is a bearer capability
+   * that works with no session, from any IP, until it expires — and while a 302
+   * is not heuristically cacheable per RFC 9111, `proxy_cache_valid 200 302 …`
+   * is the single most-copied nginx caching snippet, and Cloudflare's "Cache
+   * Everything" stores it too.
+   */
+  protected setNoStore(res: Response): void {
+    res.header('Cache-Control', 'private, no-store');
   }
 }

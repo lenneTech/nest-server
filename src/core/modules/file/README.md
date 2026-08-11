@@ -184,8 +184,10 @@ public and leave these two gated.
 `<img>` problem, because the browser fetches the object directly from S3. Understand what you are
 issuing, though: the URL is a **bearer capability** — anyone holding it can fetch the object until
 it expires, with no session. Authorization happens once, when the URL is issued (through the
-`getFileInfo()` call that precedes the redirect). Keep the expiry short, and do not enable it for
-files whose audience is narrower than "anyone who was ever given the link".
+`resolveFile()` call that precedes the redirect on `GET /files/id/:id`, and the
+`getFileInfoByName()` call on `GET /files/:filename`; both run the same `checkRights()`). Keep the
+expiry short, and do not enable it for files whose audience is narrower than "anyone who was ever
+given the link".
 
 ### Overriding: read this before you re-declare a member
 
@@ -217,6 +219,45 @@ override async getFileById(@Param('id') id: string, @Res() res: Response) {
 
 A class-level `@Roles()` on your subclass cannot relax an inherited member either: the inherited
 function carries its own handler-level roles, and the two are unioned rather than overridden.
+
+### If you override `getFileInfo()`: `GET /files/id/:id` no longer calls it (11.33.0)
+
+Up to 11.32.x, `GET /files/id/:id` called the public `CoreFileService.getFileInfo()` and then let
+`getFileStream()` work out on its own which store held the bytes. With three stores to consult
+(§ Storage drivers) that resolves the same id up to three times per download, so since 11.33.0 the
+route calls **`resolveFile()`** instead, which answers the metadata and the store in one pass.
+
+An override of `getFileInfo()` is therefore **no longer on that route's path**. It is still honoured
+by every other caller it ever had — `deleteFile()`, `duplicateById()` and any project code that
+calls it, such as the `GET /files/info/:id` endpoint projects usually add — which is exactly what
+makes the gap easy to miss: the behaviour disappears on one route while everything else keeps it.
+(The GraphQL `getFileInfo(filename:)` member resolves by NAME and has always gone through
+`getFileInfoByName()`, so it is unaffected either way.)
+
+This does **not** weaken authorization. `resolveFile()` runs the same `checkRights()` with the same
+`serviceOptions`, and answers `null` on refusal, which the controller turns into the same 404. Only
+work you added **on top** of the base `getFileInfo()` — a decorated field, a counter, a log line —
+stops happening on the id route.
+
+The remedy is to override `resolveFile()` as well, keeping the two consistent:
+
+```typescript
+export class FileService extends CoreFileService {
+  override async getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions) {
+    return this.decorate(await super.getFileInfo(id, serviceOptions));
+  }
+
+  // Same treatment for the download route. `store` must be passed through
+  // untouched — the controller hands it to getFileStream() to pick the store.
+  override async resolveFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions) {
+    const resolved = await super.resolveFile(id, serviceOptions);
+    return resolved && { ...resolved, info: this.decorate(resolved.info) };
+  }
+}
+```
+
+Per-file **authorization** needs none of this: it belongs in `checkRights()`, which both methods
+call.
 
 ### Admin Endpoints (project-specific)
 

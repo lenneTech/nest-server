@@ -1,7 +1,15 @@
-import { mongo, Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { CoreS3Service } from '../../common/services/core-s3.service';
+import {
+  ensureFilenameIndex,
+  FileCollection,
+  FileMetadataInfo,
+  findMetadata,
+  findMetadataById,
+  findMetadataByName,
+} from './file-metadata.helper';
 
 /**
  * Name of the MongoDB collection holding the metadata of S3-stored files.
@@ -13,18 +21,14 @@ import { CoreS3Service } from '../../common/services/core-s3.service';
 export const S3_FILES_COLLECTION = 's3-files';
 
 /**
- * Metadata of a file stored in S3 (mirrors GridFSFileInfo)
+ * Metadata of a file stored in S3.
+ *
+ * Alias of the shared {@link FileMetadataInfo}, kept as a named export because it is
+ * part of the published API. It used to be a separate, structurally identical
+ * declaration alongside `FilesystemFileInfo` — which is how the two lookup surfaces
+ * drifted apart. One declaration now, so they cannot.
  */
-export interface S3FileInfo {
-  _id: Types.ObjectId;
-  contentType?: string;
-  filename: string;
-  length: number;
-  metadata?: Record<string, any>;
-  uploadDate: Date;
-}
-
-type FileCollection = mongo.Collection<any>;
+export type S3FileInfo = FileMetadataInfo;
 
 /**
  * Read a stream completely into a buffer
@@ -77,16 +81,77 @@ export class S3FileHelper {
     }
     await s3Service.putObject(key, body, options.contentType, options.contentLength ?? options.buffer?.length);
 
-    if (!(await s3Service.objectExists(key))) {
+    return S3FileHelper.recordFile(s3Service, collection, _id, {
+      contentType: options.contentType,
+      filename: options.filename,
+      length: options.contentLength ?? options.buffer?.length,
+      metadata: options.metadata,
+    });
+  }
+
+  /**
+   * Adopt an object that ALREADY lives in the same S3 endpoint into file storage.
+   *
+   * The bytes are moved by S3 itself (`CopyObject`) rather than pulled into this process and
+   * pushed back out — see {@link CoreS3Service.copyObject}. Used for the TUS S3→S3 hand-off,
+   * where source and destination are two buckets of the same store.
+   *
+   * The metadata document is written by the same {@link S3FileHelper.recordFile} the streaming
+   * path uses, so the two cannot drift into producing differently-shaped file infos.
+   */
+  static async copyFile(
+    s3Service: CoreS3Service,
+    collection: FileCollection,
+    options: {
+      contentLength?: number;
+      contentType?: string;
+      filename: string;
+      metadata?: Record<string, any>;
+      sourceBucket?: string;
+      sourceKey: string;
+    },
+  ): Promise<S3FileInfo> {
+    const _id = new Types.ObjectId();
+    await s3Service.copyObject(options.sourceKey, _id.toHexString(), options.sourceBucket, options.contentType);
+
+    return S3FileHelper.recordFile(s3Service, collection, _id, {
+      contentType: options.contentType,
+      filename: options.filename,
+      length: options.contentLength,
+      metadata: options.metadata,
+    });
+  }
+
+  /**
+   * Verify the object arrived and record its metadata.
+   *
+   * The HEAD before the insert is what keeps a file info from ever describing bytes that are not
+   * there (the guarantee GridFSHelper gets by reading the file document back after the upload).
+   */
+  protected static async recordFile(
+    s3Service: CoreS3Service,
+    collection: FileCollection,
+    _id: Types.ObjectId,
+    options: { contentType?: string; filename: string; length?: number; metadata?: Record<string, any> },
+  ): Promise<S3FileInfo> {
+    if (!(await s3Service.objectExists(_id.toHexString()))) {
       throw new Error('File uploaded but not found in S3');
     }
+
+    // On the WRITE path, not the read path: createIndex creates the collection, so
+    // ensuring it when reading gave a GridFS-only deployment an empty `s3-files`.
+    // Here the collection is about to exist anyway. Never throws.
+    await ensureFilenameIndex(collection);
 
     const fileInfo: S3FileInfo = {
       _id,
       contentType: options.contentType,
       filename: options.filename,
-      length: options.contentLength ?? options.buffer?.length,
+      length: options.length,
       metadata: options.metadata,
+      // Records WHERE the bytes went, so a reader never has to probe all three
+      // stores to find out. Legacy documents lack it and are handled by probing.
+      storage: 's3',
       uploadDate: new Date(),
     };
     await collection.insertOne(fileInfo);
@@ -97,22 +162,21 @@ export class S3FileHelper {
    * Find file metadata by ID
    */
   static async findFileById(collection: FileCollection, id: string | Types.ObjectId): Promise<null | S3FileInfo> {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
-    return (await collection.findOne({ _id: objectId })) as null | S3FileInfo;
+    return findMetadataById(collection, id);
   }
 
   /**
    * Find file metadata by filename
    */
   static async findFileByName(collection: FileCollection, filename: string): Promise<null | S3FileInfo> {
-    return (await collection.findOne({ filename })) as null | S3FileInfo;
+    return findMetadataByName(collection, filename);
   }
 
   /**
    * Find files with filter and options
    */
   static async findFiles(collection: FileCollection, filter: any = {}, options: any = {}): Promise<S3FileInfo[]> {
-    return (await collection.find(filter, options).toArray()) as unknown as S3FileInfo[];
+    return findMetadata(collection, filter, options);
   }
 
   /**

@@ -120,14 +120,10 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       return;
     }
 
-    // Atomic claim: the zero-users check above is check-then-act, so N replicas booting
-    // at the same time would each pass it and each create an admin. Only the replica that
-    // INSERTS the marker proceeds.
-    if (!(await this.claimInitialAdminSetup())) {
-      this.logger.debug('Initial admin auto-creation skipped (claimed by another instance)');
-      return;
-    }
-
+    // The atomic claim lives in createInitialAdmin() so that BOTH entry points — this
+    // one and the anonymous POST /system-setup/init — serialize on the same marker.
+    // Claiming here as well would take the claim twice on this path and leave the
+    // public path unguarded.
     try {
       const result = await this.createInitialAdmin({
         email: initialAdmin.email,
@@ -136,12 +132,11 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       });
       this.logger.log(`Auto-created initial admin on startup: ${result.email}`);
     } catch (error) {
-      // Release the claim, otherwise a replica that crashed mid-creation would block
-      // setup on every future boot.
-      await this.releaseInitialAdminSetupClaim();
-
+      // The claim is released by createInitialAdmin() itself, which is the only place
+      // that takes it — so a replica that crashed mid-creation cannot block setup on
+      // every future boot, and the marker has exactly one owner.
       if (error instanceof ForbiddenException) {
-        this.logger.log('Initial admin auto-creation skipped (users already exist)');
+        this.logger.log('Initial admin auto-creation skipped (users already exist or claimed elsewhere)');
       } else {
         this.logger.warn(
           `Initial admin auto-creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -236,6 +231,17 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_BETTERAUTH_REQUIRED);
     }
 
+    // The count check above is check-then-act, and this method is reachable ANONYMOUSLY
+    // via POST /system-setup/init. Two concurrent callers with DIFFERENT emails both pass
+    // it and both get an admin — the E11000 handler below only catches the same-email
+    // case. The claim is the same marker the boot path uses, so the HTTP path and the
+    // auto-bootstrap also serialize against each other instead of racing: an attacker
+    // racing a fresh deployment can no longer obtain an admin account ALONGSIDE the
+    // configured one.
+    if (!(await this.claimInitialAdminSetup())) {
+      throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);
+    }
+
     try {
       // Access BetterAuth internal context (same pattern as core-better-auth-api.middleware.ts)
       const context = await authInstance.$context;
@@ -291,6 +297,11 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
         success: true,
       };
     } catch (error) {
+      // Release the claim we took above: a caller that failed mid-creation must not
+      // leave a deployment with zero users and no way in. The marker is additionally
+      // stale-expiring, so this is belt AND braces for the crash-before-release case.
+      await this.releaseInitialAdminSetupClaim();
+
       // Handle duplicate email (race condition via MongoDB unique index)
       if (error instanceof Error && (error.message?.includes('duplicate key') || error.message?.includes('E11000'))) {
         throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);

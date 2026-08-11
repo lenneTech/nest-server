@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import mongoose, { Connection, mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
@@ -57,6 +57,8 @@ export abstract class CoreFileService {
 
   /** Metadata collection for files stored on the local filesystem (no Mongoose schema) */
   protected filesystemFiles: mongo.Collection<any>;
+
+  protected readonly logger = new Logger(CoreFileService.name);
 
   /** Which driver new files are written to, and why */
   protected readonly storageResolution: FileStorageResolution;
@@ -292,9 +294,46 @@ export abstract class CoreFileService {
       GridFSHelper.findFiles(this.files, filterQuery[0], pageOptions),
     ]);
 
-    const merged = [...s3Docs, ...fsDocs, ...docs];
+    // Each store returned its own rows already sorted; concatenating them does NOT
+    // preserve that order, so without this re-sort a `sort` in the filter args held
+    // only WITHIN a store and the merged page came out interleaved by store. Paging
+    // a wrongly-ordered merge also returns the wrong rows, not just the right rows
+    // in the wrong order.
+    const merged = this.sortMergedFileInfo([...s3Docs, ...fsDocs, ...docs], (rest as { sort?: any }).sort);
     const paged = limit === undefined ? merged.slice(skip ?? 0) : merged.slice(skip ?? 0, (skip ?? 0) + limit);
     return this.prepareOutput(paged as unknown as CoreFileInfo[], serviceOptions);
+  }
+
+  /**
+   * Re-apply a Mongo-style sort spec to rows merged from several stores.
+   *
+   * Only used on the multi-store path — the single-store path never merges and
+   * keeps the database's own ordering. Falls back to `uploadDate` descending
+   * (newest first), which is the order a file listing is expected in and the one
+   * each store already returns on its own.
+   */
+  protected sortMergedFileInfo<T extends Record<string, any>>(docs: T[], sort?: Record<string, any>): T[] {
+    const spec = Object.entries(sort ?? {}).filter(([, direction]) => direction === 1 || direction === -1);
+    const effective: [string, number][] = spec.length ? (spec as [string, number][]) : [['uploadDate', -1]];
+    return [...docs].sort((a, b) => {
+      for (const [field, direction] of effective) {
+        const left = a?.[field];
+        const right = b?.[field];
+        if (left === right) {
+          continue;
+        }
+        // Undefined sorts last regardless of direction — a store that does not
+        // carry the field must not win the page just because `undefined < x`.
+        if (left === undefined || left === null) {
+          return 1;
+        }
+        if (right === undefined || right === null) {
+          return -1;
+        }
+        return left < right ? -direction : direction;
+      }
+      return 0;
+    });
   }
 
   /**
@@ -330,17 +369,95 @@ export abstract class CoreFileService {
   /**
    * Get file stream (for big files) via file ID
    */
-  async getFileStream(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<Readable> {
+  async getFileStream(
+    id: string | Types.ObjectId,
+    serviceOptions?: FileServiceOptions,
+    knownStore?: FileStorageDriver,
+  ): Promise<Readable> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
-    if (await this.findS3FileById(id)) {
+    // `knownStore` is a pure optimization, never an authorization shortcut: the
+    // rights check above already ran. A caller that has just resolved the file
+    // (the controller does, via resolveFile) can pass which store it came from so
+    // the same one-to-three metadata round trips are not repeated per download.
+    // Omitting it keeps the previous behaviour exactly.
+    const store = knownStore ?? (await this.locateFile(id));
+    if (store === 's3') {
       return S3FileHelper.getStream(this.options.s3Service, id);
     }
-    if (await this.findFilesystemFileById(id)) {
+    if (store === 'filesystem') {
       return FilesystemFileHelper.getStream(this.filesystemDir, id);
     }
     return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream;
+  }
+
+  /**
+   * Which store currently holds a file's bytes.
+   *
+   * Consults the stores in the same order as `getFileInfo()`. Answers `'gridfs'`
+   * for an unknown id, which is what the download path did before this existed:
+   * GridFS is the terminal fallback and reports the miss itself.
+   */
+  protected async locateFile(id: string | Types.ObjectId): Promise<FileStorageDriver> {
+    if (await this.findS3FileById(id)) {
+      return 's3';
+    }
+    if (await this.findFilesystemFileById(id)) {
+      return 'filesystem';
+    }
+    return 'gridfs';
+  }
+
+  /**
+   * Resolve a file's metadata AND which store holds its bytes, in one pass.
+   *
+   * A download used to answer the same question up to three times — once in
+   * `getFileInfo()`, once in `getDownloadUrl()` and once in `getFileStream()` —
+   * because each of them probed the stores in turn and then discarded which one
+   * had answered. The probe order here is unchanged; what is new is that the
+   * answering store is returned alongside the metadata, so the callers stop
+   * re-probing.
+   *
+   * The store is derived from WHICH COLLECTION produced the document, never from
+   * anything the document says about itself: the collection is the only source
+   * that cannot disagree with where the bytes actually are.
+   *
+   * Runs the SAME `checkRights()` as `getFileInfo()` — it is a replacement for that
+   * call, not a way around it.
+   */
+  async resolveFile(
+    id: string | Types.ObjectId,
+    serviceOptions?: FileServiceOptions,
+  ): Promise<{ info: CoreFileInfo; store: FileStorageDriver } | null> {
+    if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
+      return null;
+    }
+
+    const s3Info = await this.findS3FileById(id);
+    if (s3Info) {
+      return { info: await this.prepareOutput(s3Info as unknown as CoreFileInfo, serviceOptions), store: 's3' };
+    }
+
+    const fsInfo = await this.findFilesystemFileById(id);
+    if (fsInfo) {
+      // The COLLECTION a document was found in is what says where the bytes are —
+      // same as the S3 branch above. Reading the document's own `storage` marker
+      // instead would agree in every sound case and disagree in exactly one: a
+      // document sitting in `filesystem-files` while claiming `storage: 's3'`.
+      // Believing it there hands `knownStore: 's3'` to `getFileStream()`, which
+      // then reads bytes out of the wrong store.
+      return {
+        info: await this.prepareOutput(fsInfo as unknown as CoreFileInfo, serviceOptions),
+        store: 'filesystem',
+      };
+    }
+
+    const gridFsInfo = await GridFSHelper.findFileById(this.files, getObjectIds(id));
+    if (!gridFsInfo) {
+      return null;
+    }
+    return { info: await this.prepareOutput(gridFsInfo as unknown as CoreFileInfo, serviceOptions), store: 'gridfs' };
   }
 
   /**
@@ -452,17 +569,33 @@ export abstract class CoreFileService {
   // ===================================================================================================================
 
   /**
-   * Find the S3 metadata of a file by ID (null when S3 storage is off or the file is in GridFS)
+   * Find the S3 metadata of a file by ID (null when S3 is not usable, or the file is in another store)
+   *
+   * Gated on whether S3 is USABLE, not on whether it is the active write driver.
+   * Gating on the driver made the documented "reads consult every store, so
+   * switching is forward-only" promise true only in one direction: adopting S3
+   * kept GridFS readable, but switching back to `gridfs`/`filesystem` turned
+   * every S3-stored file into a 404. The metadata lookup is a cheap indexed
+   * `findOne`; the driver only decides where new bytes GO.
    */
   protected async findS3FileById(id: string | Types.ObjectId): Promise<null | S3FileInfo> {
-    return this.s3Storage ? S3FileHelper.findFileById(this.s3Files, getObjectIds(id)) : null;
+    if (!this.isStorageAvailable('s3')) {
+      return null;
+    }
+    return S3FileHelper.findFileById(this.s3Files, getObjectIds(id));
   }
 
   /**
-   * Find the S3 metadata of a file by filename (null when S3 storage is off or the file is in GridFS)
+   * Find the S3 metadata of a file by filename (null when S3 is not usable, or the file is in another store)
+   *
+   * See {@link findS3FileById} for why this is gated on availability, not on the
+   * active driver.
    */
   protected async findS3FileByName(filename: string): Promise<null | S3FileInfo> {
-    return this.s3Storage ? S3FileHelper.findFileByName(this.s3Files, filename) : null;
+    if (!this.isStorageAvailable('s3')) {
+      return null;
+    }
+    return S3FileHelper.findFileByName(this.s3Files, filename);
   }
 
   /**
@@ -476,10 +609,12 @@ export abstract class CoreFileService {
    * So this is the read side of a per-file rule: use it inside an overridden
    * `checkRights()`, never to build a response.
    *
-   * Checks S3 metadata first, then GridFS — the same order as `getFileInfo()`,
-   * so a rule written against this sees the same file the download would serve.
-   * Getting that order wrong would make an owner check pass on a stale GridFS
-   * document while the bytes come from S3.
+   * Checks S3 metadata first, then the filesystem store, then GridFS — the same
+   * three stores in the same order as `getFileInfo()`, so a rule written against
+   * this sees the same file the download would serve. Getting that order wrong
+   * would make an owner check pass on a stale GridFS document while the bytes
+   * come from S3; omitting a store would make it decide on a file that is not
+   * the one being served at all (see {@link getRawFileInfoByName}).
    *
    * @param id file id
    * @returns the raw document, or null when no file has that id
@@ -501,8 +636,16 @@ export abstract class CoreFileService {
    * your project — prefer authorizing by id where you can.
    */
   protected async getRawFileInfoByName(filename: string): Promise<null | Record<string, any>> {
+    // Same three stores, in the same order, as getRawFileInfo() and
+    // getFileInfoByName(). Skipping the filesystem store here made a by-name
+    // ownership rule see a DIFFERENT file set than the download serves: under
+    // `file.storage: 'filesystem'` it returned null for a file the route then
+    // happily streamed. That fails closed for the documented `!!raw && …` shape
+    // and OPEN for the equally natural `if (!raw) return true`.
     const fileInfo =
-      (await this.findS3FileByName(filename)) || (await GridFSHelper.findFileByName(this.files, filename));
+      (await this.findS3FileByName(filename)) ||
+      (await this.findFilesystemFileByName(filename)) ||
+      (await GridFSHelper.findFileByName(this.files, filename));
     return (fileInfo as unknown as Record<string, any>) || null;
   }
 

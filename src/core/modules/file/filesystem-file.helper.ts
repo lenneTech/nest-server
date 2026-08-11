@@ -1,10 +1,18 @@
 import { createReadStream, createWriteStream } from 'fs';
 import { mkdir, rm, stat } from 'fs/promises';
-import { mongo, Types } from 'mongoose';
+import { Types } from 'mongoose';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 
+import {
+  ensureFilenameIndex,
+  FileCollection,
+  FileMetadataInfo,
+  findMetadata,
+  findMetadataById,
+  findMetadataByName,
+} from './file-metadata.helper';
 import { streamToBuffer } from './s3-file.helper';
 
 /** Metadata collection for files stored on the local filesystem */
@@ -16,19 +24,11 @@ export const DEFAULT_FILESYSTEM_DIR = 'uploads/files';
 /**
  * Metadata of a file stored on the local filesystem.
  *
- * Structurally identical to `S3FileInfo` and to a GridFS `fs.files` document,
- * so `prepareOutput()` maps all three onto `CoreFileInfo` unchanged.
+ * Alias of the shared {@link FileMetadataInfo} — same document as `S3FileInfo` and,
+ * in its first six fields, as a GridFS `fs.files` document, which is what lets
+ * `prepareOutput()` map all three onto `CoreFileInfo` unchanged.
  */
-export interface FilesystemFileInfo {
-  _id: Types.ObjectId;
-  contentType?: string;
-  filename: string;
-  length: number;
-  metadata?: Record<string, any>;
-  uploadDate: Date;
-}
-
-type FileCollection = mongo.Collection<any>;
+export type FilesystemFileInfo = FileMetadataInfo;
 
 /**
  * Helper for files stored on the local filesystem with their metadata in MongoDB.
@@ -102,12 +102,20 @@ export class FilesystemFileHelper {
         throw new Error(`File ${_id.toHexString()} was written empty`);
       }
 
+      // On the WRITE path, not the read path: createIndex creates the collection, so
+      // ensuring it when reading gave a GridFS-only deployment an empty
+      // `filesystem-files`. Here the collection is about to exist anyway. Never throws.
+      await ensureFilenameIndex(collection);
+
       const fileInfo: FilesystemFileInfo = {
         _id,
         contentType: options.contentType,
         filename: options.filename,
         length: stats.size,
         ...(options.metadata ? { metadata: options.metadata } : {}),
+        // Records WHERE the bytes went, so a reader never has to probe all three
+        // stores to find out. Legacy documents lack it and are handled by probing.
+        storage: 'filesystem',
         uploadDate: new Date(),
       };
       await collection.insertOne(fileInfo as any);
@@ -125,15 +133,14 @@ export class FilesystemFileHelper {
     collection: FileCollection,
     id: string | Types.ObjectId,
   ): Promise<FilesystemFileInfo | null> {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
-    return (await collection.findOne({ _id: objectId })) as FilesystemFileInfo | null;
+    return findMetadataById(collection, id);
   }
 
   /**
    * Find file metadata by filename
    */
   static async findFileByName(collection: FileCollection, filename: string): Promise<FilesystemFileInfo | null> {
-    return (await collection.findOne({ filename })) as FilesystemFileInfo | null;
+    return findMetadataByName(collection, filename);
   }
 
   /**
@@ -144,7 +151,7 @@ export class FilesystemFileHelper {
     filter: any = {},
     options: any = {},
   ): Promise<FilesystemFileInfo[]> {
-    return (await collection.find(filter, options).toArray()) as unknown as FilesystemFileInfo[];
+    return findMetadata(collection, filter, options);
   }
 
   /**

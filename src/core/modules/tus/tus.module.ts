@@ -199,10 +199,19 @@ export class TusModule implements OnModuleInit {
     // registered. Same mechanism as CorePermissionsModule: the value is only
     // known at runtime, and the guards read exactly this metadata key.
     //
-    // A custom controller is covered too, as long as it INHERITS the handlers.
-    // One that re-declares @All()/@Roles() carries its own metadata and thereby
-    // opts out — which is the documented way to hard-code a policy that config
-    // must not be able to change.
+    // A custom controller is covered whether it inherits the handlers or
+    // re-declares them. Re-declaring @All()/@Roles() does NOT opt out: this
+    // writes onto `controller.prototype[member]`, which for an override resolves
+    // to the SUBCLASS's own function, and forRoot() runs after decorator
+    // evaluation — so config wins either way.
+    //
+    // That differs from the file module on purpose. `applyFileRoles()` targets
+    // the BASE class by name, so a subclass override there genuinely does keep
+    // its own metadata. Do not reason from one to the other.
+    //
+    // The real opt-outs here are: give the handler a different name (this only
+    // touches the members it knows), or register the controller outside
+    // TusModule entirely.
     this.applyRoles(this.getControllerClass(), config.roles);
 
     return {
