@@ -278,19 +278,56 @@ const LOCK_WAIT_TIMEOUT_MS = 15 * 60_000;
  * breaking a stale lock and a long-running migration would be indistinguishable.
  */
 function startLockHeartbeat(url: string, lockCollectionName: string, token: string): { stop: () => void } {
+  // ONE connection for the whole heartbeat, rather than `dbRequest()`'s connect-and-close per
+  // call: that opened and tore down a MongoClient every 15 seconds for the entire migration run —
+  // a full handshake each time, against the database at its busiest moment. The client is created
+  // on the first tick (so a heartbeat that never fires costs nothing) and closed by stop().
+  let client: MongoClient | undefined;
+  let stopped = false;
+
+  const beat = async (): Promise<void> => {
+    if (stopped) {
+      return;
+    }
+    if (!client) {
+      const connected = await MongoClient.connect(url);
+      if (stopped) {
+        // stop() ran while we were connecting — nothing would ever close this one.
+        await connected.close();
+        return;
+      }
+      client = connected;
+    }
+    // Scoped: once our lock has been broken and re-taken, our heartbeat must not keep the NEW
+    // holder's lock alive on our behalf.
+    await client
+      .db()
+      .collection(lockCollectionName)
+      .updateOne({ lock: 'lock', owner: token }, { $set: { acquiredAt: new Date() } });
+  };
+
   const timer = setInterval(() => {
-    dbRequest(url, (db) =>
-      // Also scoped: once our lock has been broken and re-taken, our heartbeat must not keep
-      // the NEW holder's lock alive on our behalf.
-      db.collection(lockCollectionName).updateOne({ lock: 'lock', owner: token }, { $set: { acquiredAt: new Date() } }),
-    ).catch((error) => {
+    beat().catch((error) => {
       // A missed heartbeat is not fatal on its own — the next one may succeed, and only
-      // a sustained gap makes the lock breakable.
+      // a sustained gap makes the lock breakable. Drop the connection though: it may itself be
+      // what failed, and a held-open broken client would fail every remaining tick.
       console.warn(`Migration lock heartbeat failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const broken = client;
+      client = undefined;
+      void broken?.close().catch(() => undefined);
     });
   }, LOCK_HEARTBEAT_INTERVAL_MS);
   timer.unref?.();
-  return { stop: () => clearInterval(timer) };
+
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+      const open = client;
+      client = undefined;
+      void open?.close().catch(() => undefined);
+    },
+  };
 }
 
 /**

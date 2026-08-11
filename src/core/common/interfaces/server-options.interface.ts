@@ -555,8 +555,21 @@ export interface IBetterAuthRateLimit {
   max?: number;
 
   /**
-   * Maximum number of entries in the in-memory rate limit store.
-   * When exceeded, the oldest entries are evicted to prevent unbounded memory growth.
+   * Maximum number of distinct counters this limiter may hold — the bound on the keyspace a
+   * caller can create, since both parts of a counter key are caller-influenced.
+   *
+   * It means slightly different things per store, because the two have different pressures:
+   * - **In-memory store**: live entries in the process. Beyond it, expired entries are evicted
+   *   first; if everything is still live, new keys fold into shared coarse counters.
+   * - **Redis store** (`redis` configured): NEW counters per window, across all replicas. Beyond
+   *   it, further new keys fold into the same coarse counters until the window rolls over.
+   *
+   * Either way, saturation degrades towards a COARSER limit — unrelated clients then share a
+   * counter and are throttled earlier than their own traffic warrants — never towards no limit.
+   *
+   * Only Better-Auth exposes this knob. The Legacy Auth limiter has no equivalent config key and
+   * uses the same `10000` default on both stores.
+   *
    * @default 10000
    */
   maxEntries?: number;
@@ -2245,6 +2258,8 @@ export interface IServerOptions {
    * - { enabled: false, ... }: pre-configured but disabled
    *
    * Requires the optional peer dependency `ioredis` to be installed.
+   *
+   * @default undefined (disabled)
    */
   redis?: boolean | IRedisConfig;
 
@@ -2257,6 +2272,8 @@ export interface IServerOptions {
    *
    * Requires the optional peer dependency `@aws-sdk/client-s3`
    * (and `@aws-sdk/s3-request-presigner` for presigned downloads).
+   *
+   * @default undefined (disabled)
    */
   s3?: IS3Config;
 
@@ -2614,6 +2631,58 @@ export interface IServerOptions {
   };
 
   /**
+   * Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.
+   *
+   * **This is what makes `request.ip` correct, and every IP-keyed rate limit depends on it.**
+   * Express derives `req.ip` from the forwarded chain only as far as this setting allows and
+   * otherwise reports the socket peer. Left unset (Express default `false`), an app behind Caddy,
+   * nginx or a Kubernetes ingress sees the PROXY's address on every request — so all clients
+   * collapse onto ONE rate-limit bucket and `auth.rateLimit.max` throttles everybody at once
+   * instead of throttling one attacker. With `redis` configured that limit is enforced exactly
+   * fleet-wide, which makes the collapse total rather than per replica.
+   *
+   * Setting it wrong in the other direction is a bypass: trusting more hops than actually sit in
+   * front of the app lets a client prepend its own `X-Forwarded-For` entry and pick a fresh bucket
+   * per request. Count the hops.
+   *
+   * Accepted values (passed through to `app.set('trust proxy', …)` verbatim):
+   * - `false` — trust nothing, use the socket address (Express default). Also the explicit
+   *   "no proxy in front of me" answer, which silences the boot warning below.
+   * - `1` / `2` / … — trust exactly N hops closest to this app. The usual answer: one reverse
+   *   proxy is `1`, proxy behind a CDN is `2`.
+   * - `'loopback'` / `'linklocal'` / `'uniquelocal'` — trust those address ranges.
+   * - `'10.0.0.0/8'`, `['loopback', '10.0.0.0/8']` — trust specific addresses or subnets.
+   * - `true` — trust the LEFTMOST entry, i.e. whatever the client sent. Never use this on a
+   *   public deployment; it hands every caller its own rate-limit bucket.
+   *
+   * A predicate function is deliberately NOT accepted here, although Express supports one: this
+   * value must survive `NEST_SERVER_CONFIG` / `NSC__*` (JSON) and the ConfigService deep clone,
+   * and hop counts, ranges and subnet lists already cover every real deployment shape. If you do
+   * need a predicate, leave `trustProxy` unset and call `app.set('trust proxy', fn)` in your own
+   * `main.ts` — an unset value is never applied, so nothing overwrites it.
+   *
+   * Applied by `CoreModule` during module init, which happens inside `app.init()` / `app.listen()`
+   * — i.e. AFTER your `main.ts` runs. A configured value therefore takes precedence over an
+   * `app.set('trust proxy', …)` of your own.
+   *
+   * When this is unset and an IP-keyed rate limiter (`auth.rateLimit` / `betterAuth.rateLimit`) is
+   * enabled, the framework logs a warning at boot naming the shared-bucket consequence.
+   *
+   * @default false (Express default — the forwarded chain is not trusted)
+   * @since 11.33.0
+   *
+   * @example
+   * ```typescript
+   * // One reverse proxy (Caddy / nginx / ingress) in front of the app
+   * trustProxy: 1,
+   *
+   * // Nothing in front of the app — explicit, and silences the boot warning
+   * trustProxy: false,
+   * ```
+   */
+  trustProxy?: boolean | number | string | string[];
+
+  /**
    * TUS resumable upload configuration.
    *
    * Follows the "Enabled by Default" pattern - tus is automatically enabled
@@ -2774,13 +2843,21 @@ export interface IS3Config {
    * Serve downloads as presigned URL redirects instead of streaming
    * through the API (offloads traffic from the server).
    * `true` / `{}` enables with defaults.
+   *
+   * The issued URL is a session-less BEARER CAPABILITY: it is authorized once, at issue time, and
+   * afterwards anyone holding the string can download the object until it expires — there is no
+   * revocation short of deleting the object or rotating the signing credentials.
    * @default false
    */
   presignedDownloads?:
     | boolean
     | {
         /**
-         * Presigned URL validity in seconds
+         * Presigned URL validity in seconds.
+         *
+         * Keep it just long enough for a download to START. Values above 900s are accepted but
+         * warned about at boot, and anything above 604800s (the AWS SigV4 maximum, 7 days) is
+         * capped — a longer signature is rejected by S3 rather than honored.
          * @default 300
          */
         expiresInSeconds?: number;

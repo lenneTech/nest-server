@@ -11,6 +11,27 @@ export interface HubBufferData<T> {
 }
 
 /**
+ * How long a mirrored buffer survives without being written to, in seconds.
+ *
+ * The list is size-bounded by LTRIM but was never time-bounded, so its contents outlived the
+ * process, the deployment and every Redis snapshot taken in between. That matters because of WHAT
+ * these buffers hold: log lines, full request traces and — in mailbox capture mode — whole
+ * outgoing emails, including verification and password-reset links that are still valid.
+ * Diagnostics are worth keeping for a shift, not forever.
+ */
+const DEFAULT_SHARED_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * Entries fetched per poll before the range is widened.
+ *
+ * A Hub panel polls every 5s and normally sees single-digit deltas, while the trace buffer holds
+ * up to 1000 entries — reading and parsing the whole list on every poll of every open tab was
+ * paying 1000× for that delta. The widen-and-retry loop below keeps the read exact when a client
+ * really is further behind.
+ */
+const SHARED_READ_CHUNK = 64;
+
+/**
  * A collector buffer with an OPTIONAL Redis backing — the single boundary at which the Hub's
  * diagnostic collectors (logs, traces, queries, mailbox) become multi-replica aware.
  *
@@ -35,11 +56,15 @@ export class HubBuffer<T extends HubBufferEntry> {
   protected readonly redis?: CoreRedisService;
   protected readonly seqKey: string;
 
-  constructor(capacity: number, name: string, redis?: CoreRedisService) {
+  /** Retention of the mirrored list, refreshed on every append. */
+  protected readonly ttlSeconds: number;
+
+  constructor(capacity: number, name: string, redis?: CoreRedisService, ttlSeconds = DEFAULT_SHARED_TTL_SECONDS) {
     this.local = new HubRingBuffer<T>(capacity);
     this.redis = redis?.enabled ? redis : undefined;
     this.listKey = this.redis?.key('hub', name) ?? '';
     this.seqKey = this.redis?.key('hub', name, 'seq') ?? '';
+    this.ttlSeconds = ttlSeconds;
   }
 
   /** Append an entry. Returns the local entry (with its process-local seq) synchronously. */
@@ -51,6 +76,11 @@ export class HubBuffer<T extends HubBufferEntry> {
         .incr(this.seqKey)
         .lpush(this.listKey, JSON.stringify(full))
         .ltrim(this.listKey, 0, this.local.capacity - 1)
+        // Refreshed on every append, so an actively used buffer never expires and an abandoned one
+        // (a scaled-down replica, a torn-down environment) stops being a durable copy of captured
+        // logs, traces and emails. Only the LIST expires — the seq counter must survive so client
+        // cursors stay valid, exactly as they do across clear().
+        .expire(this.listKey, this.ttlSeconds)
         .exec(),
     );
     return full;
@@ -99,32 +129,70 @@ export class HubBuffer<T extends HubBufferEntry> {
     };
   }
 
-  /** Read the shared list, or undefined when Redis is unreachable (caller falls back to local). */
+  /**
+   * Read the shared list, or undefined when Redis is unreachable (caller falls back to local).
+   *
+   * The list is newest-first, so the entry with seq `s` sits at index `total - 1 - s` and the
+   * entries a client with cursor `since` still needs are exactly the first `total - 1 - since`.
+   * `total` is only known once the read has happened, so the range starts at a poll-sized chunk
+   * and is widened only when that turns out not to have covered the client's cursor — which keeps
+   * the common poll O(delta) instead of O(capacity) without ever returning a short answer.
+   */
   protected async readShared(since?: number, limit?: number): Promise<HubBufferData<T> | undefined> {
     try {
-      const result = await this.redis!.getClient().multi().get(this.seqKey).lrange(this.listKey, 0, -1).exec();
-      const total = Number(result?.[0]?.[1] ?? 0);
-      const raw = (result?.[1]?.[1] ?? []) as string[];
-      // LRANGE yields newest→oldest; the head carries `total - 1`. Walk backwards to get
-      // oldest→newest and stamp the shared seq over the (per-replica) one that was serialized.
-      const all: T[] = [];
-      for (let i = raw.length - 1; i >= 0; i--) {
-        try {
-          all.push({ ...JSON.parse(raw[i]), seq: total - 1 - i } as T);
-        } catch {
-          // A single unparseable element must not blank the whole panel.
+      const client = this.redis!.getClient();
+      const capacity = this.local.capacity;
+      const cap = Math.min(limit ?? capacity, capacity);
+      // Without a cursor the caller wants the newest window, which LTRIM already bounds by
+      // capacity — so the full range is exact rather than a guess.
+      let want = Math.max(1, since === undefined ? cap : Math.min(cap, SHARED_READ_CHUNK));
+
+      for (let attempt = 0; ; attempt++) {
+        const result = await client
+          .multi()
+          .get(this.seqKey)
+          .lrange(this.listKey, 0, want - 1)
+          .exec();
+        const total = Number(result?.[0]?.[1] ?? 0);
+        const raw = (result?.[1]?.[1] ?? []) as string[];
+        const needed = since === undefined ? cap : Math.max(0, Math.min(cap, total - 1 - since));
+
+        // Enough in hand, or the list simply ended before the bound, or we have widened often
+        // enough — three more round trips is already pathological, and answering with what we
+        // have beats spinning while the panel waits.
+        if (raw.length >= needed || raw.length < want || attempt >= 2) {
+          return this.shape(total, raw, needed);
         }
+        want = Math.min(Math.max(needed, want * 4), capacity);
       }
-      const entries = since === undefined ? all : all.filter((entry) => entry.seq > since);
-      return {
-        cursor: total - 1,
-        dropped: all.length ? all[0].seq : -1,
-        entries: limit === undefined ? entries : entries.slice(-limit),
-      };
     } catch (err) {
       // console, NOT Logger — same re-entrancy as in mirror() above
       console.debug(`Hub buffer read failed (${this.listKey}), using the local buffer: ${(err as Error).message}`);
       return undefined;
     }
+  }
+
+  /**
+   * Turn a newest-first slice into the oldest→newest payload, stamping the SHARED seq over the
+   * per-replica one that was serialized.
+   *
+   * `dropped` is derived from what the slice covers, so for a polling client it reports "nothing
+   * you had was evicted" — and when entries really were evicted (the client is further behind than
+   * the buffer is deep) the slice ends early and the true gap surfaces.
+   */
+  protected shape(total: number, raw: string[], needed: number): HubBufferData<T> {
+    const entries: T[] = [];
+    for (let i = Math.min(raw.length, needed) - 1; i >= 0; i--) {
+      try {
+        entries.push({ ...JSON.parse(raw[i]), seq: total - 1 - i } as T);
+      } catch {
+        // A single unparseable element must not blank the whole panel.
+      }
+    }
+    return {
+      cursor: total - 1,
+      dropped: raw.length ? total - raw.length : -1,
+      entries,
+    };
   }
 }
