@@ -6,12 +6,29 @@
  * keys IN PLACE, which would corrupt the running server config. Cloning here is the guarantee.
  */
 
-/** Key-name heuristics that mark a value as secret. Matched case-insensitively against each key. */
+/**
+ * Key-name heuristics that mark a value as secret. Matched case-insensitively against each key.
+ *
+ * `access[-_]?key` also covers `accessKeyId`: the trailing `(^|[^a-z])key([^a-z]|$)` alternative
+ * does NOT, because the `i` flag makes `[^a-z]` reject an uppercase letter, so `…sKeyI…` fails it.
+ * `s3.secretAccessKey` was already caught by `secret`; the ID was not.
+ */
 const SECRET_KEY_PATTERN =
-  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\btoken\b|\bpass\b|(^|[^a-z])key([^a-z]|$)/i;
+  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\btoken\b|\bpass\b|(^|[^a-z])key([^a-z]|$)/i;
 
-/** Value-shape heuristic: a connection URI carrying `scheme://user:password@host`. */
-const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/@:\s]+:)([^@/\s]+)(@)/i;
+/**
+ * Value-shape heuristic: a connection URI carrying `scheme://user:password@host`.
+ *
+ * The user part is `*`, not `+`, so the PASSWORD-ONLY form is matched too:
+ * `redis://:password@host` is the canonical Redis URL (Redis < 6 has no username, and
+ * `redis-cli -u`, Heroku Redis and ElastiCache AUTH all emit it). Requiring a non-empty
+ * user printed that shape verbatim in the Hub config panel. `redis.url` became a
+ * first-class option in 11.33.0, so the shape is newly reachable here.
+ *
+ * Still safe against false positives: the password group cannot contain `/`, and the `@`
+ * must follow it immediately — so `http://host:8080/x@y` does not match.
+ */
+const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/@:\s]*:)([^@/\s]+)(@)/i;
 
 const MASK = '***';
 

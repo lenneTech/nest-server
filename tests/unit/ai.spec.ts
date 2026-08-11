@@ -1865,6 +1865,151 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
     expect(controller.transports.has('only')).toBe(true);
   });
 
+  /**
+   * Shared MCP session registry (multi-replica). The live transport stays process-local; only
+   * the session id → owning instance mapping is shared, which is what turns a mis-routed
+   * request into an explicit 409 instead of a misleading 404.
+   */
+  describe('shared session registry (Redis)', () => {
+    function makeRedis() {
+      const store = new Map<string, string>();
+      const calls: string[] = [];
+      const client = {
+        del: async (key: string) => {
+          calls.push(`del ${key}`);
+          store.delete(key);
+          return 1;
+        },
+        get: async (key: string) => store.get(key) ?? null,
+        set: async (key: string, value: string, mode: string, ttl: number) => {
+          calls.push(`set ${key} ${value} ${mode} ${ttl}`);
+          store.set(key, value);
+          return 'OK';
+        },
+      };
+      const redis: any = {
+        enabled: true,
+        getClient: () => client,
+        key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+      };
+      return { calls, redis, store };
+    }
+
+    it('registers the session id with its OWNER and a TTL, and releases it on close', async () => {
+      const { calls, redis, store } = makeRedis();
+      const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+
+      controller.registerSession('sess-1', 'u1');
+      await Promise.resolve();
+      // The owning USER is part of the entry, not just the replica: the 409 below may only be
+      // shown to that user, otherwise the cross-replica path becomes the session-id oracle the
+      // local path deliberately refuses to be.
+      const value = JSON.stringify({ instanceId: controller.instanceId, userId: 'u1' });
+      expect(store.get('nest-server:ai-mcp-session:sess-1')).toBe(value);
+      expect(calls[0]).toBe(`set nest-server:ai-mcp-session:sess-1 ${value} EX 3600`);
+
+      // Re-registering refreshes the TTL rather than creating a second entry.
+      controller.registerSession('sess-1', 'u1');
+      await Promise.resolve();
+      expect(calls).toHaveLength(2);
+
+      controller.releaseSession('sess-1');
+      await Promise.resolve();
+      expect(store.has('nest-server:ai-mcp-session:sess-1')).toBe(false);
+    });
+
+    it('answers 409 naming the owning replica when the OWNER asks for their own session', async () => {
+      const { redis, store } = makeRedis();
+      store.set(
+        'nest-server:ai-mcp-session:sess-elsewhere',
+        JSON.stringify({ instanceId: 'other-host:4242', userId: 'u1' }),
+      );
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+
+      await controller.handleGet(
+        makeReq({ method: 'GET', sessionId: 'sess-elsewhere', user: { id: 'u1', roles: [] } }),
+        res,
+      );
+      expect(captured.status).toBe(409);
+      expect(captured.body.error).toContain('other-host:4242');
+      expect(captured.body.error).toMatch(/sticky/i);
+    });
+
+    it('answers 404 (not 409) for ANOTHER user session, disclosing neither its existence nor the replica', async () => {
+      // The same-replica path already treats a foreign session as unknown. If the shared registry
+      // answered 409 for any id an authenticated caller can name, it would hand that caller both a
+      // validity oracle for session ids and the internal <hostname>:<pid> holding them.
+      const { redis, store } = makeRedis();
+      store.set(
+        'nest-server:ai-mcp-session:sess-of-u2',
+        JSON.stringify({ instanceId: 'other-host:4242', userId: 'u2' }),
+      );
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+
+      await controller.handleGet(
+        makeReq({ method: 'GET', sessionId: 'sess-of-u2', user: { id: 'u1', roles: [] } }),
+        res,
+      );
+      expect(captured.status).toBe(404);
+      expect(JSON.stringify(captured.body)).not.toContain('other-host');
+    });
+
+    it('answers 404 for a legacy entry that carries no owner (rolling upgrade)', async () => {
+      const { redis, store } = makeRedis();
+      store.set('nest-server:ai-mcp-session:sess-legacy', 'other-host:4242');
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+
+      await controller.handleGet(
+        makeReq({ method: 'GET', sessionId: 'sess-legacy', user: { id: 'u1', roles: [] } }),
+        res,
+      );
+      expect(captured.status).toBe(404);
+    });
+
+    it('answers 404 (not 409) when the session is unknown to the registry as well', async () => {
+      const { redis } = makeRedis();
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+      await controller.handleGet(makeReq({ method: 'GET', sessionId: 'ghost', user: { id: 'u1', roles: [] } }), res);
+      expect(captured.status).toBe(404);
+    });
+
+    it('degrades to "unknown session" when the registry itself is down', async () => {
+      const redis: any = {
+        enabled: true,
+        getClient: () => ({
+          get: async () => {
+            throw new Error('Connection is closed.');
+          },
+        }),
+        key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+      };
+      const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+
+      // A Redis outage must not propagate — the caller gets the plain 404 path,
+      // never a 500 from the session lookup.
+      expect(await controller.foreignSessionOwner('sess-1')).toBeUndefined();
+
+      const { captured, res } = makeRes();
+      await controller.handleGet(makeReq({ method: 'GET', sessionId: 'sess-1', user: { id: 'u1', roles: [] } }), res);
+      expect(captured.status).toBe(404);
+    });
+
+    it('without Redis the session handling is unchanged (no registry calls, plain 404)', async () => {
+      const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+      const { captured, res } = makeRes();
+      await controller.handleGet(makeReq({ method: 'GET', sessionId: 'ghost', user: { id: 'u1', roles: [] } }), res);
+      expect(captured.status).toBe(404);
+      expect(await controller.foreignSessionOwner('ghost')).toBeUndefined();
+      // Must not throw despite there being no Redis service to talk to.
+      controller.registerSession('ghost');
+      controller.releaseSession('ghost');
+    });
+  });
+
   it('mcpUnavailable returns 503 pointing at resolution, not at a missing install (BUG-2 regression)', () => {
     const oauth = new CoreAiMcpOAuthService({} as any);
     const controller: any = new CoreAiMcpController({} as any, oauth);

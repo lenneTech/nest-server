@@ -15,6 +15,10 @@
 - [project-hub-module-security-model.md](project-hub-module-security-model.md) — Hub cockpit gating mechanics; TOP risks = external-guard dependency (Hub+no-auth=open) and CSRF under cors.allowAll+SameSite=None; roles:false prod guard now exists
 - [project-process-diagnostics-helper.md](project-process-diagnostics-helper.md) — writeSync(2) EBADF/EPIPE throw exits 7 and masks the error; signal abdication vs Nest traced; unhandledRejection flips Node's fail-fast default
 - [project-gridfs-and-express-response-facts.md](project-gridfs-and-express-response-facts.md) — GridFS stores 0 chunks for a 0-byte file; res.json() keeps a preset Content-Type; pipe() leaks the source on client abort; process.exit() truncates piped stdout
+- [project-roles-metadata-merge-semantics.md](project-roles-metadata-merge-semantics.md) — @Roles OR-merges: method S_EVERYONE DEFEATS class ADMIN; CoreTenantGuard differs; @Roles(ADMIN) satisfiable by a tenant membership role named 'admin'
+- [project-file-tus-access-model.md](project-file-tus-access-model.md) — UPDATED for 11.33.0: roles now config-driven via Reflect metadata (override opts out), file classes got @SkipTenantCheck() but TUS did NOT; canonical checkRights example still skips the filename route
+- [project-hub-config-masking-gaps.md](project-hub-config-masking-gaps.md) — maskConfigDeep LEAKS a password-only URI (`redis://:pw@host`) and `s3.accessKeyId`; carries the one-liner to re-test rather than eyeballing the regex
+- [project-rate-limit-store-asymmetry.md](project-rate-limit-store-asymmetry.md) — RedisRateLimitStore has NO key cap while the in-memory one carefully does; both key on an unconditionally trusted X-Forwarded-For
 
 ## Review Methodology
 

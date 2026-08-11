@@ -5,6 +5,9 @@
 - [Hub Module Performance Profile](hub-module-perf.md) — admin cockpit: verified zero-cost gating + single-poller model; the 5 low-severity findings to re-check as it evolves.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
 
+## Request Path
+- [Auth-gate per-request cost](auth-gate-per-request-cost.md) — the global BetterAuth middleware already authenticates PUBLIC routes; gating adds ~0 lookups, but adds a double-verify failure path and kills shared-cache eligibility.
+
 ## Build & Startup
 - [SWC/CJS TDZ + CI Gap](swc-cjs-tdz-and-ci-gap.md) — circular-import crashes hit `nest start -b swc` but NOT CI (vitest's unplugin-swc misses it); includes the cycle-triage rule.
 

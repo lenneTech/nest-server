@@ -238,7 +238,7 @@ multiTenancy: {
 - **Config-change detection:** Cache is flushed when `multiTenancy` config changes (e.g., `roleHierarchy` update).
 - **Bounded:** Max 500 entries with FIFO eviction. Memory overhead: ~100-250 KB.
 
-**Important:** The cache is process-local. In horizontally scaled deployments (multiple instances), membership changes on one instance are not reflected on other instances until the TTL expires. Set `cacheTtlMs: 0` for security-sensitive deployments.
+**Important:** The cache storage itself is always process-local — every replica keeps its own map. What changed in 11.33.0 is how _invalidations_ travel: with `redis` configured they are broadcast, without it they are not (see below). A membership change that happens **outside** `invalidateUser()` / `invalidateAll()` — a direct DB write, an admin tool, a migration — is still invisible to every replica until `cacheTtlMs` expires. Set `cacheTtlMs: 0` for security-sensitive deployments.
 
 ### Manual Cache Invalidation
 
@@ -255,6 +255,26 @@ export class TenantService extends CoreTenantService {
 ```
 
 Use `invalidateAll()` to flush the entire cache (e.g., after bulk operations).
+
+Both are **instance** methods on the singleton `CoreTenantGuard` — inject it and call
+`this.tenantGuard?.invalidateUser(userId)`. There is no static equivalent.
+
+#### Cross-replica invalidation (since 11.33.0)
+
+`invalidateUser()` / `invalidateAll()` are no longer a purely local clear:
+
+| Setup                  | What happens                                                                                                                                                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`redis` configured** | The local caches are cleared **and** the invalidation is published to `<keyPrefix>:tenant-cache:invalidate`. Every replica subscribed to that channel clears its own caches, so a membership change takes effect fleet-wide within one round trip. |
+| **No `redis`**         | Only the calling process clears. Other replicas keep serving the stale membership until `cacheTtlMs` expires — the pre-11.33.0 behaviour.                                                                                                          |
+
+Mechanism, for anyone extending the guard (`core-tenant.guard.ts`):
+
+- The channel is namespaced with the framework's Redis key prefix, so two applications sharing one Redis instance do not clear each other's caches. Two **stages** of the same application do, unless you set `redis.keyPrefix` or `redis.db`.
+- The message is `{ scope: 'user', userId }` or `{ scope: 'all' }`, JSON-encoded.
+- Subscription uses the shared subscriber connection from `CoreRedisService.getSubscriber()`; the listener is held in a field and detached on destroy, because that connection is shared.
+- **A received broadcast clears locally and does NOT re-publish** (`applyInvalidation()` → `clearUser()` / `clearAll()`, the no-broadcast variants). Re-publishing would bounce the message around the cluster forever.
+- **Publishing is fire-and-forget and failures are debug-level only.** A missed broadcast is not an error: it merely leaves the other replicas' caches stale until their TTL — exactly the no-Redis behaviour. Nothing about a request path depends on the broadcast succeeding.
 
 ### SkipTenantCheck
 

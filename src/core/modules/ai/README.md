@@ -568,6 +568,31 @@ the server log; the response carries only a stable `#LTNS_0901` code.
   `tools/list` / `tools/call` are filtered to and executed with their permissions.
 - Unauthenticated requests get `401` with a `WWW-Authenticate` header.
 
+### Multi-replica / sticky sessions
+
+An MCP session owns a **live Streamable-HTTP transport** — an open response stream
+held in process memory. It cannot be serialized, so it cannot be moved to another
+replica. **`/ai/mcp` therefore requires sticky sessions** behind a load balancer:
+every request carrying the same `mcp-session-id` must reach the replica that
+created it.
+
+When [Redis](../../common/services/core-redis.service.ts) is configured
+(`ServerOptions.redis`), the controller additionally registers each session id in a
+shared registry (`<keyPrefix>:ai-mcp-session:<id>` → `<hostname>:<pid>`, 1h TTL,
+refreshed on every request, deleted on close/eviction). That does **not** make
+sessions portable; it makes the failure legible: a request that lands on the wrong
+replica gets
+
+```
+409 Conflict — MCP session belongs to another server instance (api-7f4d:31);
+this instance is api-9b2c:29. … /ai/mcp requires sticky sessions …
+```
+
+instead of a `404 Unknown or expired MCP session`, which reads like an expiry bug
+and sends operators looking in the wrong place.
+
+Without Redis nothing changes: unknown ids answer `404` exactly as before.
+
 ### OAuth 2.1 (`ai.mcp.oauth: true`)
 
 For generic MCP clients that auto-discover + register:

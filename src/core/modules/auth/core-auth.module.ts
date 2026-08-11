@@ -4,6 +4,8 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PubSub } from 'graphql-subscriptions';
 
+import { CoreRedisPubSub } from '../../common/services/core-redis-pubsub';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum';
 import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
 import { RolesGuardRegistry } from './guards/roles-guard-registry';
@@ -67,8 +69,12 @@ export class CoreAuthModule {
         useClass: UserService,
       },
       {
+        // Redis-backed when Redis is enabled (subscriptions reach all replicas),
+        // process-local in-memory PubSub otherwise
         provide: 'PUB_SUB',
-        useValue: new PubSub(),
+        useFactory: (redisService?: CoreRedisService) =>
+          redisService?.enabled ? new CoreRedisPubSub(redisService) : new PubSub(),
+        inject: [{ optional: true, token: CoreRedisService }],
       },
       {
         provide: CoreAuthService,

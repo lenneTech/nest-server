@@ -8,6 +8,7 @@
  * - CoreBetterAuthUserMapper user cache
  */
 
+import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── 1. processDeep Options Reuse ───
@@ -432,6 +433,109 @@ describe('CoreTenantGuard cache', () => {
       expect(membershipCache.has('valid1')).toBe(true);
       expect(tenantIdsCache.has('expired2')).toBe(false);
       expect(tenantIdsCache.has('valid2')).toBe(true);
+    });
+  });
+
+  describe('cross-replica invalidation broadcast', () => {
+    const channel = 'nest-server:tenant-cache:invalidate';
+    let events: EventEmitter;
+    let publish: ReturnType<typeof vi.fn>;
+    let subscribe: ReturnType<typeof vi.fn>;
+    let redisGuard: InstanceType<typeof CoreTenantGuard>;
+
+    function populate(target: InstanceType<typeof CoreTenantGuard>): {
+      membershipCache: Map<string, any>;
+      tenantIdsCache: Map<string, any>;
+    } {
+      const membershipCache: Map<string, any> = (target as any).membershipCache;
+      const tenantIdsCache: Map<string, any> = (target as any).tenantIdsCache;
+      membershipCache.set('user1:tenantA', { expiresAt: Date.now() + 10_000, result: {} });
+      membershipCache.set('user2:tenantA', { expiresAt: Date.now() + 10_000, result: {} });
+      tenantIdsCache.set('user1', { expiresAt: Date.now() + 10_000, ids: ['tenantA'] });
+      tenantIdsCache.set('user2', { expiresAt: Date.now() + 10_000, ids: ['tenantA'] });
+      return { membershipCache, tenantIdsCache };
+    }
+
+    beforeEach(async () => {
+      events = new EventEmitter();
+      publish = vi.fn().mockResolvedValue(1);
+      subscribe = vi.fn().mockResolvedValue(1);
+
+      const redisService = {
+        enabled: true,
+        getClient: () => ({ publish }),
+        getSubscriber: () => ({ on: (event: string, listener: any) => events.on(event, listener), subscribe }),
+        key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+      } as any;
+
+      redisGuard = new CoreTenantGuard({} as any, mockMemberModel, redisService);
+      clearInterval((redisGuard as any).cleanupInterval);
+      (redisGuard as any).cleanupInterval = null;
+      await redisGuard.onApplicationBootstrap();
+    });
+
+    it('should subscribe to the invalidation channel on bootstrap', () => {
+      expect(subscribe).toHaveBeenCalledWith(channel);
+    });
+
+    it('should publish a user-scoped message on invalidateUser', () => {
+      redisGuard.invalidateUser('user1');
+
+      expect(publish).toHaveBeenCalledWith(channel, JSON.stringify({ scope: 'user', userId: 'user1' }));
+    });
+
+    it('should publish an all-scoped message on invalidateAll', () => {
+      redisGuard.invalidateAll();
+
+      expect(publish).toHaveBeenCalledWith(channel, JSON.stringify({ scope: 'all' }));
+    });
+
+    it('should clear a user from both caches on a received user message', () => {
+      const { membershipCache, tenantIdsCache } = populate(redisGuard);
+
+      events.emit('message', channel, JSON.stringify({ scope: 'user', userId: 'user1' }));
+
+      expect(membershipCache.has('user1:tenantA')).toBe(false);
+      expect(tenantIdsCache.has('user1')).toBe(false);
+      expect(membershipCache.has('user2:tenantA')).toBe(true);
+      expect(tenantIdsCache.has('user2')).toBe(true);
+      // Receiving must not re-publish (no message bouncing between replicas)
+      expect(publish).not.toHaveBeenCalled();
+    });
+
+    it('should clear both caches on a received all message', () => {
+      const { membershipCache, tenantIdsCache } = populate(redisGuard);
+
+      events.emit('message', channel, JSON.stringify({ scope: 'all' }));
+
+      expect(membershipCache.size).toBe(0);
+      expect(tenantIdsCache.size).toBe(0);
+    });
+
+    it('should ignore messages of other channels and malformed payloads', () => {
+      const { membershipCache } = populate(redisGuard);
+
+      events.emit('message', 'nest-server:pubsub:userCreated', JSON.stringify({ scope: 'all' }));
+      events.emit('message', channel, 'not-json');
+
+      expect(membershipCache.size).toBe(2);
+    });
+
+    it('should not publish or subscribe without Redis', async () => {
+      publish.mockClear();
+      subscribe.mockClear();
+      const plainGuard = new CoreTenantGuard({} as any, mockMemberModel);
+      clearInterval((plainGuard as any).cleanupInterval);
+      (plainGuard as any).cleanupInterval = null;
+
+      await plainGuard.onApplicationBootstrap();
+      populate(plainGuard);
+      plainGuard.invalidateUser('user1');
+
+      expect(subscribe).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+      expect((plainGuard as any).membershipCache.has('user1:tenantA')).toBe(false);
+      expect((plainGuard as any).membershipCache.has('user2:tenantA')).toBe(true);
     });
   });
 });

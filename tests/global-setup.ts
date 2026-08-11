@@ -6,6 +6,8 @@ import { MongoClient } from 'mongodb';
 import envConfig from '../src/config.env';
 import { isStaleTestDb, SAFE_TEST_DB_PATTERN, splitMongoUri } from './db-lifecycle.reporter';
 import { acquireRunSlot } from './e2e-run-slots';
+// Plain .mjs helper, shared with the npm scripts and CI
+import { up as startTestInfra } from '../scripts/test-infra.mjs';
 
 /**
  * Vitest global setup: give every test run its OWN database.
@@ -51,6 +53,16 @@ import { acquireRunSlot } from './e2e-run-slots';
 
 let releaseRunSlot: (() => void) | undefined;
 
+/**
+ * File extensions the startup sweep removes from `tests/`.
+ *
+ * Kept in sync with `package.json` → `test:cleanup`. Every entry must be an
+ * extension NO tracked file under `tests/` uses — verify with
+ * `git ls-files tests | grep -iE '\.(png|txt|bin)$'` before widening it, or the
+ * sweep starts deleting fixtures the suite reads.
+ */
+const ARTIFACT_EXTENSIONS = ['.bin', '.png', '.txt'];
+
 export async function setup() {
   if (process.env.MONGODB_URI) {
     const connection = await MongoClient.connect(process.env.MONGODB_URI);
@@ -77,16 +89,23 @@ export async function setup() {
 
   const { dbName, query, serverUri } = splitMongoUri(envConfig.mongoose.uri);
 
-  // 0. Filesystem sweep — remove upload-test artifacts (`tests/*.txt` / `*.bin`)
-  // left behind by aborted file-upload specs. Same philosophy as the DB sweep
-  // below: restarting the suite restores a clean state no matter how the
-  // previous run died. No tracked fixtures match these patterns (git-verified);
-  // `pnpm run test:cleanup` remains for manual use.
+  // 0. Filesystem sweep — remove upload-test artifacts (`tests/*.txt`, `*.bin`,
+  // `*.png`) left behind by aborted file-upload specs. Same philosophy as the DB
+  // sweep below: restarting the suite restores a clean state no matter how the
+  // previous run died. No tracked fixtures match these patterns (git-verified:
+  // `git ls-files tests | grep -iE '\.(png|txt|bin)$'` is empty — five 16-byte
+  // `avatar-*.png` leftovers used to be tracked and were removed with the
+  // extension); `pnpm run test:cleanup` remains for manual use and matches the
+  // same three extensions.
+  //
+  // The specs themselves no longer write here at all — they stage fixtures in an
+  // `mkdtemp` directory under `os.tmpdir()` — so this is now a net for older
+  // branches and for anything that regresses to writing into `tests/`.
   try {
     // vitest runs globalSetup with cwd = project root (config `root: './'`).
     const testsDir = join(process.cwd(), 'tests');
     for (const entry of readdirSync(testsDir)) {
-      if ((entry.endsWith('.txt') || entry.endsWith('.bin')) && entry !== '.gitkeep') {
+      if (ARTIFACT_EXTENSIONS.some(extension => entry.endsWith(extension)) && entry !== '.gitkeep') {
         unlinkSync(join(testsDir, entry));
       }
     }
@@ -119,10 +138,29 @@ export async function setup() {
     );
   }
 
-  // 2. Machine-wide run governor — wait for a free e2e slot before spawning forks.
+  // 2. Infrastructure containers (Redis + S3-compatible store).
+  //
+  // Four suites talk to the real thing and fail loudly when it is missing, which
+  // is correct — but it used to mean a developer had to read the failure and
+  // paste a docker command, while only CI provisioned them. Starting them here
+  // makes `pnpm test` work the same way in both places. Idempotent, so a running
+  // container is reused rather than restarted.
+  //
+  // Never fatal: a machine without Docker still runs every suite that needs no
+  // infrastructure, and the four that do report their own actionable error.
+  // CI sets LT_TEST_INFRA=0 because its workflow provisions the containers.
+  try {
+    await startTestInfra();
+  } catch (error) {
+    console.warn(
+      `Test infrastructure not started: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    );
+  }
+
+  // 3. Machine-wide run governor — wait for a free e2e slot before spawning forks.
   releaseRunSlot = await acquireRunSlot();
 
-  // 3. Unique per-run database.
+  // 4. Unique per-run database.
   const runDbName = `${dbName}-run-${Date.now()}-p${process.pid}`;
   process.env.MONGODB_URI = `${serverUri}/${runDbName}${query}`;
   console.info(`Test database for this run: ${runDbName}`);

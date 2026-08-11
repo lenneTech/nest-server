@@ -4,7 +4,9 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  OnApplicationBootstrap,
   OnModuleDestroy,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -14,6 +16,7 @@ import { Model } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
 import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators';
@@ -40,6 +43,14 @@ interface CachedMembership {
 interface CachedTenantIds {
   expiresAt: number;
   ids: string[];
+}
+
+/**
+ * Cache invalidation message broadcast between replicas via Redis pub/sub
+ */
+interface TenantCacheInvalidation {
+  scope: 'all' | 'user';
+  userId?: string;
 }
 
 /**
@@ -103,7 +114,7 @@ interface CachedTenantIds {
  *   - No user + checkable roles → 401 (authentication required)
  */
 @Injectable()
-export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
+export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CoreTenantGuard.name);
 
   /**
@@ -111,6 +122,12 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
    * Key: `${userId}:${tenantId}`, Value: cached membership result with expiry.
    * Eliminates repeated DB queries for the same user+tenant combination.
    */
+  /** Channel this guard subscribed to, so it can unsubscribe again */
+  private invalidationChannel?: string;
+
+  /** The shared-subscriber listener, kept so it can be detached on destroy */
+  private invalidationListener?: (channel: string, message: string) => void;
+
   private readonly membershipCache = new Map<string, CachedMembership>();
 
   /**
@@ -131,6 +148,7 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
   constructor(
     private readonly reflector: Reflector,
     @InjectModel(TENANT_MEMBER_MODEL_TOKEN) private readonly memberModel: Model<CoreTenantMemberModel>,
+    @Optional() protected readonly redisService?: CoreRedisService,
   ) {
     // Clean up expired cache entries every 60 seconds
     this.cleanupInterval = setInterval(() => this.evictExpired(), 60_000);
@@ -139,7 +157,50 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
     }
   }
 
+  /**
+   * Subscribe to the cross-replica cache invalidation channel.
+   *
+   * Runs after ALL onModuleInit hooks so that CoreRedisService is connected.
+   * Without Redis this is a no-op and the caches stay process-local.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    const channel = this.redisService.key('tenant-cache', 'invalidate');
+    try {
+      const subscriber = this.redisService.getSubscriber();
+      // Held in a field, not an anonymous closure: the subscriber connection is SHARED between
+      // features, so a listener that is never detached keeps dispatching into a destroyed
+      // guard's caches for the life of the process — and a second app in the same process
+      // inherits the previous one's listener alongside its own.
+      this.invalidationChannel = channel;
+      this.invalidationListener = (incomingChannel: string, message: string) => {
+        if (incomingChannel === channel) {
+          this.applyInvalidation(message);
+        }
+      };
+      subscriber.on('message', this.invalidationListener);
+      await subscriber.subscribe(channel);
+    } catch (error) {
+      this.logger.debug(`Tenant cache invalidation subscribe failed: ${(error as Error).message}`);
+    }
+  }
+
   onModuleDestroy(): void {
+    if (this.invalidationListener) {
+      try {
+        const subscriber = this.redisService?.getSubscriber();
+        subscriber?.off('message', this.invalidationListener);
+        if (this.invalidationChannel) {
+          void subscriber?.unsubscribe(this.invalidationChannel).catch(() => undefined);
+        }
+      } catch {
+        // Redis already gone — nothing to detach from
+      }
+      this.invalidationListener = undefined;
+    }
+
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
@@ -152,31 +213,28 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
    * Invalidate all cache entries for a specific user.
    * Call this when memberships change (add/remove/update).
    *
+   * When Redis is enabled, the invalidation is additionally broadcast to all other
+   * replicas — otherwise their process-local caches would stay stale for up to cacheTtlMs.
+   *
    * Note: userId must not contain ':' characters (used as cache key delimiter).
    * MongoDB ObjectIds and standard UUID formats are safe.
    *
    * @param userId - The user ID whose cache entries should be invalidated
    */
   invalidateUser(userId: string): void {
-    for (const key of this.membershipCache.keys()) {
-      if (key.startsWith(`${userId}:`)) {
-        this.membershipCache.delete(key);
-      }
-    }
-    for (const key of this.tenantIdsCache.keys()) {
-      if (key === userId || key.startsWith(`${userId}:`)) {
-        this.tenantIdsCache.delete(key);
-      }
-    }
+    this.clearUser(userId);
+    this.publishInvalidation({ scope: 'user', userId });
   }
 
   /**
    * Clear all cache entries.
    * Useful when configuration changes (e.g., roleHierarchy) or for testing.
+   *
+   * When Redis is enabled, the invalidation is additionally broadcast to all other replicas.
    */
   invalidateAll(): void {
-    this.membershipCache.clear();
-    this.tenantIdsCache.clear();
+    this.clearAll();
+    this.publishInvalidation({ scope: 'all' });
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -192,7 +250,8 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
       const isTestEnv =
         process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'e2e';
       this.cacheTtlMs = config.cacheTtlMs ?? (isTestEnv ? 0 : 30_000);
-      this.invalidateAll();
+      // Local-only flush: every replica detects the config change itself, no broadcast needed
+      this.clearAll();
     }
 
     const request = this.getRequest(context);
@@ -493,6 +552,68 @@ export class CoreTenantGuard implements CanActivate, OnModuleDestroy {
   // ===================================================================================================================
   // Cache helpers
   // ===================================================================================================================
+
+  /**
+   * Apply an invalidation message received from another replica.
+   * Clears locally only — re-publishing would bounce the message around the cluster.
+   */
+  protected applyInvalidation(message: string): void {
+    let parsed: TenantCacheInvalidation;
+    try {
+      parsed = JSON.parse(message);
+    } catch {
+      this.logger.debug(`Ignoring malformed tenant cache invalidation message: ${message}`);
+      return;
+    }
+    if (parsed?.scope === 'all') {
+      this.clearAll();
+    } else if (parsed?.scope === 'user' && parsed.userId) {
+      this.clearUser(parsed.userId);
+    }
+  }
+
+  /**
+   * Clear both caches locally (no broadcast)
+   */
+  protected clearAll(): void {
+    this.membershipCache.clear();
+    this.tenantIdsCache.clear();
+  }
+
+  /**
+   * Remove all entries of a user from both caches locally (no broadcast)
+   */
+  protected clearUser(userId: string): void {
+    for (const key of this.membershipCache.keys()) {
+      if (key.startsWith(`${userId}:`)) {
+        this.membershipCache.delete(key);
+      }
+    }
+    for (const key of this.tenantIdsCache.keys()) {
+      if (key === userId || key.startsWith(`${userId}:`)) {
+        this.tenantIdsCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Broadcast an invalidation to the other replicas (fire-and-forget).
+   * No-op without Redis; failures are logged at debug level only — a missed
+   * broadcast merely leaves the other replicas' caches stale until their TTL.
+   */
+  protected publishInvalidation(message: TenantCacheInvalidation): void {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    try {
+      void this.redisService
+        .getClient()
+        .publish(this.redisService.key('tenant-cache', 'invalidate'), JSON.stringify(message))
+        .catch((error: Error) => this.logger.debug(`Tenant cache invalidation publish failed: ${error.message}`));
+    } catch (error) {
+      this.logger.debug(`Tenant cache invalidation publish failed: ${(error as Error).message}`);
+    }
+  }
 
   /**
    * Look up a membership with process-level TTL cache.

@@ -3,8 +3,9 @@ import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 
 import { redactSensitiveText } from '../../../common/helpers/logging.helper';
+import { CoreRedisService } from '../../../common/services/core-redis.service';
 import { HUB_CONFIG, HUB_QUERY_PENDING_LIMIT } from '../hub.constants';
-import { HubRingBuffer } from '../hub-ring-buffer';
+import { HubBuffer } from '../hub-buffer';
 import { normalizeCommandShape } from '../helpers/hub-command-shape.helper';
 import { HubQueriesData, HubQueryRecord, HubQueryTemplate } from '../interfaces/hub-panels.interface';
 import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
@@ -58,7 +59,7 @@ const SHAPED_FIELDS = ['filter', 'query', 'pipeline', 'sort', 'projection', 'q',
 export class HubQueryProfilerService implements OnModuleDestroy, OnModuleInit {
   protected readonly logger = new Logger(HubQueryProfilerService.name);
 
-  private buffer?: HubRingBuffer<ProfilerRecord>;
+  private buffer?: HubBuffer<ProfilerRecord>;
   private client?: {
     off?: (e: string, l: (...a: any[]) => void) => void;
     on: (e: string, l: (...a: any[]) => void) => void;
@@ -78,6 +79,7 @@ export class HubQueryProfilerService implements OnModuleDestroy, OnModuleInit {
   constructor(
     @Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig,
     @Optional() @InjectConnection() protected readonly connection?: Connection,
+    @Optional() protected readonly redis?: CoreRedisService,
   ) {}
 
   /** Clear the buffer (Hub action). */
@@ -90,10 +92,11 @@ export class HubQueryProfilerService implements OnModuleDestroy, OnModuleInit {
     return this.config.collectors.queries !== false;
   }
 
-  getData(): HubQueriesData {
-    const records = this.buffer?.recent() ?? [];
+  async getData(): Promise<HubQueriesData> {
+    const data = this.buffer ? await this.buffer.read() : { cursor: -1, entries: [] };
+    const records = data.entries;
     return {
-      cursor: this.buffer?.lastSeq ?? -1,
+      cursor: data.cursor,
       recent: records.slice(-100),
       slowest: [...records].sort((a, b) => b.durationMs - a.durationMs).slice(0, 10),
       summary: this.summary(records),
@@ -118,7 +121,7 @@ export class HubQueryProfilerService implements OnModuleDestroy, OnModuleInit {
       return; // zero cost when disabled
     }
     this.cfg = this.config.collectors.queries;
-    this.buffer = new HubRingBuffer<ProfilerRecord>(this.cfg.capacity);
+    this.buffer = new HubBuffer<ProfilerRecord>(this.cfg.capacity, 'queries', this.redis);
     if (this.cfg.ignoreCommands?.length) {
       this.ignore = new Set(this.cfg.ignoreCommands.map((c) => c.toLowerCase()));
     }

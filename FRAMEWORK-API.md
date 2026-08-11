@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-07-30 (v11.32.4)
+> Auto-generated from source code on 2026-08-11 (v11.33.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -29,6 +29,7 @@
   - `version?`: `string | undefined` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode | undefined` — Configuration for the error code module
   - `execAfterInit?`: `string | undefined` — Exec a command after server is initialized
+  - `file?`: `IFileConfig | undefined` — Configuration of the file module: where the bytes live (`storage`) and who
   - `filter?`: `{ maxLimit?: number; } | undefined` — Filter configuration and defaults
   - `graphQl?`: `false | { driver?: ApolloDriverConfig; enableSubscriptionAuth?: boolean; maxC...` — Configuration of the GraphQL module
   - `healthCheck?`: `{ configs?: { build?: { enabled?: boolean; }; database?: { enabled?: boolean;...` — Whether to activate health check endpoints
@@ -42,11 +43,15 @@
   - `multiTenancy?`: `IMultiTenancy | undefined` (default: `undefined (disabled)`) — Multi-tenancy configuration for tenant-based data isolation.
   - `permissions?`: `boolean | IPermissions | undefined` (default: `undefined (disabled)`) — Permissions report module (development tool).
   - `port?`: `number | undefined` — Port number of the server
+  - `redis?`: `boolean | IRedisConfig | undefined` (default: `undefined (disabled)`) — Optional central Redis connection used by all distributed features
+  - `s3?`: `IS3Config | undefined` (default: `undefined (disabled)`) — Optional central S3-compatible object storage (AWS S3, MinIO, ...).
   - `security?`: `{ checkResponseInterceptor?: boolean | { checkObjectItself?: boolean; debug?:...` — Configuration for security pipes and interceptors
   - `sha256?`: `boolean | undefined` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
+  - `shutdownDelayMs?`: `number | undefined` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; } | undefined` — Configuration for useStaticAssets
   - `systemSetup?`: `ISystemSetup | undefined` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; } | undefined` — Templates
+  - `trustProxy?`: `string | number | boolean | string[] | undefined` (default: `false (Express default — the forwarded chain is not trusted)`) — Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.
   - `tus?`: `boolean | ITusConfig | undefined` — TUS resumable upload configuration.
 
 ### IBetterAuth (type alias: IBetterAuthWithoutPasskey | IBetterAuthWithPasskey)
@@ -145,6 +150,56 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `supportsNativeTools?`: `boolean | undefined` — Native function/tool-calling support. Omit to auto-detect by probing the
   - `supportsVision?`: `boolean | undefined` — Whether the model supports image input.
 
+### IFileConfig
+
+  - `deleteRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DELETE files (`deleteFile` mutation).
+  - `downloadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DOWNLOAD files and read file info
+  - `storage?`: `"filesystem" | "gridfs" | "s3" | undefined` (default: `derived — see above`) — Storage driver for CoreFileService. Three equivalent options:
+  - `storageDir?`: `string | undefined` (default: `'uploads/files'`) — Directory for the `'filesystem'` storage driver.
+  - `uploadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to UPLOAD files (`uploadFile` / `uploadFiles` mutations).
+
+### IRedisConfig
+
+  - `db?`: `number | undefined` (default: `0`) — Redis database index
+  - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Whether Redis is enabled.
+  - `host?`: `string | undefined` (default: `'localhost'`) — Redis host
+  - `keyPrefix?`: `string | undefined` (default: `the slugified `name` from package.json, or 'nest-server' if unreadable`) — Prefix prepended to every framework-managed Redis key
+  - `options?`: `Record<string, unknown> | undefined` (default: `undefined`) — Additional ioredis options passed through to the client constructor
+  - `password?`: `string | undefined` (default: `undefined (no auth)`) — Redis password
+  - `port?`: `number | undefined` (default: `6379`) — Redis port
+  - `url?`: `string | undefined` (default: `undefined`) — Full Redis connection URL (e.g. 'redis://user:pass@host:6379/0').
+  - `username?`: `string | undefined` (default: `undefined`) — Redis username (Redis 6+ ACL)
+
+### IS3Config
+
+  - `accessKeyId?`: `string | undefined` (default: `undefined`) — Access key ID.
+  - `autoCreateBucket?`: `boolean | undefined` (default: `false`) — Create the configured buckets at startup when they do not exist.
+  - `bucket`: `string` — Bucket for files stored via CoreFileService
+  - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Whether S3 is enabled.
+  - `endpoint?`: `string | undefined` (default: `undefined`) — Custom endpoint URL for S3-compatible services (MinIO, RustFS, ...).
+  - `forcePathStyle?`: `boolean | undefined` (default: `false`) — Use path-style addressing (required by most self-hosted S3 services).
+  - `presignedDownloads?`: `boolean | { expiresInSeconds?: number; } | undefined` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
+  - `region?`: `string | undefined` (default: `'us-east-1'`) — AWS region
+  - `secretAccessKey?`: `string | undefined` (default: `undefined`) — Secret access key.
+  - `stagingBucket?`: `string | undefined` (default: `same as `bucket``) — Bucket used as staging area for resumable TUS uploads.
+
+### ITusConfig
+
+  - `allowedHeaders?`: `string[] | undefined` (default: `[] (no additional headers needed)`) — Additional allowed HTTP headers for TUS requests (beyond
+  - `allowedTypes?`: `string[] | undefined` (default: `undefined (all types allowed)`) — Allowed MIME types for uploads.
+  - `checksum?`: `boolean | undefined` (default: `true`) — Checksum extension configuration.
+  - `concatenation?`: `boolean | undefined` (default: `true`) — Concatenation extension configuration.
+  - `creation?`: `boolean | ITusCreationConfig | undefined` (default: `true`) — Creation extension configuration.
+  - `creationWithUpload?`: `boolean | undefined` (default: `true`) — Creation With Upload extension configuration.
+  - `enabled?`: `boolean | undefined` (default: `true (enabled by default)`) — Whether tus uploads are enabled.
+  - `expiration?`: `boolean | ITusExpirationConfig | undefined` (default: `{ expiresIn: '24h' }`) — Expiration extension configuration.
+  - `maxSize?`: `number | undefined` (default: `50 * 1024 * 1024 * 1024 (50 GB)`) — Maximum upload size in bytes
+  - `path?`: `string | undefined` (default: `'/tus'`) — Base path for tus endpoints
+  - `roles?`: `string[] | undefined` (default: `['s_user']`) — Roles allowed to use the tus endpoints (create, write, read offset, terminate).
+  - `s3Staging?`: `boolean | undefined` (default: `true (when S3 is usable)`) — Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
+  - `termination?`: `boolean | undefined` (default: `true`) — Termination extension configuration.
+  - `uploadDir?`: `string | undefined` (default: `'uploads/tus'`) — Directory for temporary upload chunks.
+
 ### ICoreModuleOverrides
 
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
@@ -190,7 +245,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `enabled?`: `boolean | undefined` (default: `false`) — Whether rate limiting is enabled
   - `max?`: `number | undefined` (default: `10`) — Maximum number of requests within the time window
-  - `maxEntries?`: `number | undefined` (default: `10000`) — Maximum number of entries in the in-memory rate limit store.
+  - `maxEntries?`: `number | undefined` (default: `10000`) — Maximum number of distinct counters this limiter may hold — the bound on the keyspace a
   - `message?`: `string | undefined` — Custom message when rate limit is exceeded
   - `skipEndpoints?`: `string[] | undefined` — Endpoints to skip rate limiting entirely
   - `strictEndpoints?`: `string[] | undefined` — Endpoints to apply stricter rate limiting (e.g., sign-in, sign-up)
@@ -287,7 +342,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `auth` | — | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |
-| `file` | README | `src/core/modules/file/` |
+| `file` | README, CHECKLIST | `src/core/modules/file/` |
 | `health-check` | — | `src/core/modules/health-check/` |
 | `hub` | README, CHECKLIST | `src/core/modules/hub/` |
 | `migrate` | README | `src/core/modules/migrate/` |

@@ -10,8 +10,21 @@
  * Which runner claims a file is decided purely by its filename; see `.claude/rules/testing.md`.
  */
 
-/** Unit runner (`vitest.config.ts`): no MongoDB, no globalSetup. */
-export const UNIT_TEST_INCLUDE = ['src/**/*.spec.ts', 'tests/unit/**/*.spec.ts'];
+/**
+ * Unit runner (`vitest.config.ts`): no MongoDB, no globalSetup.
+ *
+ * `tests/unit/**` ONLY — deliberately not `src/**`.
+ *
+ * `src/` is this framework's shipping artifact, not just its source: `package.json` → `files`
+ * includes all of `src` recursively, so anything there lands in the npm tarball, and vendor consumers copy
+ * `src/core/` into their own tree as first-class project code (the CLI's `convertCloneToVendored`
+ * applies no spec filter). A co-located spec therefore ships to every consumer as a test file they
+ * neither run nor maintain, and it re-appears on every core update.
+ *
+ * Co-location is a good default for an application. For a library whose `src/` IS the delivery,
+ * the separation wins — hence one place for unit tests, enforced by `test-file-placement.spec.ts`.
+ */
+export const UNIT_TEST_INCLUDE = ['tests/unit/**/*.spec.ts'];
 
 /**
  * E2E runner (`vitest-e2e.config.ts`): mongod + globalSetup. Story tests are e2e-grade.

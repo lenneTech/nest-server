@@ -70,8 +70,21 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 # SIGNAL_UNKILLABLE, so a default-disposition signal sent from userspace is silently discarded by
 # the kernel. The listening HTTP server keeps the event loop busy, so `docker stop` then waits out
 # its whole grace period and SIGKILLs: in-flight requests dropped, every onModuleDestroy() skipped.
-# tini forwards signals properly and reaps orphans. (`server.enableShutdownHooks()` in main.ts is
-# the other half — it is what actually drains the loop.)
+# tini forwards signals properly and reaps orphans. (`installGracefulShutdown(server)` in main.ts is
+# the other half — it is what actually drains the loop. It replaces enableShutdownHooks(); keeping
+# both makes Nest close in parallel with any configured shutdownDelayMs, voiding the delay.)
+#
+# BUDGET for `shutdownDelayMs`: the delay is spent BEFORE the app starts closing, so it consumes the
+# orchestrator's grace period and the drain has to finish in what is left. The grace periods are
+# short and the process is SIGKILLed the moment one runs out — mid-wait, with no hook having run,
+# which is strictly worse than configuring no delay at all:
+#   docker stop / docker-compose  ->  10s   (raise via `stop_grace_period`)
+#   Kubernetes                    ->  30s   (raise via `terminationGracePeriodSeconds`)
+#   installProcessDiagnostics()   ->  30s   force-exit, regardless of the orchestrator
+# So keep shutdownDelayMs well below the SMALLEST of those and leave room for the drain: with the
+# 10s Compose default, a 5s delay already leaves only ~5s to finish in-flight requests and close
+# Mongo/Redis/S3. The framework warns above 10000 and caps at 60000, but neither guard knows this
+# container's grace period — that budget is yours to keep.
 RUN apk add --no-cache tini
 
 # Create writable directories for runtime files (TUS uploads, GraphQL schema)

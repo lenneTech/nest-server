@@ -14,6 +14,14 @@ jobs:
       matrix:
         node-version: [24.x]
         mongodb-version: ['7.0']
+    # Container names declared ONCE, then fed to both the composite action and the
+    # teardown at the end of the job. The action accepts `redis-name`/`rustfs-name`
+    # inputs, so a hardcoded `docker rm -f ci-redis ci-rustfs` silently stops
+    # removing anything the moment someone passes different names — and a leftover
+    # container fails the NEXT job on a name conflict, on a self-hosted runner.
+    env:
+      REDIS_CONTAINER: ci-redis
+      RUSTFS_CONTAINER: ci-rustfs
     steps:
       - name: Git checkout
         uses: actions/checkout@v7
@@ -32,6 +40,15 @@ jobs:
         uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
+
+      # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
+      # rate limiting, cron dedup, pubsub, S3 file storage). Shared with
+      # publish.yml via a composite action so the two paths cannot drift.
+      - name: Start test infrastructure (Redis + S3)
+        uses: ./.github/actions/test-infra
+        with:
+          redis-name: ${{ env.REDIS_CONTAINER }}
+          rustfs-name: ${{ env.RUSTFS_CONTAINER }}
 
       - name: Install dependencies
         run: pnpm install
@@ -65,6 +82,14 @@ jobs:
         with:
           name: build
           path: ./dist
+
+      # A hosted runner is thrown away after the job, so this is a no-op there.
+      # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
+      # NEXT job fail on a name conflict before a single test runs.
+      # `if: always()` so a failed job cleans up too.
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true
 
   typecheck:
     name: Type-Check Tests

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { MongoStateStore } from './mongo-state-store';
+import { MongoStateStore, withMigrationLock } from './mongo-state-store';
 
 /**
  * Migration file interface
@@ -221,8 +221,17 @@ export class MigrationRunner {
 
   /**
    * Run all pending migrations (up)
+   *
+   * Serialized via the state store's lock collection when it has one (the default for
+   * stores built by `createMigrationStore()`). Reading the state INSIDE the lock is what
+   * makes it safe: a replica that waited sees the migrations the holder just applied and
+   * finds nothing pending, instead of applying them a second time.
    */
   async up(): Promise<void> {
+    await withMigrationLock(this.options.stateStore, () => this.runUp());
+  }
+
+  protected async runUp(): Promise<void> {
     const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
 
     const allMigrations = await this.loadMigrationFiles();

@@ -3,10 +3,13 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
+import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
+import { CoreS3Service } from '../../common/services/core-s3.service';
 import { CoreTusController } from './core-tus.controller';
 import { CoreTusService } from './core-tus.service';
 import { TUS_CONFIG } from './tus.constants';
-import { normalizeTusConfig } from './interfaces/tus-config.interface';
+import { DEFAULT_TUS_CONFIG, normalizeTusConfig } from './interfaces/tus-config.interface';
 
 /**
  * @deprecated Import from `./tus.constants` instead. Re-exported only so existing deep imports keep
@@ -112,6 +115,42 @@ export class TusModule implements OnModuleInit {
   }
 
   /**
+   * Write the configured roles onto the tus handlers.
+   *
+   * An empty array is rejected rather than honoured: the guards read an
+   * all-empty role set as "no roles required" and return true, so `roles: []`
+   * would OPEN the endpoints instead of closing them.
+   */
+  private static applyRoles(controller: Type<CoreTusController>, roles?: string[]): void {
+    if (
+      roles !== undefined &&
+      (!Array.isArray(roles) || roles.length === 0 || roles.some((r) => typeof r !== 'string'))
+    ) {
+      this.logger.warn(
+        `Ignoring tus.roles: expected a non-empty array of role strings, got ${JSON.stringify(roles)}. ` +
+          `Falling back to ${JSON.stringify(DEFAULT_TUS_CONFIG.roles)}.`,
+      );
+    }
+
+    const effective =
+      Array.isArray(roles) && roles.length > 0 && roles.every((r) => typeof r === 'string')
+        ? roles
+        : DEFAULT_TUS_CONFIG.roles;
+
+    Reflect.defineMetadata('roles', effective, controller);
+    // NOTE: handleTusOptions / handleTusOptionsWithId are deliberately absent.
+    // They answer the CORS preflight, which a browser sends WITHOUT credentials,
+    // so gating them would break every browser upload. They expose capabilities
+    // only, never upload data — see CoreTusController.
+    for (const member of ['handleTus', 'handleTusWithId']) {
+      const handler = (controller.prototype as Record<string, unknown>)[member];
+      if (typeof handler === 'function') {
+        Reflect.defineMetadata('roles', effective, handler);
+      }
+    }
+  }
+
+  /**
    * Creates a dynamic module for TUS uploads
    *
    * @param options - Configuration options (optional)
@@ -156,6 +195,25 @@ export class TusModule implements OnModuleInit {
     // Enable TUS
     this.tusEnabled = true;
 
+    // Apply the configured roles to the controller that will actually be
+    // registered. Same mechanism as CorePermissionsModule: the value is only
+    // known at runtime, and the guards read exactly this metadata key.
+    //
+    // A custom controller is covered whether it inherits the handlers or
+    // re-declares them. Re-declaring @All()/@Roles() does NOT opt out: this
+    // writes onto `controller.prototype[member]`, which for an override resolves
+    // to the SUBCLASS's own function, and forRoot() runs after decorator
+    // evaluation — so config wins either way.
+    //
+    // That differs from the file module on purpose. `applyFileRoles()` targets
+    // the BASE class by name, so a subclass override there genuinely does keep
+    // its own metadata. Do not reason from one to the other.
+    //
+    // The real opt-outs here are: give the handler a different name (this only
+    // touches the members it knows), or register the controller outside
+    // TusModule entirely.
+    this.applyRoles(this.getControllerClass(), config.roles);
+
     return {
       controllers: [this.getControllerClass()],
       exports: [TUS_CONFIG, CoreTusService],
@@ -166,13 +224,27 @@ export class TusModule implements OnModuleInit {
           useValue: config,
         },
         {
-          inject: [getConnectionToken(), TUS_CONFIG],
+          inject: [
+            getConnectionToken(),
+            TUS_CONFIG,
+            ConfigService,
+            { optional: true, token: CoreS3Service },
+            { optional: true, token: CoreRedisService },
+          ],
           provide: CoreTusService,
-          useFactory: async (connection: Connection, tusConfig: ITusConfig) => {
-            const service = new CoreTusService(connection);
+          useFactory: async (
+            connection: Connection,
+            tusConfig: ITusConfig,
+            configService: ConfigService,
+            s3Service?: CoreS3Service,
+            redisService?: CoreRedisService,
+          ) => {
+            const service = new CoreTusService(connection, { configService, redisService, s3Service });
             service.configure(tusConfig);
-            // Manually call onModuleInit since useFactory bypasses lifecycle hooks
-            await service.onModuleInit();
+            // NestJS DOES call onModuleInit on a factory-provided instance — its hook iterates
+            // every non-alias provider, however it was constructed. Calling it here as well ran
+            // init TWICE per boot: two TUS servers, two S3 stores, and two hourly expiration
+            // intervals of which onModuleDestroy clears only the second.
             return service;
           },
         },

@@ -4,6 +4,7 @@
  * The interfaces are defined in server-options.interface.ts to avoid circular imports.
  * This file contains helper functions and defaults.
  */
+import { RoleEnum } from '../../../common/enums/role.enum';
 import { ITusConfig, ITusExpirationConfig } from '../../../common/interfaces/server-options.interface';
 
 // Re-export for convenience
@@ -46,6 +47,14 @@ export const DEFAULT_TUS_CONFIG: Required<
   expiration: { enabled: true, expiresIn: '24h' },
   maxSize: 50 * 1024 * 1024 * 1024, // 50 GB
   path: '/tus',
+  // A tus upload writes into the SAME file store that `file.downloadRoles`
+  // guards — GridFS or S3, whichever `file.storage` selects — and with the
+  // termination extension it can delete from it too. Requiring a session is the
+  // least that keeps the module's own posture coherent: anonymous 50 GB writes
+  // into a store only admins may read is not a defensible default. Widen
+  // deliberately via `tus: { roles: [...] }`.
+  roles: [RoleEnum.S_USER],
+  s3Staging: true,
   termination: true,
   uploadDir: 'uploads/tus',
 };

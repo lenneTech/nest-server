@@ -1,6 +1,10 @@
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
-import { diskStorage } from 'multer';
+import { randomBytes } from 'crypto';
+import { diskStorage, memoryStorage } from 'multer';
 import { extname } from 'path';
+import { Readable } from 'stream';
+
+import type { FileUploadSource } from '../../modules/file/interfaces/file-upload.interface';
 
 /**
  * What an upload endpoint accepts: exact mimetypes and exact file extensions.
@@ -191,6 +195,7 @@ export function multerOptionsForImageUpload(options: {
   destination?: string;
   fileSize?: number;
   fileTypeRegex?: RegExp;
+  memory?: boolean;
 }): MulterOptions {
   // Set config
   const config = {
@@ -214,15 +219,53 @@ export function multerOptionsForImageUpload(options: {
 
     // Automatic storage handling
     // For configuration see https://github.com/expressjs/multer#storage
-    storage: diskStorage({
-      // Destination for uploaded file
-      // If destination is not set file will be buffered and can be processed
-      // in the method
-      destination: config.destination ? config.destination : undefined,
+    //
+    // `memory: true` keeps the upload in RAM so the handler can hand it straight
+    // to a central store (GridFS/S3) via `multerFileToUpload()`. Disk storage
+    // writes to the POD's filesystem, which another replica cannot read and a
+    // restart discards — see `memoryStorage()` below.
+    storage: config.memory
+      ? memoryStorage()
+      : diskStorage({
+          // Destination for uploaded file
+          // If destination is not set file will be buffered and can be processed
+          // in the method
+          destination: config.destination ? config.destination : undefined,
 
-      // Generated random file name
-      filename: multerRandomFileName(),
-    }),
+          // Generated random file name
+          filename: multerRandomFileName(),
+        }),
+  };
+}
+
+/**
+ * Adapt a multer upload to the shape `CoreFileService` consumes.
+ *
+ * Lets a REST/multer endpoint write to the same central storage (GridFS or S3)
+ * as the GraphQL upload path, instead of the pod-local disk that multer's
+ * `diskStorage` produces. Requires `memory: true` on the multer options — a
+ * disk-stored file has no `buffer`, and this throws rather than silently
+ * storing an empty file.
+ *
+ * The returned `createReadStream` is callable more than once: it builds a fresh
+ * stream over the same buffer each time, matching graphql-upload's contract.
+ */
+export function multerFileToUpload(file: {
+  buffer?: Buffer;
+  mimetype?: string;
+  originalname?: string;
+}): FileUploadSource {
+  if (!file?.buffer) {
+    throw new Error(
+      'multerFileToUpload() needs an in-memory upload: pass `memory: true` to the multer options ' +
+        '(a disk-stored file has no buffer).',
+    );
+  }
+  return {
+    createReadStream: () => Readable.from(file.buffer),
+    encoding: '7bit',
+    filename: file.originalname || randomBytes(16).toString('hex'),
+    mimetype: file.mimetype || 'application/octet-stream',
   };
 }
 

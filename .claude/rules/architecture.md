@@ -38,6 +38,19 @@ Key areas: JWT, MongoDB, GraphQL, email, security, static assets
 | **Security** | Response/security interceptors, input validation pipes |
 | **Scalars** | Custom GraphQL scalars (Date, JSON, Any) |
 | **Services** | CRUD operations, email (Mailjet/SMTP), template rendering |
+| **Central infrastructure (optional)** | `CoreRedisService` + `CoreRedisPubSub` (`redis` config), `CoreS3Service` (`s3` config), `RateLimitStore`, the `installGracefulShutdown()` helper. All inert without their config — see below |
+
+### Optional central infrastructure
+
+`CoreRedisService` and `CoreS3Service` are always provided and exported by `CoreModule`, but stay
+**inert unless configured** (`redis` / `s3`, "presence implies enabled"). Their client libraries are
+OPTIONAL peer dependencies, lazy-imported at bootstrap, so a project that uses neither installs
+nothing extra. They exist so process-local state can become shared state when a deployment runs more
+than one replica: rate-limit counters, cron deduplication, GraphQL subscriptions, tenant-cache
+invalidation, Hub collectors and file storage all pick the distributed path automatically when the
+config is present, and keep their previous single-process behaviour when it is not. Inject them with
+`@Optional()` and always keep the non-configured fallback path — that is the pattern every core
+consumer follows. See `.claude/rules/configurable-features.md` for the full option reference.
 
 ## Core Modules (`src/core/modules/`)
 
@@ -98,6 +111,8 @@ Whether such a cycle throws depends on **which module the graph is entered throu
 
 Repo-wide cycles went from **10 → 5**, and **every DI token in `src/core/` now lives in an import-free leaf**. The five that remain are, per an SWC-emit audit, **not runtime cycles at all** — type-only imports that madge reports but both compilers erase (their emits are empty).
 
+Since 11.33.0 madge reports a **sixth**: `server/modules/user/user.module.ts ↔ server/modules/file/file.module.ts`. That one IS a real runtime cycle, and it is deliberate — the avatar upload needs `FileService` to reach the central file storage while `FileModule` already imported `UserModule`. It is a NestJS *module* cycle, not a TDZ hazard: both sides declare it with `forwardRef()`, and nothing on either side dereferences the other at class-definition time. It lives in `src/core/`-external `src/server/`, which vendor consumers do not receive.
+
 Both invariants are enforced by `tests/unit/import-cycle-invariants.spec.ts`, which fails if a token reappears in a `*.module.ts` / `*.service.ts` or if a leaf grows an import. That matters, because the guard below catches the *crash*, not the *disarming* of a safety property — those are different things, and only the second one is silent.
 
 | Module | Token / type leaf |
@@ -107,6 +122,7 @@ Both invariants are enforced by `tests/unit/import-cycle-invariants.spec.ts`, wh
 | `tus` | `tus.constants.ts` (`TUS_CONFIG`) |
 | `tenant` | `core-tenant.enums.ts` |
 | `auth` | `interfaces/auth-provider.interface.ts` |
+| `common/services` | `core-cron-jobs.registry.ts` (the cron infrastructure refs `CoreCronJobs` reads — `import type` only, so its emit is empty). Unlike the better-auth registry it IS barrel-exported: `setCronJobsInfrastructure()` / `getCronJobsInfrastructure()` are public, because a project may register its own connection or Redis service |
 | `common/helpers` | `id.helper.ts` (ID cluster, out of `db.helper`) + `clone.helper.ts` (`clone`/`deepFreeze`, out of `input.helper`) |
 | `common/inputs` | `FilterInput` + `CombinedFilterInput` merged into `filter.input.ts` — declaration order is load-bearing |
 | `common/decorators` | `restricted.decorator` is on **zero** cycles; its exports are hoisted `function` declarations (TDZ-immune) as defense in depth |

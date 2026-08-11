@@ -97,8 +97,8 @@ export class CoreHubController {
   }
 
   @Get('diagnostics.json')
-  diagnosticsJson(@Res() res: Response): void {
-    this.sendJson(res, this.hubService.getDiagnostics(this.collectorBuffers()));
+  async diagnosticsJson(@Res() res: Response): Promise<void> {
+    this.sendJson(res, this.hubService.getDiagnostics(await this.collectorBuffers()));
   }
 
   @Get('files.json')
@@ -117,17 +117,17 @@ export class CoreHubController {
   }
 
   @Get('mailbox.json')
-  mailboxJson(@Query('since') since: string | undefined, @Res() res: Response): void {
+  async mailboxJson(@Query('since') since: string | undefined, @Res() res: Response): Promise<void> {
     if (!this.mailboxService) {
       this.sendJson(res, { available: false, hint: 'The mailbox is not enabled.' });
       return;
     }
-    this.sendJson(res, this.mailboxService.getMailbox(since !== undefined ? Number(since) : undefined));
+    this.sendJson(res, await this.mailboxService.getMailbox(since !== undefined ? Number(since) : undefined));
   }
 
   @Get('mailbox/:seq/html')
-  mailboxHtml(@Param('seq') seq: string, @Res() res: Response): void {
-    const html = this.mailboxService?.getMailHtml(Number(seq));
+  async mailboxHtml(@Param('seq') seq: string, @Res() res: Response): Promise<void> {
+    const html = await this.mailboxService?.getMailHtml(Number(seq));
     res.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy': "default-src 'none'; img-src * data:; style-src 'unsafe-inline'; font-src data:",
@@ -143,12 +143,12 @@ export class CoreHubController {
   }
 
   @Get('logs.json')
-  logsJson(@Query('since') since: string | undefined, @Res() res: Response): void {
+  async logsJson(@Query('since') since: string | undefined, @Res() res: Response): Promise<void> {
     if (!this.logBuffer.enabled) {
       this.sendJson(res, { available: false, hint: 'The logs collector is disabled.' });
       return;
     }
-    this.sendJson(res, this.logBuffer.getData(since !== undefined ? Number(since) : undefined));
+    this.sendJson(res, await this.logBuffer.getData(since !== undefined ? Number(since) : undefined));
   }
 
   @Get('models.json')
@@ -167,7 +167,7 @@ export class CoreHubController {
   }
 
   @Get('queries.json')
-  queriesJson(@Res() res: Response): void {
+  async queriesJson(@Res() res: Response): Promise<void> {
     if (!this.queryProfiler.enabled) {
       this.sendJson(res, {
         available: false,
@@ -175,16 +175,16 @@ export class CoreHubController {
       });
       return;
     }
-    this.sendJson(res, this.queryProfiler.getData());
+    this.sendJson(res, await this.queryProfiler.getData());
   }
 
   @Get('traces.json')
-  tracesJson(@Query('since') since: string | undefined, @Res() res: Response): void {
+  async tracesJson(@Query('since') since: string | undefined, @Res() res: Response): Promise<void> {
     if (!this.traceBuffer.enabled) {
       this.sendJson(res, { available: false, hint: 'The traces collector is disabled.' });
       return;
     }
-    this.sendJson(res, this.traceBuffer.getData(since !== undefined ? Number(since) : undefined));
+    this.sendJson(res, await this.traceBuffer.getData(since !== undefined ? Number(since) : undefined));
   }
 
   @Get('routes.json')
@@ -261,10 +261,12 @@ export class CoreHubController {
   }
 
   /** Buffer fill levels for the diagnostics panel. */
-  protected collectorBuffers(): Record<string, { capacity: number; enabled: boolean; size: number }> {
-    const logs = this.logBuffer.getData();
-    const traces = this.traceBuffer.getData();
-    const queries = this.queryProfiler.getData();
+  protected async collectorBuffers(): Promise<Record<string, { capacity: number; enabled: boolean; size: number }>> {
+    const [logs, traces, queries] = await Promise.all([
+      this.logBuffer.getData(),
+      this.traceBuffer.getData(),
+      this.queryProfiler.getData(),
+    ]);
     return {
       logs: { capacity: 0, enabled: this.logBuffer.enabled, size: logs.records.length },
       queries: { capacity: 0, enabled: this.queryProfiler.enabled, size: queries.recent.length },

@@ -2,6 +2,8 @@ import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs
 
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
+import { CoreRedisService } from '../../../common/services/core-redis.service';
+import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../../common/services/rate-limit-store';
 import { RequestContext } from '../../../common/services/request-context.service';
 import { ErrorCode } from '../../error-code';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
@@ -92,8 +94,8 @@ export interface AiRunContext {
 export class CoreAiService {
   protected readonly logger = new Logger(CoreAiService.name);
 
-  /** In-memory rate-limit buckets keyed by user id. */
-  private readonly rateBuckets = new Map<string, { count: number; resetAt: number }>();
+  /** Rate-limit counters keyed by user id (Redis-backed when configured). */
+  protected rateLimitStore?: RateLimitStore;
 
   constructor(
     protected readonly connectionService: CoreAiConnectionService,
@@ -110,6 +112,7 @@ export class CoreAiService {
     @Optional() protected readonly toolPolicyService?: CoreAiToolPolicyService,
     @Optional() protected readonly modeService?: CoreAiModeService,
     @Optional() protected readonly placeholderRegistry?: CoreAiPlaceholderRegistry,
+    @Optional() protected readonly coreRedisService?: CoreRedisService,
   ) {}
 
   /**
@@ -901,8 +904,9 @@ export class CoreAiService {
   }
 
   /**
-   * Simple in-memory sliding-window rate limit. Enabled when `ai.rateLimit` is
-   * present (presence implies enabled). Override for distributed limiting.
+   * Fixed-window per-user rate limit. Enabled when `ai.rateLimit` is present
+   * (presence implies enabled). Counters are shared across replicas when
+   * `ServerOptions.redis` is configured, process-local otherwise.
    */
   protected async checkRateLimit(userId?: string): Promise<void> {
     const cfg = ConfigService.get<{ enabled?: boolean; max?: number; windowSeconds?: number }>('ai.rateLimit');
@@ -910,28 +914,33 @@ export class CoreAiService {
       return;
     }
     const max = cfg.max ?? 20;
-    const windowMs = (cfg.windowSeconds ?? 60) * 1000;
-    const key = userId || 'anonymous';
-    const now = Date.now();
+    const { count } = await this.getRateLimitStore().hit(userId || 'anonymous', cfg.windowSeconds ?? 60);
 
-    let bucket = this.rateBuckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      bucket = { count: 0, resetAt: now + windowMs };
-      this.rateBuckets.set(key, bucket);
-    }
-    bucket.count++;
-
-    // Evict expired buckets when the map grows large (bounded memory).
-    if (this.rateBuckets.size > 5000) {
-      for (const [k, b] of this.rateBuckets) {
-        if (b.resetAt <= now) {
-          this.rateBuckets.delete(k);
-        }
-      }
-    }
-
-    if (bucket.count > max) {
+    if (count > max) {
       throw new HttpException(ErrorCode.AI_RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  /**
+   * Lazily select the rate-limit store: Redis when configured and enabled,
+   * process-local otherwise.
+   */
+  protected getRateLimitStore(): RateLimitStore {
+    if (!this.rateLimitStore) {
+      this.rateLimitStore = this.coreRedisService?.enabled
+        ? new RedisRateLimitStore(this.coreRedisService, 'ai')
+        : new InMemoryRateLimitStore(5000);
+    }
+    return this.rateLimitStore;
+  }
+
+  /**
+   * Stop the rate-limit store's cleanup interval (for graceful shutdown).
+   * `RedisRateLimitStore` owns an in-memory fallback store, so it needs releasing too.
+   */
+  onModuleDestroy(): void {
+    if (this.rateLimitStore instanceof InMemoryRateLimitStore || this.rateLimitStore instanceof RedisRateLimitStore) {
+      this.rateLimitStore.destroy();
     }
   }
 
