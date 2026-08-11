@@ -56,7 +56,7 @@
     "start:prod": "NODE_ENV=production node dist/main.js",
     "test": "pnpm run vitest:unit && pnpm run vitest",
     "test:ci": "pnpm run vitest:unit && pnpm run vitest:ci",
-    "test:cleanup": "find tests -type f \\( -name '*.txt' -o -name '*.bin' \\) -not -name '.gitkeep' -delete && echo 'Test artifacts cleaned up'",
+    "test:cleanup": "find tests -type f \\( -name '*.txt' -o -name '*.bin' -o -name '*.png' \\) -not -name '.gitkeep' -delete && echo 'Test artifacts cleaned up'",
     "test:cov": "pnpm run vitest:unit:cov && pnpm run vitest:cov",
     "test:e2e": "pnpm run vitest",
     "test:infra": "node scripts/test-infra.mjs up",

@@ -136,30 +136,52 @@ overrides:
   'undici@>=7.0.0 <7.29.0': '7.29.0'
   # Security: hono path handling + body-limit bypass (moderate + low, patched >=4.12.34) - transitive
   # via @modelcontextprotocol/sdk>hono and >@hono/node-server>hono. Floored at >=4.0.0 so the entry
-  # stays a patch bump inside major 4 and cannot drag a future 5.x across a major (see the note above
-  # about the earlier hard-pin form of this entry). Remove once the SDK requests >=4.12.34.
+  # stays a patch bump inside major 4 and cannot drag a future 5.x across a major.
+  # KEEP THIS ENTRY - see the hono note below for the earlier form that was removed and why this
+  # one is not it. Remove only once the SDK requests >=4.12.34 itself.
   'hono@>=4.0.0 <4.12.34': '4.12.34'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'
-  # NOTE: there is deliberately NO `hono` override.
-  # The 3 moderate Hono advisories (GHSA-xgm2-5f3f-mvvc, GHSA-hvrm-45r6-mjfj, GHSA-w62v-xxxg-mg59)
-  # are patched in >=4.12.27, and @modelcontextprotocol/sdk's `^4.11.4` resolves to 4.12.31 on its
-  # own. A `hono@>=4.0.0 <4.12.27` -> `4.12.27` entry looked harmless but was a HARD PIN: pnpm
-  # replaces the whole matched spec with the target, so it dragged hono BACK four patch releases and
-  # would silently reintroduce anything fixed in 4.12.28-4.12.31. Do not re-add it.
+  # NOTE on the `hono` override above - read this BEFORE deleting it.
+  # There IS a hono override now, and it is load-bearing. What is forbidden is the EARLIER form:
+  # a bare `hono: '4.12.27'` (or any key whose range extends at or above the target). pnpm replaces
+  # the whole matched spec with the target, so such an entry is a HARD PIN - it dragged hono BACK
+  # four patch releases from the 4.12.31 the SDK resolved on its own, silently reintroducing
+  # everything fixed in 4.12.28-4.12.31. That shape must not come back.
+  # The current entry is RANGE-FLOORED (`hono@>=4.0.0 <4.12.34` -> `4.12.34`): the key stops BELOW
+  # the target, so it can only ever lift a vulnerable version up to the patch and never pulls a
+  # newer one down. That is the correct shape, and it is required for the three moderate advisories
+  # (GHSA-xgm2-5f3f-mvvc, GHSA-hvrm-45r6-mjfj, GHSA-w62v-xxxg-mg59) plus the 4.12.34 path-handling
+  # and body-limit fixes, which the SDK's `^4.11.4` does not reach on its own.
   # Security: @hono/node-server path traversal in the static-file handler (GHSA-frvp-7c67-39w9, patched >=2.0.5) plus an unauthenticated memory leak in the 2.x line itself (GHSA-9mqv-5hh9-4cgg, patched >=2.0.10); both moderate.
   # Transitive via @modelcontextprotocol/sdk, which declares ^1.19.9 and ships NO 1.x fix line, so this is deliberately a cross-major override.
   # Verified safe: the SDK's only consumed symbol is `getRequestListener` (server/streamableHttp.js, loaded by core-ai-mcp.controller.ts), unchanged in 2.x as `(fetchCallback, options?)` and confirmed present at runtime. Engines `>=20` fit this package's `>= 22`, peer `hono@^4` is satisfied by the resolved 4.12.31.
   # LOAD-BEARING. Drop this entry as soon as @modelcontextprotocol/sdk moves its own range to ^2.
   '@hono/node-server@<2.0.10': '2.0.11'
 
-# NOTE (2026-08-10): `minimumReleaseAge` itself is NOT set anywhere - not here, not in .npmrc,
-# not in a global pnpm config - and pnpm defaults it to 0 (`minimumReleaseAge = opts.minimumReleaseAge ?? 0`).
-# The exclusions below therefore currently exclude packages from a hold-back that is not active,
-# i.e. the whole list is inert. Either set `minimumReleaseAge` (in minutes) to turn the
-# supply-chain hold-back on and make these entries meaningful, or drop the list. Until then,
-# "recently published" has to be judged by hand during maintenance runs.
+# Supply-chain hold-back: do not resolve a version published less than a day ago, so a compromised
+# release has time to be detected and unpublished before it can enter this lockfile.
+#
+# CORRECTION of an earlier note here, which claimed the hold-back was off and the exclusion list
+# below therefore inert. It is not - pnpm 11 turned this ON BY DEFAULT. Verified against the pinned
+# pnpm 11.13.1 dist: its default config map contains `"minimum-release-age": 24 * 60`, and the
+# 11.0.0 changelog states "`minimumReleaseAge` is now `1440` (1 day) ... To opt out, set
+# `minimumReleaseAge: 0`". (The `?? 0` fallback that note quoted is a downstream default inside a
+# helper, not the config default.) The list below is live, and deleting an entry from it can break
+# an install. The entry comments prove it independently: the AWS SDK pair is carried "because it
+# always trips a hold-back" - which is not something an inactive policy can do.
+#
+# Set EXPLICITLY rather than inherited, for the same reason every dependency here carries a fixed
+# version: a security policy that silently changes when the tool changes its default is not a policy.
+# 1440 minutes = 1 day = pnpm 11's own default, so this pins today's behaviour and changes nothing.
+minimumReleaseAge: 1440
+
+# Versions exempted from the hold-back above. Two sources feed this list:
+#   - `pnpm audit --fix` writes the minimum patched version of an advisory here, so a security fix
+#     can be installed without waiting out the day;
+#   - an install that must resolve a fresh version (a same-day dependency bump) records it here.
+# Every entry is an EXACT version, so an exemption can never widen to a later release.
 minimumReleaseAgeExclude:
   # Bumped 3.1105.0 -> 3.1106.0 alongside the devDependency; the AWS SDK publishes almost daily,
   # so this pair always trips a hold-back and the pinned version has to be carried along.

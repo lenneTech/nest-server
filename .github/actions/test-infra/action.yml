@@ -1,0 +1,113 @@
+name: Test infrastructure (Redis + S3)
+description: >-
+  Provision the Redis and S3-compatible (RustFS) containers the distributed-feature
+  e2e suites need (DEV-2985: rate limiting, cron dedup, pubsub, S3 file storage),
+  and wait until each is genuinely serving.
+
+# Why a composite action and not two copies of the same steps:
+# build.yml and publish.yml both need this block, and the two verbatim copies had
+# already drifted in their comments. A drift in the CONTENT (an image pin bumped in
+# one file only, a readiness probe fixed in one file only) would be just as invisible
+# and far more expensive, since the publish path is the one that ships.
+#
+# The images and ports match scripts/test-infra.mjs, which is what a local
+# `pnpm test` uses. Only WHO starts the containers differs — CI sets
+# LT_TEST_INFRA=0 so the suites' own auto-start stays out of the way.
+#
+# 6380 (not 6379) is the local convention: on lt dev machines 6379 is an
+# auth-protected TurboOps Redis, so the test container binds a neighbouring
+# port and needs no auth setup.
+
+inputs:
+  redis-name:
+    description: Container name for Redis.
+    required: false
+    default: ci-redis
+  redis-port:
+    description: Published host port for Redis. Must match REDIS_PORT in the suites.
+    required: false
+    default: '6380'
+  rustfs-name:
+    description: Container name for the S3-compatible store.
+    required: false
+    default: ci-rustfs
+  rustfs-port:
+    description: Published host port for RustFS. Must match the port in S3_ENDPOINT.
+    required: false
+    default: '9102'
+
+runs:
+  using: composite
+  steps:
+    # The workflow provisions the containers itself, so the suites' own auto-start
+    # (tests/global-setup.ts → scripts/test-infra.mjs, which exists so a local
+    # `pnpm test` needs no manual docker command) must stay out of the way.
+    - name: Let CI own the test infrastructure
+      shell: bash
+      run: echo "LT_TEST_INFRA=0" >> "$GITHUB_ENV"
+
+    # Pinned to a concrete released tag (repo policy: fixed versions only).
+    # `redis:7-alpine` was a floating tag and would silently move across minors.
+    - name: Start Redis
+      shell: bash
+      run: >-
+        docker run -d
+        --name ${{ inputs.redis-name }}
+        -p ${{ inputs.redis-port }}:6379
+        redis:7.4-alpine
+
+    - name: Wait for Redis
+      shell: bash
+      run: |
+        for i in $(seq 1 30); do
+          if [ "$(docker exec ${{ inputs.redis-name }} redis-cli ping 2>/dev/null)" = "PONG" ]; then
+            echo "Redis ready after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::Redis did not become ready within 30s"
+        docker logs ${{ inputs.redis-name }}
+        exit 1
+
+    # Pinned to a concrete released tag (repo policy: fixed versions only).
+    - name: Start RustFS (S3)
+      shell: bash
+      run: >-
+        docker run -d
+        --name ${{ inputs.rustfs-name }}
+        -p ${{ inputs.rustfs-port }}:9000
+        -e RUSTFS_ROOT_USER=rustfs
+        -e RUSTFS_ROOT_PASSWORD=rustfs-secret
+        -e RUSTFS_VOLUMES=/data
+        -e RUSTFS_OBS_LOGGER_LEVEL=warn
+        rustfs/rustfs:1.0.0-rc.1 server /data
+
+    # The probe must reject 5xx. `curl -s -o /dev/null <url>` exits 0 for ANY HTTP
+    # answer, so a RustFS that is listening but failed to mount /data counted as
+    # "ready" and the job then died deep inside the S3 suites with a confusing
+    # error. Accept 2xx/3xx (serving) and exactly 403 (listening, and answering an
+    # unauthenticated request to an S3 root the way S3 does).
+    # `--fail` is NOT usable here: it would reject the legitimate 403 too.
+    - name: Wait for RustFS (S3)
+      shell: bash
+      run: |
+        for i in $(seq 1 60); do
+          # curl already writes `000` via -w when the connection fails, so `|| true`
+          # only keeps a non-zero exit from aborting the step. (`|| echo 000` would
+          # CONCATENATE with that and produce a nonsense "000000" in the error line.)
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${{ inputs.rustfs-port }}" || true)
+          case "$code" in
+            2??|3??|403)
+              echo "RustFS ready after ${i}s (HTTP $code)"
+              exit 0
+              ;;
+            5??)
+              echo "RustFS is listening but answering HTTP $code — still starting or broken"
+              ;;
+          esac
+          sleep 1
+        done
+        echo "::error::RustFS did not become ready within 60s (last HTTP status: ${code:-none})"
+        docker logs ${{ inputs.rustfs-name }}
+        exit 1

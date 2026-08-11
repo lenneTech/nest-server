@@ -13,6 +13,14 @@ jobs:
       matrix:
         node-version: [ 24.x ]
         mongodb-version: [ '7.0' ]
+    # Container names declared ONCE, then fed to both the composite action and the
+    # teardown at the end of the job. The action accepts `redis-name`/`rustfs-name`
+    # inputs, so a hardcoded `docker rm -f ci-redis ci-rustfs` silently stops
+    # removing anything the moment someone passes different names — and a leftover
+    # container fails the NEXT job on a name conflict, on a self-hosted runner.
+    env:
+      REDIS_CONTAINER: ci-redis
+      RUSTFS_CONTAINER: ci-rustfs
     steps:
       - name: Git checkout
         uses: actions/checkout@v7
@@ -32,55 +40,42 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
 
-      # The workflow provisions these itself, so the suites' own auto-start
-      # (tests/global-setup.ts → scripts/test-infra.mjs, which exists so a local
-      # `pnpm test` needs no manual docker command) must stay out of the way.
-      - name: Let CI own the test infrastructure
-        run: echo "LT_TEST_INFRA=0" >> "$GITHUB_ENV"
-
-      # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985).
-      # Each start is followed by a readiness wait so a slow start fails the job
-      # with a clear message instead of an opaque connection error in the suite.
-      - name: Start Redis
-        # 6380 matches the local convention: 6379 is occupied by an auth-protected
-        # TurboOps Redis on lt dev machines, so tests default to 6380 (no auth).
-        run: docker run -d --name ci-redis -p 6380:6379 redis:7-alpine
-
-      - name: Wait for Redis
-        run: |
-          for i in $(seq 1 30); do
-            if [ "$(docker exec ci-redis redis-cli ping 2>/dev/null)" = "PONG" ]; then
-              echo "Redis ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::Redis did not become ready within 30s"
-          docker logs ci-redis
-          exit 1
-
-      - name: Start RustFS (S3)
-        # Pinned to a concrete released tag (repo policy: fixed versions only).
-        run: docker run -d --name ci-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data -e RUSTFS_OBS_LOGGER_LEVEL=warn rustfs/rustfs:1.0.0-rc.1 server /data
-
-      - name: Wait for RustFS (S3)
-        run: |
-          for i in $(seq 1 60); do
-            if curl -s -o /dev/null http://localhost:9102; then
-              echo "RustFS ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::RustFS did not become ready within 60s"
-          docker logs ci-rustfs
-          exit 1
+      # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
+      # rate limiting, cron dedup, pubsub, S3 file storage). Shared with
+      # build.yml via a composite action so the two paths cannot drift.
+      - name: Start test infrastructure (Redis + S3)
+        uses: ./.github/actions/test-infra
+        with:
+          redis-name: ${{ env.REDIS_CONTAINER }}
+          rustfs-name: ${{ env.RUSTFS_CONTAINER }}
 
       - name: Install dependencies
         run: pnpm install
 
+      # Same gate as build.yml, and NOT redundant with it. This workflow triggers on
+      # `release: released` — a different event, so it cannot `needs:` a job in the
+      # push-triggered build workflow, and the release itself may be cut days after
+      # the commit was last built. `pnpm audit` is time-dependent by nature: a new
+      # advisory published in between would make the release the first shipping
+      # artifact nobody audited. It is also the ONLY check that validates the
+      # `overrides:` block in pnpm-workspace.yaml — an override deleted, or silently
+      # holding a package BELOW a newer patch, is invisible to every other step.
+      - name: Audit dependencies
+        run: pnpm audit
+
       - name: Optimize and check
         run: pnpm run prepublishOnly
+
+      # Compiles with SWC to CommonJS and loads every module under Node's CJS loader.
+      # This is the ONLY step that can catch a temporal-dead-zone crash from an import
+      # cycle: `nest build` uses tsc, and vitest runs SWC through Vite's module runner,
+      # whose getter-based live bindings tolerate cycles. Consumers running
+      # `nest start -b swc` do not get that safety net — which is exactly why this
+      # belongs on the PUBLISH path and not only on the build path: the failure mode
+      # it catches only ever hits a consumer, and only after the package has shipped.
+      # Builds into its own throwaway dir, so it cannot disturb the published dist/.
+      - name: SWC module-graph guard (TDZ)
+        run: pnpm run check:swc-tdz
 
       - name: Build
         run: pnpm run build
@@ -89,3 +84,11 @@ jobs:
         with:
           access: public
           token: ${{ secrets.NPM_TOKEN }}
+
+      # A hosted runner is thrown away after the job, so this is a no-op there.
+      # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
+      # NEXT job fail on a name conflict before a single test runs.
+      # `if: always()` so a failed job cleans up too.
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true

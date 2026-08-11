@@ -14,6 +14,14 @@ jobs:
       matrix:
         node-version: [24.x]
         mongodb-version: ['7.0']
+    # Container names declared ONCE, then fed to both the composite action and the
+    # teardown at the end of the job. The action accepts `redis-name`/`rustfs-name`
+    # inputs, so a hardcoded `docker rm -f ci-redis ci-rustfs` silently stops
+    # removing anything the moment someone passes different names — and a leftover
+    # container fails the NEXT job on a name conflict, on a self-hosted runner.
+    env:
+      REDIS_CONTAINER: ci-redis
+      RUSTFS_CONTAINER: ci-rustfs
     steps:
       - name: Git checkout
         uses: actions/checkout@v7
@@ -33,52 +41,14 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
 
-      # The workflow provisions these itself, so the suites' own auto-start
-      # (tests/global-setup.ts → scripts/test-infra.mjs, which exists so a local
-      # `pnpm test` needs no manual docker command) must stay out of the way.
-      # Same images and ports either way; this only decides who starts them.
-      - name: Let CI own the test infrastructure
-        run: echo "LT_TEST_INFRA=0" >> "$GITHUB_ENV"
-
       # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
-      # rate limiting, cron dedup, pubsub, S3 file storage). Plain docker runs —
-      # both images boot in ~1s and need no auth setup beyond env vars. Each is
-      # followed by a readiness wait so a slow start fails the job with a clear
-      # message instead of an opaque connection error inside the test suite.
-      - name: Start Redis
-        # 6380 matches the local convention: 6379 is occupied by an auth-protected
-        # TurboOps Redis on lt dev machines, so tests default to 6380 (no auth).
-        run: docker run -d --name ci-redis -p 6380:6379 redis:7-alpine
-
-      - name: Wait for Redis
-        run: |
-          for i in $(seq 1 30); do
-            if [ "$(docker exec ci-redis redis-cli ping 2>/dev/null)" = "PONG" ]; then
-              echo "Redis ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::Redis did not become ready within 30s"
-          docker logs ci-redis
-          exit 1
-
-      - name: Start RustFS (S3)
-        # Pinned to a concrete released tag (repo policy: fixed versions only).
-        run: docker run -d --name ci-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data -e RUSTFS_OBS_LOGGER_LEVEL=warn rustfs/rustfs:1.0.0-rc.1 server /data
-
-      - name: Wait for RustFS (S3)
-        run: |
-          for i in $(seq 1 60); do
-            if curl -s -o /dev/null http://localhost:9102; then
-              echo "RustFS ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::RustFS did not become ready within 60s"
-          docker logs ci-rustfs
-          exit 1
+      # rate limiting, cron dedup, pubsub, S3 file storage). Shared with
+      # publish.yml via a composite action so the two paths cannot drift.
+      - name: Start test infrastructure (Redis + S3)
+        uses: ./.github/actions/test-infra
+        with:
+          redis-name: ${{ env.REDIS_CONTAINER }}
+          rustfs-name: ${{ env.RUSTFS_CONTAINER }}
 
       - name: Install dependencies
         run: pnpm install
@@ -112,6 +82,14 @@ jobs:
         with:
           name: build
           path: ./dist
+
+      # A hosted runner is thrown away after the job, so this is a no-op there.
+      # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
+      # NEXT job fail on a name conflict before a single test runs.
+      # `if: always()` so a failed job cleans up too.
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true
 
   typecheck:
     name: Type-Check Tests
