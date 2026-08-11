@@ -48,6 +48,39 @@ describe('maskConfigDeep', () => {
     expect(out.mongoose.uri).toContain('host:27017');
   });
 
+  // Regression: the userinfo USER part used to be `+` (at least one character), so the
+  // password-only form fell straight through and printed verbatim in the Hub config panel.
+  // That is the canonical Redis URL — Redis < 6 has no username, and `redis-cli -u`,
+  // Heroku Redis and ElastiCache AUTH all emit it — and `redis.url` only became a config
+  // option in 11.33.0, which is why no existing example covered it.
+  it.each([
+    'redis://:s3cr3t@redis.internal:6379',
+    'rediss://:s3cr3t@redis.internal:6380/0',
+    'amqp://:s3cr3t@broker:5672',
+  ])('masks a password-only connection URI (%s)', (url) => {
+    const out = maskConfigDeep({ redis: { url } });
+
+    expect(out.redis.url).not.toContain('s3cr3t');
+    expect(out.redis.url).toContain('@');
+  });
+
+  it('does not mistake a path segment containing @ for credentials', () => {
+    const out = maskConfigDeep({ service: { endpoint: 'http://host:8080/path@version' } });
+
+    // The password group cannot span a `/`, so this must pass through untouched.
+    expect(out.service.endpoint).toBe('http://host:8080/path@version');
+  });
+
+  it('masks an S3 access key id, not only the secret access key', () => {
+    const out = maskConfigDeep({ s3: { accessKeyId: 'AKIAEXAMPLE', secretAccessKey: 'shhh' } });
+
+    // `(^|[^a-z])key([^a-z]|$)` cannot catch `accessKeyId`: the `i` flag makes `[^a-z]`
+    // reject the uppercase `K`/`I`, so `…sKeyI…` fails it. `secretAccessKey` was already
+    // covered by `secret`; the ID was the one that rendered in the panel.
+    expect(out.s3.accessKeyId).not.toContain('AKIAEXAMPLE');
+    expect(out.s3.secretAccessKey).not.toContain('shhh');
+  });
+
   it('honors additional explicit secret field names', () => {
     const out = maskConfigDeep({ customField: 'HIDE_ME', other: 'keep' }, ['customField']);
 

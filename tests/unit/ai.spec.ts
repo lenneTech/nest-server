@@ -1895,17 +1895,21 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
       return { calls, redis, store };
     }
 
-    it('registers the session id with a TTL and releases it on close', async () => {
+    it('registers the session id with its OWNER and a TTL, and releases it on close', async () => {
       const { calls, redis, store } = makeRedis();
       const controller: any = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
 
-      controller.registerSession('sess-1');
+      controller.registerSession('sess-1', 'u1');
       await Promise.resolve();
-      expect(store.get('nest-server:ai-mcp-session:sess-1')).toBe(controller.instanceId);
-      expect(calls[0]).toBe(`set nest-server:ai-mcp-session:sess-1 ${controller.instanceId} EX 3600`);
+      // The owning USER is part of the entry, not just the replica: the 409 below may only be
+      // shown to that user, otherwise the cross-replica path becomes the session-id oracle the
+      // local path deliberately refuses to be.
+      const value = JSON.stringify({ instanceId: controller.instanceId, userId: 'u1' });
+      expect(store.get('nest-server:ai-mcp-session:sess-1')).toBe(value);
+      expect(calls[0]).toBe(`set nest-server:ai-mcp-session:sess-1 ${value} EX 3600`);
 
       // Re-registering refreshes the TTL rather than creating a second entry.
-      controller.registerSession('sess-1');
+      controller.registerSession('sess-1', 'u1');
       await Promise.resolve();
       expect(calls).toHaveLength(2);
 
@@ -1914,9 +1918,12 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
       expect(store.has('nest-server:ai-mcp-session:sess-1')).toBe(false);
     });
 
-    it('answers 409 naming the owning replica when the session lives on another instance', async () => {
+    it('answers 409 naming the owning replica when the OWNER asks for their own session', async () => {
       const { redis, store } = makeRedis();
-      store.set('nest-server:ai-mcp-session:sess-elsewhere', 'other-host:4242');
+      store.set(
+        'nest-server:ai-mcp-session:sess-elsewhere',
+        JSON.stringify({ instanceId: 'other-host:4242', userId: 'u1' }),
+      );
       const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
       const { captured, res } = makeRes();
 
@@ -1927,6 +1934,39 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
       expect(captured.status).toBe(409);
       expect(captured.body.error).toContain('other-host:4242');
       expect(captured.body.error).toMatch(/sticky/i);
+    });
+
+    it('answers 404 (not 409) for ANOTHER user session, disclosing neither its existence nor the replica', async () => {
+      // The same-replica path already treats a foreign session as unknown. If the shared registry
+      // answered 409 for any id an authenticated caller can name, it would hand that caller both a
+      // validity oracle for session ids and the internal <hostname>:<pid> holding them.
+      const { redis, store } = makeRedis();
+      store.set(
+        'nest-server:ai-mcp-session:sess-of-u2',
+        JSON.stringify({ instanceId: 'other-host:4242', userId: 'u2' }),
+      );
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+
+      await controller.handleGet(
+        makeReq({ method: 'GET', sessionId: 'sess-of-u2', user: { id: 'u1', roles: [] } }),
+        res,
+      );
+      expect(captured.status).toBe(404);
+      expect(JSON.stringify(captured.body)).not.toContain('other-host');
+    });
+
+    it('answers 404 for a legacy entry that carries no owner (rolling upgrade)', async () => {
+      const { redis, store } = makeRedis();
+      store.set('nest-server:ai-mcp-session:sess-legacy', 'other-host:4242');
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any), redis);
+      const { captured, res } = makeRes();
+
+      await controller.handleGet(
+        makeReq({ method: 'GET', sessionId: 'sess-legacy', user: { id: 'u1', roles: [] } }),
+        res,
+      );
+      expect(captured.status).toBe(404);
     });
 
     it('answers 404 (not 409) when the session is unknown to the registry as well', async () => {

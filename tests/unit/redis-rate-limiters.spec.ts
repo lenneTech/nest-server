@@ -22,20 +22,34 @@ function createFakeRedis() {
       keys.forEach(key => store.delete(key));
       return keys.length;
     }),
-    eval: vi.fn(async (script: string, _numKeys: number, key: string, arg: unknown) => {
+    eval: vi.fn(async (script: string, numKeys: number, ...rest: unknown[]) => {
       // Two different scripts share this fake: the rate-limit hit counter, and the cooldown's
       // compare-and-delete. Dispatch on the script so the release actually frees the key —
       // otherwise the test cannot tell a correct release from one that did nothing.
+      const keys = rest.slice(0, numKeys) as string[];
+      const args = rest.slice(numKeys);
       if (script.includes('DEL')) {
-        if (store.get(key) !== arg) {
+        if (store.get(keys[0]) !== args[0]) {
           return 0;
         }
-        store.delete(key);
+        store.delete(keys[0]);
         return 1;
       }
-      const count = ((store.get(key) as number) ?? 0) + 1;
-      store.set(key, count);
-      return [count, Number(arg)];
+      // Hit script: KEYS = [counter, cardinality, overflow], ARGV = [window, maxKeys].
+      const [key, cardinalityKey, overflowKey] = keys;
+      let target = key;
+      let overflow = 0;
+      if (!store.has(key)) {
+        const seen = ((store.get(cardinalityKey) as number) ?? 0) + 1;
+        store.set(cardinalityKey, seen);
+        if (seen > Number(args[1])) {
+          target = overflowKey;
+          overflow = 1;
+        }
+      }
+      const count = ((store.get(target) as number) ?? 0) + 1;
+      store.set(target, count);
+      return [count, Number(args[0]), overflow];
     }),
     scan: vi.fn(async (_cursor: string, _match: string, pattern: string) => {
       const regex = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`);
@@ -100,9 +114,12 @@ describe('CoreBetterAuthRateLimiter store selection', () => {
     expect(await limiter.check('1.2.3.4', '/profile')).toMatchObject({ allowed: true, current: 1, remaining: 3 });
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining('INCR'),
-      1,
+      3,
       'test-prefix:rate-limit:better-auth:1.2.3.4:profile',
+      'test-prefix:rate-limit:better-auth:#meta:cardinality',
+      expect.stringContaining('test-prefix:rate-limit:better-auth:#overflow:'),
       60,
+      expect.any(Number),
     );
 
     // getStats cannot count Redis entries cheaply
@@ -118,7 +135,12 @@ describe('CoreBetterAuthRateLimiter store selection', () => {
     await limiter.check('5.6.7.8', '/profile');
     await limiter.reset('1.2.3.4');
 
-    expect([...client.store.keys()]).toEqual(['test-prefix:rate-limit:better-auth:5.6.7.8:profile']);
+    // `#meta:cardinality` is the framework's own keyspace bound and outlives a per-IP reset by
+    // design — resetting one client must not double as a way to clear the cap.
+    expect([...client.store.keys()]).toEqual([
+      'test-prefix:rate-limit:better-auth:#meta:cardinality',
+      'test-prefix:rate-limit:better-auth:5.6.7.8:profile',
+    ]);
   });
 });
 
@@ -144,9 +166,12 @@ describe('LegacyAuthRateLimiter store selection', () => {
     await limiter.check('1.2.3.4', 'signIn');
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining('INCR'),
-      1,
+      3,
       'test-prefix:rate-limit:legacy-auth:1.2.3.4:signIn',
+      'test-prefix:rate-limit:legacy-auth:#meta:cardinality',
+      expect.stringContaining('test-prefix:rate-limit:legacy-auth:#overflow:'),
       60,
+      expect.any(Number),
     );
   });
 });
@@ -197,9 +222,12 @@ describe('CoreAiService rate limit store', () => {
     expect(service.getRateLimitStore()).toBeInstanceOf(RedisRateLimitStore);
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining('INCR'),
-      1,
+      3,
       'test-prefix:rate-limit:ai:user-1',
+      'test-prefix:rate-limit:ai:#meta:cardinality',
+      expect.stringContaining('test-prefix:rate-limit:ai:#overflow:'),
       30,
+      expect.any(Number),
     );
   });
 

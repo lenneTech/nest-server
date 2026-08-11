@@ -16,6 +16,7 @@ import * as tus from 'tus-js-client';
 
 import { HttpExceptionLogFilter, RoleEnum, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
+import { TusModule } from '../../src/core/modules/tus';
 import { ServerModule } from '../../src/server/server.module';
 
 /**
@@ -79,31 +80,35 @@ describe('TUS Upload Story', () => {
   let adminToken: string;
   const adminEmail = `${testId}-admin@test.com`;
 
-  const signUpAdmin = async (): Promise<string> => {
+  // A verified user WITHOUT any role, for the authenticated-but-unauthorized case
+  // in "Access control". Kept apart from the admin on purpose: a 403 assertion
+  // driven by an admin proves nothing.
+  let memberToken: string;
+  const memberEmail = `${testId}-member@test.com`;
+
+  const signUpUser = async (email: string, name: string, roles: string[]): Promise<string> => {
     const password = 'TusPass123!';
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
-      payload: { email: adminEmail, name: 'TUS Admin', password, termsAndPrivacyAccepted: true },
+      payload: { email, name, password, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
 
-    const created = await waitFor(() => db.collection('users').findOne({ email: adminEmail }));
+    const created = await waitFor(() => db.collection('users').findOne({ email }));
     if (!created) {
-      throw new Error(`signUpAdmin: user ${adminEmail} was never persisted`);
+      throw new Error(`signUpUser: user ${email} was never persisted`);
     }
 
-    await db
-      .collection('users')
-      .updateOne({ email: adminEmail }, { $set: { emailVerified: true, roles: [RoleEnum.ADMIN], verified: true } });
-    await db.collection('iam_user').updateOne({ email: adminEmail }, { $set: { emailVerified: true } });
+    await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, roles, verified: true } });
+    await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
 
     await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
-      payload: { email: adminEmail, password },
+      payload: { email, password },
       statusCode: 200,
     });
 
-    const dbUser = await db.collection('users').findOne({ email: adminEmail });
+    const dbUser = await db.collection('users').findOne({ email });
     const session = await waitFor<{ token?: string }>(() =>
       db.collection('session').findOne({
         $or: [
@@ -120,10 +125,25 @@ describe('TUS Upload Story', () => {
     // with "expected 401 to be 200", pointing at the route under test instead of
     // at the auth setup that actually broke.
     if (!session?.token) {
-      throw new Error(`signUpAdmin: no session token found for ${adminEmail}`);
+      throw new Error(`signUpUser: no session token found for ${email}`);
     }
     return session.token;
   };
+
+  const signUpAdmin = (): Promise<string> => signUpUser(adminEmail, 'TUS Admin', [RoleEnum.ADMIN]);
+
+  /**
+   * HTTP status of a tus-js-client failure.
+   *
+   * Read off `DetailedError.originalResponse` rather than matched out of the
+   * message string. The framework's status policy is deterministic —
+   * unauthenticated => 401, authenticated-without-right => 403 — and SPA auth
+   * layers branch on it: a permission error answered as 401 makes the client
+   * treat the session as expired and log the user out of the whole app. A
+   * `/401|403/` regex accepts exactly the swap that would cause that.
+   */
+  const tusErrorStatus = (error: unknown): number | undefined =>
+    (error as tus.DetailedError)?.originalResponse?.getStatus();
 
   // ===================================================================================================================
   // Setup & Teardown
@@ -166,6 +186,7 @@ describe('TUS Upload Story', () => {
       db = await connection.db();
 
       adminToken = await signUpAdmin();
+      memberToken = await signUpUser(memberEmail, 'TUS Member', []);
     } catch (e) {
       console.error('beforeAll Error:', e);
       throw e;
@@ -194,27 +215,30 @@ describe('TUS Upload Story', () => {
       // Ignore cleanup errors
     }
 
-    // Clean up the admin test user created for the FileController downloads
-    try {
-      const dbUser = await db.collection('users').findOne({ email: adminEmail });
-      if (dbUser) {
-        await db.collection('session').deleteMany({
-          $or: [
-            { userId: dbUser._id },
-            { userId: dbUser._id?.toString() },
-            ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : []),
-          ],
-        });
-        // `account` holds the Better-Auth credential row; other suites clean it too.
-        // Matters on a FAILING run, where the per-run DB is deliberately kept.
-        await db.collection('account').deleteMany({
-          $or: [{ userId: dbUser._id }, { userId: dbUser._id?.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
-        });
+    // Clean up the test users created for the FileController downloads and the
+    // access-control cases
+    for (const email of [adminEmail, memberEmail]) {
+      try {
+        const dbUser = await db.collection('users').findOne({ email });
+        if (dbUser) {
+          await db.collection('session').deleteMany({
+            $or: [
+              { userId: dbUser._id },
+              { userId: dbUser._id?.toString() },
+              ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : []),
+            ],
+          });
+          // `account` holds the Better-Auth credential row; other suites clean it too.
+          // Matters on a FAILING run, where the per-run DB is deliberately kept.
+          await db.collection('account').deleteMany({
+            $or: [{ userId: dbUser._id }, { userId: dbUser._id?.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
+          });
+        }
+        await db.collection('users').deleteMany({ email });
+        await db.collection('iam_user').deleteMany({ email });
+      } catch {
+        // Ignore cleanup errors
       }
-      await db.collection('users').deleteMany({ email: adminEmail });
-      await db.collection('iam_user').deleteMany({ email: adminEmail });
-    } catch {
-      // Ignore cleanup errors
     }
 
     // Close connections
@@ -687,7 +711,10 @@ describe('TUS Upload Story', () => {
       });
 
       expect(error).toBeDefined();
-      expect(String(error)).toMatch(/401|403/);
+      // 401 EXACTLY, not `/401|403/`: the caller sent no credentials at all, and the framework
+      // answers an unauthenticated request with 401 and an unauthorized one with 403. The loose
+      // regex this replaced accepted the very swap that breaks SPA clients — see `tusErrorStatus`.
+      expect(tusErrorStatus(error)).toBe(401);
     });
 
     it('should still accept uploads from an authenticated caller', async () => {
@@ -799,6 +826,159 @@ describe('TUS Upload Story', () => {
 
       const content = Buffer.concat(chunks.map((c) => c.data.buffer)).toString('utf-8');
       expect(content).toBe(testFileContent);
+    });
+  });
+
+  // ===================================================================================================================
+  // Access control
+  //
+  // The anonymous cases live in "Module Inheritance Pattern" above. What is covered here is the
+  // half that was missing: the AUTHENTICATED-but-unauthorized caller, and the TERMINATION
+  // extension — the extension the default was tightened for ("with the termination extension it
+  // can delete from it too"). A gate that only stops anonymous callers still lets any signed-in
+  // account delete anyone's in-progress upload.
+  //
+  // Every status below is asserted EXACTLY. 401 and 403 are not interchangeable here: an SPA auth
+  // layer logs the user out on 401, so answering a mere permission error with 401 kicks a
+  // signed-in user out of the whole application. See `.claude/rules/role-system.md`.
+  // ===================================================================================================================
+
+  describe('Access control', () => {
+    const tusProtocolHeaders = (extra: Record<string, string> = {}) => ({ 'Tus-Resumable': '1.0.0', ...extra });
+
+    /**
+     * HEAD via raw http, because `TestHelper.rest()`'s `method` union has no `HEAD` — and HEAD is
+     * the only way to ask "does this upload still exist, and at what offset" without changing it,
+     * which is what turns a status-only refusal assertion into a real one.
+     */
+    const head = (uploadPath: string, sessionToken?: string) =>
+      new Promise<http.IncomingMessage>((resolve, reject) => {
+        const cookies = sessionToken ? TestHelper.buildBetterAuthCookies(sessionToken) : undefined;
+        const req = http.request(
+          {
+            headers: tusProtocolHeaders(
+              cookies
+                ? {
+                    Cookie: Object.entries(cookies)
+                      .map(([key, value]) => `${key}=${value}`)
+                      .join('; '),
+                  }
+                : {},
+            ),
+            hostname: '127.0.0.1',
+            method: 'HEAD',
+            path: uploadPath,
+            port: (httpServer.address() as { port: number }).port,
+          },
+          resolve,
+        );
+        req.on('error', reject);
+        req.end();
+      });
+
+    /** Create an in-progress upload and return its `/tus/<id>` path */
+    const createUpload = async (sessionToken: string, filename: string): Promise<string> => {
+      const response = await testHelper.rest('/tus', {
+        cookies: sessionToken,
+        headers: tusProtocolHeaders({
+          'Upload-Length': String(testFileContent.length),
+          'Upload-Metadata':
+            `filename ${Buffer.from(filename).toString('base64')},`
+            + `filetype ${Buffer.from('text/plain').toString('base64')}`,
+        }),
+        method: 'POST',
+        returnResponse: true,
+        statusCode: 201,
+      });
+      const location = response.headers.location as string;
+      expect(location, 'tus creation must answer a Location header').toBeDefined();
+      // @tus/server answers an absolute URL; the request helper needs a path.
+      return new URL(location, serverUrl).pathname;
+    };
+
+    const terminate = (uploadPath: string, sessionToken: string) =>
+      testHelper.rest(uploadPath, {
+        cookies: sessionToken,
+        headers: tusProtocolHeaders(),
+        method: 'DELETE',
+        statusCode: 204,
+      });
+
+    describe('termination extension', () => {
+      it('refuses an anonymous DELETE of an existing upload, and the upload survives', async () => {
+        const uploadPath = await createUpload(adminToken, `${testId}-terminate-anon.txt`);
+
+        // 401 exactly: no credentials were sent at all.
+        await testHelper.rest(uploadPath, { headers: tusProtocolHeaders(), method: 'DELETE', statusCode: 401 });
+
+        // A refusal that nonetheless deleted the upload would pass a status-only assertion, so
+        // check the upload is still addressable — HEAD answers its offset for the owner.
+        const survivor = await head(uploadPath, adminToken);
+        expect(survivor.statusCode).toBe(200);
+        expect(survivor.headers['upload-offset']).toBe('0');
+
+        // The owner may still terminate it — which also cleans up the staged file.
+        await terminate(uploadPath, adminToken);
+      });
+    });
+
+    describe('with tus.roles narrowed to ADMIN', () => {
+      // `TusModule.forRoot()` writes the configured roles onto the controller's handler metadata,
+      // which the guards read per request — so re-running it re-configures the ALREADY RUNNING
+      // app. That is deliberately the production mechanism rather than a hand-written
+      // `Reflect.defineMetadata`: the thing under test is the config path itself.
+      beforeAll(() => {
+        TusModule.forRoot({ config: { roles: [RoleEnum.ADMIN] } });
+      });
+
+      // Restore the framework default (S_USER) so nothing after this block sees a narrowed gate.
+      afterAll(() => {
+        TusModule.forRoot();
+      });
+
+      it('refuses an authenticated caller who lacks the configured role with 403, not 401', async () => {
+        // memberToken is a VERIFIED user with no roles. They are authenticated, so answering 401
+        // would tell the client the session expired and trigger a logout.
+        await testHelper.rest('/tus', {
+          cookies: memberToken,
+          headers: tusProtocolHeaders({ 'Upload-Length': String(testFileContent.length) }),
+          method: 'POST',
+          statusCode: 403,
+        });
+      });
+
+      it('still answers an anonymous caller with 401', async () => {
+        // The other half of the policy: narrowing the roles must not turn "not signed in" into 403.
+        await testHelper.rest('/tus', {
+          headers: tusProtocolHeaders({ 'Upload-Length': String(testFileContent.length) }),
+          method: 'POST',
+          statusCode: 401,
+        });
+      });
+
+      it('refuses termination by an authenticated caller without the role, and the upload survives', async () => {
+        const uploadPath = await createUpload(adminToken, `${testId}-terminate-member.txt`);
+
+        await testHelper.rest(uploadPath, {
+          cookies: memberToken,
+          headers: tusProtocolHeaders(),
+          method: 'DELETE',
+          statusCode: 403,
+        });
+
+        const survivor = await head(uploadPath, adminToken);
+        expect(survivor.statusCode).toBe(200);
+        expect(survivor.headers['upload-offset']).toBe('0');
+
+        await terminate(uploadPath, adminToken);
+      });
+
+      it('still lets the configured role through', async () => {
+        // Without this the three refusals above would also pass a gate that is simply broken for
+        // everyone — which is not the property being claimed.
+        const uploadPath = await createUpload(adminToken, `${testId}-admin-allowed.txt`);
+        await terminate(uploadPath, adminToken);
+      });
     });
   });
 });

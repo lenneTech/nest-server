@@ -53,6 +53,16 @@ import { up as startTestInfra } from '../scripts/test-infra.mjs';
 
 let releaseRunSlot: (() => void) | undefined;
 
+/**
+ * File extensions the startup sweep removes from `tests/`.
+ *
+ * Kept in sync with `package.json` → `test:cleanup`. Every entry must be an
+ * extension NO tracked file under `tests/` uses — verify with
+ * `git ls-files tests | grep -iE '\.(png|txt|bin)$'` before widening it, or the
+ * sweep starts deleting fixtures the suite reads.
+ */
+const ARTIFACT_EXTENSIONS = ['.bin', '.png', '.txt'];
+
 export async function setup() {
   if (process.env.MONGODB_URI) {
     const connection = await MongoClient.connect(process.env.MONGODB_URI);
@@ -79,16 +89,23 @@ export async function setup() {
 
   const { dbName, query, serverUri } = splitMongoUri(envConfig.mongoose.uri);
 
-  // 0. Filesystem sweep — remove upload-test artifacts (`tests/*.txt` / `*.bin`)
-  // left behind by aborted file-upload specs. Same philosophy as the DB sweep
-  // below: restarting the suite restores a clean state no matter how the
-  // previous run died. No tracked fixtures match these patterns (git-verified);
-  // `pnpm run test:cleanup` remains for manual use.
+  // 0. Filesystem sweep — remove upload-test artifacts (`tests/*.txt`, `*.bin`,
+  // `*.png`) left behind by aborted file-upload specs. Same philosophy as the DB
+  // sweep below: restarting the suite restores a clean state no matter how the
+  // previous run died. No tracked fixtures match these patterns (git-verified:
+  // `git ls-files tests | grep -iE '\.(png|txt|bin)$'` is empty — five 16-byte
+  // `avatar-*.png` leftovers used to be tracked and were removed with the
+  // extension); `pnpm run test:cleanup` remains for manual use and matches the
+  // same three extensions.
+  //
+  // The specs themselves no longer write here at all — they stage fixtures in an
+  // `mkdtemp` directory under `os.tmpdir()` — so this is now a net for older
+  // branches and for anything that regresses to writing into `tests/`.
   try {
     // vitest runs globalSetup with cwd = project root (config `root: './'`).
     const testsDir = join(process.cwd(), 'tests');
     for (const entry of readdirSync(testsDir)) {
-      if ((entry.endsWith('.txt') || entry.endsWith('.bin')) && entry !== '.gitkeep') {
+      if (ARTIFACT_EXTENSIONS.some(extension => entry.endsWith(extension)) && entry !== '.gitkeep') {
         unlinkSync(join(testsDir, entry));
       }
     }

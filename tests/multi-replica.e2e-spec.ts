@@ -23,11 +23,16 @@ import type { SchedulerRegistry } from '@nestjs/schedule';
  */
 const RUN_PREFIX = `nest-server-multi-replica-${Date.now()}-p${process.pid}`;
 
-function createRedisService(): CoreRedisService {
+/**
+ * @param scope optional extra key namespace, so one case can enumerate ITS OWN lease keys
+ *   without seeing the ones another case in this file left behind. Still under `RUN_PREFIX`,
+ *   so the `afterAll` sweep collects it.
+ */
+function createRedisService(scope?: string): CoreRedisService {
   const redisConfig = {
     db: 15,
     host: process.env.REDIS_HOST || 'localhost',
-    keyPrefix: RUN_PREFIX,
+    keyPrefix: scope ? `${RUN_PREFIX}:${scope}` : RUN_PREFIX,
     options: { connectTimeout: 2000, maxRetriesPerRequest: 1 },
     port: process.env.REDIS_PORT ? Number(process.env.REDIS_PORT) : 6380,
   };
@@ -36,9 +41,49 @@ function createRedisService(): CoreRedisService {
   } as unknown as ConfigService);
 }
 
+/** Every key under `pattern`, sorted — used both by the assertions and by the teardown sweep */
+async function scanKeys(client: any, pattern: string): Promise<string[]> {
+  const found: string[] = [];
+  let cursor = '0';
+  do {
+    const [next, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+    found.push(...keys);
+    cursor = next;
+  } while (cursor !== '0');
+  return found.sort();
+}
+
+/**
+ * Poll until `check` holds, or FAIL with `message`.
+ *
+ * Deliberately a poll and not a fixed sleep. `runInitTick()` is fire-and-forget and
+ * `runDistributedTick()` awaits a Redis round trip, so "wait one tick of the event loop and
+ * assert" observes only whichever replica happened to be synchronous — see the comment on the
+ * startup case below. A poll waits for the actual outcome, and a timeout is a real failure
+ * rather than a quietly vacuous pass.
+ */
+async function waitUntil(check: () => boolean, message: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for: ${message}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
 /** A cron service standing in for one replica, recording every tick it actually ran */
 class ReplicaCronJobs extends CoreCronJobs {
   calls: string[] = [];
+
+  /**
+   * Every lease this replica ASKED for, and whether it won.
+   *
+   * `calls` alone cannot distinguish "the other replica lost the race" from "the other replica
+   * never got round to trying" — and the second is what a single-`setImmediate` wait actually
+   * observes. Recording the decision makes the loser's attempt visible.
+   */
+  leaseDecisions: { key: string; won: boolean }[] = [];
 
   constructor(jobs: Record<string, any>, redisService: CoreRedisService) {
     super(
@@ -55,6 +100,12 @@ class ReplicaCronJobs extends CoreCronJobs {
 
   override runDistributedTick(name: string, fireTime: Date | 'init'): Promise<void> {
     return super.runDistributedTick(name, fireTime);
+  }
+
+  protected override async acquireLease(name: string, fireTime: Date | 'init' | 'manual'): Promise<boolean> {
+    const won = await super.acquireLease(name, fireTime);
+    this.leaseDecisions.push({ key: `${name}:${fireTime === 'init' || fireTime === 'manual' ? fireTime : fireTime.toISOString()}`, won });
+    return won;
   }
 
   protected async report() {
@@ -77,7 +128,7 @@ describe('Multi-replica behavior (real Redis)', () => {
       await probe.onApplicationShutdown();
       throw new Error(
         'This suite needs a Redis on localhost:6380. Start one with:\n'
-        + '  docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7-alpine\n'
+        + '  docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7.4-alpine\n'
         + `Original error: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error },
       );
     }
@@ -89,14 +140,10 @@ describe('Multi-replica behavior (real Redis)', () => {
     const [probe] = services;
     if (probe?.enabled) {
       const client = probe.getClient();
-      let cursor = '0';
-      do {
-        const [next, keys] = await client.scan(cursor, 'MATCH', `${RUN_PREFIX}:*`, 'COUNT', 200);
-        if (keys.length) {
-          await client.del(...keys);
-        }
-        cursor = next;
-      } while (cursor !== '0');
+      const keys = await scanKeys(client, `${RUN_PREFIX}:*`);
+      if (keys.length) {
+        await client.del(...keys);
+      }
     }
     await Promise.all(services.map(service => service.onApplicationShutdown()));
   });
@@ -120,7 +167,12 @@ describe('Multi-replica behavior (real Redis)', () => {
   });
 
   it('runs the startup tick on exactly one replica, even though they boot at different moments', async () => {
-    const [redisA, redisB] = [createRedisService(), createRedisService()];
+    // Own key scope, so the key enumeration at the end sees only THIS case's leases and not the
+    // scheduled-tick lease the previous case left in Redis.
+    const scope = 'init-tick';
+    const leaseKeyPattern = `${RUN_PREFIX}:${scope}:cron-lock:*`;
+
+    const [redisA, redisB] = [createRedisService(scope), createRedisService(scope)];
     services.push(redisA, redisB);
     await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
 
@@ -131,9 +183,33 @@ describe('Multi-replica behavior (real Redis)', () => {
 
     const replicaB = new ReplicaCronJobs({ report: { cronTime: NEVER, runOnInit: true } }, redisB);
     await replicaB.onApplicationBootstrap();
-    await new Promise(resolve => setImmediate(resolve));
 
+    // WAIT FOR THE OUTCOME, not for a fixed amount of time. `runOnInit` fires through
+    // `runInitTick()`, which is deliberately fire-and-forget, and `runDistributedTick()` then
+    // awaits `acquireLease()` — a Redis round trip. So B's tick cannot possibly have resolved by
+    // the next `setImmediate`, which is exactly what this case used to wait for: it only ever
+    // observed A, and a COMPLETELY BROKEN startup dedup would have passed it.
+    await waitUntil(
+      () => replicaA.leaseDecisions.length === 1 && replicaB.leaseDecisions.length === 1,
+      'both replicas to settle their startup lease',
+    );
+
+    // Exactly one replica ran the job…
     expect([...replicaA.calls, ...replicaB.calls]).toEqual(['report']);
+
+    // …and the other one ATTEMPTED and LOST. This is the half `calls` cannot show: without it,
+    // "B never tried" and "B tried and was correctly refused" look identical.
+    const decisions = [...replicaA.leaseDecisions, ...replicaB.leaseDecisions];
+    expect(decisions.map(decision => decision.key)).toEqual(['report:init', 'report:init']);
+    expect(decisions.filter(decision => decision.won)).toHaveLength(1);
+
+    // ONE FIXED lease key for the whole fleet. Replicas do not share a boot instant, so a
+    // clock-derived key would yield a distinct key per replica — and every replica would run the
+    // job. Enumerating the keyspace pins both properties at once: the key is `report:init`, and
+    // there is exactly one of them.
+    expect(await scanKeys(redisA.getClient(), leaseKeyPattern)).toEqual([
+      `${RUN_PREFIX}:${scope}:cron-lock:report:init`,
+    ]);
 
     await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
   });

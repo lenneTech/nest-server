@@ -14,6 +14,7 @@ interface TestEntry extends HubBufferEntry {
 function makeRedis() {
   const counters = new Map<string, number>();
   const lists = new Map<string, string[]>();
+  const ttls = new Map<string, number>();
   const client = {
     del: async (key: string) => {
       lists.delete(key);
@@ -28,6 +29,13 @@ function makeRedis() {
             op();
           }
           return results;
+        },
+        expire(key: string, seconds: number) {
+          ops.push(() => {
+            ttls.set(key, seconds);
+            results.push([null, 1]);
+          });
+          return chain;
         },
         get(key: string) {
           ops.push(() => results.push([null, String(counters.get(key) ?? 0)]));
@@ -72,7 +80,7 @@ function makeRedis() {
     getClient: () => client,
     key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
   };
-  return { lists, redis };
+  return { lists, redis, ttls };
 }
 
 /** Appends are fire-and-forget; let the queued promises settle before reading. */
@@ -174,6 +182,59 @@ describe('HubBuffer', () => {
       // The counter is NOT reset, so a client cursor of 1 is still in the past.
       expect(data.cursor).toBe(1);
       expect(data.dropped).toBe(-1);
+    });
+
+    it('expires the shared list so captured logs, traces and emails do not outlive the deployment', async () => {
+      // LTRIM bounds the SIZE, nothing bounded the TIME — so a mirrored buffer survived the
+      // process, the deployment and every Redis snapshot in between, still holding request traces
+      // and (in mailbox capture mode) whole emails with live verification/reset links.
+      const { redis, ttls } = makeRedis();
+      const buffer = new HubBuffer<TestEntry>(10, 'mailbox', redis);
+      buffer.add({ message: 'a' });
+      await settle();
+
+      expect(ttls.get('nest-server:hub:mailbox')).toBe(24 * 60 * 60);
+      // The seq counter must NOT expire: cursors have to stay valid, as they do across clear().
+      expect(ttls.has('nest-server:hub:mailbox:seq')).toBe(false);
+    });
+
+    it('reads only the delta a polling client is missing', async () => {
+      // The panel polls every 5s against a buffer of up to 1000 entries. Reading and parsing the
+      // whole list each time paid capacity-many costs for a single-digit delta.
+      const { redis } = makeRedis();
+      const buffer = new HubBuffer<TestEntry>(500, 'traces', redis);
+      for (let i = 0; i < 300; i++) {
+        buffer.add({ message: `m${i}` });
+      }
+      await settle();
+
+      const cursor = (await buffer.read()).cursor;
+      buffer.add({ message: 'fresh' });
+      await settle();
+
+      const data = await buffer.read(cursor);
+      expect(data.entries.map(e => e.message)).toEqual(['fresh']);
+      expect(data.cursor).toBe(300);
+    });
+
+    it('still returns everything when the client is further behind than one chunk', async () => {
+      const { redis } = makeRedis();
+      const buffer = new HubBuffer<TestEntry>(500, 'traces', redis);
+      buffer.add({ message: 'first' });
+      await settle();
+      const cursor = (await buffer.read()).cursor;
+
+      // Well past the read chunk size, so the bounded range has to be widened.
+      for (let i = 0; i < 200; i++) {
+        buffer.add({ message: `m${i}` });
+      }
+      await settle();
+
+      const data = await buffer.read(cursor);
+      expect(data.entries).toHaveLength(200);
+      expect(data.entries[0].message).toBe('m0');
+      expect(data.entries[199].message).toBe('m199');
+      expect(data.entries.map(e => e.seq)).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
     });
 
     it('falls back to the local buffer when Redis reads fail', async () => {

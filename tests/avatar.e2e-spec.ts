@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
+import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
 /**
  * The avatar upload had NO test at all, and was broken the whole time: `setAvatar()` looked the
  * user up with `findOne({ id })`, but `id` is a Mongoose virtual that does not exist in MongoDB,
@@ -20,12 +21,18 @@ describe('Avatar upload (e2e)', () => {
   let app;
   let mongoClient: MongoClient;
   let testHelper: TestHelper;
+  // Upload fixtures are staged OUTSIDE the repository. They used to be written
+  // into `tests/` and unlinked after the upload assertion — which leaks the file
+  // on exactly the failure this spec exists to catch, and did: five 16-byte
+  // `avatar-*.png` artifacts ended up committed. See tests/helpers/tmp-fixtures.ts.
+  let fixtureDir: string;
   const user: { email: string; id?: string; password: string; token?: string } = {
     email: `avatar-${Math.random().toString(36).substring(7)}@test.com`,
     password: Math.random().toString(36).substring(7),
   };
 
   beforeAll(async () => {
+    fixtureDir = await createFixtureDir('nest-server-avatar-');
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [ServerModule] }).compile();
     app = moduleFixture.createNestApplication();
     await app.init();
@@ -34,6 +41,7 @@ describe('Avatar upload (e2e)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await removeFixtureDir(fixtureDir);
     await mongoClient?.close();
     await app?.close();
   });
@@ -61,7 +69,7 @@ describe('Avatar upload (e2e)', () => {
 
   it('stores the avatar in the central file storage, not on local disk', async () => {
     const filename = `avatar-${Math.random().toString(36).substring(7)}.png`;
-    const local = path.join(__dirname, filename);
+    const local = path.join(fixtureDir, filename);
     // A minimal but real PNG header — the endpoint filters on mimetype and extension
     await fs.promises.writeFile(local, Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'));
 
@@ -71,7 +79,6 @@ describe('Avatar upload (e2e)', () => {
       statusCode: 201,
       token: user.token,
     });
-    await fs.promises.unlink(local);
 
     expect(String(avatarId)).toMatch(/^[a-f0-9]{24}$/);
 

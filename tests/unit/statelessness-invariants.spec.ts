@@ -121,6 +121,16 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'Which ioredis CONNECTIONS the hit script has been registered on via defineCommand — an '
+      + 'attribute of a socket this process owns, so there is nothing for a second replica to '
+      + 'agree with. Weak, so a discarded connection is not kept alive by the bookkeeping; a '
+      + 'replica that has not registered yet simply registers on its first hit.',
+    classification: 'local',
+    file: 'common/services/rate-limit-store.ts',
+    name: 'prepared',
+  },
+  {
+    because:
       'Live Streamable-HTTP transports, each holding an open response stream — they cannot leave '
       + 'the process. The SESSION REGISTRY is shared through Redis so a mis-routed request gets an '
       + 'explicit answer naming the owning replica; /ai/mcp requires sticky sessions.',

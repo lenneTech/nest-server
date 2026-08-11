@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InMemoryRateLimitStore, RedisRateLimitStore } from '../../src/core/common/services/rate-limit-store';
+import {
+  InMemoryRateLimitStore,
+  rateLimitKey,
+  rateLimitKeyPrefix,
+  RedisRateLimitStore,
+} from '../../src/core/common/services/rate-limit-store';
 
 import type { CoreRedisService } from '../../src/core/common/services/core-redis.service';
 
@@ -112,10 +117,61 @@ describe('InMemoryRateLimitStore', () => {
     await store.clear();
     expect(store.size()).toBe(0);
   });
+
+  it('clear also drops the overflow buckets', async () => {
+    // The overflow map is bounded, so leaving it behind cannot leak — but it still holds live
+    // counts. A test that clears the store and then sees a limit trip early is looking at counters
+    // it believes it deleted.
+    for (let i = 0; i < 5; i++) {
+      await store.hit(`filler-${i}`, 60);
+    }
+    expect((await store.hit('overflow-caller', 60)).count).toBe(1);
+    expect((await store.hit('overflow-caller', 60)).count).toBe(2);
+
+    await store.clear();
+    expect((await store.hit('overflow-caller', 60)).count).toBe(1);
+  });
 });
 
 describe('RedisRateLimitStore', () => {
-  /** Minimal fake client implementing the eval/scan/del surface the store uses */
+  /**
+   * Translate a Redis `SCAN MATCH` pattern the way Redis itself does (`stringmatchlen`): `\x` is a
+   * LITERAL x, `*` any run, `?` one character, `[...]` a class.
+   *
+   * The escape handling is the part that matters. A fake that merely rewrites `*` to `.*` treats
+   * `\*` as "backslash, then any run" and therefore happily matches a key that carries the escape
+   * backslash literally — so it AGREES with a store that escapes the key on the way in and the
+   * pattern on the way out. That is precisely how a reset broke for every IPv6 caller with this
+   * suite green. Real semantics here, plus the round-trip in `tests/redis-infra.e2e-spec.ts`.
+   */
+  function globToRegExp(pattern: string): RegExp {
+    const literal = (char: string) => char.replace(/[$()*+.?[\\\]^{|}]/g, '\\$&');
+    let source = '';
+    for (let i = 0; i < pattern.length; i++) {
+      const char = pattern[i];
+      if (char === '\\' && i + 1 < pattern.length) {
+        source += literal(pattern[++i]);
+      } else if (char === '*') {
+        source += '.*';
+      } else if (char === '?') {
+        source += '.';
+      } else if (char === '[' || char === ']') {
+        source += char;
+      } else {
+        source += literal(char);
+      }
+    }
+    return new RegExp(`^${source}$`);
+  }
+
+  /**
+   * Minimal fake client implementing the eval/scan/del surface the store uses.
+   *
+   * `eval` mirrors the semantics of HIT_SCRIPT: three keys (counter, per-namespace cardinality,
+   * overflow bucket) and two arguments (window, cap). The cardinality branch is what bounds the
+   * keyspace, so the fake has to model it — a fake that only ever incremented KEYS[1] would pass
+   * while the store had no bound at all.
+   */
   function createFakeRedis() {
     const counters = new Map<string, number>();
     return {
@@ -124,25 +180,37 @@ describe('RedisRateLimitStore', () => {
         keys.forEach((key) => counters.delete(key));
         return keys.length;
       }),
-      eval: vi.fn(async (_script: string, _numKeys: number, key: string, windowSeconds: number) => {
-        const count = (counters.get(key) ?? 0) + 1;
-        counters.set(key, count);
-        return [count, Number(windowSeconds)];
+      eval: vi.fn(async (_script: string, numKeys: number, ...rest: unknown[]) => {
+        const [key, cardinalityKey, overflowKey] = rest.slice(0, numKeys) as string[];
+        const [windowSeconds, maxKeys] = rest.slice(numKeys) as number[];
+        let target = key;
+        let overflow = 0;
+        if (!counters.has(key)) {
+          const seen = (counters.get(cardinalityKey) ?? 0) + 1;
+          counters.set(cardinalityKey, seen);
+          if (seen > Number(maxKeys)) {
+            target = overflowKey;
+            overflow = 1;
+          }
+        }
+        const count = (counters.get(target) ?? 0) + 1;
+        counters.set(target, count);
+        return [count, Number(windowSeconds), overflow];
       }),
       scan: vi.fn(async (_cursor: string, _match: string, pattern: string) => {
-        const regex = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`);
+        const regex = globToRegExp(pattern);
         return ['0', [...counters.keys()].filter((key) => regex.test(key))];
       }),
     };
   }
 
-  function createStore() {
+  function createStore(maxKeys?: number) {
     const client = createFakeRedis();
     const redisService = {
       getClient: () => client,
       key: (...parts: string[]) => ['test-prefix', ...parts].join(':'),
     } as unknown as CoreRedisService;
-    return { client, store: new RedisRateLimitStore(redisService, 'better-auth') };
+    return { client, store: new RedisRateLimitStore(redisService, 'better-auth', maxKeys) };
   }
 
   it('hits via atomic eval with namespaced key', async () => {
@@ -151,11 +219,63 @@ describe('RedisRateLimitStore', () => {
     expect(result).toEqual({ count: 1, resetIn: 60 });
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining('INCR'),
-      1,
+      3,
       'test-prefix:rate-limit:better-auth:1.2.3.4:sign-in',
+      'test-prefix:rate-limit:better-auth:#meta:cardinality',
+      expect.stringContaining('test-prefix:rate-limit:better-auth:#overflow:'),
       60,
+      10000,
     );
     expect((await store.hit('1.2.3.4:sign-in', 60)).count).toBe(2);
+  });
+
+  it('bounds the keyspace instead of INCRing whatever the caller names', async () => {
+    // Both parts of a key are caller-influenced, so an unbounded INCR is an unbounded write
+    // primitive against the Redis instance that also holds cron leases, MCP session ownership and
+    // the Hub buffers. The in-memory store has always defended against this; the Redis one must
+    // not drop that defense just because `redis` is configured. As there, the right failure is a
+    // COARSER limit for new clients — never an uncounted 1 per fresh key, which is a total bypass.
+    const { store } = createStore(3);
+
+    for (let i = 0; i < 3; i++) {
+      expect((await store.hit(`known-${i}`, 60)).count).toBe(1);
+    }
+
+    // Past the cap, distinct new keys are folded into shared counters — so the totals keep rising
+    // across the flood instead of resetting to 1 each time.
+    const flood: number[] = [];
+    for (let i = 0; i < 300; i++) {
+      flood.push((await store.hit(`flood-${i}`, 60)).count);
+    }
+    expect(Math.max(...flood)).toBeGreaterThan(1);
+
+    // Counters that existed before saturation keep their own exact count.
+    expect((await store.hit('known-0', 60)).count).toBe(2);
+  });
+
+  it('uses the registered command instead of shipping the script when the client supports it', async () => {
+    // defineCommand sends EVALSHA and only falls back to the body on NOSCRIPT, rather than pushing
+    // the whole Lua source on every single request.
+    const defined = new Map<string, { lua: string; numberOfKeys: number }>();
+    const client: any = {
+      defineCommand: vi.fn((name: string, options: { lua: string; numberOfKeys: number }) => {
+        defined.set(name, options);
+        client[name] = vi.fn(async () => [1, 60, 0]);
+      }),
+      eval: vi.fn(),
+    };
+    const redisService = {
+      getClient: () => client,
+      key: (...parts: string[]) => ['test-prefix', ...parts].join(':'),
+    } as unknown as CoreRedisService;
+    const store = new RedisRateLimitStore(redisService, 'better-auth');
+
+    expect(await store.hit('1.2.3.4:sign-in', 60)).toEqual({ count: 1, resetIn: 60 });
+    await store.hit('1.2.3.4:sign-in', 60);
+
+    expect(client.eval).not.toHaveBeenCalled();
+    expect(client.defineCommand).toHaveBeenCalledTimes(1);
+    expect(defined.get('ltRateLimitHit')?.numberOfKeys).toBe(3);
   });
 
   it('resetByPrefix scans and deletes matching keys only', async () => {
@@ -163,7 +283,12 @@ describe('RedisRateLimitStore', () => {
     await store.hit('1.2.3.4:sign-in', 60);
     await store.hit('5.6.7.8:sign-in', 60);
     await store.resetByPrefix('1.2.3.4:');
-    expect([...client.counters.keys()]).toEqual(['test-prefix:rate-limit:better-auth:5.6.7.8:sign-in']);
+    // `#meta:cardinality` is the framework's own keyspace bound and survives a per-IP reset by
+    // design — resetting one client must not hand an attacker a way to clear the cap as well.
+    expect([...client.counters.keys()]).toEqual([
+      'test-prefix:rate-limit:better-auth:#meta:cardinality',
+      'test-prefix:rate-limit:better-auth:5.6.7.8:sign-in',
+    ]);
   });
 
   it('size is not cheaply known on Redis', () => {
@@ -216,17 +341,79 @@ describe('RedisRateLimitStore', () => {
     expect((await store.hit('5.6.7.8:sign-in', 60)).count).toBe(1);
   });
 
-  it('escapes glob metacharacters so a reset cannot reach other callers keys', async () => {
-    // The key embeds caller-controlled data. An unescaped `*` would make resetByPrefix
-    // clear every other client's counters as well.
+  it('stores the key literally and escapes only the scan pattern', async () => {
+    // Escape ONCE. The key is data — it goes to Redis as-is; only the SCAN pattern is a glob and
+    // therefore the only place a caller-controlled `*` has to be neutralised. Escaping both left
+    // the stored key carrying the backslashes literally while the pattern's `\x` matched a single
+    // unescaped `x`, so the two never met again and resetByPrefix cleared nothing.
     const { client, store } = createStore();
     await store.hit('*:sign-in', 60);
 
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining('INCR'),
-      1,
-      'test-prefix:rate-limit:better-auth:\\*:sign-in',
+      3,
+      'test-prefix:rate-limit:better-auth:*:sign-in',
+      expect.any(String),
+      expect.any(String),
       60,
+      10000,
     );
+
+    await store.resetByPrefix('*:');
+    expect(client.scan).toHaveBeenCalledWith('0', 'MATCH', 'test-prefix:rate-limit:better-auth:\\*:*', 'COUNT', 200);
+  });
+
+  it('round-trips a reset for keys carrying a separator escape or a glob metacharacter', async () => {
+    // Every IPv6 address makes rateLimitKey emit `\:`, so this is the ordinary case, not an exotic
+    // one — and it is invisible to the in-memory fallback, which compares with startsWith.
+    const { store } = createStore();
+    const shapes = ['1.2.3.4', '::1', '::ffff:127.0.0.1', '2001:db8::42', 'a*b[c'];
+
+    for (const ip of shapes) {
+      const key = rateLimitKey(ip, 'signIn');
+      expect((await store.hit(key, 60)).count).toBe(1);
+      expect((await store.hit(key, 60)).count).toBe(2);
+
+      await store.resetByPrefix(rateLimitKeyPrefix(ip));
+
+      // A no-op reset answers 3 here — which is what an admin unblock reported success for.
+      expect((await store.hit(key, 60)).count).toBe(1);
+    }
+  });
+
+  it('a reset stays inside its own prefix even when the key contains a glob metacharacter', async () => {
+    const { store } = createStore();
+    const shapes = ['1.2.3.4', '::1', 'a*b[c'];
+    for (const ip of shapes) {
+      await store.hit(rateLimitKey(ip, 'signIn'), 60);
+    }
+
+    await store.resetByPrefix(rateLimitKeyPrefix('a*b[c'));
+
+    expect((await store.hit(rateLimitKey('a*b[c', 'signIn'), 60)).count).toBe(1);
+    expect((await store.hit(rateLimitKey('1.2.3.4', 'signIn'), 60)).count).toBe(2);
+    expect((await store.hit(rateLimitKey('::1', 'signIn'), 60)).count).toBe(2);
+  });
+});
+
+describe('rateLimitKey', () => {
+  it('keeps caller-controlled parts from straddling the segment separator', () => {
+    // `:` separates every segment of a framework key, so plain concatenation let a caller aim at
+    // someone else's counter: an IP of "1.2.3.4:5" with endpoint "/a" produced the same key as IP
+    // "1.2.3.4" with endpoint "5:/a". Every IPv6 address contains colons, so this is not exotic.
+    expect(rateLimitKey('1.2.3.4:5', '/a')).not.toBe(rateLimitKey('1.2.3.4', '5:/a'));
+    expect(rateLimitKey('1.2.3.4', 'signIn')).toBe('1.2.3.4:signIn');
+  });
+
+  it('cannot be forged with a literal backslash', () => {
+    // Escaping `:` without first escaping `\` would let a part end in a backslash and neutralize
+    // the escape of the separator that follows it.
+    expect(rateLimitKey('a\\', 'b')).not.toBe(rateLimitKey('a', ':b'));
+  });
+
+  it('builds a reset prefix that stops at the separator', () => {
+    // Without the trailing real separator, resetting "1.2.3.4" would also clear "1.2.3.40".
+    expect(rateLimitKeyPrefix('1.2.3.4')).toBe('1.2.3.4:');
+    expect(rateLimitKey('1.2.3.40', 'signIn').startsWith(rateLimitKeyPrefix('1.2.3.4'))).toBe(false);
   });
 });

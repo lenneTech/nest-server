@@ -45,6 +45,35 @@ describe('Filesystem storage (e2e)', () => {
     return info;
   };
 
+  it('records which store holds the bytes, so a reader need not probe all three', async () => {
+    const info = await write({ buffer: Buffer.from('marked'), filename: 'marked.txt' });
+
+    // The three stores write structurally identical metadata documents. Without this
+    // marker nothing in a fetched file info says where it came from, which is why a
+    // single download used to resolve the same id up to three times.
+    const stored = await collection.findOne({ _id: info._id });
+    expect(stored.storage).toBe('filesystem');
+  });
+
+  it('creates the filename index when writing, not when reading', async () => {
+    await write({ buffer: Buffer.from('indexed'), filename: 'indexed.txt' });
+
+    const names = (await collection.indexes()).map((index: any) => index.name);
+    expect(names).toContain('filename_1');
+
+    // The other side of the same rule: `createIndex` CREATES the collection, so
+    // ensuring an index while READING gave a GridFS-only deployment an empty
+    // `s3-files` and `filesystem-files` it has no reason to have. A store that is
+    // never written to must stay absent.
+    const listed = async (name: string) =>
+      (await client.db().listCollections({ name }, { nameOnly: true }).toArray()).length;
+
+    // The positive half keeps this from passing vacuously: listCollections must be
+    // able to SEE the collection we did write to, or the absence below proves nothing.
+    expect(await listed(FILESYSTEM_FILES_COLLECTION)).toBe(1);
+    expect(await listed('s3-files')).toBe(0);
+  });
+
   it('stores the bytes on disk and the metadata in the database', async () => {
     const info = await write({
       buffer: Buffer.from('hello filesystem'),

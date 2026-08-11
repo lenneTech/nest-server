@@ -1,10 +1,15 @@
 import { NotFoundException } from '@nestjs/common';
 import type { Response } from 'express';
+import { validateHeaderValue } from 'http';
 import { PassThrough, Readable } from 'stream';
 import { describe, expect, it } from 'vitest';
 
 import type { CoreFileService } from '../../src/core/modules/file/core-file.service';
-import { CoreFileController, pipeFileToResponse } from '../../src/core/modules/file/core-file.controller';
+import {
+  buildContentDisposition,
+  CoreFileController,
+  pipeFileToResponse,
+} from '../../src/core/modules/file/core-file.controller';
 
 /**
  * Build a response stub that records what the handler did to it.
@@ -144,12 +149,18 @@ describe('pipeFileToResponse', () => {
     const file = { contentType: 'image/png', filename: 'secret.png', id: 'abc' };
     const { res } = responseStub(false);
 
+    // `resolveFile()` answers metadata AND the store in one lookup, and returns null
+    // on a rights refusal exactly as `getFileInfo()` did. Both shapes are pinned here:
+    // a file that EXISTS but whose stream is refused, and an id that does not exist.
     const refusedErr = await download(
-      { getFileInfo: async () => file, getFileStream: async () => null } as unknown as Partial<CoreFileService>,
+      {
+        getFileStream: async () => null,
+        resolveFile: async () => ({ info: file, store: 'gridfs' }),
+      } as unknown as Partial<CoreFileService>,
       res,
     ).catch((e: unknown) => e);
     const unknownErr = await download(
-      { getFileInfo: async () => null, getFileStream: async () => null } as unknown as Partial<CoreFileService>,
+      { getFileStream: async () => null, resolveFile: async () => null } as unknown as Partial<CoreFileService>,
       res,
     ).catch((e: unknown) => e);
 
@@ -192,8 +203,11 @@ describe('pipeFileToResponse', () => {
 
       await download(
         {
-          getFileInfo: async () => file,
           getFileStream: async () => stream,
+          // `store: 's3'` matters: the presigned branch is only ATTEMPTED for
+          // S3-stored bytes now, so a GridFS store here would skip it and the test
+          // would pass without ever exercising the failure it exists to cover.
+          resolveFile: async () => ({ info: file, store: 's3' }),
           ...brokenUrlSource,
         } as unknown as Partial<CoreFileService>,
         res,
@@ -204,6 +218,104 @@ describe('pipeFileToResponse', () => {
     }
   });
 
+  it('sets the Content-Disposition the shared builder produces', () => {
+    // Pins that the route actually goes through the builder — the four cases
+    // below assert the rendering, this asserts the wiring, so a future
+    // hand-rolled header in setFileHeaders cannot pass unnoticed.
+    const { calls, res } = responseStub(false);
+
+    (CoreFileController.prototype as unknown as { setFileHeaders: (r: Response, f: unknown) => void }).setFileHeaders(
+      res,
+      { contentType: 'application/pdf', filename: 'Übersicht.pdf' },
+    );
+
+    expect(calls.set['Content-Disposition']).toBe(buildContentDisposition('Übersicht.pdf'));
+  });
+});
+
+/**
+ * Structure of a well-formed value: exactly one quoted `filename` whose value can
+ * contain no `"` at all, followed by exactly one `filename*` ext-value.
+ *
+ * Matching this IS the injection assertion — a filename that managed to close the
+ * quoted-string and append its own parameter could not produce a string of this
+ * shape, and neither could one that smuggled a second `filename*` (which would win
+ * over `filename` per RFC 6266 §4.3).
+ */
+const DISPOSITION = /^attachment; filename="([^"]*)"; filename\*=UTF-8''(.*)$/;
+
+/** RFC 8187 `value-chars = *( pct-encoded / attr-char )` */
+const EXT_VALUE = /^(?:[A-Za-z0-9!#$&+\-.^_`|~]|%[0-9A-F]{2})*$/;
+
+describe('buildContentDisposition', () => {
+  // The `filename` parameter is an RFC 6266 quoted-string and nothing
+  // percent-decodes it, so the ASCII fallback has to be literal — percent-encoding
+  // it makes a client without `filename*` support save "Jahresbericht%202024.pdf".
+  // The `filename*` parameter carries the real name and must be a valid RFC 8187
+  // ext-value, which `encodeURIComponent` alone does not produce: it leaves `'`,
+  // `(`, `)` and `*`, none of which is an attr-char.
+  it.each([
+    [
+      'leaves a space literal in the quoted name and encodes it in the ext-value',
+      'Jahresbericht 2024.pdf',
+      'attachment; filename="Jahresbericht 2024.pdf"; filename*=UTF-8\'\'Jahresbericht%202024.pdf',
+    ],
+    [
+      'replaces a non-ASCII character in the quoted name, keeps it in the ext-value',
+      'Übersicht.pdf',
+      'attachment; filename="_bersicht.pdf"; filename*=UTF-8\'\'%C3%9Cbersicht.pdf',
+    ],
+    [
+      'neutralises CR/LF so setHeader cannot throw ERR_INVALID_CHAR',
+      'a\r\nX-Evil: 1.txt',
+      'attachment; filename="a__X-Evil: 1.txt"; filename*=UTF-8\'\'a%0D%0AX-Evil%3A%201.txt',
+    ],
+    [
+      "encodes the four non-attr-chars encodeURIComponent leaves ('()*)",
+      "O'Brien (final)*.pdf",
+      "attachment; filename=\"O'Brien (final)*.pdf\"; filename*=UTF-8''O%27Brien%20%28final%29%2A.pdf",
+    ],
+  ])('%s', (_name, filename, expected) => {
+    expect(buildContentDisposition(filename)).toBe(expected);
+  });
+
+  it('emits a header Node accepts and a client cannot re-parameterise', () => {
+    for (const filename of [
+      'Jahresbericht 2024.pdf',
+      'Übersicht.pdf',
+      'a\r\nX-Evil: 1.txt',
+      "O'Brien (final)*.pdf",
+      // The direct attempt: close the quoted-string, append a winning `filename*`.
+      "a\"; filename*=UTF-8''evil.exe",
+      // A backslash would otherwise start a quoted-pair and escape the closing quote.
+      'back\\".exe',
+      // Bare `;` — legal inside a quoted-string, and must stay inside it.
+      'report; version 2.pdf',
+    ]) {
+      const value = buildContentDisposition(filename);
+
+      // Would throw ERR_INVALID_CHAR on a surviving CR/LF, which is what turned
+      // one hostile filename into a permanent 500 on that file's download.
+      expect(() => validateHeaderValue('Content-Disposition', value)).not.toThrow();
+
+      const match = DISPOSITION.exec(value);
+      expect(match, `not a single well-formed disposition: ${value}`).not.toBeNull();
+      expect(match[2]).toMatch(EXT_VALUE);
+      // Nothing that could terminate the header or the parameter survives.
+      expect(match[1]).not.toMatch(/["\\\r\n]/);
+    }
+  });
+
+  it('falls back to a usable name when the file has none', () => {
+    // GridFS and both metadata stores allow an empty filename, and an empty
+    // `filename=""` makes browsers save the URL's last path segment — which on
+    // `/files/id/:id` is the raw ObjectId.
+    expect(buildContentDisposition(undefined)).toBe(buildContentDisposition('download'));
+    expect(buildContentDisposition('')).toBe(buildContentDisposition('download'));
+  });
+});
+
+describe('pipeFileToResponse (stream lifecycle)', () => {
   it('destroys the source stream when the client goes away', async () => {
     // `pipe()` only ever unpipes the DESTINATION; it never destroys the source.
     // On a public download route an aborted request would therefore leak the

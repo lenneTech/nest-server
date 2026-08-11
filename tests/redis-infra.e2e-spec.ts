@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
-import { RedisRateLimitStore } from '../src/core/common/services/rate-limit-store';
+import { rateLimitKey, rateLimitKeyPrefix, RedisRateLimitStore } from '../src/core/common/services/rate-limit-store';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
 
@@ -14,7 +14,7 @@ import type { ConfigService } from '../src/core/common/services/config.service';
  */
 const RUN_PREFIX = `nest-server-e2e-${Date.now()}-p${process.pid}`;
 
-const START_CONTAINER = 'docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7-alpine';
+const START_CONTAINER = 'docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7.4-alpine';
 
 function createService(): CoreRedisService {
   const redisConfig = {
@@ -115,6 +115,47 @@ describe('Redis infrastructure (real Redis)', () => {
       await store.resetByPrefix('1.2.3.4:');
       expect((await store.hit('1.2.3.4:sign-in', 60)).count).toBe(1);
       expect((await store.hit('5.6.7.8:sign-in', 60)).count).toBe(2);
+    });
+
+    // The two tests below use rateLimitKey()/rateLimitKeyPrefix() — the construction the limiters
+    // themselves use — and run against a real Redis, because the property under test IS Redis's
+    // glob semantics. A fake SCAN that translates `*` to `.*` agrees with a store that escapes the
+    // key twice, which is exactly how this shipped: reset() silently cleared nothing for every
+    // IPv6 caller while reporting success, and only on the Redis store, so single-replica setups
+    // (in-memory fallback, plain `startsWith`) never saw it.
+    const KEY_SHAPES = ['1.2.3.4', '::1', '::ffff:127.0.0.1', '2001:db8::42', 'a*b[c'];
+
+    // Counters live for a full window, so a retried attempt must not inherit the previous one's
+    // state — every attempt takes its own namespace.
+    let shapeRun = 0;
+
+    it.each(KEY_SHAPES)('resetByPrefix actually clears the counter for %j', async (ip) => {
+      const store = new RedisRateLimitStore(service, `e2e-shape-${shapeRun++}`);
+      const key = rateLimitKey(ip, 'signIn');
+
+      expect((await store.hit(key, 60)).count).toBe(1);
+      expect((await store.hit(key, 60)).count).toBe(2);
+
+      await store.resetByPrefix(rateLimitKeyPrefix(ip));
+
+      // A no-op reset would answer 3 here — and an admin unblock would have reported success.
+      expect((await store.hit(key, 60)).count).toBe(1);
+    });
+
+    it('resetByPrefix does not sweep neighbouring counters, whatever the key contains', async () => {
+      // The other direction: a glob metacharacter in a caller-controlled part must not widen the
+      // pattern into everyone else's counters.
+      const store = new RedisRateLimitStore(service, `e2e-shape-scope-${shapeRun++}`);
+      for (const ip of KEY_SHAPES) {
+        expect((await store.hit(rateLimitKey(ip, 'signIn'), 60)).count).toBe(1);
+      }
+
+      await store.resetByPrefix(rateLimitKeyPrefix('a*b[c'));
+
+      expect((await store.hit(rateLimitKey('a*b[c', 'signIn'), 60)).count).toBe(1);
+      for (const other of KEY_SHAPES.filter(ip => ip !== 'a*b[c')) {
+        expect((await store.hit(rateLimitKey(other, 'signIn'), 60)).count).toBe(2);
+      }
     });
   });
 });

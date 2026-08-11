@@ -13,9 +13,13 @@ import type { ConfigService } from '../src/core/common/services/config.service';
  */
 const RUN_BUCKET = `nest-server-e2e-${Date.now()}-p${process.pid}`;
 
+// The image tag must stay identical to the pin in scripts/test-infra.mjs and
+// .github/actions/test-infra/action.yml. A hint that says `:latest` starts a
+// container `containerMatches()` rejects, so the next `pnpm test` tears it down
+// and recreates it — for a developer who followed the instructions.
 const START_CONTAINER
   = 'docker run -d --name nest-server-2985-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs '
-    + '-e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:latest server /data';
+    + '-e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:1.0.0-rc.1 server /data';
 
 function createService(): CoreS3Service {
   const s3Config = {
