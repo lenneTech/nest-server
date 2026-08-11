@@ -34,14 +34,23 @@ mis-named suite fails the build instead of silently passing. Type-only tests
 
 ## Infrastructure containers (Redis + S3)
 
-Four e2e suites (`redis-infra`, `s3-infra`, `multi-replica`, `redis-s3-bootstrap`, plus
-`file-storage-s3` and `graceful-shutdown`) talk to a **real** Redis and a **real** S3-compatible
-store rather than a mock, and they **fail loudly** when it is missing — a silently skipped
-infrastructure test is how an untested driver ships.
+**Seven** e2e suites talk to a **real** Redis and/or a **real** S3-compatible store rather than a
+mock, and they **fail loudly** when it is missing — a silently skipped infrastructure test is how an
+untested driver ships:
+
+| Suite | Needs |
+|-------|-------|
+| `tests/redis-infra.e2e-spec.ts` | Redis |
+| `tests/redis-consumers.e2e-spec.ts` | Redis |
+| `tests/multi-replica.e2e-spec.ts` | Redis |
+| `tests/s3-infra.e2e-spec.ts` | S3 |
+| `tests/file-storage-s3.e2e-spec.ts` | S3 |
+| `tests/redis-s3-bootstrap.e2e-spec.ts` | Redis + S3 |
+| `tests/graceful-shutdown.e2e-spec.ts` | Redis + S3 |
 
 `tests/global-setup.ts` starts both containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the six above report their own actionable
+fatal: without Docker every other suite still runs, and the seven above report their own actionable
 error.
 
 ```bash
@@ -99,10 +108,9 @@ pnpm run test:cleanup
 - DB lifecycle (`tests/db-lifecycle.reporter.ts`): run passes → DB dropped immediately + stale run DBs from crashed/failed runs collected; run fails → DB kept for debugging. Additionally `tests/global-setup.ts` runs a **startup sweep** (shared `isStaleTestDb()` predicate, dead-PID/age guarded) — leftovers are removed when the NEXT run starts, which survives SIGKILL (check watchdog) and `--reporter` CLI overrides. An externally set `MONGODB_URI` (CI) opts out of the scheme.
 - Run governor (`tests/e2e-run-slots.ts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open).
 - `retry: 2` (e2e) is deliberate — with `retry: 5`, one spec file with broken app/socket state ground through 6 attempts × 30s timeout × 22 tests ≈ an hour at 0% CPU (looked like a deadlock; the check watchdog killed it). Never raise retry to paper over contention.
-- Infrastructure containers (E2E only, four specs): `tests/redis-infra.e2e-spec.ts`,
-  `tests/s3-infra.e2e-spec.ts`, `tests/multi-replica.e2e-spec.ts` and
-  `tests/redis-s3-bootstrap.e2e-spec.ts` round-trip against a REAL Redis and a REAL
-  S3-compatible store. `redis-s3-bootstrap` boots the assembled `CoreModule` with both
+- Infrastructure containers (E2E only, the **seven** specs listed under "Infrastructure containers"
+  above) round-trip against a REAL Redis and/or a REAL S3-compatible store.
+  `redis-s3-bootstrap` boots the assembled `CoreModule` with both
   configured — the only test that covers the WIRING, which fakes and directly-constructed
   services cannot: an unresolvable provider or a lifecycle hook that throws on a real
   connection would pass every other spec and fail on a consumer's first `nest start`. `multi-replica` is the acceptance test for the
@@ -111,15 +119,26 @@ pnpm run test:cleanup
   each run exactly once, one rate limit is enforced instead of one per replica, and a severed
   Redis still yields a decision instead of an error. Single-instance specs against fakes cannot
   show any of that: a limiter counting per process, or a lease key differing per instance,
-  passes them and fails here.
-  Both `beforeAll` hooks preflight the connection and fail with the exact `docker run` command
-  when the container is missing, so a forgotten container is a 2s clear error instead of a 43s
-  opaque `MaxRetriesPerRequestError`.
+  passes them and fails here. `redis-consumers` covers the framework's own Redis consumers seen
+  from two replicas, `file-storage-s3` runs `CoreFileService` against a real bucket, and
+  `graceful-shutdown` needs real connections for `installGracefulShutdown()` to close.
+  Five of the seven preflight the connection in `beforeAll` and throw a written diagnosis —
+  `redis-infra`, `s3-infra` and `multi-replica` quote the full `docker run` line, `redis-consumers`
+  and `file-storage-s3` name the port and how to start it. So a forgotten container is a ~2s clear
+  error instead of a 43s opaque `MaxRetriesPerRequestError`. The other two fail fast without a
+  custom message: `graceful-shutdown` probes with `connectTimeout: 2000` /
+  `maxRetriesPerRequest: 1` and lets the raw connect error surface, and `redis-s3-bootstrap` has no
+  separate probe at all — its `beforeAll` IS the boot.
 
   ```bash
-  docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7-alpine
-  docker run -d --name nest-server-2985-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:latest server /data
+  docker run -d --name nest-server-2985-redis -p 6380:6379 redis:7.4-alpine
+  docker run -d --name nest-server-2985-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs -e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:1.0.0-rc.1 server /data
   ```
+
+  Both tags are pinned, and these hints must stay identical to the tags in
+  `scripts/test-infra.mjs` / `.github/actions/test-infra/action.yml`. `containerMatches()` compares
+  the running container's image against the pinned one, so a hint that says `:latest` starts a
+  container the next `pnpm test` tears down and recreates.
 
   | Service | Port | Overridable via |
   |---------|------|-----------------|

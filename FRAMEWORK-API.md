@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-08-10 (v11.33.0)
+> Auto-generated from source code on 2026-08-11 (v11.33.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -43,14 +43,15 @@
   - `multiTenancy?`: `IMultiTenancy | undefined` (default: `undefined (disabled)`) — Multi-tenancy configuration for tenant-based data isolation.
   - `permissions?`: `boolean | IPermissions | undefined` (default: `undefined (disabled)`) — Permissions report module (development tool).
   - `port?`: `number | undefined` — Port number of the server
-  - `redis?`: `boolean | IRedisConfig | undefined` — Optional central Redis connection used by all distributed features
-  - `s3?`: `IS3Config | undefined` — Optional central S3-compatible object storage (AWS S3, MinIO, ...).
+  - `redis?`: `boolean | IRedisConfig | undefined` (default: `undefined (disabled)`) — Optional central Redis connection used by all distributed features
+  - `s3?`: `IS3Config | undefined` (default: `undefined (disabled)`) — Optional central S3-compatible object storage (AWS S3, MinIO, ...).
   - `security?`: `{ checkResponseInterceptor?: boolean | { checkObjectItself?: boolean; debug?:...` — Configuration for security pipes and interceptors
   - `sha256?`: `boolean | undefined` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
   - `shutdownDelayMs?`: `number | undefined` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; } | undefined` — Configuration for useStaticAssets
   - `systemSetup?`: `ISystemSetup | undefined` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; } | undefined` — Templates
+  - `trustProxy?`: `string | number | boolean | string[] | undefined` (default: `false (Express default — the forwarded chain is not trusted)`) — Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.
   - `tus?`: `boolean | ITusConfig | undefined` — TUS resumable upload configuration.
 
 ### IBetterAuth (type alias: IBetterAuthWithoutPasskey | IBetterAuthWithPasskey)
@@ -149,6 +150,14 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `supportsNativeTools?`: `boolean | undefined` — Native function/tool-calling support. Omit to auto-detect by probing the
   - `supportsVision?`: `boolean | undefined` — Whether the model supports image input.
 
+### IFileConfig
+
+  - `deleteRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DELETE files (`deleteFile` mutation).
+  - `downloadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DOWNLOAD files and read file info
+  - `storage?`: `"filesystem" | "gridfs" | "s3" | undefined` (default: `derived — see above`) — Storage driver for CoreFileService. Three equivalent options:
+  - `storageDir?`: `string | undefined` (default: `'uploads/files'`) — Directory for the `'filesystem'` storage driver.
+  - `uploadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to UPLOAD files (`uploadFile` / `uploadFiles` mutations).
+
 ### IRedisConfig
 
   - `db?`: `number | undefined` (default: `0`) — Redis database index
@@ -236,7 +245,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `enabled?`: `boolean | undefined` (default: `false`) — Whether rate limiting is enabled
   - `max?`: `number | undefined` (default: `10`) — Maximum number of requests within the time window
-  - `maxEntries?`: `number | undefined` (default: `10000`) — Maximum number of entries in the in-memory rate limit store.
+  - `maxEntries?`: `number | undefined` (default: `10000`) — Maximum number of distinct counters this limiter may hold — the bound on the keyspace a
   - `message?`: `string | undefined` — Custom message when rate limit is exceeded
   - `skipEndpoints?`: `string[] | undefined` — Endpoints to skip rate limiting entirely
   - `strictEndpoints?`: `string[] | undefined` — Endpoints to apply stricter rate limiting (e.g., sign-in, sign-up)

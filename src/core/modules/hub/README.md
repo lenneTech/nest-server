@@ -164,6 +164,36 @@ Writes are fire-and-forget — the collectors sit in hot paths and their API sta
 If Redis is unreachable a read silently falls back to the local buffer (a diagnostics panel
 must not be the thing that breaks), so a partial view during an outage is expected.
 
+#### Cost: Redis write volume scales with your traffic
+
+**Know this before enabling `redis` together with `hub.collectors`.** Every mirrored entry costs a
+3-command `MULTI` (`INCR` the shared sequence counter, `LPUSH` the JSON-serialized entry, `LTRIM`
+back to the buffer capacity). There is **no sampling** — each retained entry is one `MULTI`:
+
+| Collector | One mirror write per                                    | Rough volume                                                         |
+| --------- | ------------------------------------------------------- | -------------------------------------------------------------------- |
+| Logs      | log line at a captured level (`collectors.logs.levels`) | 3 Redis commands × your log rate                                     |
+| Traces    | HTTP request outside the excluded path prefixes         | 3 Redis commands × your request rate                                 |
+| Queries   | monitored MongoDB command (opt-in)                      | 3 Redis commands × your query rate — usually the highest of the four |
+| Mailbox   | outgoing mail                                           | negligible                                                           |
+
+At 500 req/s with request tracing on, that is ~1 500 extra Redis commands per second before the log
+lines are counted. The buffers stay capped in memory (`LTRIM` holds them at the configured
+capacity), so this is a **throughput** cost on the Redis instance, not a growth problem — but it is
+a cost that lands on the same Redis your rate-limit counters, cron leases and subscriptions use.
+
+Two ways to keep it out of the way, both deliberate choices rather than defaults:
+
+- **Give the Hub a dedicated Redis database or instance.** `redis.db` picks a numbered database on
+  the same server (cheap, still one instance's throughput); a separate instance isolates it fully.
+  Either way set `redis.keyPrefix` so environments cannot collide.
+- **Accept the volume knowingly**, and keep `collectors.queries` off (it is opt-in for exactly this
+  reason) unless you are actively profiling. Turning individual collectors off via
+  `hub.collectors` removes their mirror writes entirely.
+
+A single-replica deployment gains nothing from mirroring — leave `redis` unset, or the Hub
+collectors off, and every buffer stays process-local at zero Redis cost.
+
 ## Overrides
 
 ```typescript

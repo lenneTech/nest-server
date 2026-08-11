@@ -1,58 +1,72 @@
 ---
 name: project-file-tus-access-model
-description: File/TUS access model facts — the starter RE-DECLARES @Roles(S_EVERYONE) on the inherited download routes so a core-only decorator fix never reaches generated projects; TUS stays anonymous; CoreFileInfo offers zero model-layer defense; and `lt server permissions` is blind to inherited core routes.
+description: File/TUS access model after the 11.33.0 rework — roles are now config-driven via Reflect metadata (an override opts out), the file classes carry @SkipTenantCheck() but TUS does NOT, and the canonical checkRights() example leaves the filename route ungated.
 metadata:
   type: project
 ---
 
-# File + TUS access model — what a decorator fix in `src/core/` does and does not reach
+# File + TUS access model — state after 11.33.0 (`feat/dev-2985`)
 
-Verified 2026-08-10 while reviewing the 11.32.x file-module hardening (download routes and all four
-`CoreFileResolver` members moved from `S_EVERYONE` to `ADMIN`).
+Re-verified 2026-08-10 against `file-roles.helper.ts`, `core-file.controller.ts`, `core-file.resolver.ts`,
+`core-file.service.ts`, `tus.module.ts`, `core-tus.controller.ts`, `core-tenant.guard.ts`.
+**Supersedes the pre-11.33 version of this note** — items 1 and 3 below were previously recorded as
+open and are now fixed. Re-verify before re-reporting either.
 
-## 1. The starter re-declares the decorators — a core-only fix does NOT propagate
+## 1. FIXED: downloads are no longer `S_EVERYONE`, and the starter can no longer re-open them
 
-`nest-server-starter/src/server/modules/file/file.controller.ts:59-60` and `:74-75` `override` the
-two inherited download methods **purely to attach Swagger decorators**, and in doing so re-declare
-`@Roles(RoleEnum.S_EVERYONE)`. Because method-level roles OR-merge and `S_EVERYONE` short-circuits
-the guard (see [[project-roles-metadata-merge-semantics]]), every project generated from the starter
-keeps the public download route no matter what `src/core/` says.
+`applyFileRoles(config.file)` (called from `core.module.ts` inside `CoreModule.forRoot()`) rewrites
+`Reflect.defineMetadata('roles', …)` on six member FUNCTIONS: the two `CoreFileController` download
+handlers and all four `CoreFileResolver` members. `TusModule.forRoot()` does the same for
+`handleTus`/`handleTusWithId`. Defaults are `[ADMIN]` (files) and `[S_USER]` (tus). `[]` is rejected
+with a warning and falls back to the default — honouring it literally would OPEN the route, because
+an all-empty role set reads to the guards as "no roles required".
 
-**How to apply:** when a review changes a decorator on an *overridable* core member, always grep the
-starter (and any other Grund-Repo) for a subclass that re-declares it. "Fixed in core" is not
-"fixed in the stack".
+**The override trap is now the documented escape hatch, not an accident.** Metadata lives on the
+function object, so a subclass that re-declares a member opts out of `file.*Roles` entirely. The
+starter no longer overrides the download methods.
 
-## 2. TUS remains fully anonymous, and now asymmetric
+**How to apply:** when auditing a consumer, `grep -n "override async getFileById\|override async getFile\b"`
+in `src/server/modules/file/`. A hit means that route ignores `file.downloadRoles` — check its own `@Roles`.
 
-`core-tus.controller.ts:25-26,42-43,68-69` is `@Roles(S_EVERYONE)` on class AND both `@All` handlers;
-`TusModule.forRoot()` defaults to enabled with `maxSize: 50 GB`. `CoreTusService` writes into the
-**same** GridFS bucket `'fs'` as `CoreFileService` (both hardcode/default `bucketName: 'fs'`).
-`tests/stories/tus-upload.story.test.ts` has an explicit test asserting anonymous upload works.
-`@tus/server` also routes `GET /tus/:id` to a `GetHandler` that streams bytes back when the store
-supports `read()` (`@tus/file-store` does).
+## 2. FIXED: `@Roles(ADMIN)` on the file routes is no longer satisfiable by a tenant membership role
 
-Net: after the download hardening, anyone may WRITE into the file store and only admins may READ it.
+Both `CoreFileController` and `CoreFileResolver` now carry `@SkipTenantCheck()`, which routes
+`CoreTenantGuard` to `skipWithUserRoleCheck(checkableRoles, user, isAdmin)` — i.e. `user.roles`,
+never `membership.role`. That closes the cross-tenant read described in
+[[project-roles-metadata-merge-semantics]] §3 for the file module.
 
-## 3. The model layer provides no defense in depth
+**`CoreTusController` does NOT carry it.** So a project configuring a non-system `tus.roles`
+(e.g. `['admin']`) under multiTenancy has those checked against `membership.role`, while TUS writes
+into the same non-tenant-scoped store the file routes read. Asymmetry worth flagging every time.
 
-`CoreFileInfo` is `@Restricted(RoleEnum.S_EVERYONE)` on the class and on every field, and inherits
-`CoreModel.securityCheck() { return this; }` (`core-model.model.ts:132-134`). The route decorator is
-the ONLY control — any future widening exposes all metadata unfiltered.
+## 3. STILL OPEN: the canonical `checkRights()` example does not cover the filename route
 
-Also: the download routes call `this.fileService.getFileInfo(id)` / `getFileStream(id)` with **no**
-`serviceOptions`, so a `CoreFileService.checkRights()` override (which the README recommends for
-per-file rules) receives no `currentUser`. The only escape hatch is `RequestContext.getCurrentUser()`
-(ALS, set by `RequestContextMiddleware`). And `createFile()` accepts no `metadata`, while
-`CoreFileInfo` has no `metadata` field — so "authorize against the file's metadata" is not reachable
-through the framework's own API.
+`README.md` § Access control and the `CoreFileService.checkRights()` JSDoc both open with:
 
-## 4. `lt server permissions` is blind to inherited core routes
+```typescript
+if (options?.checkInputType !== 'id' || options.force) { return true; }
+```
 
-The scanner reads `src/server/**` only. Running it on this repo reports the FileController's three
-own methods at ADMIN and never mentions the inherited `GET /files/id/:id` / `GET /files/:filename`.
-That is how the `S_EVERYONE` downloads survived; it stays true after the fix.
+`GET /files/:filename` and the GraphQL `getFileInfo`/`deleteFile` use `checkInputType: 'filename'`,
+so a project copying that example verbatim has **no** per-file rule on those members — they stay on
+the coarse role gate alone. The reference `src/server/modules/file/file.service.ts` comment DOES say
+"filename reads stay on the role gate", so the two docs disagree. Only bites once `downloadRoles` is
+widened past ADMIN.
 
-**How to apply:** never treat a clean `lt server permissions` run as coverage for routes that come
-from a `Core*` base class. Grep the base class separately.
+Related: `getRawFileInfoByName()` consults only S3 + GridFS, while `getFileInfoByName()` also
+consults the filesystem store — a filename rule sees a different file set than the download serves.
 
-Related: [[project-gridfs-and-express-response-facts]], [[project-roles-metadata-merge-semantics]]
+## 4. Still true: the model layer provides no defense in depth
+
+`CoreFileInfo` is `@Restricted(S_EVERYONE)` on the class and every field, and inherits
+`CoreModel.securityCheck() { return this; }`. The route decorator plus `checkRights()` are the only
+controls.
+
+## 5. Still true: `lt server permissions` is blind to inherited core routes
+
+The scanner reads `src/server/**` only, and now it is blind to a second thing as well: the effective
+roles are written at runtime by `applyFileRoles()`/`TusModule.applyRoles()`, so an AST scan cannot
+see them at all. Read `config.env.ts` → `file` / `tus` instead.
+
+Related: [[project-gridfs-and-express-response-facts]], [[project-roles-metadata-merge-semantics]],
+[[project-hub-config-masking-gaps]]

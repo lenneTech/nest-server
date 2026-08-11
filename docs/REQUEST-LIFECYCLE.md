@@ -40,7 +40,9 @@ The `CoreModule` is a dynamic module that bootstraps the entire framework:
 | **Dual API Support** | GraphQL and REST in the same application |
 | **Security Pipeline** | 4 global interceptors, global validation pipe, middleware stack |
 | **Mongoose Plugins** | Auto-registration of ID, password, audit, and role guard plugins |
-| **GraphQL Subscriptions** | WebSocket support with JWT/session authentication |
+| **GraphQL Subscriptions** | WebSocket support with JWT/session authentication (cluster-wide when `redis` is configured — see the Subscriptions row under GraphQL Features) |
+| **Central Redis (optional)** | `CoreRedisService` — globally provided **and exported** by `CoreModule`, always present but **inert unless `redis` is configured** ("presence implies enabled"). Injected with `@Optional()`; every consumer keeps a process-local fallback. One service serves all features: shared client (`getClient()`), one cached subscriber (`getSubscriber()` — a subscribing client cannot run commands), dedicated connections (`createClient(label)`); all tracked and quit on shutdown. Keys are namespaced by the framework per key via `key(...)`, **not** through ioredis's own `keyPrefix` (that would collide with BullMQ's prefix). Requires the OPTIONAL peer `ioredis` — configured but missing **fails the boot**. Switches on: exact cross-replica rate limits, cron deduplication, `CoreRedisPubSub` as `PUB_SUB`, tenant-cache invalidation broadcast, Hub collector mirroring, MCP session registry |
+| **Central S3 (optional)** | `CoreS3Service` — globally provided **and exported** by `CoreModule`, inert unless `s3` is configured *and* names a `bucket` (a bucket-less block is ignored with a warning). Backs `file.storage: 's3'` and TUS staging (`tus.s3Staging`). Requires the OPTIONAL peers `@aws-sdk/client-s3` (+ `@aws-sdk/s3-request-presigner` for `presignedDownloads`) — configured but missing **fails the boot** |
 | **Configuration System** | `config.env.ts` with ENV variables, `NEST_SERVER_CONFIG` JSON, `NSC__*` prefixes |
 | **Cookie Handling** | Enabled by default (`cookies: true`), configurable via `ICookiesConfig` with `exposeTokenInBody` option |
 | **Unified CORS** | Single `cors` config propagates to GraphQL, REST, and BetterAuth layers |
@@ -61,7 +63,7 @@ Modern OAuth-compatible authentication with plugin architecture:
 | **Social Login** | OAuth providers: Google, GitHub, Apple, Discord, etc. (plugin) |
 | **Email Verification** | Configurable email verification flow |
 | **Sign-Up Validation** | Custom validation hooks for registration |
-| **Rate Limiting** | Per-endpoint rate limits (configurable) |
+| **Rate Limiting** | Per-endpoint rate limits (`betterAuth.rateLimit`, configurable). Counters live behind a `RateLimitStore`: `RedisRateLimitStore` when `redis` is configured, so `max` is enforced **exactly across replicas** instead of `max × replicas`; otherwise the process-local `InMemoryRateLimitStore` as before. `check()` / `reset()` / `clear()` are **async** since 11.33.0. On a Redis outage it degrades to the in-memory counter and logs once per transition — never a 500, never "allowed". Counters are keyed on `request.ip`, which Express derives from `X-Forwarded-For` only as far as `trust proxy` allows — set `trustProxy` (§ServerOptions) behind a reverse proxy or every client resolves to the proxy and shares ONE bucket; unset with a limiter enabled logs a boot warning |
 | **Cross-Subdomain Cookies** | Automatic cookie domain configuration |
 | **Organization / Multi-Tenant** | Teams and organization management (plugin) |
 | **3 Registration Patterns** | Zero-config, overrides parameter, or manual (`autoRegister: false`) |
@@ -75,7 +77,7 @@ JWT-based authentication for existing projects:
 | **JWT Authentication** | Bearer token auth with Passport strategies |
 | **Refresh Tokens** | Automatic token renewal |
 | **Sign In / Sign Up / Logout** | GraphQL mutations + REST endpoints |
-| **Rate Limiting** | Configurable per-endpoint rate limits |
+| **Rate Limiting** | Configurable per-endpoint rate limits (`auth.rateLimit`). Same `RateLimitStore` selection, async signatures and Redis-outage degradation as the BetterAuth row above (namespace `legacy-auth`) |
 | **Legacy Endpoint Controls** | Disable legacy endpoints after migration (`auth.legacyEndpoints`) |
 | **Migration Tracking** | `betterAuthMigrationStatus` query for monitoring |
 
@@ -202,7 +204,7 @@ JWT-based authentication for existing projects:
 |---------|-------------|
 | **Apollo Server** | Full GraphQL server with schema-first or code-first |
 | **Custom Scalars** | `Date`, `DateTime` (timestamp), `JSON`, `Any` |
-| **Subscriptions** | WebSocket support via `graphql-ws` with auth |
+| **Subscriptions** | WebSocket support via `graphql-ws` with auth. The `PUB_SUB` provider is built from a factory: `CoreRedisPubSub` when `redis` is configured (delivery is then cluster-wide), the in-memory `PubSub` otherwise (delivery only to clients connected to the publishing replica). **Constraint once Redis is in play: every published payload must be JSON-serializable** — it crosses the wire as JSON, so `Date`, class instances, `Map`/`Set` and `undefined` do not survive the round trip. An in-process `PubSub` never had this constraint, so a payload that worked on one replica can silently lose fields on a cluster. Publish plain objects and ISO strings |
 | **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
 | **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
 | **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
@@ -215,7 +217,8 @@ JWT-based authentication for existing projects:
 | **Error Code Module** | Centralized error registry with unique IDs |
 | **Permissions Report** | Interactive HTML dashboard, JSON, and Markdown reports |
 | **Hub (Operator Cockpit)** | Build-free ADMIN-gated dashboard at `/hub` (config-gated per environment). Adds an optional HTTP trace middleware (registered by `CoreHubModule.configure()` only when traces are enabled), a chaining `Logger.overrideLogger()` delegate for the log buffer, an optional `EmailService` capture hook (`HUB_EMAIL_CAPTURE` token) for the mailbox, and — when the query profiler is enabled — opts the MongoDB driver into `monitorCommands` from `core.module.ts`. See `src/core/modules/hub/README.md`. |
-| **Process Diagnostics** | Opt-in process-level exit diagnostics (`installProcessDiagnostics()` + `handleFatalBootstrapError`, `src/core/common/helpers/process-diagnostics.helper.ts`). Wired into `main.ts` — **NOT** into `CoreModule.forRoot()`, because it must run before `NestFactory.create()` and installs a `process.exit(1)` path that must never arm inside `Test.createTestingModule()`. Logs unhandled rejections without crashing (configurable), uncaught exceptions before the exit, non-zero exit codes, and labels SIGTERM/SIGINT/SIGHUP/SIGQUIT as external terminations. Pair with `server.enableShutdownHooks()` — see the helper docblock |
+| **Process Diagnostics** | Opt-in process-level exit diagnostics (`installProcessDiagnostics()` + `handleFatalBootstrapError`, `src/core/common/helpers/process-diagnostics.helper.ts`). Wired into `main.ts` — **NOT** into `CoreModule.forRoot()`, because it must run before `NestFactory.create()` and installs a `process.exit(1)` path that must never arm inside `Test.createTestingModule()`. Logs unhandled rejections without crashing (configurable), uncaught exceptions before the exit, non-zero exit codes, and labels SIGTERM/SIGINT/SIGHUP/SIGQUIT as external terminations. Pair with `installGracefulShutdown(server)` — **not** with `server.enableShutdownHooks()`, see the Graceful Shutdown row below |
+| **Graceful Shutdown** | `installGracefulShutdown(app)` (`src/core/common/helpers/graceful-shutdown.helper.ts`), wired in `main.ts`. It **REPLACES** `server.enableShutdownHooks()` and must not be used alongside it: with `shutdownDelayMs` set, Nest would register its own listener for the same signals and close the app in parallel with the wait, so the delay silently never happens. At `shutdownDelayMs: 0` (the default) the helper simply *is* `enableShutdownHooks()`, so the single call is correct either way. With a delay it waits **inside the SIGTERM/SIGINT handler, before `close()` is entered** — a NestJS lifecycle hook cannot do this, because `close()` runs `onModuleDestroy` → `beforeApplicationShutdown` → dispose → `onApplicationShutdown`, i.e. a delay in a hook would wait with every module already torn down while the socket still accepts. A second signal cancels the pending wait and closes immediately. Warns above 10 000 ms, capped at 60 000 ms — keep it below the orchestrator grace period (Compose 10 s, Kubernetes 30 s) and below `installProcessDiagnostics()`'s 30 s force-exit |
 | **System Setup Module** | Initial admin creation for fresh deployments |
 | **Cron Jobs** | `CoreCronJobsService` with timezone/UTC offset support |
 | **Model Documentation** | Auto-generated model docs via `ModelDocService` |
@@ -425,6 +428,51 @@ The following diagram shows the exact order of execution from HTTP request to re
                     |    secured)          |
                     +---------------------+
 ```
+
+### Shutdown Flow (SIGTERM / SIGINT)
+
+The mirror image of the request flow, and the one place where an ordering mistake is invisible until
+a rolling deploy drops requests. Installed in `main.ts` by `installGracefulShutdown(server)` — which
+**replaces** `server.enableShutdownHooks()`, never accompanies it.
+
+```
+  SIGTERM / SIGINT
+        |
+        v
+  +-------------------------------------------------------------+
+  | installGracefulShutdown() signal handler                     |
+  |                                                              |
+  |  shutdownDelayMs === 0 (default)                             |
+  |    -> this IS app.enableShutdownHooks(): close() immediately |
+  |                                                              |
+  |  shutdownDelayMs > 0                                         |
+  |    -> stay FULLY HEALTHY for N ms (routes still served),     |
+  |       so the load balancer can finish deregistering          |
+  |    -> a second signal cancels the wait and closes now        |
+  +----------------------------+---------------------------------+
+                               |  (only after the wait)
+                               v
+  +-------------------------------------------------------------+
+  | app.close()                                                  |
+  |   1. onModuleDestroy                                         |
+  |   2. beforeApplicationShutdown                               |
+  |   3. dispose  (HTTP server socket closes HERE)               |
+  |   4. onApplicationShutdown                                   |
+  |      - CoreRedisService quits every tracked connection       |
+  +-------------------------------------------------------------+
+```
+
+**Why the wait cannot be a lifecycle hook:** the socket only closes at step 3, so a delay placed in
+`beforeApplicationShutdown` (step 2) would keep accepting traffic with every module already torn
+down — strictly worse than not waiting at all.
+
+**Why both together is a bug:** with `enableShutdownHooks()` also installed, Nest registers its own
+listener for the same signals and enters `close()` in parallel with the wait. Nothing errors; the
+delay simply never happens.
+
+| Knob | Default | Notes |
+|------|---------|-------|
+| `shutdownDelayMs` | `0` (no delay, no log) | Warns above `10000`, capped at `60000`. Keep it below the orchestrator grace period (Compose `stop_grace_period` 10 s, Kubernetes `terminationGracePeriodSeconds` 30 s) **and** below `installProcessDiagnostics()`'s 30 s force-exit — exceed any and the process is SIGKILLed mid-wait with no hook running. Non-numeric/negative behaves like `0` |
 
 ---
 
