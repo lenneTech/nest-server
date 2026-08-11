@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import envConfig from '../src/config.env';
 import { FILESYSTEM_FILES_COLLECTION, FilesystemFileHelper } from '../src/core/modules/file/filesystem-file.helper';
+import { deriveTestDbUri } from './db-lifecycle.reporter';
 
 /**
  * Exercises the `'filesystem'` storage driver end to end against a real MongoDB.
@@ -56,22 +57,37 @@ describe('Filesystem storage (e2e)', () => {
   });
 
   it('creates the filename index when writing, not when reading', async () => {
-    await write({ buffer: Buffer.from('indexed'), filename: 'indexed.txt' });
+    // Runs against its OWN database. The interesting half of this test is an
+    // ABSENCE — that a store nobody wrote to never materialises — and an absence
+    // is only meaningful in a database no other suite can write to. Asserting it
+    // against the shared run database passed locally and failed in CI, where a
+    // sibling S3 suite had legitimately created `s3-files` first. The failure was
+    // the test's scope, not the code's behaviour.
+    const isolated = await MongoClient.connect(deriveTestDbUri('fs-index'));
+    try {
+      const isolatedCollection = isolated.db().collection(FILESYSTEM_FILES_COLLECTION);
+      await FilesystemFileHelper.writeFile(directory, isolatedCollection, {
+        buffer: Buffer.from('indexed'),
+        filename: 'indexed.txt',
+      });
 
-    const names = (await collection.indexes()).map((index: any) => index.name);
-    expect(names).toContain('filename_1');
+      const names = (await isolatedCollection.indexes()).map((index: any) => index.name);
+      expect(names).toContain('filename_1');
 
-    // The other side of the same rule: `createIndex` CREATES the collection, so
-    // ensuring an index while READING gave a GridFS-only deployment an empty
-    // `s3-files` and `filesystem-files` it has no reason to have. A store that is
-    // never written to must stay absent.
-    const listed = async (name: string) =>
-      (await client.db().listCollections({ name }, { nameOnly: true }).toArray()).length;
+      // `createIndex` CREATES the collection, so ensuring an index while READING gave
+      // a GridFS-only deployment an empty `s3-files` and `filesystem-files` it has no
+      // reason to have. A store that is never written to must stay absent.
+      const listed = async (name: string) =>
+        (await isolated.db().listCollections({ name }, { nameOnly: true }).toArray()).length;
 
-    // The positive half keeps this from passing vacuously: listCollections must be
-    // able to SEE the collection we did write to, or the absence below proves nothing.
-    expect(await listed(FILESYSTEM_FILES_COLLECTION)).toBe(1);
-    expect(await listed('s3-files')).toBe(0);
+      // The positive half keeps this from passing vacuously: listCollections must be
+      // able to SEE the collection we did write to, or the absence below proves nothing.
+      expect(await listed(FILESYSTEM_FILES_COLLECTION)).toBe(1);
+      expect(await listed('s3-files')).toBe(0);
+    } finally {
+      await isolated.db().dropDatabase();
+      await isolated.close();
+    }
   });
 
   it('stores the bytes on disk and the metadata in the database', async () => {
