@@ -3,14 +3,45 @@ import { Logger } from '@nestjs/common';
 import type { CoreRedisService } from './core-redis.service';
 
 /**
- * Escape Redis glob metacharacters in caller-influenced key parts.
+ * Escape Redis glob metacharacters so a LITERAL key can be embedded in a `SCAN MATCH` pattern.
  *
- * Keys embed values the caller controls (an IP, an endpoint, an email). Those parts end up
- * both in the key itself and — via `resetByPrefix` — inside a `SCAN MATCH` pattern, where
- * an unescaped `*` or `?` would silently widen the match to other callers' counters.
+ * Keys embed values the caller controls (an IP, an endpoint, an email), and `resetByPrefix` turns
+ * such a value into a pattern — where an unescaped `*` or `?` would silently widen the match to
+ * other callers' counters.
+ *
+ * Applied to the PATTERN only, never to the key being written. Escaping both is how the two stop
+ * meeting: the stored key then carries the backslashes literally while the pattern's `\x` matches
+ * a single unescaped `x`, so a reset matched nothing at all for any key containing `\` — which
+ * {@link rateLimitKey} produces for every IPv6 address — or a glob metacharacter.
  */
 function escapeGlob(value: string): string {
   return value.replace(/[?[\]*\\^]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Join caller-controlled parts into ONE rate-limit key.
+ *
+ * `:` separates the segments of every key the framework builds, so a part that CONTAINS a colon
+ * straddles the boundary and two different callers collapse onto one counter: ip `1.2.3.4:5` with
+ * endpoint `/a` produces the same key as ip `1.2.3.4` with endpoint `5:/a`. Both parts are
+ * caller-influenced (a forwarded-for value, a request path), so that is a bucket a client can aim
+ * at — sharing, and therefore exhausting, someone else's limit.
+ *
+ * Escaping happens at CONSTRUCTION, not in the Redis key builder, so the in-memory store gets the
+ * same separation as the Redis one instead of only the SCAN path being protected. `\` is escaped
+ * first, otherwise a literal `\` in a part could forge the escape of a following colon.
+ */
+export function rateLimitKey(...parts: string[]): string {
+  return parts.map((part) => part.replace(/\\/g, '\\\\').replace(/:/g, '\\:')).join(':');
+}
+
+/**
+ * Prefix covering every {@link rateLimitKey} that starts with `parts` — for
+ * {@link RateLimitStore.resetByPrefix}. The trailing separator is the real one, so a reset for
+ * ip `1.2.3.4` cannot also match ip `1.2.3.40`.
+ */
+export function rateLimitKeyPrefix(...parts: string[]): string {
+  return `${rateLimitKey(...parts)}:`;
 }
 
 /**
@@ -110,6 +141,12 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 
   async clear(): Promise<void> {
     this.store.clear();
+    // The overflow buckets are bounded, so leaving them behind cannot leak — but they still hold
+    // live counts. A test (or an admin) that clears the store and then sees a limit trip early is
+    // looking at counters it believes it deleted.
+    this.overflow.clear();
+    this.atCapacity = false;
+    this.capacityWarned = false;
   }
 
   async hit(key: string, windowSeconds: number): Promise<RateLimitStoreHit> {
@@ -208,28 +245,58 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 }
 
 /**
- * Atomic INCR + EXPIRE in one round trip. KEYS[1] = counter key,
- * ARGV[1] = window in seconds. Returns [count, ttlSeconds].
+ * Atomic hit: cardinality check, then INCR + EXPIRE, in one round trip.
+ *
+ * ```
+ * KEYS[1] counter key for this caller
+ * KEYS[2] per-namespace cardinality counter
+ * KEYS[3] shared overflow counter this key folds into once the cap is reached
+ * ARGV[1] window in seconds
+ * ARGV[2] maximum distinct counter keys per window
+ * ```
+ *
+ * Returns `[count, ttlSeconds, overflow]`, where `overflow` is `1` when the coarse bucket was
+ * used. The cap decision lives INSIDE the script on purpose: a read-then-decide in JavaScript is
+ * a check-then-act across a network hop, and concurrent requests — precisely the traffic the cap
+ * exists for — would each read the pre-increment value and all conclude there is room.
  */
 const HIT_SCRIPT = `
-local c = redis.call('INCR', KEYS[1])
+local window = tonumber(ARGV[1])
+local target = KEYS[1]
+local overflow = 0
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  local seen = redis.call('INCR', KEYS[2])
+  if seen == 1 then
+    redis.call('EXPIRE', KEYS[2], window)
+  end
+  if seen > tonumber(ARGV[2]) then
+    target = KEYS[3]
+    overflow = 1
+  end
+end
+local c = redis.call('INCR', target)
 if c == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  redis.call('EXPIRE', target, window)
 end
-local ttl = redis.call('TTL', KEYS[1])
+local ttl = redis.call('TTL', target)
 if ttl < 0 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-  ttl = tonumber(ARGV[1])
+  redis.call('EXPIRE', target, window)
+  ttl = window
 end
-return {c, ttl}
+return {c, ttl, overflow}
 `;
+
+/** Name the hit script is registered under via ioredis `defineCommand` */
+const HIT_COMMAND = 'ltRateLimitHit';
 
 /**
  * Redis-backed fixed-window store. All replicas share the counters, so the
  * configured limit is enforced exactly regardless of replica count.
  *
- * Keys: `<keyPrefix>:rate-limit:<namespace>:<key>` with the window TTL —
- * no cleanup or eviction needed.
+ * Keys: `<keyPrefix>:rate-limit:<namespace>:<key>` with the window TTL, plus two framework-owned
+ * keys under the same prefix that bound the keyspace — `#meta:cardinality` and
+ * `#overflow:<slot>`, see {@link RedisRateLimitStore.hit}. Everything expires with the window,
+ * so there is no cleanup pass.
  */
 export class RedisRateLimitStore implements RateLimitStore {
   /**
@@ -249,26 +316,68 @@ export class RedisRateLimitStore implements RateLimitStore {
 
   protected readonly logger = new Logger(RedisRateLimitStore.name);
 
+  /** So the saturation warning is logged once, not per request */
+  protected capacityWarned = false;
+
+  /**
+   * Clients the hit script has already been registered on.
+   *
+   * `defineCommand` is per connection, and `CoreRedisService` may hand out a different client
+   * after a reconnect or in a second app instance, so the set is keyed by the client object.
+   * Weak, because a discarded connection must not be kept alive by this bookkeeping.
+   */
+  protected readonly prepared = new WeakSet<object>();
+
+  /**
+   * @param maxKeys distinct counter keys the namespace may create per window before new keys are
+   *   folded into the coarse overflow buckets (see {@link RedisRateLimitStore.hit})
+   */
   constructor(
     protected readonly redisService: CoreRedisService,
     protected readonly namespace: string,
+    protected readonly maxKeys = 10000,
   ) {}
 
   async clear(): Promise<void> {
     await this.fallback.clear();
-    // The wildcard is OURS, not caller input — routing it through redisKey() would escape it to
-    // a literal `\*` that matches nothing, making clear() a no-op against Redis.
-    await this.guard(() => this.deleteByPattern(`${this.redisService.key('rate-limit', this.namespace)}:*`), undefined);
+    this.capacityWarned = false;
+    // The empty prefix covers the whole namespace. Built through the same pattern builder as
+    // resetByPrefix on purpose: a second, hand-rolled pattern here is how the write path and the
+    // scan path drifted apart in the first place.
+    await this.guard(() => this.deleteByPattern(this.redisKeyPattern('')), undefined);
   }
 
+  /**
+   * Count one hit, bounding the keyspace the namespace may occupy.
+   *
+   * Redis keys expire, but nothing stops a caller from CREATING them: both parts of a key are
+   * caller-influenced (a forwarded-for value, a request path), so an unbounded INCR is an
+   * unbounded write primitive against the instance that now also holds cron leases, MCP session
+   * ownership, tenant-cache invalidation and the Hub buffers. {@link InMemoryRateLimitStore} has
+   * always defended against exactly this; a store that drops the defense the moment `redis` is
+   * configured would turn an opt-in improvement into a silent regression.
+   *
+   * So the same shape applies: past `maxKeys` distinct keys per window, further NEW keys are
+   * folded into a fixed set of {@link OVERFLOW_BUCKETS} shared counters. They are still counted,
+   * just coarsely — unrelated clients then share a limit and are throttled earlier than their own
+   * traffic warrants. That is the right direction to fail; an uncounted `1` per fresh key would be
+   * a complete bypass for the price of filling the keyspace.
+   */
   async hit(key: string, windowSeconds: number): Promise<RateLimitStoreHit> {
     return this.guard(
       async () => {
-        const client = this.redisService.getClient();
-        const [count, ttl] = (await client.eval(HIT_SCRIPT, 1, this.redisKey(key), windowSeconds)) as [number, number];
+        const [count, ttl, overflow] = await this.runHit(key, windowSeconds);
         if (this.degraded) {
           this.degraded = false;
           this.logger.log('Redis rate limiting recovered — limits are shared across replicas again');
+        }
+        if (overflow && !this.capacityWarned) {
+          this.capacityWarned = true;
+          this.logger.warn(
+            `Rate limit keyspace for ${namespaceLabel(this.namespace)} reached ${this.maxKeys} distinct counters ` +
+              `within one window. New clients now share ${OVERFLOW_BUCKETS} coarse counters until the window rolls ` +
+              'over, so they may be limited earlier than their own traffic warrants. Existing limits are unaffected.',
+          );
         }
         return { count, resetIn: ttl };
       },
@@ -276,9 +385,31 @@ export class RedisRateLimitStore implements RateLimitStore {
     );
   }
 
+  /**
+   * Execute {@link HIT_SCRIPT}, preferring the registered command over shipping the script body.
+   *
+   * `defineCommand` sends EVALSHA and retries with the full body only on a `NOSCRIPT` (an empty
+   * script cache after a Redis restart), instead of pushing ~600 bytes of Lua on every single
+   * request. The EVAL branch remains for a client that does not implement `defineCommand` —
+   * a wrapper or a test double — where failing would be worse than one extra payload.
+   */
+  protected async runHit(key: string, windowSeconds: number): Promise<[number, number, number]> {
+    const client = this.redisService.getClient() as any;
+    const args = [this.redisKey(key), this.cardinalityKey(), this.overflowKey(key), windowSeconds, this.maxKeys];
+
+    if (typeof client.defineCommand === 'function') {
+      if (!this.prepared.has(client)) {
+        client.defineCommand(HIT_COMMAND, { lua: HIT_SCRIPT, numberOfKeys: 3 });
+        this.prepared.add(client);
+      }
+      return (await client[HIT_COMMAND](...args)) as [number, number, number];
+    }
+    return (await client.eval(HIT_SCRIPT, 3, ...args)) as [number, number, number];
+  }
+
   async resetByPrefix(prefix: string): Promise<void> {
     await this.fallback.resetByPrefix(prefix);
-    await this.guard(() => this.deleteByPattern(`${this.redisKey(prefix)}*`), undefined);
+    await this.guard(() => this.deleteByPattern(this.redisKeyPattern(prefix)), undefined);
   }
 
   size(): number {
@@ -309,8 +440,42 @@ export class RedisRateLimitStore implements RateLimitStore {
     }
   }
 
+  /** The literal key a counter is stored under — never glob-escaped, that belongs to the pattern */
   protected redisKey(key: string): string {
-    return this.redisService.key('rate-limit', this.namespace, escapeGlob(key));
+    return this.redisService.key('rate-limit', this.namespace, key);
+  }
+
+  /**
+   * `SCAN MATCH` pattern covering every counter under `prefix`.
+   *
+   * The whole literal is escaped and only then extended by OUR wildcard, so the pattern matches
+   * exactly the keys {@link RedisRateLimitStore.redisKey} writes — including the `keyPrefix` and
+   * namespace segments, which a project's `redis.keyPrefix` could equally carry a `*` into.
+   */
+  protected redisKeyPattern(prefix: string): string {
+    return `${escapeGlob(this.redisKey(prefix))}*`;
+  }
+
+  /**
+   * Counter of distinct keys created in the current window.
+   *
+   * It carries the window as its own TTL and is never refreshed, so the cap means "at most
+   * `maxKeys` NEW counters per window" and heals by itself: since every counter also lives one
+   * window, that bounds the live keyspace at roughly `maxKeys` rather than capping it forever.
+   *
+   * The `#meta` segment sits under the namespace prefix so `clear()` sweeps it along with the
+   * counters. It is NOT unforgeable: {@link rateLimitKey} escapes a colon inside a part but joins
+   * the parts with a real one, so `rateLimitKey('#meta', 'cardinality')` reproduces this key
+   * exactly. That costs nothing — the counter it would land on is the one every fresh key
+   * increments anyway, and the cap it feeds fails towards COARSER limits, never towards none.
+   */
+  protected cardinalityKey(): string {
+    return this.redisService.key('rate-limit', this.namespace, '#meta', 'cardinality');
+  }
+
+  /** Shared coarse counter a key falls into once the namespace is saturated */
+  protected overflowKey(key: string): string {
+    return this.redisService.key('rate-limit', this.namespace, '#overflow', String(overflowSlot(key)));
   }
 
   protected async deleteByPattern(pattern: string): Promise<void> {

@@ -84,26 +84,17 @@ export class LegacyAuthRateLimitGuard implements CanActivate {
   }
 
   /**
-   * Get client IP from request, handling proxies
+   * Get the client IP that the rate limit counter is keyed on.
+   *
+   * `request.ip` — NOT `x-forwarded-for` directly. Express derives `req.ip` from the forwarded
+   * chain only as far as the app's `trust proxy` setting allows, and falls back to the socket
+   * address otherwise. Reading the header ourselves skips that check entirely, so any client
+   * simply picks its own bucket by sending a fresh value per request: the counter never reaches
+   * the limit, and the brute-force protection this guard exists for is off. A deployment behind
+   * a proxy must therefore configure `trust proxy` — that is the one place where "which hop do I
+   * believe" belongs.
    */
   private getClientIp(request: any): string {
-    if (!request) {
-      return 'unknown';
-    }
-
-    // Check common proxy headers
-    const forwardedFor = request.headers?.['x-forwarded-for'];
-    if (forwardedFor) {
-      // Take the first IP in the chain (original client)
-      return forwardedFor.split(',')[0].trim();
-    }
-
-    const realIp = request.headers?.['x-real-ip'];
-    if (realIp) {
-      return realIp;
-    }
-
-    // Fall back to direct connection IP
-    return request.ip || request.connection?.remoteAddress || 'unknown';
+    return request?.ip || request?.socket?.remoteAddress || 'unknown';
   }
 }

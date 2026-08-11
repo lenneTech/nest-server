@@ -2,7 +2,13 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { IBetterAuthRateLimit } from '../../common/interfaces/server-options.interface';
 import { CoreRedisService } from '../../common/services/core-redis.service';
-import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../common/services/rate-limit-store';
+import {
+  InMemoryRateLimitStore,
+  rateLimitKey,
+  rateLimitKeyPrefix,
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../common/services/rate-limit-store';
 
 /**
  * Result of a rate limit check
@@ -166,7 +172,7 @@ export class CoreBetterAuthRateLimiter {
    * @param ip - Client IP address
    */
   async reset(ip: string): Promise<void> {
-    await this.getStore().resetByPrefix(`${ip}:`);
+    await this.getStore().resetByPrefix(rateLimitKeyPrefix(ip));
   }
 
   /**
@@ -204,8 +210,11 @@ export class CoreBetterAuthRateLimiter {
    */
   protected getStore(): RateLimitStore {
     if (!this.store) {
+      // `maxEntries` bounds BOTH stores: process-local entries here, distinct Redis counter keys
+      // per window there. A project that tightened the cap must not have it silently ignored the
+      // moment `redis` is configured.
       this.store = this.coreRedisService?.enabled
-        ? new RedisRateLimitStore(this.coreRedisService, 'better-auth')
+        ? new RedisRateLimitStore(this.coreRedisService, 'better-auth', this.config.maxEntries)
         : new InMemoryRateLimitStore(this.config.maxEntries);
     }
     return this.store;
@@ -237,7 +246,10 @@ export class CoreBetterAuthRateLimiter {
   private getKey(ip: string, path: string): string {
     // Group similar endpoints together
     const endpoint = this.normalizeEndpoint(path);
-    return `${ip}:${endpoint}`;
+    // rateLimitKey(), not string concatenation: an IP that itself contains the separator (every
+    // IPv6 address does) would otherwise straddle the ip/endpoint boundary and share a counter
+    // with a different caller.
+    return rateLimitKey(ip, endpoint);
   }
 
   /**

@@ -3,7 +3,13 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IAuthRateLimit } from '../../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../../common/services/rate-limit-store';
+import {
+  InMemoryRateLimitStore,
+  rateLimitKey,
+  rateLimitKeyPrefix,
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../../common/services/rate-limit-store';
 
 /**
  * Result of a rate limit check
@@ -131,7 +137,10 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
     }
 
     const limit = this.config.max;
-    const { count, resetIn } = await this.getStore().hit(`${ip}:${endpoint}`, this.config.windowSeconds);
+    // rateLimitKey(), not string concatenation: an IP that itself contains the separator (every
+    // IPv6 address does) would otherwise straddle the ip/endpoint boundary and share a counter
+    // with a different caller.
+    const { count, resetIn } = await this.getStore().hit(rateLimitKey(ip, endpoint), this.config.windowSeconds);
 
     const allowed = count <= limit;
     const remaining = Math.max(0, limit - count);
@@ -169,7 +178,7 @@ export class LegacyAuthRateLimiter implements OnModuleInit {
    * @param ip - Client IP address
    */
   async reset(ip: string): Promise<void> {
-    await this.getStore().resetByPrefix(`${ip}:`);
+    await this.getStore().resetByPrefix(rateLimitKeyPrefix(ip));
   }
 
   /**

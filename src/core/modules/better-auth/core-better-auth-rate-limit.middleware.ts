@@ -77,24 +77,17 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
   }
 
   /**
-   * Extract client IP address from request
-   * Handles proxied requests via X-Forwarded-For header
+   * Get the client IP that the rate limit counter is keyed on.
+   *
+   * `req.ip` — NOT `x-forwarded-for` directly. Express derives `req.ip` from the forwarded chain
+   * only as far as the app's `trust proxy` setting allows, and falls back to the socket address
+   * otherwise. Reading the header ourselves skips that check entirely, so any client simply picks
+   * its own bucket by sending a fresh value per request: the counter never reaches the limit, and
+   * the brute-force protection on the auth endpoints is off. A deployment behind a proxy must
+   * therefore configure `trust proxy` — that is the one place where "which hop do I believe"
+   * belongs.
    */
   private getClientIp(req: Request): string {
-    // Check X-Forwarded-For header (for proxied requests)
-    const forwardedFor = req.headers['x-forwarded-for'];
-    if (forwardedFor) {
-      const ips = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.split(',')[0];
-      return ips.trim();
-    }
-
-    // Check X-Real-IP header (nginx)
-    const realIp = req.headers['x-real-ip'];
-    if (realIp) {
-      return Array.isArray(realIp) ? realIp[0] : realIp;
-    }
-
-    // Fall back to connection remote address
     return req.ip || req.socket?.remoteAddress || 'unknown';
   }
 
