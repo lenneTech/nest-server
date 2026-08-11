@@ -141,17 +141,48 @@ export class FileService extends CoreFileService {
     input: any,
     options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): Promise<boolean> {
-    if (options?.checkInputType !== 'id' || options.force) {
+    // Writes, list queries and forced (system) calls stay on the coarse role gate
+    if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
       return true;
     }
-    if (options.currentUser?.hasRole([RoleEnum.ADMIN])) {
+    if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
       return true;
     }
-    const raw = await this.getRawFileInfo(input);
-    return !!raw && String(raw.metadata?.ownerId) === String(options.currentUser?.id);
+    const raw =
+      options.checkInputType === 'id' ? await this.getRawFileInfo(input) : await this.getRawFileInfoByName(input);
+    // Fails closed without a user, and on a file that records no owner.
+    return !!raw?.metadata?.ownerId && String(raw.metadata.ownerId) === String(options.currentUser?.id);
   }
 }
 ```
+
+This is not a sketch: it is the rule `src/server/modules/file/file.service.ts` runs, with
+`file: { downloadRoles: [RoleEnum.S_USER] }` in `src/config.env.ts` so the coarse gate actually
+lets it fire. It used to live here and in that file as a **comment**, on the reasoning that the
+`[ADMIN]` default made it unreachable in the reference server anyway — and a commented rule is never
+compiled, never type-checked and never run. That is how a `deleteFileByName()` regression on the
+`filename` branch shipped through a full green suite.
+
+**Cover the `filename` branch too, not just `id`.** An id-only rule is enough while bytes are
+streamed, because the filename route resolves an id and checks it again — but not once
+`file.storage: 's3'` with presigned downloads is enabled, where the filename route authorizes on the
+by-name lookup alone and then redirects, and not for `deleteFileByName()`, which authorizes by name
+only.
+
+**Never add `if (!options.currentUser) return true`.** It reads as "system-internal call, the guard
+already decided" — but "no user in context" is also exactly what an **anonymous** request looks like.
+While `downloadRoles` is narrower than `S_EVERYONE` the role gate turns those away first, so the
+branch looks harmless; widen the gate, which this very section invites you to do, and it hands every
+file to everyone. The ownership rule evaporates precisely when it starts to matter. The same reason
+makes `!!raw?.metadata?.ownerId` load-bearing: without it, an owner-less file compares
+`String(undefined)` against `String(undefined)` and matches.
+
+Callers that really are internal should say so instead of relying on the omission — `{ force: true }`
+where a role decorator already decided (an `@Roles(ADMIN)` admin endpoint), or the real
+`{ currentUser }` where the user is in scope, so that call is **covered** by the ownership rule
+rather than exempt from it. The reference server does both: `src/server/modules/file/` and
+`src/server/modules/user/avatar.controller.ts`. The contract test for the whole rule, covering the
+`id` **and** the `filename` branch, lives in `tests/file-ownership.e2e-spec.ts`.
 
 Three pieces make this work, and all three are needed:
 

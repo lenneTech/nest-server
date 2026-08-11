@@ -65,8 +65,18 @@ decision worth making explicitly.
 caller have THIS file". For the latter, write an owner or tenant into the metadata at upload time
 (`createFile(file, { metadata: { ownerId } })`) and compare it in `checkRights()` via
 `getRawFileInfo()` / `getRawFileInfoByName()`. The public `getFileInfo()` strips restricted fields
-and is unusable for the decision. `getRawFileInfo()` checks S3 metadata first, then GridFS, so the
-same rule works under either `file.storage`.
+and is unusable for the decision. Both raw lookups consult every store — S3 metadata first, then the
+filesystem store, then GridFS — so the same rule works under any `file.storage`.
+
+Handle **both** `checkInputType: 'id'` and `'filename'`. An id-only rule is enough while bytes are
+streamed (the filename route resolves an id and re-checks it), but not with presigned S3 downloads,
+and not for `deleteFileByName()`, which authorizes by name only.
+
+**Copy from the executed reference, not from prose:** `src/server/modules/file/file.service.ts`
+implements exactly this rule, and `src/config.env.ts` widens `file.downloadRoles` to `[S_USER]` so
+it is actually reached. Note the internal callers there too — `{ force: true }` on the
+`@Roles(ADMIN)` endpoints, and a real `{ currentUser }` in `AvatarController` — because a rule that
+reads a missing user as "internal, allow" fails open the moment the coarse gate is widened.
 
 ### 5. Decide how the frontend fetches files
 
@@ -82,8 +92,10 @@ route for exactly the public files and leave the core routes gated.
 
 - [ ] `pnpm run build` succeeds
 - [ ] Anonymous `GET /files/id/<id>` answers **401**
-- [ ] A signed-in non-privileged user answers **403** (not 401 — a 401 makes SPA auth layers log the
-      user out)
+- [ ] A signed-in non-privileged user answers **403** when the ROLE GATE is what refuses (not 401 —
+      a 401 makes SPA auth layers log the user out). If you widened `downloadRoles` and let
+      `checkRights()` decide instead, the expected answer is **404**, byte-identical to an unknown
+      id — a 403 there would confirm the file exists
 - [ ] A caller holding a configured role downloads successfully
 - [ ] If you set `file.downloadRoles`, the value actually takes effect — if it does not, something
       in your controller is overriding the member (see step 2)

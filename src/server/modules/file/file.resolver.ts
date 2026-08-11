@@ -28,7 +28,10 @@ export class FileResolver {
   @Query(() => FileInfo, { nullable: true })
   @Roles(RoleEnum.ADMIN)
   async getFileInfo(@Args({ name: 'filename', type: () => String }) filename: string) {
-    return await this.fileService.getFileInfoByName(filename);
+    // `force`: @Roles(ADMIN) is the whole gate for this admin API. Omitting options instead
+    // would leave an overridden checkRights() to guess "internal call" from an absent user —
+    // indistinguishable from an anonymous request, and therefore the wrong thing to allow on.
+    return await this.fileService.getFileInfoByName(filename, { force: true });
   }
 
   // ===========================================================================
@@ -41,7 +44,8 @@ export class FileResolver {
   @Mutation(() => FileInfo)
   @Roles(RoleEnum.ADMIN)
   async deleteFile(@Args({ name: 'filename', type: () => String }) filename: string) {
-    return await this.fileService.deleteFileByName(filename);
+    // `force`: @Roles(ADMIN) is the whole gate here — see getFileInfo().
+    return await this.fileService.deleteFileByName(filename, { force: true });
   }
 
   /**

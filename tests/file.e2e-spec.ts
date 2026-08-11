@@ -321,14 +321,16 @@ describe('File (e2e)', () => {
   });
 
   it('downloadGraphQLFileById', async () => {
-    // Download by ID uses /files/id/:id (admin endpoint via CoreFileController)
+    // Download by ID uses /files/id/:id, inherited from CoreFileController. users[0] is ADMIN, so
+    // both gates say yes: the `S_USER` role gate and FileService.checkRights()'s ADMIN branch.
     const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
   it('downloadGraphQLFileByFilename', async () => {
-    // Download by filename uses /files/:filename (admin endpoint via CoreFileController)
+    // Download by filename uses /files/:filename, inherited from CoreFileController — a separate
+    // code path with its own by-name authorization lookup, so the by-id case above does not cover it.
     const res = await testHelper.download(`/files/${fileInfo.filename}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
@@ -389,7 +391,8 @@ describe('File (e2e)', () => {
       ['test2.txt', 'Hello GraphQL 2'],
     ]) {
       // Admin token: uploads made through the GraphQL mutation carry no owner
-      // metadata, so only `file.downloadRoles` (default ADMIN) grants access.
+      // metadata, so `FileService.checkRights()` grants these to ADMIN only —
+      // an owner-less file has no owner to match against.
       const download = await testHelper.download(`/files/${filename}`, { token: users[0].token });
       expect(download.statusCode).toEqual(200);
       expect(download.data).toEqual(content);
@@ -439,14 +442,16 @@ describe('File (e2e)', () => {
   });
 
   it('downloadRESTFileById', async () => {
-    // Download by ID uses /files/id/:id (admin endpoint via CoreFileController)
+    // Download by ID uses /files/id/:id, inherited from CoreFileController. users[0] is ADMIN, so
+    // both gates say yes: the `S_USER` role gate and FileService.checkRights()'s ADMIN branch.
     const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
   });
 
   it('downloadRESTFileByFilename', async () => {
-    // Download by filename uses /files/:filename (admin endpoint via CoreFileController)
+    // Download by filename uses /files/:filename, inherited from CoreFileController — a separate
+    // code path with its own by-name authorization lookup, so the by-id case above does not cover it.
     const res = await testHelper.download(`/files/${fileInfo.filename}`, { token: users[0].token });
     expect(res.statusCode).toEqual(200);
     expect(res.data).toEqual(fileContent);
@@ -474,11 +479,27 @@ describe('File (e2e)', () => {
     expect(res.data).not.toContain(fileContent);
   });
 
-  it('refusesNonAdminDownload', async () => {
-    // users[1] is a regular, verified user without RoleEnum.ADMIN. 403, not 401 —
-    // the caller IS authenticated, they just lack the right.
+  it('refusesNonOwnerDownload', async () => {
+    // users[1] is a regular, verified user without RoleEnum.ADMIN, and this file was uploaded by
+    // the admin through `/files/upload`, which records no `metadata.ownerId`.
+    //
+    // 404 — and this assertion used to read 403. That was correct while `file.downloadRoles` sat at
+    // its `[ADMIN]` default and the ROLE GUARD did the refusing. `config.env.ts` now widens the
+    // coarse gate to `S_USER`, so users[1] reaches the service and `FileService.checkRights()`
+    // makes the real decision. Its refusal is deliberately indistinguishable from a missing file:
+    // a 403 would confirm that this ObjectId names a real blob, turning the route into an existence
+    // oracle for a bucket whose ids are not secrets.
+    //
+    // The 401-vs-403 policy is unchanged and still asserted in this file — see the upload and
+    // delete cases, where the guard is genuinely the one answering.
+    const unknownId = new ObjectId().toHexString();
+
     const res = await testHelper.download(`/files/id/${fileInfo.id}`, { token: users[1].token });
-    expect(res.statusCode).toEqual(403);
+    const unknown = await testHelper.download(`/files/id/${unknownId}`, { token: users[1].token });
+
+    expect(res.statusCode).toEqual(404);
+    expect(unknown.statusCode).toEqual(404);
+    expect(res.data).toEqual(unknown.data);
     expect(res.data).not.toContain(fileContent);
   });
 
@@ -519,8 +540,8 @@ describe('File (e2e)', () => {
 
   it('downloadBufferWithCookies', async () => {
     // Subject here is downloadBuffer + the Cookie header, not authorization —
-    // the route is admin-gated, so a valid credential has to come along. The
-    // bogus cookie still exercises the header path (see the "both" case above).
+    // the route is gated, so a valid credential has to come along. The bogus
+    // cookie still exercises the header path (see the "both" case above).
     const buffer = await testHelper.downloadBuffer(`/files/id/${fileInfo.id}`, {
       cookies: 'test-session-token',
       token: users[0].token,

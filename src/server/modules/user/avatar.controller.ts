@@ -55,9 +55,16 @@ export class AvatarController {
     // Drop the replaced file. A failure here must not fail the upload: the new avatar
     // is already stored and referenced, so an orphaned object is a cleanup concern,
     // not a request error.
+    //
+    // `{ currentUser: user }`, not an empty context: the uploader IS in scope here, so a
+    // per-file rule in FileService.checkRights() should COVER this delete (the previous
+    // avatar is their own file) rather than be exempted from it. Passing nothing would ask
+    // the rule to infer "internal call" from an absent user — which is also what an
+    // anonymous request looks like, and is exactly the shortcut that makes an ownership
+    // rule evaporate once `file.downloadRoles` is widened.
     if (previousAvatar) {
       try {
-        await this.fileService.deleteFile(previousAvatar);
+        await this.fileService.deleteFile(previousAvatar, { currentUser: user });
       } catch (error) {
         this.logger.warn(
           `Could not remove previous avatar ${previousAvatar}: ${error instanceof Error ? error.message : 'Unknown error'}`,

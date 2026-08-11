@@ -1,8 +1,6 @@
-import { Injectable, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
-import mongoose, { Connection } from 'mongoose';
+import mongoose from 'mongoose';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
 import { Readable } from 'stream';
@@ -13,25 +11,30 @@ import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { IServerOptions } from '../src/core/common/interfaces/server-options.interface';
 import { ConfigService } from '../src/core/common/services/config.service';
-import { CoreS3Service } from '../src/core/common/services/core-s3.service';
-import { applyFileRoles } from '../src/core/modules/file/file-roles.helper';
-import { FileInputCheckType } from '../src/core/modules/file/core-file.service';
-import { FileServiceOptions } from '../src/core/modules/file/interfaces/file-service-options.interface';
 import { FILESYSTEM_FILES_COLLECTION } from '../src/core/modules/file/filesystem-file.helper';
 import { FileService } from '../src/server/modules/file/file.service';
+import { User } from '../src/server/modules/user/user.model';
 import { ServerModule } from '../src/server/server.module';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
 
 /**
- * The FINE half of the file security model, executed.
+ * The FINE half of the file security model, executed — against the REFERENCE SERVER'S OWN
+ * `FileService`, not a fixture written for this file.
  *
  * `file.downloadRoles` is the coarse gate: it answers "may this caller reach the route at all".
  * The per-file rule — "…but only their OWN file" — can only be expressed by overriding
- * `CoreFileService.checkRights()`, and until now that existed exclusively as a `@example` in the
- * service's docblock plus a unit pin on the refusal PARITY
- * (`tests/unit/core-file.controller.spec.ts`). Nothing anywhere subclassed the service with the
- * documented rule and proved it works end to end — so a change that stopped `checkRights()` from
- * being consulted, or that fed it a document it cannot authorize against, would have shipped green.
+ * `CoreFileService.checkRights()`. That override used to exist exclusively as a commented-out
+ * `@example`, plus a unit pin on the refusal PARITY (`tests/unit/core-file.controller.spec.ts`).
+ * Nothing subclassed the service with the documented rule and proved it works end to end — so a
+ * change that stopped `checkRights()` from being consulted, or that fed it a document it cannot
+ * authorize against, shipped green. One did.
+ *
+ * This suite deliberately does NOT define its own subclass any more. An earlier version did, and
+ * that is precisely the shape that let the defect through: a rule that lives only in a test proves
+ * the FRAMEWORK can support ownership, never that the reference server actually exercises the seam.
+ * `src/server/modules/file/file.service.ts` now implements the rule and `src/config.env.ts` widens
+ * the gate to `S_USER`, so every other file-touching spec traverses it too — and this file stays as
+ * the dedicated contract test that states the properties explicitly.
  *
  * Two properties are under test, and the second is the one that matters:
  *
@@ -51,47 +54,6 @@ import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
  * in GridFS, so both stores have to answer.
  */
 const OWNER_METADATA_KEY = 'ownerId';
-
-/**
- * The rule from `CoreFileService.checkRights()`'s `@example`, and from `FileService`'s "where the
- * per-file rule would go" note — deliberately kept structurally identical to both, so this suite
- * fails if the documented shape stops working. Extended to the filename branch, which the
- * docblock only mentions.
- */
-@Injectable()
-class OwnerScopedFileService extends FileService {
-  constructor(
-    @InjectConnection() connection: Connection,
-    configService: ConfigService,
-    @Optional() s3Service?: CoreS3Service,
-  ) {
-    super(connection, configService, s3Service);
-  }
-
-  protected override async checkRights(
-    input: any,
-    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
-  ): Promise<boolean> {
-    // Writes and filter reads stay on the role gate.
-    if (options?.force || (options?.checkInputType !== 'id' && options?.checkInputType !== 'filename')) {
-      return true;
-    }
-    // No user in scope means a system-internal call (AvatarController deleting the replaced
-    // avatar, for instance) — the guard already decided who may trigger it.
-    if (!options.currentUser) {
-      return true;
-    }
-    if (options.currentUser.hasRole?.([RoleEnum.ADMIN])) {
-      return true;
-    }
-    const raw
-      = options.checkInputType === 'id' ? await this.getRawFileInfo(input) : await this.getRawFileInfoByName(input);
-    return (
-      !!raw?.metadata?.[OWNER_METADATA_KEY]
-      && String(raw.metadata[OWNER_METADATA_KEY]) === String(options.currentUser.id)
-    );
-  }
-}
 
 interface TestUser {
   email: string;
@@ -162,6 +124,16 @@ describe('Per-file ownership via checkRights (e2e)', () => {
     return { filename, id: String(id) };
   };
 
+  /**
+   * The `currentUser` a controller hands the service: a real `User` model, so `hasRole()` exists
+   * and the ownership rule compares against a genuine id rather than a hand-built object literal.
+   */
+  const loadUser = async (user: TestUser): Promise<User> => {
+    const doc = await mongoClient.db().collection('users').findOne({ _id: new ObjectId(user.id) });
+    expect(doc, `${user.email} must exist`).toBeTruthy();
+    return User.map({ ...doc, id: user.id });
+  };
+
   beforeAll(async () => {
     fixtureDir = await createFixtureDir('nest-server-file-ownership-');
     storageDir = path.join(fixtureDir, 'storage');
@@ -169,22 +141,23 @@ describe('Per-file ownership via checkRights (e2e)', () => {
     previousConfig = ConfigService.configFastButReadOnly as Partial<IServerOptions>;
     // Filesystem driver on purpose — see the docblock: it is the store whose absence from
     // `getRawFileInfoByName()` made a by-name ownership rule authorize against a different file
-    // set than the download route serves.
+    // set than the download route serves. Only the DRIVER is swapped; `file.downloadRoles` is
+    // carried over from the real config, because the coarse gate is part of what is under test.
     ConfigService.setConfig(
-      { ...(previousConfig as any), file: { storage: 'filesystem', storageDir } } as IServerOptions,
+      {
+        ...(previousConfig as any),
+        file: { ...(previousConfig as any).file, storage: 'filesystem', storageDir },
+      } as IServerOptions,
       { reInit: true },
     );
 
-    // Widen the coarse gate to every signed-in user. Without this the role guard answers first and
-    // `checkRights()` is never reached — a per-file rule under the default `[ADMIN]` cannot fire at
-    // all, which is exactly why `FileService` ships the rule as a comment rather than as code.
-    // This is the same call `CoreModule.forRoot()` makes from `file.downloadRoles`.
-    applyFileRoles({ downloadRoles: [RoleEnum.S_USER] });
-
-    const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [ServerModule] })
-      .overrideProvider(FileService)
-      .useClass(OwnerScopedFileService)
-      .compile();
+    // NOTE: no `applyFileRoles()` call here. The role metadata was already written by
+    // `CoreModule.forRoot(envConfig)` when `ServerModule` was imported, from
+    // `config.env.ts`'s `file: { downloadRoles: [RoleEnum.S_USER] }`. Re-applying it locally would
+    // let this suite pass against a config that had silently reverted to `[ADMIN]` — under which
+    // the guard answers first and `checkRights()` is never reached. The first case below asserts
+    // the gate instead of arranging it.
+    const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [ServerModule] }).compile();
     app = moduleFixture.createNestApplication();
     await app.init();
     testHelper = new TestHelper(app);
@@ -234,9 +207,10 @@ describe('Per-file ownership via checkRights (e2e)', () => {
     await mongoClient?.close();
     await app?.close();
     await removeFixtureDir(fixtureDir);
-    // Shared prototype metadata and global config — restore both, in case this file ever stops
-    // being the only one in its worker.
-    applyFileRoles(undefined);
+    // Global config is shared per worker — restore it, in case this file ever stops being the only
+    // one in its own. The file-role metadata is NOT touched here: this suite no longer rewrites it,
+    // so there is nothing to restore, and calling `applyFileRoles(undefined)` would actively CLOBBER
+    // the app-wide `[S_USER]` gate back to the framework default for any spec sharing this worker.
     ConfigService.setConfig(previousConfig as IServerOptions, { reInit: true });
   }, 120_000);
 
@@ -245,8 +219,10 @@ describe('Per-file ownership via checkRights (e2e)', () => {
   // ===================================================================================================================
 
   it('lets the coarse gate through for any signed-in user, so the fine rule is actually reached', async () => {
-    // If `downloadRoles` were still [ADMIN], Bob's 404s below would in fact be the role guard's
-    // 403 turned into something else — and this suite would be testing nothing about checkRights().
+    // Asserts the SHIPPED configuration (`config.env.ts` → `file.downloadRoles: [S_USER]`), not an
+    // arrangement made by this file. If it were still [ADMIN], Bob's 404s below would in fact be the
+    // role guard's 403 turned into something else — and this suite would be testing nothing about
+    // checkRights(). That failure mode is why the gate is asserted rather than applied here.
     const asOwner = await testHelper.download(`/files/id/${aliceAvatar.id}`, { token: alice.token });
     expect(asOwner.statusCode).toBe(200);
   });
@@ -330,5 +306,56 @@ describe('Per-file ownership via checkRights (e2e)', () => {
   it('authorizes a GridFS-stored file by id too', async () => {
     expect((await testHelper.download(`/files/id/${aliceGridFsFile.id}`, { token: alice.token })).statusCode).toBe(200);
     expect((await testHelper.download(`/files/id/${aliceGridFsFile.id}`, { token: bob.token })).statusCode).toBe(404);
+  });
+
+  // ===================================================================================================================
+  // Delete by filename — the two-questions bug
+  //
+  // Runs LAST on purpose: uploading another avatar for Alice makes AvatarController clean up
+  // `aliceAvatar`, which the cases above still need.
+  // ===================================================================================================================
+
+  it('refuses a non-owner deleting by filename, and leaves the file in place', async () => {
+    // The other half of the pair below: the rule must still REFUSE, so a green delete case cannot
+    // be explained by the reference server's rule having gone permissive.
+    const bobUser = await loadUser(bob);
+    const service = app.get(FileService);
+
+    expect(await service.deleteFileByName(aliceAvatar.filename, { currentUser: bobUser })).toBeNull();
+    // Refused, not deleted — the owner can still fetch it.
+    expect((await testHelper.download(`/files/id/${aliceAvatar.id}`, { token: alice.token })).statusCode).toBe(200);
+  });
+
+  it('deletes by filename with the caller context the outer check was granted with', async () => {
+    // Regression: deleteFileByName() authorized the caller and then re-resolved the file via
+    // getFileInfoByName() WITHOUT serviceOptions — so an overridden checkRights() was asked two
+    // different questions about one request. Its sibling deleteFile() forwards to getFileInfo();
+    // this one did not.
+    //
+    // The symptom is the worst part: the owner is cleared by the outer check, the inner lookup
+    // denies with an empty context, and `deleteFileByName()` raises NotFoundException — `File not
+    // found` for a file that exists and that the caller was just authorized for. A missing file
+    // and a refused one are different answers, and this returned neither correctly.
+    //
+    // This case is only able to detect that because `FileService.checkRights()` FAILS CLOSED on a
+    // missing user. An `if (!options.currentUser) return true` shortcut — the shape the docs used
+    // to teach, and the shape the starter copied — makes the context-less inner lookup succeed too,
+    // and the whole assertion passes with the bug fully present.
+    const doomed = await uploadAvatar(alice, 'alice-delete-by-name');
+
+    // Same lesson one layer up: AvatarController's cleanup of the REPLACED avatar passes the real
+    // `{ currentUser }`, so the ownership rule COVERS that delete (Alice owns the old file) rather
+    // than exempting it. Called with an empty context against a fail-closed rule it would refuse
+    // silently — `deleteFile()` returns null, nothing throws, and the old avatar leaks forever.
+    expect((await testHelper.download(`/files/id/${aliceAvatar.id}`, { token: alice.token })).statusCode).toBe(404);
+
+    const aliceUser = await loadUser(alice);
+    const service = app.get(FileService);
+
+    const deleted = await service.deleteFileByName(doomed.filename, { currentUser: aliceUser });
+    expect(deleted?.id).toBe(doomed.id);
+
+    // Gone for real, not merely reported as gone.
+    expect((await testHelper.download(`/files/id/${doomed.id}`, { token: alice.token })).statusCode).toBe(404);
   });
 });

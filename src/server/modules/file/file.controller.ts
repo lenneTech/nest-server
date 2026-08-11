@@ -72,7 +72,11 @@ export class FileController extends CoreFileController {
   @Get('info/:id')
   @Roles(RoleEnum.ADMIN)
   async getFileInfo(@Param('id') id: string) {
-    return await this.fileService.getFileInfo(id);
+    // `force`: this route is @Roles(ADMIN) — the guard has already decided, and an overridden
+    // checkRights() must not be asked to re-derive that from an absent user. "No currentUser"
+    // is also what an anonymous request looks like, so a rule that reads it as "internal call"
+    // fails open; saying `force: true` states the intent instead of hiding it in an omission.
+    return await this.fileService.getFileInfo(id, { force: true });
   }
 
   /**
@@ -85,6 +89,7 @@ export class FileController extends CoreFileController {
       throw new BadRequestException('Missing ID');
     }
 
-    return await this.fileService.deleteFile(id);
+    // `force`: @Roles(ADMIN) above is the whole gate for this endpoint — see getFileInfo().
+    return await this.fileService.deleteFile(id, { force: true });
   }
 }

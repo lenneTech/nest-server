@@ -162,7 +162,7 @@ JWT-based authentication for existing projects:
 | **File Module** | Upload/download with MongoDB GridFS storage |
 | **REST Endpoints** | `GET /files/id/:id`, `GET /files/:filename` (core, gated by `file.downloadRoles`, default ADMIN); `POST /files/upload`, `DELETE /files/:id` (project-specific) |
 | **GraphQL Endpoints** | `getFileInfo` (`file.downloadRoles`), `uploadFile` / `uploadFiles` (`file.uploadRoles`), `deleteFile` (`file.deleteRoles`) — all default ADMIN |
-| **File access control** | Roles are the coarse filter; per-file rules go in `CoreFileService.checkRights()` using metadata written at upload time. Both file classes carry `@SkipTenantCheck()` — GridFS is not tenant-scoped |
+| **File access control** | Roles are the coarse filter; per-file rules go in `CoreFileService.checkRights()` using metadata written at upload time. Cover BOTH the `id` and the `filename` branch — the filename route authorizes on the by-name lookup alone when presigned S3 downloads are on, and `deleteFileByName()` always does. Working reference: `src/server/modules/file/file.service.ts` (with `file.downloadRoles: [S_USER]` in `src/config.env.ts`, so the rule is actually reached). Both file classes carry `@SkipTenantCheck()` — GridFS is not tenant-scoped |
 | **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight |
 | **GridFS Migration** | Completed TUS uploads auto-migrate to GridFS |
 | **CORS Support** | Automatic CORS headers for browser uploads |

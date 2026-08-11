@@ -557,7 +557,13 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
-    const fileInfo = await this.getFileInfoByName(filename);
+    // Forward the caller's context, exactly as deleteFile() does for getFileInfo().
+    // Without it this method authorizes the caller and then re-resolves the file with
+    // an EMPTY context, so an overridden checkRights() is asked two different
+    // questions about one request. For an ownership rule that means the lookup denies
+    // — and the caller gets `File not found` for a file that exists and that they were
+    // just authorized for, which reads as a missing file rather than a refused one.
+    const fileInfo = await this.getFileInfoByName(filename, serviceOptions);
     if (!fileInfo) {
       throw new NotFoundException(`File not found with filename ${filename}`);
     }
@@ -665,20 +671,48 @@ export abstract class CoreFileService {
    * routes. Metadata to compare against must be written at upload time via
    * `serviceOptions.metadata` and read back with `getRawFileInfo()`.
    *
+   * **A missing `currentUser` must DENY.** This is the one part of the rule that
+   * is easy to get backwards: "no user in context" is NOT "system-internal call"
+   * — it is also exactly what an ANONYMOUS request looks like. The coarse gate
+   * turns those away while `downloadRoles` is narrower than `S_EVERYONE`, so an
+   * `if (!options.currentUser) return true` shortcut looks harmless — right up to
+   * the moment a project widens the gate, at which point it hands every file to
+   * everyone and the ownership rule evaporates precisely when it starts to
+   * matter. Genuinely internal callers say so with `force: true`, or pass the
+   * user they already have; see `src/server/modules/file` and
+   * `src/server/modules/user/avatar.controller.ts`.
+   *
+   * **Cover the `filename` branch too, not just `id`.** An id-only rule is
+   * enough while bytes are streamed, because the filename route resolves an id
+   * and checks it again — but NOT once `s3.presignedDownloads` is enabled, where
+   * the filename route authorizes on the by-name lookup alone and then redirects,
+   * and not for `deleteFileByName()`, which authorizes by name only.
+   *
+   * The example below is the rule `src/server/modules/file/file.service.ts`
+   * actually runs — it is compiled, type-checked and exercised end to end by
+   * every file-touching e2e spec, plus the dedicated contract test in
+   * `tests/file-ownership.e2e-spec.ts`. Prefer reading it there over copying
+   * from here.
+   *
    * @example
    * ```typescript
    * protected override async checkRights(
    *   input: any,
    *   options?: FileServiceOptions & { checkInputType: FileInputCheckType },
    * ): Promise<boolean> {
-   *   if (options?.checkInputType !== 'id' || options.force) {
+   *   if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
    *     return true;
    *   }
-   *   if (options.currentUser?.hasRole([RoleEnum.ADMIN])) {
+   *   if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
    *     return true;
    *   }
-   *   const raw = await this.getRawFileInfo(input);
-   *   return !!raw && String(raw.metadata?.ownerId) === String(options.currentUser?.id);
+   *   const raw = options.checkInputType === 'id'
+   *     ? await this.getRawFileInfo(input)
+   *     : await this.getRawFileInfoByName(input);
+   *   // Fails closed without a user: `String(undefined)` cannot equal a real owner id.
+   *   // Requiring the owner to be PRESENT is load-bearing too — comparing a missing
+   *   // ownerId against a missing user id would compare 'undefined' with 'undefined'.
+   *   return !!raw?.metadata?.ownerId && String(raw.metadata.ownerId) === String(options.currentUser?.id);
    * }
    * ```
    */

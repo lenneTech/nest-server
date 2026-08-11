@@ -2,9 +2,11 @@ import { Injectable, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 
+import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { CoreS3Service } from '../../../core/common/services/core-s3.service';
-import { CoreFileService } from '../../../core/modules/file/core-file.service';
+import { CoreFileService, FileInputCheckType } from '../../../core/modules/file/core-file.service';
+import { FileServiceOptions } from '../../../core/modules/file/interfaces/file-service-options.interface';
 
 /**
  * File service
@@ -27,35 +29,79 @@ export class FileService extends CoreFileService {
   }
 
   /**
-   * NOTE — where the per-file rule would go.
+   * Per-file authorization for the two inherited download routes.
    *
-   * This reference server deliberately does NOT override `checkRights()`. With
-   * `file.downloadRoles` at its default `[ADMIN]`, the roles guard answers before
-   * the service is reached, so an owner rule here could never fire — and a rule
-   * that cannot fire is worse than none, because it reads as protection.
+   * THIS IS DELIBERATELY EXECUTED CODE, NOT AN ILLUSTRATION. It used to be a
+   * commented-out `@example` here, on the reasoning that `file.downloadRoles`
+   * defaults to `[ADMIN]`, the roles guard therefore answers before the service
+   * is reached, and a rule that cannot fire is worse than none. The reasoning was
+   * locally sound and globally harmful: a comment is never compiled, never
+   * type-checked and never run, so nothing in this repository exercised the
+   * `Core*` inheritance seam that every consuming project depends on — and a
+   * `deleteFileByName()` bug that dropped `serviceOptions` on the way to its
+   * inner lookup shipped green through 2777 tests, to be found downstream hours
+   * after release. The commented example was itself wrong (it allowed on a
+   * missing `currentUser`), and it was copied verbatim.
    *
-   * The pairing only becomes useful once the coarse gate is widened. A project
-   * that wants "signed-in users may fetch THEIR OWN files" sets
-   * `file: { downloadRoles: [RoleEnum.S_USER] }` and then overrides:
+   * The tension is resolved the other way round now: `config.env.ts` widens the
+   * coarse gate to `[RoleEnum.S_USER]` in every environment, which is what real
+   * projects do, so the rule below actually runs on every download this server
+   * serves.
    *
-   * ```typescript
-   * protected override async checkRights(input, options) {
-   *   if (options?.force || options?.checkInputType !== 'id') {
-   *     return true;   // writes and filename reads stay on the role gate
-   *   }
-   *   if (!options.currentUser) {
-   *     return true;   // system-internal call: the guard already decided
-   *   }
-   *   if (options.currentUser.hasRole?.([RoleEnum.ADMIN])) {
-   *     return true;
-   *   }
-   *   const raw = await this.getRawFileInfo(input);
-   *   return !!raw?.metadata?.ownerId && String(raw.metadata.ownerId) === String(options.currentUser.id);
-   * }
-   * ```
+   * The rule: ADMIN sees everything; everyone else sees only files whose
+   * `metadata.ownerId` is their own id. `AvatarController` writes that metadata
+   * at upload time. A file with NO owner recorded — the admin uploads via
+   * `/files/upload` and the GraphQL mutations, and TUS uploads, which carry
+   * `tusUploadId` but no owner — is therefore ADMIN-only.
    *
-   * `AvatarController` already writes the `metadata.ownerId` such a rule reads,
-   * so enabling it in a downstream project is a config change plus this method.
-   * See `src/core/modules/file/README.md` § Access control.
+   * Two properties worth knowing:
+   *
+   * - **A refusal answers 404, not 403.** That is the framework's doing, not
+   *   this method's: returning `false` makes the caller answer as if the file
+   *   did not exist, because a 403 would confirm that the id names a real file
+   *   and turn the endpoint into an existence oracle.
+   * - **A missing `currentUser` DENIES.** This is the one part that is easy to
+   *   get backwards. "No user in context" is NOT "system-internal call" — it is
+   *   also exactly what an ANONYMOUS request looks like. Today the coarse gate
+   *   turns those away before this hook runs, so an `if (!options.currentUser)
+   *   return true` shortcut looks harmless; widen `downloadRoles` to
+   *   `S_EVERYONE` and the same branch hands every file to everyone, so the
+   *   ownership rule evaporates precisely when it starts to matter. Genuinely
+   *   internal callers say so instead: `FileController` / `FileResolver` pass
+   *   `{ force: true }` because their `@Roles(ADMIN)` already decided, and
+   *   `AvatarController` passes the real `{ currentUser }` so its cleanup delete
+   *   is COVERED by this rule rather than exempt from it.
+   *
+   * BOTH the `id` and the `filename` branch are covered. Covering only `id` is
+   * enough while bytes are streamed, because the filename route resolves an id
+   * and checks it again — but not once `s3.presignedDownloads` is enabled, where
+   * the filename route authorizes on the by-name lookup alone and then redirects.
+   * The by-name half is also where the shipped `deleteFileByName()` bug lived.
+   *
+   * See `src/core/modules/file/README.md` § Access control, and
+   * `tests/file-ownership.e2e-spec.ts` for the end-to-end contract test.
    */
+  protected override async checkRights(
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+  ): Promise<boolean> {
+    // Writes, list queries and forced (system) calls stay on the coarse role gate.
+    if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
+      return true;
+    }
+
+    if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
+      return true;
+    }
+
+    // The RAW document on purpose: the public getFileInfo() runs prepareOutput(), which
+    // strips `metadata` — the very field this decision rests on.
+    const raw =
+      options.checkInputType === 'id' ? await this.getRawFileInfo(input) : await this.getRawFileInfoByName(input);
+
+    // Fails closed on a missing user: `String(undefined)` can never equal a real owner id.
+    // Requiring `metadata.ownerId` to be PRESENT is load-bearing too — without it an
+    // owner-less file would compare `String(undefined)` against `String(undefined)` and match.
+    return !!raw?.metadata?.ownerId && String(raw.metadata.ownerId) === String(options.currentUser?.id);
+  }
 }
