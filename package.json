@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.33.1",
+  "version": "11.34.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -24,8 +24,10 @@
     "c": "pnpm run check",
     "cf": "pnpm run check:fix",
     "check": "node scripts/check.mjs",
+    "check:consumer": "node scripts/check-consumer.mjs",
     "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
     "check:manifest": "node scripts/check-package-manifest.mjs",
+    "check:mutations": "node scripts/check-mutations.mjs",
     "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
     "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",

@@ -93,6 +93,26 @@ Reads consult **every** store, so files written under a previous driver stay rea
 migration step and no cut-over moment. New files go to the active driver; `findFileInfo()` returns
 the union, paged once over the merged result.
 
+That holds per method and in **both** directions — adopting a driver and switching away from one.
+The metadata lookups are gated on whether a store is USABLE, never on whether it is the active write
+driver, so pinning `file.storage: 'gridfs'` on a deployment that once used S3 keeps the S3 files
+readable rather than 404-ing them.
+
+Three consequences worth knowing about the merged read path:
+
+- **Ordering.** Each store answers its own correctly ordered page, and the merge re-establishes a
+  global order before it pages (`sortMergedFileInfo()`), including dotted sort fields such as
+  `metadata.ownerId`. Without a `sort` the merged page is `uploadDate` descending.
+- **`contentType`.** GridFS keeps it inside `metadata`, the other two stores at the document root.
+  `GridFSHelper.findFiles()` rewrites the key so a filter or sort on `contentType` behaves the same
+  under every driver.
+- **Duplication crosses drivers.** `duplicateByName()` / `duplicateById()` read the source from
+  whichever store holds it and write the copy to the ACTIVE driver, so duplicating a file that is
+  still in GridFS while `file.storage: 's3'` simply moves it forward.
+
+`s3-files` and `filesystem-files` are created on their first WRITE, never on a read — a deployment
+that only ever uses GridFS never grows them.
+
 The boot log names the driver in use, so it never has to be inferred from where files stopped
 appearing:
 
@@ -183,6 +203,20 @@ where a role decorator already decided (an `@Roles(ADMIN)` admin endpoint), or t
 rather than exempt from it. The reference server does both: `src/server/modules/file/` and
 `src/server/modules/user/avatar.controller.ts`. The contract test for the whole rule, covering the
 `id` **and** the `filename` branch, lives in `tests/file-ownership.e2e-spec.ts`.
+
+**It covers duplication too (11.34.0+).** `duplicateByName()` / `duplicateById()` authorize a copy as
+a READ of the source (`'filename'` / `'id'`) plus a WRITE of the copy (`'file'`), through the same
+public methods every other caller uses — so forward the context:
+
+```typescript
+await this.fileService.duplicateById(id, { currentUser });
+// …and give the COPY its own owner, because it does NOT inherit the source's metadata
+await this.fileService.duplicateById(id, { currentUser, metadata: { ownerId: currentUser.id } });
+```
+
+Not copying the source's `metadata` is deliberate: doing so would silently hand the duplicate the
+source's owner. A copy made without metadata is ADMIN-only under the rule above — fail-closed, not
+lost.
 
 Three pieces make this work, and all three are needed:
 
@@ -325,12 +359,14 @@ export class FileController extends CoreFileController {
 
 ### Error responses
 
-| Situation                                                                              | Status | Body                                                                                                  |
-| -------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------- |
-| Unknown id / filename, or `checkRights()` refused                                      | `404`  | `NotFoundException` with `ErrorCode.FILE_NOT_FOUND`                                                   |
-| Missing id / filename in the route                                                     | `400`  | `BadRequestException` with `ErrorCode.REQUIRED_FIELD_MISSING`                                         |
-| GridFS read fails **before** any byte was sent (file document exists, chunks are gone) | `404`  | `{ "error": "Not Found", "message": "<FILE_NOT_FOUND>", "statusCode": 404 }`                          |
-| GridFS read fails **after** streaming started                                          | —      | The connection is closed; a truncated transfer is the only signal left once the status is on the wire |
+| Situation                                                                              | Status | Body                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unknown id / filename, or `checkRights()` refused                                      | `404`  | `NotFoundException` with `ErrorCode.FILE_NOT_FOUND`                                                                                                                                  |
+| `deleteFile()` / `deleteFileByName()` / `duplicate*()` on a file that is not there     | `404`  | `NotFoundException`. Both halves of each id/name pair answer identically — up to 11.33.1 the by-id delete surfaced the driver's `MongoRuntimeError` as a `500`                       |
+| Missing id / filename in the route                                                     | `400`  | `BadRequestException` with `ErrorCode.REQUIRED_FIELD_MISSING`                                                                                                                        |
+| An upload's SOURCE stream fails (client aborts, staged read drops)                     | `500`  | The promise rejects with the cause — under **every** driver. It used to be an uncaught exception (i.e. a process exit) on GridFS, and on the S3 streaming path tus finalization uses |
+| GridFS read fails **before** any byte was sent (file document exists, chunks are gone) | `404`  | `{ "error": "Not Found", "message": "<FILE_NOT_FOUND>", "statusCode": 404 }`                                                                                                         |
+| GridFS read fails **after** streaming started                                          | —      | The connection is closed; a truncated transfer is the only signal left once the status is on the wire                                                                                |
 
 The mid-stream failure case is handled by `pipeFileToResponse()`. Without it the stream error would
 go unhandled, Node would destroy the socket, and a reverse proxy would report **502 Bad Gateway** —

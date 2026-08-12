@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { PassThrough } from 'stream';
 
 import { buildContentDisposition } from '../helpers/content-disposition.helper';
 import { ConfigService } from './config.service';
@@ -276,15 +277,76 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       length = (body as Buffer).length;
     }
 
-    await client.send(
-      new sdk.PutObjectCommand({
-        Body: payload,
-        Bucket: config.bucket,
-        ...(contentType ? { ContentType: contentType } : {}),
-        ...(length === undefined ? {} : { ContentLength: length }),
-        Key: key,
-      }),
-    );
+    const send = () =>
+      client.send(
+        new sdk.PutObjectCommand({
+          Body: payload,
+          Bucket: config.bucket,
+          ...(contentType ? { ContentType: contentType } : {}),
+          ...(length === undefined ? {} : { ContentLength: length }),
+          Key: key,
+        }),
+      );
+
+    // A stream handed straight to the SDK is the ONE body shape whose failure is not already
+    // ours: the unknown-length branch above reads the stream itself (`for await` throws), and a
+    // Buffer cannot fail. See `guardBodyStream` for what goes wrong without this.
+    if (this.isStream(payload)) {
+      const guard = this.guardBodyStream(payload);
+      payload = guard.body;
+      try {
+        await send();
+      } catch (error) {
+        throw guard.sourceError() ?? error;
+      }
+      // A source that died after the SDK already considered the request done would otherwise be
+      // reported as a successful upload of a truncated object.
+      const failure = guard.sourceError();
+      if (failure) {
+        throw failure;
+      }
+      return;
+    }
+    await send();
+  }
+
+  /**
+   * Shield the SDK from a REQUEST-BODY stream that can fail, and keep the cause.
+   *
+   * WHY THIS EXISTS: the AWS SDK pipes the body into its HTTP request without listening on the
+   * SOURCE. An error there therefore reached a stream with NO listener, and Node turns an unhandled
+   * `'error'` event into an uncaught exception that ends the process. Reachable from ordinary
+   * operation — this is the path a tus upload takes when it is migrated into S3 (`body` plus a
+   * known `contentLength`), so a staged read that drops mid-migration took the API down with it.
+   * It is also a driver asymmetry of the shape this release keeps finding: the filesystem driver
+   * routes the same stream through `pipeline()`, which forwards both ends, and GridFS has its own
+   * source handler. Only S3 had none.
+   *
+   * WHY A RELAY RATHER THAN JUST A LISTENER: a listener alone stops the uncaught exception, but the
+   * SDK's own request pipeline still observes a body stream that ERRORED and rejects a promise of
+   * its own that nothing awaits — an unhandled rejection, which Node also treats as fatal by
+   * default. So the SDK must never see a failing stream at all. It gets a `PassThrough` that simply
+   * ENDS early instead; short of its declared `Content-Length`, that is an ordinary request failure
+   * the SDK reports through the promise we are already awaiting. `sourceError()` then replaces the
+   * SDK's `socket hang up` with the actual cause, which is the part an operator needs.
+   *
+   * A `Promise.race` against the send would be the obvious alternative and is worse: it introduces
+   * a second promise for the same failure, and whichever loses the race is a rejection nobody
+   * consumes — trading the uncaught exception for exactly the unhandled rejection above.
+   */
+  protected guardBodyStream(stream: Readable): { body: Readable; sourceError: () => Error | undefined } {
+    const relay = new PassThrough();
+    let sourceError: Error | undefined;
+
+    stream.on('error', (error: Error) => {
+      sourceError = error;
+      // GRACEFUL end, never `destroy(error)`: propagating the error into the relay would hand the
+      // SDK the failing stream this method exists to keep away from it.
+      relay.end();
+    });
+    stream.pipe(relay);
+
+    return { body: relay, sourceError: () => sourceError };
   }
 
   /**

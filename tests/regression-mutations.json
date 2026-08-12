@@ -1,0 +1,218 @@
+{
+  "$comment": [
+    "REGISTERED MUTATIONS — the evidence behind every @regression test in tests/**.",
+    "",
+    "WHY: two regression tests written during the 11.33.1 session passed with the bug fully",
+    "restored. They were vacuous, and only a hand-run mutation caught that. A regression test that",
+    "was never seen failing is a claim, not a check — so the claim is written down here in a form a",
+    "machine can re-run: `pnpm run check:mutations` applies each mutation, runs the specs that claim",
+    "to catch it, and REQUIRES them to go red.",
+    "",
+    "Not part of `pnpm run check` (it deliberately breaks the source and re-runs suites; it belongs",
+    "in review and on the publish path, not in every inner loop). It is kept honest without running,",
+    "though: tests/unit/regression-evidence.spec.ts asserts that every `find` still matches its",
+    "target EXACTLY ONCE, so a mutation that has rotted into a silent no-op fails the normal suite.",
+    "",
+    "FIELDS",
+    "  id       referenced from the @seen-failing line of the tests it belongs to",
+    "  file     path relative to the repository root",
+    "  after    optional anchor; the search starts here (disambiguates identical lines in one file)",
+    "  find     literal text, must occur exactly once in the search window",
+    "  replace  what it becomes — the defect, reconstructed",
+    "  specs    the spec files that MUST fail once the mutation is applied",
+    "  driverSpecific  true when only some storage drivers are affected; `drivers` names them"
+  ],
+  "mutations": [
+    {
+      "id": "delete-by-name-drops-context",
+      "defect": "11.33.1 — deleteFileByName() authorized the caller and then re-resolved the file with an EMPTY context, so an overridden checkRights() was asked two different questions about one request and the owner was told `File not found`.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "find": "getFileInfoByName(filename, serviceOptions)",
+      "replace": "getFileInfoByName(filename)",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "raw-by-name-skips-filesystem",
+      "defect": "11.33.0 — getRawFileInfoByName() consulted S3 and GridFS but not the filesystem store, so a by-name ownership rule authorized against a different file set than the download route served.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "protected async getRawFileInfoByName(filename: string)",
+      "find": "      (await this.findFilesystemFileByName(filename)) ||\n",
+      "replace": "",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "s3-lookup-gated-on-active-driver",
+      "defect": "11.33.0 — the S3 metadata lookups were gated on the ACTIVE driver instead of on whether S3 is usable, so adopting S3 kept GridFS readable while switching back turned every S3-stored file into a 404.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "protected async findS3FileById(id: string | Types.ObjectId)",
+      "find": "if (!this.isStorageAvailable('s3')) {\n      return null;\n    }\n    return S3FileHelper.findFileById(",
+      "replace": "if (this.storageDriver !== 's3') {\n      return null;\n    }\n    return S3FileHelper.findFileById(",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "filesystem",
+        "gridfs"
+      ]
+    },
+    {
+      "id": "duplicate-by-name-drops-context",
+      "defect": "11.33.1 — duplicateByName() accepted no serviceOptions at all and re-resolved the source with an EMPTY context, so under a fail-closed checkRights() the owner's own duplicate was refused (and on the GridFS driver the method bypassed checkRights() entirely and copied unchecked).",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "async duplicateByName(name: string, newName: string",
+      "find": "const source = await this.getFileInfoByName(name, serviceOptions);",
+      "replace": "const source = await this.getFileInfoByName(name);",
+      "specs": [
+        "tests/file-duplicate.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "duplicate-by-id-null-deref",
+      "defect": "11.33.1 — duplicateById() re-resolved the source with an EMPTY context and then dereferenced the null it got back (`file.filename`), so a fail-closed checkRights() produced a TypeError where a 404 belongs — under every storage driver.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "async duplicateById(id: string | Types.ObjectId",
+      "find": "const source = await this.getFileInfo(objectId, serviceOptions);\n    if (!source) {",
+      "replace": "const source = await this.getFileInfo(objectId);\n    if (source === undefined) {",
+      "specs": [
+        "tests/file-duplicate.e2e-spec.ts",
+        "tests/file-missing-answers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "delete-by-id-500-instead-of-404",
+      "defect": "11.33.1 — deleteFile() fell through to the GridFS driver for an unknown id and surfaced its MongoRuntimeError ('File not found for id …') as an HTTP 500, while its by-name sibling answered a clean 404 for the same condition.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "async deleteFile(id: string | Types.ObjectId",
+      "find": "    if (!fileInfo) {\n      throw new NotFoundException(`File not found with id ${getStringIds(objectId)}`);\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/file-missing-answers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "merged-sort-ignores-dotted-path",
+      "defect": "11.33.1 — sortMergedFileInfo() read a sort key with `doc[field]`, so a DOTTED path (metadata.ownerId) was undefined for every row: each store sorted correctly and the merge then tied everything, leaving the page grouped by store. Paging over that returns the WRONG ROWS, not merely the wrong order.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "protected sortMergedFileInfo",
+      "find": "const left = this.readSortField(a, field);\n        const right = this.readSortField(b, field);",
+      "replace": "const left = a?.[field];\n        const right = b?.[field];",
+      "specs": [
+        "tests/file-find-info.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "filesystem",
+        "s3"
+      ]
+    },
+    {
+      "id": "gridfs-content-type-not-mapped",
+      "defect": "11.33.1 — GridFS keeps contentType inside `metadata` while s3-files / filesystem-files carry it at the document root, so findFileInfo() filtered on contentType matched every S3/filesystem file and NO GridFS file: nothing at all on the default driver, and every pre-switch file silently dropped on any other.",
+      "file": "src/core/common/helpers/gridfs.helper.ts",
+      "after": "static async findFiles(",
+      "find": "const query = GridFSHelper.mapContentTypeKeys(filter);",
+      "replace": "const query = filter;",
+      "specs": [
+        "tests/file-find-info.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "gridfs-upload-source-error-unhandled",
+      "defect": "11.33.1 — writeFileFromStream() listened for errors on the DESTINATION stream only. pipe() does not forward source errors, so an aborted upload emitted an unhandled 'error' — an uncaught exception that ends the PROCESS. The same abort was a rejected promise under the S3 and filesystem drivers.",
+      "file": "src/core/common/helpers/gridfs.helper.ts",
+      "after": "static writeFileFromStream(",
+      "find": "      stream.on('error', (error) => {\n        // Discard the chunks already written — see the note above.\n        Promise.resolve(uploadStream.abort?.()).catch(() => undefined);\n        fail(error);\n      });\n\n",
+      "replace": "",
+      "specs": [
+        "tests/file-upload-stream-error.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "gridfs"
+      ]
+    },
+    {
+      "id": "tus-staged-objects-not-deleted",
+      "defect": "11.33.x — a COMPLETED tus upload's staged object is not an incomplete multipart, so no bucket lifecycle rule reclaims it. Without the explicit cleanup every finished upload leaves a full second copy of itself behind, in a bucket that by default IS the file bucket.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "after": "protected async deleteStagedObjects(uploadId: string)",
+      "find": "    const { stagingBucket } = s3Service.getConfig();\n",
+      "replace": "    const { stagingBucket } = s3Service.getConfig();\n    if (stagingBucket) {\n      return;\n    }\n",
+      "specs": [
+        "tests/tus-finalization.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "s3-body-stream-error-unguarded",
+      "defect": "11.33.1 — CoreS3Service.putObject() handed a known-length body stream straight to the AWS SDK, which pipes it into its HTTP request without listening on the SOURCE. A failing body was therefore an unhandled 'error' event — an uncaught exception that ends the process. Reachable from tus finalization into S3, the one upload path that does not buffer first.",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "after": "protected guardBodyStream(stream: Readable)",
+      "find": "    const relay = new PassThrough();\n    let sourceError: Error | undefined;\n\n    stream.on('error', (error: Error) => {\n      sourceError = error;\n      // GRACEFUL end, never `destroy(error)`: propagating the error into the relay would hand the\n      // SDK the failing stream this method exists to keep away from it.\n      relay.end();\n    });\n    stream.pipe(relay);\n\n    return { body: relay, sourceError: () => sourceError };",
+      "replace": "    return { body: stream, sourceError: () => undefined };",
+      "specs": [
+        "tests/file-upload-stream-error.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "s3"
+      ]
+    },
+    {
+      "id": "hub-files-gridfs-only",
+      "defect": "11.33.x — the Hub's Files panel read `fs.files` alone, so under `file.storage: 's3'` or 'filesystem' it reported 0 files and could not delete anything. In an operator cockpit a confident wrong answer is worse than an honest gap: it is the tool somebody opens BECAUSE they are unsure whether an upload landed.",
+      "file": "src/core/modules/hub/services/core-hub-db.service.ts",
+      "after": "protected fileStores(bucket: string)",
+      "find": "      { collection: S3_FILES_COLLECTION, store: 's3' },\n      { collection: FILESYSTEM_FILES_COLLECTION, store: 'filesystem' },\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-hub-db.service.spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "filesystem",
+        "s3"
+      ]
+    },
+    {
+      "id": "hub-s3-delete-orphans-metadata",
+      "defect": "11.34.0 — an S3-backed delete must REFUSE when CoreS3Service is unavailable. Deleting the metadata document while the object stays in the bucket produces an orphan nothing can find again — unrecoverable in a way that 'try again with S3 configured' is not.",
+      "file": "src/core/modules/hub/services/core-hub-db.service.ts",
+      "after": "      case 's3': {",
+      "find": "        if (!this.s3Service?.enabled) {\n          throw new Error(HubActionMessage.s3Unavailable);\n        }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-hub-db.service.spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "s3"
+      ]
+    },
+    {
+      "id": "hub-files-merge-not-sorted",
+      "defect": "11.34.0 — the Files panel merges three stores, so the union must be re-sorted before the page is cut. Without it the listing comes back GROUPED BY STORE, and `skip`/`limit` over that returns the wrong ROWS — the same defect sortMergedFileInfo() was fixed for, one layer up.",
+      "file": "src/core/modules/hub/services/core-hub-db.service.ts",
+      "find": "    rows.sort((a, b) => (b.uploadDate ?? '').localeCompare(a.uploadDate ?? ''));\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-hub-db.service.spec.ts"
+      ],
+      "driverSpecific": false
+    }
+  ]
+}

@@ -38,7 +38,7 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 | Database             | `/hub/db`             | dbStats / per-collection collStats                              |
 | Models / ERD         | `/hub/models`         | Mongoose schemas → Mermaid ER diagram                           |
 | Migrations           | `/hub/migrations`     | `MigrationRunner` status + run/rollback                         |
-| Files                | `/hub/files`          | GridFS listing + delete                                         |
+| Files                | `/hub/files`          | listing + delete across all three storage drivers               |
 | Config               | `/hub/config`         | full config, secrets masked                                     |
 | Auth Migration       | `/hub/auth-migration` | Legacy → IAM progress (BetterAuth, optional)                    |
 | Routes / Permissions | `/hub/routes`         | route + role + `@Restricted` map (Permissions module, optional) |
@@ -50,19 +50,45 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 Each panel has a `*.json` sidecar (the stable data contract) that the client polls. Optional sources
 degrade to an "unavailable" state instead of erroring.
 
+### Files panel
+
+The panel reads all three file metadata stores, not just GridFS — the same three
+`CoreFileService.findFileInfo()` consults, because metadata always lives in MongoDB whichever store
+holds the bytes:
+
+| Store        | Collection                            | Bytes live in                   |
+| ------------ | ------------------------------------- | ------------------------------- |
+| `s3`         | `s3-files`                            | the S3 bucket                   |
+| `filesystem` | `filesystem-files`                    | `file.storageDir` on local disk |
+| `gridfs`     | `<bucket>.files` (default `fs.files`) | MongoDB                         |
+
+Every row carries the `store` it was found in, and `files.json` reports a per-store `count` so an
+empty store reads as **empty** rather than as _"this panel does not cover your driver"_. Until
+11.34.0 it read `fs.files` alone, so under `file.storage: 's3'` or `'filesystem'` it confidently
+answered **0 files** — the worst answer available, since the Hub is what an operator opens precisely
+when they are unsure whether an upload landed.
+
+Two properties worth knowing:
+
+- **Delete dispatches to the owning store.** An S3-backed file needs `CoreS3Service` to be
+  configured in this process; without it the action REFUSES (`S3 storage is not available.`) rather
+  than deleting the metadata document and orphaning the object in the bucket.
+- **Reading never creates a collection.** A GridFS-only deployment does not grow an empty
+  `s3-files` / `filesystem-files` from the panel looking at them.
+
 ## Actions (mutating)
 
 Enabled by default (`actions: true`). Every mutating request requires the `X-Hub-Request: 1` header
 (CSRF defense) and destructive ones a server-validated `confirm` keyword:
 
-| Action                  | Endpoint                                   | Confirm      |
-| ----------------------- | ------------------------------------------ | ------------ |
-| Run pending migrations  | `POST /hub/actions/migrations/run`         | `RUN`        |
-| Rollback last migration | `POST /hub/actions/migrations/down`        | `DOWN`       |
-| Delete GridFS file      | `DELETE /hub/actions/files/:id`            | the filename |
-| Cron start/stop/trigger | `POST /hub/actions/cron/:name/:action`     | the job name |
-| Clear collector buffer  | `POST /hub/actions/collectors/:name/clear` | `CLEAR`      |
-| Send test mail          | `POST /hub/actions/email/test`             | —            |
+| Action                   | Endpoint                                   | Confirm      |
+| ------------------------ | ------------------------------------------ | ------------ |
+| Run pending migrations   | `POST /hub/actions/migrations/run`         | `RUN`        |
+| Rollback last migration  | `POST /hub/actions/migrations/down`        | `DOWN`       |
+| Delete file (any driver) | `DELETE /hub/actions/files/:id`            | the filename |
+| Cron start/stop/trigger  | `POST /hub/actions/cron/:name/:action`     | the job name |
+| Clear collector buffer   | `POST /hub/actions/collectors/:name/clear` | `CLEAR`      |
+| Send test mail           | `POST /hub/actions/email/test`             | —            |
 
 Every action writes an audit line: `[HUB-ACTION] <action> by user <id>`.
 

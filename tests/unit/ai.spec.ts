@@ -440,11 +440,18 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     // wraps whatever a remote MCP server advertises, uncapped.
     //
     // Asserted as a GROWTH RATIO rather than an absolute duration: quadratic means
-    // ~16x for 4x the input, linear means ~4x or less. A machine stall scales both
-    // measurements and cancels out, so this cannot fail from load alone — which an
-    // absolute millisecond budget can.
+    // ~16x for 4x the input, linear means ~4x or less.
+    //
+    // Each side is the BEST of several attempts, not a single one. The original claim — that a
+    // machine stall "scales both measurements and cancels out" — only holds when the stall spans
+    // both; a GC pause inside just one of them does not cancel, it lands directly in the ratio.
+    // Measured at ratio 9.8 against the threshold of 8 on an otherwise green run, i.e. a false
+    // failure roughly once per ~25 runs. A minimum is the right estimator here because noise can
+    // only ADD time: best-of-N converges on the true compute cost from above, so the threshold
+    // stays at 8 and keeps its full discriminating power against the ~16x quadratic case rather
+    // than being loosened to accommodate the noise.
     it('stays linear on a long description with no sentence terminator', () => {
-      const measure = (size: number): number => {
+      const measureOnce = (size: number): number => {
         const description = `Short one. ${'a'.repeat(size)}`;
         const started = performance.now();
         // Repeat so a single fast run is not lost in timer granularity.
@@ -453,8 +460,10 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
         }
         return performance.now() - started;
       };
+      const measure = (size: number): number =>
+        Math.min(measureOnce(size), measureOnce(size), measureOnce(size));
       // Warm up so JIT compilation does not land inside the first measurement.
-      measure(1000);
+      measureOnce(1000);
       const small = Math.max(measure(25000), 0.01);
       const large = measure(100000);
       // 4x the input. Linear ⇒ ~4x or less (measured ~3). Quadratic ⇒ ~16x.

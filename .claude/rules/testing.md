@@ -34,7 +34,7 @@ mis-named suite fails the build instead of silently passing. Type-only tests
 
 ## Infrastructure containers (Redis + S3)
 
-**Seven** e2e suites talk to a **real** Redis and/or a **real** S3-compatible store rather than a
+**Eight** e2e suites talk to a **real** Redis and/or a **real** S3-compatible store rather than a
 mock, and they **fail loudly** when it is missing — a silently skipped infrastructure test is how an
 untested driver ships:
 
@@ -44,13 +44,14 @@ untested driver ships:
 | `tests/redis-consumers.e2e-spec.ts` | Redis |
 | `tests/multi-replica.e2e-spec.ts` | Redis |
 | `tests/s3-infra.e2e-spec.ts` | S3 |
-| `tests/file-storage-s3.e2e-spec.ts` | S3 |
+| `tests/file-storage-parity.e2e-spec.ts` | S3 |
+| `tests/file-storage-http-parity.e2e-spec.ts` | S3 |
 | `tests/redis-s3-bootstrap.e2e-spec.ts` | Redis + S3 |
 | `tests/graceful-shutdown.e2e-spec.ts` | Redis + S3 |
 
 `tests/global-setup.ts` starts both containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the seven above report their own actionable
+fatal: without Docker every other suite still runs, and the eight above report their own actionable
 error.
 
 ```bash
@@ -153,6 +154,179 @@ pnpm run test:cleanup
 - Coverage: Collected from `src/**/*.{ts,js}`. The two runners are separate vitest processes, so
   they write separate reports (`coverage/unit`, `coverage/e2e`) rather than overwriting each other.
 
+## Behaviour matrices: test the CONTRACT once, against every implementation
+
+**Rule: when one contract has several interchangeable implementations, there is ONE list of
+behaviours and it runs against all of them. Never one suite per implementation.**
+
+File storage is the worked example, and it is a worked example because getting it wrong shipped two
+defects. Three drivers (`filesystem`, `gridfs`, `s3`) sat behind one `CoreFileService` contract with
+one suite each — different files, different drivers, overlapping intent, no shared list. A behaviour
+that was correct under GridFS and broken under `filesystem` had nowhere to surface. 11.33.0 shipped
+exactly that (`getRawFileInfoByName()` consulted two of the three stores), and every suite was green.
+
+| Piece | Where |
+|-------|-------|
+| The matrix — cases, drivers, exclusions, folded-in receipts | `tests/helpers/file-storage-matrix.ts` |
+| Per-driver plumbing (config, planting into a non-active store, byte probes) | `tests/helpers/file-storage-drivers.ts` |
+| Service-contract executor | `tests/file-storage-parity.e2e-spec.ts` |
+| Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
+| Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
+
+### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
+
+Omitting a case for one implementation and declaring it impossible there produce the same artefact
+in a report: nothing. That is how a gap hides, so the three states are declared and the guard fails
+on anything else:
+
+- **EXECUTED** — the case lists the driver; the executor registers a real `it()` via `parityIt()`.
+- **IMPOSSIBLE:** — the behaviour has no equivalent primitive in that store. No `provenBy`, nothing
+  registered; there is nothing to assert instead.
+- **DIFFERENT-BY-DESIGN:** — the driver behaves differently on purpose. MUST name a `provenBy` case
+  that runs for that driver, and MUST register a `parityComplement()` asserting what happens
+  instead. A design difference nobody asserts is indistinguishable from a bug nobody noticed.
+
+An exclusion is a claim about the PRODUCT. If you are adding one to get green, you are writing down
+a bug.
+
+### Consolidating suites requires a receipt
+
+Folding a per-implementation suite into the matrix must not trade breadth for tidiness. Each case
+the old suite asserted gets an entry in `FOLDED_IN` (`from`, `was`, `into`), and the guard asserts
+every `into` still names a live case, that the folded-in cases cover **all** drivers, and that the
+origin files are gone rather than left behind to drift.
+
+## Regression tests must carry their evidence
+
+**Rule: a test that claims to pin a defect declares `@regression` AND `@seen-failing`, and the
+`@seen-failing` line names a mutation registered in `tests/regression-mutations.json`.**
+
+### Why — two vacuous tests, in the session that was fixing the bug
+
+While fixing 11.33.1, two tests written specifically to pin the defect **passed with the defect
+fully restored**:
+
+1. The `deleteFileByName()` ownership case drove a rule that read a missing `currentUser` as
+   "internal, allow". The broken, context-less inner lookup therefore succeeded too, and the whole
+   assertion held with the bug present. It only detects anything because the rule now **fails
+   closed**.
+2. A by-name lookup case asserted around the defect rather than on it.
+
+Both were caught only because somebody re-broke the source by hand and re-ran them. A green test
+looks identical whether it is checking something or nothing; the single thing that separates the two
+is having watched it go red — and that observation used to live in terminal scrollback.
+
+### The convention
+
+```typescript
+/**
+ * @regression   11.33.1 — deleteFileByName() re-resolved the file with an EMPTY context, so an
+ *   overridden checkRights() was asked two different questions about one request.
+ * @seen-failing Drop `serviceOptions` from the getFileInfoByName() call in
+ *   src/core/modules/file/core-file.service.ts — registered as mutation
+ *   `delete-by-name-drops-context` in tests/regression-mutations.json.
+ */
+```
+
+```bash
+pnpm run check:mutations                    # apply every registered mutation, require its specs to go RED
+pnpm run check:mutations -- --id=<id>       # one mutation
+pnpm run check:mutations -- --list          # the registry, without running anything
+pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
+```
+
+Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
+and on the publish path. Between runs the registry is kept from rotting by
+`tests/unit/regression-evidence.spec.ts`, which asserts every `find` still matches its target
+**exactly once**: a stale mutation would silently become a no-op, and a no-op "confirms" evidence
+that was never checked.
+
+`tests/unit/regression-evidence.spec.ts` also enforces the other direction — every registered
+mutation must be referenced by some `@regression` block, and each referenced mutation must actually
+run the file the tag lives in.
+
+Free prose ("Regression guard: …") is untouched by any of this. It predates the convention and often
+sits on tests whose defect has no reachable mutation any more; retro-fitting it would produce
+ceremony, not evidence. **The tag is the promise.**
+
+### What a reviewer must ask for
+
+When a change adds or edits a test that claims to fix or pin a bug:
+
+1. **"Show me it red."** Either the `@seen-failing` line with a registered mutation id, or the
+   pasted output of `pnpm run check:mutations -- --id=<id>`.
+2. **"Which cases went red, and under which driver/configuration?"** One red case where you expected
+   four means the mutation is not the defect, or the coverage is narrower than claimed.
+3. **"Would a permissive fixture also make this pass?"** For anything driving an authorization hook,
+   the paired refusal case is mandatory — without it, a rule that has silently gone permissive
+   explains the green just as well as the fix does.
+4. **"Is the mutation the defect, or a proxy for it?"** A mutation that breaks everything proves
+   nothing about the specific behaviour.
+
+## Consumer gate: the starter runs BEFORE publish, not after
+
+`pnpm run check:consumer` builds the tarball (`pnpm pack`), installs it into a **throwaway copy** of
+`nest-server-starter`, and runs the consumer's own checks against it.
+
+```bash
+pnpm run check:consumer                            # full: the starter's own `check`
+pnpm run check:consumer -- --fast                  # typecheck + build + tests (~5 min)
+pnpm run check:consumer -- --starter=<path>        # else ../nest-server-starter, or NEST_SERVER_STARTER_PATH
+pnpm run check:consumer -- --keep                  # keep the workspace for inspection
+```
+
+It is not a duplicate of `pnpm run check`. This repo's suite exercises `src/server` — a consumer
+that, by construction, tracks every framework change in the same commit and imports `src/` by
+relative path. The starter does neither: it subclasses the shipped `Core*` classes and consumes
+`dist/` through the package's public entry points. It therefore catches what nothing else can: a
+`files`/`exports` mistake that drops something from the tarball, a signature change only a
+**subclass** notices, a `devDependency` used at runtime by framework code, and behaviour that
+differs under the starter's configuration.
+
+Wired into `.github/workflows/publish.yml` before the publish step, with `--fast`. Deliberately not
+on every push (~5 minutes), and deliberately not the starter's full `check` in CI: that also runs
+the starter's own `pnpm audit` / `format:check` / `lint`, none of which say anything about our
+tarball — a fresh advisory in one of the starter's own dependencies would otherwise block an
+unrelated release.
+
+## Consumer contracts: exercise the extension points, in executed code
+
+**Rule: an overridable seam that only `src/server`'s defaults ever touch is an untested seam.**
+`src/server` IS a consumer of `src/core`, but for a long time it was a consumer that took every
+default — and a `@Restricted`/`checkRights()`/`securityCheck()` override documented only in a JSDoc
+`@example` is never compiled, never type-checked and never run.
+
+| Seam | Contract suite |
+|------|----------------|
+| `CoreFileService.checkRights()` | `tests/file-ownership.e2e-spec.ts` (+ the parity matrix, per driver) |
+| `CoreModel.securityCheck()` | `tests/security-check-contract.e2e-spec.ts` |
+
+A contract suite tests the SEAM, not one consumer of it. `security-check-contract` is the shape to
+copy: its models' `securityCheck()` **records its own invocation** (`checkedFor`) as well as
+narrowing fields, so "the response looks redacted" — which a `@Restricted` rule, `prepareOutput` or
+a typo in the fixture would produce too — becomes "the hook ran, with this user, on this object".
+
+## Structural invariants over `src/`
+
+Some properties cannot be observed by running the code, only by reading it — and a runtime guard
+catches the *failure*, never the *disarming* of the safety property.
+
+| Invariant | Guard |
+|-----------|-------|
+| DI tokens live in import-free leaves (SWC/TDZ) | `tests/unit/import-cycle-invariants.spec.ts` |
+| Internal calls forward the caller's `ServiceOptions` | `tests/unit/service-options-forwarding.spec.ts` |
+| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts` |
+| Regression tests carry re-runnable evidence | `tests/unit/regression-evidence.spec.ts` |
+
+`service-options-forwarding` is 11.33.1 generalised: inside `src/core/`, a method that HAS the
+caller's context must pass it to every internal call that accepts one. Passing a local derived from
+it counts (`const config = { ...serviceOptions, … }`). A call that must genuinely run context-free
+says so at the call site — the opt-out is a claim about authorization, so it belongs in the diff:
+
+```typescript
+// serviceOptions-forwarding: <why this call must not carry the caller's context>
+```
+
 ## Test Best Practices
 
 1. **Always run tests before completing changes**: `pnpm test`
@@ -160,6 +334,10 @@ pnpm run test:cleanup
 3. **Use TestHelper** for GraphQL and REST API testing
 4. **Clean up test data** in `afterAll` hooks
 5. **Unique test data** - Use timestamps/random strings to avoid conflicts
+6. **One contract, one matrix** — see "Behaviour matrices" above before writing a second suite for
+   the same contract with a different implementation
+7. **A regression test carries `@regression` + `@seen-failing`** — see "Regression tests must carry
+   their evidence"
 
 ## Test File Structure
 

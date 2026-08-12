@@ -5,6 +5,7 @@ import { Connection } from 'mongoose';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { ConfigService } from '../../../core/common/services/config.service';
 import { CoreS3Service } from '../../../core/common/services/core-s3.service';
+import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
 import { CoreFileService, FileInputCheckType } from '../../../core/modules/file/core-file.service';
 import { FileServiceOptions } from '../../../core/modules/file/interfaces/file-service-options.interface';
 
@@ -22,10 +23,26 @@ export class FileService extends CoreFileService {
   }
 
   /**
-   * Duplicate file by name
+   * Duplicate file by name.
+   *
+   * Delegates instead of reaching into `this.files` directly. The direct GridFS
+   * pipe this used to be was wrong in four separate ways, and every one of them
+   * is the kind of thing a consuming project copies out of here:
+   *
+   * - it only ever worked on the GridFS driver — under `file.storage: 's3'` or
+   *   `'filesystem'` the source is simply not in the bucket;
+   * - it bypassed `checkRights()` entirely, so the owner rule below did not apply
+   *   to a duplicate at all;
+   * - it returned the write stream without awaiting it, so the caller was told the
+   *   copy existed while it was still being written;
+   * - neither stream carried an error handler, and an unhandled stream `'error'`
+   *   takes the whole process down.
+   *
+   * `duplicateByName()` answers all four. Forward the caller's context so the
+   * duplicate is COVERED by the ownership rule rather than exempt from it.
    */
-  async duplicate(fileName: string, newName: string): Promise<any> {
-    return this.files.openDownloadStreamByName(fileName).pipe(this.files.openUploadStream(newName));
+  async duplicate(fileName: string, newName: string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    return this.duplicateByName(fileName, newName, serviceOptions);
   }
 
   /**

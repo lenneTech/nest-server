@@ -1,8 +1,9 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import mongoose, { Connection, mongo, Types } from 'mongoose';
+import { Connection, mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { FilterArgs } from '../../common/args/filter.args';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
 import { GridFSHelper } from '../../common/helpers/gridfs.helper';
@@ -195,73 +196,103 @@ export abstract class CoreFileService {
 
   /**
    * Duplicate file by name
+   *
+   * A duplicate is a READ of the source plus a WRITE of the copy, and it is
+   * authorized as exactly that: the source goes through `getFileInfoByName()` +
+   * `getFileStreamByName()` (`checkInputType: 'filename'`) and the copy through
+   * `createFile()` (`checkInputType: 'file'`) — the same public methods, with the
+   * same `checkRights()` hook, that every other caller uses.
+   *
+   * `serviceOptions` is OPTIONAL and additive. Omitting it keeps the pre-11.34.0
+   * behaviour for the framework default `checkRights()` (which returns `true`),
+   * and turns what used to be a crash into a clean refusal for a project that
+   * overrides it fail-closed: the GridFS branch used to bypass the hook
+   * altogether and copy the file unchecked, while the S3 / filesystem branches
+   * died inside a storage helper. System-internal callers say `{ force: true }`,
+   * the same idiom the rest of this service uses.
+   *
+   * The copy does NOT inherit the source's `metadata`. Copying it would silently
+   * hand the duplicate the source's owner, which is the one thing an ownership
+   * rule must not do behind the caller's back — pass `serviceOptions.metadata`
+   * to state the copy's own.
+   *
+   * @returns the file info of the COPY. Up to 11.33.1 the GridFS branch resolved
+   *   the raw `GridFSBucketWriteStream` instead, so a project reading anything
+   *   beyond `.id` / `.filename` off it has to adjust.
    */
-  async duplicateByName(name: string, newName: string): Promise<any> {
-    // Route through the storage dispatch like every other read/write. Going straight to GridFS
-    // meant that with `file.storage: 's3'` the source simply is not there — and the resulting
-    // FileNotFound arrives on a stream with NO error handler, so it becomes an uncaught
-    // exception that takes the process down instead of a 404.
-    const nonGridFsSource = (await this.findS3FileByName(name)) || (await this.findFilesystemFileByName(name));
-    if (nonGridFsSource) {
-      const source = await this.getFileStreamByName(name);
-      return this.createFile({
-        createReadStream: () => source,
-        filename: newName,
-        mimetype: nonGridFsSource.contentType || 'application/octet-stream',
-      });
+  async duplicateByName(name: string, newName: string, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    const source = await this.getFileInfoByName(name, serviceOptions);
+    if (!source) {
+      throw new NotFoundException(`File not found with filename ${name}`);
     }
-
-    return new Promise((resolve, reject) => {
-      const downloadStream = GridFSHelper.openDownloadStreamByName(this.files, name);
-      downloadStream.on('error', reject);
-      const uploadStream = GridFSHelper.openUploadStream(this.files, newName);
-      uploadStream.on('error', reject);
-      uploadStream.on('finish', () => resolve(uploadStream));
-      downloadStream.pipe(uploadStream);
-    });
+    return this.duplicateFile(source, newName, () => this.getFileStreamByName(name, serviceOptions), serviceOptions);
   }
 
   /**
    * Duplicate file by ID
+   *
+   * See {@link duplicateByName} for the authorization model and for why
+   * `serviceOptions` matters. The copy keeps the source's filename.
+   *
+   * @returns the id of the copy
    */
-  async duplicateById(id: string): Promise<string> {
+  async duplicateById(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<string> {
     const objectId = getObjectIds(id);
-    const file = await this.getFileInfo(objectId);
+    const source = await this.getFileInfo(objectId, serviceOptions);
+    if (!source) {
+      // Was a `TypeError` on `file.filename`: the source had been re-resolved with
+      // an empty context, so a fail-closed rule answered null and the null was then
+      // dereferenced. A refusal must read as a refusal, never as a crash.
+      throw new NotFoundException(`File not found with id ${getStringIds(objectId)}`);
+    }
+    const copy = await this.duplicateFile(
+      source,
+      source.filename,
+      () => this.getFileStream(objectId, serviceOptions),
+      serviceOptions,
+    );
+    return copy.id;
+  }
 
-    // Same dispatch as duplicateByName: a file stored outside GridFS has no GridFS counterpart.
-    const nonGridFsSource = (await this.findS3FileById(objectId)) || (await this.findFilesystemFileById(objectId));
-    if (nonGridFsSource) {
-      const source = await this.getFileStream(objectId);
-      const copy = await this.createFile({
-        createReadStream: () => source,
-        filename: file.filename,
-        mimetype: file.contentType || 'application/octet-stream',
-      });
-      return copy.id;
+  /**
+   * Shared write half of the two duplicate methods.
+   *
+   * Deliberately driver-agnostic: it opens the source through the public read
+   * path (whichever store answers) and writes the copy through `createFile()`
+   * (whichever store is active). That is what makes a duplicate work ACROSS a
+   * driver change — a file still in GridFS is copied into S3 without a migration
+   * step — and what keeps the three drivers from drifting apart again.
+   */
+  protected async duplicateFile(
+    source: CoreFileInfo,
+    newName: string,
+    openSourceStream: () => Promise<Readable>,
+    serviceOptions?: FileServiceOptions,
+  ): Promise<CoreFileInfo> {
+    const stream = await openSourceStream();
+    if (!stream) {
+      // The read was refused between the two checks (or the bytes vanished).
+      // Same answer as an unknown file: never confirm that it exists.
+      throw new NotFoundException(`File not found with filename ${source.filename}`);
     }
 
-    return new Promise((resolve, reject) => {
-      const downloadStream = GridFSHelper.openDownloadStream(this.files, objectId);
+    const copy = await this.createFile(
+      {
+        createReadStream: () => stream,
+        filename: newName,
+        mimetype: source.contentType || 'application/octet-stream',
+      },
+      serviceOptions,
+    );
 
-      const newFileId = new mongoose.Types.ObjectId();
-      const uploadStream = GridFSHelper.openUploadStreamWithId(this.files, newFileId, file.filename, {
-        contentType: file.contentType,
-      });
-
-      downloadStream.pipe(uploadStream);
-
-      uploadStream.on('finish', () => {
-        resolve(getStringIds(newFileId));
-      });
-
-      uploadStream.on('error', (err: { message: any }) => {
-        reject(new Error(`File duplication failed: ${err.message}`));
-      });
-
-      downloadStream.on('error', (err: { message: any }) => {
-        reject(new Error(`File download failed: ${err.message}`));
-      });
-    });
+    if (!copy) {
+      // The WRITE half was refused. Unlike a refused read this is not an
+      // existence question — the caller has already been shown the source — so it
+      // answers with the framework's 401/403 policy rather than a 404.
+      stream.destroy?.();
+      throw accessDeniedException(serviceOptions?.currentUser);
+    }
+    return copy;
   }
 
   /**
@@ -317,8 +348,8 @@ export abstract class CoreFileService {
     const effective: [string, number][] = spec.length ? (spec as [string, number][]) : [['uploadDate', -1]];
     return [...docs].sort((a, b) => {
       for (const [field, direction] of effective) {
-        const left = a?.[field];
-        const right = b?.[field];
+        const left = this.readSortField(a, field);
+        const right = this.readSortField(b, field);
         if (left === right) {
           continue;
         }
@@ -334,6 +365,33 @@ export abstract class CoreFileService {
       }
       return 0;
     });
+  }
+
+  /**
+   * Read the value a `sort` key names, resolving DOTTED paths.
+   *
+   * `SortInput.field` is a free string, and MongoDB reads `metadata.ownerId` as a
+   * path into the document — so each store sorted correctly on its own while the
+   * merge above compared `doc['metadata.ownerId']`, which is `undefined` for every
+   * row. Every comparison then tied, the merged page came out grouped by store,
+   * and `skip`/`limit` over it returned the WRONG ROWS rather than the right rows
+   * in the wrong order.
+   *
+   * A path segment is only followed through plain objects. Anything else stops the
+   * walk and yields `undefined`, which the caller already sorts last.
+   */
+  protected readSortField(doc: Record<string, any>, field: string): any {
+    if (!field.includes('.')) {
+      return doc?.[field];
+    }
+    let current: any = doc;
+    for (const segment of field.split('.')) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return undefined;
+      }
+      current = current[segment];
+    }
+    return current;
   }
 
   /**
@@ -531,6 +589,17 @@ export abstract class CoreFileService {
 
   /**
    * Delete file
+   *
+   * An unknown id answers `NotFoundException`, exactly as {@link deleteFileByName}
+   * does for an unknown filename. It used to fall through to GridFS and surface
+   * the driver's own `MongoRuntimeError: File not found for id …` — a **500** for
+   * the very condition its by-name sibling reported as a clean **404**, under all
+   * three storage drivers.
+   *
+   * A REFUSAL still answers `null` rather than throwing, which is the module-wide
+   * contract: a refusal must be indistinguishable from a file that is not there.
+   * Reaching the lookup below means `checkRights()` already said yes for this
+   * exact input, so a `null` here is genuinely a missing file.
    */
   async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
@@ -538,6 +607,9 @@ export abstract class CoreFileService {
     }
     const objectId = getObjectIds(id);
     const fileInfo = await this.getFileInfo(objectId, serviceOptions);
+    if (!fileInfo) {
+      throw new NotFoundException(`File not found with id ${getStringIds(objectId)}`);
+    }
     if (await this.findS3FileById(objectId)) {
       await S3FileHelper.deleteFile(this.options.s3Service, this.s3Files, objectId);
       return fileInfo;

@@ -77,8 +77,44 @@ jobs:
       - name: SWC module-graph guard (TDZ)
         run: pnpm run check:swc-tdz
 
+      # Re-runs the evidence behind every `@regression` test: applies each mutation registered in
+      # tests/regression-mutations.json and REQUIRES the specs that claim to catch it to go red.
+      #
+      # Not redundant with the test run above, which proves the suite is GREEN. Green is exactly
+      # what a vacuous test also is — and two regression tests written while fixing 11.33.1 passed
+      # with the defect fully restored. This is the only step that can tell the two apart. It
+      # belongs on the publish path rather than on every push because it edits source and re-runs
+      # whole e2e suites; a CI checkout is clean, so the working-tree guard is satisfied.
+      - name: Regression evidence (mutation check)
+        run: pnpm run check:mutations
+
       - name: Build
         run: pnpm run build
+
+      # The starter is the first REAL consumer, and until this step existed it only ever saw a
+      # release AFTER it was published — which is where both 11.33.0's and 11.33.1's defects were
+      # actually found, hours late, by a human. Everything above validates this repo against
+      # `src/server`, a consumer that tracks every framework change in the same commit and imports
+      # `src/` by relative path. The starter does neither: it subclasses the shipped `Core*` classes
+      # and consumes `dist/` through the package's public entry points. A signature that only a
+      # SUBCLASS notices, a `files` mistake that drops something from the tarball, or a
+      # devDependency used at runtime by framework code is invisible to every step above and fails
+      # here.
+      #
+      # Checked out here rather than assumed present: a hosted runner has nothing but this repo.
+      - name: Check out the consumer project (nest-server-starter)
+        uses: actions/checkout@v7
+        with:
+          path: consumer/nest-server-starter
+          repository: lenneTech/nest-server-starter
+
+      # `--fast` = the consumer's typecheck + build + full test suite. Deliberately NOT the
+      # starter's whole `check`: that also runs the starter's own `pnpm audit`, `format:check` and
+      # `lint`, none of which say anything about OUR tarball — and a fresh advisory in one of the
+      # starter's own dependencies would then block an unrelated release. Those belong to the
+      # starter's own CI. Run the full chain locally with `pnpm run check:consumer`.
+      - name: Consumer gate (install the tarball into the starter and run its tests)
+        run: node scripts/check-consumer.mjs --fast --starter="$GITHUB_WORKSPACE/consumer/nest-server-starter"
 
       - uses: JS-DevTools/npm-publish@v4
         with:

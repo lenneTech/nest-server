@@ -506,9 +506,20 @@ export function getHubClientJs(): string {
 
   Hub.panels.files = function (content) {
     pollInto(content, 'files.json', function (c, d) {
-      c.appendChild(tiles([{ label: 'Files', value: d.total }, { label: 'Bucket', value: d.bucket }]));
+      // One tile per metadata store, so an empty store reads as "empty" rather than as "this panel
+      // does not cover your driver" — the ambiguity that made a GridFS-only listing look like the
+      // whole truth under file.storage: 's3'.
+      var storeTiles = [{ label: 'Files', value: d.total }];
+      (d.stores || []).forEach(function (s) {
+        storeTiles.push({ cls: s.error ? 'err' : '', label: s.store === 'gridfs' ? 'GridFS (' + d.bucket + ')' : s.store, value: s.error ? '!' : s.count });
+      });
+      c.appendChild(tiles(storeTiles));
+      (d.stores || []).filter(function (s) { return s.error; }).forEach(function (s) {
+        c.appendChild(el('p', { class: 'hub-hint', text: s.collection + ': ' + s.error }));
+      });
       c.appendChild(table([
         { key: 'filename', label: 'Filename' },
+        { key: 'store', label: 'Store', render: function (r) { return el('span', { class: 'hub-chip', text: r.store }); } },
         { key: 'length', label: 'Size', render: function (r) { return fmtBytes(r.length); } },
         { key: 'contentType', label: 'Type', render: function (r) { return r.contentType || '–'; } },
         { key: 'uploadDate', label: 'Uploaded', render: function (r) { return r.uploadDate ? relTime(r.uploadDate) : '–'; } },
