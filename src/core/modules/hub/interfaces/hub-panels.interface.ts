@@ -79,9 +79,39 @@ export interface HubMigrationsData {
   source: 'collection' | 'runner';
 }
 
+/**
+ * Which metadata store a Hub file row came from.
+ *
+ * Mirrors `FileStorageDriver`, but is deliberately its OWN type: this one describes where a file
+ * was FOUND, which is a property of the row. `file.storage` describes where the next write GOES,
+ * which is a property of the config. Under a driver switch the two legitimately disagree for every
+ * pre-switch file — the whole reason this panel had to stop assuming one store.
+ */
+export type HubFileStore = 'filesystem' | 'gridfs' | 's3';
+
+/** Per-store summary for the Files panel, so an empty store reads as "empty", not "not covered". */
+export interface HubFileStoreSummary {
+  /** The MongoDB collection holding this store's metadata (`fs.files`, `s3-files`, …). */
+  collection: string;
+  /** Documents in that collection. `0` for a store this deployment has never written to. */
+  count: number;
+  /** Present only when this store could not be read; the other stores are still listed. */
+  error?: string;
+  store: HubFileStore;
+}
+
 export interface HubFilesData {
   bucket: string;
-  files: { contentType?: string; filename: string; id: string; length: number; uploadDate?: string }[];
+  files: {
+    contentType?: string;
+    filename: string;
+    id: string;
+    length: number;
+    store: HubFileStore;
+    uploadDate?: string;
+  }[];
+  /** Every store consulted, whether or not it holds anything. */
+  stores: HubFileStoreSummary[];
   total: number;
 }
 

@@ -7,12 +7,14 @@ import {
   LogLevel,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { inspect } from 'util';
 
 import { redactSensitiveText } from '../../../common/helpers/logging.helper';
+import { CoreRedisService } from '../../../common/services/core-redis.service';
 import { HUB_CONFIG } from '../hub.constants';
-import { HubRingBuffer } from '../hub-ring-buffer';
+import { HubBuffer } from '../hub-buffer';
 import { HubLogRecord, HubLogsData } from '../interfaces/hub-panels.interface';
 import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
 
@@ -90,22 +92,32 @@ class HubDelegatingLogger implements LoggerService {
  */
 @Injectable()
 export class HubLogBufferService implements OnModuleDestroy, OnModuleInit {
-  private buffer?: HubRingBuffer<BufferedLog>;
+  private buffer?: HubBuffer<BufferedLog>;
   private cfg?: Exclude<ResolvedHubConfig['collectors']['logs'], false>;
   private delegating?: HubDelegatingLogger;
   private excludeContexts = new Set<string>();
+
+  /**
+   * Set by onModuleDestroy. The Nest Logger override is PROCESS-GLOBAL, and with a shutdown
+   * delay the HTTP server keeps serving while the app drains — so a Hub poll arriving in that
+   * window could re-install a logger belonging to an app that no longer exists.
+   */
+  private destroyed = false;
   private previousRef?: LoggerService;
 
-  constructor(@Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig) {}
+  constructor(
+    @Inject(HUB_CONFIG) protected readonly config: ResolvedHubConfig,
+    @Optional() protected readonly redis?: CoreRedisService,
+  ) {}
 
   /** Idempotent install of the delegating logger. Public so reads can self-heal after a foreign override. */
   attach(): void {
-    if (this.config.collectors.logs === false) {
+    if (this.destroyed || this.config.collectors.logs === false) {
       return;
     }
     if (!this.cfg) {
       this.cfg = this.config.collectors.logs;
-      this.buffer = new HubRingBuffer<BufferedLog>(this.cfg.capacity);
+      this.buffer = new HubBuffer<BufferedLog>(this.cfg.capacity, 'logs', this.redis);
       this.excludeContexts = new Set(this.cfg.excludeContexts);
     }
     const current = this.staticRef();
@@ -149,13 +161,17 @@ export class HubLogBufferService implements OnModuleDestroy, OnModuleInit {
     return this.config.collectors.logs !== false;
   }
 
-  getData(since?: number): HubLogsData {
+  async getData(since?: number): Promise<HubLogsData> {
     this.selfHeal();
-    const records = !this.buffer ? [] : since === undefined ? this.buffer.recent() : this.buffer.since(since);
-    return { cursor: this.buffer?.lastSeq ?? -1, dropped: this.buffer?.firstRetainedSeq ?? -1, records };
+    if (!this.buffer) {
+      return { cursor: -1, dropped: -1, records: [] };
+    }
+    const { cursor, dropped, entries } = await this.buffer.read(since);
+    return { cursor, dropped, records: entries };
   }
 
   onModuleDestroy(): void {
+    this.destroyed = true;
     this.detach();
   }
 

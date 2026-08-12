@@ -2,7 +2,8 @@
  * Unit Tests: every test file is claimed by exactly one vitest runner.
  *
  * The two runners select files by filename pattern:
- * - `vitest.config.ts`      → `src/**\/*.spec.ts`, `tests/unit/**\/*.spec.ts`
+ * - `vitest.config.ts`      → `tests/unit/**\/*.spec.ts` (deliberately NOT `src/**`, see
+ *   `vitest.include-globs.ts` and `tests/unit/test-file-placement.spec.ts`)
  * - `vitest-e2e.config.ts`  → `tests/**\/*.e2e-spec.ts`, `tests/stories/**\/*.story.test.ts`
  *
  * Narrow patterns are what keep unit tests out of the mongod-backed e2e runner, but they also

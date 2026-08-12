@@ -230,7 +230,7 @@ The migration state is stored in a MongoDB collection (default: `migrations`) as
 
 ### Locking Mechanism
 
-When using `synchronizedMigration` or `synchronizedUp`:
+How the lock works, regardless of which entry point uses it:
 
 1. A unique index is created on the lock collection
 2. The migration process attempts to insert a lock document
@@ -239,6 +239,27 @@ When using `synchronizedMigration` or `synchronizedUp`:
 5. Waiting instances can then proceed
 
 This ensures that in a cluster with multiple nodes, migrations run on only one machine at a time.
+
+**Active by default for `migrate up`.** Stores built by `createMigrationStore()` use the
+lock collection `migrations_lock` unless another name is given, and `MigrationRunner.up()`
+(the CLI's `up` command) acquires that lock around the whole run. This matters because the
+container entrypoint runs migrations on **every** boot: without the lock, N replicas
+starting together each read the same empty state and apply the same pending migration N
+times. A replica that waited re-reads the state inside the lock and finds nothing pending.
+
+With a single replica nothing changes — the lock is acquired and released uncontended.
+
+Opt out by passing an empty lock collection name:
+
+```javascript
+module.exports = createMigrationStore(uri, 'migrations', ''); // no locking
+```
+
+A `MongoStateStore` constructed **directly** still locks only when you pass
+`lockCollectionName` yourself; the default lives in `createMigrationStore()`.
+
+The legacy `synchronizedMigration` / `synchronizedUp` helpers use the same lock and still
+require `lockCollectionName` to be set explicitly (they throw otherwise).
 
 ## Examples
 
@@ -356,11 +377,17 @@ Factory function to create a migration store class for use with the migrate CLI:
 const { createMigrationStore } = require('@lenne.tech/nest-server');
 const config = require('../src/config.env');
 
-module.exports = createMigrationStore(
-  config.default.mongoose.uri,
-  'migrations', // optional collection name
-  'migration_lock', // optional lock collection for clusters
-);
+module.exports = createMigrationStore(config.default.mongoose.uri);
+```
+
+**Locking is on by default.** The third parameter defaults to `'migrations_lock'`, so
+`migrate up` is serialized across replicas without any project change (see
+[Locking Mechanism](#locking-mechanism)):
+
+```javascript
+createMigrationStore(uri); // collection 'migrations', lock 'migrations_lock'
+createMigrationStore(uri, 'migrations', 'custom_lock'); // custom lock collection
+createMigrationStore(uri, 'migrations', ''); // opt out: no locking
 ```
 
 ### getDb()

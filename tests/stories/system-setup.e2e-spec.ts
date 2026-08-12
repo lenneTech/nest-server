@@ -22,6 +22,7 @@
  */
 
 import { Module } from '@nestjs/common';
+import { getConnectionToken } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
@@ -32,7 +33,10 @@ import envConfig from '../../src/config.env';
 import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
 import { JSON as JSONScalar } from '../../src/core/common/scalars/json.scalar';
+import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
+import { CoreBetterAuthUserMapper } from '../../src/core/modules/better-auth/core-better-auth-user.mapper';
+import { CoreSystemSetupService } from '../../src/core/modules/system-setup/core-system-setup.service';
 import { CronJobs } from '../../src/server/common/services/cron-jobs.service';
 import { AuthController } from '../../src/server/modules/auth/auth.controller';
 import { AuthModule } from '../../src/server/modules/auth/auth.module';
@@ -400,6 +404,120 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
 
     expect(result).toBeDefined();
     expect(result.message).toContain('LTNS_0050');
+  });
+});
+
+// =============================================================================
+// Concurrent bootstrap (multi-replica)
+// =============================================================================
+
+describe('Story: System Setup - Concurrent bootstrap', () => {
+  const RACE_ADMIN_EMAIL = `race-admin-${Date.now()}@test.com`;
+
+  let app;
+  let mongoClient: MongoClient;
+  let db;
+  let services: CoreSystemSetupService[];
+
+  const raceConfig = {
+    ...envConfig,
+    mongoose: {
+      ...envConfig.mongoose,
+      uri: deriveTestDbUri('setup-race'),
+    },
+    systemSetup: {
+      initialAdmin: {
+        email: RACE_ADMIN_EMAIL,
+        password: 'RacePassword123!',
+      },
+    },
+  };
+
+  beforeAll(async () => {
+    try {
+      CoreBetterAuthModule.reset();
+
+      @Module({
+        controllers: [ServerController, AuthController],
+        exports: [CoreModule, AuthModule, BetterAuthModule, FileModule],
+        imports: [
+          CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(raceConfig.jwt), raceConfig),
+          ScheduleModule.forRoot(),
+          AuthModule.forRoot(raceConfig.jwt),
+          BetterAuthModule.forRoot({}),
+          FileModule,
+        ],
+        providers: [Any, CronJobs, DateScalar, JSONScalar, { provide: 'PUB_SUB', useValue: new PubSub() }],
+      })
+      class RaceSetupTestModule {}
+
+      const moduleFixture: TestingModule = await Test.createTestingModule({
+        imports: [RaceSetupTestModule],
+      }).compile();
+
+      app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
+      app.setBaseViewsDir(raceConfig.templates.path);
+      app.setViewEngine(raceConfig.templates.engine);
+      await app.init();
+
+      mongoClient = await MongoClient.connect(raceConfig.mongoose.uri);
+      db = mongoClient.db();
+
+      // app.init() already ran the bootstrap once. Reset to a fresh-deployment state so
+      // the two instances below start the race from zero users and an unclaimed marker.
+      await db.collection('users').deleteMany({});
+      await db.collection('account').deleteMany({});
+      await db.collection('session').deleteMany({});
+      await db.collection('system-setup-locks').deleteMany({});
+
+      // Two service instances sharing one database = two replicas booting simultaneously.
+      const connection = moduleFixture.get(getConnectionToken());
+      const betterAuthService = moduleFixture.get(CoreBetterAuthService);
+      const userMapper = moduleFixture.get(CoreBetterAuthUserMapper);
+      const configService = moduleFixture.get(ConfigService);
+      services = [
+        new CoreSystemSetupService(connection, betterAuthService, userMapper, configService),
+        new CoreSystemSetupService(connection, betterAuthService, userMapper, configService),
+      ];
+    } catch (e) {
+      console.error('beforeAll Error (concurrent bootstrap)', e);
+      throw e;
+    }
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+    if (db) {
+      try {
+        await db.dropDatabase();
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+    if (mongoClient) {
+      await mongoClient.close();
+    }
+    CoreBetterAuthModule.reset();
+  });
+
+  it('should create exactly one admin when two instances bootstrap concurrently', async () => {
+    await Promise.all(services.map((service) => service.onApplicationBootstrap()));
+
+    const admins = await db.collection('users').find({ email: RACE_ADMIN_EMAIL }).toArray();
+    expect(admins).toHaveLength(1);
+    expect(admins[0].roles).toContain('admin');
+
+    // No second user slipped in through the other instance either
+    expect(await db.collection('users').countDocuments({})).toBe(1);
+  });
+
+  it('should keep the claim marker so later boots skip the setup', async () => {
+    const marker = await db.collection('system-setup-locks').findOne({ _id: 'initial-admin' });
+    expect(marker).toBeDefined();
+    expect(marker.claimedAt).toBeDefined();
   });
 });
 

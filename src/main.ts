@@ -9,6 +9,7 @@ import envConfig from './config.env';
 import { FilterArgs } from './core/common/args/filter.args';
 import { buildCorsConfig, isCookiesEnabled, isCorsDisabled } from './core/common/helpers/cookies.helper';
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
+import { installGracefulShutdown } from './core/common/helpers/graceful-shutdown.helper';
 import { handleFatalBootstrapError, installProcessDiagnostics } from './core/common/helpers/process-diagnostics.helper';
 import { CorePersistenceModel } from './core/common/models/core-persistence.model';
 import { CoreAuthModel } from './core/modules/auth/core-auth.model';
@@ -121,7 +122,12 @@ async function bootstrap() {
   // and `docker stop` waits out its full grace period before SIGKILL — dropping in-flight requests
   // and skipping every onModuleDestroy(). enableShutdownHooks() is what closes the app and drains
   // the loop; installProcessDiagnostics() then correctly defers to it instead of re-raising.
-  server.enableShutdownHooks();
+  //
+  // installGracefulShutdown() IS enableShutdownHooks() when no `shutdownDelayMs` is configured.
+  // With one, it additionally keeps the instance fully healthy for that long before closing —
+  // which a NestJS lifecycle hook cannot do, because every one of them already runs inside
+  // close(), after the modules are destroyed. See the helper for the ordering.
+  installGracefulShutdown(server);
 
   // Start server on configured port
   await server.listen(envConfig.port, envConfig.hostname);

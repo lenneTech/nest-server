@@ -1,6 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { IBetterAuthRateLimit } from '../../common/interfaces/server-options.interface';
+import { CoreRedisService } from '../../common/services/core-redis.service';
+import {
+  InMemoryRateLimitStore,
+  rateLimitKey,
+  rateLimitKeyPrefix,
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../common/services/rate-limit-store';
 
 /**
  * Result of a rate limit check
@@ -33,14 +41,6 @@ export interface RateLimitResult {
 }
 
 /**
- * Rate limit entry for tracking requests
- */
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-/**
  * Default rate limiting configuration
  */
 const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
@@ -54,10 +54,11 @@ const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
 };
 
 /**
- * In-memory rate limiter for Better-Auth endpoints
+ * Rate limiter for Better-Auth endpoints
  *
  * This service provides rate limiting to protect against brute-force attacks
- * on authentication endpoints. It uses an in-memory store with automatic cleanup.
+ * on authentication endpoints. Counters live in a {@link RateLimitStore}: shared
+ * via Redis when `ServerOptions.redis` is configured, process-local otherwise.
  *
  * Features:
  * - Configurable request limits and time windows
@@ -68,7 +69,7 @@ const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
  *
  * @example
  * ```typescript
- * const result = rateLimiter.check('192.168.1.1', '/iam/sign-in');
+ * const result = await rateLimiter.check('192.168.1.1', '/iam/sign-in');
  * if (!result.allowed) {
  *   throw new TooManyRequestsException(rateLimiter.getMessage());
  * }
@@ -76,15 +77,11 @@ const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
  */
 @Injectable()
 export class CoreBetterAuthRateLimiter {
-  private readonly logger = new Logger(CoreBetterAuthRateLimiter.name);
-  private readonly store = new Map<string, RateLimitEntry>();
-  private config: Required<IBetterAuthRateLimit> = DEFAULT_CONFIG;
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  protected readonly logger = new Logger(CoreBetterAuthRateLimiter.name);
+  protected config: Required<IBetterAuthRateLimit> = DEFAULT_CONFIG;
+  protected store?: RateLimitStore;
 
-  constructor() {
-    // Start cleanup interval (every 5 minutes)
-    this.startCleanup();
-  }
+  constructor(@Optional() protected readonly coreRedisService?: CoreRedisService) {}
 
   /**
    * Configure the rate limiter
@@ -112,7 +109,7 @@ export class CoreBetterAuthRateLimiter {
    * @param path - Request path (relative to basePath)
    * @returns Rate limit check result
    */
-  check(ip: string, path: string): RateLimitResult {
+  async check(ip: string, path: string): Promise<RateLimitResult> {
     // If rate limiting is disabled, always allow
     if (!this.config.enabled) {
       return {
@@ -137,48 +134,18 @@ export class CoreBetterAuthRateLimiter {
 
     // Determine the limit for this endpoint
     const limit = this.getLimit(path);
-    const key = this.getKey(ip, path);
-    const now = Date.now();
+    const { count, resetIn } = await this.getStore().hit(this.getKey(ip, path), this.config.windowSeconds);
 
-    // Get or create entry
-    let entry = this.store.get(key);
-
-    if (!entry || now >= entry.resetTime) {
-      // Evict oldest entries if store exceeds maxEntries
-      if (!entry && this.store.size >= this.config.maxEntries) {
-        this.evictOldest();
-      }
-
-      // Create new entry or reset expired one
-      entry = {
-        count: 1,
-        resetTime: now + this.config.windowSeconds * 1000,
-      };
-      this.store.set(key, entry);
-
-      return {
-        allowed: true,
-        current: 1,
-        limit,
-        remaining: limit - 1,
-        resetIn: this.config.windowSeconds,
-      };
-    }
-
-    // Increment count
-    entry.count++;
-
-    const resetIn = Math.ceil((entry.resetTime - now) / 1000);
-    const allowed = entry.count <= limit;
-    const remaining = Math.max(0, limit - entry.count);
+    const allowed = count <= limit;
+    const remaining = Math.max(0, limit - count);
 
     if (!allowed) {
-      this.logger.warn(`Rate limit exceeded for IP ${this.maskIp(ip)} on ${path}: ${entry.count}/${limit}`);
+      this.logger.warn(`Rate limit exceeded for IP ${this.maskIp(ip)} on ${path}: ${count}/${limit}`);
     }
 
     return {
       allowed,
-      current: entry.count,
+      current: count,
       limit,
       remaining,
       resetIn,
@@ -204,74 +171,53 @@ export class CoreBetterAuthRateLimiter {
    *
    * @param ip - Client IP address
    */
-  reset(ip: string): void {
-    // Remove all entries for this IP
-    for (const key of this.store.keys()) {
-      if (key.startsWith(`${ip}:`)) {
-        this.store.delete(key);
-      }
-    }
+  async reset(ip: string): Promise<void> {
+    await this.getStore().resetByPrefix(rateLimitKeyPrefix(ip));
   }
 
   /**
    * Clear all rate limit entries (useful for testing)
    */
-  clear(): void {
-    this.store.clear();
+  async clear(): Promise<void> {
+    await this.getStore().clear();
   }
 
   /**
    * Get statistics about the rate limiter
+   *
+   * `activeEntries` is `-1` when a Redis store is in use — the entry count is
+   * not cheaply known there.
    */
   getStats(): { activeEntries: number; enabled: boolean } {
     return {
-      activeEntries: this.store.size,
+      activeEntries: this.store?.size() ?? 0,
       enabled: this.config.enabled,
     };
   }
 
   /**
-   * Stop the cleanup interval (for graceful shutdown)
+   * Stop the in-memory cleanup interval (for graceful shutdown)
    */
   onModuleDestroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
+    // Not `instanceof InMemoryRateLimitStore`: a RedisRateLimitStore owns an in-memory fallback
+    // whose cleanup interval would otherwise outlive the app.
+    this.store?.destroy?.();
   }
 
   /**
-   * Evict the oldest entries when the store exceeds maxEntries.
-   * First removes all expired entries, then removes entries closest to expiry
-   * until the store is at 90% capacity.
+   * Lazily select the counter store: Redis when configured and enabled,
+   * process-local otherwise.
    */
-  private evictOldest(): void {
-    const now = Date.now();
-    let evicted = 0;
-
-    // First pass: remove all expired entries
-    for (const [key, entry] of this.store.entries()) {
-      if (now >= entry.resetTime) {
-        this.store.delete(key);
-        evicted++;
-      }
+  protected getStore(): RateLimitStore {
+    if (!this.store) {
+      // `maxEntries` bounds BOTH stores: process-local entries here, distinct Redis counter keys
+      // per window there. A project that tightened the cap must not have it silently ignored the
+      // moment `redis` is configured.
+      this.store = this.coreRedisService?.enabled
+        ? new RedisRateLimitStore(this.coreRedisService, 'better-auth', this.config.maxEntries)
+        : new InMemoryRateLimitStore(this.config.maxEntries);
     }
-
-    // If still over limit, remove entries with earliest resetTime (oldest)
-    if (this.store.size >= this.config.maxEntries) {
-      const targetSize = Math.floor(this.config.maxEntries * 0.9);
-      const entries = [...this.store.entries()].sort((a, b) => a[1].resetTime - b[1].resetTime);
-
-      for (const [key] of entries) {
-        if (this.store.size <= targetSize) break;
-        this.store.delete(key);
-        evicted++;
-      }
-    }
-
-    if (evicted > 0) {
-      this.logger.warn(`Evicted ${evicted} rate limit entries (store was at capacity: ${this.config.maxEntries})`);
-    }
+    return this.store;
   }
 
   /**
@@ -300,7 +246,10 @@ export class CoreBetterAuthRateLimiter {
   private getKey(ip: string, path: string): string {
     // Group similar endpoints together
     const endpoint = this.normalizeEndpoint(path);
-    return `${ip}:${endpoint}`;
+    // rateLimitKey(), not string concatenation: an IP that itself contains the separator (every
+    // IPv6 address does) would otherwise straddle the ip/endpoint boundary and share a counter
+    // with a different caller.
+    return rateLimitKey(ip, endpoint);
   }
 
   /**
@@ -332,35 +281,5 @@ export class CoreBetterAuthRateLimiter {
     // IPv6: show first segment
     const parts = ip.split(':');
     return `${parts[0]}:****`;
-  }
-
-  /**
-   * Start periodic cleanup of expired entries
-   */
-  private startCleanup(): void {
-    // Clean up every 5 minutes
-    this.cleanupInterval = setInterval(
-      () => {
-        const now = Date.now();
-        let cleaned = 0;
-
-        for (const [key, entry] of this.store.entries()) {
-          if (now >= entry.resetTime) {
-            this.store.delete(key);
-            cleaned++;
-          }
-        }
-
-        if (cleaned > 0) {
-          this.logger.debug(`Cleaned up ${cleaned} expired rate limit entries`);
-        }
-      },
-      5 * 60 * 1000,
-    );
-
-    // Prevent the interval from keeping the process alive
-    if (this.cleanupInterval.unref) {
-      this.cleanupInterval.unref();
-    }
   }
 }

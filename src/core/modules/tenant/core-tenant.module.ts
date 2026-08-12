@@ -75,10 +75,14 @@ export class CoreTenantModule {
         provide: CoreTenantService,
         useClass: Service,
       },
-      {
-        provide: APP_GUARD,
-        useClass: Guard,
-      },
+      // Registered under its OWN token first, then aliased to APP_GUARD — the pattern
+      // CoreAuthModule uses for RolesGuard. A bare `{ provide: APP_GUARD, useClass: Guard }`
+      // makes Nest mint an internal token for the instance, so `@Optional() CoreTenantGuard`
+      // in CoreTenantService resolves to undefined and every invalidateUser()/invalidateAll()
+      // — including the cross-replica Redis broadcast — silently did nothing.
+      Guard,
+      ...(Guard === CoreTenantGuard ? [] : [{ provide: CoreTenantGuard, useExisting: Guard }]),
+      { provide: APP_GUARD, useExisting: Guard },
     ];
 
     // When a custom model name is used, alias the default injection token to the custom model.

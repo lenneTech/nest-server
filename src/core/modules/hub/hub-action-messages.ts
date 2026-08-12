@@ -21,8 +21,16 @@ export const HubActionMessage = {
   confirmationFilenameRequired: 'Confirmation filename required.',
   /** Test mail: the EmailService is not wired into this app. */
   emailServiceUnavailable: 'EmailService is not available.',
-  /** Delete file: no GridFS file with the given id. */
+  /** Delete file: no file with the given id in any of the three metadata stores. */
   fileNotFound: 'File not found.',
+  /**
+   * Delete file: the file's bytes are in S3, but `CoreS3Service` is not configured in this process.
+   *
+   * Deliberately a REFUSAL rather than a metadata-only delete. Removing the document while the
+   * object stays in the bucket produces an orphan nothing can find again — unrecoverable in a way
+   * that "try again with S3 configured" is not.
+   */
+  s3Unavailable: 'S3 storage is not available.',
   /** Delete file: the id is not a valid ObjectId. */
   invalidFileId: 'Invalid file id.',
   /** Migrations action while the migrations panel is disabled. */

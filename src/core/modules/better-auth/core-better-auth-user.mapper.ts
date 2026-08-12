@@ -658,7 +658,13 @@ export class CoreBetterAuthUserMapper {
             lastName: sessionUser.name.split(' ').slice(1).join(' '),
           }),
         ...(sessionUser.emailVerified !== undefined && { verified: sessionUser.emailVerified }),
-        ...(sessionUser.image && { avatar: sessionUser.image }),
+        // Deliberately NOT `avatar: sessionUser.image`. `image` is a Better-Auth BUILT-IN column,
+        // so it is client-writable through `POST /iam/update-user` — it is not covered by
+        // PROTECTED_INPUT_FALSE_KEYS, which only locks the fields this framework adds. Copying it
+        // here wrote an attacker-chosen value into `avatar` through a NATIVE driver update, past
+        // both the `S_NO_ONE` input restriction on the field and every Mongoose plugin. Since the
+        // avatar endpoint deletes the file the previous value points at, that turned "set your own
+        // image" into "delete any file in the store". The avatar upload is the only writer.
         iamId: sessionUser.id,
         updatedAt: new Date(),
         ...processedAdditionalData,

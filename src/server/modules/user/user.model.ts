@@ -6,6 +6,7 @@ import { Document, Schema } from 'mongoose';
 import { Restricted } from '../../../core/common/decorators/restricted.decorator';
 import { Translatable } from '../../../core/common/decorators/translatable.decorator';
 import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator';
+import { ProcessType } from '../../../core/common/enums/process-type.enum';
 import { RoleEnum } from '../../../core/common/enums/role.enum';
 import { CoreUserModel } from '../../../core/modules/user/core-user.model';
 import { PersistenceModel } from '../../common/models/persistence.model';
@@ -24,13 +25,18 @@ export class User extends CoreUserModel implements PersistenceModel {
   // ===================================================================================================================
 
   /**
-   * URL to avatar file of the user
+   * ID of the user's avatar file, assigned by POST /avatar/upload
+   *
+   * Readable by everyone, writable by NO ONE through a generic update: it is a file id the
+   * server hands out, and the avatar endpoint deletes the file the previous value points at.
+   * While it was freely writable, a signed-in user could put someone else's file id here and
+   * have the next upload delete that file for them.
    */
   @UnifiedField({
-    description: 'URL to avatar file of the user',
+    description: "ID of the user's avatar file (set via POST /avatar/upload)",
     isOptional: true,
     mongoose: true,
-    roles: RoleEnum.S_EVERYONE,
+    roles: [{ processType: ProcessType.INPUT, roles: RoleEnum.S_NO_ONE }],
   })
   avatar: string = undefined;
 

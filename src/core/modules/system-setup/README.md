@@ -164,7 +164,11 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 - The admin is created automatically during application bootstrap (`OnApplicationBootstrap`)
 - Same zero-user guard applies: only works when no users exist
 - If users already exist, auto-creation is silently skipped (no error)
-- Race conditions between multiple instances are handled gracefully
+- Race conditions between multiple instances are handled gracefully: the zero-user check alone is
+  check-then-act, so N replicas booting at the same time would each pass it. Before creating, an
+  instance claims the setup by upserting the marker `{ _id: 'initial-admin' }` into the
+  `system-setup-locks` collection — an atomic operation only one instance wins. The others log a
+  debug message and skip. If creation fails, the marker is removed again so a later boot can retry.
 
 ### Security Best Practices
 
@@ -179,7 +183,8 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 
 1. **Zero-user guard** - Init only works when `countDocuments({}) === 0`
 2. **Enabled by default** - Safe because endpoints are permanently locked once any user exists
-3. **Race condition protection** - MongoDB unique email index prevents duplicates
+3. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
+   bootstrap is additionally claimed atomically via the `system-setup-locks` marker
 4. **Permanent lock** - Once any user exists, init returns 403
 5. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
 

@@ -3,6 +3,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EmailService } from '../../../common/services/email.service';
 import { RequestContext } from '../../../common/services/request-context.service';
 import { HubActionMessage } from '../hub-action-messages';
+import { HubFileStore } from '../interfaces/hub-panels.interface';
 import { CoreHubDbService } from './core-hub-db.service';
 import { CoreHubEmailService } from './core-hub-email.service';
 import { CoreHubMailboxService } from './core-hub-mailbox.service';
@@ -70,8 +71,15 @@ export class CoreHubActionsService {
     return { action, name };
   }
 
-  /** Delete a GridFS file (the confirm keyword must equal its filename). */
-  async deleteFile(id: string, expectedFilename: string): Promise<{ deleted: { filename: string; id: string } }> {
+  /**
+   * Delete a file from whichever storage driver holds it (the confirm keyword must equal its
+   * filename). The resolved store is echoed back so the `[HUB-ACTION]` audit trail records WHERE
+   * the bytes were removed from, not merely that a delete happened.
+   */
+  async deleteFile(
+    id: string,
+    expectedFilename: string,
+  ): Promise<{ deleted: { filename: string; id: string; store: HubFileStore } }> {
     this.audit(`delete file ${id}`);
     return { deleted: await this.dbService.deleteFile(id, expectedFilename) };
   }

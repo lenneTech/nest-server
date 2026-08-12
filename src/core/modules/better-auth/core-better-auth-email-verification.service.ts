@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,6 +8,7 @@ import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { EmailService } from '../../common/services/email.service';
 import { TemplateService } from '../../common/services/template.service';
 import { formatProjectName } from './better-auth.config';
@@ -75,7 +77,6 @@ export interface SendVerificationEmailOptions {
  * @example
  * ```typescript
  * // Override to customize email sending
- * @Injectable()
  * export class MyEmailVerificationService extends CoreBetterAuthEmailVerificationService {
  *   override async sendVerificationEmail(options: SendVerificationEmailOptions): Promise<void> {
  *     // Custom logic before
@@ -87,6 +88,12 @@ export interface SendVerificationEmailOptions {
  *
  * @since 11.13.0
  */
+/**
+ * Sentinel returned when the slot was taken on the process-local path, where there is no Redis key
+ * to compare against. Distinguishes "acquired locally" from "acquired in Redis with this token".
+ */
+const LOCAL_SLOT_TOKEN = 'local';
+
 @Injectable()
 export class CoreBetterAuthEmailVerificationService {
   protected readonly logger = new Logger(CoreBetterAuthEmailVerificationService.name);
@@ -96,7 +103,12 @@ export class CoreBetterAuthEmailVerificationService {
    * In-memory tracking of last send time per email address for cooldown enforcement.
    * Key: email address (lowercase), Value: timestamp (ms) of last send
    */
-  private readonly lastSendTimes = new Map<string, number>();
+  protected readonly lastSendTimes = new Map<string, number>();
+
+  /**
+   * Pending cleanup timer per email, so a released slot can never expire a LATER cooldown
+   */
+  protected readonly sendTimers = new Map<string, NodeJS.Timeout>();
 
   /**
    * Token for optional BrevoService injection.
@@ -113,6 +125,7 @@ export class CoreBetterAuthEmailVerificationService {
     @Optional()
     @Inject(CoreBetterAuthEmailVerificationService.BREVO_SERVICE_TOKEN)
     protected readonly brevoService?: BrevoService | null,
+    @Optional() protected readonly coreRedisService?: CoreRedisService,
   ) {
     this.configure();
   }
@@ -157,94 +170,209 @@ export class CoreBetterAuthEmailVerificationService {
     const { token, user } = options;
     let { url } = options;
 
-    // Check resend cooldown per email address
-    if (this.isInCooldown(user.email)) {
+    // Reserve the cooldown slot per email address (atomic across replicas with Redis).
+    // `slotToken`, not `token` — `token` is already the verification token from the options.
+    const slotToken = await this.acquireSendSlot(user.email);
+    if (!slotToken) {
       this.logger.debug(`Resend cooldown active for ${this.maskEmail(user.email)}, skipping email send`);
       return;
     }
 
-    // Override URL if callbackURL is configured (frontend-based verification)
-    if (this.config.callbackURL) {
-      url = this.buildFrontendVerificationUrl(token);
-    }
+    // Only a SUCCESSFUL send may burn the cooldown — the slot is released again below otherwise
+    let sent = false;
 
-    // Log verification URL in non-production environments for debugging and test capture
-    // Uses console.log directly to ensure reliable capture in test environments (Vitest)
-    // NestJS Logger may buffer output which makes interception unreliable in tests
-    if (process.env.NODE_ENV !== 'production') {
-      // oxlint-disable-next-line no-console
-      console.log(`[EMAIL VERIFICATION] User: ${user.email}, URL: ${url}`);
-    }
+    try {
+      // Override URL if callbackURL is configured (frontend-based verification)
+      if (this.config.callbackURL) {
+        url = this.buildFrontendVerificationUrl(token);
+      }
 
-    // Brevo template path: send via Brevo transactional API if configured
-    if (this.config.brevoTemplateId && this.brevoService) {
+      // Log verification URL in non-production environments for debugging and test capture
+      // Uses console.log directly to ensure reliable capture in test environments (Vitest)
+      // NestJS Logger may buffer output which makes interception unreliable in tests
+      if (process.env.NODE_ENV !== 'production') {
+        // oxlint-disable-next-line no-console
+        console.log(`[EMAIL VERIFICATION] User: ${user.email}, URL: ${url}`);
+      }
+
+      // Brevo template path: send via Brevo transactional API if configured
+      if (this.config.brevoTemplateId && this.brevoService) {
+        try {
+          const appName = this.getAppName();
+          const result = await this.brevoService.sendMail(user.email, this.config.brevoTemplateId, {
+            appName,
+            expiresIn: this.formatExpiresIn(this.config.expiresIn),
+            link: url,
+            name: user.name || user.email.split('@')[0],
+          });
+
+          // `sendMail()` swallows SDK errors and resolves to `null` (unless `brevo.throwOnError` is
+          // set), so "did not throw" is NOT "was delivered". Recording a send here on a null would
+          // mark the address as mailed, log success, and skip the SMTP fallback below — leaving the
+          // user with no verification email at all on a Brevo outage or a revoked key.
+          if (result === null) {
+            this.logger.error(
+              `Brevo verification send failed for ${this.maskEmail(user.email)} — falling back to SMTP`,
+            );
+            // Deliberately no `return`: fall through to the EmailService path.
+          } else {
+            sent = true;
+            this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
+            return;
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to send verification email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw error;
+        }
+      }
+
+      if (!this.emailService) {
+        this.logger.warn('EmailService not available, cannot send verification email');
+        return;
+      }
+
       try {
+        const resolved = await this.resolveTemplatePath(this.config.template, this.config.locale);
         const appName = this.getAppName();
-        const result = await this.brevoService.sendMail(user.email, this.config.brevoTemplateId, {
+
+        const templateData = {
           appName,
           expiresIn: this.formatExpiresIn(this.config.expiresIn),
           link: url,
           name: user.name || user.email.split('@')[0],
-        });
+        };
 
-        // `sendMail()` swallows SDK errors and resolves to `null` (unless `brevo.throwOnError` is
-        // set), so "did not throw" is NOT "was delivered". Recording a send here on a null would
-        // mark the address as mailed, log success, and skip the SMTP fallback below — leaving the
-        // user with no verification email at all on a Brevo outage or a revoked key.
-        if (result === null) {
-          this.logger.error(`Brevo verification send failed for ${this.maskEmail(user.email)} — falling back to SMTP`);
-          // Deliberately no `return`: fall through to the EmailService path.
+        if (resolved.isAbsolute) {
+          // Fallback template from nest-server: render directly via EJS
+          const templateContent = fs.readFileSync(`${resolved.path}.ejs`, 'utf-8');
+          const html = ejs.render(templateContent, templateData);
+
+          await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
         } else {
-          this.trackSend(user.email);
-          this.logger.debug(`Verification email sent via Brevo to ${this.maskEmail(user.email)}`);
-          return;
+          // Project template: use TemplateService (relative path)
+          await this.emailService.sendMail(user.email, this.getEmailSubject(appName), {
+            htmlTemplate: resolved.path,
+            templateData,
+          });
         }
+
+        sent = true;
+        this.logger.debug(`Verification email sent to ${this.maskEmail(user.email)}`);
       } catch (error) {
         this.logger.error(
-          `Failed to send verification email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         throw error;
       }
+    } finally {
+      if (!sent) {
+        await this.releaseSendSlot(user.email, slotToken);
+      }
+    }
+  }
+
+  /**
+   * Reserve the resend-cooldown slot for an email address.
+   *
+   * With Redis configured this is a single atomic `SET NX PX`, so two replicas
+   * handling concurrent resend requests cannot both pass the cooldown. Without
+   * Redis it falls back to the process-local {@link isInCooldown}/{@link trackSend}.
+   *
+   * @returns a truthy slot token when the caller may send, `null` while the cooldown is active.
+   *   The token is what {@link releaseSendSlot} compares against before deleting the key, so a
+   *   release can only ever clear the slot IT acquired. A subclass overriding this and returning a
+   *   plain `true` still works — release then falls back to the previous unconditional delete.
+   */
+  protected async acquireSendSlot(email: string): Promise<null | string> {
+    const cooldown = this.config.resendCooldownSeconds;
+    if (cooldown <= 0) {
+      return LOCAL_SLOT_TOKEN;
     }
 
-    if (!this.emailService) {
-      this.logger.warn('EmailService not available, cannot send verification email');
+    if (this.coreRedisService?.enabled) {
+      try {
+        const token = randomUUID();
+        const result = await this.coreRedisService
+          .getClient()
+          .set(this.cooldownKey(email), token, 'PX', cooldown * 1000, 'NX');
+        return result === 'OK' ? token : null;
+      } catch (error) {
+        // Degrade to the process-local cooldown rather than failing closed. An unhandled error
+        // here reads as "cooldown active" and would stop verification mail entirely for the
+        // duration of a Redis blip — locking new users out of their accounts. The local counter
+        // is the pre-Redis behavior: still a real anti-flood bound, just per replica.
+        this.logger.warn(
+          `Redis cooldown unavailable, falling back to the per-replica counter: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+        );
+      }
+    }
+
+    if (this.isInCooldown(email)) {
+      return null;
+    }
+    this.trackSend(email);
+    return LOCAL_SLOT_TOKEN;
+  }
+
+  /**
+   * Release a slot reserved by {@link acquireSendSlot} — used when no email was
+   * actually sent, so a failed send does not burn the cooldown.
+   */
+  protected async releaseSendSlot(email: string, token?: null | string): Promise<void> {
+    if (this.config.resendCooldownSeconds <= 0) {
       return;
     }
 
-    try {
-      const resolved = await this.resolveTemplatePath(this.config.template, this.config.locale);
-      const appName = this.getAppName();
-
-      const templateData = {
-        appName,
-        expiresIn: this.formatExpiresIn(this.config.expiresIn),
-        link: url,
-        name: user.name || user.email.split('@')[0],
-      };
-
-      if (resolved.isAbsolute) {
-        // Fallback template from nest-server: render directly via EJS
-        const templateContent = fs.readFileSync(`${resolved.path}.ejs`, 'utf-8');
-        const html = ejs.render(templateContent, templateData);
-
-        await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
-      } else {
-        // Project template: use TemplateService (relative path)
-        await this.emailService.sendMail(user.email, this.getEmailSubject(appName), {
-          htmlTemplate: resolved.path,
-          templateData,
-        });
+    if (this.coreRedisService?.enabled) {
+      // Releasing runs in a `finally` after a FAILED send. Letting a Redis error escape here
+      // would replace the real send failure with a connection error in the caller's log — and
+      // the key expires on its own TTL anyway, so the worst case is one cooldown served out.
+      // Compare-and-delete, never a bare DEL. Releasing runs in a `finally` after a FAILED send,
+      // and a send can fail SLOWER than the cooldown (an SMTP socket timeout outlives a 60s
+      // window comfortably). By then our key has expired and a later request holds a new one — an
+      // unconditional delete would clear THAT request's cooldown, and repeating the trick floods
+      // a chosen address with valid verification links. Same pattern as the migration lock and
+      // the TUS locker.
+      if (typeof token === 'string' && token !== LOCAL_SLOT_TOKEN) {
+        const script = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
+        await this.coreRedisService
+          .getClient()
+          .eval(script, 1, this.cooldownKey(email), token)
+          .catch(() => undefined);
+      } else if (token === undefined) {
+        // No token supplied (a subclass acquired the slot the old way) — preserve the previous
+        // behavior rather than silently skipping the release.
+        await this.coreRedisService
+          .getClient()
+          .del(this.cooldownKey(email))
+          .catch(() => undefined);
       }
-
-      this.trackSend(user.email);
-      this.logger.debug(`Verification email sent to ${this.maskEmail(user.email)}`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      throw error;
+      // Deliberately NOT `return`: when acquire fell back to the local counter because Redis
+      // errored, the Redis key was never written and only the local entry exists. Branching on
+      // `enabled` alone would leave it in place, so the failed send would burn the cooldown —
+      // the exact semantics the acquire/release split exists to preserve. Clearing both is
+      // harmless: the local map is empty whenever Redis actually served the acquire.
     }
+
+    // Clear the pending cleanup timer too. Left running, it would fire `cooldown` seconds
+    // after the FAILED send and delete whatever entry exists then — which is the entry of a
+    // later, successful send. The cooldown would end early and the anti-flood control it
+    // exists to be would quietly weaken.
+    const key = email.toLowerCase();
+    clearTimeout(this.sendTimers.get(key));
+    this.sendTimers.delete(key);
+    this.lastSendTimes.delete(key);
+  }
+
+  /**
+   * Redis key for the resend cooldown of an email address
+   */
+  protected cooldownKey(email: string): string {
+    return this.coreRedisService!.key('email-verification-cooldown', email.toLowerCase());
   }
 
   /**
@@ -451,10 +579,18 @@ export class CoreBetterAuthEmailVerificationService {
 
     this.lastSendTimes.set(key, Date.now());
 
-    // Schedule cleanup to prevent memory leak
+    // Schedule cleanup to prevent memory leak. Any timer left over from an earlier,
+    // RELEASED send is cancelled first — it would otherwise delete THIS entry when it
+    // fires and end the new cooldown early.
     const cooldown = this.config.resendCooldownSeconds;
     if (cooldown > 0) {
-      setTimeout(() => this.lastSendTimes.delete(key), cooldown * 1000);
+      clearTimeout(this.sendTimers.get(key));
+      const timer = setTimeout(() => {
+        this.lastSendTimes.delete(key);
+        this.sendTimers.delete(key);
+      }, cooldown * 1000);
+      timer.unref?.();
+      this.sendTimers.set(key, timer);
     }
   }
 

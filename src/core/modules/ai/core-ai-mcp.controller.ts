@@ -1,10 +1,12 @@
-import { Controller, Delete, Get, Logger, Post, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Logger, OnModuleDestroy, Optional, Post, Req, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
+import { hostname } from 'node:os';
 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
+import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
@@ -26,22 +28,65 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
  *
  * When `ai.mcp.oauth` is enabled, the handler additionally accepts OAuth 2.1 access
  * tokens (see `mountAiMcpOAuth`); otherwise it authenticates via Bearer/session token.
+ *
+ * ## Multi-replica
+ *
+ * A Streamable-HTTP transport is a live object holding the open response stream — it cannot
+ * be serialized, so the session map is inherently process-local and `/ai/mcp` REQUIRES sticky
+ * sessions behind a load balancer. When Redis is configured, session ids are additionally
+ * registered in a shared registry (replica + owning user), which turns a mis-routed request
+ * into an explicit 409 naming the owning replica instead of a misleading "unknown session" 404.
+ * Without Redis the behavior is unchanged.
+ *
+ * The registry entry records the OWNING USER, and only that user is ever told about the 409.
+ * Otherwise the cross-replica path would undo the local one: an authenticated caller probing
+ * ids would learn both that a session id is valid and the internal hostname/PID holding it,
+ * where the same probe against the local map deliberately answers 404.
  */
 @ApiExcludeController()
 @Controller('ai/mcp')
 @Roles(RoleEnum.S_EVERYONE)
-export class CoreAiMcpController {
+export class CoreAiMcpController implements OnModuleDestroy {
   protected readonly logger = new Logger(CoreAiMcpController.name);
 
-  /** Active transports keyed by MCP session id. */
-  private readonly transports = new Map<string, { lastUsed: number; transport: any }>();
+  /**
+   * Active transports keyed by MCP session id.
+   *
+   * `ownerId` is load-bearing, not bookkeeping. The transport is built once via
+   * `createServer(user)` and stays bound to THAT user's identity and role-filtered tools for its
+   * whole life, while the lookup below is driven by a client-supplied `mcp-session-id` header.
+   * Authenticating the caller only proves they are *some* user, so without comparing the owner,
+   * anyone holding another user's session id drives that user's server — the id travels in a
+   * response header, through proxies and client logs.
+   */
+  private readonly transports = new Map<string, { lastUsed: number; ownerId: string; transport: any }>();
 
-  /** Cap on concurrent MCP sessions (oldest evicted on overflow). */
+  /**
+   * Cap on concurrent MCP sessions held by ONE user.
+   *
+   * The per-user cap is the load-bearing one. A single global cap alone made one authenticated
+   * user able to evict everybody else's sessions — each eviction closing a live SSE stream —
+   * simply by opening sessions in a loop, because the victim was always the globally oldest.
+   */
+  private readonly maxSessionsPerUser = 25;
+
+  /** Cap on concurrent MCP sessions across all users (bounded memory). */
   private readonly maxSessions = 500;
+
+  /** Owner id written into the shared registry — identifies THIS replica. */
+  protected readonly instanceId = `${hostname()}:${process.pid}`;
+
+  /**
+   * TTL of a shared registry entry. The local map is bounded by `maxSessions`, not by time,
+   * so this TTL exists only to let a crashed replica's entries expire from Redis. It is
+   * refreshed on every request of a session.
+   */
+  protected readonly sessionTtlSeconds = 3600;
 
   constructor(
     private readonly mcpService: CoreAiMcpService,
     private readonly oauthService: CoreAiMcpOAuthService,
+    @Optional() protected readonly redisService?: CoreRedisService,
   ) {}
 
   @Post()
@@ -54,6 +99,23 @@ export class CoreAiMcpController {
 
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     let entry = sessionId ? this.transports.get(sessionId) : undefined;
+
+    // A session belongs to the user it was created for. Treat someone else's id as unknown
+    // rather than as an authorization error — confirming it exists would turn the endpoint into
+    // an oracle for valid session ids.
+    if (entry && entry.ownerId !== user.id) {
+      entry = undefined;
+      res.status(404).json({ error: 'Unknown or expired MCP session' });
+      return;
+    }
+
+    if (!entry && sessionId) {
+      const owner = await this.foreignSessionOwner(sessionId, user.id);
+      if (owner) {
+        this.foreignSession(res, owner);
+        return;
+      }
+    }
 
     if (!entry) {
       let StreamableHTTPServerTransport: any;
@@ -79,18 +141,23 @@ export class CoreAiMcpController {
       transport.onclose = () => {
         if (transport.sessionId) {
           this.transports.delete(transport.sessionId);
+          this.releaseSession(transport.sessionId);
         }
       };
-      entry = { lastUsed: Date.now(), transport };
+      entry = { lastUsed: Date.now(), ownerId: user.id, transport };
     }
 
     entry.lastUsed = Date.now();
     await entry.transport.handleRequest(req, res, req.body);
 
     // The sessionId is assigned during handleRequest (initialize); register after.
-    if (entry.transport.sessionId && !this.transports.has(entry.transport.sessionId)) {
-      this.evictIfNeeded();
-      this.transports.set(entry.transport.sessionId, entry);
+    if (entry.transport.sessionId) {
+      if (!this.transports.has(entry.transport.sessionId)) {
+        this.evictIfNeeded(user.id);
+        this.transports.set(entry.transport.sessionId, entry);
+      }
+      // Also refreshes the TTL for an already-registered session.
+      this.registerSession(entry.transport.sessionId, user.id);
     }
   }
 
@@ -161,13 +228,139 @@ export class CoreAiMcpController {
       return;
     }
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    const entry = sessionId ? this.transports.get(sessionId) : undefined;
+    const held = sessionId ? this.transports.get(sessionId) : undefined;
+    // Same ownership rule as the POST path: another user's session is not ours to serve.
+    const entry = held && held.ownerId === user.id ? held : undefined;
     if (!entry) {
+      const owner = sessionId ? await this.foreignSessionOwner(sessionId, user.id) : undefined;
+      if (owner) {
+        this.foreignSession(res, owner);
+        return;
+      }
       res.status(404).json({ error: 'Unknown or expired MCP session' });
       return;
     }
     entry.lastUsed = Date.now();
+    this.registerSession(sessionId as string, user.id);
     await entry.transport.handleRequest(req, res, (req as any).body);
+  }
+
+  /**
+   * Replica holding a session that this process does not hold — but ONLY when the session belongs
+   * to `userId`. Undefined when Redis is disabled, the session is unknown, it belongs to this
+   * instance, or it belongs to somebody else.
+   *
+   * The owner comparison is what keeps this path in step with the local one. Answering 409 for any
+   * session id an authenticated caller can name would confirm the id exists AND disclose the
+   * internal `<hostname>:<pid>` holding it — an oracle the local map deliberately refuses by
+   * returning 404. Only the session's own user benefits from the 409 anyway: it tells THEIR client
+   * to retry against the right replica.
+   *
+   * Never throws: a registry outage must degrade to the plain "unknown session" path, not to a 500.
+   */
+  protected async foreignSessionOwner(sessionId: string, userId: string): Promise<string | undefined> {
+    if (!this.redisService?.enabled) {
+      return undefined;
+    }
+    try {
+      const raw = await this.redisService.getClient().get(this.sessionKey(sessionId));
+      const entry = this.parseSessionEntry(raw);
+      if (!entry || entry.userId !== userId || entry.instanceId === this.instanceId) {
+        return undefined;
+      }
+      return entry.instanceId;
+    } catch (err) {
+      this.logger.debug(`MCP session registry lookup failed: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Parse a shared registry value, or undefined when it is absent or not readable.
+   *
+   * An entry written by an older version carries the bare instance id and no owner. It is treated
+   * as unreadable on purpose: without an owner we cannot tell whether the caller may learn about
+   * it, and "fall through to 404" is the safe answer during a rolling upgrade.
+   */
+  protected parseSessionEntry(raw: null | string): undefined | { instanceId: string; userId: string } {
+    if (!raw) {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed?.instanceId && parsed?.userId ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Register the session (or refresh its TTL) in the shared registry. Fire-and-forget. */
+  protected registerSession(sessionId: string, userId: string): void {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    this.redisService
+      .getClient()
+      .set(
+        this.sessionKey(sessionId),
+        JSON.stringify({ instanceId: this.instanceId, userId }),
+        'EX',
+        this.sessionTtlSeconds,
+      )
+      .catch((err: Error) => this.logger.debug(`MCP session registry write failed: ${err.message}`));
+  }
+
+  /** Drop the session from the shared registry (close/evict). Fire-and-forget. */
+  protected releaseSession(sessionId: string): Promise<void> {
+    if (!this.redisService?.enabled) {
+      return Promise.resolve();
+    }
+    return this.redisService
+      .getClient()
+      .del(this.sessionKey(sessionId))
+      .then(() => undefined)
+      .catch((err: Error) => this.logger.debug(`MCP session registry delete failed: ${err.message}`));
+  }
+
+  /**
+   * Close every live transport and drop this instance's sessions from the shared registry.
+   *
+   * Each transport holds an OPEN response stream, and an open stream keeps the HTTP server from
+   * closing — so without this, `app.close()` waits on clients that will never disconnect on their
+   * own. Releasing the registry keys matters too: a restarted replica's sessions would otherwise
+   * keep answering 409 "owned by another replica" — naming a replica that no longer exists —
+   * until their TTL expires an hour later.
+   */
+  async onModuleDestroy(): Promise<void> {
+    const sessions = [...this.transports.keys()];
+    for (const [, entry] of this.transports) {
+      try {
+        await entry.transport?.close?.();
+      } catch (error) {
+        this.logger.debug(`MCP transport close failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      }
+    }
+    this.transports.clear();
+    await Promise.allSettled(sessions.map((sessionId) => this.releaseSession(sessionId)));
+  }
+
+  protected sessionKey(sessionId: string): string {
+    return this.redisService!.key('ai-mcp-session', sessionId);
+  }
+
+  /**
+   * 409 Conflict when the session exists — on another replica. The live transport cannot be
+   * moved, so the only fix is routing: name the owner and state the sticky-session requirement
+   * instead of returning a 404 that reads like "your session expired".
+   */
+  protected foreignSession(res: Response, owner: string): void {
+    res.status(409).json({
+      error:
+        `MCP session belongs to another server instance (${owner}); this instance is ${this.instanceId}. ` +
+        'The MCP transport is held in process memory and cannot be shared, so /ai/mcp requires sticky ' +
+        'sessions — route every request of one MCP session to the same replica.',
+      statusCode: 409,
+    });
   }
 
   /**
@@ -212,28 +405,66 @@ export class CoreAiMcpController {
   }
 
   /**
-   * Evict the oldest session when the cap is exceeded (bounded memory).
+   * Make room for a new session of `ownerId`, evicting WITHIN the offending user's own set.
+   *
+   * Eviction is not free — it closes a live SSE stream — so who pays for it matters. The naive
+   * "drop the globally oldest" rule let one authenticated user open sessions in a loop and
+   * disconnect every other user in turn. Here a user first evicts their own oldest session at
+   * their personal cap, and when the global cap is reached the victim is the oldest session of
+   * whoever holds the MOST sessions, i.e. the account actually responsible for the pressure.
    */
-  private evictIfNeeded(): void {
+  private evictIfNeeded(ownerId: string): void {
+    const perUser = new Map<string, string[]>();
+    for (const [key, value] of this.transports) {
+      const owned = perUser.get(value.ownerId);
+      if (owned) {
+        owned.push(key);
+      } else {
+        perUser.set(value.ownerId, [key]);
+      }
+    }
+
+    if ((perUser.get(ownerId)?.length ?? 0) >= this.maxSessionsPerUser) {
+      this.evictOldestOf(perUser.get(ownerId));
+      return;
+    }
+
     if (this.transports.size < this.maxSessions) {
       return;
     }
+
+    let largest: string[] | undefined;
+    for (const owned of perUser.values()) {
+      if (!largest || owned.length > largest.length) {
+        largest = owned;
+      }
+    }
+    this.evictOldestOf(largest);
+  }
+
+  /**
+   * Close and forget the least recently used session among the given ids
+   */
+  private evictOldestOf(sessionIds: string[] | undefined): void {
     let oldestKey: string | undefined;
     let oldest = Infinity;
-    for (const [key, value] of this.transports) {
-      if (value.lastUsed < oldest) {
+    for (const key of sessionIds ?? []) {
+      const value = this.transports.get(key);
+      if (value && value.lastUsed < oldest) {
         oldest = value.lastUsed;
         oldestKey = key;
       }
     }
-    if (oldestKey) {
-      const evicted = this.transports.get(oldestKey);
-      this.transports.delete(oldestKey);
-      try {
-        evicted?.transport.close?.();
-      } catch {
-        // ignore close errors during eviction
-      }
+    if (!oldestKey) {
+      return;
+    }
+    const evicted = this.transports.get(oldestKey);
+    this.transports.delete(oldestKey);
+    this.releaseSession(oldestKey);
+    try {
+      evicted?.transport.close?.();
+    } catch {
+      // ignore close errors during eviction
     }
   }
 }

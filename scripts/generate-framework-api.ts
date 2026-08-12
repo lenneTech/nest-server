@@ -233,6 +233,16 @@ function main() {
     'IAi',
     'IAiRateLimit',
     'IAiDefaultConnection',
+    // 11.33.0 infrastructure — without these the reference shows only the type NAMES, so a
+    // consumer reading it from node_modules cannot see a single field or default.
+    // IFileConfig belongs here for a second reason: `downloadRoles` / `uploadRoles` /
+    // `deleteRoles` / `storage` / `storageDir` are the configuration of 11.33.0's headline
+    // BREAKING change (file endpoints are no longer public), so leaving it out hides exactly
+    // the knobs a consumer has to reach for after the upgrade.
+    'IFileConfig',
+    'IRedisConfig',
+    'IS3Config',
+    'ITusConfig',
     'ICoreModuleOverrides',
   ];
 

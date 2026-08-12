@@ -72,7 +72,22 @@ export class GridFSHelper {
   }
 
   /**
-   * Write a file to GridFS from a stream
+   * Write a file to GridFS from a stream.
+   *
+   * **The SOURCE stream needs its own error handler.** `pipe()` does not forward
+   * errors, so an error on `stream` used to have no listener at all: Node turns an
+   * unhandled `'error'` event into an uncaught exception, which takes the whole
+   * process down. That is reachable from ordinary traffic — a client that aborts a
+   * GraphQL upload mid-body errors the capacitor stream — and it was
+   * driver-conditional: the same abort is a rejected promise under the S3 driver
+   * (`streamToBuffer` throws) and under the filesystem driver (`pipeline()`
+   * forwards both ends), and a process crash under GridFS, the pre-11.33 default.
+   * The migration helper's `uploadFileToGridFS()` already carried this handler; the
+   * one on the request path did not.
+   *
+   * The partial upload is aborted rather than left behind: without it the failed
+   * write keeps its chunks in `fs.chunks` with no `fs.files` document naming them,
+   * which nothing can ever find or clean up.
    */
   static writeFileFromStream(
     bucket: GridFSBucket,
@@ -90,8 +105,37 @@ export class GridFSHelper {
         metadata,
       });
 
-      uploadStream.on('error', (error) => {
+      // One settle guard for all three paths: aborting a write stream can itself
+      // emit, and a second rejection after a resolve would otherwise be silent.
+      let settled = false;
+      const fail = (error: Error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         reject(error);
+      };
+      const succeed = (fileInfo: GridFSFileInfo) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(fileInfo);
+      };
+
+      stream.on('error', (error) => {
+        // Discard the chunks already written — see the note above.
+        Promise.resolve(uploadStream.abort?.()).catch(() => undefined);
+        fail(error);
+      });
+
+      uploadStream.on('error', (error) => {
+        // `pipe()` only unpipes on a destination error; the source would stay open,
+        // holding a GridFS read cursor or an upload capacitor for nothing.
+        if (!stream.destroyed) {
+          stream.destroy();
+        }
+        fail(error);
       });
 
       uploadStream.on('finish', () => {
@@ -101,12 +145,12 @@ export class GridFSHelper {
           .toArray()
           .then((files) => {
             if (files && files.length > 0) {
-              resolve(GridFSHelper.normalizeFileInfo(files[0]));
+              succeed(GridFSHelper.normalizeFileInfo(files[0]));
             } else {
-              reject(new Error('File uploaded but metadata not found'));
+              fail(new Error('File uploaded but metadata not found'));
             }
           })
-          .catch(reject);
+          .catch(fail);
       });
 
       stream.pipe(uploadStream);
@@ -162,11 +206,52 @@ export class GridFSHelper {
   }
 
   /**
-   * Find files with filter and options
+   * Find files with filter and options.
+   *
+   * The `contentType` key is rewritten to `metadata.contentType` in BOTH the
+   * filter and the sort — the exact mirror image of what
+   * {@link GridFSHelper.normalizeFileInfo} does on the way out.
+   *
+   * Without it, `contentType` was the one field where the three storage drivers
+   * were not equivalent: `s3-files` / `filesystem-files` carry it at the root of
+   * the document, GridFS keeps it inside `metadata` (the driver dropped the
+   * top-level option in mongodb 7). A `findFileInfo()` filtered on `contentType`
+   * therefore matched every S3 / filesystem file and NO GridFS file — silently
+   * returning nothing at all on the default driver, and silently dropping the
+   * pre-switch files on any other. That is exactly the "switching drivers is
+   * forward-only, no migration" promise failing for one field.
    */
   static async findFiles(bucket: GridFSBucket, filter: any = {}, options: any = {}): Promise<GridFSFileInfo[]> {
-    const files = await bucket.find(filter, options).toArray();
+    const query = GridFSHelper.mapContentTypeKeys(filter);
+    const findOptions =
+      options && options.sort ? { ...options, sort: GridFSHelper.mapContentTypeKeys(options.sort) } : options;
+    const files = await bucket.find(query, findOptions).toArray();
     return files.map((file) => GridFSHelper.normalizeFileInfo(file));
+  }
+
+  /**
+   * Rename a top-level `contentType` key to `metadata.contentType`, recursing
+   * through the logical operators `generateFilterQuery()` can emit.
+   *
+   * Deliberately narrow: only that one key is touched, only where it names a
+   * field, and an already-qualified `metadata.contentType` is left alone. Nothing
+   * else about the query is interpreted.
+   */
+  private static mapContentTypeKeys(value: any): any {
+    if (Array.isArray(value)) {
+      return value.map((entry) => GridFSHelper.mapContentTypeKeys(entry));
+    }
+    if (!value || typeof value !== 'object' || value instanceof RegExp || value instanceof Date) {
+      return value;
+    }
+    const mapped: Record<string, any> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      // Only the logical operators hold nested FIELD maps; `$gt`, `$in`, `$regex`
+      // and friends hold VALUES, which must be passed through untouched.
+      const nested = key === '$and' || key === '$nor' || key === '$or' ? GridFSHelper.mapContentTypeKeys(entry) : entry;
+      mapped[key === 'contentType' ? 'metadata.contentType' : key] = nested;
+    }
+    return mapped;
   }
 
   /**

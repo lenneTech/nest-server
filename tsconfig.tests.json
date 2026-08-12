@@ -17,8 +17,30 @@
   // assertion tests under tests/types/** — so it supersedes the narrow
   // `test:types` (tests/types/tsconfig.json), which stays as a fast focused
   // alias for iterating on just those files.
+  //
+  // `lib` is raised to ES2023 HERE and deliberately NOT in the base tsconfig.
+  //
+  // `pnpm run check` runs `oxlint --fix` BEFORE `typecheck:tests`, and the
+  // `unicorn/no-array-reverse` rule rewrites `.reverse()` into `.toReversed()`.
+  // Under the base lib (es2022, inherited from `target`) that method does not
+  // exist, so the linter could turn a green run RED in a file nobody edited —
+  // the toolchain sabotaging itself. `engines.node` is `>= 22` and `toReversed`
+  // has existed since Node 20, so the runtime was never the constraint; only the
+  // declared lib was.
+  //
+  // WHY NOT IN THE BASE tsconfig: `src/` is this framework's delivery. Vendor-mode
+  // consumers copy `src/core/**` into their own tree and compile it with THEIR
+  // tsconfig — the starter's, which targets es2022 with no `lib` (the CLI's
+  // vendor conversion widens `exclude` and `types`, never `lib`). Raising it here
+  // would let framework source adopt an ES2023 API that then fails to compile
+  // downstream. Tests and `scripts/**/*.ts` ship to nobody, so they are free to.
+  //
+  // The other half of the fix lives in `.oxlintrc.json`, which turns
+  // `unicorn/no-array-reverse` off for `src/**` so the linter cannot introduce
+  // into shipped source an API that shipped source may not use.
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "skipLibCheck": true
   },

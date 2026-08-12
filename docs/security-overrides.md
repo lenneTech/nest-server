@@ -33,8 +33,9 @@ Add this to your project's `pnpm-workspace.yaml` (pnpm 11+; in pnpm 10 and earli
 overrides:
   # @nestjs/graphql exact-pins ws@8.20.1 (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0).
   # An exact pin cannot resolve forward — the override is the only fix.
+  # Keep the target in LOCKSTEP with your direct `ws` dependency (see the note below).
   # Remove once @nestjs/graphql stops pinning it.
-  'ws@>=8.0.0 <8.21.0': '8.21.1'
+  'ws@>=8.0.0 <8.21.0': '8.21.3'
 
   # @modelcontextprotocol/sdk declares @hono/node-server ^1.19.9 with no 1.x fix line
   # (GHSA-frvp-7c67-39w9, GHSA-9mqv-5hh9-4cgg). Deliberately a CROSS-MAJOR override.
@@ -49,6 +50,23 @@ overrides:
   'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
 ```
 
+### The `ws` target must stay in lockstep with the declared `ws` version
+
+`8.21.3` is not an arbitrary "latest patch" — it is the version `@lenne.tech/nest-server` declares as
+an ordinary **dependency**, so it is already in your tree whether or not you list `ws` yourself.
+The override target has to equal it.
+
+Under `nodeLinker: hoisted` (what this framework and the starters use), a lower target does not
+merely leave you one patch behind: it puts a **second, older `ws` copy** in the tree next to the
+declared one. The transitive consumers resolve to the override target, the declared dependency stays
+where its `package.json` pins it, and you now carry two `ws` versions — of which only one is visible
+when you read a manifest. The target was raised `8.21.1` → `8.21.3` on 2026-08-10 for exactly this
+reason.
+
+**Rule:** whenever the `ws` version declared by `@lenne.tech/nest-server` (or by your own
+`package.json`, if you list it) moves, move this override target with it in the same commit. The
+same applies to any other override whose package also appears as a declared dependency.
+
 Then:
 
 ```bash
@@ -59,8 +77,8 @@ pnpm test           # nothing should regress
 
 Commit `package.json`/`pnpm-workspace.yaml` **and** `pnpm-lock.yaml` together.
 
-> Projects generated from `nest-server-starter` or `lt-monorepo` already carry both entries. This
-> page is for projects that predate that, or that were assembled by hand.
+> Projects generated from `nest-server-starter` or `lt-monorepo` already carry all three entries.
+> This page is for projects that predate that, or that were assembled by hand.
 
 ## Rules for writing your own overrides
 

@@ -1,6 +1,4 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { createWriteStream } from 'fs';
-import fs = require('fs');
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 import { Roles } from '../../../core/common/decorators/roles.decorator';
@@ -30,7 +28,10 @@ export class FileResolver {
   @Query(() => FileInfo, { nullable: true })
   @Roles(RoleEnum.ADMIN)
   async getFileInfo(@Args({ name: 'filename', type: () => String }) filename: string) {
-    return await this.fileService.getFileInfoByName(filename);
+    // `force`: @Roles(ADMIN) is the whole gate for this admin API. Omitting options instead
+    // would leave an overridden checkRights() to guess "internal call" from an absent user —
+    // indistinguishable from an anonymous request, and therefore the wrong thing to allow on.
+    return await this.fileService.getFileInfoByName(filename, { force: true });
   }
 
   // ===========================================================================
@@ -43,7 +44,8 @@ export class FileResolver {
   @Mutation(() => FileInfo)
   @Roles(RoleEnum.ADMIN)
   async deleteFile(@Args({ name: 'filename', type: () => String }) filename: string) {
-    return await this.fileService.deleteFileByName(filename);
+    // `force`: @Roles(ADMIN) is the whole gate here — see getFileInfo().
+    return await this.fileService.deleteFileByName(filename, { force: true });
   }
 
   /**
@@ -61,21 +63,11 @@ export class FileResolver {
   @Mutation(() => Boolean)
   @Roles(RoleEnum.ADMIN)
   async uploadFiles(@Args({ name: 'files', type: () => [GraphQLUpload] }) files: FileUpload[]) {
-    // Save files in filesystem
-    const promises: Promise<any>[] = [];
-    for (const file of files) {
-      const { createReadStream, filename } = await file;
-      await fs.promises.mkdir('./uploads', { recursive: true });
-      promises.push(
-        new Promise((resolve, reject) =>
-          createReadStream()
-            .pipe(createWriteStream(`./uploads/${filename}`))
-            .on('finish', () => resolve(true))
-            .on('error', (error) => reject(error)),
-        ),
-      );
-    }
-    await Promise.allSettled(promises);
+    // Store in the central file storage (GridFS/S3), never on the pod's own disk:
+    // `./uploads` is relative to the process working directory, so with more than
+    // one replica the file lands wherever the request happened to be routed and is
+    // unreadable everywhere else — and gone after a restart.
+    await this.fileService.createFiles(files);
     return true;
   }
 }

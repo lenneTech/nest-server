@@ -20,9 +20,13 @@ import { FileService } from './file.service';
 /**
  * File controller
  *
- * Extends CoreFileController to provide public download endpoints:
- * - GET /files/id/:id - Download file by ID (public)
- * - GET /files/:filename - Download file by filename (public)
+ * Extends CoreFileController and INHERITS its download endpoints unchanged:
+ * - GET /files/id/:id     - Download file by ID
+ * - GET /files/:filename  - Download file by filename
+ *
+ * Both are gated by `file.downloadRoles` (default ADMIN). They are deliberately
+ * not overridden here: role metadata lives on the function object, so an
+ * override would carry its own and silently opt the route out of that config.
  *
  * Adds admin-only endpoints:
  * - POST /files/upload - Upload file (admin)
@@ -68,7 +72,11 @@ export class FileController extends CoreFileController {
   @Get('info/:id')
   @Roles(RoleEnum.ADMIN)
   async getFileInfo(@Param('id') id: string) {
-    return await this.fileService.getFileInfo(id);
+    // `force`: this route is @Roles(ADMIN) — the guard has already decided, and an overridden
+    // checkRights() must not be asked to re-derive that from an absent user. "No currentUser"
+    // is also what an anonymous request looks like, so a rule that reads it as "internal call"
+    // fails open; saying `force: true` states the intent instead of hiding it in an omission.
+    return await this.fileService.getFileInfo(id, { force: true });
   }
 
   /**
@@ -81,6 +89,7 @@ export class FileController extends CoreFileController {
       throw new BadRequestException('Missing ID');
     }
 
-    return await this.fileService.deleteFile(id);
+    // `force`: @Roles(ADMIN) above is the whole gate for this endpoint — see getFileInfo().
+    return await this.fileService.deleteFile(id, { force: true });
   }
 }

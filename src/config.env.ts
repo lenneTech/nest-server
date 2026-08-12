@@ -2,6 +2,7 @@ import { CronExpression } from '@nestjs/schedule';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
 
+import { RoleEnum } from './core/common/enums/role.enum';
 import { getEnvironmentConfig } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
@@ -100,6 +101,36 @@ const config: { [env: string]: IServerOptions } = {
       autoRegister: false,
     },
     execAfterInit: 'pnpm run docs:bootstrap',
+    // File access — the COARSE gate on the two inherited download routes
+    // (`GET /files/id/:id`, `GET /files/:filename`), which `FileController` inherits
+    // from `CoreFileController` unchanged so this config can reach them.
+    //
+    // Since 11.33.0 those routes are role-gated and default to `[ADMIN]`. That default
+    // is the safe one for a project that has not thought about file access yet, but it
+    // is the WRONG one for this reference server: it ships an avatar upload every
+    // signed-in user may use, so an admin-only download would make `user.avatar`
+    // unreadable by the very user it belongs to.
+    //
+    // So the gate is widened to "signed in" and the real decision is made per file in
+    // `FileService.checkRights()` (own file, or ADMIN). Roles can only answer "may this
+    // caller reach the route"; they can never answer "may this caller have THIS file".
+    // Widening here is therefore not a relaxation — it MOVES the decision to the layer
+    // that can actually make it. It is also what makes the pairing testable at all: under
+    // `[ADMIN]` the guard answers first and an ownership rule could never fire, which is
+    // how the two halves drifted apart and shipped a bug. See
+    // `migration-guides/11.32.x-to-11.33.x.md` § A.3.
+    //
+    // `uploadRoles` / `deleteRoles` stay at their `[ADMIN]` default. They govern
+    // `CoreFileResolver` members only, and this server registers its own `FileResolver`
+    // and `FileController` write endpoints, each carrying `@Roles(RoleEnum.ADMIN)`
+    // explicitly — so the two knobs are inert here, and leaving them unset keeps the
+    // framework default visible rather than restating it.
+    //
+    // NOTE for markup-driven downloads: anything stricter than `S_EVERYONE` only works
+    // from an `<img>` / `<a download>` when the session travels as a COOKIE on a
+    // same-site request. A Bearer-only frontend has to fetch such URLs programmatically
+    // and build an object URL.
+    file: { downloadRoles: [RoleEnum.S_USER] },
     filter: {
       maxLimit: null,
     },
@@ -224,6 +255,9 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'development',
     execAfterInit: 'pnpm run docs:bootstrap',
+    // Coarse download gate widened to any signed-in user; the per-file rule lives in
+    // `FileService.checkRights()`. Full rationale in the `ci` block above.
+    file: { downloadRoles: [RoleEnum.S_USER] },
     filter: {
       maxLimit: null,
     },
@@ -376,6 +410,9 @@ const config: { [env: string]: IServerOptions } = {
       autoRegister: false,
     },
     execAfterInit: 'pnpm run docs:bootstrap',
+    // Coarse download gate widened to any signed-in user; the per-file rule lives in
+    // `FileService.checkRights()`. Full rationale in the `ci` block above.
+    file: { downloadRoles: [RoleEnum.S_USER] },
     filter: {
       maxLimit: null,
     },
@@ -534,6 +571,9 @@ const config: { [env: string]: IServerOptions } = {
       autoRegister: false,
     },
     execAfterInit: 'pnpm run docs:bootstrap',
+    // Coarse download gate widened to any signed-in user; the per-file rule lives in
+    // `FileService.checkRights()`. Full rationale in the `ci` block above.
+    file: { downloadRoles: [RoleEnum.S_USER] },
     filter: {
       maxLimit: null,
     },
@@ -670,6 +710,11 @@ const config: { [env: string]: IServerOptions } = {
     },
     env: 'production',
     execAfterInit: 'pnpm run docs:bootstrap',
+    // Coarse download gate widened to any signed-in user; the per-file rule lives in
+    // `FileService.checkRights()`. Full rationale in the `ci` block above. Deliberately the
+    // SAME value as every other environment: a per-file rule that only runs outside
+    // production is a rule nobody has actually tested where it matters.
+    file: { downloadRoles: [RoleEnum.S_USER] },
     filter: {
       maxLimit: null,
     },

@@ -38,7 +38,7 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 | Database             | `/hub/db`             | dbStats / per-collection collStats                              |
 | Models / ERD         | `/hub/models`         | Mongoose schemas → Mermaid ER diagram                           |
 | Migrations           | `/hub/migrations`     | `MigrationRunner` status + run/rollback                         |
-| Files                | `/hub/files`          | GridFS listing + delete                                         |
+| Files                | `/hub/files`          | listing + delete across all three storage drivers               |
 | Config               | `/hub/config`         | full config, secrets masked                                     |
 | Auth Migration       | `/hub/auth-migration` | Legacy → IAM progress (BetterAuth, optional)                    |
 | Routes / Permissions | `/hub/routes`         | route + role + `@Restricted` map (Permissions module, optional) |
@@ -50,19 +50,45 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 Each panel has a `*.json` sidecar (the stable data contract) that the client polls. Optional sources
 degrade to an "unavailable" state instead of erroring.
 
+### Files panel
+
+The panel reads all three file metadata stores, not just GridFS — the same three
+`CoreFileService.findFileInfo()` consults, because metadata always lives in MongoDB whichever store
+holds the bytes:
+
+| Store        | Collection                            | Bytes live in                   |
+| ------------ | ------------------------------------- | ------------------------------- |
+| `s3`         | `s3-files`                            | the S3 bucket                   |
+| `filesystem` | `filesystem-files`                    | `file.storageDir` on local disk |
+| `gridfs`     | `<bucket>.files` (default `fs.files`) | MongoDB                         |
+
+Every row carries the `store` it was found in, and `files.json` reports a per-store `count` so an
+empty store reads as **empty** rather than as _"this panel does not cover your driver"_. Until
+11.34.0 it read `fs.files` alone, so under `file.storage: 's3'` or `'filesystem'` it confidently
+answered **0 files** — the worst answer available, since the Hub is what an operator opens precisely
+when they are unsure whether an upload landed.
+
+Two properties worth knowing:
+
+- **Delete dispatches to the owning store.** An S3-backed file needs `CoreS3Service` to be
+  configured in this process; without it the action REFUSES (`S3 storage is not available.`) rather
+  than deleting the metadata document and orphaning the object in the bucket.
+- **Reading never creates a collection.** A GridFS-only deployment does not grow an empty
+  `s3-files` / `filesystem-files` from the panel looking at them.
+
 ## Actions (mutating)
 
 Enabled by default (`actions: true`). Every mutating request requires the `X-Hub-Request: 1` header
 (CSRF defense) and destructive ones a server-validated `confirm` keyword:
 
-| Action                  | Endpoint                                   | Confirm      |
-| ----------------------- | ------------------------------------------ | ------------ |
-| Run pending migrations  | `POST /hub/actions/migrations/run`         | `RUN`        |
-| Rollback last migration | `POST /hub/actions/migrations/down`        | `DOWN`       |
-| Delete GridFS file      | `DELETE /hub/actions/files/:id`            | the filename |
-| Cron start/stop/trigger | `POST /hub/actions/cron/:name/:action`     | the job name |
-| Clear collector buffer  | `POST /hub/actions/collectors/:name/clear` | `CLEAR`      |
-| Send test mail          | `POST /hub/actions/email/test`             | —            |
+| Action                   | Endpoint                                   | Confirm      |
+| ------------------------ | ------------------------------------------ | ------------ |
+| Run pending migrations   | `POST /hub/actions/migrations/run`         | `RUN`        |
+| Rollback last migration  | `POST /hub/actions/migrations/down`        | `DOWN`       |
+| Delete file (any driver) | `DELETE /hub/actions/files/:id`            | the filename |
+| Cron start/stop/trigger  | `POST /hub/actions/cron/:name/:action`     | the job name |
+| Clear collector buffer   | `POST /hub/actions/collectors/:name/clear` | `CLEAR`      |
+| Send test mail           | `POST /hub/actions/email/test`             | —            |
 
 Every action writes an audit line: `[HUB-ACTION] <action> by user <id>`.
 
@@ -145,6 +171,54 @@ Three in-memory ring buffers (fixed capacity, no timers, per-app-instance — pa
 - **Traces** — an Express middleware registered only when enabled (zero cost otherwise).
 - **Queries** — MongoDB driver command monitoring; records value-free query SHAPES (N+1 templates), never values.
   Enabling it opts the driver into `monitorCommands` from `core.module.ts`.
+
+The mailbox (`hub.mailbox`) uses the same buffer.
+
+### Multi-replica
+
+**Without Redis** each buffer is process-local, so a pod only ever shows the logs, traces,
+queries and mails it produced itself. Behind a load balancer that makes the panels look
+lossy — every poll may hit a different pod and show a different slice. Route `/hub` to a
+single replica (sticky routing) if you need a coherent view.
+
+**With Redis** (`ServerOptions.redis`) all four collectors mirror into shared, capped Redis
+lists (`<keyPrefix>:hub:{logs,traces,queries,mailbox}`) and read from there, so every pod
+shows the merged cluster-wide view and "clear" clears it everywhere. Sequence numbers come
+from a shared counter, so the panels' cursor-based polling keeps working across replicas.
+
+Writes are fire-and-forget — the collectors sit in hot paths and their API stays synchronous.
+If Redis is unreachable a read silently falls back to the local buffer (a diagnostics panel
+must not be the thing that breaks), so a partial view during an outage is expected.
+
+#### Cost: Redis write volume scales with your traffic
+
+**Know this before enabling `redis` together with `hub.collectors`.** Every mirrored entry costs a
+3-command `MULTI` (`INCR` the shared sequence counter, `LPUSH` the JSON-serialized entry, `LTRIM`
+back to the buffer capacity). There is **no sampling** — each retained entry is one `MULTI`:
+
+| Collector | One mirror write per                                    | Rough volume                                                         |
+| --------- | ------------------------------------------------------- | -------------------------------------------------------------------- |
+| Logs      | log line at a captured level (`collectors.logs.levels`) | 3 Redis commands × your log rate                                     |
+| Traces    | HTTP request outside the excluded path prefixes         | 3 Redis commands × your request rate                                 |
+| Queries   | monitored MongoDB command (opt-in)                      | 3 Redis commands × your query rate — usually the highest of the four |
+| Mailbox   | outgoing mail                                           | negligible                                                           |
+
+At 500 req/s with request tracing on, that is ~1 500 extra Redis commands per second before the log
+lines are counted. The buffers stay capped in memory (`LTRIM` holds them at the configured
+capacity), so this is a **throughput** cost on the Redis instance, not a growth problem — but it is
+a cost that lands on the same Redis your rate-limit counters, cron leases and subscriptions use.
+
+Two ways to keep it out of the way, both deliberate choices rather than defaults:
+
+- **Give the Hub a dedicated Redis database or instance.** `redis.db` picks a numbered database on
+  the same server (cheap, still one instance's throughput); a separate instance isolates it fully.
+  Either way set `redis.keyPrefix` so environments cannot collide.
+- **Accept the volume knowingly**, and keep `collectors.queries` off (it is opt-in for exactly this
+  reason) unless you are actively profiling. Turning individual collectors off via
+  `hub.collectors` removes their mirror writes entirely.
+
+A single-replica deployment gains nothing from mirroring — leave `redis` unset, or the Hub
+collectors off, and every buffer stays process-local at zero Redis cost.
 
 ## Overrides
 
