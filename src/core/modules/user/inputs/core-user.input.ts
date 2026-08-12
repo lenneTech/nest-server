@@ -1,5 +1,5 @@
 import { InputType } from '@nestjs/graphql';
-import { IsEmail } from 'class-validator';
+import { IsEmail, Matches } from 'class-validator';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
@@ -50,12 +50,20 @@ export abstract class CoreUserInput extends CoreInput {
 
   /**
    * Roles of the user
+   *
+   * System roles (`s_*` prefix, see RoleEnum) are runtime-context checks and must NEVER be stored:
+   * `hasRole` is a plain string intersection, so a stored `s_self` would satisfy every S_SELF
+   * check (e.g. update/delete of ARBITRARY users) without the account carrying a real role.
+   * The @Restricted above limits WHO may send the field; this validator limits WHAT it may hold.
    */
   @Restricted({ processType: ProcessType.INPUT, roles: RoleEnum.ADMIN })
   @UnifiedField({
     isArray: true,
     isOptional: true,
     type: String,
+    validator: () => [
+      Matches(/^(?!s_)/i, { each: true, message: 'System roles (s_*) must never be stored in user.roles' }),
+    ],
   })
   roles?: string[] = undefined;
 

@@ -551,6 +551,37 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * System roles (s_*) can never be stored in user.roles
+   *
+   * hasRole is a plain string intersection: a stored 's_self' would satisfy every S_SELF check
+   * (e.g. updateUser/deleteUser on ARBITRARY users) without the account carrying a real role.
+   * The @Restricted on the field limits WHO may send roles; this pins WHAT it may hold.
+   */
+  it('admin cannot store system roles (s_*) in user.roles', async () => {
+    for (const roles of [['s_self'], ['admin', 's_creator']]) {
+      const res: any = await testHelper.graphQl(
+        {
+          arguments: { id: gId, input: { roles } },
+          fields: ['id', 'roles'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: gToken },
+      );
+      expect(res.errors.length).toBeGreaterThanOrEqual(1);
+      // Pipe validation errors reach GraphQL without a formatted originalError — the message is
+      // the stable contract: "Validation failed for 1 field: roles (matches)".
+      expect(res.errors[0].message).toContain('Validation failed');
+      expect(res.errors[0].message).toContain('roles');
+      expect(res.data).toBe(null);
+    }
+
+    // The roles are unchanged in the DB — the admin stays exactly ['admin'].
+    const dbUser = await db.collection('users').findOne({ _id: new ObjectId(gId) });
+    expect(dbUser.roles).toEqual(['admin']);
+  });
+
+  /**
    * Find users
    */
   it('findUsers', async () => {
