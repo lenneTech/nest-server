@@ -6,6 +6,7 @@ import {
   IsDefined,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -1127,6 +1128,62 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
         const response = error.getResponse();
         expect(response).toHaveProperty('message');
         expect(response.message).toContain('Validation failed');
+      }
+    });
+
+    it('should honor a custom message from ValidationOptions', async () => {
+      // The custom message must win over the constraint's default message —
+      // same precedence as class-validator's own executor.
+      class CustomMessageInput {
+        @IsIn(['admin'], { each: true, message: 'roles may only contain assignable roles (admin)' })
+        @IsOptional()
+        roles?: string[];
+      }
+
+      try {
+        await pipe.transform({ roles: ['s_self'] }, { metatype: CustomMessageInput, type: 'body' });
+        throw new Error('Should have thrown BadRequestException');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        const response = error.getResponse();
+        expect(response.roles.isIn).toEqual('roles may only contain assignable roles (admin)');
+      }
+    });
+
+    it('should interpolate $constraint placeholders in default messages', async () => {
+      // Without a custom message, the default message must not leak raw
+      // placeholders like "$constraint1" to API clients.
+      class DefaultMessageInput {
+        @IsIn(['alpha', 'beta'], { each: true })
+        @IsOptional()
+        roles?: string[];
+      }
+
+      try {
+        await pipe.transform({ roles: ['gamma'] }, { metatype: DefaultMessageInput, type: 'body' });
+        throw new Error('Should have thrown BadRequestException');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        const response = error.getResponse();
+        expect(response.roles.isIn).toEqual('each value in roles must be one of the following values: alpha, beta');
+      }
+    });
+
+    it('should honor a custom message on non-ValidateBy constraints (isDefined)', async () => {
+      // isDefined is the one built-in that does not register as customValidation,
+      // so it takes the hardcoded-message code path.
+      class DefinedMessageInput {
+        @IsDefined({ message: 'name is required' })
+        name: string;
+      }
+
+      try {
+        await pipe.transform({}, { metatype: DefinedMessageInput, type: 'body' });
+        throw new Error('Should have thrown BadRequestException');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        const response = error.getResponse();
+        expect(response.name.isDefined).toEqual('name is required');
       }
     });
 
