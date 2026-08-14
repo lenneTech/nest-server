@@ -124,10 +124,13 @@ overrides:
   # via @modelcontextprotocol/sdk>express-rate-limit>ip-address.
   # Remove once express-rate-limit requests >=10.3.1.
   'ip-address@<10.3.1': '10.3.1'
-  # Security: nanoid predictable output with a non-integer size (high, patched >=3.3.17) - dev only,
+  # Security: TWO advisories on the 3.x line — predictable output with a non-integer size
+  # (patched >=3.3.17) and, since 2026-08, custom generators looping indefinitely when size
+  # is zero (high, patched >=3.3.18). The target is the LATER of the two; a 3.3.17 target
+  # closes the first and leaves the second open. Dev only,
   # transitive via better-auth>vitest>vite>postcss>nanoid. Separate line per major: 5.x is unaffected.
   # Remove once postcss requests >=3.3.17.
-  'nanoid@>=3.0.0 <3.3.17': '3.3.17'
+  'nanoid@>=3.0.0 <3.3.18': '3.3.18'
   # Security: postcss parsing DoS (moderate, patched >=8.5.23) - dev only, transitive via
   # better-auth>vitest>vite>postcss. Remove once vite requests >=8.5.23.
   'postcss@<8.5.23': '8.5.23'

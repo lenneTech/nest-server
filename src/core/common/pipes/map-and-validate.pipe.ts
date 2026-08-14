@@ -28,6 +28,7 @@ import { inspect } from 'util';
 
 import { getUnifiedFieldKeys, nestedTypeRegistry } from '../decorators/unified-field.decorator';
 import { isBasicType } from '../helpers/input.helper';
+import { replaceMessageSpecialTokens } from '../helpers/validation-message.helper';
 import { ConfigService } from '../services/config.service';
 import { ErrorCode } from '../../modules/error-code/error-codes';
 
@@ -54,64 +55,6 @@ function getPrototypeChain(target: any): Constructor[] {
   }
 
   return chain;
-}
-
-/**
- * Renders a single constraint for use in an error message.
- * Mirror of class-validator's internal `constraintToString` (not part of its public API).
- */
-function constraintToString(constraint: unknown): string {
-  if (Array.isArray(constraint)) {
-    return constraint.join(', ');
-  }
-  if (typeof constraint === 'symbol') {
-    constraint = constraint.description;
-  }
-  return `${constraint}`;
-}
-
-/**
- * Resolves a message (string or function) and interpolates the special tokens
- * $constraint1..N, $value, $property and $target.
- * Mirror of class-validator's internal `ValidationUtils.replaceMessageSpecialTokens`
- * (not part of its public API).
- */
-function replaceMessageSpecialTokens(
-  message: string | ((args: ValidationArguments) => string),
-  validationArguments: ValidationArguments,
-): string {
-  let messageString = '';
-  if (typeof message === 'function') {
-    messageString = message(validationArguments);
-  } else if (typeof message === 'string') {
-    messageString = message;
-  }
-
-  if (messageString && Array.isArray(validationArguments.constraints)) {
-    validationArguments.constraints.forEach((constraint, index) => {
-      messageString = messageString.replace(
-        new RegExp(`\\$constraint${index + 1}`, 'g'),
-        constraintToString(constraint),
-      );
-    });
-  }
-
-  if (
-    messageString &&
-    validationArguments.value !== undefined &&
-    validationArguments.value !== null &&
-    ['boolean', 'number', 'string'].includes(typeof validationArguments.value)
-  ) {
-    messageString = messageString.replace(/\$value/g, `${validationArguments.value}`);
-  }
-  if (messageString) {
-    messageString = messageString.replace(/\$property/g, validationArguments.property);
-  }
-  if (messageString) {
-    messageString = messageString.replace(/\$target/g, validationArguments.targetName);
-  }
-
-  return messageString;
 }
 
 /**

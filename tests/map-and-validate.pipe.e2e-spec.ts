@@ -1131,6 +1131,15 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
       }
     });
 
+    /**
+     * @regression   11.34.1 — MapAndValidatePipe built every message from
+     *   constraintInstance.defaultMessage() alone, so a custom `message` in ValidationOptions was
+     *   silently dropped: the developer wrote one string and the client received another.
+     * @seen-failing Drop the `metadata.message` initializer from `messageTemplate` in
+     *   src/core/common/pipes/map-and-validate.pipe.ts, so the default message wins again —
+     *   registered as mutation `validation-ignores-custom-message` in
+     *   tests/regression-mutations.json.
+     */
     it('should honor a custom message from ValidationOptions', async () => {
       // The custom message must win over the constraint's default message —
       // same precedence as class-validator's own executor.
@@ -1150,6 +1159,14 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
       }
     });
 
+    /**
+     * @regression   11.34.1 — only $property was substituted, so built-in default messages reached
+     *   API clients with the raw placeholder: "each value in roles must be one of the following
+     *   values: $constraint1".
+     * @seen-failing Disable the $constraint loop in `replaceMessageSpecialTokens()` in
+     *   src/core/common/helpers/validation-message.helper.ts — registered as mutation
+     *   `validation-message-placeholders-raw` in tests/regression-mutations.json.
+     */
     it('should interpolate $constraint placeholders in default messages', async () => {
       // Without a custom message, the default message must not leak raw
       // placeholders like "$constraint1" to API clients.
@@ -1169,6 +1186,15 @@ describe('MapAndValidatePipe (comprehensive tests)', () => {
       }
     });
 
+    /**
+     * @regression   11.34.1 — the custom-message gap also existed on the non-customValidation path.
+     *   Since class-validator 0.13 every other built-in registers via ValidateBy, so @IsDefined is
+     *   the one decorator that still reaches it — and its hardcoded message won over the
+     *   developer's.
+     * @seen-failing Delete the `if (metadata.message)` block from the built-in constraint branch in
+     *   src/core/common/pipes/map-and-validate.pipe.ts — registered as mutation
+     *   `validation-isdefined-ignores-custom-message` in tests/regression-mutations.json.
+     */
     it('should honor a custom message on non-ValidateBy constraints (isDefined)', async () => {
       // isDefined is the one built-in that does not register as customValidation,
       // so it takes the hardcoded-message code path.
