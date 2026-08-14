@@ -20,6 +20,7 @@ import {
   maxLength,
   min,
   minLength,
+  ValidationArguments,
   ValidationError,
 } from 'class-validator';
 import { ValidationMetadata } from 'class-validator/types/metadata/ValidationMetadata';
@@ -27,6 +28,7 @@ import { inspect } from 'util';
 
 import { getUnifiedFieldKeys, nestedTypeRegistry } from '../decorators/unified-field.decorator';
 import { isBasicType } from '../helpers/input.helper';
+import { replaceMessageSpecialTokens } from '../helpers/validation-message.helper';
 import { ConfigService } from '../services/config.service';
 import { ErrorCode } from '../../modules/error-code/error-codes';
 
@@ -268,18 +270,21 @@ async function validateWithInheritance(object: any, originalPlainValue: any): Pr
                       isValid = validationResult instanceof Promise ? await validationResult : validationResult;
                     }
 
-                    // Get default message and constraint name if validation failed
+                    // Get message and constraint name if validation failed
                     if (!isValid) {
                       // Use metadata.name for the constraint key (e.g., "isEmail", "isString")
                       const constraintName = metadata.name || 'customValidation';
 
-                      if (typeof constraintInstance.defaultMessage === 'function') {
-                        errorMessage = constraintInstance.defaultMessage(validationArgs);
-                        // Replace $property placeholder with actual property name
-                        errorMessage = errorMessage.replace(/\$property/g, propertyName);
-                      } else {
-                        errorMessage = `${propertyName} failed custom validation`;
+                      // A custom message from ValidationOptions takes precedence over the
+                      // constraint's default message — same order as class-validator's executor
+                      let messageTemplate: string | ((args: ValidationArguments) => string) | undefined =
+                        metadata.message as string | ((args: ValidationArguments) => string) | undefined;
+                      if (!messageTemplate && typeof constraintInstance.defaultMessage === 'function') {
+                        messageTemplate = constraintInstance.defaultMessage(validationArgs);
                       }
+                      errorMessage = messageTemplate
+                        ? replaceMessageSpecialTokens(messageTemplate, validationArgs)
+                        : `${propertyName} failed custom validation`;
 
                       // Add to constraints with the proper name
                       propertyError.constraints[constraintName] = errorMessage;
@@ -578,6 +583,19 @@ async function validateWithInheritance(object: any, originalPlainValue: any): Pr
 
           // Add constraint violation if validation failed
           if (!isValid) {
+            // A custom message from ValidationOptions takes precedence over the built-in message
+            if (metadata.message) {
+              errorMessage = replaceMessageSpecialTokens(
+                metadata.message as string | ((args: ValidationArguments) => string),
+                {
+                  constraints: metadata.constraints || [],
+                  object: tempInstance,
+                  property: propertyName,
+                  targetName: targetClass.name,
+                  value: propertyValue,
+                },
+              );
+            }
             propertyError.constraints[constraintType] = errorMessage;
           }
         }
