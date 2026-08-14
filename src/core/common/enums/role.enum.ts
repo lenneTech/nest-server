@@ -60,3 +60,61 @@ export enum RoleEnum {
   // User must be logged in (see context user, e.g. @CurrentUser)
   S_USER = 's_user',
 }
+
+/**
+ * Prefix that marks a role as a system role (runtime-context check, never a stored role).
+ *
+ * This is the single source of truth for the prefix. Anything deriving the system-role rule —
+ * guards, the `@Restricted` evaluation, the storage guards — must build on it rather than
+ * hard-coding `'s_'` again.
+ */
+export const SYSTEM_ROLE_PREFIX = 's_';
+
+/**
+ * Is this role a system role, by the exact rule the runtime checks use?
+ *
+ * Case-SENSITIVE on purpose: `hasRole()` and `checkRoleAccess()` compare role strings exactly,
+ * so `'S_SELF'` is a different string from `'s_self'` and never grants anything. Widening this
+ * to case-insensitive would make the guards treat a legitimately-named project role such as
+ * `'S_Manager'` as a system role and change access decisions.
+ *
+ * Use this for RUNTIME checks. To decide whether a value may be STORED in `user.roles`, use
+ * {@link looksLikeSystemRole} — that question deserves the stricter, defensive answer.
+ *
+ * Declared as a hoisted `function` (not a `const` arrow) so it stays temporal-dead-zone immune
+ * on any import cycle — see `.claude/rules/architecture.md` → "DI Token Placement (SWC-Safe)".
+ */
+export function isSystemRole(role: string): boolean {
+  return typeof role === 'string' && role.startsWith(SYSTEM_ROLE_PREFIX);
+}
+
+/**
+ * Could this value be mistaken for a system role once stored in `user.roles`?
+ *
+ * Deliberately BROADER than {@link isSystemRole}: trims surrounding whitespace and ignores case.
+ * A stored `' s_self'` or `'S_SELF'` grants nothing today, because `hasRole()` compares exactly —
+ * but that is an accident of the comparison, not a decision. Both become live the moment anything
+ * normalizes roles (a Mongoose `trim: true`, a CSV/LDAP import, a project sanitizer), and both
+ * pass an eyeball review as legitimate roles in the meantime.
+ *
+ * This is the predicate the storage guards use. It is intentionally strict enough to also reject
+ * a project role that merely happens to start with `s_` (e.g. `'s_manager'`) — the framework
+ * cannot tell those apart from a system role, and a false rejection is recoverable by renaming
+ * while a false acceptance is a silent authorization hole.
+ */
+export function looksLikeSystemRole(role: unknown): boolean {
+  return typeof role === 'string' && role.trim().toLowerCase().startsWith(SYSTEM_ROLE_PREFIX);
+}
+
+/**
+ * `class-validator` `@Matches()` pattern that ACCEPTS everything {@link looksLikeSystemRole}
+ * rejects, and vice versa.
+ *
+ * A negative lookahead, so a value is valid exactly when it does NOT begin (after optional leading
+ * whitespace, case-insensitively) with the system-role prefix. Kept next to the predicate it
+ * mirrors so the two cannot drift; `@Matches` needs a pattern and cannot take a function.
+ *
+ * Anchored with no quantifier over the input, so it is linear in input length — a 100 KB value
+ * costs the same as a 10-character one, with no backtracking to exploit.
+ */
+export const SYSTEM_ROLE_REJECT_PATTERN = new RegExp(`^(?!\\s*${SYSTEM_ROLE_PREFIX})`, 'i');

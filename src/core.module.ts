@@ -31,6 +31,7 @@ import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
 import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
 import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
+import { mongooseSystemRolePlugin } from './core/common/plugins/mongoose-system-role.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
@@ -253,6 +254,12 @@ export class CoreModule implements NestModule {
       if (config.security?.mongooseRoleGuardPlugin !== false) {
         connection.plugin(mongooseRoleGuardPlugin);
       }
+      // Refuse to store system roles (s_*) in a roles array. Deliberately NOT configurable and
+      // registered independently of the role guard above: that one decides WHO may change roles
+      // (and can be switched off), this one decides WHICH values may exist at all. A stored
+      // 's_self' satisfies every S_SELF check on arbitrary users, so there is no configuration
+      // under which writing one is legitimate.
+      connection.plugin(mongooseSystemRolePlugin);
       // Add audit fields plugin (enabled by default, opt-out via config)
       if (config.security?.mongooseAuditFieldsPlugin !== false) {
         connection.plugin(mongooseAuditFieldsPlugin);

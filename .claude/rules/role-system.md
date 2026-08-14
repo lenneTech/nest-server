@@ -21,6 +21,66 @@ System roles are used for **runtime checks only** and must **NEVER** be stored i
 | `S_EVERYONE` | Public access | Always true |
 | `S_NO_ONE` | Locked access | Always false |
 
+### Since 11.35.0 this is ENFORCED, not just a convention
+
+`hasRole()` is a plain string intersection, so a stored `'s_self'` satisfies **every** `S_SELF`
+check — for the core user module that includes `updateUser` / `deleteUser` on *arbitrary* users
+(mail/password change → account takeover) — while the account shows no privileged role at all.
+The rule was documented for years and nothing enforced it. Three layers now do:
+
+| Layer | Covers | On violation | Configurable |
+|-------|--------|--------------|--------------|
+| `CoreUserInput.roles` validator | the input/DTO path (REST + GraphQL, create + update) | 400 | no, but a subclass override **replaces** it (see below) |
+| `CoreUserService.setRoles()` | the canonical role-assignment API (writes via `findByIdAndUpdate`) | throws, before the DB round-trip | no |
+| `mongooseSystemRolePlugin` | **every** Mongoose write — incl. `force: true`, `runWithBypassRoleGuard()`, direct `Model` calls, seeds, migrations | throws | **no** |
+
+Do not confuse the third with `mongooseRoleGuardPlugin`: that one answers *who may change roles*
+(configurable, bypassable, **strips** the change); this one answers *which values may exist at all*
+(unconditional, **throws**). Being ADMIN or holding a bypass is authority over the change, never
+permission to write a value that is invalid by construction.
+
+**The plugin refuses what a write INTRODUCES, not what is already stored** — load-bearing, not
+leniency. `CrudService.update()` writes the whole object back, so a login
+(`updateRefreshToken` → `update`) re-sends the stored `roles` verbatim; refusing that would lock
+every already-contaminated account out on upgrade, and do the same fleet-wide to a project whose
+own role name starts with `s_`. Adding a system role is refused, writing back an identical stored
+value is allowed, and removing one always works. `updateMany` is the exception — it can span
+documents with different baselines, so any system role in its payload is refused outright.
+
+**The check is a prefix rule, not an allowlist of the six members above.** Any value starting with
+`s_` after trimming, case-insensitively, is refused — including a project role you named
+`s_manager`. The framework cannot tell those apart from a future system role, and a false
+rejection is fixable by renaming while a false acceptance is a silent authorization hole.
+
+Use the shared predicates rather than re-implementing the rule:
+
+```typescript
+import { isSystemRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX, SYSTEM_ROLE_REJECT_PATTERN }
+  from '@lenne.tech/nest-server';
+
+isSystemRole('S_SELF')        // false — exact + case-sensitive: the RUNTIME rule the guards use
+looksLikeSystemRole('S_SELF') // true  — trimmed + case-insensitive: the STORAGE rule
+```
+
+They differ on purpose. The guards compare role strings exactly, so `'S_SELF'` never granted
+anything and must not be treated as a system role by them; the storage question deserves the
+stricter answer, because `' s_self'` and `'S_SELF'` pass an eyeball review and become live the
+moment anything normalizes roles.
+
+**Upgrade note (11.35.0):** a write carrying an `s_*` role that previously succeeded now fails —
+400 on the user endpoints, a thrown exception from `setRoles()` and from any Mongoose write. Audit
+once with `db.users.find({ roles: /^\s*s_/i })` before upgrading; rename your own `s_`-prefixed
+roles, and remove genuine misconfigurations. Also check every project input that **redeclares**
+`roles`: `MapAndValidatePipe` walks the prototype chain child-first and skips a property once a
+child class has validated it, so an override silently replaces the inherited validator (the plugin
+still backstops the write). See `migration-guides/11.34.x-to-11.35.x.md` §2.
+
+**Not covered:** tenant *membership* roles. A membership whose `role` is literally `'s_self'` still
+satisfies field-level `@Restricted(S_SELF)`, because `checkRestricted` passes the unfiltered
+required-roles list into `checkRoleAccess` and non-hierarchy roles match by exact string.
+`CoreTenantGuard` does filter system roles, so method-level `@Roles` is unaffected. Do not use
+`s_`-prefixed membership role names.
+
 ### `object` means the PERSISTED object — never the request payload
 
 For `S_SELF` and `S_CREATOR`, "object" is the record loaded from the database

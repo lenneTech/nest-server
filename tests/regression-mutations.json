@@ -259,6 +259,28 @@
         "tests/unit/validation-message-mirror.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "user-roles-accepts-system-roles",
+      "defect": "11.35.0 — CoreUserInput.roles had no content validator, so an admin could store a system role (s_*) in user.roles. hasRole() is a plain string intersection, so a stored 's_self' satisfied every S_SELF check on ARBITRARY users — update/delete of any account (mail/password change → takeover) without the account carrying a real role. Neutralizing the lookahead mutates the guard's DECISION rather than the existence of validation, so a red result is about this behaviour and not about the pipe having stopped running.",
+      "file": "src/core/common/enums/role.enum.ts",
+      "find": "export const SYSTEM_ROLE_REJECT_PATTERN = new RegExp(`^(?!\\\\s*${SYSTEM_ROLE_PREFIX})`, 'i');",
+      "replace": "export const SYSTEM_ROLE_REJECT_PATTERN = new RegExp('^(?!zz_never_matches_)', 'i');",
+      "specs": [
+        "tests/server.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "non-dto-write-paths-accept-system-roles",
+      "defect": "11.35.0 — the DTO validator only covers the input path. CoreUserService.setRoles() writes straight through findByIdAndUpdate, and force:true / bypassRoleGuard / direct Model writes never reach a pipe at all, so a system role could still be stored through any of them. Both remaining layers (setRoles' explicit check and the unconditional mongooseSystemRolePlugin) derive their decision from looksLikeSystemRole, so neutralizing it is what proves the non-DTO paths are actually guarded. NOTE: the two layers are DELIBERATELY redundant — mutating only setRoles' check leaves the plugin backstop in place and the specs stay green, which is the design working, not a gap. That is why the mutation targets the shared predicate rather than either call site.",
+      "file": "src/core/common/enums/role.enum.ts",
+      "find": "  return typeof role === 'string' && role.trim().toLowerCase().startsWith(SYSTEM_ROLE_PREFIX);",
+      "replace": "  return typeof role === 'string' && role.trim().toLowerCase().startsWith('zz_never_matches_');",
+      "specs": [
+        "tests/server.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -186,9 +186,13 @@ System roles (`S_` prefix) are runtime checks only - **NEVER store in user.roles
 
 ```typescript
 @Roles(RoleEnum.S_USER)      // Correct: runtime check
-roles: [RoleEnum.S_USER]      // WRONG: never store S_ roles!
+roles: [RoleEnum.S_USER]      // WRONG: rejected since 11.35.0 (400 / throws on every write path)
 roles: [RoleEnum.ADMIN]       // Correct: real role
 ```
+
+Since 11.35.0 this is enforced on three layers (input validator, `setRoles()`,
+`mongooseSystemRolePlugin` — the last one unconditional), and the rule is a **prefix** rule: any
+value starting with `s_` is refused, including a project role named `s_manager`.
 
 See `.claude/rules/role-system.md` for complete documentation.
 

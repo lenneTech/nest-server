@@ -1,8 +1,6 @@
 import { ConfigService } from '../../common/services/config.service';
 import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums';
 
-const SYSTEM_ROLE_PREFIX = 's_';
-
 /**
  * Merge handler-level and class-level @Roles() metadata arrays into a single flat array.
  * Used by RolesGuard, BetterAuthRolesGuard, and CoreTenantGuard.
@@ -23,14 +21,10 @@ export function getRoleHierarchy(): Record<string, number> {
   return ConfigService.configFastButReadOnly?.multiTenancy?.roleHierarchy ?? DEFAULT_ROLE_HIERARCHY;
 }
 
-/**
- * Check if a role is a system role (S_USER, S_EVERYONE, etc.).
- * System roles are checked by RolesGuard/BetterAuthRolesGuard for authentication
- * and by CoreTenantGuard as OR alternatives before real role checks.
- */
-export function isSystemRole(role: string): boolean {
-  return role.startsWith(SYSTEM_ROLE_PREFIX);
-}
+// `isSystemRole` used to be defined here. It now lives in `common/enums/role.enum.ts`, next to the
+// RoleEnum members it describes, so the storage guards and the runtime guards share ONE predicate
+// instead of drifting apart (they already disagreed on case). Re-exported below for compatibility.
+export { isSystemRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
 
 /**
  * Check if multiTenancy is configured and enabled.

@@ -81,6 +81,7 @@ export * from './core/common/plugins/mongoose-id.plugin';
 export * from './core/common/plugins/mongoose-audit-fields.plugin';
 export * from './core/common/plugins/mongoose-password.plugin';
 export * from './core/common/plugins/mongoose-role-guard.plugin';
+export * from './core/common/plugins/mongoose-system-role.plugin';
 export * from './core/common/plugins/mongoose-tenant.plugin';
 export * from './core/common/scalars/any.scalar';
 export * from './core/common/scalars/date-timestamp.scalar';
