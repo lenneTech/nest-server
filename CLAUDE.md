@@ -257,6 +257,12 @@ When releasing MINOR or MAJOR versions, create migration guides in `migration-gu
 - Ask developer for additional projects to analyze
 - See `.claude/rules/migration-guides.md` for complete process
 
+## Active Plans
+
+| Plan | Read when |
+|------|-----------|
+| `.claude/plans/db-agnostic/PLAN.md` | Working on the branch `feat/db-agnostic`, or asked anything about supporting PostgreSQL/Prisma alongside MongoDB/Mongoose. Contains the decision, the evidence, the abort criteria and the non-negotiable constraints. **Read it fully before writing code** — the task list without the reasoning produces the wrong thing. Not shipped to consumers (`.claude/plans/` is outside the npm `files` set). |
+
 ## Modular Rules
 
 Detailed documentation in `.claude/rules/`:
