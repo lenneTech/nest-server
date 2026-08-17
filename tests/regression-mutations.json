@@ -24,6 +24,30 @@
   ],
   "mutations": [
     {
+      "id": "restriction-bypass-flag-trusts-data",
+      "defect": "11.35.0 — the `_objectAlreadyCheckedForRestrictions` opt-out was a truthy test on a well-known property name, and nothing in src/ ever wrote it. So a document carrying `_objectAlreadyCheckedForRestrictions: true` (raw write, strict:false schema, restored export) disabled EVERY field-level @Restricted check for that object — silently, on the output path where a skipped check produces no error.",
+      "file": "src/core/common/decorators/restrictions-checked.marker.ts",
+      "after": "export function hasRestrictionsCheckedMarker(data: unknown): boolean {",
+      "find": "(data as Record<string, unknown>)[RESTRICTIONS_CHECKED_KEY] === MARKER;",
+      "replace": "!!(data as Record<string, unknown>)[RESTRICTIONS_CHECKED_KEY];",
+      "specs": [
+        "tests/unit/restriction-bypass-flag.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-blind-on-websocket",
+      "defect": "11.35.0 — every role guard resolved the request as `ctx.getContext()?.req || switchToHttp().getRequest()`, which yields nothing for a GraphQL subscription (the WS context has no `req`, and the HTTP fallback on a GraphQL context returns the resolver root). CoreTenantGuard then hit `if (!request) return true` and GRANTED access without deciding anything — and because the role guard delegates non-system roles to it when multi-tenancy is active, `@Roles()` on a subscription was checked by nobody: a plain `member` reached a tenantAdmin-gated subscription and received its messages.",
+      "file": "src/core/common/helpers/execution-context-request.helper.ts",
+      "after": "export function resolveGuardRequest(",
+      "find": "  if (isSubscriptionContext(gqlContext)) {",
+      "replace": "  if (false && isSubscriptionContext(gqlContext)) {",
+      "specs": [
+        "tests/tenant-context-surfaces.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "tus-upload-records-no-owner",
       "defect": "11.35.0 — a finished tus upload's file metadata carried no owner, so the per-file ownership rule CoreFileService.checkRights() documents (metadata.ownerId === currentUser.id) could never authorize a tus-uploaded file: it failed closed for everyone but ADMIN.",
       "file": "src/core/modules/tus/core-tus.service.ts",

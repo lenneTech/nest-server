@@ -6,6 +6,7 @@ import { resolveResponseModelClass } from '../helpers/interceptor.helper';
 import { CoreModel } from '../models/core-model.model';
 import { ConfigService } from '../services/config.service';
 import { ModelRegistry } from '../services/model-registry.service';
+import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker';
 
 /**
  * Interceptor that automatically converts plain objects and Mongoose documents
@@ -48,7 +49,7 @@ export class ResponseModelInterceptor implements NestInterceptor {
         }
 
         // Already processed by another interceptor
-        if (data._objectAlreadyCheckedForRestrictions) {
+        if (hasRestrictionsCheckedMarker(data)) {
           return data;
         }
 
@@ -90,7 +91,7 @@ export class ResponseModelInterceptor implements NestInterceptor {
     }
 
     // Already processed
-    if (item._objectAlreadyCheckedForRestrictions) {
+    if (hasRestrictionsCheckedMarker(item)) {
       return item;
     }
 

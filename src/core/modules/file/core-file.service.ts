@@ -13,6 +13,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { CoreFileInfo } from './core-file-info.model';
+import { warnOnUnscopedFilesInTenantMode } from './file-roles.config';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUploadSource } from './interfaces/file-upload.interface';
 import {
@@ -83,6 +84,17 @@ export abstract class CoreFileService {
     this.storageResolution = resolveFileStorage(ConfigService.configFastButReadOnly);
     assertFileStorageAvailable(this.storageResolution, this.isStorageAvailable(this.storageResolution.driver));
     logFileStorage(this.storageResolution);
+
+    // The file stores carry NO tenant scope and cannot be given one by configuration — see the
+    // helper for the full reasoning. Checked here rather than in `CoreModule.forRoot()` because only
+    // an instance can answer whether `checkRights()` was overridden: the base implementation is a
+    // fixed function, so an identity comparison against it is exact and needs no naming convention.
+    const config = ConfigService.configFastButReadOnly;
+    warnOnUnscopedFilesInTenantMode({
+      fileConfig: config?.file,
+      hasPerFileRule: this.checkRights !== CoreFileService.prototype.checkRights,
+      multiTenancyEnabled: !!config?.multiTenancy && config.multiTenancy.enabled !== false,
+    });
   }
 
   /**

@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { Field, GraphQLModule, Int, ObjectType, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { getModelToken, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
@@ -11,6 +12,7 @@ import {
   buildRequestContextAwareExecute,
   buildRequestContextAwareSubscribe,
 } from '../src/core/common/helpers/graphql-ws-context.helper';
+import { Roles } from '../src/core/common/decorators/roles.decorator';
 import { mongooseTenantPlugin } from '../src/core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { RequestContext } from '../src/core/common/services/request-context.service';
@@ -21,7 +23,22 @@ import { CoreTenantGuard } from '../src/core/modules/tenant/core-tenant.guard';
 // framework `@ObjectType()`, and `autoSchemaFile` then tries to build a schema out of all of them —
 // which this deliberately bare GraphQL app (no CoreModule) cannot satisfy.
 import { TestGraphQLType, TestHelper } from '../src/test/test.helper';
+import envConfig from '../src/config.env';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+/**
+ * NOTE ON THE PROCESS-WIDE CONFIG — read before touching the `ConfigService` calls below.
+ *
+ * `new ConfigService({ … })` REPLACES the config, it does not merge into the environment config, and
+ * that config is SHARED with every other spec in the same vitest fork. A spec that passes only its own
+ * keys therefore drops every other setting for the rest of the fork — and the settings that then fall
+ * back to a zero-config DEFAULT are the dangerous half: `betterAuth.emailVerification` defaults to
+ * ENABLED, so losing the test config's explicit `false` makes every later sign-in in that fork answer
+ * 401 "Email verification required". Which specs share a fork varies per run, so the symptom is an
+ * unrelated file failing intermittently.
+ *
+ * Layer over `envConfig` and restore it in `afterAll`.
+ */
+
 
 /**
  * The SURFACES tenant filtering reaches — and the ones it did not.
@@ -170,6 +187,29 @@ class ProbeResolver {
   async probeSubscription() {
     return pubSub.asyncIterableIterator('probe');
   }
+
+  /**
+   * A subscription gated on a TENANT role the subscriber does not hold.
+   *
+   * The socket connects as a plain `member`; `tenantAdmin` is a higher level in the hierarchy below.
+   * On the HTTP path `CoreTenantGuard` answers this from `membership.role`. The question is whether
+   * the guard is reached at all over a WebSocket — its `getRequest()` looks for `context.req`, which a
+   * subscription context does not have.
+   */
+  @Subscription(() => ContextProbe, {
+    resolve: () => ProbeResolver.probe(),
+  })
+  @Roles('tenantAdmin')
+  async guardedSubscription() {
+    return pubSub.asyncIterableIterator('probe');
+  }
+
+  /** The same gate on a QUERY — the control, proving the role itself is denying. */
+  @Query(() => ContextProbe)
+  @Roles('tenantAdmin')
+  async guardedQuery(): Promise<ContextProbe> {
+    return ProbeResolver.probe();
+  }
 }
 
 describe('Tenant context surfaces (e2e)', () => {
@@ -179,33 +219,63 @@ describe('Tenant context surfaces (e2e)', () => {
   let noteModel: Model<Note>;
   let excludedModel: Model<Excluded>;
   let memberModel: Model<TenantMember>;
+  /** The environment config, restored in afterAll — see the note above the imports. */
+  let previousConfig: Record<string, any>;
 
   const asTenant = <T>(tenantId: string, fn: () => Promise<T>): Promise<T> =>
     RequestContext.run({ currentUser: { id: MEMBER_ID, roles: [] }, tenantId } as any, fn);
 
-  /** Subscribe, publish one event, return the single delivered probe. */
+  /**
+   * Subscribe, publish one event, return the single delivered probe.
+   *
+   * The outcome is captured with `.then(…, …)` IMMEDIATELY rather than awaited at the end. A REFUSED
+   * subscription rejects on the very first message, i.e. long before the 300 ms handshake wait is
+   * over — and a promise that rejects while no handler is attached yet is reported by Node as an
+   * unhandled rejection, which vitest turns into a failed file even though every assertion passed.
+   * Attaching first and re-throwing afterwards keeps the semantics and removes the race.
+   */
   const probeOverSocket = async (connectionParams?: Record<string, string>): Promise<ContextProbe> => {
-    const subscription: any = testHelper.graphQl(
-      {
-        fields: ['hasRequestContext', 'tenantId', 'tenantIds', 'visibleNotes'],
-        name: 'probeSubscription',
-        type: TestGraphQLType.SUBSCRIPTION,
-      },
-      { connectionParams, countOfSubscriptionMessages: 1 },
-    );
+    const outcome = testHelper
+      .graphQl(
+        {
+          fields: ['hasRequestContext', 'tenantId', 'tenantIds', 'visibleNotes'],
+          name: 'probeSubscription',
+          type: TestGraphQLType.SUBSCRIPTION,
+        },
+        { connectionParams, countOfSubscriptionMessages: 1 },
+      )
+      .then(
+        (messages: any) => ({ messages }),
+        (reason: unknown) => ({ reason }),
+      );
 
     // Let the socket finish its handshake before the event is published — an event published into a
     // channel nobody listens on yet is simply lost, and the subscription would hang.
     await new Promise(resolve => setTimeout(resolve, 300));
     await pubSub.publish('probe', {});
 
-    const messages = await subscription;
-    expect(messages, 'exactly one subscription message').toHaveLength(1);
-    return messages[0];
+    const settled: any = await outcome;
+    if ('reason' in settled) {
+      throw settled.reason;
+    }
+    expect(settled.messages, 'exactly one subscription message').toHaveLength(1);
+    return settled.messages[0];
   };
 
   beforeAll(async () => {
-    new ConfigService({ multiTenancy: { cacheTtlMs: 0, excludeSchemas: ['Excluded'] } } as any);
+    // Layered over the environment config, not replacing it — see the note above the imports.
+    previousConfig = { ...(envConfig as any) };
+    ConfigService.setConfig(
+      {
+        ...(previousConfig as any),
+        multiTenancy: {
+          cacheTtlMs: 0,
+          excludeSchemas: ['Excluded'],
+          roleHierarchy: { member: 1, owner: 3, tenantAdmin: 2 },
+        },
+      } as any,
+      { reInit: true },
+    );
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
@@ -222,7 +292,13 @@ describe('Tenant context surfaces (e2e)', () => {
         ]),
         GraphQLModule.forRoot<ApolloDriverConfig>(GRAPHQL_OPTIONS),
       ],
-      providers: [ProbeResolver, CoreTenantGuard],
+      providers: [
+        ProbeResolver,
+        // Registered as APP_GUARD, exactly as CoreTenantModule does it — otherwise the role gate is
+        // not in the chain at all and a green result would prove nothing.
+        CoreTenantGuard,
+        { provide: APP_GUARD, useExisting: CoreTenantGuard },
+      ],
     }).compile();
 
     app = moduleFixture.createNestApplication();
@@ -263,7 +339,7 @@ describe('Tenant context surfaces (e2e)', () => {
       await new Promise<void>(resolve => httpServer.close(() => resolve()));
     }
     await app?.close();
-    new ConfigService({} as any);
+    ConfigService.setConfig(previousConfig as any, { reInit: true });
   });
 
   // ===========================================================================
@@ -358,16 +434,107 @@ describe('Tenant context surfaces (e2e)', () => {
     });
 
     /**
-     * THESIS: a header naming a tenant the subscriber is NOT a member of grants nothing. The read
-     * must be refused (the safety net), never widened — an unvalidated header would be strictly
-     * worse than no header at all.
+     * THESIS: `@Roles()` on a `@Subscription` is enforced, exactly as it is on a query.
+     *
+     * `CoreTenantGuard.getRequest()` returns `ctx.getContext()?.req` for a GraphQL context and falls
+     * back to `context.switchToHttp().getRequest()`. A subscription context is the graphql-ws `extra`
+     * object, which has no `req`, and the HTTP fallback on a GraphQL context yields the resolver's
+     * ROOT value — `undefined` at subscribe time. The guard then hits `if (!request) return true` and
+     * grants access without deciding anything.
+     *
+     * That is the shape that matters: when multi-tenancy is active, the role guard PASSES non-system
+     * roles through to this guard, so if this guard abstains the role is never checked by anyone.
+     *
+     * @regression   11.35.0 — `@Roles()` on a subscription was not enforced: CoreTenantGuard could not
+     *   find a request on the WebSocket path and returned true, and the role guard delegates non-system
+     *   roles to it, so nothing checked them.
+     * @seen-failing Make `getRequest()` in `src/core/modules/tenant/core-tenant.guard.ts` skip its
+     *   WebSocket branch (return `ctx.getContext()?.req` only) — registered as mutation
+     *   `tenant-guard-blind-on-websocket` in `tests/regression-mutations.json`.
      */
-    it('refuses the read when the handshake names a tenant the subscriber does not belong to', async () => {
-      const probe = await probeOverSocket({ 'x-tenant-id': TENANT_B });
+    it('enforces @Roles() on a subscription for a subscriber who lacks the role', async () => {
+      // Raced against a timer, and an event IS published: an unenforced gate then delivers a message
+      // (fast, unambiguous), while an enforced one rejects the subscribe. Awaiting the subscription
+      // alone would sit there for the full test timeout — which is exactly what an unenforced gate did.
+      const attempt = testHelper
+        .graphQl(
+          {
+            fields: ['hasRequestContext'],
+            name: 'guardedSubscription',
+            type: TestGraphQLType.SUBSCRIPTION,
+          },
+          { countOfSubscriptionMessages: 1, log: true },
+        )
+        .then(
+          (messages: any) => ({ delivered: messages }),
+          (reason: unknown) => ({ refused: reason }),
+        );
 
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await pubSub.publish('probe', {});
+
+      const outcome: any = await Promise.race([
+        attempt,
+        new Promise(resolve => setTimeout(() => resolve({ stillSubscribed: true }), 1500)),
+      ]);
+
+      expect(
+        outcome.refused,
+        `a member must not reach a tenantAdmin-gated subscription (got ${JSON.stringify(outcome)})`,
+      ).toBeTruthy();
+    });
+
+    /**
+     * The control: the SAME gate on a query, over HTTP. It must deny — otherwise a red subscription
+     * case above would only prove that `tenantAdmin` denies everyone everywhere, which is a different
+     * (and uninteresting) failure.
+     *
+     * There is no session on this HTTP request, so the denial here is "not authenticated" rather than
+     * "wrong membership role". That is enough for what the control has to establish: the gate is live
+     * and refuses a caller who does not satisfy it.
+     */
+    it('enforces the same @Roles() gate on a QUERY (control)', async () => {
+      const result: any = await testHelper.graphQl({
+        fields: ['hasRequestContext'],
+        name: 'guardedQuery',
+        type: TestGraphQLType.QUERY,
+      });
+
+      expect(JSON.stringify(result ?? {}), 'the gate must be live on the HTTP path').toMatch(
+        /Forbidden|ACCESS_DENIED|Unauthorized|UNAUTHORIZED/i,
+      );
+    });
+
+    /**
+     * THESIS: a handshake naming a tenant the subscriber is NOT a member of grants nothing.
+     *
+     * TWO layers answer this, and since 11.35.0 the outer one answers first. Once `CoreTenantGuard`
+     * can see the WebSocket context it validates membership at subscribe time and refuses outright —
+     * the same 403 the HTTP path gives. Behind it, the plugin's safety net still refuses a
+     * tenant-scoped read that reaches a resolver with no tenant in context.
+     *
+     * Either layer satisfies the thesis; what must never happen is a delivered message carrying
+     * foreign rows. Accepting both is not hedging — pinning WHICH layer refuses would make this case
+     * fail on a future ordering change that is equally correct, and the property under test is the
+     * outcome, not the mechanism.
+     */
+    it('refuses the subscription when the handshake names a tenant the subscriber does not belong to', async () => {
+      const outcome: any = await probeOverSocket({ 'x-tenant-id': TENANT_B }).then(
+        (probe: ContextProbe) => ({ probe }),
+        (reason: unknown) => ({ refused: reason }),
+      );
+
+      if (outcome.refused) {
+        // Refused at the GUARD — membership is validated before the subscription is established.
+        // The guard's own wording: "Not a member of this tenant".
+        expect(String(outcome.refused)).toMatch(/Forbidden|member|ACCESS_DENIED|role/i);
+        return;
+      }
+
+      // Refused at the PLUGIN — no tenant in context, so the tenant-scoped read throws.
       // `null`, not `undefined`: a nullable GraphQL String serializes an absent value as null.
-      expect(probe.tenantId, 'a foreign tenant must not become the context').toBeNull();
-      expect(probe.visibleNotes, 'refused by the safety net, not answered with foreign rows').toBe(-1);
+      expect(outcome.probe.tenantId, 'a foreign tenant must not become the context').toBeNull();
+      expect(outcome.probe.visibleNotes, 'never answered with foreign rows').toBe(-1);
     });
   });
 });

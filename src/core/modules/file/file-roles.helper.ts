@@ -1,25 +1,22 @@
 import { Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { IFileConfig, IS3Config } from '../../common/interfaces/server-options.interface';
+import { IFileConfig } from '../../common/interfaces/server-options.interface';
 import { CoreFileController } from './core-file.controller';
 import { CoreFileResolver } from './core-file.resolver';
+import { FileRoleKey, resolveRoles } from './file-roles.config';
 
 const logger = new Logger('CoreFileRoles');
 
-/**
- * Roles applied when `file` is not configured at all.
- *
- * Restrictive on purpose: one GridFS bucket is shared by every feature of the
- * consuming project, and the ObjectIds naming its blobs are not secrets.
- */
-export type FileRoleKey = 'deleteRoles' | 'downloadRoles' | 'uploadRoles';
-
-export const FILE_ROLE_DEFAULTS: Record<FileRoleKey, string[]> = {
-  deleteRoles: [RoleEnum.ADMIN],
-  downloadRoles: [RoleEnum.ADMIN],
-  uploadRoles: [RoleEnum.ADMIN],
-};
+// Re-exported so no import path broke: `FILE_ROLE_DEFAULTS`, the warnings and the key type are part
+// of the published API and used to live here. They moved into an import-free leaf because this file
+// imports the endpoint classes, which inject CoreFileService — see file-roles.config.ts.
+export {
+  FILE_ROLE_DEFAULTS,
+  resolveRoles,
+  warnOnPresignedDownloadsWithRestrictedRoles,
+  warnOnUnscopedFilesInTenantMode,
+} from './file-roles.config';
+export type { FileRoleKey } from './file-roles.config';
 
 /**
  * Which member is governed by which knob.
@@ -41,85 +38,6 @@ const ROLE_TARGETS: { key: FileRoleKey; member: string; owner: () => unknown }[]
   { key: 'uploadRoles', member: 'CoreFileResolver.uploadFiles', owner: () => CoreFileResolver.prototype.uploadFiles },
   { key: 'deleteRoles', member: 'CoreFileResolver.deleteFile', owner: () => CoreFileResolver.prototype.deleteFile },
 ];
-
-/**
- * Resolve one knob to the role list that will actually be applied.
- *
- * An empty array is treated as "not configured". It cannot mean "nobody": the
- * guards read an all-empty role set as "no roles required" and return true, so
- * honouring it literally would OPEN the route instead of closing it — the exact
- * opposite of what someone writing `[]` intends.
- */
-function resolveRoles(key: FileRoleKey, config?: IFileConfig): string[] {
-  const configured = config?.[key];
-
-  if (configured === undefined) {
-    return FILE_ROLE_DEFAULTS[key];
-  }
-
-  if (!Array.isArray(configured) || configured.length === 0 || configured.some((role) => typeof role !== 'string')) {
-    logger.warn(
-      `Ignoring file.${key}: expected a non-empty array of role strings, got ${JSON.stringify(configured)}. ` +
-        `Falling back to ${JSON.stringify(FILE_ROLE_DEFAULTS[key])}.`,
-    );
-    return FILE_ROLE_DEFAULTS[key];
-  }
-
-  return configured;
-}
-
-/**
- * Warn when presigned S3 downloads are combined with a restricted `downloadRoles`.
- *
- * The two settings pull in opposite directions, and the conflict is invisible at the call site:
- *
- * - `downloadRoles` says "only these roles may download this file". It is enforced on every request.
- * - `presignedDownloads` answers `302` with a time-limited S3 URL instead of streaming. That URL is
- *   a BEARER capability — authorized once, at issue time. Whoever holds it afterwards fetches the
- *   object with no session, from any IP, until it expires, and **the grant cannot be revoked in
- *   between**. It survives in browser history, `Referer` headers, proxy logs and chat messages.
- *
- * So the second setting hands out exactly what the first one restricts. That is a sound trade for
- * public assets (which is what presigning is FOR — hence no warning when downloads are
- * `S_EVERYONE`), and almost never what a project means when it has narrowed the roles.
- *
- * A warning rather than a boot failure: unlike an incoherent role vocabulary, this combination has
- * legitimate uses (short expiry, a CDN in front, files whose audience really is "anyone who once
- * held the link"). The operator has to be able to choose it — they just should not choose it by
- * accident.
- */
-export function warnOnPresignedDownloadsWithRestrictedRoles(
-  s3Config?: IS3Config,
-  fileConfig?: IFileConfig,
-): string | undefined {
-  const presigned = s3Config?.presignedDownloads;
-  const presignedEnabled =
-    presigned === true || (!!presigned && typeof presigned === 'object' && (presigned as any).enabled !== false);
-  if (!presignedEnabled) {
-    return undefined;
-  }
-
-  const downloadRoles = resolveRoles('downloadRoles', fileConfig);
-  // Public downloads are the intended use of presigning — nothing to warn about.
-  if (downloadRoles.includes(RoleEnum.S_EVERYONE)) {
-    return undefined;
-  }
-
-  // Returned as well as logged: the message IS the contract here (an operator has to be able to act
-  // on it), and a module-private Logger instance cannot be asserted against from a unit test.
-  const message =
-    `s3.presignedDownloads is enabled while file.downloadRoles restricts downloads to ` +
-    `${JSON.stringify(downloadRoles)}. A presigned URL is a BEARER capability: it is authorized ` +
-    `once, at issue time, and afterwards anyone holding it can fetch the object with no session, ` +
-    `from any IP, until it expires — the grant cannot be revoked in between, and it survives in ` +
-    `browser history, Referer headers and proxy logs. The role check therefore applies to ` +
-    `obtaining the link, not to reading the file. If these files are sensitive (personal or ` +
-    `medical data), set s3.presignedDownloads: false so the API streams them and re-checks ` +
-    `rights on every request.`;
-
-  logger.warn(message);
-  return message;
-}
 
 /**
  * Apply the configured file roles to the core file endpoints.

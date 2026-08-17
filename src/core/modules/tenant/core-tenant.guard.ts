@@ -10,11 +10,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum';
+import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { CoreRedisService } from '../../common/services/core-redis.service';
@@ -621,15 +622,11 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    * Extract request from GraphQL or HTTP context
    */
   private getRequest(context: ExecutionContext): any {
-    if (context.getType<GqlContextType>() === 'graphql') {
-      const ctx = GqlExecutionContext.create(context);
-      return ctx.getContext()?.req;
-    }
-    try {
-      return context.switchToHttp().getRequest();
-    } catch {
-      return null;
-    }
+    // Shared with both role guards — see execution-context-request.helper for why the GraphQL
+    // WEBSOCKET branch is load-bearing: without it this method answered `null` for every
+    // subscription, `canActivate()` hit `if (!request) return true`, and because the role guard
+    // delegates non-system roles here, `@Roles()` on a subscription was enforced by nobody.
+    return resolveGuardRequest(context, (ctx) => GqlExecutionContext.create(ctx).getContext()) ?? null;
   }
 
   // ===================================================================================================================

@@ -9,7 +9,22 @@ import { CoreTenantGuard } from '../src/core/modules/tenant/core-tenant.guard';
 import { CoreTenantMemberModel } from '../src/core/modules/tenant/core-tenant-member.model';
 import { CoreTenantService } from '../src/core/modules/tenant/core-tenant.service';
 import { TenantMemberStatus } from '../src/core/modules/tenant/core-tenant.enums';
+import envConfig from '../src/config.env';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+/**
+ * NOTE ON THE PROCESS-WIDE CONFIG — read before touching the `ConfigService` calls below.
+ *
+ * `new ConfigService({ … })` REPLACES the config, it does not merge into the environment config, and
+ * that config is SHARED with every other spec in the same vitest fork. A spec that passes only its own
+ * keys therefore drops every other setting for the rest of the fork — and the settings that then fall
+ * back to a zero-config DEFAULT are the dangerous half: `betterAuth.emailVerification` defaults to
+ * ENABLED, so losing the test config's explicit `false` makes every later sign-in in that fork answer
+ * 401 "Email verification required". Which specs share a fork varies per run, so the symptom is an
+ * unrelated file failing intermittently.
+ *
+ * Layer over `envConfig` and restore it in `afterAll`.
+ */
+
 
 /**
  * Tenant DATA isolation — the property medical data actually rests on.
@@ -63,13 +78,20 @@ describe('Tenant data isolation (e2e)', () => {
   let patientModel: Model<Patient>;
   let memberModel: Model<TenantMember>;
   let tenantService: CoreTenantService;
+  // Typed `any` rather than `Record<string, any>` on purpose: this file declares a local class named
+  // `Record`, which shadows the TypeScript utility type.
+  /** The environment config, restored in afterAll — see the note above the imports. */
+  let previousConfig: any;
 
   /** Run as a member of one tenant, exactly as CoreTenantGuard would have set it up. */
   const asTenant = <T>(tenantId: string, userId: string, fn: () => Promise<T>): Promise<T> =>
     RequestContext.run({ currentUser: { id: userId, roles: [] }, tenantId } as unknown as IRequestContext, fn);
 
   beforeAll(async () => {
-    new ConfigService({ multiTenancy: { excludeSchemas: [] } } as any);
+    previousConfig = { ...(envConfig as any) };
+    ConfigService.setConfig({ ...(previousConfig as any), multiTenancy: { excludeSchemas: [] } } as any, {
+      reInit: true,
+    });
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
@@ -121,7 +143,7 @@ describe('Tenant data isolation (e2e)', () => {
       await memberModel.deleteMany({});
     });
     await app.close();
-    new ConfigService({} as any);
+    ConfigService.setConfig(previousConfig as any, { reInit: true });
   });
 
   // ===========================================================================

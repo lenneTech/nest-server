@@ -22,6 +22,7 @@
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
 import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
 import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
@@ -32,12 +33,26 @@ import { accessDeniedException } from '../exceptions/access-denied.exception';
 // From the import-free LEAF, never from unified-field.decorator: that file imports THIS one for
 // `@Restricted`, so reading the map from there would put this file back on an import cycle.
 import { resolveNestedType } from './nested-type.registry';
+// From an import-free LEAF: the marker is read here and in both interceptors, and this file's
+// position on zero import cycles is a defended property.
+import {
+  hasRestrictionsCheckedMarker,
+  hasUnrecognizedRestrictionsFlag,
+  RESTRICTIONS_CHECKED_KEY,
+} from './restrictions-checked.marker';
 // Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
 // imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
 import { equalIds, getIncludedIds } from '../helpers/id.helper';
 import { RequestContext } from '../services/request-context.service';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
 import { checkRoleAccess, resolveGlobalAndTenantRoles } from '../../modules/tenant/core-tenant.helpers';
+
+export {
+  hasRestrictionsCheckedMarker,
+  hasUnrecognizedRestrictionsFlag,
+  markRestrictionsChecked,
+  RESTRICTIONS_CHECKED_KEY,
+} from './restrictions-checked.marker';
 
 /**
  * Restricted meta key
@@ -159,6 +174,33 @@ function checkFieldRoleAccess(roles: string[], user: any): boolean {
   return tenantRoles.length > 0 && checkRoleAccess(tenantRoles, user?.roles, RequestContext.get()?.tenantRole);
 }
 
+/** Emitted at most once per process — a per-object warning on a hot path would be noise, not signal. */
+let unrecognizedFlagWarned = false;
+
+/**
+ * Warn once when an object carries `_objectAlreadyCheckedForRestrictions` without the framework marker.
+ *
+ * Declared as a hoisted `function` like everything else in this file, so it stays temporal-dead-zone
+ * immune. Uses the Nest `Logger` rather than `console.warn` for two reasons: it is the convention every
+ * other framework warning follows, and `console` output from a hot path is forwarded over vitest's
+ * worker RPC — a late one produces `Closing rpc while "onUserConsoleLog" was pending` in whichever
+ * spec happens to be tearing down. `@nestjs/common` is an external package and already in this file's
+ * transitive graph via `accessDeniedException`, so it adds no project import edge.
+ */
+function warnUnrecognizedRestrictionsFlag(data: unknown): void {
+  if (unrecognizedFlagWarned || !hasUnrecognizedRestrictionsFlag(data)) {
+    return;
+  }
+  unrecognizedFlagWarned = true;
+  new Logger('Restricted').warn(
+    `[Restricted] An object carries "${RESTRICTIONS_CHECKED_KEY}" without the framework marker, so it ` +
+      'is being CHECKED rather than skipped. Since 11.35.0 the opt-out is only honoured for objects ' +
+      'marked via markRestrictionsChecked() — a plain truthy property could arrive from the database ' +
+      'or a payload and would switch off field-level access control. If you set it deliberately, call ' +
+      'markRestrictionsChecked(obj); if this came from stored data, remove the field.',
+  );
+}
+
 /**
  * Check data for restricted properties (properties with `Restricted` decorator)
  * For special Roles and member of group checking the dbObject must be set in options
@@ -207,9 +249,19 @@ export function checkRestricted(
   };
 
   // Primitives
-  if (!data || typeof data !== 'object' || (config.noteCheckedObjects && data._objectAlreadyCheckedForRestrictions)) {
+  // The "already checked" opt-out is recognised by the framework's MARKER, never by a truthy property
+  // of that name: nothing in src/ ever wrote the property, so a truthy one could only have come from
+  // outside — and a document carrying it disabled every field-level check for that object, silently,
+  // on the output path. See restrictions-checked.marker.ts.
+  if (!data || typeof data !== 'object' || (config.noteCheckedObjects && hasRestrictionsCheckedMarker(data))) {
     return data;
   }
+
+  // Say it out loud when the KEY is present without the marker. Two very different callers land here
+  // and they want opposite answers — a project that used to set the flag by hand has lost its opt-out,
+  // a document that carries it from a raw write has lost a bypass it should never have had. A warning
+  // states the situation without guessing which; honouring the value is what the marker exists to stop.
+  warnUnrecognizedRestrictionsFlag(data);
 
   // Prevent infinite recursion
   if (processedObjects.has(data)) {
@@ -324,7 +376,7 @@ export function checkRestricted(
 
   // Check function
   const validateRestricted = (restricted) => {
-    if (config.noteCheckedObjects && data?._objectAlreadyCheckedForRestrictions) {
+    if (config.noteCheckedObjects && hasRestrictionsCheckedMarker(data)) {
       return true;
     }
 

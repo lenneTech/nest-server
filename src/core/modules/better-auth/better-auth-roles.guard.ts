@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
+
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ErrorCode } from '../error-code';
 import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
@@ -178,19 +180,11 @@ export class BetterAuthRolesGuard implements CanActivate {
    * Handles both GraphQL and HTTP contexts
    */
   private getRequest(context: ExecutionContext): any {
-    // Try GraphQL context first
-    try {
-      const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
-      if (ctx?.req) {
-        return ctx.req;
-      }
-    } catch {
-      // GraphQL context not available
-    }
-
-    // Fallback to HTTP context
-    return context.switchToHttp().getRequest();
+    // Shared with RolesGuard and CoreTenantGuard — see execution-context-request.helper. The GraphQL
+    // WEBSOCKET branch is what makes `@Roles()` work on a subscription at all: the subscription
+    // context carries the authenticated user (CoreModule's onConnect records it), while `.req` does
+    // not exist there and the HTTP fallback yields the resolver root.
+    return resolveGuardRequest(context, (ctx) => GqlExecutionContext.create(ctx).getContext());
   }
 
   /**

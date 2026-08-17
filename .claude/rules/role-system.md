@@ -280,6 +280,18 @@ class Patient extends CorePersistenceModel {
 | Nested value with no declared type (`isAny`, bare `@Field`) | **no** — see below |
 | Class-level `@Restricted` on a nested type | contents stripped, empty container remains (the `checkObjectItself: false` default) |
 
+### The opt-out flag is a MARKER now, not a property (11.35.0)
+
+`_objectAlreadyCheckedForRestrictions` short-circuits `checkRestricted()`, `CheckSecurityInterceptor`
+and `ResponseModelInterceptor`. It was recognised by a truthy test on the property name, and nothing in
+`src/` ever wrote it — so a document carrying it (raw write, `strict: false` schema, restored export)
+switched off every field-level check for that object, silently, on the output path.
+
+The value must now be a module-private symbol, set through `markRestrictionsChecked(obj)`. The property
+name is unchanged and the flag is non-enumerable, so it cannot reach a response body and re-enter as
+data. A plain truthy value is no longer honoured — the object is CHECKED — and the framework warns once.
+**Projects that set the flag by hand must switch to the helper.**
+
 **An undeclared nested type stays unchecked on purpose.** Such a value is just as legitimately
 free-form JSON, a `Map` or a scalar; failing closed there would strip vastly more than it protects. The
 rule is therefore: *if a nested field must be protected, declare its type.*
@@ -319,6 +331,27 @@ Two implementation details are load-bearing and easy to undo:
 
 Both are pinned by `tests/unit/graphql-ws-context-wiring.spec.ts` (wiring) and
 `tests/tenant-context-surfaces.e2e-spec.ts` (mechanism, over a real socket).
+
+### The GUARDS were blind on the same transport, for the same reason (11.35.0)
+
+A request context is only half of it. All three role guards resolved the request as
+`ctx.getContext()?.req || switchToHttp().getRequest()` — and on a subscription the first half is absent
+(the graphql-ws `extra` object has no `req`) while the second yields the resolver ROOT, i.e. `undefined`
+at subscribe time. What they did with nothing pulled in opposite directions:
+
+| Configuration | `@Roles()` on a `@Subscription` before 11.35.0 |
+|---------------|-----------------------------------------------|
+| `multiTenancy` active | `CoreTenantGuard` hit `if (!request) return true` and GRANTED. The role guard delegates non-system roles to it, so the role was checked by **nobody** |
+| no `multiTenancy` | the role guard found no token and refused EVERYONE — the decorator silently meant "locked" |
+
+`resolveGuardRequest()` (`src/core/common/helpers/execution-context-request.helper.ts`) is now the one
+resolver all three use, and it recognises the subscription context. It requires the graphql-ws marker
+(`socket` / `request` / `connectionParams`) rather than just "an object with a `user` field": a
+subscription PAYLOAD plausibly has one (`pubSub.publish('userCreated', user)`), and accepting that
+would make the PUBLISHED user the apparent caller.
+
+**A guard must treat "no request" as no information, never as permission.** That conflation is the whole
+defect, and it is the thing to look for when adding a fourth guard.
 
 ## Critical Rule
 
