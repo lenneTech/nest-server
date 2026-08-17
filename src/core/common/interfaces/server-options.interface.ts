@@ -2936,6 +2936,20 @@ export interface IS3Config {
     | boolean
     | {
         /**
+         * Explicitly disable while keeping the settings around — the repo-wide
+         * "presence implies enabled, unless `enabled: false`" pattern.
+         *
+         * It is spelled out in the type because it is REACHABLE WITHOUT THE TYPE: `NEST_SERVER_CONFIG`
+         * and the `NSC__*` variables deliver plain JSON, so `{"enabled": false}` could always be set —
+         * and `CoreS3Service` used to read any object as "enabled", which meant presigned downloads
+         * came on while the boot warning (which does honour the key) stayed silent. Two code paths
+         * answering one question differently is how a bearer-capability download gets switched on by
+         * accident.
+         * @default true (when the config object is present)
+         */
+        enabled?: boolean;
+
+        /**
          * Presigned URL validity in seconds.
          *
          * Keep it just long enough for a download to START. Values above 900s are accepted but

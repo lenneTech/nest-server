@@ -24,6 +24,18 @@
   ],
   "mutations": [
     {
+      "id": "presigned-ignores-enabled-false",
+      "defect": "11.35.0 — CoreS3Service read ANY object as 'presigned downloads enabled', so the repo-wide `{ enabled: false }` pre-configuration idiom silently turned the feature ON. Reachable without TypeScript via NEST_SERVER_CONFIG / NSC__* JSON. The boot warning for this very feature DID honour the key, so the two paths disagreed and the disagreement resolved towards handing out session-less bearer URLs.",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "after": "const rawPresigned = raw.presignedDownloads;",
+      "find": "    const presigned =\n      rawPresigned && typeof rawPresigned === 'object' && (rawPresigned as { enabled?: boolean }).enabled === false\n        ? undefined\n        : rawPresigned;",
+      "replace": "    const presigned = rawPresigned;",
+      "specs": [
+        "tests/unit/s3-enabled-contract.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "reference-rule-allows-unrestricted-listing",
       "defect": "11.35.0 — the REFERENCE checkRights() (src/server/modules/file/file.service.ts, the shape every project copies) narrowed only 'id' and 'filename' and returned true for 'filterArgs'. A project surfacing findFileInfo() therefore exposed a full inventory of every upload — CoreFileInfo carries filename, length, uploadDate and the id, and for medical data the filename frequently IS the content. A yes/no hook cannot narrow a listing, so the rule must refuse the unrestricted one; a per-user listing is expressed by FORCING the filter server-side.",
       "file": "src/server/modules/file/file.service.ts",

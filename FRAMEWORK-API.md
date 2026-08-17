@@ -181,7 +181,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Whether S3 is enabled.
   - `endpoint?`: `string | undefined` (default: `undefined`) — Custom endpoint URL for S3-compatible services (MinIO, RustFS, ...).
   - `forcePathStyle?`: `boolean | undefined` (default: `false`) — Use path-style addressing (required by most self-hosted S3 services).
-  - `presignedDownloads?`: `boolean | { expiresInSeconds?: number; } | undefined` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
+  - `presignedDownloads?`: `boolean | { enabled?: boolean; expiresInSeconds?: number; } | undefined` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
   - `region?`: `string | undefined` (default: `'us-east-1'`) — AWS region
   - `secretAccessKey?`: `string | undefined` (default: `undefined`) — Secret access key.
   - `stagingBucket?`: `string | undefined` (default: `same as `bucket``) — Bucket used as staging area for resumable TUS uploads.
