@@ -176,6 +176,63 @@ describe('File storage parity — service contract (e2e)', () => {
       });
 
       /**
+       * Filenames are UNIQUE IN NO STORE, and they are client-supplied on both the multer and the
+       * tus path. So the question is not "which of the two files wins" — that is inherently
+       * ambiguous and the docs say to prefer the id route — but whether the ONE document a by-name
+       * rights check inspects is the one whose bytes come back.
+       *
+       * Under GridFS it was not: `bucket.find({ filename })` returns natural order (the OLDEST
+       * document first) while `openDownloadStreamByName()` defaults to `revision: -1` (the NEWEST).
+       * So `getFileInfoByName()` / `getRawFileInfoByName()` authorized against one file and
+       * `getFileStreamByName()` / `getBufferByName()` streamed another — a per-file ownership rule
+       * therefore approved the caller's own file and handed over somebody else's bytes. The S3 and
+       * filesystem drivers resolve an id first and never had the split, which is exactly why one
+       * suite per driver could not see it.
+       *
+       * The fix has two halves. Only one of them is independently observable, and this docblock says
+       * so rather than implying a mutation exists for both:
+       *
+       *  - DETERMINISTIC PICK (mutation below): every store's by-name lookup resolves the MOST
+       *    RECENT file of that name, which is GridFS's own by-name revision semantics — so the bytes
+       *    a caller already receives do not move, and the three drivers answer alike.
+       *  - STRUCTURAL (no mutation): the by-name read paths resolve a document and then read by its
+       *    ID. With the sort in place both halves happen to agree, so reverting this one alone
+       *    cannot be seen — it is defense in depth against the two pickers drifting apart again
+       *    (a tie in `uploadDate` already leaves the driver's own choice undefined).
+       *
+       * @regression   11.35.0 — GridFS by-name authorize/serve split (see above).
+       * @seen-failing Drop the `sort` option from `findFileByName()` in
+       *   `src/core/common/helpers/gridfs.helper.ts`, so the lookup falls back to natural order and
+       *   answers a different document than the stream — registered as mutation
+       *   `by-name-lookup-unsorted` in `tests/regression-mutations.json`.
+       */
+      parityIt('service.byNameAuthorizesWhatItServes', driver, async () => {
+        const filename = name('reused');
+        // Two files, one name — the shape a second uploader produces, deliberately or not.
+        const first = await service.createFile(upload('FIRST bytes', filename));
+        const second = await service.createFile(upload('SECOND bytes', filename));
+        expect(first.id).not.toBe(second.id);
+
+        // 1) The pick is the most recent file, in every store.
+        const authorized = await service.getFileInfoByName(filename);
+        expect(authorized.id, 'by-name resolves the most recent file of that name').toBe(second.id);
+
+        // 2) The rights check reads the SAME document the response describes.
+        const raw = await service.rawByName(filename);
+        expect(String(raw?._id)).toBe(authorized.id);
+
+        // 3) …and the bytes belong to that document, not to the other one.
+        expect(await readStream(await service.getFileStreamByName(filename))).toBe('SECOND bytes');
+        expect((await service.getBufferByName(filename)).toString()).toBe('SECOND bytes');
+
+        // A duplicate is a by-name READ plus a WRITE, so it inherits the same property: the copy
+        // must hold the bytes of the document that was authorized.
+        const copyName = name('reused-copy');
+        await service.duplicateByName(filename, copyName);
+        expect(await readStream(await service.getFileStreamByName(copyName))).toBe('SECOND bytes');
+      });
+
+      /**
        * @regression 11.33.0 — `getRawFileInfoByName()` consulted S3 and GridFS but NOT the
        *   filesystem store, so a by-name ownership rule authorized against a different file set
        *   than the download route served. It failed CLOSED for the documented `!!raw && …` shape

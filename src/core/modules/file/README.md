@@ -189,6 +189,22 @@ streamed, because the filename route resolves an id and checks it again — but 
 by-name lookup alone and then redirects, and not for `deleteFileByName()`, which authorizes by name
 only.
 
+**A reused filename resolves to the MOST RECENT file (11.35.0+).** Filenames are unique in no store
+and are client-supplied on both the multer and the tus path, so a by-name lookup is inherently
+ambiguous — prefer the id routes. What must NOT be ambiguous is which of the candidates each by-name
+path picks. Until 11.35.0 the GridFS driver got that wrong in the worst possible way:
+`bucket.find({ filename })` answered natural order (the oldest document) while
+`openDownloadStreamByName()` defaults to `revision: -1` (the newest), so `getFileInfoByName()` /
+`getRawFileInfoByName()` authorized against one document and `getFileStreamByName()` /
+`getBufferByName()` / `duplicateByName()` served another. An ownership rule approved the caller's own
+file and handed over somebody else's bytes — across tenants, since the file stores carry no tenant
+scope. All three drivers now resolve the most recent file (`uploadDate` desc, `_id` as tie-break) and
+every by-name read path resolves a document and then reads **by id**.
+
+One consequence worth knowing: `duplicateById()` keeps the source's filename and the copy carries no
+`metadata` by design, so the copy WINS the name and an ownership rule keyed on `metadata.ownerId`
+refuses it. Give the copy its own metadata or its own name.
+
 **Never add `if (!options.currentUser) return true`.** It reads as "system-internal call, the guard
 already decided" — but "no user in context" is also exactly what an **anonymous** request looks like.
 While `downloadRoles` is narrower than `S_EVERYONE` the role gate turns those away first, so the

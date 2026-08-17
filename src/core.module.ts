@@ -8,6 +8,10 @@ import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
+import {
+  buildRequestContextAwareExecute,
+  buildRequestContextAwareSubscribe,
+} from './core/common/helpers/graphql-ws-context.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
 import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
@@ -605,6 +609,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {
@@ -700,6 +719,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {
@@ -812,6 +846,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {

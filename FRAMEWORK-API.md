@@ -70,7 +70,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 ### IMultiTenancy
 
   - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Explicitly disable multi-tenancy even when config is present.
-  - `excludeSchemas?`: `string[] | undefined` — Model names (NOT collection names) to exclude from tenant filtering.
+  - `excludeSchemas?`: `string[] | undefined` (default: `[]`) — Model names (NOT collection names) to exclude from tenant filtering.
   - `headerName?`: `string | undefined` (default: `'x-tenant-id'`) — Header name for tenant selection.
   - `membershipModel?`: `string | undefined` (default: `'TenantMember'`) — Mongoose model name for the membership collection.
   - `adminBypass?`: `boolean | undefined` (default: `true`) — Whether system admins (RoleEnum.ADMIN) bypass the membership check.

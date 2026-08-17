@@ -996,9 +996,28 @@ export interface IMultiTenancy {
 
   /**
    * Model names (NOT collection names) to exclude from tenant filtering.
-   * These schemas will not have tenant isolation applied.
-   * The TenantMember model is always excluded automatically.
-   * @example ['User', 'Session']
+   *
+   * **This is an OFF SWITCH for data isolation, per model.** A listed schema gets no tenant filter at
+   * all: every query on it sees every tenant's rows. That is correct for a genuinely global
+   * collection, and it is a data leak for anything else.
+   *
+   * A schema is only affected if it HAS a `tenantId` field — the plugin attaches to no other. So
+   * listing a model that declares `tenantId` overrides its author's intent, and since 11.35.0 the
+   * plugin logs a warning naming the model when that happens. **Do not list a model just because a
+   * `populate()` returns null** — that is the isolation working; scope the reference instead, or
+   * confirm the referenced collection really is global.
+   *
+   * `User` is the one to think hardest about. It belongs here only when users are GLOBAL (one account
+   * reaches several tenants, memberships carry the scope). If your users are per-tenant — they have a
+   * `tenantId` — listing `User` switches isolation off for the account collection, which is usually
+   * the last place you want it off. Earlier versions of this doc suggested `['User', 'Session']` as an
+   * example; that suggestion is withdrawn, because it is only right for the global-user model.
+   *
+   * The membership model (`multiTenancy.membershipModel`, default `TenantMember`) is added
+   * automatically and needs no entry — membership is tenant-spanning by design.
+   *
+   * @default []
+   * @example [] // start here; add a model only when you can say why it is global
    */
   excludeSchemas?: string[];
 
@@ -2273,7 +2292,8 @@ export interface IServerOptions {
    *
    * // Enable with excluded schemas and custom header
    * multiTenancy: {
-   *   excludeSchemas: ['User', 'Session'],
+   *   // excludeSchemas turns isolation OFF per model — see IMultiTenancy.excludeSchemas
+   *   excludeSchemas: [],
    *   headerName: 'x-tenant-id',
    * },
    * ```

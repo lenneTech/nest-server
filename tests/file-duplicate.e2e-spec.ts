@@ -217,19 +217,64 @@ function describeDuplicates(driver: string, harness: () => DriverHarness) {
       expect(await writer.getFileInfoByName(newName)).toBeNull();
     });
 
+    /**
+     * Two SEPARATE source files, one per half, on purpose.
+     *
+     * `duplicateById()` keeps the source's filename, so doing both halves on one source leaves two
+     * files sharing that name — and since 11.35.0 a by-name lookup resolves the MOST RECENT of them,
+     * which is the copy. The copy deliberately carries no `metadata` (see `duplicateByName`'s doc:
+     * inheriting it would silently hand the copy the source's owner), so an owner-scoped rule then
+     * refuses it — correctly. That coupling is incidental to what this case is about; the consequence
+     * itself is asserted directly in the next case.
+     */
     it('duplicates for the owner when the context is forwarded', async () => {
       const writer = new TestFileService(connection, options);
       const service = new OwnerScopedFileService(connection, options);
-      const filename = `${testId}-owner.txt`;
+      const byIdName = `${testId}-owner-by-id.txt`;
+      const byNameName = `${testId}-owner-by-name.txt`;
       const newName = `${testId}-owner-copy.txt`;
-      const source = await writer.createFile(upload('owned bytes', filename), { metadata: { ownerId: OWNER } });
+      const byId = await writer.createFile(upload('owned bytes', byIdName), { metadata: { ownerId: OWNER } });
+      await writer.createFile(upload('owned bytes', byNameName), { metadata: { ownerId: OWNER } });
       const owner = { currentUser: asUser(OWNER) };
 
-      const copyId = await service.duplicateById(source.id, owner);
-      await service.duplicateByName(filename, newName, owner);
+      const copyId = await service.duplicateById(byId.id, owner);
+      await service.duplicateByName(byNameName, newName, owner);
 
       expect(await readAll(await writer.getFileStream(copyId))).toBe('owned bytes');
       expect(await readAll(await writer.getFileStreamByName(newName))).toBe('owned bytes');
+    });
+
+    /**
+     * The consequence of "a by-name lookup resolves the MOST RECENT file of that name", stated
+     * explicitly because it changes behaviour for consumers.
+     *
+     * `duplicateById()` gives the copy the SOURCE's filename and NO metadata. From then on the name
+     * resolves to the copy, so an ownership rule keyed on `metadata.ownerId` refuses it — the rule is
+     * reading a file that genuinely has no owner. Before 11.35.0 the by-name lookup answered the
+     * oldest document (the owned original) while GridFS STREAMED the newest (the owner-less copy):
+     * the rule approved one file and the bytes of another came back. Refusing is the honest answer;
+     * the fix for a project that wants the copy reachable by name is to give it its own metadata
+     * (`serviceOptions.metadata`) or its own name.
+     */
+    it('resolves a reused filename to the most recent file, whose own metadata then decides', async () => {
+      const writer = new TestFileService(connection, options);
+      const service = new OwnerScopedFileService(connection, options);
+      const filename = `${testId}-reused-owner.txt`;
+      const source = await writer.createFile(upload('owned bytes', filename), { metadata: { ownerId: OWNER } });
+      const owner = { currentUser: asUser(OWNER) };
+
+      // The copy keeps the name and carries no owner.
+      const copyId = await service.duplicateById(source.id, owner);
+      expect(copyId).not.toBe(source.id);
+      expect((await writer.getFileInfoByName(filename)).id, 'the newest wins').toBe(copyId);
+
+      // …so the by-name path now decides about the copy, and refuses it for lack of an owner.
+      await expectNotFound(service.duplicateByName(filename, `${testId}-reused-copy.txt`, owner));
+
+      // Stating it the other way round too: a copy that DOES carry the owner stays reachable by name.
+      const owned = await service.duplicateById(source.id, { ...owner, metadata: { ownerId: OWNER } });
+      expect((await writer.getFileInfoByName(filename)).id).toBe(owned);
+      expect(await readAll(await service.getFileStreamByName(filename, owner))).toBe('owned bytes');
     });
 
     it('lets the caller record the copy\'s own metadata', async () => {

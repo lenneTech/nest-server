@@ -93,6 +93,16 @@ export interface TestGraphQLOptions {
   cookies?: Record<string, string> | string;
 
   /**
+   * Additional `connectionParams` for a SUBSCRIPTION handshake.
+   *
+   * Merged on top of the `Authorization` entry derived from `token`. A WebSocket carries no HTTP
+   * headers per operation, so anything the server reads from a header on the HTTP path — the tenant
+   * header above all — has to travel here instead. Without this a tenant-scoped subscription could
+   * not be tested at all.
+   */
+  connectionParams?: Record<string, string>;
+
+  /**
    * Count of subscription messages, specifies how many messages are to be received on subscription
    */
   countOfSubscriptionMessages?: number;
@@ -788,9 +798,12 @@ export class TestHelper {
     }
 
     // Prepare subscription
-    let connectionParams;
+    let connectionParams: Record<string, string> | undefined;
     if (options?.token) {
       connectionParams = { Authorization: `Bearer ${options?.token}` };
+    }
+    if (options?.connectionParams) {
+      connectionParams = { ...connectionParams, ...options.connectionParams };
     }
 
     // Init client

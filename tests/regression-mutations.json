@@ -24,6 +24,81 @@
   ],
   "mutations": [
     {
+      "id": "tus-upload-records-no-owner",
+      "defect": "11.35.0 — a finished tus upload's file metadata carried no owner, so the per-file ownership rule CoreFileService.checkRights() documents (metadata.ownerId === currentUser.id) could never authorize a tus-uploaded file: it failed closed for everyone but ADMIN.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "after": "const fileMetadata = {",
+      "find": "        ...(metadata[TUS_OWNER_METADATA_KEY] ? { ownerId: metadata[TUS_OWNER_METADATA_KEY] } : {}),\n",
+      "replace": "",
+      "specs": [
+        "tests/tus-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-any-user-touches-any-upload",
+      "defect": "11.35.0 — HEAD / PATCH / DELETE on a tus upload carried only the coarse tus.roles gate, so any authenticated caller who learned an upload id could read its offset, APPEND BYTES to somebody else's upload (whose content is then migrated into the file store under the victim's filename), or terminate it.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "after": "protected async assertUploadOwnership(req: any, uploadId: string): Promise<void> {",
+      "find": "    if (!uploadId) {\n      return;\n    }",
+      "replace": "    if (uploadId || !uploadId) {\n      return;\n    }",
+      "specs": [
+        "tests/tus-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ws-subscribe-without-request-context",
+      "defect": "11.35.0 — GraphQL operations arriving over a WebSocket ran with NO RequestContext at all (no Express middleware runs on an upgrade, and CoreTenantGuard finds no `req` on a subscription context). mongooseTenantPlugin reads 'no context' as 'system operation, no filter', so a tenant-scoped read while delivering a subscription message returned EVERY tenant's rows and the plugin's safety net could not notice.",
+      "file": "src/core/common/helpers/graphql-ws-context.helper.ts",
+      "after": "export function createRequestContextAwareSubscribe(subscribe: ExecuteFn): ExecuteFn {",
+      "find": "    const result = await RequestContext.run(context, () => subscribe(args));\n    return isAsyncIterable(result) ? withRequestContextAsyncIterator(result as AsyncIterator<any>, context) : result;",
+      "replace": "    return subscribe(args);",
+      "specs": [
+        "tests/tenant-context-surfaces.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "exclude-schemas-warns-silently",
+      "defect": "11.35.0 — a schema that DECLARES tenantId and is listed in multiTenancy.excludeSchemas lost its tenant filter with no signal anywhere. The framework's own docs carried `excludeSchemas: ['User', 'Session']` in a copyable @example, which on a project with per-tenant users switches isolation off for the user collection.",
+      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "after": "function shouldBypass(modelName?: string): boolean {",
+      "find": "    warnIsolationDisabled(modelName);\n",
+      "replace": "",
+      "specs": [
+        "tests/tenant-context-surfaces.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "nested-restricted-ignores-declared-type",
+      "defect": "11.35.0 — checkRestricted() read restriction metadata off the VALUE's constructor only. An embedded subdocument read out of MongoDB is a plain object whose constructor is Object, which carries no @Restricted metadata, so every nested restriction evaluated to 'no restrictions' and the field was returned in full to callers who may not see it.",
+      "file": "src/core/common/decorators/restricted.decorator.ts",
+      "after": "const metadataOwner: any =",
+      "find": "      : typeof declaredType === 'function'\n        ? declaredType\n        : undefined;",
+      "replace": "      : undefined;",
+      "specs": [
+        "tests/unit/restricted-nested.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "by-name-lookup-unsorted",
+      "defect": "11.35.0 — GridFSHelper.findFileByName() read natural order (the OLDEST file of a reused name) while openDownloadStreamByName() defaults to revision -1 (the NEWEST). So getFileInfoByName()/getRawFileInfoByName() authorized against one document and getFileStreamByName()/getBufferByName()/duplicateByName() served another — an ownership rule approved the caller's own file and handed over somebody else's bytes.",
+      "file": "src/core/common/helpers/gridfs.helper.ts",
+      "after": "static async findFileByName(bucket: GridFSBucket, filename: string)",
+      "find": "bucket.find({ filename }, { limit: 1, sort: { uploadDate: -1, _id: -1 } })",
+      "replace": "bucket.find({ filename })",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "gridfs"
+      ]
+    },
+    {
       "id": "delete-by-name-drops-context",
       "defect": "11.33.1 — deleteFileByName() authorized the caller and then re-resolved the file with an EMPTY context, so an overridden checkRights() was asked two different questions about one request and the owner was told `File not found`.",
       "file": "src/core/modules/file/core-file.service.ts",

@@ -239,6 +239,87 @@ Now that the check reads the persisted object, they start working — and a fiel
 owner-restricted may suddenly become writable by an admin who provisioned the record. **Audit every
 `S_SELF`/`S_CREATOR` on an input type before upgrading.**
 
+## `@Restricted` on NESTED data: only a DECLARED type is enforced (11.35.0)
+
+`checkRestricted()` recurses, but until 11.35.0 it could not SEE anything one level down. The metadata
+lookup reads from the value's class, and a nested value read out of MongoDB is a **plain object** —
+`CoreModel.map()` is a shallow `Object.assign`, `prepareOutput()` maps only the target model, and
+`ResponseModelInterceptor` only the top-level item. `Object` carries no `@Restricted` metadata, so
+every nested restriction evaluated to "no restrictions at all". The same class WAS filtered when the
+value happened to be an instance, which is why it went unnoticed for years.
+
+Since 11.35.0 the nested-type registry that `@UnifiedField` already fills is read by
+`checkRestricted()`, so a plain nested value is matched against the class its parent DECLARED — at
+every level, and for every item of a declared array.
+
+```typescript
+@ObjectType()
+class Insurance {
+  @UnifiedField({ roles: RoleEnum.ADMIN, type: () => String })
+  policyNumber?: string;                      // enforced from 11.35.0, returned in full before
+}
+
+@ObjectType()
+class Patient extends CorePersistenceModel {
+  @UnifiedField({ type: () => Insurance })    // ← the `type` is what makes the nesting enforceable
+  insurance?: Insurance;
+
+  @UnifiedField({ isArray: true, type: () => Insurance })
+  insurances?: Insurance[];                   // every item, not just the first
+
+  @UnifiedField({ isAny: true })
+  extra?: any;                                // NOT reached — nothing declares what this holds
+}
+```
+
+| Situation | Enforced? |
+|-----------|-----------|
+| Top-level property | yes, always |
+| Nested value that IS an instance of its class | yes, always |
+| Nested plain object / array with `@UnifiedField({ type: () => X })` | **yes, since 11.35.0** |
+| Nested value with no declared type (`isAny`, bare `@Field`) | **no** — see below |
+| Class-level `@Restricted` on a nested type | contents stripped, empty container remains (the `checkObjectItself: false` default) |
+
+**An undeclared nested type stays unchecked on purpose.** Such a value is just as legitimately
+free-form JSON, a `Map` or a scalar; failing closed there would strip vastly more than it protects. The
+rule is therefore: *if a nested field must be protected, declare its type.*
+
+**Upgrade note:** nested `@Restricted` fields start working. A response loses a nested restricted
+field for callers who may not see it (correct), and an INPUT carrying one now throws 403 where it was
+previously accepted. Audit nested `@Restricted` before upgrading.
+
+## Tenant context on non-HTTP transports (11.35.0)
+
+Every tenant decision the framework makes reads `RequestContext` (AsyncLocalStorage), which
+`RequestContextMiddleware` installs — as **Express middleware**. A transport that does not traverse the
+Express stack therefore had no context, and `mongooseTenantPlugin` reads "no context" as "system
+operation, no filter". That is right for a cron job and wrong for a WebSocket.
+
+| Transport | Context | Notes |
+|-----------|---------|-------|
+| HTTP (REST + GraphQL) | `RequestContextMiddleware` | `CoreTenantGuard` writes the validated tenant onto the request |
+| GraphQL over WebSocket | **`execute`/`subscribe` wrappers, since 11.35.0** | `CoreModule` installs them on all three driver builders |
+| Cron jobs, migrations, queue processors | none, by design | genuinely system-internal |
+
+On the WebSocket path the tenant is resolved through `CoreTenantGuard.resolveTenantContext()` (reached
+via `core-tenant-context.registry.ts`, because `src/core/common/**` must not import a provider that
+only exists when multi-tenancy is configured): the handshake's tenant header is **validated against an
+active membership**, and without a header the subscriber's memberships become `tenantIds`. A header
+naming a tenant the subscriber does not belong to yields **no** tenant — the plugin's safety net then
+refuses the read, which is strictly better than honouring an unvalidated header.
+
+Two implementation details are load-bearing and easy to undo:
+
+1. **The pair must sit inside `subscriptions`.** `ApolloDriver.start()` forwards only
+   `{ schema, path, context, ...options.subscriptions }` to `GqlSubscriptionService`; a top-level
+   `execute`/`subscribe` is dropped silently.
+2. **The async iterator must be wrapped, not just the subscribe call.** graphql-js runs the per-event
+   execution (`resolve`, `filter`, field resolvers) inside the iterator's `next()`, which the transport
+   pulls long after `subscribe()` returned.
+
+Both are pinned by `tests/unit/graphql-ws-context-wiring.spec.ts` (wiring) and
+`tests/tenant-context-surfaces.e2e-spec.ts` (mechanism, over a real socket).
+
 ## Critical Rule
 
 ```typescript

@@ -537,6 +537,16 @@ export abstract class CoreFileService {
 
   /**
    * Get file stream (for big files) via filename
+   *
+   * Every branch resolves a DOCUMENT first and reads by its id — including the GridFS one, which
+   * used to fall through to `openDownloadStreamByName()`. That call defaults to `revision: -1` (the
+   * newest file of that name) while the by-name METADATA lookup answered the oldest, so with two
+   * files sharing a name this method streamed bytes belonging to a different document than the one
+   * `checkRights()` had just been asked about. An ownership rule then approved the caller's own file
+   * and handed over somebody else's — across tenants, since the file stores carry no tenant scope.
+   *
+   * `findFileByName()` is now newest-first in all three stores, so the bytes a caller receives are
+   * unchanged; what changed is that the document authorization inspected is the one being served.
    */
   async getFileStreamByName(filename: string, serviceOptions?: FileServiceOptions): Promise<Readable> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
@@ -550,7 +560,13 @@ export abstract class CoreFileService {
     if (fsFileInfo) {
       return FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id);
     }
-    return GridFSHelper.openDownloadStreamByName(this.files, filename);
+    const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
+    if (!gridFsInfo) {
+      // Unchanged answer for an unknown name: GridFS is the terminal store and reports the miss
+      // itself, asynchronously on the stream, which the controller turns into a 404.
+      return GridFSHelper.openDownloadStreamByName(this.files, filename);
+    }
+    return GridFSHelper.openDownloadStream(this.files, gridFsInfo._id);
   }
 
   /**
@@ -584,7 +600,14 @@ export abstract class CoreFileService {
     if (fsFileInfo) {
       return FilesystemFileHelper.getBuffer(this.filesystemDir, fsFileInfo._id);
     }
-    return await GridFSHelper.readFileToBuffer(this.files, { filename });
+    // By id, for the same reason as getFileStreamByName(): reading by NAME here would pick the
+    // newest revision while checkRights() was asked about whichever document findFileByName()
+    // answered.
+    const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
+    if (!gridFsInfo) {
+      return await GridFSHelper.readFileToBuffer(this.files, { filename });
+    }
+    return await GridFSHelper.readFileToBuffer(this.files, { _id: gridFsInfo._id });
   }
 
   /**

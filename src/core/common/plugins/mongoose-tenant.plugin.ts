@@ -1,7 +1,47 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Logger } from '@nestjs/common';
 
 import { ConfigService } from '../services/config.service';
 import { RequestContext } from '../services/request-context.service';
+
+/** Models already warned about, so the message appears once per process rather than per query. */
+const isolationDisabledWarned = new Set<string>();
+
+/**
+ * Say out loud that isolation is off for a schema that was built for it.
+ *
+ * `excludeSchemas` is a legitimate feature — a genuinely global lookup table has no tenant. But this
+ * plugin only ever attaches to schemas that DECLARE a `tenantId` field, so reaching here means the
+ * author of that schema intended per-tenant rows and the configuration silently overrides them.
+ * Nothing said so, and the shape is easy to arrive at by accident: the framework's own documentation
+ * carried `excludeSchemas: ['User', 'Session']` in a copyable `@example` from 11.20.0 onwards, which
+ * on a project with per-tenant users switches filtering off for the user collection.
+ *
+ * A warning, not a boot failure. An ambiguous ROLE vocabulary fails the boot because its access
+ * decisions cannot be resolved coherently; this configuration is perfectly coherent — it is simply
+ * one nobody may make without noticing.
+ *
+ * The membership model is skipped: `CoreModule` adds it to `excludeSchemas` itself because
+ * membership is tenant-spanning by design, so warning about it would be the framework complaining
+ * about its own correct default.
+ */
+function warnIsolationDisabled(modelName: string): void {
+  if (isolationDisabledWarned.has(modelName)) {
+    return;
+  }
+  isolationDisabledWarned.add(modelName);
+
+  const membershipModel = ConfigService.configFastButReadOnly?.multiTenancy?.membershipModel ?? 'TenantMember';
+  if (modelName === membershipModel) {
+    return;
+  }
+
+  new Logger('mongooseTenantPlugin').warn(
+    `Tenant isolation is DISABLED for "${modelName}": the schema declares a tenantId field, but ` +
+      `"${modelName}" is listed in multiTenancy.excludeSchemas — so no tenant filter is applied and ` +
+      `every query on it sees every tenant's rows. Remove it from excludeSchemas unless this ` +
+      `collection is genuinely global.`,
+  );
+}
 
 /**
  * Mongoose plugin that provides automatic tenant-based data isolation.
@@ -335,7 +375,10 @@ function shouldBypass(modelName?: string): boolean {
   const context = RequestContext.get();
   if (!context) return true;
   if (context.bypassTenantGuard) return true;
-  if (modelName && mtConfig.excludeSchemas?.includes(modelName)) return true;
+  if (modelName && mtConfig.excludeSchemas?.includes(modelName)) {
+    warnIsolationDisabled(modelName);
+    return true;
+  }
 
   return false;
 }

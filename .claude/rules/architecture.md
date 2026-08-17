@@ -125,7 +125,9 @@ Both invariants are enforced by `tests/unit/import-cycle-invariants.spec.ts`, wh
 | `common/services` | `core-cron-jobs.registry.ts` (the cron infrastructure refs `CoreCronJobs` reads — `import type` only, so its emit is empty). Unlike the better-auth registry it IS barrel-exported: `setCronJobsInfrastructure()` / `getCronJobsInfrastructure()` are public, because a project may register its own connection or Redis service |
 | `common/helpers` | `id.helper.ts` (ID cluster, out of `db.helper`) + `clone.helper.ts` (`clone`/`deepFreeze`, out of `input.helper`) |
 | `common/inputs` | `FilterInput` + `CombinedFilterInput` merged into `filter.input.ts` — declaration order is load-bearing |
-| `common/decorators` | `restricted.decorator` is on **zero** cycles; its exports are hoisted `function` declarations (TDZ-immune) as defense in depth |
+| `common/decorators` | `restricted.decorator` is on **zero** cycles; its exports are hoisted `function` declarations (TDZ-immune) as defense in depth. `nested-type.registry.ts` (11.35.0) holds `nestedTypeRegistry` + `resolveNestedType`, because `unified-field.decorator` WRITES the map while `restricted.decorator` now READS it — and `unified-field` already imports `restricted` for `@Restricted`, so a direct read would put the access-control file back on a cycle. `unified-field.decorator` re-exports both, so no import path broke |
+| `common/services` (tenant) | `core-tenant-context.registry.ts` (11.35.0) — how a transport without an Express request (the GraphQL WebSocket) reaches `CoreTenantGuard`'s membership logic. Under `common/` rather than next to the tenant module because the READER is `common/helpers/graphql-ws-context.helper`, and `src/core/common/**` must not import from `src/core/modules/**`; a registry rather than DI because the GraphQL wiring must not depend on a provider that only exists when multi-tenancy is configured |
+| `modules/tus` | `tus.constants.ts` also holds `TUS_OWNER_METADATA_KEY` (11.35.0) |
 
 Every old location re-exports what it lost, so no import path broke — the public API is byte-identical (472 exports, verified by diffing both versions).
 

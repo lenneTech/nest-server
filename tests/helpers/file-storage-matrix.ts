@@ -123,6 +123,12 @@ export const PARITY_CASES: readonly ParityCase[] = [
   },
   {
     drivers: PARITY_DRIVERS,
+    id: 'service.byNameAuthorizesWhatItServes',
+    layer: 'service',
+    title: 'by-name reads authorize and serve the SAME document when a filename is reused',
+  },
+  {
+    drivers: PARITY_DRIVERS,
     id: 'service.metadataRoundTrip',
     layer: 'service',
     title: 'round-trips custom metadata into BOTH raw lookups (by id and by name)',

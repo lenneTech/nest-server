@@ -257,8 +257,6 @@ export class CoreHubDbService {
    */
   protected fileStores(bucket: string): { collection: string; store: HubFileStore }[] {
     return [
-      { collection: S3_FILES_COLLECTION, store: 's3' },
-      { collection: FILESYSTEM_FILES_COLLECTION, store: 'filesystem' },
       { collection: `${bucket}.files`, store: 'gridfs' },
     ];
   }
