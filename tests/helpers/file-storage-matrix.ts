@@ -123,6 +123,12 @@ export const PARITY_CASES: readonly ParityCase[] = [
   },
   {
     drivers: PARITY_DRIVERS,
+    id: 'service.byNameAuthorizesWhatItServes',
+    layer: 'service',
+    title: 'by-name reads authorize and serve the SAME document when a filename is reused',
+  },
+  {
+    drivers: PARITY_DRIVERS,
     id: 'service.metadataRoundTrip',
     layer: 'service',
     title: 'round-trips custom metadata into BOTH raw lookups (by id and by name)',
@@ -150,6 +156,12 @@ export const PARITY_CASES: readonly ParityCase[] = [
     id: 'service.checkRightsRefusalIsUniform',
     layer: 'service',
     title: 'a refused read answers like a missing file on every read path',
+  },
+  {
+    drivers: PARITY_DRIVERS,
+    id: 'service.writeRefusalWritesNothing',
+    layer: 'service',
+    title: 'a refused upload writes no bytes and no bookkeeping',
   },
   {
     drivers: PARITY_DRIVERS,

@@ -18,6 +18,7 @@ import {
   FilesystemFileHelper,
 } from '../file/filesystem-file.helper';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
+import { TUS_OWNER_METADATA_KEY } from './tus.constants';
 import { TusRedisLocker } from './tus-redis-locker';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
@@ -181,6 +182,11 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       const contentType = metadata.filetype || 'application/octet-stream';
       const fileMetadata = {
         originalMetadata: metadata,
+        // The key `CoreFileService.checkRights()` documents for a per-file ownership rule. Without it
+        // a tus-uploaded file could never satisfy that rule — it failed CLOSED for everyone but
+        // ADMIN, so a project following the documented pattern ended up with undownloadable files.
+        // Written from the SERVER-recorded owner, never from the client's own metadata.
+        ...(metadata[TUS_OWNER_METADATA_KEY] ? { ownerId: metadata[TUS_OWNER_METADATA_KEY] } : {}),
         tusUploadId: upload.id,
         uploadedAt: new Date(),
       };
@@ -461,6 +467,79 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
+   * The authenticated caller's id, as the upstream role guard left it on the request.
+   *
+   * `CoreTusController.handleTus(req, res)` receives the Express request, so `req.user` is whatever
+   * the guard put there. But `@tus/server` v2 does NOT hand that object to its hooks: `handle()`
+   * converts the Node request into a WHATWG `ServerRequest` (srvx) first, and anything the guard
+   * attached lives on the ORIGINAL request, reachable through `runtime.node.req`. Reading only
+   * `req.user` therefore finds nothing and every upload silently becomes owner-less — which fails in
+   * the permissive direction, so it would not have shown up as an error anywhere.
+   *
+   * Returns `undefined` for an unauthenticated request, which is a legitimate state: a project may
+   * open the gate with `tus.roles: [RoleEnum.S_EVERYONE]` for a public form.
+   *
+   * Override to read the owner from somewhere else (an API key, a signed form token).
+   */
+  protected readRequestUserId(req: any): string | undefined {
+    const id = req?.user?.id ?? req?.runtime?.node?.req?.user?.id ?? req?.context?.user?.id;
+    return id === undefined || id === null || id === '' ? undefined : String(id);
+  }
+
+  /**
+   * Refuse a request that names an upload the caller does not own.
+   *
+   * `tus.roles` is the coarse gate — who may reach the endpoint at all. This is the fine one: HEAD
+   * (read the offset), PATCH (APPEND BYTES) and DELETE (terminate) all address an upload by its URL,
+   * and without this any authenticated caller who learns an id could resume, overwrite or destroy
+   * somebody else's upload. Appending is the sharpest: those bytes are then migrated into the file
+   * store under the ORIGINAL uploader's filename, so the attacker's content is served as the victim's.
+   *
+   * **Refuses with 404, never 403** — the same policy `CoreFileService.checkRights()` states: a
+   * refusal must be indistinguishable from an upload that does not exist, or the endpoint becomes an
+   * existence oracle for ids that are not secrets.
+   *
+   * **An OWNER-LESS upload stays reachable by anyone who may reach the endpoint.** That is deliberate
+   * and load-bearing for backward compatibility: uploads created before 11.35.0 carry no owner, and
+   * so does every upload of a project that deliberately runs the endpoint public. Denying those would
+   * turn an upgrade into a fleet-wide breakage of in-flight uploads and break a documented
+   * configuration. What is closed is the case that actually leaks: an upload that HAS an owner being
+   * touched by somebody else.
+   *
+   * Override to widen this — e.g. to let a support role resume any upload.
+   */
+  protected async assertUploadOwnership(req: any, uploadId: string): Promise<void> {
+    // No id: this is a creation (POST) or a server-capability request (OPTIONS). Nothing to own yet.
+    if (!uploadId) {
+      return;
+    }
+
+    let owner: string | undefined;
+    try {
+      const upload = await (this.tusServer as any)?.datastore?.getUpload?.(uploadId);
+      const recorded = upload?.metadata?.[TUS_OWNER_METADATA_KEY];
+      owner = recorded === undefined || recorded === null ? undefined : String(recorded);
+    } catch {
+      // Unknown id, or a store that cannot answer right now. Say nothing and let the tus server
+      // produce its own 404 — inventing a refusal here would also refuse legitimate retries during a
+      // transient store outage.
+      return;
+    }
+
+    if (!owner) {
+      return; // owner-less upload — see the note above
+    }
+
+    const caller = this.readRequestUserId(req);
+    if (caller && caller === owner) {
+      return;
+    }
+
+    this.logger.warn(`Refused tus request for upload ${uploadId}: caller is not its owner`);
+    throw Object.assign(new Error('Upload not found'), { body: 'Upload not found', status_code: 404 });
+  }
+
+  /**
    * Validate file type against allowedTypes configuration
    *
    * This method can be overridden in extending services to customize
@@ -519,11 +598,20 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       datastore,
       ...(locker ? { locker } : {}),
       maxSize: this.config.maxSize,
-      onUploadCreate: async (_req, upload) => {
+      // Every request that names an upload — HEAD (offset), PATCH (append bytes), DELETE
+      // (terminate) — is checked against the upload's recorded owner. `tus.roles` alone cannot do
+      // this: it decides who may reach the endpoint, not which upload they may touch, and the tus
+      // protocol is built around a per-upload URL. Appending is the sharp end — bytes PATCHed into
+      // somebody else's upload are migrated into the file store under THEIR filename.
+      onIncomingRequest: async (req, uploadId) => this.assertUploadOwnership(req, uploadId),
+      onUploadCreate: async (req, upload) => {
+        // Record the creator FIRST, so the ownership check below has something to compare against.
+        // Overwrites rather than merges: see TUS_OWNER_METADATA_KEY.
+        const metadata = { ...upload.metadata, [TUS_OWNER_METADATA_KEY]: this.readRequestUserId(req) ?? null };
+
         // Validate file type if allowedTypes is configured
         if (this.config.allowedTypes && this.config.allowedTypes.length > 0) {
-          const metadata = this.parseMetadata(upload.metadata);
-          const filetype = metadata.filetype;
+          const filetype = this.parseMetadata(upload.metadata).filetype;
 
           if (!this.validateFileType(filetype)) {
             const allowedList = this.config.allowedTypes.join(', ');
@@ -541,8 +629,9 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
           }
         }
 
-        // Return empty object to proceed with upload
-        return {};
+        // Returning the metadata is what PERSISTS the owner — the tus server writes the returned
+        // value onto the upload. Returning `{}` here would keep the client's own metadata verbatim.
+        return { metadata };
       },
       onUploadFinish: async (_req, upload) => {
         try {

@@ -79,3 +79,43 @@ describe('CoreS3Service.enabled ↔ resolveFileStorage agreement', () => {
     expect(service({ bucket: 'my-bucket', stagingBucket: 'staging' }).getConfig()?.stagingBucket).toBe('staging');
   });
 });
+
+/**
+ * Presigned downloads: the DEFAULT, and the one idiom that used to invert it.
+ *
+ * This knob hands out session-less BEARER URLs — authorized once at issue time, valid until they
+ * expire, revocable only by deleting the object or rotating the signing credentials. So "is it on?"
+ * must have exactly one answer, and it must be `no` unless somebody said otherwise.
+ *
+ * `{ enabled: false }` is the repo-wide pre-configuration idiom
+ * (`.claude/rules/configurable-features.md`), and it is reachable WITHOUT TypeScript: both
+ * `NEST_SERVER_CONFIG` and the `NSC__*` variables deliver plain JSON. `CoreS3Service` used to read any
+ * object as "enabled", while `warnOnPresignedDownloadsWithRestrictedRoles()` — which decides whether to
+ * warn about exactly this feature — did honour the key. Two code paths answering one question
+ * differently, and the disagreement resolved towards ON, silently.
+ *
+ * @regression   11.35.0 — `s3.presignedDownloads: { enabled: false }` enabled presigned downloads while
+ *   the boot warning stayed silent.
+ * @seen-failing Drop the `enabled === false` guard from the `presigned` resolution in
+ *   `src/core/common/services/core-s3.service.ts` — registered as mutation
+ *   `presigned-ignores-enabled-false` in `tests/regression-mutations.json`.
+ */
+describe('s3.presignedDownloads', () => {
+  const presigned = (value: unknown) => service({ bucket: 'b', presignedDownloads: value }).getConfig().presignedDownloads;
+
+  it('is OFF when nothing says otherwise', () => {
+    expect(presigned(undefined)).toBeUndefined();
+    expect(presigned(false)).toBeUndefined();
+  });
+
+  it('is ON for the documented enabling forms', () => {
+    expect(presigned(true)?.expiresInSeconds).toBe(300);
+    expect(presigned({})?.expiresInSeconds).toBe(300);
+    expect(presigned({ expiresInSeconds: 60 })?.expiresInSeconds).toBe(60);
+  });
+
+  it('is OFF for the pre-configuration idiom, even with settings alongside it', () => {
+    expect(presigned({ enabled: false })).toBeUndefined();
+    expect(presigned({ enabled: false, expiresInSeconds: 600 })).toBeUndefined();
+  });
+});

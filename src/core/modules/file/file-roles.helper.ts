@@ -1,25 +1,22 @@
 import { Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../../common/enums/role.enum';
 import { IFileConfig } from '../../common/interfaces/server-options.interface';
 import { CoreFileController } from './core-file.controller';
 import { CoreFileResolver } from './core-file.resolver';
+import { FileRoleKey, resolveRoles } from './file-roles.config';
 
 const logger = new Logger('CoreFileRoles');
 
-/**
- * Roles applied when `file` is not configured at all.
- *
- * Restrictive on purpose: one GridFS bucket is shared by every feature of the
- * consuming project, and the ObjectIds naming its blobs are not secrets.
- */
-export type FileRoleKey = 'deleteRoles' | 'downloadRoles' | 'uploadRoles';
-
-export const FILE_ROLE_DEFAULTS: Record<FileRoleKey, string[]> = {
-  deleteRoles: [RoleEnum.ADMIN],
-  downloadRoles: [RoleEnum.ADMIN],
-  uploadRoles: [RoleEnum.ADMIN],
-};
+// Re-exported so no import path broke: `FILE_ROLE_DEFAULTS`, the warnings and the key type are part
+// of the published API and used to live here. They moved into an import-free leaf because this file
+// imports the endpoint classes, which inject CoreFileService — see file-roles.config.ts.
+export {
+  FILE_ROLE_DEFAULTS,
+  resolveRoles,
+  warnOnPresignedDownloadsWithRestrictedRoles,
+  warnOnUndecidedFileAccess,
+} from './file-roles.config';
+export type { FileRoleKey } from './file-roles.config';
 
 /**
  * Which member is governed by which knob.
@@ -41,32 +38,6 @@ const ROLE_TARGETS: { key: FileRoleKey; member: string; owner: () => unknown }[]
   { key: 'uploadRoles', member: 'CoreFileResolver.uploadFiles', owner: () => CoreFileResolver.prototype.uploadFiles },
   { key: 'deleteRoles', member: 'CoreFileResolver.deleteFile', owner: () => CoreFileResolver.prototype.deleteFile },
 ];
-
-/**
- * Resolve one knob to the role list that will actually be applied.
- *
- * An empty array is treated as "not configured". It cannot mean "nobody": the
- * guards read an all-empty role set as "no roles required" and return true, so
- * honouring it literally would OPEN the route instead of closing it — the exact
- * opposite of what someone writing `[]` intends.
- */
-function resolveRoles(key: FileRoleKey, config?: IFileConfig): string[] {
-  const configured = config?.[key];
-
-  if (configured === undefined) {
-    return FILE_ROLE_DEFAULTS[key];
-  }
-
-  if (!Array.isArray(configured) || configured.length === 0 || configured.some((role) => typeof role !== 'string')) {
-    logger.warn(
-      `Ignoring file.${key}: expected a non-empty array of role strings, got ${JSON.stringify(configured)}. ` +
-        `Falling back to ${JSON.stringify(FILE_ROLE_DEFAULTS[key])}.`,
-    );
-    return FILE_ROLE_DEFAULTS[key];
-  }
-
-  return configured;
-}
 
 /**
  * Apply the configured file roles to the core file endpoints.

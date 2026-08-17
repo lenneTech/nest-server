@@ -88,6 +88,63 @@ If some files are genuinely public and others are not, do not solve it with a ro
 record a visibility flag in the metadata and branch in `checkRights()`, or expose a separate public
 route for exactly the public files and leave the core routes gated.
 
+## Pick your project class first — the whole model is one dial with five settings
+
+`file.access` is the per-file rule as a DECLARATION instead of code. Until 11.35.0 the framework shipped
+that rule only as an `@example` to copy, and the copy went wrong twice in its own history — both times
+permissively (`if (!currentUser) return true`, and waving `'filterArgs'` through). Decide which row you
+are, then verify only that row.
+
+| Project class                                                  | `file.access`            | roles                                 | own `checkRights()`? |
+| -------------------------------------------------------------- | ------------------------ | ------------------------------------- | -------------------- |
+| **Open** — anyone may read and write                           | `'public'`               | `[RoleEnum.S_EVERYONE]`               | no                   |
+| **Login-restricted** — every signed-in user may use every file | `'authenticated'`        | `[RoleEnum.S_USER]`                   | no                   |
+| **Per-user** — only the uploader                               | `'owner'`                | `[RoleEnum.S_USER]`                   | no                   |
+| **Tenant-based** — only within one's own tenant                | `'tenant'`               | `[RoleEnum.S_USER]` or a project role | no                   |
+| **Regulated** — explicit read right, explicit write right      | `'custom'` (the default) | a narrow role                         | **yes**              |
+
+What the presets do, and what they deliberately do not:
+
+- `'owner'` / `'tenant'` read `metadata.ownerId` / `metadata.tenantId`, which `CoreFileService` **stamps
+  as it writes** once one of them is active — so an upload through the service is authorizable with no
+  project code. ADMIN is never locked out, writes fall through to the role gate (an upload has no owner
+  to compare against yet), a LISTING is refused, and a missing user or a missing owner field FAILS
+  CLOSED.
+- **Files written before you enabled the preset carry no such metadata and are therefore ADMIN-only.**
+  That is the fail-closed direction; a one-off backfill fixes it.
+- `'public'` / `'authenticated'` add no data rule at all. They exist so that "no per-file rule" is a
+  DECISION in `config.env.ts` rather than an omission — and that is what silences the boot warning.
+- **Declaring the class never widens the role gate.** `'public'` still needs
+  `downloadRoles: [S_EVERYONE]`. Two decisions, on purpose.
+- **The last row is the point of the dial.** A regulated project has rights the framework cannot guess
+  (a read right, a write right, a case assignment), so it stays on `'custom'` and writes the rule — and
+  everything the presets do is then its checklist: cover `'id'` and `'filename'`, refuse `'filterArgs'`,
+  gate the writes, fail closed without a user, require the owner field to be present.
+
+Two rules hold for every row:
+
+1. **The coarse gate can grant but never exclude ADMIN** — both file classes carry a class-level
+   `@Roles(ADMIN)` and the guards union class + handler metadata.
+2. **A per-file sentence needs data.** No role name can express "…but only their own" — which is why
+   there is a hook at all, and why the presets stamp the data they decide on.
+
+## The threat model, in four sentences
+
+Read this before the checklist — it is what the checklist is checking.
+
+**File ids are not secrets, and they are ENUMERABLE.** A MongoDB ObjectId is 4 bytes of timestamp +
+5 bytes of randomness generated ONCE PER PROCESS + a 3-byte incrementing counter. Every id minted by
+one server process therefore shares the same random part, so a caller who obtains a single valid id —
+their own upload is enough — knows that part and a counter reference point; the ids of files the same
+process created nearby in time sit on adjacent counter values. There is also **no rate limit on the
+file routes** (the framework's limiters cover auth, IAM and AI only), so nothing throttles walking
+that range.
+
+The consequence: **the role gate is a coarse audience filter, never a per-file secret.**
+`downloadRoles: [S_USER]` without an overridden `checkRights()` means every signed-in user can read
+every file, and enumeration makes that practically reachable rather than theoretical. If files are
+personal or medical, a per-file rule is not optional.
+
 ## Verification Checklist
 
 - [ ] `pnpm run build` succeeds
@@ -108,6 +165,40 @@ route for exactly the public files and leave the core routes gated.
 - [ ] `OPTIONS /tus` answers without credentials (browser preflight)
 - [ ] Avatars / images in the frontend still render for the roles that should see them
 
+### Security checklist — the questions an audit will ask
+
+- [ ] **Is the project class declared?** Either `file.access` names one, or `checkRights()` is
+      overridden. If `downloadRoles` goes beyond `ADMIN` and NEITHER is true, every holder of that
+      role reads every file by enumeration — and the framework warns at boot, in every deployment,
+      tenant or not. Declaring `'public'` / `'authenticated'` is a valid answer; leaving it unset is
+      not
+- [ ] **On `file.access: 'owner'` / `'tenant'`: is old data backfilled?** Files uploaded before the
+      preset was enabled carry no `ownerId` / `tenantId` and stay ADMIN-only until they do
+- [ ] **If you wrote your own rule, does it cover all four branches?** `'id'`, `'filename'`, `'filterArgs'` and the writes.
+      `'filename'` is not redundant (the presigned path authorizes on the by-name lookup alone, and
+      `deleteFileByName()` authorizes by name only), and `'filterArgs'` must be **refused** — a yes/no
+      hook cannot narrow a listing, so returning `true` there hands over a full inventory
+- [ ] **Does the rule FAIL CLOSED on a missing `currentUser`?** `if (!options.currentUser) return true`
+      reads as "system call" but is also what an anonymous request looks like
+- [ ] **Does it require the owner field to be PRESENT?** Without `!!raw?.metadata?.ownerId`, an
+      owner-less file compares `undefined` with `undefined` and matches
+- [ ] **Is a per-user LISTING forced server-side?** Build the filter from `currentUser` and pass
+      `{ force: true }`. Never inspect the caller's own `filterArgs` to decide whether they are
+      already narrowed — that is validating client input
+- [ ] **Multi-tenant: is `tenantId` in the metadata and compared?** The stores are reached outside
+      Mongoose, so `mongooseTenantPlugin` never scopes them and a role name cannot express a tenant
+      rule. Nothing else can do this for you
+- [ ] **Is `s3.presignedDownloads` off** (it is by default) — or, if on, is the expiry short and the
+      audience genuinely "anyone who once held the link"? The URL works without a session, from any
+      IP, and cannot be revoked
+- [ ] **Are `/files/*` and `/tus/*` rate-limited in the reverse proxy?** The framework does not
+      throttle them, and ids are enumerable
+- [ ] **Do downloads go through the ID route, not the filename route?** Filenames are unique in no
+      store and are chosen by the uploader, so a name can be squatted; the by-name path resolves the
+      MOST RECENT file of that name
+- [ ] **Does anything read files WITHOUT `CoreFileService`?** Direct GridFS or S3-SDK access bypasses
+      `checkRights()` entirely
+
 ## Common Mistakes
 
 | Mistake                                            | Symptom                                  | Fix                                                                                                                    |
@@ -118,3 +209,6 @@ route for exactly the public files and leave the core routes gated.
 | Expecting `metadata` back from `getFileInfo()`     | `undefined`                              | Use `getRawFileInfo()` inside `checkRights()`                                                                          |
 | `downloadRoles: ['member']` with multiTenancy      | Works from code, fails from `<img>`      | Both file classes carry `@SkipTenantCheck()`; roles resolve against `user.roles`. Use `checkRights()` for tenant rules |
 | Signed-in user can upload via TUS but not download | 403 on their own file                    | `tus.roles` and `file.downloadRoles` are separate. Add an owner to the metadata and authorize per file                 |
+| Rule narrows only `'id'` / `'filename'`            | `findFileInfo()` returns every file      | Refuse `'filterArgs'`; force a per-user filter server-side with `{ force: true }`                                      |
+| Treating the file id as unguessable                | Enumerable inventory                     | Ids share a per-process random part and an incrementing counter — authorize every read, do not rely on the id          |
+| Approving the caller's `filterArgs` as "narrowed"  | Bypass via a different filter shape      | `filterArgs` is client-controlled. Override the filter; never approve it                                               |

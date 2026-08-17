@@ -205,6 +205,7 @@ JWT-based authentication for existing projects:
 | **Apollo Server** | Full GraphQL server with schema-first or code-first |
 | **Custom Scalars** | `Date`, `DateTime` (timestamp), `JSON`, `Any` |
 | **Subscriptions** | WebSocket support via `graphql-ws` with auth. The `PUB_SUB` provider is built from a factory: `CoreRedisPubSub` when `redis` is configured (delivery is then cluster-wide), the in-memory `PubSub` otherwise (delivery only to clients connected to the publishing replica). **Constraint once Redis is in play: every published payload must be JSON-serializable** — it crosses the wire as JSON, so `Date`, class instances, `Map`/`Set` and `undefined` do not survive the round trip. An in-process `PubSub` never had this constraint, so a payload that worked on one replica can silently lose fields on a cluster. Publish plain objects and ISO strings |
+| **Subscription request context** | Since 11.35.0 `CoreModule` installs a context-aware `execute` / `subscribe` pair (inside `subscriptions`, where `ApolloDriver` forwards it) on all three GraphQL driver builders, so every WebSocket operation runs inside a `RequestContext`. Before that a WS operation had **none** — no Express middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a subscription context — and `mongooseTenantPlugin` reads "no context" as "system operation, no filter", so a tenant-scoped read while delivering a subscription message returned EVERY tenant's rows. The tenant comes from the handshake's tenant header **validated against an active membership**, else from the subscriber's memberships; an unresolvable tenant leaves the safety net to refuse the read. The async iterator is wrapped too, not only the subscribe call: graphql-js runs `resolve` / `filter` / field resolvers inside its `next()`. See `.claude/rules/role-system.md` → "Tenant context on non-HTTP transports" |
 | **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
 | **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
 | **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
@@ -1217,6 +1218,64 @@ export class User extends CorePersistenceModel {
 }
 ```
 
+#### Nested data: only a DECLARED type is enforced (11.35.0+)
+
+The check recurses, but it can only find metadata for a nested value whose class it knows. An embedded
+subdocument read out of MongoDB is a **plain object** (`CoreModel.map()` is a shallow `Object.assign`;
+`prepareOutput()` and `ResponseModelInterceptor` map the top level only), and `Object` carries no
+`@Restricted` metadata. Before 11.35.0 that meant every nested restriction silently evaluated to "no
+restrictions at all"; since 11.35.0 the nested type registry `@UnifiedField` fills is consulted, so a
+plain nested value is matched against the class its parent DECLARED — at every level, and for every
+item of a declared array.
+
+```typescript
+@UnifiedField({ type: () => Insurance })                    // enforced
+insurance?: Insurance;
+
+@UnifiedField({ isArray: true, type: () => Insurance })     // enforced, every item
+insurances?: Insurance[];
+
+@UnifiedField({ isAny: true })                              // NOT reached — nothing declares the type
+extra?: any;
+```
+
+An undeclared nested type stays unchecked on purpose: such a value is just as legitimately free-form
+JSON, a `Map` or a scalar, and failing closed would strip far more than it protects. **If a nested
+field must be protected, declare its type.** A class-level `@Restricted` on a nested type strips the
+contents and leaves an empty container (the `checkObjectItself: false` default).
+
+### File access — two layers, and why neither is optional
+
+Files are the one resource whose authorization does NOT go through `CrudService.process()`, so the
+decorator model above does not reach them. GridFS is reached through the native MongoDB driver and S3
+through its own SDK, which means `mongooseTenantPlugin` never runs on a file store — and that is why
+`CoreFileController` and `CoreFileResolver` carry `@SkipTenantCheck()`.
+
+| Layer | What it answers | Where |
+|-------|-----------------|-------|
+| `file.downloadRoles` / `uploadRoles` / `deleteRoles` | "may this caller reach the route at all" | applied onto the base-class members at boot by `applyFileRoles()`, read by the role guards |
+| `CoreFileService.checkRights()` | "…but only THIS file" | the service, once per operation, with `checkInputType` naming the path (`'id'`, `'filename'`, `'filterArgs'`, `'file'`, `'files'`) |
+
+**The first layer cannot express the second.** The role names resolve against `user.roles` — a global
+attribute — never against `membership.role`, so no configuration can say "only their own tenant's
+files". That sentence needs data, and the data lives in the file's `metadata`.
+
+**File ids are not secrets.** An ObjectId is 4 bytes of timestamp + 5 bytes of randomness generated once
+PER PROCESS + a 3-byte incrementing counter, so a caller who holds one valid id (their own upload) knows
+the random part and a counter reference point; neighbouring files sit on neighbouring values. The file
+routes are also not rate-limited by the framework. So a widened role gate without a per-file rule is
+practically enumerable, not theoretically.
+
+Since 11.35.0 the second layer is a declaration rather than code — `file.access`, one value per project
+class (`'public'`, `'authenticated'`, `'owner'`, `'tenant'`, or `'custom'` to write your own, the
+default). `'owner'` / `'tenant'` also STAMP the metadata they decide on as the service writes. When the
+gate is widened past `ADMIN` and neither `file.access` nor an override declares a policy, the service
+warns at boot — the difference between a decision and an omission is the only thing a boot check can
+usefully detect.
+
+Full model, per-driver behaviour and the audit checklist: `src/core/modules/file/README.md` § Access
+control and `src/core/modules/file/INTEGRATION-CHECKLIST.md`.
+
 ### @UnifiedField() — Schema & Validation
 
 Single decorator that replaces `@Field()`, `@ApiProperty()`, `@IsOptional()`, and more:
@@ -1459,7 +1518,7 @@ const allOrders = await RequestContext.runWithBypassTenantGuard(async () => {
 
 // Exclude specific schemas from tenant filtering
 multiTenancy: {
-  excludeSchemas: ['User', 'Session'], // model names, not collection names
+  excludeSchemas: [], // model names, not collection names — this turns isolation OFF per model
 }
 ```
 

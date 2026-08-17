@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+
+import { resolveGuardRequest } from '../../../common/helpers/execution-context-request.helper';
 import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
@@ -341,10 +343,10 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
    * Integrate request from GraphQL
    */
   getRequest(context: ExecutionContext) {
-    const ctx = GqlExecutionContext.create(context);
-    // For GraphQL: ctx.getContext() is the GQL context with `.req` property
-    // For REST/HTTP: ctx.getContext() returns the `next` function (truthy but without `.req`)
-    // Using `?.req ||` ensures we fall back to the HTTP request for REST controllers
-    return ctx.getContext()?.req || context.switchToHttp().getRequest();
+    // Shared with BetterAuthRolesGuard and CoreTenantGuard — see execution-context-request.helper.
+    // For GraphQL over HTTP the context carries `.req`; for REST it does not (it is the `next`
+    // function) and the HTTP fallback applies; for a GraphQL SUBSCRIPTION neither holds, and the
+    // subscription context itself is the request-like object.
+    return resolveGuardRequest(context, (ctx) => GqlExecutionContext.create(ctx).getContext());
   }
 }

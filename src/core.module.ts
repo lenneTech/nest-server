@@ -8,6 +8,10 @@ import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
+import {
+  buildRequestContextAwareExecute,
+  buildRequestContextAwareSubscribe,
+} from './core/common/helpers/graphql-ws-context.helper';
 import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
 import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
 import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
@@ -31,6 +35,7 @@ import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
 import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
 import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
 import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
+import { mongooseSystemRolePlugin } from './core/common/plugins/mongoose-system-role.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
 import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
@@ -46,7 +51,7 @@ import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
-import { applyFileRoles } from './core/modules/file/file-roles.helper';
+import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CoreHubModule } from './core/modules/hub/core-hub.module';
 import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
@@ -253,6 +258,12 @@ export class CoreModule implements NestModule {
       if (config.security?.mongooseRoleGuardPlugin !== false) {
         connection.plugin(mongooseRoleGuardPlugin);
       }
+      // Refuse to store system roles (s_*) in a roles array. Deliberately NOT configurable and
+      // registered independently of the role guard above: that one decides WHO may change roles
+      // (and can be switched off), this one decides WHICH values may exist at all. A stored
+      // 's_self' satisfies every S_SELF check on arbitrary users, so there is no configuration
+      // under which writing one is legitimate.
+      connection.plugin(mongooseSystemRolePlugin);
       // Add audit fields plugin (enabled by default, opt-out via config)
       if (config.security?.mongooseAuditFieldsPlugin !== false) {
         connection.plugin(mongooseAuditFieldsPlugin);
@@ -272,6 +283,11 @@ export class CoreModule implements NestModule {
     // Consumers that OVERRIDE a member re-declare the metadata on their own
     // function and opt out of this; see applyFileRoles() for why.
     applyFileRoles(config.file);
+
+    // Presigned downloads hand out a bearer URL that ignores roles after it is issued, so pairing
+    // them with a restricted downloadRoles is usually an oversight. Warn rather than fail — the
+    // combination has legitimate uses, it just should not be reached by accident.
+    warnOnPresignedDownloadsWithRestrictedRoles(config.s3, config.file);
 
     // Check secrets
     const jwtConfig = config.jwt;
@@ -593,6 +609,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {
@@ -688,6 +719,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {
@@ -800,6 +846,21 @@ export class CoreModule implements NestModule {
             cors,
             installSubscriptionHandlers: true,
             subscriptions: {
+              // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
+              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // are the only place where a whole WS operation is reachable as one call. They must sit
+              // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
+              // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
+              // silently dropped.
+              //
+              // Without them a WS operation runs with NO `RequestContext` at all — no Express
+              // middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a
+              // subscription context — and `mongooseTenantPlugin` reads "no context" as "system
+              // operation, no filter". A tenant-scoped read while delivering a subscription message
+              // therefore returned EVERY tenant's rows, with the plugin's safety net unable to
+              // notice. HTTP does not pass through these (Apollo runs its own pipeline).
+              execute: buildRequestContextAwareExecute(),
+              subscribe: buildRequestContextAwareSubscribe(),
               'graphql-ws': {
                 context: ({ extra }) => extra,
                 onConnect: async (context: Context<any, any>) => {

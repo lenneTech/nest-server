@@ -56,6 +56,27 @@ class TenantItem {
 const TenantItemSchema = SchemaFactory.createForClass(TenantItem);
 
 // =============================================================================
+// Test Schema: TenantSecret — a SECOND tenant-scoped collection.
+//
+// One collection cannot show a cross-collection leak: the plugin's $match is
+// prepended to the SOURCE collection's pipeline, so the question is what happens
+// to a $lookup / $unionWith / $graphLookup that reaches into ANOTHER one.
+// =============================================================================
+@Schema({ timestamps: true })
+class TenantSecret {
+  @Prop({ type: String })
+  tenantId: string;
+
+  @Prop({ type: String, required: true })
+  diagnosis: string;
+
+  @Prop({ type: String, required: true })
+  ownerName: string;
+}
+
+const TenantSecretSchema = SchemaFactory.createForClass(TenantSecret);
+
+// =============================================================================
 // Test Schema: GlobalItem (no tenantId → plugin ignores)
 // =============================================================================
 @Schema({ timestamps: true })
@@ -192,6 +213,14 @@ class TestController {
     return { ok: true, tenantId };
   }
 
+  // A project's own per-tenant admin role — the documented way to express "admin of THIS tenant",
+  // distinct from the global RoleEnum.ADMIN. Must keep working unchanged.
+  @Get('tenant-admin-only')
+  @Roles('tenantAdmin')
+  tenantAdminOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
   @Get('moderator-only')
   @Roles('moderator')
   moderatorOnly(@CurrentTenant() tenantId: string) {
@@ -231,6 +260,7 @@ const TEST_DB_URI = deriveTestDbUri('tg');
     MongooseModule.forFeature([
       { name: 'TenantMember', schema: TenantMemberSchema },
       { name: TenantItem.name, schema: TenantItemSchema },
+      { name: TenantSecret.name, schema: TenantSecretSchema },
       { name: GlobalItem.name, schema: GlobalItemSchema },
     ]),
   ],
@@ -1306,6 +1336,271 @@ describe('CoreTenantGuard (e2e)', () => {
       .expect(403);
   });
 
+  // =========================================================================
+  // L) Data isolation: aggregation stages that reach into ANOTHER collection
+  //
+  // The plugin prepends a $match to the SOURCE collection's pipeline. That says
+  // nothing about $lookup / $unionWith / $graphLookup, which read a DIFFERENT
+  // collection whose own `aggregate` hook never fires — the join happens inside
+  // the source pipeline. For tenant-scoped medical data that is the difference
+  // between "one tenant's records" and "everyone's".
+  // =========================================================================
+  describe('L) cross-collection aggregation stages', () => {
+    let secretModel: Model<TenantSecret>;
+
+    beforeAll(() => {
+      secretModel = app.get<Model<TenantSecret>>(getModelToken(TenantSecret.name));
+    });
+
+    beforeEach(async () => {
+      await RequestContext.runWithBypassTenantGuard(async () => {
+        await secretModel.deleteMany({});
+        await tenantItemModel.deleteMany({});
+        await secretModel.create([
+          { diagnosis: 'own-diagnosis', ownerName: 'A', tenantId: TENANT_A },
+          { diagnosis: 'FOREIGN-diagnosis', ownerName: 'B', tenantId: TENANT_B },
+        ]);
+        await tenantItemModel.create({ name: 'a-item', tenantId: TENANT_A });
+      });
+    });
+
+    afterEach(async () => {
+      await RequestContext.runWithBypassTenantGuard(async () => {
+        await secretModel.deleteMany({});
+        await tenantItemModel.deleteMany({});
+      });
+    });
+
+    /** Tenant A's context — what a request from tenant A sees. */
+    const asTenantA = <T>(fn: () => Promise<T>): Promise<T> =>
+      RequestContext.run({ currentUser: { id: USER_ID, roles: [] }, tenantId: TENANT_A } as any, fn);
+
+    /**
+     * @regression   11.35.0 — mongooseTenantPlugin prepended $match to the SOURCE collection only.
+     *   $lookup / $unionWith / $graphLookup read a DIFFERENT collection whose own aggregate hook
+     *   never fires, so an aggregation shaped like an ordinary report returned every tenant's rows
+     *   from the joined collection.
+     * @seen-failing Drop the secureCrossCollectionStages() call from the aggregate hook in
+     *   src/core/common/plugins/mongoose-tenant.plugin.ts — registered as mutation
+     *   `aggregation-joins-cross-tenant` in tests/regression-mutations.json.
+     */
+
+    it('does not leak another tenant through $lookup', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            {
+              $lookup: {
+                as: 'secrets',
+                from: secretModel.collection.name,
+                pipeline: [{ $project: { diagnosis: 1 } }],
+              },
+            },
+          ])
+          .exec(),
+      );
+
+      const leaked = (result[0]?.secrets ?? []).map((s: any) => s.diagnosis);
+      expect(leaked, `$lookup returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('does not leak another tenant through $unionWith', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([{ $unionWith: { coll: secretModel.collection.name } }])
+          .exec(),
+      );
+
+      const leaked = result.map((r: any) => r.diagnosis).filter(Boolean);
+      expect(leaked, `$unionWith returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('does not leak another tenant through $graphLookup', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            {
+              $graphLookup: {
+                as: 'chain',
+                connectFromField: 'ownerName',
+                connectToField: 'ownerName',
+                from: secretModel.collection.name,
+                startWith: '$name',
+              },
+            },
+          ])
+          .exec(),
+      );
+
+      const leaked = (result[0]?.chain ?? []).map((s: any) => s.diagnosis);
+      expect(leaked, `$graphLookup returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('refuses estimatedDocumentCount inside a tenant context, but allows countDocuments', async () => {
+      // estimatedDocumentCount reads collection metadata, so MongoDB ignores any filter — there is
+      // nothing to inject and an unchanged result would expose every tenant's row count.
+      await expect(asTenantA(() => secretModel.estimatedDocumentCount().exec())).rejects.toThrow(
+        /cannot be tenant-filtered/,
+      );
+
+      // The filtered equivalent stays available and sees only the own tenant.
+      await expect(asTenantA(() => secretModel.countDocuments().exec())).resolves.toBe(1);
+    });
+
+    it('still returns the OWN tenant rows through a joined stage', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            { $lookup: { as: 'secrets', from: secretModel.collection.name, pipeline: [] } },
+          ])
+          .exec(),
+      );
+
+      const own = (result[0]?.secrets ?? []).map((s: any) => s.diagnosis);
+      expect(own, 'the join must still return the tenant OWN rows').toContain('own-diagnosis');
+    });
+  });
+
+  // =========================================================================
+  // K) Tenant boundary: a membership role must never confer GLOBAL authority
+  //
+  // The whole point of tenant separation is that a customer holds power INSIDE
+  // their tenant and nowhere else. Membership roles are customer-assigned free
+  // text (addMember takes any non-empty string), so if a role name is compared
+  // by plain string equality against a FRAMEWORK role, whoever may manage
+  // members can mint global authority for themselves.
+  //
+  // Two distinct authority levels must stay separate:
+  //   - global admin  → RoleEnum.ADMIN in user.roles (all tenants)
+  //   - tenant admin  → a membership role such as 'tenantAdmin' / 'spaceAdmin'
+  // =========================================================================
+  describe('K) membership roles must not grant global authority', () => {
+    /**
+     * @regression   11.35.0 — the header path checked required roles against membership.role by
+     *   plain string comparison, so a member whose tenant role was literally 'admin' satisfied
+     *   @Roles(RoleEnum.ADMIN) — the GLOBAL platform role. Anyone who may manage members (a tenant
+     *   owner, i.e. a customer) could mint platform-wide admin access for themselves.
+     * @seen-failing Drop the GLOBAL_ONLY_ROLES split in resolveGlobalAndTenantRoles in
+     *   src/core/modules/tenant/core-tenant.helpers.ts — registered as mutation
+     *   `tenant-role-grants-global-admin` in tests/regression-mutations.json.
+     */
+    it('does not accept a membership role named "admin" as the global ADMIN role', async () => {
+      // A tenant owner assigns the literal framework role name as a membership role.
+      await memberModel.create({
+        role: RoleEnum.ADMIN,
+        status: TenantMemberStatus.ACTIVE,
+        tenant: TENANT_A,
+        user: USER_ID,
+      });
+
+      // The user holds NO global role — X-Test-User-Roles is deliberately absent.
+      await request(app.getHttpServer())
+        .get('/admin-fallback/admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', USER_ID)
+        .expect(403);
+    });
+
+    /**
+     * The counterpart, and the reason the fix must not be a blanket ban: a REAL global admin
+     * keeps full access to every tenant. That is the documented model — global admin via
+     * user.roles, per-tenant admin via a membership role like 'tenantAdmin'.
+     */
+    it('still grants a real global admin (user.roles) access to every tenant', async () => {
+      // Not a member of TENANT_A at all.
+      const res = await request(app.getHttpServer())
+        .get('/admin-fallback/admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', ADMIN_USER_ID)
+        .set('X-Test-User-Roles', RoleEnum.ADMIN)
+        .expect(200);
+
+      expect(res.body.tenantId).toBe(TENANT_A);
+    });
+
+    /**
+     * And the project's own tenant-admin role keeps working exactly as before — the fix separates
+     * the two authority levels, it does not restrict what a tenant may call its own roles.
+     */
+    it('leaves a project-defined tenant admin role (tenantAdmin) working', async () => {
+      await tenantService.addMember(TENANT_A, USER_ID, 'tenantAdmin');
+
+      const res = await request(app.getHttpServer())
+        .get('/test/tenant-admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', USER_ID)
+        .expect(200);
+
+      expect(res.body.tenantId).toBe(TENANT_A);
+    });
+
+    /**
+     * Field-level @Restricted has the same defect through a different code path: checkRestricted
+     * passed the UNFILTERED required-roles list into checkRoleAccess, where a non-hierarchy role
+     * matches by exact string. So a membership role literally named 's_self' satisfied every
+     * ownership-restricted field — on ARBITRARY records, since no ownership is compared.
+     *
+     * @regression   11.35.0 — see above; the guard already filtered system roles at its own call
+     *   site (checkableRoles), the decorator did not.
+     * @seen-failing Remove the system-role filter from the checkRoleAccess call in
+     *   src/core/common/decorators/restricted.decorator.ts — registered as mutation
+     *   `restricted-decorator-accepts-system-tenant-role` in tests/regression-mutations.json.
+     */
+    it('does not let a membership role named "s_self" satisfy @Restricted(S_SELF)', () => {
+      class VictimRecord {
+        id = 'victim-9';
+
+        @Restricted(RoleEnum.S_SELF)
+        ownerOnlyField = 'owner-secret';
+      }
+
+      const attacker = { id: 'attacker-1', roles: [] as string[] };
+      const record = new VictimRecord();
+
+      // Active tenant context whose membership role is literally the system role name.
+      const context: IRequestContext = {
+        currentUser: attacker,
+        tenantId: TENANT_A,
+        tenantRole: RoleEnum.S_SELF,
+      } as unknown as IRequestContext;
+
+      const result = RequestContext.run(context, () =>
+        checkRestricted(record, attacker as any, { throwError: false }),
+      );
+
+      // Ownership was never established — attacker.id !== record.id — so the field must be stripped.
+      expect(result.ownerOnlyField).toBeUndefined();
+    });
+
+    it('still honours @Restricted(S_SELF) for the actual owner', () => {
+      class OwnRecord {
+        id = 'owner-1';
+
+        @Restricted(RoleEnum.S_SELF)
+        ownerOnlyField = 'owner-secret';
+      }
+
+      const owner = { id: 'owner-1', roles: [] as string[] };
+      const record = new OwnRecord();
+
+      const result = RequestContext.run({ currentUser: owner } as unknown as IRequestContext, () =>
+        checkRestricted(record, owner as any, { throwError: false }),
+      );
+
+      expect(result.ownerOnlyField).toBe('owner-secret');
+    });
+
+    it('rejects a system role as a membership role at assignment time', async () => {
+      await expect(tenantService.addMember(TENANT_B, USER_ID, RoleEnum.S_SELF)).rejects.toThrow(/system role/i);
+      await expect(tenantService.addMember(TENANT_B, USER_ID, RoleEnum.ADMIN)).rejects.toThrow(/global role/i);
+    });
+  });
 });
 
 // =============================================================================
@@ -3303,4 +3598,5 @@ describe('CoreTenantGuard: BetterAuth resolver subclass auto-skip', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.tenantId).toBe(TENANT_R);
   });
+
 });

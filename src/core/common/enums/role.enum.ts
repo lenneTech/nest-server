@@ -60,3 +60,119 @@ export enum RoleEnum {
   // User must be logged in (see context user, e.g. @CurrentUser)
   S_USER = 's_user',
 }
+
+/**
+ * Prefix that marks a role as a system role (runtime-context check, never a stored role).
+ *
+ * This is the single source of truth for the prefix. Anything deriving the system-role rule —
+ * guards, the `@Restricted` evaluation, the storage guards — must build on it rather than
+ * hard-coding `'s_'` again.
+ */
+export const SYSTEM_ROLE_PREFIX = 's_';
+
+/**
+ * Is this role a system role, by the exact rule the runtime checks use?
+ *
+ * Case-SENSITIVE on purpose: `hasRole()` and `checkRoleAccess()` compare role strings exactly,
+ * so `'S_SELF'` is a different string from `'s_self'` and never grants anything. Widening this
+ * to case-insensitive would make the guards treat a legitimately-named project role such as
+ * `'S_Manager'` as a system role and change access decisions.
+ *
+ * Use this for RUNTIME checks. To decide whether a value may be STORED in `user.roles`, use
+ * {@link looksLikeSystemRole} — that question deserves the stricter, defensive answer.
+ *
+ * Declared as a hoisted `function` (not a `const` arrow) so it stays temporal-dead-zone immune
+ * on any import cycle — see `.claude/rules/architecture.md` → "DI Token Placement (SWC-Safe)".
+ */
+export function isSystemRole(role: string): boolean {
+  return typeof role === 'string' && role.startsWith(SYSTEM_ROLE_PREFIX);
+}
+
+/**
+ * Could this value be mistaken for a system role once stored in `user.roles`?
+ *
+ * Deliberately BROADER than {@link isSystemRole}: trims surrounding whitespace and ignores case.
+ * A stored `' s_self'` or `'S_SELF'` grants nothing today, because `hasRole()` compares exactly —
+ * but that is an accident of the comparison, not a decision. Both become live the moment anything
+ * normalizes roles (a Mongoose `trim: true`, a CSV/LDAP import, a project sanitizer), and both
+ * pass an eyeball review as legitimate roles in the meantime.
+ *
+ * This is the predicate the storage guards use. It is intentionally strict enough to also reject
+ * a project role that merely happens to start with `s_` (e.g. `'s_manager'`) — the framework
+ * cannot tell those apart from a system role, and a false rejection is recoverable by renaming
+ * while a false acceptance is a silent authorization hole.
+ */
+export function looksLikeSystemRole(role: unknown): boolean {
+  return typeof role === 'string' && role.trim().toLowerCase().startsWith(SYSTEM_ROLE_PREFIX);
+}
+
+/**
+ * Roles that carry GLOBAL, platform-wide authority and can therefore never be satisfied by a
+ * tenant membership role.
+ *
+ * The distinction exists because membership roles are customer-assigned free text: `addMember()`
+ * takes any non-empty string, and whoever may manage members is typically a tenant owner — a
+ * customer. If a membership role were compared by plain string equality against a framework role,
+ * that customer could mint platform-wide authority for themselves simply by naming their tenant
+ * role `'admin'`.
+ *
+ * The two levels are meant to be expressed separately:
+ * - **global admin** → `RoleEnum.ADMIN` in `user.roles` — access to every tenant
+ * - **tenant admin** → a membership role such as `'tenantAdmin'` / `'spaceAdmin'` — one tenant only
+ *
+ * Required roles from this set are always resolved against `user.roles`, never against
+ * `membership.role`, no matter what the tenant header says.
+ */
+export const GLOBAL_ONLY_ROLES: readonly string[] = [RoleEnum.ADMIN];
+
+/**
+ * Is this a role that only the platform may grant (never a tenant)?
+ *
+ * Hoisted `function` for the same temporal-dead-zone reason as {@link isSystemRole}.
+ */
+export function isGlobalOnlyRole(role: string): boolean {
+  return typeof role === 'string' && GLOBAL_ONLY_ROLES.includes(role);
+}
+
+/**
+ * Could this value be mistaken for a global-only role once stored?
+ *
+ * Stands to {@link isGlobalOnlyRole} exactly as {@link looksLikeSystemRole} stands to
+ * {@link isSystemRole}: the runtime rule is exact (so `'ADMIN'` never grants anything), while the
+ * storage rule is defensive, because `' Admin '` reads as legitimate in a members list and becomes
+ * live the moment anything normalizes role strings.
+ */
+export function looksLikeGlobalOnlyRole(role: unknown): boolean {
+  if (typeof role !== 'string') {
+    return false;
+  }
+  const normalized = role.trim().toLowerCase();
+  return GLOBAL_ONLY_ROLES.some((globalRole) => globalRole.toLowerCase() === normalized);
+}
+
+/**
+ * Is this value unusable as a tenant MEMBERSHIP role?
+ *
+ * True for system roles (which are runtime-context checks, not stored roles) and for global-only
+ * roles (which would cross the tenant boundary). Used to refuse such values at assignment time, so
+ * the dangerous membership never comes into existence in the first place.
+ *
+ * Uses the DEFENSIVE variant of both predicates — see {@link looksLikeSystemRole} and
+ * {@link looksLikeGlobalOnlyRole} for why storage deserves the stricter answer than runtime.
+ */
+export function isForbiddenMembershipRole(role: unknown): boolean {
+  return looksLikeSystemRole(role) || looksLikeGlobalOnlyRole(role);
+}
+
+/**
+ * `class-validator` `@Matches()` pattern that ACCEPTS everything {@link looksLikeSystemRole}
+ * rejects, and vice versa.
+ *
+ * A negative lookahead, so a value is valid exactly when it does NOT begin (after optional leading
+ * whitespace, case-insensitively) with the system-role prefix. Kept next to the predicate it
+ * mirrors so the two cannot drift; `@Matches` needs a pattern and cannot take a function.
+ *
+ * Anchored with no quantifier over the input, so it is linear in input length — a 100 KB value
+ * costs the same as a 10-character one, with no backtracking to exploit.
+ */
+export const SYSTEM_ROLE_REJECT_PATTERN = new RegExp(`^(?!\\s*${SYSTEM_ROLE_PREFIX})`, 'i');

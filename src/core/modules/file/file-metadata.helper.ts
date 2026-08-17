@@ -74,17 +74,25 @@ export async function findMetadataById(
 }
 
 /**
- * Find one metadata document by filename.
+ * Find one metadata document by filename — the MOST RECENT file with that name.
  *
- * Resolves the FIRST match — filenames are not unique in any of these stores, and
- * are client-supplied on both the multer and the tus path. Prefer the id lookup
- * wherever the caller has an id.
+ * Filenames are unique in NO store and are client-supplied on both the multer and the tus path, so
+ * a by-name lookup is inherently ambiguous: prefer the id lookup wherever the caller has an id.
+ * What must not be ambiguous is WHICH of the candidates every by-name path picks — an ownership
+ * rule reads one document and the download must serve that same one.
+ *
+ * A bare `findOne({ filename })` returns natural order, which is neither documented nor stable
+ * under compaction. Newest-first matches GridFS's own by-name revision semantics
+ * (`openDownloadStreamByName` defaults to `revision: -1`), so all three storage drivers answer the
+ * same question the same way; `_id` breaks the tie for two files written in one millisecond.
  */
 export async function findMetadataByName(
   collection: FileCollection,
   filename: string,
 ): Promise<FileMetadataInfo | null> {
-  return (await collection.findOne({ filename })) as FileMetadataInfo | null;
+  // `uploadDate` FIRST — MongoDB applies sort keys in document order, so leading with `_id` would
+  // make the tie-break the primary key.
+  return (await collection.findOne({ filename }, { sort: { uploadDate: -1, _id: -1 } })) as FileMetadataInfo | null;
 }
 
 /** Find metadata documents by filter */

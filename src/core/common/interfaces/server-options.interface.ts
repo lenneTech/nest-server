@@ -856,6 +856,41 @@ export interface IErrorCode {
  */
 export interface IFileConfig {
   /**
+   * WHICH PROJECT CLASS this deployment is — the per-file rule, as a declaration instead of code.
+   *
+   * The role knobs below are the coarse audience filter ("may this caller reach the route at all").
+   * They cannot express "…but only their own", because that sentence needs data. That is what
+   * `CoreFileService.checkRights()` is for — and shipping it only as an `@example` to copy went wrong
+   * twice in this framework's own history, both times permissively. So the four shapes are presets:
+   *
+   * | value             | project class                                                    |
+   * |-------------------|------------------------------------------------------------------|
+   * | `'custom'`        | you override `checkRights()` yourself — **the default**, the framework abstains |
+   * | `'public'`        | open: anyone may read and write; the role gate is the whole policy |
+   * | `'authenticated'` | login-restricted: every signed-in user may use every file         |
+   * | `'owner'`         | per-user: only the uploader, plus ADMIN                           |
+   * | `'tenant'`        | per-tenant: only within one's own validated tenant, plus ADMIN    |
+   *
+   * `'owner'` and `'tenant'` read `metadata.ownerId` / `metadata.tenantId`, which the service STAMPS
+   * as it writes once one of them is active — so an upload through `CoreFileService` is authorizable
+   * without any project code. Files written BEFORE the preset was enabled carry no such metadata and
+   * are therefore ADMIN-only; that is the fail-closed direction, and a one-off backfill fixes it.
+   *
+   * Two things this setting never does: it never overrides an explicit `checkRights()` override (the
+   * override IS the rule), and it never widens the role gate. `'public'` still requires
+   * `downloadRoles: [S_EVERYONE]` — declaring the class and opening the gate are two decisions on
+   * purpose.
+   *
+   * An UNKNOWN value resolves to `'owner'`, not to `'custom'`: a typo means somebody believes they
+   * have an ownership rule, and confirming that belief is the one error that cannot be seen from
+   * outside.
+   *
+   * @default 'custom'
+   * @since 11.35.0
+   */
+  access?: 'authenticated' | 'custom' | 'owner' | 'public' | 'tenant';
+
+  /**
    * Roles allowed to DELETE files (`deleteFile` mutation).
    *
    * Kept separate from `uploadRoles` on purpose: "everyone signed in may upload"
@@ -996,9 +1031,28 @@ export interface IMultiTenancy {
 
   /**
    * Model names (NOT collection names) to exclude from tenant filtering.
-   * These schemas will not have tenant isolation applied.
-   * The TenantMember model is always excluded automatically.
-   * @example ['User', 'Session']
+   *
+   * **This is an OFF SWITCH for data isolation, per model.** A listed schema gets no tenant filter at
+   * all: every query on it sees every tenant's rows. That is correct for a genuinely global
+   * collection, and it is a data leak for anything else.
+   *
+   * A schema is only affected if it HAS a `tenantId` field — the plugin attaches to no other. So
+   * listing a model that declares `tenantId` overrides its author's intent, and since 11.35.0 the
+   * plugin logs a warning naming the model when that happens. **Do not list a model just because a
+   * `populate()` returns null** — that is the isolation working; scope the reference instead, or
+   * confirm the referenced collection really is global.
+   *
+   * `User` is the one to think hardest about. It belongs here only when users are GLOBAL (one account
+   * reaches several tenants, memberships carry the scope). If your users are per-tenant — they have a
+   * `tenantId` — listing `User` switches isolation off for the account collection, which is usually
+   * the last place you want it off. Earlier versions of this doc suggested `['User', 'Session']` as an
+   * example; that suggestion is withdrawn, because it is only right for the global-user model.
+   *
+   * The membership model (`multiTenancy.membershipModel`, default `TenantMember`) is added
+   * automatically and needs no entry — membership is tenant-spanning by design.
+   *
+   * @default []
+   * @example [] // start here; add a model only when you can say why it is global
    */
   excludeSchemas?: string[];
 
@@ -1039,22 +1093,85 @@ export interface IMultiTenancy {
    * @default { member: 1, manager: 2, owner: 3 }
    * @since 11.21.0
    *
+   * SECURITY: never name a tenant role after a GLOBAL role. `RoleEnum.ADMIN` (`'admin'`) and every
+   * other member of `GLOBAL_ONLY_ROLES` is rejected here — a tenant role of that name used to
+   * satisfy `@Roles(RoleEnum.ADMIN)` in tenant context, i.e. a customer could grant themselves
+   * platform authority. Use a tenant-specific name (`tenantAdmin`, `spaceAdmin`) instead, and
+   * declare your own platform-wide roles in {@link globalOnlyRoles}. The boot check refuses a
+   * hierarchy that violates this.
+   *
    * @example
    * ```typescript
    * // config.env.ts
    * multiTenancy: {
-   *   roleHierarchy: { viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 }
+   *   roleHierarchy: { viewer: 1, editor: 2, manager: 2, tenantAdmin: 3, owner: 4 }
    * }
    *
    * // roles.ts
    * import { createHierarchyRoles } from '@lenne.tech/nest-server';
-   * export const HR = createHierarchyRoles({ viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 });
+   * export const HR = createHierarchyRoles({ viewer: 1, editor: 2, manager: 2, tenantAdmin: 3, owner: 4 });
    *
    * // resolver.ts
-   * @Roles(HR.EDITOR) // requires level >= 2 (editor, manager, admin, owner)
+   * @Roles(HR.EDITOR) // requires level >= 2 (editor, manager, tenantAdmin, owner)
    * ```
    */
   roleHierarchy?: Record<string, number>;
+
+  /**
+   * Project-defined roles that carry GLOBAL (platform-wide) authority.
+   *
+   * `RoleEnum.ADMIN` is always treated this way; this option extends the set with your own.
+   * A role listed here is ALWAYS resolved against `user.roles` and NEVER against a tenant
+   * membership role — no matter what the `X-Tenant-Id` header says.
+   *
+   * **Why this matters.** Membership roles are customer-assigned free text, and in tenant context
+   * required roles are otherwise compared against `membership.role`. Without this list, a global
+   * endpoint guarded by `@Roles('auditor')` is reachable by any tenant member whose membership role
+   * happens to be `'auditor'` — granted by their own tenant owner, not by you.
+   *
+   * Declaring a role here is therefore a security statement: "only the platform may grant this".
+   * A role that appears BOTH here and in {@link roleHierarchy} fails the boot check, because it
+   * would have to be resolved against two different sources at once.
+   *
+   * @default [] (only RoleEnum.ADMIN is global)
+   * @since 11.35.0
+   *
+   * @example
+   * ```typescript
+   * multiTenancy: {
+   *   roleHierarchy:   { member: 1, tenantAdmin: 2, owner: 3 },  // per tenant
+   *   globalOnlyRoles: ['auditor', 'support'],                    // platform-wide
+   * }
+   * ```
+   */
+  globalOnlyRoles?: string[];
+
+  /**
+   * Refuse membership roles that are not declared anywhere (deny by default).
+   *
+   * When `true`, `addMember()` / `updateMemberRole()` accept only roles present in
+   * {@link roleHierarchy} or {@link additionalMembershipRoles}. When `false` (default, backward
+   * compatible), any non-reserved string is accepted.
+   *
+   * An undeclared membership role can never GRANT anything either way — the guards only match
+   * declared tenant roles — but with this on, the mistake surfaces as a 400 at assignment time
+   * instead of as a membership that silently authorizes nothing.
+   *
+   * @default false
+   * @since 11.35.0
+   */
+  strictMembershipRoles?: boolean;
+
+  /**
+   * Membership roles that are valid but carry no hierarchy level (exact-match roles).
+   *
+   * Only consulted when {@link strictMembershipRoles} is `true`. Use it for roles like `'auditor'`
+   * that are meaningful per tenant but do not sit in the level ordering.
+   *
+   * @default []
+   * @since 11.35.0
+   */
+  additionalMembershipRoles?: string[];
 
   /**
    * TTL in milliseconds for the tenant guard's in-memory membership cache.
@@ -2210,7 +2327,8 @@ export interface IServerOptions {
    *
    * // Enable with excluded schemas and custom header
    * multiTenancy: {
-   *   excludeSchemas: ['User', 'Session'],
+   *   // excludeSchemas turns isolation OFF per model — see IMultiTenancy.excludeSchemas
+   *   excludeSchemas: [],
    *   headerName: 'x-tenant-id',
    * },
    * ```
@@ -2852,6 +2970,20 @@ export interface IS3Config {
   presignedDownloads?:
     | boolean
     | {
+        /**
+         * Explicitly disable while keeping the settings around — the repo-wide
+         * "presence implies enabled, unless `enabled: false`" pattern.
+         *
+         * It is spelled out in the type because it is REACHABLE WITHOUT THE TYPE: `NEST_SERVER_CONFIG`
+         * and the `NSC__*` variables deliver plain JSON, so `{"enabled": false}` could always be set —
+         * and `CoreS3Service` used to read any object as "enabled", which meant presigned downloads
+         * came on while the boot warning (which does honour the key) stayed silent. Two code paths
+         * answering one question differently is how a bearer-capability download gets switched on by
+         * accident.
+         * @default true (when the config object is present)
+         */
+        enabled?: boolean;
+
         /**
          * Presigned URL validity in seconds.
          *

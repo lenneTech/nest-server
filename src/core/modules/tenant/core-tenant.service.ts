@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, Optional } 
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
 import { RequestContext } from '../../common/services/request-context.service';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
@@ -101,6 +102,7 @@ export class CoreTenantService {
       throw new BadRequestException('userId must not be empty');
     }
     const effectiveRole = role ?? this.getDefaultRole();
+    assertAssignableMembershipRole(effectiveRole);
 
     // Check for existing membership
     const existing = await this.getMembership(tenantId, userId);
@@ -188,6 +190,7 @@ export class CoreTenantService {
     if (!role?.trim()) {
       throw new BadRequestException('role must not be empty');
     }
+    assertAssignableMembershipRole(role);
     const highestRole = this.getHighestRole();
 
     // If demoting from highest role, ensure it's not the last one
@@ -240,5 +243,58 @@ export class CoreTenantService {
         }
       }
     });
+  }
+}
+
+/**
+ * Refuse a membership role that would cross the tenant boundary.
+ *
+ * Membership roles are customer-assigned free text, and whoever may manage members is typically a
+ * tenant owner — a customer. Two families of name must never become one:
+ *
+ * - **system roles** (`s_*`) are runtime-context questions ("is this the owner of the record?"),
+ *   not stored roles. A membership named `s_self` used to satisfy `@Restricted(S_SELF)` on
+ *   arbitrary records.
+ * - **global-only roles** (`RoleEnum.ADMIN`) are platform authority. A membership named `admin`
+ *   used to satisfy `@Roles(RoleEnum.ADMIN)` — the global role — inside tenant context.
+ *
+ * This is the SECOND layer, not the protection itself. The guards resolve each required role
+ * against its own source (`user.roles` vs `membership.role`), so an already-stored dangerous name
+ * is inert even without this check — which matters, because a future `RoleEnum` addition would
+ * otherwise turn every pre-existing membership of that name into a hole retroactively. This check
+ * only stops new ones from being created, and gives a clear error instead of silent inertness.
+ */
+export function assertAssignableMembershipRole(role: string): void {
+  if (looksLikeSystemRole(role)) {
+    throw new BadRequestException(
+      `A system role (${SYSTEM_ROLE_PREFIX}*) must never be used as a tenant membership role: ${role}`,
+    );
+  }
+  if (looksLikeGlobalOnlyRole(role)) {
+    throw new BadRequestException(
+      `"${role}" is a global role and must never be used as a tenant membership role — ` +
+        'use a tenant-specific name such as "tenantAdmin" instead',
+    );
+  }
+
+  // Deny by default, when enabled: only roles the project actually declared.
+  //
+  // An undeclared role can never GRANT anything either way — the guards match only declared tenant
+  // roles — so this does not change access decisions. What it changes is WHEN the mistake surfaces:
+  // as a 400 at assignment time, instead of as a membership that silently authorizes nothing while
+  // looking perfectly fine in a members list.
+  const config = ConfigService.configFastButReadOnly?.multiTenancy;
+  if (config?.strictMembershipRoles) {
+    const declared = new Set([
+      ...Object.keys(config.roleHierarchy ?? DEFAULT_ROLE_HIERARCHY),
+      ...(config.additionalMembershipRoles ?? []),
+    ]);
+    if (!declared.has(role)) {
+      throw new BadRequestException(
+        `"${role}" is not a declared tenant role. Declared: [${[...declared].sort().join(', ')}]. ` +
+          'Add it to multiTenancy.roleHierarchy or multiTenancy.additionalMembershipRoles, ' +
+          'or disable multiTenancy.strictMembershipRoles.',
+      );
+    }
   }
 }

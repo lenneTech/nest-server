@@ -22,11 +22,12 @@ import {
 import { GraphQLScalarType, isEnumType } from 'graphql';
 
 import { RoleEnum } from '../enums/role.enum';
+// Re-exported below so no import path broke. The map moved into an import-free leaf because
+// `restricted.decorator` — which this file imports — now READS it; see that leaf's docblock.
+import { nestedTypeRegistry } from './nested-type.registry';
 import { Restricted, RestrictedType } from './restricted.decorator';
 
-// Registry to store nested type information for validation
-// Key: `${className}.${propertyName}`, Value: nested type constructor
-export const nestedTypeRegistry = new Map<string, any>();
+export { nestedTypeRegistry, resolveNestedType } from './nested-type.registry';
 
 /**
  * Registry to map enum objects to their names.

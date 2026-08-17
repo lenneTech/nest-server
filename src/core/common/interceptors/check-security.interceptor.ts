@@ -3,6 +3,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { getContextData } from '../helpers/context.helper';
+import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker';
 import { getStringIds } from '../helpers/db.helper';
 import { processDeep } from '../helpers/input.helper';
 import { ConfigService } from '../services/config.service';
@@ -66,7 +67,9 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       objectData = data;
 
       // Check if data already checked
-      if (this.config.noteCheckedObjects && data?._objectAlreadyCheckedForRestrictions) {
+      // Recognised by the framework MARKER, not by a truthy property of that name — see
+      // restrictions-checked.marker.ts for why a document must not be able to skip securityCheck().
+      if (this.config.noteCheckedObjects && hasRestrictionsCheckedMarker(data)) {
         return data;
       }
 

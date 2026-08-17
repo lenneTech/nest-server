@@ -42,7 +42,7 @@ multiTenancy: {
   headerName: 'x-tenant-id',        // Header name (default: 'x-tenant-id')
   membershipModel: 'TenantMember',  // Mongoose model name (default)
   adminBypass: true,                 // System admins bypass membership (default: true)
-  excludeSchemas: ['User', 'Session'], // Schemas without tenant filtering
+  excludeSchemas: [], // OFF SWITCH for isolation, per model — see the warning below
   cacheTtlMs: 30000,                // Membership cache TTL in ms (default: 30s, 0 = disabled)
   roleHierarchy: {                   // Custom role hierarchy (default below)
     member: 1,
@@ -54,6 +54,25 @@ multiTenancy: {
 // Pre-configured but disabled
 multiTenancy: { enabled: false },
 ```
+
+### `excludeSchemas` is an OFF SWITCH for isolation — read this before adding an entry
+
+A listed model gets **no tenant filter at all**: every query on it returns every tenant's rows. That
+is correct for a genuinely global collection and a data leak for anything else. The plugin only ever
+attaches to schemas that declare a `tenantId` field, so listing such a model overrides the intent of
+whoever declared it — since 11.35.0 that logs a warning naming the model.
+
+| Situation                                                                      | Do                                                                                                                  |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Truly global lookup table (no `tenantId`)                                      | nothing — the plugin never attached                                                                                 |
+| Global USERS: one account reaches several tenants, memberships carry the scope | `excludeSchemas: ['User']` is correct                                                                               |
+| Per-tenant users: `User` has a `tenantId`                                      | do **not** list `User` — that switches isolation off for the account collection                                     |
+| `populate()` returns null across tenants                                       | that is the isolation working. Scope the reference, or confirm the target really is global — do not silence it here |
+| Membership model (`TenantMember`)                                              | added automatically, no entry needed                                                                                |
+
+Earlier versions of this README suggested `excludeSchemas: ['User', 'Session']` as an example. That
+suggestion is withdrawn: it is only right for the global-user model, and it was being copied into
+projects whose users are per-tenant.
 
 ## Components
 

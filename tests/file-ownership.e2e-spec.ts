@@ -12,6 +12,7 @@ import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { IServerOptions } from '../src/core/common/interfaces/server-options.interface';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { FILESYSTEM_FILES_COLLECTION } from '../src/core/modules/file/filesystem-file.helper';
+import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { FileService } from '../src/server/modules/file/file.service';
 import { User } from '../src/server/modules/user/user.model';
 import { ServerModule } from '../src/server/server.module';
@@ -357,5 +358,92 @@ describe('Per-file ownership via checkRights (e2e)', () => {
 
     // Gone for real, not merely reported as gone.
     expect((await testHelper.download(`/files/id/${doomed.id}`, { token: alice.token })).statusCode).toBe(404);
+  });
+
+  // ===================================================================================================================
+  //  The LISTING path — the one branch the rule used to wave through
+  // ===================================================================================================================
+
+  /**
+   * THESIS: the rule that governs the downloads also governs the LISTING.
+   *
+   * `findFileInfo()` consults the same hook with `checkInputType: 'filterArgs'`, and the reference
+   * rule — the one every project copies — waved that branch through: it narrowed only `'id'` and
+   * `'filename'`. Core exposes no listing endpoint, so this was never a live hole in the framework;
+   * it was a hole in the shape projects copy, and a listing is not a harmless thing to hand over.
+   * `CoreFileInfo` carries `filename`, `length`, `uploadDate` and the `id`, so an unrestricted listing
+   * is a full INVENTORY of every tenant's uploads — and for medical data the filename frequently IS
+   * the content (`patient-mueller-diagnose.pdf`). The `id` also turns a guess into a handle, even
+   * though the per-file rule still refuses the download itself.
+   *
+   * The rule now fails closed on `'filterArgs'`, because a yes/no hook CANNOT narrow a listing: it is
+   * asked once for the whole query, not once per row. A project that wants "my files" has to force
+   * the constraint server-side, which the second case below states positively — and which is the
+   * point that makes this more than a one-line denial:
+   *
+   * **`filterArgs` is CLIENT-CONTROLLED.** A rule that inspects it to decide "is this query already
+   * narrowed to the caller?" is validating attacker input, and any such check is one filter shape away
+   * from being wrong. Override the filter; never approve it.
+   *
+   * @regression   11.35.0 — the reference `checkRights()` returned true for `checkInputType:
+   *   'filterArgs'`, so a project copying it exposed an unrestricted file inventory the moment it
+   *   surfaced `findFileInfo()`.
+   * @seen-failing Restore `options?.checkInputType !== 'filterArgs' &&` … i.e. drop the `filterArgs`
+   *   branch from `checkRights()` in `src/server/modules/file/file.service.ts` — registered as
+   *   mutation `reference-rule-allows-unrestricted-listing` in `tests/regression-mutations.json`.
+   */
+  it('refuses an unrestricted listing for a non-admin, so the inventory does not leak', async () => {
+    const bobUser = await loadUser(bob);
+    const service = app.get(FileService);
+    // Its OWN fixture: the cases above replace and delete `aliceAvatar`, so reusing it here would
+    // make both the positive and the negative assertion below depend on whether an earlier case had
+    // already removed it — and a negative assertion about a file that no longer exists is vacuous.
+    const target = await uploadAvatar(alice, 'alice-listing-target');
+
+    expect(await service.findFileInfo(undefined, { currentUser: bobUser })).toBeNull();
+
+    // ADMIN still lists everything — the rule grants that explicitly, so the refusal above cannot be
+    // explained by the listing simply being broken for everyone.
+    const adminUser = await loadUser(admin);
+    const listed = await service.findFileInfo(undefined, { currentUser: adminUser });
+    expect(listed?.map(entry => entry.filename)).toContain(target.filename);
+  });
+
+  /**
+   * THESIS: a per-user listing is expressible — by FORCING the constraint server-side.
+   *
+   * This is the pattern the denial above pushes projects towards, so it has to be shown working, not
+   * merely described. `force: true` says "the caller has already been decided about"; the narrowing
+   * is then the filter itself, built from `currentUser` and never from anything the client sent.
+   */
+  it('lists only the caller\'s own files when the filter is forced server-side', async () => {
+    const service = app.get(FileService);
+    const bobUser = await loadUser(bob);
+    const bobFile = await uploadAvatar(bob, 'bob-listing');
+    // Alice's file is created HERE, so the negative assertion is about a file that demonstrably
+    // exists at this moment. Pointing it at a fixture an earlier case may have deleted would let it
+    // pass for the wrong reason.
+    const aliceFile = await uploadAvatar(alice, 'alice-listing-foreign');
+
+    // The real `FilterArgs` shape: the ONLY way into `findFileInfo`'s query is `filter`, which
+    // `convertFilterArgsToQuery()` turns into the Mongo filter. Getting this wrong is how a
+    // "narrowed" listing silently stays unnarrowed, which is exactly what happened on the first
+    // attempt at this case — so the shape is pinned here rather than only described in a comment.
+    const ownedByBob = await service.findFileInfo(
+      {
+        filter: {
+          singleFilter: {
+            field: 'metadata.ownerId',
+            operator: ComparisonOperatorEnum.EQ,
+            value: String(bobUser.id),
+          },
+        },
+      } as any,
+      { force: true },
+    );
+    const names = ownedByBob.map(entry => entry.filename);
+
+    expect(names, 'the caller\'s own file').toContain(bobFile.filename);
+    expect(names, 'and nothing of anybody else\'s').not.toContain(aliceFile.filename);
   });
 });

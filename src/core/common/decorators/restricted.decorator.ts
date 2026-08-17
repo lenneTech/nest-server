@@ -22,17 +22,37 @@
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
 import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
 import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
-import { RoleEnum } from '../enums/role.enum';
+// isSystemRole comes from the role.enum LEAF (import-free), not from core-tenant.helpers, so this
+// adds no new import edge to a file whose TDZ-immunity is a deliberate safety property.
+import { isSystemRole, RoleEnum } from '../enums/role.enum';
 import { accessDeniedException } from '../exceptions/access-denied.exception';
+// From the import-free LEAF, never from unified-field.decorator: that file imports THIS one for
+// `@Restricted`, so reading the map from there would put this file back on an import cycle.
+import { resolveNestedType } from './nested-type.registry';
+// From an import-free LEAF: the marker is read here and in both interceptors, and this file's
+// position on zero import cycles is a defended property.
+import {
+  hasRestrictionsCheckedMarker,
+  hasUnrecognizedRestrictionsFlag,
+  RESTRICTIONS_CHECKED_KEY,
+} from './restrictions-checked.marker';
 // Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
 // imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
 import { equalIds, getIncludedIds } from '../helpers/id.helper';
 import { RequestContext } from '../services/request-context.service';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-import { checkRoleAccess } from '../../modules/tenant/core-tenant.helpers';
+import { checkRoleAccess, resolveGlobalAndTenantRoles } from '../../modules/tenant/core-tenant.helpers';
+
+export {
+  hasRestrictionsCheckedMarker,
+  hasUnrecognizedRestrictionsFlag,
+  markRestrictionsChecked,
+  RESTRICTIONS_CHECKED_KEY,
+} from './restrictions-checked.marker';
 
 /**
  * Restricted meta key
@@ -122,6 +142,66 @@ export function getRestricted(object: unknown, propertyKey?: string): Restricted
 }
 
 /**
+ * Resolve the NON-system portion of a field's required roles against the requester.
+ *
+ * Two things must be filtered before the roles reach `checkRoleAccess`, because that function
+ * matches non-hierarchy roles by exact string against a SINGLE available role — the tenant
+ * membership role, when a tenant context is active:
+ *
+ * 1. **System roles.** `S_SELF`, `S_CREATOR`, `S_VERIFIED`, `S_USER` and `S_EVERYONE` are decided
+ *    by the dedicated checks in `checkRestricted` (ownership, verification, session). Passing them
+ *    on means a membership role literally named `'s_self'` satisfies `@Restricted(S_SELF)` on
+ *    ARBITRARY records — no ownership is ever compared. `CoreTenantGuard` already filters these at
+ *    its own call site; this is the same filter for the field-level path.
+ *
+ * 2. **Global-only roles.** `RoleEnum.ADMIN` is platform authority and must be answered from
+ *    `user.roles`, never from a customer-assigned membership role.
+ *
+ * Declared as a hoisted `function` so it stays temporal-dead-zone immune — this file sits on no
+ * import cycle today and the property is defended deliberately (see `.claude/rules/architecture.md`).
+ */
+function checkFieldRoleAccess(roles: string[], user: any): boolean {
+  const { global: globalRoles, tenant: tenantRoles } = resolveGlobalAndTenantRoles(
+    roles.filter((role) => !isSystemRole(role)),
+  );
+
+  if (globalRoles.some((role) => user?.roles?.includes(role))) {
+    return true;
+  }
+
+  // The length guard is NOT redundant: checkRoleAccess returns TRUE for an empty required-roles
+  // list, so calling it with no tenant roles would unlock a field that only required a global one.
+  return tenantRoles.length > 0 && checkRoleAccess(tenantRoles, user?.roles, RequestContext.get()?.tenantRole);
+}
+
+/** Emitted at most once per process — a per-object warning on a hot path would be noise, not signal. */
+let unrecognizedFlagWarned = false;
+
+/**
+ * Warn once when an object carries `_objectAlreadyCheckedForRestrictions` without the framework marker.
+ *
+ * Declared as a hoisted `function` like everything else in this file, so it stays temporal-dead-zone
+ * immune. Uses the Nest `Logger` rather than `console.warn` for two reasons: it is the convention every
+ * other framework warning follows, and `console` output from a hot path is forwarded over vitest's
+ * worker RPC — a late one produces `Closing rpc while "onUserConsoleLog" was pending` in whichever
+ * spec happens to be tearing down. `@nestjs/common` is an external package and already in this file's
+ * transitive graph via `accessDeniedException`, so it adds no project import edge.
+ */
+function warnUnrecognizedRestrictionsFlag(data: unknown): void {
+  if (unrecognizedFlagWarned || !hasUnrecognizedRestrictionsFlag(data)) {
+    return;
+  }
+  unrecognizedFlagWarned = true;
+  new Logger('Restricted').warn(
+    `[Restricted] An object carries "${RESTRICTIONS_CHECKED_KEY}" without the framework marker, so it ` +
+      'is being CHECKED rather than skipped. Since 11.35.0 the opt-out is only honoured for objects ' +
+      'marked via markRestrictionsChecked() — a plain truthy property could arrive from the database ' +
+      'or a payload and would switch off field-level access control. If you set it deliberately, call ' +
+      'markRestrictionsChecked(obj); if this came from stored data, remove the field.',
+  );
+}
+
+/**
  * Check data for restricted properties (properties with `Restricted` decorator)
  * For special Roles and member of group checking the dbObject must be set in options
  */
@@ -150,6 +230,7 @@ export function checkRestricted(
     throwError?: boolean;
   } = {},
   processedObjects: WeakSet<object> = new WeakSet(),
+  declaredType?: any,
 ) {
   // Act like Roles handling: checkObjectItself = false & mergeRoles = true
   // For Input: throwError = true
@@ -168,15 +249,51 @@ export function checkRestricted(
   };
 
   // Primitives
-  if (!data || typeof data !== 'object' || (config.noteCheckedObjects && data._objectAlreadyCheckedForRestrictions)) {
+  // The "already checked" opt-out is recognised by the framework's MARKER, never by a truthy property
+  // of that name: nothing in src/ ever wrote the property, so a truthy one could only have come from
+  // outside — and a document carrying it disabled every field-level check for that object, silently,
+  // on the output path. See restrictions-checked.marker.ts.
+  if (!data || typeof data !== 'object' || (config.noteCheckedObjects && hasRestrictionsCheckedMarker(data))) {
     return data;
   }
+
+  // Say it out loud when the KEY is present without the marker. Two very different callers land here
+  // and they want opposite answers — a project that used to set the flag by hand has lost its opt-out,
+  // a document that carries it from a raw write has lost a bypass it should never have had. A warning
+  // states the situation without guessing which; honouring the value is what the marker exists to stop.
+  warnUnrecognizedRestrictionsFlag(data);
 
   // Prevent infinite recursion
   if (processedObjects.has(data)) {
     return data;
   }
   processedObjects.add(data);
+
+  // WHERE the restriction metadata for `data` lives.
+  //
+  // For an instance of a model class this is simply its constructor, and reading it off the object
+  // works — which is why the top level has always been checked correctly. One level down it stops
+  // working: `CoreModel.map()` is a shallow `Object.assign`, `prepareOutput()` maps only the target
+  // model, and `ResponseModelInterceptor` maps only the top-level item. So an embedded subdocument
+  // read out of MongoDB arrives as a PLAIN object whose constructor is `Object` — and `Object`
+  // carries no `@Restricted` metadata, so every nested restriction silently evaluated to "no
+  // restrictions at all" and the field was returned in full. `declaredType` closes that: the type
+  // the PARENT declared for this property, looked up in the nested-type registry.
+  //
+  // An unregistered nested type still resolves to nothing, exactly as before — the framework cannot
+  // invent a declaration. That is deliberate rather than fail-closed: nested values also legitimately
+  // hold free-form JSON, `Map`s and scalars, and refusing those would break far more than it
+  // protects. Declare nested types with `@UnifiedField({ type: () => X })` to have them enforced.
+  const metadataOwner: any =
+    data.constructor && data.constructor !== Object
+      ? data.constructor
+      : typeof declaredType === 'function'
+        ? declaredType
+        : undefined;
+  // What `Reflect.getMetadata` must walk for PROPERTY lookups: the instance when there is one, the
+  // declared class's prototype otherwise (metadata for property decorators is defined there, and
+  // Reflect traverses the prototype chain either way).
+  const metadataTarget: any = !metadataOwner || data.constructor === metadataOwner ? data : metadataOwner.prototype;
 
   // Array
   if (Array.isArray(data)) {
@@ -189,15 +306,18 @@ export function checkRestricted(
     // Per-item checks are only needed when S_CREATOR or S_SELF restrictions exist
     // (because createdBy/id differ per item).
     const sample = data[0];
-    if (
-      sample &&
-      typeof sample === 'object' &&
-      !Array.isArray(sample) &&
-      sample.constructor &&
-      sample.constructor !== Object
-    ) {
+    // The element type: the sample's own class, or — for an array of embedded subdocuments, which
+    // arrive as plain objects — the type the parent property declared. `declaredType` is the ELEMENT
+    // type here: `@UnifiedField({ isArray: true, type: () => X })` registers `X`, not `X[]`.
+    const sampleOwner: any =
+      sample && typeof sample === 'object' && !Array.isArray(sample) && sample.constructor !== Object
+        ? sample.constructor
+        : typeof declaredType === 'function'
+          ? declaredType
+          : undefined;
+    if (sample && typeof sample === 'object' && !Array.isArray(sample) && sampleOwner) {
       // Check class-level restrictions once
-      const classRestrictions = getRestricted(sample.constructor) || [];
+      const classRestrictions = getRestricted(sampleOwner) || [];
       if (classRestrictions.length) {
         const hasCreatorOrSelf = classRestrictions.some(
           (r) =>
@@ -223,7 +343,7 @@ export function checkRestricted(
           // also validates the class-level restriction as a standalone gate. With the
           // default checkObjectItself=false, class restrictions are merged into each
           // property's restrictions (properties get stripped if the class restriction denies).
-          const sampleResult = checkRestricted(sample, user, config, processedObjects);
+          const sampleResult = checkRestricted(sample, user, config, processedObjects, declaredType);
           if (sampleResult === undefined || sampleResult === null) {
             // Class-level restriction blocks access → entire array is blocked
             if (config.throwError) {
@@ -236,7 +356,7 @@ export function checkRestricted(
           // are O(1) lookups, but we still need to recurse into nested properties per item.
           const result = [sampleResult];
           for (let i = 1; i < data.length; i++) {
-            result.push(checkRestricted(data[i], user, config, processedObjects));
+            result.push(checkRestricted(data[i], user, config, processedObjects, declaredType));
           }
           if (!config.throwError && config.removeUndefinedFromResultArray) {
             return result.filter((item) => item !== undefined);
@@ -247,7 +367,7 @@ export function checkRestricted(
     }
 
     // Fallback: plain objects, mixed types, or S_CREATOR/S_SELF checks needed
-    let result = data.map((item) => checkRestricted(item, user, config, processedObjects));
+    let result = data.map((item) => checkRestricted(item, user, config, processedObjects, declaredType));
     if (!config.throwError && config.removeUndefinedFromResultArray) {
       result = result.filter((item) => item !== undefined);
     }
@@ -256,7 +376,7 @@ export function checkRestricted(
 
   // Check function
   const validateRestricted = (restricted) => {
-    if (config.noteCheckedObjects && data?._objectAlreadyCheckedForRestrictions) {
+    if (config.noteCheckedObjects && hasRestrictionsCheckedMarker(data)) {
       return true;
     }
 
@@ -320,7 +440,7 @@ export function checkRestricted(
           ((owner && 'createdBy' in owner && equalIds(owner.createdBy, user)) ||
             (config.allowCreatorOfParent && owner && !('createdBy' in owner) && config.isCreatorOfParent))) ||
         (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified)) ||
-        (user?.id && checkRoleAccess(roles, user?.roles, RequestContext.get()?.tenantRole))
+        (user?.id && checkFieldRoleAccess(roles, user))
       ) {
         valid = true;
       }
@@ -375,7 +495,7 @@ export function checkRestricted(
   };
 
   // Check data object
-  const objectRestrictions = getRestricted(data.constructor) || [];
+  const objectRestrictions = getRestricted(metadataOwner) || [];
   if (config.checkObjectItself) {
     const objectIsValid = validateRestricted(objectRestrictions);
     if (!objectIsValid) {
@@ -403,8 +523,9 @@ export function checkRestricted(
       continue;
     }
 
-    // Check restricted
-    const restricted = getRestricted(data, propertyKey) || [];
+    // Check restricted. `metadataTarget` is `data` for a real instance and the declared class's
+    // prototype for a plain nested object — see its definition above.
+    const restricted = getRestricted(metadataTarget, propertyKey) || [];
     const concatenatedRestrictions =
       config.mergeRoles && objectRestrictions.length ? _.uniq(objectRestrictions.concat(restricted)) : restricted;
     const valid = validateRestricted(concatenatedRestrictions);
@@ -420,8 +541,15 @@ export function checkRestricted(
         equalIds(parent, user) ||
         (parent && 'createdBy' in parent ? equalIds(parent.createdBy, user) : config.isCreatorOfParent);
 
-      // Check deep
-      data[propertyKey] = checkRestricted(data[propertyKey], user, config, processedObjects);
+      // Check deep — carrying the type this property DECLARES, so a nested plain object (an
+      // embedded subdocument, or an array of them) can still be matched against its own metadata.
+      data[propertyKey] = checkRestricted(
+        data[propertyKey],
+        user,
+        config,
+        processedObjects,
+        metadataOwner ? resolveNestedType(metadataOwner, propertyKey) : undefined,
+      );
     } else {
       if (config.debug) {
         console.debug(
