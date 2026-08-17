@@ -205,6 +205,30 @@ One consequence worth knowing: `duplicateById()` keeps the source's filename and
 `metadata` by design, so the copy WINS the name and an ownership rule keyed on `metadata.ownerId`
 refuses it. Give the copy its own metadata or its own name.
 
+**Cover the `filterArgs` branch, and REFUSE it.** `findFileInfo()` consults the hook once for the whole
+query, so no answer can mean "…but only their own files". Returning `true` — which the reference rule
+used to do — hands a caller a full inventory of every upload: `CoreFileInfo` carries `filename`,
+`length`, `uploadDate` and the `id`, and for medical data the filename frequently IS the content. Core
+exposes no listing endpoint, so this only bites once a project surfaces `findFileInfo()`.
+
+A per-user listing is expressed by FORCING the constraint server-side:
+
+```typescript
+this.fileService.findFileInfo(
+  {
+    filter: {
+      singleFilter: { field: 'metadata.ownerId', operator: ComparisonOperatorEnum.EQ, value: String(currentUser.id) },
+    },
+  },
+  { force: true },
+);
+```
+
+Note what that is NOT: it does not inspect the caller's own `filterArgs` to check whether they are
+already narrowed. `filterArgs` is **client-controlled**, so approving a filter shape means validating
+attacker input — and any such check is one filter shape away from being wrong. Override the filter;
+never approve it.
+
 **Never add `if (!options.currentUser) return true`.** It reads as "system-internal call, the guard
 already decided" — but "no user in context" is also exactly what an **anonymous** request looks like.
 While `downloadRoles` is narrower than `S_EVERYONE` the role gate turns those away first, so the

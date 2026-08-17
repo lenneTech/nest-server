@@ -801,14 +801,42 @@ export abstract class CoreFileService {
    * `tests/file-ownership.e2e-spec.ts`. Prefer reading it there over copying
    * from here.
    *
+   * **Cover the `filterArgs` branch, and REFUSE it.** `findFileInfo()` consults this hook ONCE for the
+   * whole query, so there is no answer that means "…but only their own files". Returning `true` hands a
+   * caller a full inventory of every upload — `CoreFileInfo` carries `filename`, `length`, `uploadDate`
+   * and the `id`, and for medical data the filename frequently IS the content. Core exposes no listing
+   * endpoint, so this only bites once a project surfaces `findFileInfo()` — which is exactly when
+   * nobody re-reads the rule.
+   *
+   * A per-user listing is expressed by FORCING the constraint server-side:
+   *
+   * ```typescript
+   * this.fileService.findFileInfo(
+   *   { filter: { singleFilter: { field: 'metadata.ownerId', operator: ComparisonOperatorEnum.EQ,
+   *                               value: String(currentUser.id) } } },
+   *   { force: true },
+   * );
+   * ```
+   *
+   * Note what that is NOT: it does not inspect the caller's own `filterArgs` to check whether they are
+   * already narrowed. `filterArgs` is CLIENT-CONTROLLED, so approving a filter shape means validating
+   * attacker input, and any such check is one filter shape away from being wrong. **Override the
+   * filter; never approve it.**
+   *
    * @example
    * ```typescript
    * protected override async checkRights(
    *   input: any,
    *   options?: FileServiceOptions & { checkInputType: FileInputCheckType },
    * ): Promise<boolean> {
-   *   if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
+   *   // Writes stay on the coarse gate: an upload has no owner to compare against yet.
+   *   if (options?.force || options?.checkInputType === 'file' || options?.checkInputType === 'files') {
    *     return true;
+   *   }
+   *   // A LISTING cannot be narrowed by a yes/no hook — it is asked once for the whole query, not
+   *   // once per row — so refuse the unrestricted one. See the note above.
+   *   if (options?.checkInputType === 'filterArgs') {
+   *     return false;
    *   }
    *   if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
    *     return true;

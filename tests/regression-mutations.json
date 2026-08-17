@@ -24,6 +24,18 @@
   ],
   "mutations": [
     {
+      "id": "reference-rule-allows-unrestricted-listing",
+      "defect": "11.35.0 — the REFERENCE checkRights() (src/server/modules/file/file.service.ts, the shape every project copies) narrowed only 'id' and 'filename' and returned true for 'filterArgs'. A project surfacing findFileInfo() therefore exposed a full inventory of every upload — CoreFileInfo carries filename, length, uploadDate and the id, and for medical data the filename frequently IS the content. A yes/no hook cannot narrow a listing, so the rule must refuse the unrestricted one; a per-user listing is expressed by FORCING the filter server-side.",
+      "file": "src/server/modules/file/file.service.ts",
+      "after": "protected override async checkRights(",
+      "find": "    if (options?.force || options?.checkInputType === 'file' || options?.checkInputType === 'files') {",
+      "replace": "    if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {",
+      "specs": [
+        "tests/file-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "create-file-skips-write-gate",
       "defect": "Not a shipped defect — this pins a gate that was correct but UNTESTED. `createFile()`'s own `checkInputType: 'file'` check was exercised by nothing: the canonical ownership rule the matrix installs returns true for every input type other than id/filename, so an upload refusal (quota, mime, tenant) was never verified to answer null or to leave no orphan bytes behind. The mutation removes the gate.",
       "file": "src/core/modules/file/core-file.service.ts",

@@ -102,13 +102,42 @@ export class FileService extends CoreFileService {
     input: any,
     options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): Promise<boolean> {
-    // Writes, list queries and forced (system) calls stay on the coarse role gate.
-    if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
+    // Forced (system) calls and WRITES stay on the coarse role gate. Writes deliberately so: an
+    // upload has no owner to compare against yet — `AvatarController` records `metadata.ownerId` as
+    // it writes — so the only meaningful gate there is `file.uploadRoles`.
+    if (options?.force || options?.checkInputType === 'file' || options?.checkInputType === 'files') {
       return true;
     }
 
     if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
       return true;
+    }
+
+    // A LISTING cannot be narrowed by this hook, so it is refused rather than waved through.
+    //
+    // The hook is asked ONCE for the whole query, not once per row, so there is no answer here that
+    // means "…but only their own files". Returning `true` — which this rule used to do, and which is
+    // therefore the shape projects copied — hands a non-admin a full inventory of every upload the
+    // moment a project surfaces `findFileInfo()`: `CoreFileInfo` carries `filename`, `length`,
+    // `uploadDate` and the `id`, and for medical data the filename frequently IS the content.
+    //
+    // A project that wants "my files" FORCES the constraint server-side and passes `force: true`:
+    //
+    //   this.fileService.findFileInfo(
+    //     { filterQuery: { 'metadata.ownerId': String(currentUser.id) } },
+    //     { force: true },
+    //   );
+    //
+    // Note what that is NOT: it does not inspect the caller's `filterArgs` to check whether they are
+    // already narrowed. `filterArgs` is CLIENT-CONTROLLED, so approving a filter shape means
+    // validating attacker input — and any such check is one filter shape away from being wrong.
+    // Override the filter; never approve it. See tests/file-ownership.e2e-spec.ts.
+    // Explicit, even though falling through would ALSO deny: with `checkInputType: 'filterArgs'` the
+    // `input` is a FilterArgs object, so the by-name raw lookup below answers null and the comparison
+    // fails. That is an accident of the fall-through, not a decision — it would flip the moment a
+    // project's own raw lookup behaved differently for a non-string input. Say it outright instead.
+    if (options.checkInputType === 'filterArgs') {
+      return false;
     }
 
     // The RAW document on purpose: the public getFileInfo() runs prepareOutput(), which
