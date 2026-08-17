@@ -177,6 +177,7 @@ export * from './core/modules/file/core-file-info.model';
 export * from './core/modules/file/core-file.controller';
 export * from './core/modules/file/core-file.resolver';
 export * from './core/modules/file/core-file.service';
+export * from './core/modules/file/file-access.helper';
 export * from './core/modules/file/file-roles.helper';
 export * from './core/modules/file/file-storage.helper';
 export * from './core/modules/file/filesystem-file.helper';

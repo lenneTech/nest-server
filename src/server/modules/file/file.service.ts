@@ -98,6 +98,20 @@ export class FileService extends CoreFileService {
    * See `src/core/modules/file/README.md` § Access control, and
    * `tests/file-ownership.e2e-spec.ts` for the end-to-end contract test.
    */
+  /**
+   * NOTE FOR CONSUMERS: since 11.35.0 you may not need any of this.
+   *
+   * `file.access: 'owner'` is exactly the rule below, shipped by the framework — including the parts
+   * that are easy to get wrong (fail closed without a user, require the owner field to be PRESENT,
+   * cover the by-name branch, refuse a listing) and including the metadata stamping, which this project
+   * does by hand in `AvatarController`. `'tenant'` is the same rule against
+   * `metadata.tenantId` and the validated `RequestContext` tenant.
+   *
+   * This override stays because the reference server has to EXERCISE the seam — a rule that lives only
+   * in a preset proves the preset works, never that the inheritance point a consuming project extends
+   * still does. Keep it here; in your own project, prefer the preset unless your rights are something
+   * the framework cannot guess (an explicit read right, a case assignment, a published flag).
+   */
   protected override async checkRights(
     input: any,
     options?: FileServiceOptions & { checkInputType: FileInputCheckType },

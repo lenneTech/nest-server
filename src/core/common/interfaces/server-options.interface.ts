@@ -856,6 +856,41 @@ export interface IErrorCode {
  */
 export interface IFileConfig {
   /**
+   * WHICH PROJECT CLASS this deployment is — the per-file rule, as a declaration instead of code.
+   *
+   * The role knobs below are the coarse audience filter ("may this caller reach the route at all").
+   * They cannot express "…but only their own", because that sentence needs data. That is what
+   * `CoreFileService.checkRights()` is for — and shipping it only as an `@example` to copy went wrong
+   * twice in this framework's own history, both times permissively. So the four shapes are presets:
+   *
+   * | value             | project class                                                    |
+   * |-------------------|------------------------------------------------------------------|
+   * | `'custom'`        | you override `checkRights()` yourself — **the default**, the framework abstains |
+   * | `'public'`        | open: anyone may read and write; the role gate is the whole policy |
+   * | `'authenticated'` | login-restricted: every signed-in user may use every file         |
+   * | `'owner'`         | per-user: only the uploader, plus ADMIN                           |
+   * | `'tenant'`        | per-tenant: only within one's own validated tenant, plus ADMIN    |
+   *
+   * `'owner'` and `'tenant'` read `metadata.ownerId` / `metadata.tenantId`, which the service STAMPS
+   * as it writes once one of them is active — so an upload through `CoreFileService` is authorizable
+   * without any project code. Files written BEFORE the preset was enabled carry no such metadata and
+   * are therefore ADMIN-only; that is the fail-closed direction, and a one-off backfill fixes it.
+   *
+   * Two things this setting never does: it never overrides an explicit `checkRights()` override (the
+   * override IS the rule), and it never widens the role gate. `'public'` still requires
+   * `downloadRoles: [S_EVERYONE]` — declaring the class and opening the gate are two decisions on
+   * purpose.
+   *
+   * An UNKNOWN value resolves to `'owner'`, not to `'custom'`: a typo means somebody believes they
+   * have an ownership rule, and confirming that belief is the one error that cannot be seen from
+   * outside.
+   *
+   * @default 'custom'
+   * @since 11.35.0
+   */
+  access?: 'authenticated' | 'custom' | 'owner' | 'public' | 'tenant';
+
+  /**
    * Roles allowed to DELETE files (`deleteFile` mutation).
    *
    * Kept separate from `uploadRoles` on purpose: "everyone signed in may upload"

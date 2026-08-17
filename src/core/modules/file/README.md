@@ -205,6 +205,27 @@ One consequence worth knowing: `duplicateById()` keeps the source's filename and
 `metadata` by design, so the copy WINS the name and an ownership rule keyed on `metadata.ownerId`
 refuses it. Give the copy its own metadata or its own name.
 
+### Before you write a rule: `file.access` may already be it
+
+The four common project shapes are presets, so the rule below is only needed for the fifth — a project
+whose rights the framework cannot guess.
+
+| `file.access`        | project class                                          | own `checkRights()`? |
+| -------------------- | ------------------------------------------------------ | -------------------- |
+| `'public'`           | open: anyone may read and write                        | no                   |
+| `'authenticated'`    | login-restricted: every signed-in user                 | no                   |
+| `'owner'`            | per-user: only the uploader (plus ADMIN)               | no                   |
+| `'tenant'`           | per-tenant: only the own validated tenant (plus ADMIN) | no                   |
+| `'custom'` (default) | anything else — you write the rule                     | yes                  |
+
+`'owner'` and `'tenant'` read `metadata.ownerId` / `metadata.tenantId` and `CoreFileService` **stamps
+them as it writes** while the preset is active, so an upload through the service is authorizable without
+project code. Files written before you enabled it carry no such metadata and stay ADMIN-only — the
+fail-closed direction, fixable with a one-off backfill. Declaring the class never widens the role gate,
+and it never overrides an explicit `checkRights()` override: the override IS the rule.
+
+Everything the presets do is also the checklist for a hand-written rule, so read on either way.
+
 **Cover the `filterArgs` branch, and REFUSE it.** `findFileInfo()` consults the hook once for the whole
 query, so no answer can mean "…but only their own files". Returning `true` — which the reference rule
 used to do — hands a caller a full inventory of every upload: `CoreFileInfo` carries `filename`,

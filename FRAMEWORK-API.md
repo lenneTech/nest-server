@@ -155,6 +155,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### IFileConfig
 
+  - `access?`: `"authenticated" | "custom" | "owner" | "public" | "tenant" | undefined` (default: `'custom'`) — WHICH PROJECT CLASS this deployment is — the per-file rule, as a declaration instead of code.
   - `deleteRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DELETE files (`deleteFile` mutation).
   - `downloadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DOWNLOAD files and read file info
   - `storage?`: `"filesystem" | "gridfs" | "s3" | undefined` (default: `derived — see above`) — Storage driver for CoreFileService. Three equivalent options:

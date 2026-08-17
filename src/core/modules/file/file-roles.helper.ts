@@ -14,7 +14,7 @@ export {
   FILE_ROLE_DEFAULTS,
   resolveRoles,
   warnOnPresignedDownloadsWithRestrictedRoles,
-  warnOnUnscopedFilesInTenantMode,
+  warnOnUndecidedFileAccess,
 } from './file-roles.config';
 export type { FileRoleKey } from './file-roles.config';
 

@@ -10,10 +10,12 @@ import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
 import { ConfigService } from '../../common/services/config.service';
+import { RequestContext } from '../../common/services/request-context.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { CoreFileInfo } from './core-file-info.model';
-import { warnOnUnscopedFilesInTenantMode } from './file-roles.config';
+import { decideFileAccess, fileAccessNeedsRawDocument, resolveFileAccessPreset } from './file-access.helper';
+import { warnOnUndecidedFileAccess } from './file-roles.config';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUploadSource } from './interfaces/file-upload.interface';
 import {
@@ -85,12 +87,12 @@ export abstract class CoreFileService {
     assertFileStorageAvailable(this.storageResolution, this.isStorageAvailable(this.storageResolution.driver));
     logFileStorage(this.storageResolution);
 
-    // The file stores carry NO tenant scope and cannot be given one by configuration — see the
-    // helper for the full reasoning. Checked here rather than in `CoreModule.forRoot()` because only
+    // Warn when the gate is open and nothing declares the per-file policy — see the helper for why
+    // the conditions are this narrow and why it is not gated on multi-tenancy. Checked here rather than in `CoreModule.forRoot()` because only
     // an instance can answer whether `checkRights()` was overridden: the base implementation is a
     // fixed function, so an identity comparison against it is exact and needs no naming convention.
     const config = ConfigService.configFastButReadOnly;
-    warnOnUnscopedFilesInTenantMode({
+    warnOnUndecidedFileAccess({
       fileConfig: config?.file,
       hasPerFileRule: this.checkRights !== CoreFileService.prototype.checkRights,
       multiTenancyEnabled: !!config?.multiTenancy && config.multiTenancy.enabled !== false,
@@ -160,12 +162,16 @@ export abstract class CoreFileService {
     }
     const { createReadStream, filename, mimetype } = await file;
     const readStream = createReadStream();
+    // Resolved ONCE for all three driver branches: under an `'owner'` / `'tenant'` preset this adds
+    // the very fields the preset decides on, so an upload through this service is authorizable
+    // without any project code. Under the default preset it is `serviceOptions.metadata` verbatim.
+    const metadata = this.accessMetadata(serviceOptions);
     if (this.filesystemStorage) {
       const fsFileInfo = await FilesystemFileHelper.writeFile(this.filesystemDir, this.filesystemFiles, {
         body: readStream,
         contentType: mimetype,
         filename,
-        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+        ...(metadata ? { metadata } : {}),
       });
       return this.prepareOutput(fsFileInfo as unknown as CoreFileInfo, serviceOptions);
     }
@@ -177,14 +183,14 @@ export abstract class CoreFileService {
         buffer: await streamToBuffer(readStream),
         contentType: mimetype,
         filename,
-        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+        ...(metadata ? { metadata } : {}),
       });
       return this.prepareOutput(s3FileInfo as unknown as CoreFileInfo, serviceOptions);
     }
     const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
       contentType: mimetype,
       filename,
-      ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+      ...(metadata ? { metadata } : {}),
     });
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
@@ -851,11 +857,83 @@ export abstract class CoreFileService {
    * }
    * ```
    */
-  protected checkRights(
-    _input: any,
-    _options?: FileServiceOptions & { checkInputType: FileInputCheckType },
-  ): MaybePromise<boolean> {
-    return true;
+  /**
+   * The metadata a file is written with — the caller's, plus whatever the active preset decides on.
+   *
+   * A preset that only READ `metadata.ownerId` / `metadata.tenantId` would be a rule about data that
+   * does not exist: every file ADMIN-only. That is not hypothetical — it is exactly the shape TUS
+   * uploads had before 11.35.0, and the report came back from downstream rather than from a test.
+   *
+   * Three properties, each of which is a decision:
+   *
+   * - **Only under a preset that needs it.** With `file.access` unset (or `'public'` /
+   *   `'authenticated'`) this returns `serviceOptions.metadata` untouched, so no existing project's
+   *   documents grow a field.
+   * - **Never overrides what the caller supplied.** A project that records ownership itself — or
+   *   deliberately attributes a file to someone else, as an admin provisioning flow does — keeps
+   *   winning. `TUS_OWNER_METADATA_KEY` is the opposite case and overwrites on purpose, because there
+   *   the value arrives from the CLIENT.
+   * - **Stamps nothing it cannot know.** An anonymous upload gets no owner, which leaves the file
+   *   ADMIN-only rather than owned by `undefined`.
+   *
+   * `protected` so a project can add its own dimension (a project id, a case number) by overriding and
+   * calling `super`.
+   */
+  protected accessMetadata(serviceOptions?: FileServiceOptions): Record<string, any> | undefined {
+    const preset = resolveFileAccessPreset(ConfigService.configFastButReadOnly?.file);
+    if (preset !== 'owner' && preset !== 'tenant') {
+      return serviceOptions?.metadata;
+    }
+
+    const stamped: Record<string, any> = { ...serviceOptions?.metadata };
+    const ownerId = serviceOptions?.currentUser?.id;
+    if (stamped.ownerId === undefined && ownerId !== undefined && ownerId !== null && ownerId !== '') {
+      stamped.ownerId = String(ownerId);
+    }
+    if (preset === 'tenant') {
+      // The VALIDATED tenant, same source the read decision uses.
+      const tenantId = RequestContext.get()?.tenantId;
+      if (stamped.tenantId === undefined && tenantId) {
+        stamped.tenantId = tenantId;
+      }
+    }
+    return Object.keys(stamped).length ? stamped : undefined;
+  }
+
+  protected async checkRights(
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+  ): Promise<boolean> {
+    const preset = resolveFileAccessPreset(ConfigService.configFastButReadOnly?.file);
+
+    // `'custom'` is the default and returns true for every input — byte-for-byte the pre-11.35.0
+    // behaviour, including the absence of any lookup. An existing project sees no change at all.
+    if (preset === 'custom') {
+      return true;
+    }
+
+    // The lookup is skipped where the decision cannot use it: a forced (system) call, a write, a
+    // listing, and the two blanket presets. So enabling a preset never adds a query to a path that
+    // does not read a document — which matters most for `force: true`, the idiom internal callers use
+    // on hot paths precisely because they have already been decided about.
+    const raw =
+      !options?.force && fileAccessNeedsRawDocument(preset, options?.checkInputType)
+        ? options?.checkInputType === 'id'
+          ? await this.getRawFileInfo(input)
+          : await this.getRawFileInfoByName(input)
+        : undefined;
+
+    return decideFileAccess({
+      checkInputType: options?.checkInputType,
+      currentUser: options?.currentUser,
+      force: options?.force,
+      preset,
+      raw,
+      // The VALIDATED tenant, from the same source `mongooseTenantPlugin` filters by — never a raw
+      // header, and never `serviceOptions`, so a file decision and a database decision cannot
+      // disagree about which tenant the request is in.
+      tenantId: RequestContext.get()?.tenantId,
+    });
   }
 
   /**

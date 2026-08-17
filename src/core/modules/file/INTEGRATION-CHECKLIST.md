@@ -88,24 +88,45 @@ If some files are genuinely public and others are not, do not solve it with a ro
 record a visibility flag in the metadata and branch in `checkRights()`, or expose a separate public
 route for exactly the public files and leave the core routes gated.
 
-## Pick your project class first — the whole model is one dial with four settings
+## Pick your project class first — the whole model is one dial with five settings
 
-The two layers (`file.*Roles` as the coarse audience filter, `checkRights()` as the per-file rule) cover
-every project shape without forcing any of them. Decide which row you are, then verify only that row.
+`file.access` is the per-file rule as a DECLARATION instead of code. Until 11.35.0 the framework shipped
+that rule only as an `@example` to copy, and the copy went wrong twice in its own history — both times
+permissively (`if (!currentUser) return true`, and waving `'filterArgs'` through). Decide which row you
+are, then verify only that row.
 
-| Project class                                                   | `file.downloadRoles` / `uploadRoles` / `deleteRoles` | `checkRights()` override      | Why                                                                                                                                                                                                                                                                         |
-| --------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Open** — anyone may read, anyone may write                    | `[RoleEnum.S_EVERYONE]`                              | none                          | The gate IS the policy. Say it explicitly: `S_EVERYONE` must be a decision in `config.env.ts`, never the result of leaving something unset                                                                                                                                  |
-| **Login-restricted** — every signed-in user may use every file  | `[RoleEnum.S_USER]`                                  | none                          | Also complete as-is. Be aware what it means: every signed-in user reads EVERY file, and ids are enumerable — so choose this only when the files really are shared                                                                                                           |
-| **Tenant-based** — only within one's own tenant                 | `[RoleEnum.S_USER]` (or a project role)              | **required**                  | The stores sit outside Mongoose, so `mongooseTenantPlugin` never scopes them and a role name cannot express a tenant rule. Write `tenantId` into the metadata at upload and compare it. The framework WARNS at boot if you widen the gate without a rule                    |
-| **Regulated** — explicit right to read, explicit right to write | narrow role for the coarse gate                      | **required, both directions** | Write: gate the upload/delete roles AND check the write right in `checkRights()`'s `'file'` / `'files'` branch. Read: check the read right in the `'id'` / `'filename'` branches and REFUSE `'filterArgs'`. Keep `s3.presignedDownloads` off so every byte access re-checks |
+| Project class                                                  | `file.access`            | roles                                 | own `checkRights()`? |
+| -------------------------------------------------------------- | ------------------------ | ------------------------------------- | -------------------- |
+| **Open** — anyone may read and write                           | `'public'`               | `[RoleEnum.S_EVERYONE]`               | no                   |
+| **Login-restricted** — every signed-in user may use every file | `'authenticated'`        | `[RoleEnum.S_USER]`                   | no                   |
+| **Per-user** — only the uploader                               | `'owner'`                | `[RoleEnum.S_USER]`                   | no                   |
+| **Tenant-based** — only within one's own tenant                | `'tenant'`               | `[RoleEnum.S_USER]` or a project role | no                   |
+| **Regulated** — explicit read right, explicit write right      | `'custom'` (the default) | a narrow role                         | **yes**              |
 
-Two rules hold for all four rows:
+What the presets do, and what they deliberately do not:
+
+- `'owner'` / `'tenant'` read `metadata.ownerId` / `metadata.tenantId`, which `CoreFileService` **stamps
+  as it writes** once one of them is active — so an upload through the service is authorizable with no
+  project code. ADMIN is never locked out, writes fall through to the role gate (an upload has no owner
+  to compare against yet), a LISTING is refused, and a missing user or a missing owner field FAILS
+  CLOSED.
+- **Files written before you enabled the preset carry no such metadata and are therefore ADMIN-only.**
+  That is the fail-closed direction; a one-off backfill fixes it.
+- `'public'` / `'authenticated'` add no data rule at all. They exist so that "no per-file rule" is a
+  DECISION in `config.env.ts` rather than an omission — and that is what silences the boot warning.
+- **Declaring the class never widens the role gate.** `'public'` still needs
+  `downloadRoles: [S_EVERYONE]`. Two decisions, on purpose.
+- **The last row is the point of the dial.** A regulated project has rights the framework cannot guess
+  (a read right, a write right, a case assignment), so it stays on `'custom'` and writes the rule — and
+  everything the presets do is then its checklist: cover `'id'` and `'filename'`, refuse `'filterArgs'`,
+  gate the writes, fail closed without a user, require the owner field to be present.
+
+Two rules hold for every row:
 
 1. **The coarse gate can grant but never exclude ADMIN** — both file classes carry a class-level
    `@Roles(ADMIN)` and the guards union class + handler metadata.
-2. **`checkRights()` is the only place a per-file sentence can live.** No configuration can express
-   "…but only their own", because that sentence needs data.
+2. **A per-file sentence needs data.** No role name can express "…but only their own" — which is why
+   there is a hook at all, and why the presets stamp the data they decide on.
 
 ## The threat model, in four sentences
 
@@ -146,10 +167,14 @@ personal or medical, a per-file rule is not optional.
 
 ### Security checklist — the questions an audit will ask
 
-- [ ] **Is `checkRights()` overridden at all?** If `downloadRoles` names anything beyond `ADMIN` and it
-      is not, every holder of that role can read every file, by enumeration. With `multiTenancy`
-      active the framework warns at boot; without it, nothing does — this checkbox is the only guard
-- [ ] **Does the rule cover all four branches?** `'id'`, `'filename'`, `'filterArgs'` and the writes.
+- [ ] **Is the project class declared?** Either `file.access` names one, or `checkRights()` is
+      overridden. If `downloadRoles` goes beyond `ADMIN` and NEITHER is true, every holder of that
+      role reads every file by enumeration — and the framework warns at boot, in every deployment,
+      tenant or not. Declaring `'public'` / `'authenticated'` is a valid answer; leaving it unset is
+      not
+- [ ] **On `file.access: 'owner'` / `'tenant'`: is old data backfilled?** Files uploaded before the
+      preset was enabled carry no `ownerId` / `tenantId` and stay ADMIN-only until they do
+- [ ] **If you wrote your own rule, does it cover all four branches?** `'id'`, `'filename'`, `'filterArgs'` and the writes.
       `'filename'` is not redundant (the presigned path authorizes on the by-name lookup alone, and
       `deleteFileByName()` authorizes by name only), and `'filterArgs'` must be **refused** — a yes/no
       hook cannot narrow a listing, so returning `true` there hands over a full inventory

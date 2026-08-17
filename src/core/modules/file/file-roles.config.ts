@@ -116,28 +116,37 @@ export function warnOnPresignedDownloadsWithRestrictedRoles(
 }
 
 /**
- * Warn when a MULTI-TENANT project widens the file gate past platform admins without a per-file rule.
+ * Warn when the file gate is open and NOTHING decides the per-file policy.
  *
- * THE GAP THIS NAMES: the file stores are not tenant-scoped and cannot be. GridFS, `s3-files` and
- * `filesystem-files` are reached through the native MongoDB driver or through S3, so
- * `mongooseTenantPlugin` never runs on them — which is also why `CoreFileController` and
- * `CoreFileResolver` carry `@SkipTenantCheck()`. Consequently the role names in `file.downloadRoles` /
- * `uploadRoles` / `deleteRoles` are resolved against `user.roles`, a GLOBAL attribute, never against
- * `membership.role`. A user holding `'editor'` in `user.roles` can therefore reach EVERY tenant's
- * files, and no configuration can express "…but only their own tenant's": that sentence needs data, and
- * the only place it can live is `CoreFileService.checkRights()`.
+ * THE GAP: the role knobs are a coarse audience filter — they answer "may this caller reach the route
+ * at all". They cannot express "…but only their own", because that sentence needs data. So a deployment
+ * that widened the gate past platform admins and expressed no per-file policy anywhere has a store
+ * every holder of that role can read in full.
  *
- * WHY THE CONDITIONS ARE THIS NARROW — a warning nobody can act on is noise, and noise gets muted:
+ * And that is practically reachable, not theoretically: file ids are ENUMERABLE. An ObjectId is 4 bytes
+ * of timestamp + 5 bytes of randomness generated once PER PROCESS + a 3-byte incrementing counter, so a
+ * caller who obtains one valid id — their own upload — knows the random part and a counter reference
+ * point, and neighbouring files sit on neighbouring values. Nothing rate-limits the file routes either.
  *
- * - `multiTenancy` off → no tenant boundary exists to cross. Silent.
- * - Every knob still `[ADMIN]` (the default) → only platform admins reach the routes at all, and
- *   platform admins legitimately see every tenant. Silent.
- * - `checkRights()` overridden → the project HAS a per-file rule. Whether it is a good one is beyond
- *   what a boot check can know; the framework's job is to notice the absence, not to grade it. Silent.
+ * WHY THE CONDITIONS ARE THIS NARROW — a warning that fires on a correct configuration gets muted, and
+ * a muted warning is worse than none. So every way of DECIDING silences it, and all three are
+ * legitimate:
  *
- * That leaves exactly one case: multi-tenancy is on, the gate has been opened to a non-admin role, and
- * nothing anywhere narrows it per file. Then the deployment has a file store every holder of that role
- * can read across tenants, and it is very unlikely anyone decided that on purpose.
+ *  1. `file.access` names a project class (`'public'`, `'authenticated'`, `'owner'`, `'tenant'`);
+ *  2. `checkRights()` is overridden — the project wrote its own rule, and grading it is beyond what a
+ *     boot check can do;
+ *  3. the gate is still admin-only — a platform admin legitimately sees everything.
+ *
+ * That leaves exactly one case: the gate is open and nothing says what the policy is. This warning is
+ * about the difference between a DECISION and an OMISSION, which is the only thing a boot check can
+ * usefully detect.
+ *
+ * Multi-tenancy changes only the WORDING. An earlier version of this warning fired only for tenant
+ * projects, which was too narrow: `downloadRoles: [S_USER]` with no rule leaks every file to every
+ * signed-in user whether or not tenants exist. Where tenants DO exist, the leak also crosses that
+ * boundary, and that sentence has to appear — the file stores are reached outside Mongoose, so
+ * `mongooseTenantPlugin` never scopes them and these role names resolve against `user.roles`, a GLOBAL
+ * attribute.
  *
  * A warning, not a boot failure. The framework cannot know whether the files are patient documents or
  * public logos, and refusing to start on a configuration that is correct for the second would be
@@ -149,20 +158,22 @@ export function warnOnPresignedDownloadsWithRestrictedRoles(
  *   logged for the same reason as {@link warnOnPresignedDownloadsWithRestrictedRoles}: the message IS
  *   the contract, and a module-private Logger cannot be asserted against.
  */
-export function warnOnUnscopedFilesInTenantMode(options: {
+export function warnOnUndecidedFileAccess(options: {
   fileConfig?: IFileConfig;
   hasPerFileRule: boolean;
   multiTenancyEnabled: boolean;
 }): string | undefined {
   const { fileConfig, hasPerFileRule, multiTenancyEnabled } = options;
-  if (!multiTenancyEnabled || hasPerFileRule) {
+
+  // (1) and (2): somebody decided.
+  if (hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {
     return undefined;
   }
 
+  // (3): admin-only. ADMIN is unioned in by the class-level decorator regardless, so it never widens.
   const widened: string[] = [];
   for (const key of ['deleteRoles', 'downloadRoles', 'uploadRoles'] as FileRoleKey[]) {
     const roles = resolveRoles(key, fileConfig);
-    // ADMIN is unioned in by the class-level decorator regardless, so it never widens anything.
     if (roles.some((role) => role !== RoleEnum.ADMIN)) {
       widened.push(`file.${key}=${JSON.stringify(roles)}`);
     }
@@ -171,14 +182,20 @@ export function warnOnUnscopedFilesInTenantMode(options: {
     return undefined;
   }
 
+  const tenantNote = multiTenancyEnabled
+    ? ' multiTenancy is active, and the leak crosses tenants too: the file stores are reached outside ' +
+      'Mongoose, so mongooseTenantPlugin never scopes them and these role names resolve against ' +
+      'user.roles — a GLOBAL attribute — never against membership.role.'
+    : '';
+
   const message =
-    `multiTenancy is active and the file gate is open beyond platform admins (${widened.join(', ')}), ` +
-    `but CoreFileService.checkRights() is NOT overridden. The file stores are reached outside Mongoose, ` +
-    `so mongooseTenantPlugin never scopes them and these role names resolve against user.roles — a ` +
-    `GLOBAL attribute — never against membership.role. Every holder of such a role can therefore read, ` +
-    `overwrite or delete EVERY tenant's files. A role name cannot express "only their own tenant": ` +
-    `write tenantId into the file metadata at upload time (serviceOptions.metadata) and compare it in ` +
-    `an overridden checkRights() — see src/core/modules/file/README.md § Access control.`;
+    `The file gate is open beyond platform admins (${widened.join(', ')}), but no per-file policy is ` +
+    `declared: file.access is unset and CoreFileService.checkRights() is not overridden. Every holder ` +
+    `of such a role can therefore read, overwrite or delete EVERY file — and file ids are not secret, ` +
+    `they are ENUMERABLE (an ObjectId shares a per-process random part and an incrementing counter, so ` +
+    `one own upload reveals the neighbourhood), with no rate limit on the file routes.${tenantNote} ` +
+    `Declare the project class with file.access ('public' | 'authenticated' | 'owner' | 'tenant'), or ` +
+    `override checkRights() — see src/core/modules/file/README.md § Access control.`;
 
   logger.warn(message);
   return message;

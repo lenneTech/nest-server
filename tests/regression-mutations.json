@@ -24,6 +24,42 @@
   ],
   "mutations": [
     {
+      "id": "file-access-preset-not-reached",
+      "defect": "Not a shipped defect — a NEW feature, and this proves its wiring is not vacuous. `file.access` is only worth anything if CoreFileService.checkRights() actually consults the preset; a base implementation that still answered `true` would leave every preset a decoration, and every test that asserts a refusal would go green for the wrong reason.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "protected async checkRights(",
+      "find": "    if (preset === 'custom') {\n      return true;\n    }",
+      "replace": "    if (preset === 'custom' || preset) {\n      return true;\n    }",
+      "specs": [
+        "tests/unit/file-access-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "file-access-stamps-no-metadata",
+      "defect": "Not a shipped defect — a NEW feature. The 'owner' / 'tenant' presets DECIDE on metadata.ownerId / metadata.tenantId, so the service has to STAMP them as it writes. Without that the preset is a rule about data that does not exist and every file becomes ADMIN-only — which is exactly the shape TUS uploads had before 11.35.0, and it was reported from downstream rather than caught by a test.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "protected accessMetadata(serviceOptions?: FileServiceOptions)",
+      "find": "    if (preset !== 'owner' && preset !== 'tenant') {\n      return serviceOptions?.metadata;\n    }",
+      "replace": "    if (preset !== 'owner' && preset !== 'tenant' && !preset) {\n      return serviceOptions?.metadata;\n    }\n    return serviceOptions?.metadata;",
+      "specs": [
+        "tests/unit/file-access-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "undecided-file-access-warns-silently",
+      "defect": "11.35.0 — the boot warning for an open file gate with no per-file policy fired only when multiTenancy was active. Too narrow: `downloadRoles: [S_USER]` with no rule leaks every file to every signed-in user whether or not tenants exist, and file ids are enumerable. The mutation restores the multiTenancy gate.",
+      "file": "src/core/modules/file/file-roles.config.ts",
+      "after": "export function warnOnUndecidedFileAccess(options: {",
+      "find": "  if (hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {",
+      "replace": "  if (!multiTenancyEnabled || hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {",
+      "specs": [
+        "tests/unit/file-access-warning.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "presigned-ignores-enabled-false",
       "defect": "11.35.0 — CoreS3Service read ANY object as 'presigned downloads enabled', so the repo-wide `{ enabled: false }` pre-configuration idiom silently turned the feature ON. Reachable without TypeScript via NEST_SERVER_CONFIG / NSC__* JSON. The boot warning for this very feature DID honour the key, so the two paths disagreed and the disagreement resolved towards handing out session-less bearer URLs.",
       "file": "src/core/common/services/core-s3.service.ts",
