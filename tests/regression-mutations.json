@@ -24,10 +24,21 @@
   ],
   "mutations": [
     {
+      "id": "restriction-flag-migration-warning-silent",
+      "defect": "11.35.0 — tightening the `_objectAlreadyCheckedForRestrictions` opt-out is the safe direction but NOT a silent one: a project that set the flag by hand loses its exemption and the fields it set the flag to preserve are stripped. Three customer projects do exactly that across twelve call sites. Without the one-time warning naming markRestrictionsChecked(), they would debug stripped fields with nothing pointing at the cause.",
+      "file": "src/core/common/decorators/restricted.decorator.ts",
+      "find": "  warnUnrecognizedRestrictionsFlag(data);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/restriction-bypass-flag.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "file-access-preset-not-reached",
       "defect": "Not a shipped defect — a NEW feature, and this proves its wiring is not vacuous. `file.access` is only worth anything if CoreFileService.checkRights() actually consults the preset; a base implementation that still answered `true` would leave every preset a decoration, and every test that asserts a refusal would go green for the wrong reason.",
       "file": "src/core/modules/file/core-file.service.ts",
-      "after": "protected async checkRights(",
+      "after": "private async resolveAccessPreset(",
       "find": "    if (preset === 'custom') {\n      return true;\n    }",
       "replace": "    if (preset === 'custom' || preset) {\n      return true;\n    }",
       "specs": [

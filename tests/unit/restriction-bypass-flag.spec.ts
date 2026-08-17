@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { ObjectType } from '@nestjs/graphql';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { checkRestricted } from '../../src/core/common/decorators/restricted.decorator';
 import { UnifiedField } from '../../src/core/common/decorators/unified-field.decorator';
@@ -36,7 +36,9 @@ import { CoreModel } from '../../src/core/common/models/core-model.model';
  * @seen-failing Make `hasRestrictionsCheckedMarker()` in
  *   `src/core/common/decorators/restricted.decorator.ts` read the property directly again
  *   (`return !!data?.[RESTRICTIONS_CHECKED]`) — registered as mutation
- *   `restriction-bypass-flag-trusts-data` in `tests/regression-mutations.json`.
+ *   `restriction-bypass-flag-trusts-data` in `tests/regression-mutations.json`. The migration WARNING
+ *   has its own mutation, `restriction-flag-migration-warning-silent`: a tightening nobody is told
+ *   about leaves a project debugging stripped fields with nothing pointing at the cause.
  */
 
 @ObjectType()
@@ -71,17 +73,43 @@ describe('_objectAlreadyCheckedForRestrictions', () => {
    * export — none of which the framework mediates, and all of which end up on the OUTPUT path where
    * `throwError` is false and a skipped check is silent.
    */
-  it('does not let a plain data property disable the checks', () => {
-    const payload: Record<string, any> = {
-      _objectAlreadyCheckedForRestrictions: true,
-      label: 'ok',
-      secret: 'SECRET',
-    };
-    const result = checkRestricted(Object.assign(Secretive.map(payload), payload), plainUser, {
-      throwError: false,
-    });
+  it('does not let a plain data property disable the checks — and says so once', async () => {
+    // The WARNING is asserted HERE, in the first case that touches the legacy shape, because it fires
+    // once per PROCESS: a per-object warning on the hottest path of the response pipeline would bury
+    // the one line that matters. Splitting it into its own case would make the assertion depend on
+    // test ordering — the trap this repo has already hit with the excludeSchemas warning.
+    //
+    // It matters because tightening the recognition is safe but NOT silent: a project that set the flag
+    // by hand loses its opt-out, and the fields it set the flag to PRESERVE are now stripped. Three
+    // customer projects do exactly that across twelve call sites, and none can adopt
+    // `markRestrictionsChecked()` before the framework update lands. So the message they will see the
+    // first time it happens is the whole migration signal.
+    const { Logger } = await import('@nestjs/common');
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
-    expect(result.secret, 'a data property must not switch off field-level access control').toBeUndefined();
+    try {
+      const payload: Record<string, any> = {
+        _objectAlreadyCheckedForRestrictions: true,
+        label: 'ok',
+        secret: 'SECRET',
+      };
+      const result = checkRestricted(Object.assign(Secretive.map(payload), payload), plainUser, {
+        throwError: false,
+      });
+
+      expect(result.secret, 'a data property must not switch off field-level access control').toBeUndefined();
+
+      const messages = warn.mock.calls.map(call => String(call[0])).join('\n');
+      expect(messages, 'the message must name the replacement').toContain('markRestrictionsChecked');
+      expect(messages).toContain('_objectAlreadyCheckedForRestrictions');
+
+      // Once per process: a second object must not add a line.
+      const before = warn.mock.calls.length;
+      checkRestricted(Object.assign(Secretive.map(payload), payload), plainUser, { throwError: false });
+      expect(warn.mock.calls.length, 'warned again for a second object').toBe(before);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   /** The same, one level down — a nested subdocument is exactly where such a field survives unnoticed. */

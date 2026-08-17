@@ -900,7 +900,23 @@ export abstract class CoreFileService {
     return Object.keys(stamped).length ? stamped : undefined;
   }
 
-  protected async checkRights(
+  protected checkRights(
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+  ): MaybePromise<boolean> {
+    // `MaybePromise<boolean>`, NOT `Promise<boolean>`, and not `async`. Narrowing the declared return
+    // type would break every consumer whose override returns a plain `boolean` — which the old
+    // signature explicitly invited — and TypeScript rejects that at the OVERRIDE, in their code, with
+    // an error that points at their file rather than at this change. `async` forces `Promise<T>`, so
+    // the async work lives in a separate method instead.
+    return this.resolveAccessPreset(input, options);
+  }
+
+  /**
+   * The async half of {@link checkRights}, split out only so the public seam can keep its
+   * `MaybePromise<boolean>` signature (see there).
+   */
+  private async resolveAccessPreset(
     input: any,
     options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): Promise<boolean> {
