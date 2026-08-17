@@ -47,7 +47,7 @@ import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
-import { applyFileRoles } from './core/modules/file/file-roles.helper';
+import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CoreHubModule } from './core/modules/hub/core-hub.module';
 import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
@@ -279,6 +279,11 @@ export class CoreModule implements NestModule {
     // Consumers that OVERRIDE a member re-declare the metadata on their own
     // function and opt out of this; see applyFileRoles() for why.
     applyFileRoles(config.file);
+
+    // Presigned downloads hand out a bearer URL that ignores roles after it is issued, so pairing
+    // them with a restricted downloadRoles is usually an oversight. Warn rather than fail — the
+    // combination has legitimate uses, it just should not be reached by accident.
+    warnOnPresignedDownloadsWithRestrictedRoles(config.s3, config.file);
 
     // Check secrets
     const jwtConfig = config.jwt;

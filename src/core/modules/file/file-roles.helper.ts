@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 
 import { RoleEnum } from '../../common/enums/role.enum';
-import { IFileConfig } from '../../common/interfaces/server-options.interface';
+import { IFileConfig, IS3Config } from '../../common/interfaces/server-options.interface';
 import { CoreFileController } from './core-file.controller';
 import { CoreFileResolver } from './core-file.resolver';
 
@@ -66,6 +66,59 @@ function resolveRoles(key: FileRoleKey, config?: IFileConfig): string[] {
   }
 
   return configured;
+}
+
+/**
+ * Warn when presigned S3 downloads are combined with a restricted `downloadRoles`.
+ *
+ * The two settings pull in opposite directions, and the conflict is invisible at the call site:
+ *
+ * - `downloadRoles` says "only these roles may download this file". It is enforced on every request.
+ * - `presignedDownloads` answers `302` with a time-limited S3 URL instead of streaming. That URL is
+ *   a BEARER capability — authorized once, at issue time. Whoever holds it afterwards fetches the
+ *   object with no session, from any IP, until it expires, and **the grant cannot be revoked in
+ *   between**. It survives in browser history, `Referer` headers, proxy logs and chat messages.
+ *
+ * So the second setting hands out exactly what the first one restricts. That is a sound trade for
+ * public assets (which is what presigning is FOR — hence no warning when downloads are
+ * `S_EVERYONE`), and almost never what a project means when it has narrowed the roles.
+ *
+ * A warning rather than a boot failure: unlike an incoherent role vocabulary, this combination has
+ * legitimate uses (short expiry, a CDN in front, files whose audience really is "anyone who once
+ * held the link"). The operator has to be able to choose it — they just should not choose it by
+ * accident.
+ */
+export function warnOnPresignedDownloadsWithRestrictedRoles(
+  s3Config?: IS3Config,
+  fileConfig?: IFileConfig,
+): string | undefined {
+  const presigned = s3Config?.presignedDownloads;
+  const presignedEnabled =
+    presigned === true || (!!presigned && typeof presigned === 'object' && (presigned as any).enabled !== false);
+  if (!presignedEnabled) {
+    return undefined;
+  }
+
+  const downloadRoles = resolveRoles('downloadRoles', fileConfig);
+  // Public downloads are the intended use of presigning — nothing to warn about.
+  if (downloadRoles.includes(RoleEnum.S_EVERYONE)) {
+    return undefined;
+  }
+
+  // Returned as well as logged: the message IS the contract here (an operator has to be able to act
+  // on it), and a module-private Logger instance cannot be asserted against from a unit test.
+  const message =
+    `s3.presignedDownloads is enabled while file.downloadRoles restricts downloads to ` +
+    `${JSON.stringify(downloadRoles)}. A presigned URL is a BEARER capability: it is authorized ` +
+    `once, at issue time, and afterwards anyone holding it can fetch the object with no session, ` +
+    `from any IP, until it expires — the grant cannot be revoked in between, and it survives in ` +
+    `browser history, Referer headers and proxy logs. The role check therefore applies to ` +
+    `obtaining the link, not to reading the file. If these files are sensitive (personal or ` +
+    `medical data), set s3.presignedDownloads: false so the API streams them and re-checks ` +
+    `rights on every request.`;
+
+  logger.warn(message);
+  return message;
 }
 
 /**
