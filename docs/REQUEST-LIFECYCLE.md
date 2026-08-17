@@ -1244,6 +1244,38 @@ JSON, a `Map` or a scalar, and failing closed would strip far more than it prote
 field must be protected, declare its type.** A class-level `@Restricted` on a nested type strips the
 contents and leaves an empty container (the `checkObjectItself: false` default).
 
+### File access — two layers, and why neither is optional
+
+Files are the one resource whose authorization does NOT go through `CrudService.process()`, so the
+decorator model above does not reach them. GridFS is reached through the native MongoDB driver and S3
+through its own SDK, which means `mongooseTenantPlugin` never runs on a file store — and that is why
+`CoreFileController` and `CoreFileResolver` carry `@SkipTenantCheck()`.
+
+| Layer | What it answers | Where |
+|-------|-----------------|-------|
+| `file.downloadRoles` / `uploadRoles` / `deleteRoles` | "may this caller reach the route at all" | applied onto the base-class members at boot by `applyFileRoles()`, read by the role guards |
+| `CoreFileService.checkRights()` | "…but only THIS file" | the service, once per operation, with `checkInputType` naming the path (`'id'`, `'filename'`, `'filterArgs'`, `'file'`, `'files'`) |
+
+**The first layer cannot express the second.** The role names resolve against `user.roles` — a global
+attribute — never against `membership.role`, so no configuration can say "only their own tenant's
+files". That sentence needs data, and the data lives in the file's `metadata`.
+
+**File ids are not secrets.** An ObjectId is 4 bytes of timestamp + 5 bytes of randomness generated once
+PER PROCESS + a 3-byte incrementing counter, so a caller who holds one valid id (their own upload) knows
+the random part and a counter reference point; neighbouring files sit on neighbouring values. The file
+routes are also not rate-limited by the framework. So a widened role gate without a per-file rule is
+practically enumerable, not theoretically.
+
+Since 11.35.0 the second layer is a declaration rather than code — `file.access`, one value per project
+class (`'public'`, `'authenticated'`, `'owner'`, `'tenant'`, or `'custom'` to write your own, the
+default). `'owner'` / `'tenant'` also STAMP the metadata they decide on as the service writes. When the
+gate is widened past `ADMIN` and neither `file.access` nor an override declares a policy, the service
+warns at boot — the difference between a decision and an omission is the only thing a boot check can
+usefully detect.
+
+Full model, per-driver behaviour and the audit checklist: `src/core/modules/file/README.md` § Access
+control and `src/core/modules/file/INTEGRATION-CHECKLIST.md`.
+
 ### @UnifiedField() — Schema & Validation
 
 Single decorator that replaces `@Field()`, `@ApiProperty()`, `@IsOptional()`, and more:
