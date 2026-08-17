@@ -75,11 +75,118 @@ roles, and remove genuine misconfigurations. Also check every project input that
 child class has validated it, so an override silently replaces the inherited validator (the plugin
 still backstops the write). See `migration-guides/11.34.x-to-11.35.x.md` §2.
 
-**Not covered:** tenant *membership* roles. A membership whose `role` is literally `'s_self'` still
-satisfies field-level `@Restricted(S_SELF)`, because `checkRestricted` passes the unfiltered
-required-roles list into `checkRoleAccess` and non-hierarchy roles match by exact string.
-`CoreTenantGuard` does filter system roles, so method-level `@Roles` is unaffected. Do not use
-`s_`-prefixed membership role names.
+## The tenant boundary: membership roles never confer global authority (11.35.0)
+
+Roles arrive from three sources with very different trust levels, and at runtime all three are
+plain strings — `RoleEnum.ADMIN` **is** `'admin'`. TypeScript enums exist only at compile time, so
+they provide no protection here. The danger is a shared namespace compared with `===`:
+
+| Source | Example | Assigned by |
+|--------|---------|-------------|
+| Framework role | `admin` | the platform |
+| System role | `s_self` | nobody — these are runtime questions, not roles |
+| Tenant membership role | `tenantAdmin` | the **customer**, as free text (`addMember` takes any non-empty string) |
+
+Two escalation paths existed until 11.35.0, both of them reachable by whoever may manage
+members — typically a tenant owner, i.e. a customer:
+
+- A membership role literally named `'admin'` satisfied `@Roles(RoleEnum.ADMIN)` in tenant context,
+  because the header path compared required roles against `membership.role` by exact string. That
+  is **platform** authority granted by a **customer**.
+- A membership role literally named `'s_self'` satisfied field-level `@Restricted(S_SELF)` on
+  ARBITRARY records — ownership was never compared. `CoreTenantGuard` already filtered system roles
+  at its own call site; `checkRestricted` did not.
+
+### The rule: the SOURCE decides, not the spelling
+
+Each required role is resolved against the source that is entitled to answer it
+(`resolveGlobalAndTenantRoles`, OR semantics across the two halves):
+
+| Required | Resolved against |
+|----------|------------------|
+| `RoleEnum.ADMIN` (and every `GLOBAL_ONLY_ROLES` member) | `user.roles` — **never** `membership.role` |
+| a tenant/project role (`tenantAdmin`, `auditor`, …) | `membership.role` in tenant context, `user.roles` otherwise |
+| a system role (`S_SELF`, `S_CREATOR`, …) | its dedicated check (ownership, verification, session) — never a string comparison |
+
+This is what makes the fix durable: it depends on no name list, so an already-stored membership
+named `admin` is inert rather than dangerous — no data migration needed.
+
+The intended model is unchanged and still works:
+
+```typescript
+// Global admin — access to EVERY tenant
+user.roles = [RoleEnum.ADMIN]
+
+// Per-tenant admin — one tenant only; name it whatever the project likes, just not 'admin'
+await tenantService.addMember(tenantId, userId, 'tenantAdmin');
+@Roles('tenantAdmin')
+```
+
+### Second layer: reserved names are refused at assignment time
+
+`addMember()` / `updateMemberRole()` throw on a system role (`s_*`) or a global-only role, matched
+case-insensitively and trimmed (`isForbiddenMembershipRole`). This is **hygiene, not the
+protection** — and the distinction matters: if a future `RoleEnum.SUPPORT` were added, every
+pre-existing membership named `support` would become a hole retroactively, and no assignment-time
+check can reach data that already exists. Only the source-based resolution above covers that.
+
+### Adding a new framework role
+
+`tests/unit/role-classification-invariants.spec.ts` fails unless every `RoleEnum` member is either
+a system role (`s_` prefix) or listed in `GLOBAL_ONLY_ROLES`. Adding a role without making that
+decision is exactly how the retroactive hole above gets created, so the test forces it at the
+moment the role is declared.
+
+### Declaring YOUR OWN global roles
+
+The framework only knows its own vocabulary, so a project that guards a platform-wide endpoint with
+`@Roles('auditor')` must say so — otherwise `auditor` is treated as an ordinary role and, in tenant
+context, answered from `membership.role`:
+
+```typescript
+multiTenancy: {
+  roleHierarchy:   { member: 1, tenantAdmin: 2, owner: 3 },  // per tenant
+  globalOnlyRoles: ['auditor', 'support'],                    // platform-wide, user.roles only
+}
+```
+
+The scope is stored as an **attribute**, not encoded in the role name. That is what keeps the design
+open for admin-managed roles held in the database later: a `RoleScopeSource` reading from Mongo can
+be registered alongside the config source, and every guard keeps working unchanged. Encoding the
+scope in the string instead (`t:owner`) would put it in a value whoever creates the role can
+mistype, and would add a normalization step inside the authorization path — the last place that
+should grow moving parts.
+
+| Registry answer | Meaning | Resolved against |
+|-----------------|---------|------------------|
+| `RoleScope.GLOBAL` | platform authority | `user.roles` |
+| `RoleScope.TENANT` | authority within one tenant | `membership.role` |
+| `RoleScope.SYSTEM` | runtime-context check | its dedicated check |
+| `RoleScope.UNKNOWN` | declared nowhere | `user.roles`; **never** a membership role under `strictMembershipRoles` |
+
+### Boot-time coherence check
+
+`CoreTenantModule.forRoot()` calls `assertRoleVocabularyIsCoherent()` and **fails the boot** on:
+
+1. a tenant role named after a framework role (`roleHierarchy: { admin: 3 }`),
+2. a role declared in `globalOnlyRoles` *and* as a tenant role — it would need two sources of truth,
+3. a system role declared in `globalOnlyRoles`.
+
+Failing the boot is the intended severity: each of these describes a configuration whose access
+decisions would be ambiguous, and an ambiguous authorization rule is worse than a server that
+refuses to start.
+
+> The framework's own documentation used to recommend
+> `roleHierarchy: { viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 }` — i.e. exactly case 1.
+> Projects that copied it had the escalation. The boot check now refuses that config.
+
+### `strictMembershipRoles` (opt-in, deny by default)
+
+With `multiTenancy.strictMembershipRoles: true`, only roles declared in `roleHierarchy` /
+`additionalMembershipRoles` may be assigned **and** may satisfy a required role. Deliberately not
+the default: a project may legitimately use exact-match roles that appear only in `@Roles()` and in
+its membership data, and denying those at the guard by default would be a silent, fleet-wide
+lockout. Turn it on for the strictest posture.
 
 ### `object` means the PERSISTED object — never the request payload
 

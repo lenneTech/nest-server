@@ -281,6 +281,28 @@
         "tests/server.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tenant-role-grants-global-admin",
+      "defect": "11.35.0 — in tenant context the guard compared required roles against membership.role by plain string equality, so a member whose tenant role was literally 'admin' satisfied @Roles(RoleEnum.ADMIN), the GLOBAL platform role. Membership roles are customer-assigned free text (addMember takes any non-empty string), so any tenant owner could mint platform-wide access. Collapsing the global/tenant split restores it.",
+      "file": "src/core/modules/tenant/core-tenant.helpers.ts",
+      "find": "    (scope === RoleScope.GLOBAL || isGlobalOnlyRole(role) ? global : tenant).push(role);",
+      "replace": "    (scope === RoleScope.SYSTEM ? global : tenant).push(role);",
+      "specs": [
+        "tests/tenant-guard.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "restricted-decorator-accepts-system-tenant-role",
+      "defect": "11.35.0 — checkRestricted passed the UNFILTERED required-roles list into checkRoleAccess, where a non-hierarchy role matches by exact string against the single available role. In tenant context that is membership.role, so a membership named literally 's_self' satisfied @Restricted(S_SELF) on ARBITRARY records — ownership was never compared. CoreTenantGuard already filtered system roles at its own call site; the decorator did not.",
+      "file": "src/core/common/decorators/restricted.decorator.ts",
+      "find": "    roles.filter((role) => !isSystemRole(role)),",
+      "replace": "    roles,",
+      "specs": [
+        "tests/tenant-guard.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

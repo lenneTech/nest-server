@@ -107,6 +107,64 @@ export function looksLikeSystemRole(role: unknown): boolean {
 }
 
 /**
+ * Roles that carry GLOBAL, platform-wide authority and can therefore never be satisfied by a
+ * tenant membership role.
+ *
+ * The distinction exists because membership roles are customer-assigned free text: `addMember()`
+ * takes any non-empty string, and whoever may manage members is typically a tenant owner — a
+ * customer. If a membership role were compared by plain string equality against a framework role,
+ * that customer could mint platform-wide authority for themselves simply by naming their tenant
+ * role `'admin'`.
+ *
+ * The two levels are meant to be expressed separately:
+ * - **global admin** → `RoleEnum.ADMIN` in `user.roles` — access to every tenant
+ * - **tenant admin** → a membership role such as `'tenantAdmin'` / `'spaceAdmin'` — one tenant only
+ *
+ * Required roles from this set are always resolved against `user.roles`, never against
+ * `membership.role`, no matter what the tenant header says.
+ */
+export const GLOBAL_ONLY_ROLES: readonly string[] = [RoleEnum.ADMIN];
+
+/**
+ * Is this a role that only the platform may grant (never a tenant)?
+ *
+ * Hoisted `function` for the same temporal-dead-zone reason as {@link isSystemRole}.
+ */
+export function isGlobalOnlyRole(role: string): boolean {
+  return typeof role === 'string' && GLOBAL_ONLY_ROLES.includes(role);
+}
+
+/**
+ * Could this value be mistaken for a global-only role once stored?
+ *
+ * Stands to {@link isGlobalOnlyRole} exactly as {@link looksLikeSystemRole} stands to
+ * {@link isSystemRole}: the runtime rule is exact (so `'ADMIN'` never grants anything), while the
+ * storage rule is defensive, because `' Admin '` reads as legitimate in a members list and becomes
+ * live the moment anything normalizes role strings.
+ */
+export function looksLikeGlobalOnlyRole(role: unknown): boolean {
+  if (typeof role !== 'string') {
+    return false;
+  }
+  const normalized = role.trim().toLowerCase();
+  return GLOBAL_ONLY_ROLES.some((globalRole) => globalRole.toLowerCase() === normalized);
+}
+
+/**
+ * Is this value unusable as a tenant MEMBERSHIP role?
+ *
+ * True for system roles (which are runtime-context checks, not stored roles) and for global-only
+ * roles (which would cross the tenant boundary). Used to refuse such values at assignment time, so
+ * the dangerous membership never comes into existence in the first place.
+ *
+ * Uses the DEFENSIVE variant of both predicates — see {@link looksLikeSystemRole} and
+ * {@link looksLikeGlobalOnlyRole} for why storage deserves the stricter answer than runtime.
+ */
+export function isForbiddenMembershipRole(role: unknown): boolean {
+  return looksLikeSystemRole(role) || looksLikeGlobalOnlyRole(role);
+}
+
+/**
  * `class-validator` `@Matches()` pattern that ACCEPTS everything {@link looksLikeSystemRole}
  * rejects, and vice versa.
  *

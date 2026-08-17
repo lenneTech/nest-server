@@ -3,8 +3,10 @@ import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
+import { roleScopeRegistry } from './core-role-scope.registry';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
 import { TENANT_MEMBER_MODEL_TOKEN } from './core-tenant.enums';
+import { assertRoleVocabularyIsCoherent, configRoleScopeSource } from './core-tenant.helpers';
 import { CoreTenantGuard } from './core-tenant.guard';
 import { CoreTenantService } from './core-tenant.service';
 
@@ -58,6 +60,16 @@ export interface CoreTenantModuleOptions {
 @Module({})
 export class CoreTenantModule {
   static forRoot(options: CoreTenantModuleOptions = {}): DynamicModule {
+    // Teach the role-scope registry which roles are global and which are tenant-scoped, then
+    // refuse to boot on a vocabulary that cannot be enforced coherently (a tenant role named after
+    // a framework role, or one role declared in both scopes). An ambiguous authorization rule is
+    // worse than a server that does not start, so this throws rather than warns.
+    //
+    // Registration is idempotent: forRoot() may run more than once across test module fixtures.
+    roleScopeRegistry.clear();
+    roleScopeRegistry.register(configRoleScopeSource);
+    assertRoleVocabularyIsCoherent();
+
     const MemberModel = options.memberModel || CoreTenantMemberModel;
     const Guard = options.guard || CoreTenantGuard;
     const Service = options.service || CoreTenantService;

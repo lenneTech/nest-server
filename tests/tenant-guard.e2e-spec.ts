@@ -192,6 +192,14 @@ class TestController {
     return { ok: true, tenantId };
   }
 
+  // A project's own per-tenant admin role — the documented way to express "admin of THIS tenant",
+  // distinct from the global RoleEnum.ADMIN. Must keep working unchanged.
+  @Get('tenant-admin-only')
+  @Roles('tenantAdmin')
+  tenantAdminOnly(@CurrentTenant() tenantId: string) {
+    return { ok: true, tenantId };
+  }
+
   @Get('moderator-only')
   @Roles('moderator')
   moderatorOnly(@CurrentTenant() tenantId: string) {
@@ -1306,6 +1314,140 @@ describe('CoreTenantGuard (e2e)', () => {
       .expect(403);
   });
 
+  // =========================================================================
+  // K) Tenant boundary: a membership role must never confer GLOBAL authority
+  //
+  // The whole point of tenant separation is that a customer holds power INSIDE
+  // their tenant and nowhere else. Membership roles are customer-assigned free
+  // text (addMember takes any non-empty string), so if a role name is compared
+  // by plain string equality against a FRAMEWORK role, whoever may manage
+  // members can mint global authority for themselves.
+  //
+  // Two distinct authority levels must stay separate:
+  //   - global admin  → RoleEnum.ADMIN in user.roles (all tenants)
+  //   - tenant admin  → a membership role such as 'tenantAdmin' / 'spaceAdmin'
+  // =========================================================================
+  describe('K) membership roles must not grant global authority', () => {
+    /**
+     * @regression   11.35.0 — the header path checked required roles against membership.role by
+     *   plain string comparison, so a member whose tenant role was literally 'admin' satisfied
+     *   @Roles(RoleEnum.ADMIN) — the GLOBAL platform role. Anyone who may manage members (a tenant
+     *   owner, i.e. a customer) could mint platform-wide admin access for themselves.
+     * @seen-failing Drop the GLOBAL_ONLY_ROLES split in resolveGlobalAndTenantRoles in
+     *   src/core/modules/tenant/core-tenant.helpers.ts — registered as mutation
+     *   `tenant-role-grants-global-admin` in tests/regression-mutations.json.
+     */
+    it('does not accept a membership role named "admin" as the global ADMIN role', async () => {
+      // A tenant owner assigns the literal framework role name as a membership role.
+      await memberModel.create({
+        role: RoleEnum.ADMIN,
+        status: TenantMemberStatus.ACTIVE,
+        tenant: TENANT_A,
+        user: USER_ID,
+      });
+
+      // The user holds NO global role — X-Test-User-Roles is deliberately absent.
+      await request(app.getHttpServer())
+        .get('/admin-fallback/admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', USER_ID)
+        .expect(403);
+    });
+
+    /**
+     * The counterpart, and the reason the fix must not be a blanket ban: a REAL global admin
+     * keeps full access to every tenant. That is the documented model — global admin via
+     * user.roles, per-tenant admin via a membership role like 'tenantAdmin'.
+     */
+    it('still grants a real global admin (user.roles) access to every tenant', async () => {
+      // Not a member of TENANT_A at all.
+      const res = await request(app.getHttpServer())
+        .get('/admin-fallback/admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', ADMIN_USER_ID)
+        .set('X-Test-User-Roles', RoleEnum.ADMIN)
+        .expect(200);
+
+      expect(res.body.tenantId).toBe(TENANT_A);
+    });
+
+    /**
+     * And the project's own tenant-admin role keeps working exactly as before — the fix separates
+     * the two authority levels, it does not restrict what a tenant may call its own roles.
+     */
+    it('leaves a project-defined tenant admin role (tenantAdmin) working', async () => {
+      await tenantService.addMember(TENANT_A, USER_ID, 'tenantAdmin');
+
+      const res = await request(app.getHttpServer())
+        .get('/test/tenant-admin-only')
+        .set('X-Tenant-Id', TENANT_A)
+        .set('X-Test-User-Id', USER_ID)
+        .expect(200);
+
+      expect(res.body.tenantId).toBe(TENANT_A);
+    });
+
+    /**
+     * Field-level @Restricted has the same defect through a different code path: checkRestricted
+     * passed the UNFILTERED required-roles list into checkRoleAccess, where a non-hierarchy role
+     * matches by exact string. So a membership role literally named 's_self' satisfied every
+     * ownership-restricted field — on ARBITRARY records, since no ownership is compared.
+     *
+     * @regression   11.35.0 — see above; the guard already filtered system roles at its own call
+     *   site (checkableRoles), the decorator did not.
+     * @seen-failing Remove the system-role filter from the checkRoleAccess call in
+     *   src/core/common/decorators/restricted.decorator.ts — registered as mutation
+     *   `restricted-decorator-accepts-system-tenant-role` in tests/regression-mutations.json.
+     */
+    it('does not let a membership role named "s_self" satisfy @Restricted(S_SELF)', () => {
+      class VictimRecord {
+        id = 'victim-9';
+
+        @Restricted(RoleEnum.S_SELF)
+        ownerOnlyField = 'owner-secret';
+      }
+
+      const attacker = { id: 'attacker-1', roles: [] as string[] };
+      const record = new VictimRecord();
+
+      // Active tenant context whose membership role is literally the system role name.
+      const context: IRequestContext = {
+        currentUser: attacker,
+        tenantId: TENANT_A,
+        tenantRole: RoleEnum.S_SELF,
+      } as unknown as IRequestContext;
+
+      const result = RequestContext.run(context, () =>
+        checkRestricted(record, attacker as any, { throwError: false }),
+      );
+
+      // Ownership was never established — attacker.id !== record.id — so the field must be stripped.
+      expect(result.ownerOnlyField).toBeUndefined();
+    });
+
+    it('still honours @Restricted(S_SELF) for the actual owner', () => {
+      class OwnRecord {
+        id = 'owner-1';
+
+        @Restricted(RoleEnum.S_SELF)
+        ownerOnlyField = 'owner-secret';
+      }
+
+      const owner = { id: 'owner-1', roles: [] as string[] };
+      const record = new OwnRecord();
+
+      const result = RequestContext.run({ currentUser: owner } as unknown as IRequestContext, () =>
+        checkRestricted(record, owner as any, { throwError: false }),
+      );
+
+      expect(result.ownerOnlyField).toBe('owner-secret');
+    });
+
+    it('rejects a system role as a membership role at assignment time', async () => {
+      await expect(tenantService.addMember(TENANT_B, USER_ID, RoleEnum.S_SELF)).rejects.toThrow(/system role/i);
+      await expect(tenantService.addMember(TENANT_B, USER_ID, RoleEnum.ADMIN)).rejects.toThrow(/global role/i);
+    });
+  });
 });
 
 // =============================================================================
@@ -3303,4 +3445,5 @@ describe('CoreTenantGuard: BetterAuth resolver subclass auto-skip', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.tenantId).toBe(TENANT_R);
   });
+
 });

@@ -683,6 +683,47 @@ describe('ServerModule (e2e)', () => {
     });
 
     /**
+     * REST is a separate pipe invocation from GraphQL, and it is the transport on which the
+     * per-field message is actually visible (Apollo drops the exception body without a formatted
+     * originalError, so the custom message is unobservable over GraphQL).
+     */
+    it('rejects a system role over REST (PATCH /users/:id) and surfaces the message', async () => {
+      const res: any = await testHelper.rest(`/users/${targetId}`, {
+        method: 'PATCH',
+        payload: { roles: ['s_self'] },
+        statusCode: 400,
+        token: gToken,
+      });
+
+      expect(JSON.stringify(res)).toContain('System roles');
+
+      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * CoreUserCreateInput inherits the field, so account CREATION carries the same guard — this is
+     * the path that would mint a skeleton-key account outright rather than upgrading an existing one.
+     */
+    it('rejects a system role on user creation (REST POST /users)', async () => {
+      const passwd = Math.random().toString(36).substring(7);
+      const res: any = await testHelper.rest('/users', {
+        method: 'POST',
+        payload: {
+          email: `${passwd}@s-role-create.com`,
+          password: passwd,
+          roles: ['s_self'],
+        },
+        statusCode: 400,
+        token: gToken,
+      });
+
+      expect(JSON.stringify(res)).toContain('System roles');
+      const created = await db.collection('users').findOne({ email: `${passwd}@s-role-create.com` });
+      expect(created).toBeNull();
+    });
+
+    /**
      * A PRE-EXISTING system role must not lock the account out.
      *
      * CrudService.update() writes the whole object back, so an ordinary login

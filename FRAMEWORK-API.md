@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-08-14 (v11.35.0)
+> Auto-generated from source code on 2026-08-17 (v11.35.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -75,6 +75,9 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `membershipModel?`: `string | undefined` (default: `'TenantMember'`) — Mongoose model name for the membership collection.
   - `adminBypass?`: `boolean | undefined` (default: `true`) — Whether system admins (RoleEnum.ADMIN) bypass the membership check.
   - `roleHierarchy?`: `Record<string, number> | undefined` (default: `{ member: 1, manager: 2, owner: 3 }`) — Custom role hierarchy for tenant membership roles.
+  - `globalOnlyRoles?`: `string[] | undefined` (default: `[] (only RoleEnum.ADMIN is global)`) — Project-defined roles that carry GLOBAL (platform-wide) authority.
+  - `strictMembershipRoles?`: `boolean | undefined` (default: `false`) — Refuse membership roles that are not declared anywhere (deny by default).
+  - `additionalMembershipRoles?`: `string[] | undefined` (default: `[]`) — Membership roles that are valid but carry no hierarchy level (exact-match roles).
   - `cacheTtlMs?`: `number | undefined` (default: `30000 (30 seconds)`) — TTL in milliseconds for the tenant guard's in-memory membership cache.
 
 ### IErrorCode

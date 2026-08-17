@@ -27,6 +27,8 @@ import {
   getRoleHierarchy,
   isSystemRole,
   mergeRolesMetadata,
+  resolveGlobalAndTenantRoles,
+  tenantSatisfiableRoles,
 } from './core-tenant.helpers';
 
 /**
@@ -425,9 +427,28 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
       const memberRole = membership.role as string;
 
-      // Check role access if roles are required (hierarchy + normal, against membership.role)
+      // Check role access if roles are required (hierarchy + normal, against membership.role).
+      //
+      // Global-only roles (RoleEnum.ADMIN) are resolved against user.roles instead — a membership
+      // role is customer-assigned free text, so comparing it against the framework's global admin
+      // role by string equality would let any tenant owner mint platform-wide access by naming
+      // their tenant role 'admin'. The two authority levels stay separate:
+      //   global admin → RoleEnum.ADMIN in user.roles (every tenant)
+      //   tenant admin → a membership role such as 'tenantAdmin' (this tenant only)
+      //
+      // OR semantics across both halves, so @Roles(ADMIN, 'owner') keeps reading as alternatives.
       if (checkableRoles.length > 0) {
-        if (!checkRoleAccess(checkableRoles, undefined, memberRole)) {
+        const { global: globalRoles } = resolveGlobalAndTenantRoles(checkableRoles);
+        // Deny by default: only roles DECLARED as tenant-scoped may be satisfied by a membership.
+        // An undeclared role is not silently matched against customer-assigned free text.
+        const tenantRoles = tenantSatisfiableRoles(checkableRoles);
+        const satisfiedGlobally = globalRoles.some((r) => user.roles?.includes(r));
+        // The length guard is NOT redundant here (unlike the `.some()` above): checkRoleAccess
+        // returns TRUE for an empty required-roles list, so calling it with no tenant roles would
+        // grant access to a handler that only ever required a global role.
+        const satisfiedByTenant = tenantRoles.length > 0 && checkRoleAccess(tenantRoles, undefined, memberRole);
+
+        if (!satisfiedGlobally && !satisfiedByTenant) {
           throw new ForbiddenException('Insufficient tenant role');
         }
       }

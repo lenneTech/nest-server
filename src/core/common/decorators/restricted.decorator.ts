@@ -25,14 +25,16 @@ import 'reflect-metadata';
 import _ = require('lodash');
 
 import { ProcessType } from '../enums/process-type.enum';
-import { RoleEnum } from '../enums/role.enum';
+// isSystemRole comes from the role.enum LEAF (import-free), not from core-tenant.helpers, so this
+// adds no new import edge to a file whose TDZ-immunity is a deliberate safety property.
+import { isSystemRole, RoleEnum } from '../enums/role.enum';
 import { accessDeniedException } from '../exceptions/access-denied.exception';
 // Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
 // imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
 import { equalIds, getIncludedIds } from '../helpers/id.helper';
 import { RequestContext } from '../services/request-context.service';
 import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-import { checkRoleAccess } from '../../modules/tenant/core-tenant.helpers';
+import { checkRoleAccess, resolveGlobalAndTenantRoles } from '../../modules/tenant/core-tenant.helpers';
 
 /**
  * Restricted meta key
@@ -119,6 +121,39 @@ export function getRestricted(object: unknown, propertyKey?: string): Restricted
 
   classCache.set(cacheKey, metadata);
   return metadata;
+}
+
+/**
+ * Resolve the NON-system portion of a field's required roles against the requester.
+ *
+ * Two things must be filtered before the roles reach `checkRoleAccess`, because that function
+ * matches non-hierarchy roles by exact string against a SINGLE available role — the tenant
+ * membership role, when a tenant context is active:
+ *
+ * 1. **System roles.** `S_SELF`, `S_CREATOR`, `S_VERIFIED`, `S_USER` and `S_EVERYONE` are decided
+ *    by the dedicated checks in `checkRestricted` (ownership, verification, session). Passing them
+ *    on means a membership role literally named `'s_self'` satisfies `@Restricted(S_SELF)` on
+ *    ARBITRARY records — no ownership is ever compared. `CoreTenantGuard` already filters these at
+ *    its own call site; this is the same filter for the field-level path.
+ *
+ * 2. **Global-only roles.** `RoleEnum.ADMIN` is platform authority and must be answered from
+ *    `user.roles`, never from a customer-assigned membership role.
+ *
+ * Declared as a hoisted `function` so it stays temporal-dead-zone immune — this file sits on no
+ * import cycle today and the property is defended deliberately (see `.claude/rules/architecture.md`).
+ */
+function checkFieldRoleAccess(roles: string[], user: any): boolean {
+  const { global: globalRoles, tenant: tenantRoles } = resolveGlobalAndTenantRoles(
+    roles.filter((role) => !isSystemRole(role)),
+  );
+
+  if (globalRoles.some((role) => user?.roles?.includes(role))) {
+    return true;
+  }
+
+  // The length guard is NOT redundant: checkRoleAccess returns TRUE for an empty required-roles
+  // list, so calling it with no tenant roles would unlock a field that only required a global one.
+  return tenantRoles.length > 0 && checkRoleAccess(tenantRoles, user?.roles, RequestContext.get()?.tenantRole);
 }
 
 /**
@@ -320,7 +355,7 @@ export function checkRestricted(
           ((owner && 'createdBy' in owner && equalIds(owner.createdBy, user)) ||
             (config.allowCreatorOfParent && owner && !('createdBy' in owner) && config.isCreatorOfParent))) ||
         (roles.includes(RoleEnum.S_VERIFIED) && (user?.verified || user?.verifiedAt || user?.emailVerified)) ||
-        (user?.id && checkRoleAccess(roles, user?.roles, RequestContext.get()?.tenantRole))
+        (user?.id && checkFieldRoleAccess(roles, user))
       ) {
         valid = true;
       }

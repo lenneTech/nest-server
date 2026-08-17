@@ -1039,22 +1039,85 @@ export interface IMultiTenancy {
    * @default { member: 1, manager: 2, owner: 3 }
    * @since 11.21.0
    *
+   * SECURITY: never name a tenant role after a GLOBAL role. `RoleEnum.ADMIN` (`'admin'`) and every
+   * other member of `GLOBAL_ONLY_ROLES` is rejected here — a tenant role of that name used to
+   * satisfy `@Roles(RoleEnum.ADMIN)` in tenant context, i.e. a customer could grant themselves
+   * platform authority. Use a tenant-specific name (`tenantAdmin`, `spaceAdmin`) instead, and
+   * declare your own platform-wide roles in {@link globalOnlyRoles}. The boot check refuses a
+   * hierarchy that violates this.
+   *
    * @example
    * ```typescript
    * // config.env.ts
    * multiTenancy: {
-   *   roleHierarchy: { viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 }
+   *   roleHierarchy: { viewer: 1, editor: 2, manager: 2, tenantAdmin: 3, owner: 4 }
    * }
    *
    * // roles.ts
    * import { createHierarchyRoles } from '@lenne.tech/nest-server';
-   * export const HR = createHierarchyRoles({ viewer: 1, editor: 2, manager: 2, admin: 3, owner: 4 });
+   * export const HR = createHierarchyRoles({ viewer: 1, editor: 2, manager: 2, tenantAdmin: 3, owner: 4 });
    *
    * // resolver.ts
-   * @Roles(HR.EDITOR) // requires level >= 2 (editor, manager, admin, owner)
+   * @Roles(HR.EDITOR) // requires level >= 2 (editor, manager, tenantAdmin, owner)
    * ```
    */
   roleHierarchy?: Record<string, number>;
+
+  /**
+   * Project-defined roles that carry GLOBAL (platform-wide) authority.
+   *
+   * `RoleEnum.ADMIN` is always treated this way; this option extends the set with your own.
+   * A role listed here is ALWAYS resolved against `user.roles` and NEVER against a tenant
+   * membership role — no matter what the `X-Tenant-Id` header says.
+   *
+   * **Why this matters.** Membership roles are customer-assigned free text, and in tenant context
+   * required roles are otherwise compared against `membership.role`. Without this list, a global
+   * endpoint guarded by `@Roles('auditor')` is reachable by any tenant member whose membership role
+   * happens to be `'auditor'` — granted by their own tenant owner, not by you.
+   *
+   * Declaring a role here is therefore a security statement: "only the platform may grant this".
+   * A role that appears BOTH here and in {@link roleHierarchy} fails the boot check, because it
+   * would have to be resolved against two different sources at once.
+   *
+   * @default [] (only RoleEnum.ADMIN is global)
+   * @since 11.35.0
+   *
+   * @example
+   * ```typescript
+   * multiTenancy: {
+   *   roleHierarchy:   { member: 1, tenantAdmin: 2, owner: 3 },  // per tenant
+   *   globalOnlyRoles: ['auditor', 'support'],                    // platform-wide
+   * }
+   * ```
+   */
+  globalOnlyRoles?: string[];
+
+  /**
+   * Refuse membership roles that are not declared anywhere (deny by default).
+   *
+   * When `true`, `addMember()` / `updateMemberRole()` accept only roles present in
+   * {@link roleHierarchy} or {@link additionalMembershipRoles}. When `false` (default, backward
+   * compatible), any non-reserved string is accepted.
+   *
+   * An undeclared membership role can never GRANT anything either way — the guards only match
+   * declared tenant roles — but with this on, the mistake surfaces as a 400 at assignment time
+   * instead of as a membership that silently authorizes nothing.
+   *
+   * @default false
+   * @since 11.35.0
+   */
+  strictMembershipRoles?: boolean;
+
+  /**
+   * Membership roles that are valid but carry no hierarchy level (exact-match roles).
+   *
+   * Only consulted when {@link strictMembershipRoles} is `true`. Use it for roles like `'auditor'`
+   * that are meaningful per tenant but do not sit in the level ordering.
+   *
+   * @default []
+   * @since 11.35.0
+   */
+  additionalMembershipRoles?: string[];
 
   /**
    * TTL in milliseconds for the tenant guard's in-memory membership cache.
