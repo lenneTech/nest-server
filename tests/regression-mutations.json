@@ -314,6 +314,17 @@
         "tests/tenant-guard.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cross-tenant-writes-accepted",
+      "defect": "11.35.0 — the tenant plugin stamped tenantId only when absent, and filtered WHERE but not the update payload. So a caller-supplied tenantId survived (planting a row in a foreign tenant) and an update could rewrite tenantId (moving a row out of its own tenant). Both are cross-tenant writes from an ordinary request.",
+      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "find": "  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
+      "replace": "  return;\n  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
+      "specs": [
+        "tests/tenant-isolation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

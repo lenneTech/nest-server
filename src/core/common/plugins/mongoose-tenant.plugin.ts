@@ -63,6 +63,19 @@ export function mongooseTenantPlugin(schema) {
       if (filter !== undefined) {
         this.where(filter);
       }
+
+      // The filter above constrains WHICH rows are touched, never what the update WRITES. So a
+      // caller could legitimately match their own row and then rewrite its tenantId — moving it
+      // into a tenant they control, or simply out of reach of its rightful owner.
+      const single = resolveSingleTenantId(modelName);
+      if (single) {
+        const update: any = typeof this.getUpdate === 'function' ? this.getUpdate() : undefined;
+        for (const candidate of [update?.tenantId, update?.$set?.tenantId, update?.$setOnInsert?.tenantId]) {
+          if (candidate !== undefined) {
+            assertOwnTenant(candidate, single, false);
+          }
+        }
+      }
     });
   }
 
@@ -70,14 +83,23 @@ export function mongooseTenantPlugin(schema) {
   // Intentional asymmetry: writes only set tenantId when truthy (not null).
   // Only uses single tenantId from header — tenantIds array is for reads only.
   schema.pre('save', function () {
-    if (this.isNew && !this['tenantId']) {
-      // Document hooks: `this` is the document instance — modelName is on the constructor (the Model class)
-      const modelName = (this.constructor as any).modelName;
-      const tenantId = resolveSingleTenantId(modelName);
-      if (tenantId) {
-        this['tenantId'] = tenantId;
-      }
+    // Document hooks: `this` is the document instance — modelName is on the constructor (the Model class)
+    const modelName = (this.constructor as any).modelName;
+    const tenantId = resolveSingleTenantId(modelName);
+    if (!tenantId) {
+      return;
     }
+
+    if (this.isNew && !this['tenantId']) {
+      this['tenantId'] = tenantId;
+      return;
+    }
+
+    // A tenantId that is already on the document did NOT come from this hook. Stamping only when
+    // absent is right for system writes, but on its own it means a caller-supplied value survives —
+    // so an explicit foreign tenantId would place the row in someone else's tenant, and modifying it
+    // on an existing document would move the row out of this one.
+    assertOwnTenant(this['tenantId'], tenantId, this.isNew);
   });
 
   // === insertMany (Mongoose 9: first arg is docs array, no next callback) ===
@@ -89,6 +111,8 @@ export function mongooseTenantPlugin(schema) {
       for (const doc of docs) {
         if (!doc.tenantId) {
           doc.tenantId = tenantId;
+        } else {
+          assertOwnTenant(doc.tenantId, tenantId, true);
         }
       }
     }
@@ -155,6 +179,21 @@ export function mongooseTenantPlugin(schema) {
     }
 
     const pipeline = this.pipeline();
+
+    // $out and $merge are the only aggregation stages that WRITE, and neither can be constrained
+    // the way a read stage can: $out REPLACES a whole collection, and $merge writes rows whose
+    // tenantId comes from the pipeline rather than from the caller's context. Either one turns an
+    // aggregation into a way to launder rows across the boundary — or, with $out, to erase another
+    // tenant's collection outright. There is nothing to inject here, so a tenant-scoped caller is
+    // refused; system code that legitimately needs them runs under runWithBypassTenantGuard().
+    const writeStage = pipeline.find((stage: any) => stage && (stage.$out !== undefined || stage.$merge !== undefined));
+    if (writeStage) {
+      throw new ForbiddenException(
+        `Aggregation write stages ($out / $merge) are not permitted inside a tenant context — ` +
+          'they cannot be tenant-filtered. Run them as a system operation if this is intended.',
+      );
+    }
+
     pipeline.unshift({ $match: filter });
 
     // The $match above only constrains the SOURCE collection. `$lookup`, `$unionWith` and
@@ -260,6 +299,28 @@ function filterForCollection(collectionName: unknown, sourceModel: any): Record<
   }
 
   return undefined;
+}
+
+/**
+ * Refuse a tenantId that is not the caller's own.
+ *
+ * Covers both directions of the same boundary:
+ * - creating a row with a FOREIGN tenantId → planting data in someone else's tenant;
+ * - changing an existing row's tenantId → moving data out of this one.
+ *
+ * Throwing rather than overwriting is deliberate. Silently rewriting the value would make a request
+ * that asked for something impossible look like it succeeded, and for tenant-scoped medical data
+ * "the write went somewhere other than you asked" is not a recoverable ambiguity.
+ */
+function assertOwnTenant(value: unknown, ownTenantId: string, isNew: boolean): void {
+  if (value === undefined || value === null || value === ownTenantId) {
+    return;
+  }
+  throw new ForbiddenException(
+    isNew
+      ? `Cannot create a document in a foreign tenant (got "${String(value)}", own tenant is "${ownTenantId}")`
+      : `Cannot move a document to a foreign tenant (got "${String(value)}", own tenant is "${ownTenantId}")`,
+  );
 }
 
 /**

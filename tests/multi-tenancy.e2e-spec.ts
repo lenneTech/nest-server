@@ -181,13 +181,40 @@ describe('Multi-Tenancy Plugin (e2e)', () => {
   // =========================================================================
   // Test 6: Explicit tenantId is preserved
   // =========================================================================
-  it('should preserve explicitly set tenantId on save', async () => {
-    const doc = await runAsTenant('tenant-a', async () => {
-      const item = new tenantItemModel({ name: 'explicit-item', tenantId: 'tenant-x' });
+  /**
+   * CHANGED in 11.35.0 — this used to assert that an explicit tenantId is PRESERVED, i.e. that a
+   * request running as tenant-a could write a row into tenant-x. That is the cross-tenant write
+   * this release closes: the value survived precisely because the save hook only stamps when the
+   * field is absent, so a caller-supplied one passed straight through.
+   *
+   * System code that legitimately writes for another tenant uses runWithBypassTenantGuard(), which
+   * is unaffected — see the case below.
+   */
+  it('should refuse an explicitly foreign tenantId on save', async () => {
+    await expect(
+      runAsTenant('tenant-a', async () => {
+        const item = new tenantItemModel({ name: 'explicit-item', tenantId: 'tenant-x' });
+        return item.save();
+      }),
+    ).rejects.toThrow(/foreign tenant/);
+  });
+
+  it('should still allow a system write to any tenant via bypass', async () => {
+    const doc = await RequestContext.runWithBypassTenantGuard(async () => {
+      const item = new tenantItemModel({ name: 'system-item', tenantId: 'tenant-x' });
       return item.save();
     });
 
     expect(doc.tenantId).toBe('tenant-x');
+  });
+
+  it('should still preserve a matching explicit tenantId', async () => {
+    const doc = await runAsTenant('tenant-a', async () => {
+      const item = new tenantItemModel({ name: 'matching-item', tenantId: 'tenant-a' });
+      return item.save();
+    });
+
+    expect(doc.tenantId).toBe('tenant-a');
   });
 
   // =========================================================================
