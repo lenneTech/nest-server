@@ -356,6 +356,53 @@ describe('File storage parity — service contract (e2e)', () => {
         }
       });
 
+      /**
+       * The WRITE half of the refusal contract, which `checkRightsRefusalIsUniform` above does not
+       * reach: that case installs the canonical ownership rule, and an ownership rule has nothing to
+       * say about a file that does not exist yet — it returns `true` for every input type other than
+       * `'id'` / `'filename'`. So `createFile()`'s own gate (`checkInputType: 'file'`) was exercised by
+       * nothing, in a module where the read gate had already produced three separate defects.
+       *
+       * Two properties, and the second is the one that needs a store-by-store check: a refusal must
+       * answer `null` rather than throw, AND it must leave nothing behind. An upload that streamed
+       * bytes before consulting the gate would leave an orphan in whichever store is active — bytes no
+       * metadata names, which no lookup can find and no API call can clean up.
+       *
+       * `createFiles()` is included because it gates TWICE (once on `'files'`, then once per file on
+       * `'file'`), and a rule that refuses only the inner one must still write nothing.
+       *
+       * @regression   NOT a shipped defect — a COVERAGE gap. The gate was correct on arrival; what was
+       *   missing was any test of it, in the one module where the read gate had already produced three
+       *   separate defects. The tag is here because the mutation below is reachable and therefore worth
+       *   registering: it is what makes this case demonstrably non-vacuous.
+       * @seen-failing Delete the `checkRights(file, { …, checkInputType: 'file' })` guard clause from
+       *   `createFile()` in `src/core/modules/file/core-file.service.ts` — registered as mutation
+       *   `create-file-skips-write-gate` in `tests/regression-mutations.json`.
+       */
+      parityIt('service.writeRefusalWritesNothing', driver, async () => {
+        const single = name('write-refused');
+        const batch = name('write-refused-batch');
+        // Refuses exactly the write gates and nothing else, so a `null` here can only come from them.
+        service.useRule((_input, options) => options.checkInputType !== 'file' && options.checkInputType !== 'files');
+
+        try {
+          expect(await service.createFile(upload('refused bytes', single)), 'a refused upload').toBeNull();
+          expect(await service.createFiles([upload('refused bytes', batch)]), 'a refused batch upload').toBeNull();
+        } finally {
+          service.useRule(undefined);
+        }
+
+        // Nothing landed — in the active store or in either other one. Checked through the raw
+        // lookups (which bypass `checkRights`), so the assertion cannot be satisfied by the rule
+        // merely hiding a file that WAS written.
+        for (const candidate of [single, batch]) {
+          expect(await service.rawByName(candidate), `${candidate} must not exist anywhere`).toBeNull();
+        }
+        const listed = (await service.findFileInfo(undefined, { force: true })).map(entry => entry.filename);
+        expect(listed).not.toContain(single);
+        expect(listed).not.toContain(batch);
+      });
+
       // ---------------------------------------------------------------------------------------
       // Listing: filter, sort, page
       // ---------------------------------------------------------------------------------------

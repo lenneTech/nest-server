@@ -159,6 +159,12 @@ export const PARITY_CASES: readonly ParityCase[] = [
   },
   {
     drivers: PARITY_DRIVERS,
+    id: 'service.writeRefusalWritesNothing',
+    layer: 'service',
+    title: 'a refused upload writes no bytes and no bookkeeping',
+  },
+  {
+    drivers: PARITY_DRIVERS,
     id: 'service.findFilterByName',
     layer: 'service',
     title: 'findFileInfo filters on a whole filename value',

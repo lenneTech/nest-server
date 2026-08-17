@@ -24,6 +24,18 @@
   ],
   "mutations": [
     {
+      "id": "create-file-skips-write-gate",
+      "defect": "Not a shipped defect — this pins a gate that was correct but UNTESTED. `createFile()`'s own `checkInputType: 'file'` check was exercised by nothing: the canonical ownership rule the matrix installs returns true for every input type other than id/filename, so an upload refusal (quota, mime, tenant) was never verified to answer null or to leave no orphan bytes behind. The mutation removes the gate.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "after": "async createFile(file: MaybePromise<FileUploadSource>, serviceOptions?: FileServiceOptions)",
+      "find": "    if (!(await this.checkRights(file, { ...serviceOptions, checkInputType: 'file' }))) {\n      return null;\n    }",
+      "replace": "",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "restriction-bypass-flag-trusts-data",
       "defect": "11.35.0 — the `_objectAlreadyCheckedForRestrictions` opt-out was a truthy test on a well-known property name, and nothing in src/ ever wrote it. So a document carrying `_objectAlreadyCheckedForRestrictions: true` (raw write, strict:false schema, restored export) disabled EVERY field-level @Restricted check for that object — silently, on the output path where a skipped check produces no error.",
       "file": "src/core/common/decorators/restrictions-checked.marker.ts",
