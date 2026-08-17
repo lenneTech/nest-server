@@ -303,6 +303,17 @@
         "tests/tenant-guard.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "aggregation-joins-cross-tenant",
+      "defect": "11.35.0 — the tenant plugin prepended $match to the SOURCE collection only. $lookup / $unionWith / $graphLookup read a DIFFERENT collection whose own aggregate hook never fires, so a single reporting-shaped aggregation returned every tenant's rows from the joined collection. For tenant-scoped medical data that is the difference between one tenant's records and everyone's.",
+      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "find": "    secureCrossCollectionStages(pipeline, model);",
+      "replace": "    void secureCrossCollectionStages;",
+      "specs": [
+        "tests/tenant-guard.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

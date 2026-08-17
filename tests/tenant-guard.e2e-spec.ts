@@ -56,6 +56,27 @@ class TenantItem {
 const TenantItemSchema = SchemaFactory.createForClass(TenantItem);
 
 // =============================================================================
+// Test Schema: TenantSecret — a SECOND tenant-scoped collection.
+//
+// One collection cannot show a cross-collection leak: the plugin's $match is
+// prepended to the SOURCE collection's pipeline, so the question is what happens
+// to a $lookup / $unionWith / $graphLookup that reaches into ANOTHER one.
+// =============================================================================
+@Schema({ timestamps: true })
+class TenantSecret {
+  @Prop({ type: String })
+  tenantId: string;
+
+  @Prop({ type: String, required: true })
+  diagnosis: string;
+
+  @Prop({ type: String, required: true })
+  ownerName: string;
+}
+
+const TenantSecretSchema = SchemaFactory.createForClass(TenantSecret);
+
+// =============================================================================
 // Test Schema: GlobalItem (no tenantId → plugin ignores)
 // =============================================================================
 @Schema({ timestamps: true })
@@ -239,6 +260,7 @@ const TEST_DB_URI = deriveTestDbUri('tg');
     MongooseModule.forFeature([
       { name: 'TenantMember', schema: TenantMemberSchema },
       { name: TenantItem.name, schema: TenantItemSchema },
+      { name: TenantSecret.name, schema: TenantSecretSchema },
       { name: GlobalItem.name, schema: GlobalItemSchema },
     ]),
   ],
@@ -1312,6 +1334,137 @@ describe('CoreTenantGuard (e2e)', () => {
       .get('/admin-fallback/admin-only')
       .set('X-Test-User-Id', USER_ID)
       .expect(403);
+  });
+
+  // =========================================================================
+  // L) Data isolation: aggregation stages that reach into ANOTHER collection
+  //
+  // The plugin prepends a $match to the SOURCE collection's pipeline. That says
+  // nothing about $lookup / $unionWith / $graphLookup, which read a DIFFERENT
+  // collection whose own `aggregate` hook never fires — the join happens inside
+  // the source pipeline. For tenant-scoped medical data that is the difference
+  // between "one tenant's records" and "everyone's".
+  // =========================================================================
+  describe('L) cross-collection aggregation stages', () => {
+    let secretModel: Model<TenantSecret>;
+
+    beforeAll(() => {
+      secretModel = app.get<Model<TenantSecret>>(getModelToken(TenantSecret.name));
+    });
+
+    beforeEach(async () => {
+      await RequestContext.runWithBypassTenantGuard(async () => {
+        await secretModel.deleteMany({});
+        await tenantItemModel.deleteMany({});
+        await secretModel.create([
+          { diagnosis: 'own-diagnosis', ownerName: 'A', tenantId: TENANT_A },
+          { diagnosis: 'FOREIGN-diagnosis', ownerName: 'B', tenantId: TENANT_B },
+        ]);
+        await tenantItemModel.create({ name: 'a-item', tenantId: TENANT_A });
+      });
+    });
+
+    afterEach(async () => {
+      await RequestContext.runWithBypassTenantGuard(async () => {
+        await secretModel.deleteMany({});
+        await tenantItemModel.deleteMany({});
+      });
+    });
+
+    /** Tenant A's context — what a request from tenant A sees. */
+    const asTenantA = <T>(fn: () => Promise<T>): Promise<T> =>
+      RequestContext.run({ currentUser: { id: USER_ID, roles: [] }, tenantId: TENANT_A } as any, fn);
+
+    /**
+     * @regression   11.35.0 — mongooseTenantPlugin prepended $match to the SOURCE collection only.
+     *   $lookup / $unionWith / $graphLookup read a DIFFERENT collection whose own aggregate hook
+     *   never fires, so an aggregation shaped like an ordinary report returned every tenant's rows
+     *   from the joined collection.
+     * @seen-failing Drop the secureCrossCollectionStages() call from the aggregate hook in
+     *   src/core/common/plugins/mongoose-tenant.plugin.ts — registered as mutation
+     *   `aggregation-joins-cross-tenant` in tests/regression-mutations.json.
+     */
+
+    it('does not leak another tenant through $lookup', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            {
+              $lookup: {
+                as: 'secrets',
+                from: secretModel.collection.name,
+                pipeline: [{ $project: { diagnosis: 1 } }],
+              },
+            },
+          ])
+          .exec(),
+      );
+
+      const leaked = (result[0]?.secrets ?? []).map((s: any) => s.diagnosis);
+      expect(leaked, `$lookup returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('does not leak another tenant through $unionWith', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([{ $unionWith: { coll: secretModel.collection.name } }])
+          .exec(),
+      );
+
+      const leaked = result.map((r: any) => r.diagnosis).filter(Boolean);
+      expect(leaked, `$unionWith returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('does not leak another tenant through $graphLookup', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            {
+              $graphLookup: {
+                as: 'chain',
+                connectFromField: 'ownerName',
+                connectToField: 'ownerName',
+                from: secretModel.collection.name,
+                startWith: '$name',
+              },
+            },
+          ])
+          .exec(),
+      );
+
+      const leaked = (result[0]?.chain ?? []).map((s: any) => s.diagnosis);
+      expect(leaked, `$graphLookup returned foreign-tenant rows: ${JSON.stringify(leaked)}`).not.toContain(
+        'FOREIGN-diagnosis',
+      );
+    });
+
+    it('refuses estimatedDocumentCount inside a tenant context, but allows countDocuments', async () => {
+      // estimatedDocumentCount reads collection metadata, so MongoDB ignores any filter — there is
+      // nothing to inject and an unchanged result would expose every tenant's row count.
+      await expect(asTenantA(() => secretModel.estimatedDocumentCount().exec())).rejects.toThrow(
+        /cannot be tenant-filtered/,
+      );
+
+      // The filtered equivalent stays available and sees only the own tenant.
+      await expect(asTenantA(() => secretModel.countDocuments().exec())).resolves.toBe(1);
+    });
+
+    it('still returns the OWN tenant rows through a joined stage', async () => {
+      const result = await asTenantA(() =>
+        tenantItemModel
+          .aggregate([
+            { $lookup: { as: 'secrets', from: secretModel.collection.name, pipeline: [] } },
+          ])
+          .exec(),
+      );
+
+      const own = (result[0]?.secrets ?? []).map((s: any) => s.diagnosis);
+      expect(own, 'the join must still return the tenant OWN rows').toContain('own-diagnosis');
+    });
   });
 
   // =========================================================================

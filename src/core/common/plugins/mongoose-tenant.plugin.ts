@@ -123,15 +123,143 @@ export function mongooseTenantPlugin(schema) {
     }
   });
 
-  // === Aggregate: prepend $match stage ===
+  // === estimatedDocumentCount: unfilterable, so refuse it inside a tenant context ===
+  //
+  // It reads collection metadata rather than running a query, so MongoDB ignores any filter — there
+  // is nothing to inject. Returning it unchanged would hand a tenant the row count of the WHOLE
+  // collection, i.e. every other tenant's volume. Throwing is the only honest option; callers that
+  // want a tenant's own count use countDocuments(), which IS filtered.
+  schema.pre('estimatedDocumentCount', function () {
+    const modelName = (this as any).model?.modelName;
+    if (shouldBypass(modelName)) {
+      return;
+    }
+    const context = RequestContext.get();
+    if (context?.isAdminBypass && !context?.tenantId) {
+      return; // platform admin without a tenant header legitimately sees everything
+    }
+    throw new ForbiddenException(
+      "estimatedDocumentCount() cannot be tenant-filtered and would expose other tenants' row counts — " +
+        'use countDocuments() instead',
+    );
+  });
+
+  // === Aggregate: prepend $match stage, and secure every cross-collection stage ===
   schema.pre('aggregate', function () {
     // Aggregate hooks: `this` is the Aggregation pipeline — the model is on the internal `_model` property
-    const modelName = (this as any)._model?.modelName;
+    const model = (this as any)._model;
+    const modelName = model?.modelName;
     const filter = resolveTenantFilter(modelName);
-    if (filter !== undefined) {
-      this.pipeline().unshift({ $match: filter });
+    if (filter === undefined) {
+      return;
     }
+
+    const pipeline = this.pipeline();
+    pipeline.unshift({ $match: filter });
+
+    // The $match above only constrains the SOURCE collection. `$lookup`, `$unionWith` and
+    // `$graphLookup` read a DIFFERENT collection, and that collection's own `aggregate` hook never
+    // fires — the join runs inside this pipeline. Without the pass below, a single aggregation
+    // returns every tenant's rows from the joined collection, which is exactly the shape a
+    // reporting query takes.
+    secureCrossCollectionStages(pipeline, model);
   });
+}
+
+/**
+ * Inject the tenant filter into every stage that reads another collection.
+ *
+ * Recurses, because these stages nest: a `$lookup.pipeline` may itself contain a `$lookup`, and
+ * `$facet` holds a sub-pipeline per key.
+ *
+ * A joined collection is only constrained when it is itself tenant-scoped (its model has a
+ * `tenantId` path and is not excluded). Joining a global lookup table stays untouched — filtering
+ * it by `tenantId` would silently return nothing.
+ */
+function secureCrossCollectionStages(pipeline: any[], model: any): void {
+  if (!Array.isArray(pipeline)) {
+    return;
+  }
+
+  for (const stage of pipeline) {
+    if (!stage || typeof stage !== 'object') {
+      continue;
+    }
+
+    if (stage.$lookup) {
+      const filter = filterForCollection(stage.$lookup.from, model);
+      if (filter) {
+        // MongoDB 5.0+ allows `pipeline` alongside localField/foreignField, so this works for the
+        // concise join form too, not only the explicit-pipeline one.
+        stage.$lookup.pipeline = [{ $match: filter }, ...(stage.$lookup.pipeline ?? [])];
+      }
+      secureCrossCollectionStages(stage.$lookup.pipeline, model);
+    }
+
+    if (stage.$unionWith) {
+      // Two forms: `$unionWith: 'coll'` and `$unionWith: { coll, pipeline }`.
+      if (typeof stage.$unionWith === 'string') {
+        const filter = filterForCollection(stage.$unionWith, model);
+        if (filter) {
+          stage.$unionWith = { coll: stage.$unionWith, pipeline: [{ $match: filter }] };
+        }
+      } else {
+        const filter = filterForCollection(stage.$unionWith.coll, model);
+        if (filter) {
+          stage.$unionWith.pipeline = [{ $match: filter }, ...(stage.$unionWith.pipeline ?? [])];
+        }
+        secureCrossCollectionStages(stage.$unionWith.pipeline, model);
+      }
+    }
+
+    if (stage.$graphLookup) {
+      const filter = filterForCollection(stage.$graphLookup.from, model);
+      if (filter) {
+        // $graphLookup takes no pipeline; `restrictSearchWithMatch` is its filter hook and applies
+        // to EVERY recursive step, which is what a traversal needs.
+        stage.$graphLookup.restrictSearchWithMatch = {
+          ...stage.$graphLookup.restrictSearchWithMatch,
+          ...filter,
+        };
+      }
+    }
+
+    if (stage.$facet && typeof stage.$facet === 'object') {
+      for (const branch of Object.values(stage.$facet)) {
+        secureCrossCollectionStages(branch as any[], model);
+      }
+    }
+  }
+}
+
+/**
+ * Tenant filter for a JOINED collection, or `undefined` when none applies.
+ *
+ * Resolves the collection name back to its model so the same "is this tenant-scoped?" rule applies
+ * as for a direct query. An unknown collection name yields no filter: the plugin cannot tell
+ * whether it is tenant-scoped, and inventing a `tenantId` constraint for a collection that has no
+ * such field would turn a working join into an empty result.
+ */
+function filterForCollection(collectionName: unknown, sourceModel: any): Record<string, any> | undefined {
+  if (typeof collectionName !== 'string' || !collectionName) {
+    return undefined;
+  }
+
+  const models = sourceModel?.db?.models ?? {};
+  for (const name of Object.keys(models)) {
+    const candidate = models[name];
+    if (candidate?.collection?.name !== collectionName) {
+      continue;
+    }
+    if (!candidate.schema?.path('tenantId')) {
+      return undefined; // not tenant-scoped — leave the join alone
+    }
+    const filter = resolveTenantFilter(name);
+    // `{}` means "admin bypass, sees everything" — nothing to inject.
+    return filter && Object.keys(filter).length ? filter : undefined;
+  }
+
+  return undefined;
 }
 
 /**
