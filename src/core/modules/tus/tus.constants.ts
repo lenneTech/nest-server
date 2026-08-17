@@ -1,5 +1,5 @@
 /**
- * Dependency-injection tokens of the TUS module.
+ * Dependency-injection tokens AND cross-file constants of the TUS module.
  *
  * They live in a dedicated, import-free leaf file — never in `tus.module.ts` or a service — so that
  * no file needing a token has to import the module (or vice versa) and close an import cycle.
@@ -23,3 +23,19 @@
  * Injected type: `Required<ITusConfig>`.
  */
 export const TUS_CONFIG = 'TUS_CONFIG';
+
+/**
+ * Metadata key recording WHO created a tus upload, in the upload's own (staged) metadata.
+ *
+ * Framework-owned and ALWAYS overwritten in `onUploadCreate` — metadata otherwise arrives from the
+ * client in the `Upload-Metadata` header, so a merged value would let a caller declare somebody else
+ * as the owner and hand themselves access to the victim's upload URL.
+ *
+ * Deliberately NOT `ownerId`: that is the key of the FINISHED FILE's metadata (the one
+ * `CoreFileService.checkRights()` documents), and keeping the two distinct means a project's own
+ * `ownerId` metadata on a file cannot be confused with the upload-time record.
+ *
+ * It lives here rather than in the service for the same reason the token above does — and because
+ * `tests/unit/import-cycle-invariants.spec.ts` enforces exactly that placement.
+ */
+export const TUS_OWNER_METADATA_KEY = 'ltOwnerId';

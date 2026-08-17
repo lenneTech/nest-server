@@ -189,6 +189,67 @@ streamed, because the filename route resolves an id and checks it again — but 
 by-name lookup alone and then redirects, and not for `deleteFileByName()`, which authorizes by name
 only.
 
+**A reused filename resolves to the MOST RECENT file (11.35.0+).** Filenames are unique in no store
+and are client-supplied on both the multer and the tus path, so a by-name lookup is inherently
+ambiguous — prefer the id routes. What must NOT be ambiguous is which of the candidates each by-name
+path picks. Until 11.35.0 the GridFS driver got that wrong in the worst possible way:
+`bucket.find({ filename })` answered natural order (the oldest document) while
+`openDownloadStreamByName()` defaults to `revision: -1` (the newest), so `getFileInfoByName()` /
+`getRawFileInfoByName()` authorized against one document and `getFileStreamByName()` /
+`getBufferByName()` / `duplicateByName()` served another. An ownership rule approved the caller's own
+file and handed over somebody else's bytes — across tenants, since the file stores carry no tenant
+scope. All three drivers now resolve the most recent file (`uploadDate` desc, `_id` as tie-break) and
+every by-name read path resolves a document and then reads **by id**.
+
+One consequence worth knowing: `duplicateById()` keeps the source's filename and the copy carries no
+`metadata` by design, so the copy WINS the name and an ownership rule keyed on `metadata.ownerId`
+refuses it. Give the copy its own metadata or its own name.
+
+### Before you write a rule: `file.access` may already be it
+
+The four common project shapes are presets, so the rule below is only needed for the fifth — a project
+whose rights the framework cannot guess.
+
+| `file.access`        | project class                                          | own `checkRights()`? |
+| -------------------- | ------------------------------------------------------ | -------------------- |
+| `'public'`           | open: anyone may read and write                        | no                   |
+| `'authenticated'`    | login-restricted: every signed-in user                 | no                   |
+| `'owner'`            | per-user: only the uploader (plus ADMIN)               | no                   |
+| `'tenant'`           | per-tenant: only the own validated tenant (plus ADMIN) | no                   |
+| `'custom'` (default) | anything else — you write the rule                     | yes                  |
+
+`'owner'` and `'tenant'` read `metadata.ownerId` / `metadata.tenantId` and `CoreFileService` **stamps
+them as it writes** while the preset is active, so an upload through the service is authorizable without
+project code. Files written before you enabled it carry no such metadata and stay ADMIN-only — the
+fail-closed direction, fixable with a one-off backfill. Declaring the class never widens the role gate,
+and it never overrides an explicit `checkRights()` override: the override IS the rule.
+
+Everything the presets do is also the checklist for a hand-written rule, so read on either way.
+
+**Cover the `filterArgs` branch, and REFUSE it.** `findFileInfo()` consults the hook once for the whole
+query, so no answer can mean "…but only their own files". Returning `true` — which the reference rule
+used to do — hands a caller a full inventory of every upload: `CoreFileInfo` carries `filename`,
+`length`, `uploadDate` and the `id`, and for medical data the filename frequently IS the content. Core
+exposes no listing endpoint, so this only bites once a project surfaces `findFileInfo()`.
+
+A per-user listing is expressed by FORCING the constraint server-side:
+
+```typescript
+this.fileService.findFileInfo(
+  {
+    filter: {
+      singleFilter: { field: 'metadata.ownerId', operator: ComparisonOperatorEnum.EQ, value: String(currentUser.id) },
+    },
+  },
+  { force: true },
+);
+```
+
+Note what that is NOT: it does not inspect the caller's own `filterArgs` to check whether they are
+already narrowed. `filterArgs` is **client-controlled**, so approving a filter shape means validating
+attacker input — and any such check is one filter shape away from being wrong. Override the filter;
+never approve it.
+
 **Never add `if (!options.currentUser) return true`.** It reads as "system-internal call, the guard
 already decided" — but "no user in context" is also exactly what an **anonymous** request looks like.
 While `downloadRoles` is narrower than `S_EVERYONE` the role gate turns those away first, so the

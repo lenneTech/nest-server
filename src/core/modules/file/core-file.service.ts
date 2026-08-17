@@ -10,9 +10,12 @@ import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
 import { ConfigService } from '../../common/services/config.service';
+import { RequestContext } from '../../common/services/request-context.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
 import { MaybePromise } from '../../common/types/maybe-promise.type';
 import { CoreFileInfo } from './core-file-info.model';
+import { decideFileAccess, fileAccessNeedsRawDocument, resolveFileAccessPreset } from './file-access.helper';
+import { warnOnUndecidedFileAccess } from './file-roles.config';
 import { FileServiceOptions } from './interfaces/file-service-options.interface';
 import { FileUploadSource } from './interfaces/file-upload.interface';
 import {
@@ -83,6 +86,17 @@ export abstract class CoreFileService {
     this.storageResolution = resolveFileStorage(ConfigService.configFastButReadOnly);
     assertFileStorageAvailable(this.storageResolution, this.isStorageAvailable(this.storageResolution.driver));
     logFileStorage(this.storageResolution);
+
+    // Warn when the gate is open and nothing declares the per-file policy — see the helper for why
+    // the conditions are this narrow and why it is not gated on multi-tenancy. Checked here rather than in `CoreModule.forRoot()` because only
+    // an instance can answer whether `checkRights()` was overridden: the base implementation is a
+    // fixed function, so an identity comparison against it is exact and needs no naming convention.
+    const config = ConfigService.configFastButReadOnly;
+    warnOnUndecidedFileAccess({
+      fileConfig: config?.file,
+      hasPerFileRule: this.checkRights !== CoreFileService.prototype.checkRights,
+      multiTenancyEnabled: !!config?.multiTenancy && config.multiTenancy.enabled !== false,
+    });
   }
 
   /**
@@ -148,12 +162,16 @@ export abstract class CoreFileService {
     }
     const { createReadStream, filename, mimetype } = await file;
     const readStream = createReadStream();
+    // Resolved ONCE for all three driver branches: under an `'owner'` / `'tenant'` preset this adds
+    // the very fields the preset decides on, so an upload through this service is authorizable
+    // without any project code. Under the default preset it is `serviceOptions.metadata` verbatim.
+    const metadata = this.accessMetadata(serviceOptions);
     if (this.filesystemStorage) {
       const fsFileInfo = await FilesystemFileHelper.writeFile(this.filesystemDir, this.filesystemFiles, {
         body: readStream,
         contentType: mimetype,
         filename,
-        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+        ...(metadata ? { metadata } : {}),
       });
       return this.prepareOutput(fsFileInfo as unknown as CoreFileInfo, serviceOptions);
     }
@@ -165,14 +183,14 @@ export abstract class CoreFileService {
         buffer: await streamToBuffer(readStream),
         contentType: mimetype,
         filename,
-        ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+        ...(metadata ? { metadata } : {}),
       });
       return this.prepareOutput(s3FileInfo as unknown as CoreFileInfo, serviceOptions);
     }
     const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
       contentType: mimetype,
       filename,
-      ...(serviceOptions?.metadata ? { metadata: serviceOptions.metadata } : {}),
+      ...(metadata ? { metadata } : {}),
     });
     return this.prepareOutput(fileInfo as unknown as CoreFileInfo, serviceOptions);
   }
@@ -537,6 +555,16 @@ export abstract class CoreFileService {
 
   /**
    * Get file stream (for big files) via filename
+   *
+   * Every branch resolves a DOCUMENT first and reads by its id — including the GridFS one, which
+   * used to fall through to `openDownloadStreamByName()`. That call defaults to `revision: -1` (the
+   * newest file of that name) while the by-name METADATA lookup answered the oldest, so with two
+   * files sharing a name this method streamed bytes belonging to a different document than the one
+   * `checkRights()` had just been asked about. An ownership rule then approved the caller's own file
+   * and handed over somebody else's — across tenants, since the file stores carry no tenant scope.
+   *
+   * `findFileByName()` is now newest-first in all three stores, so the bytes a caller receives are
+   * unchanged; what changed is that the document authorization inspected is the one being served.
    */
   async getFileStreamByName(filename: string, serviceOptions?: FileServiceOptions): Promise<Readable> {
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
@@ -550,7 +578,13 @@ export abstract class CoreFileService {
     if (fsFileInfo) {
       return FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id);
     }
-    return GridFSHelper.openDownloadStreamByName(this.files, filename);
+    const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
+    if (!gridFsInfo) {
+      // Unchanged answer for an unknown name: GridFS is the terminal store and reports the miss
+      // itself, asynchronously on the stream, which the controller turns into a 404.
+      return GridFSHelper.openDownloadStreamByName(this.files, filename);
+    }
+    return GridFSHelper.openDownloadStream(this.files, gridFsInfo._id);
   }
 
   /**
@@ -584,7 +618,14 @@ export abstract class CoreFileService {
     if (fsFileInfo) {
       return FilesystemFileHelper.getBuffer(this.filesystemDir, fsFileInfo._id);
     }
-    return await GridFSHelper.readFileToBuffer(this.files, { filename });
+    // By id, for the same reason as getFileStreamByName(): reading by NAME here would pick the
+    // newest revision while checkRights() was asked about whichever document findFileByName()
+    // answered.
+    const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
+    if (!gridFsInfo) {
+      return await GridFSHelper.readFileToBuffer(this.files, { filename });
+    }
+    return await GridFSHelper.readFileToBuffer(this.files, { _id: gridFsInfo._id });
   }
 
   /**
@@ -766,14 +807,42 @@ export abstract class CoreFileService {
    * `tests/file-ownership.e2e-spec.ts`. Prefer reading it there over copying
    * from here.
    *
+   * **Cover the `filterArgs` branch, and REFUSE it.** `findFileInfo()` consults this hook ONCE for the
+   * whole query, so there is no answer that means "…but only their own files". Returning `true` hands a
+   * caller a full inventory of every upload — `CoreFileInfo` carries `filename`, `length`, `uploadDate`
+   * and the `id`, and for medical data the filename frequently IS the content. Core exposes no listing
+   * endpoint, so this only bites once a project surfaces `findFileInfo()` — which is exactly when
+   * nobody re-reads the rule.
+   *
+   * A per-user listing is expressed by FORCING the constraint server-side:
+   *
+   * ```typescript
+   * this.fileService.findFileInfo(
+   *   { filter: { singleFilter: { field: 'metadata.ownerId', operator: ComparisonOperatorEnum.EQ,
+   *                               value: String(currentUser.id) } } },
+   *   { force: true },
+   * );
+   * ```
+   *
+   * Note what that is NOT: it does not inspect the caller's own `filterArgs` to check whether they are
+   * already narrowed. `filterArgs` is CLIENT-CONTROLLED, so approving a filter shape means validating
+   * attacker input, and any such check is one filter shape away from being wrong. **Override the
+   * filter; never approve it.**
+   *
    * @example
    * ```typescript
    * protected override async checkRights(
    *   input: any,
    *   options?: FileServiceOptions & { checkInputType: FileInputCheckType },
    * ): Promise<boolean> {
-   *   if (options?.force || (options?.checkInputType !== 'filename' && options?.checkInputType !== 'id')) {
+   *   // Writes stay on the coarse gate: an upload has no owner to compare against yet.
+   *   if (options?.force || options?.checkInputType === 'file' || options?.checkInputType === 'files') {
    *     return true;
+   *   }
+   *   // A LISTING cannot be narrowed by a yes/no hook — it is asked once for the whole query, not
+   *   // once per row — so refuse the unrestricted one. See the note above.
+   *   if (options?.checkInputType === 'filterArgs') {
+   *     return false;
    *   }
    *   if (options.currentUser?.hasRole?.([RoleEnum.ADMIN])) {
    *     return true;
@@ -788,11 +857,99 @@ export abstract class CoreFileService {
    * }
    * ```
    */
+  /**
+   * The metadata a file is written with — the caller's, plus whatever the active preset decides on.
+   *
+   * A preset that only READ `metadata.ownerId` / `metadata.tenantId` would be a rule about data that
+   * does not exist: every file ADMIN-only. That is not hypothetical — it is exactly the shape TUS
+   * uploads had before 11.35.0, and the report came back from downstream rather than from a test.
+   *
+   * Three properties, each of which is a decision:
+   *
+   * - **Only under a preset that needs it.** With `file.access` unset (or `'public'` /
+   *   `'authenticated'`) this returns `serviceOptions.metadata` untouched, so no existing project's
+   *   documents grow a field.
+   * - **Never overrides what the caller supplied.** A project that records ownership itself — or
+   *   deliberately attributes a file to someone else, as an admin provisioning flow does — keeps
+   *   winning. `TUS_OWNER_METADATA_KEY` is the opposite case and overwrites on purpose, because there
+   *   the value arrives from the CLIENT.
+   * - **Stamps nothing it cannot know.** An anonymous upload gets no owner, which leaves the file
+   *   ADMIN-only rather than owned by `undefined`.
+   *
+   * `protected` so a project can add its own dimension (a project id, a case number) by overriding and
+   * calling `super`.
+   */
+  protected accessMetadata(serviceOptions?: FileServiceOptions): Record<string, any> | undefined {
+    const preset = resolveFileAccessPreset(ConfigService.configFastButReadOnly?.file);
+    if (preset !== 'owner' && preset !== 'tenant') {
+      return serviceOptions?.metadata;
+    }
+
+    const stamped: Record<string, any> = { ...serviceOptions?.metadata };
+    const ownerId = serviceOptions?.currentUser?.id;
+    if (stamped.ownerId === undefined && ownerId !== undefined && ownerId !== null && ownerId !== '') {
+      stamped.ownerId = String(ownerId);
+    }
+    if (preset === 'tenant') {
+      // The VALIDATED tenant, same source the read decision uses.
+      const tenantId = RequestContext.get()?.tenantId;
+      if (stamped.tenantId === undefined && tenantId) {
+        stamped.tenantId = tenantId;
+      }
+    }
+    return Object.keys(stamped).length ? stamped : undefined;
+  }
+
   protected checkRights(
-    _input: any,
-    _options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
   ): MaybePromise<boolean> {
-    return true;
+    // `MaybePromise<boolean>`, NOT `Promise<boolean>`, and not `async`. Narrowing the declared return
+    // type would break every consumer whose override returns a plain `boolean` — which the old
+    // signature explicitly invited — and TypeScript rejects that at the OVERRIDE, in their code, with
+    // an error that points at their file rather than at this change. `async` forces `Promise<T>`, so
+    // the async work lives in a separate method instead.
+    return this.resolveAccessPreset(input, options);
+  }
+
+  /**
+   * The async half of {@link checkRights}, split out only so the public seam can keep its
+   * `MaybePromise<boolean>` signature (see there).
+   */
+  private async resolveAccessPreset(
+    input: any,
+    options?: FileServiceOptions & { checkInputType: FileInputCheckType },
+  ): Promise<boolean> {
+    const preset = resolveFileAccessPreset(ConfigService.configFastButReadOnly?.file);
+
+    // `'custom'` is the default and returns true for every input — byte-for-byte the pre-11.35.0
+    // behaviour, including the absence of any lookup. An existing project sees no change at all.
+    if (preset === 'custom') {
+      return true;
+    }
+
+    // The lookup is skipped where the decision cannot use it: a forced (system) call, a write, a
+    // listing, and the two blanket presets. So enabling a preset never adds a query to a path that
+    // does not read a document — which matters most for `force: true`, the idiom internal callers use
+    // on hot paths precisely because they have already been decided about.
+    const raw =
+      !options?.force && fileAccessNeedsRawDocument(preset, options?.checkInputType)
+        ? options?.checkInputType === 'id'
+          ? await this.getRawFileInfo(input)
+          : await this.getRawFileInfoByName(input)
+        : undefined;
+
+    return decideFileAccess({
+      checkInputType: options?.checkInputType,
+      currentUser: options?.currentUser,
+      force: options?.force,
+      preset,
+      raw,
+      // The VALIDATED tenant, from the same source `mongooseTenantPlugin` filters by — never a raw
+      // header, and never `serviceOptions`, so a file decision and a database decision cannot
+      // disagree about which tenant the request is in.
+      tenantId: RequestContext.get()?.tenantId,
+    });
   }
 
   /**

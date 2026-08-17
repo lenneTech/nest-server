@@ -10,12 +10,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum';
+import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
 import { ConfigService } from '../../common/services/config.service';
+import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
@@ -27,6 +29,8 @@ import {
   getRoleHierarchy,
   isSystemRole,
   mergeRolesMetadata,
+  resolveGlobalAndTenantRoles,
+  tenantSatisfiableRoles,
 } from './core-tenant.helpers';
 
 /**
@@ -155,6 +159,67 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     if (this.cleanupInterval.unref) {
       this.cleanupInterval.unref();
     }
+
+    // Make the membership logic reachable from transports that have no Express request — today the
+    // GraphQL WebSocket. See core-tenant-context.registry.ts for why this is a registry and not DI.
+    setTenantContextResolver({
+      resolve: (user, headerTenantId) => this.resolveTenantContext(user, headerTenantId),
+    });
+  }
+
+  /**
+   * Answer "which tenant is this caller in?" WITHOUT an Express request.
+   *
+   * The HTTP path answers this inside `canActivate()` and writes the result onto the request, which
+   * `RequestContextMiddleware` then publishes through AsyncLocalStorage. A WebSocket has neither, so
+   * this is the same decision reachable from a transport that only has a user and a header value.
+   *
+   * It deliberately does NOT decide ACCESS — that is `canActivate()`'s job, driven by `@Roles()`
+   * metadata this method cannot see. It only establishes the tenant SCOPE the Mongoose plugin
+   * filters by, so a read from such a transport is narrowed instead of running unscoped.
+   *
+   * A header naming a tenant the user is not an active member of yields NO tenant id rather than the
+   * requested one: the plugin then finds no tenant scope and its safety net refuses the read. An
+   * unvalidated header would be strictly worse than no header at all.
+   */
+  async resolveTenantContext(
+    user: { id: string; roles?: string[] } | undefined,
+    headerTenantId?: string,
+  ): Promise<ResolvedTenantContext> {
+    const config = ConfigService.configFastButReadOnly?.multiTenancy;
+    if (!config || config.enabled === false) {
+      return {};
+    }
+
+    const trimmed =
+      headerTenantId && typeof headerTenantId === 'string' && headerTenantId.length <= 128
+        ? headerTenantId.trim()
+        : undefined;
+
+    const adminBypass = config.adminBypass !== false;
+    if (adminBypass && user?.roles?.includes(RoleEnum.ADMIN)) {
+      // Mirrors canActivate(): with a header an admin is scoped to that tenant, without one they see
+      // everything. No membership is required either way.
+      return trimmed ? { isAdminBypass: true, tenantId: trimmed } : { isAdminBypass: true };
+    }
+
+    if (!user?.id) {
+      return {};
+    }
+
+    if (trimmed) {
+      const membership = await this.findMembershipCached(user.id, trimmed);
+      if (!membership) {
+        return {};
+      }
+      return { tenantId: trimmed, tenantRole: membership.role as string };
+    }
+
+    // No header: scope to every tenant the user is an active member of — the same fallback the HTTP
+    // path uses, so the plugin filters by `{ tenantId: { $in: tenantIds } }`.
+    const carrier: { tenantIds?: string[]; user: { id: string } } = { user: { id: user.id } };
+    await this.resolveUserTenantIds(carrier);
+    return { tenantIds: carrier.tenantIds ?? [] };
   }
 
   /**
@@ -425,9 +490,28 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
       const memberRole = membership.role as string;
 
-      // Check role access if roles are required (hierarchy + normal, against membership.role)
+      // Check role access if roles are required (hierarchy + normal, against membership.role).
+      //
+      // Global-only roles (RoleEnum.ADMIN) are resolved against user.roles instead — a membership
+      // role is customer-assigned free text, so comparing it against the framework's global admin
+      // role by string equality would let any tenant owner mint platform-wide access by naming
+      // their tenant role 'admin'. The two authority levels stay separate:
+      //   global admin → RoleEnum.ADMIN in user.roles (every tenant)
+      //   tenant admin → a membership role such as 'tenantAdmin' (this tenant only)
+      //
+      // OR semantics across both halves, so @Roles(ADMIN, 'owner') keeps reading as alternatives.
       if (checkableRoles.length > 0) {
-        if (!checkRoleAccess(checkableRoles, undefined, memberRole)) {
+        const { global: globalRoles } = resolveGlobalAndTenantRoles(checkableRoles);
+        // Deny by default: only roles DECLARED as tenant-scoped may be satisfied by a membership.
+        // An undeclared role is not silently matched against customer-assigned free text.
+        const tenantRoles = tenantSatisfiableRoles(checkableRoles);
+        const satisfiedGlobally = globalRoles.some((r) => user.roles?.includes(r));
+        // The length guard is NOT redundant here (unlike the `.some()` above): checkRoleAccess
+        // returns TRUE for an empty required-roles list, so calling it with no tenant roles would
+        // grant access to a handler that only ever required a global role.
+        const satisfiedByTenant = tenantRoles.length > 0 && checkRoleAccess(tenantRoles, undefined, memberRole);
+
+        if (!satisfiedGlobally && !satisfiedByTenant) {
           throw new ForbiddenException('Insufficient tenant role');
         }
       }
@@ -538,15 +622,11 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    * Extract request from GraphQL or HTTP context
    */
   private getRequest(context: ExecutionContext): any {
-    if (context.getType<GqlContextType>() === 'graphql') {
-      const ctx = GqlExecutionContext.create(context);
-      return ctx.getContext()?.req;
-    }
-    try {
-      return context.switchToHttp().getRequest();
-    } catch {
-      return null;
-    }
+    // Shared with both role guards — see execution-context-request.helper for why the GraphQL
+    // WEBSOCKET branch is load-bearing: without it this method answered `null` for every
+    // subscription, `canActivate()` hit `if (!request) return true`, and because the role guard
+    // delegates non-system roles here, `@Roles()` on a subscription was enforced by nobody.
+    return resolveGuardRequest(context, (ctx) => GqlExecutionContext.create(ctx).getContext()) ?? null;
   }
 
   // ===================================================================================================================

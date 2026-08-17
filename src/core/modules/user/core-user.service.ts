@@ -4,6 +4,7 @@ import crypto = require('crypto');
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
+import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
 import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -261,6 +262,17 @@ export abstract class CoreUserService<
     // Check roles values
     if (roles.some((role) => typeof role !== 'string')) {
       throw new BadRequestException('Roles contains invalid values');
+    }
+
+    // Reject system roles (s_*). This is the framework's canonical "assign roles" API and it writes
+    // straight through findByIdAndUpdate, so neither MapAndValidatePipe nor check() sees the values.
+    // mongooseSystemRolePlugin is the backstop below this; the explicit check here exists to fail
+    // before the DB round-trip and with a message naming the offending values.
+    const systemRoles = roles.filter((role) => looksLikeSystemRole(role));
+    if (systemRoles.length) {
+      throw new BadRequestException(
+        `System roles (${SYSTEM_ROLE_PREFIX}*) must never be stored in user.roles: ${systemRoles.join(', ')}`,
+      );
     }
 
     // Update and return user

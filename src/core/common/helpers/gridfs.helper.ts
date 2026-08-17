@@ -198,10 +198,26 @@ export class GridFSHelper {
   }
 
   /**
-   * Find file metadata by filename
+   * Find file metadata by filename — the MOST RECENT file with that name.
+   *
+   * The sort is load-bearing, not cosmetic. `bucket.find({ filename })` returns natural order,
+   * which in practice is the OLDEST document first, while `openDownloadStreamByName()` defaults to
+   * `revision: -1` — the NEWEST. Filenames are unique in no store and are client-supplied, so with
+   * two files of one name this method answered one document and the download served another: an
+   * ownership rule built on `getRawFileInfoByName()` approved the caller's own file and the stream
+   * handed over the other one.
+   *
+   * Newest-first (rather than oldest-first) because it is the BYTES semantics that must not move:
+   * GridFS treats a re-upload under the same name as a new revision and serves the latest, so
+   * aligning the metadata lookup with that keeps every existing download answering the same bytes
+   * and only corrects the document describing them. `_id` breaks the tie, so two files written in
+   * the same millisecond still order totally.
    */
   static async findFileByName(bucket: GridFSBucket, filename: string): Promise<GridFSFileInfo | null> {
-    const files = await bucket.find({ filename }).toArray();
+    // `uploadDate` FIRST: MongoDB applies sort keys in document order, so leading with `_id` would
+    // make the tie-break the primary key and could disagree with the driver's own by-name revision
+    // order (which sorts on `uploadDate` alone).
+    const files = await bucket.find({ filename }, { limit: 1, sort: { uploadDate: -1, _id: -1 } }).toArray();
     return files.length > 0 ? GridFSHelper.normalizeFileInfo(files[0]) : null;
   }
 

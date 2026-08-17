@@ -551,6 +551,212 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * System roles (s_*) can never be stored in user.roles
+   *
+   * hasRole is a plain string intersection: a stored 's_self' would satisfy every S_SELF check
+   * (e.g. updateUser/deleteUser on ARBITRARY users) without the account carrying a real role.
+   * The @Restricted on the field limits WHO may send roles; these cases pin WHAT it may hold.
+   *
+   * Operates on a THROWAWAY user, never on gId: when the guard is missing, the first payload
+   * SUCCEEDS and strips the target's 'admin' role — on the shared admin that cascades into ~10
+   * later failures whose top error reads "Access denied", which hides the actual defect.
+   *
+   * @regression   11.35.0 — CoreUserInput.roles had no content validator, so an admin could store
+   *   a system role (s_*) in user.roles. hasRole() is a plain string intersection, so a stored
+   *   's_self' satisfied every S_SELF check on ARBITRARY users — update/delete of any account
+   *   (mail/password change → takeover) without the account carrying a real role.
+   * @seen-failing Neutralize the lookahead in SYSTEM_ROLE_REJECT_PATTERN (input path) or the
+   *   prefix in looksLikeSystemRole (setRoles + plugin path), both in
+   *   src/core/common/enums/role.enum.ts — registered as mutations
+   *   `user-roles-accepts-system-roles` and `non-dto-write-paths-accept-system-roles` in
+   *   tests/regression-mutations.json. The two layers below the DTO are DELIBERATELY redundant,
+   *   so mutating setRoles' own check alone leaves the plugin backstop in place and the specs
+   *   stay green — that is the design working, not a coverage gap.
+   */
+  describe('system roles (s_*) in user.roles', () => {
+    let targetId: string;
+
+    beforeAll(async () => {
+      const { insertedId } = await db.collection('users').insertOne({
+        email: `s-role-target-${Date.now()}@test.com`,
+        firstName: 'SRole',
+        lastName: 'Target',
+        roles: ['admin'],
+      });
+      targetId = insertedId.toString();
+    });
+
+    afterAll(async () => {
+      await db.collection('users').deleteOne({ _id: new ObjectId(targetId) });
+    });
+
+    it.each([
+      ['a pure system role', ['s_self']],
+      ['a system role mixed with a real one', ['admin', 's_creator']],
+      ['an uppercase system role', ['S_SELF']],
+      ['a whitespace-padded system role', [' s_self']],
+    ])('rejects %s and leaves the stored roles untouched', async (_label, roles) => {
+      const res: any = await testHelper.graphQl(
+        {
+          arguments: { id: targetId, input: { roles } },
+          fields: ['id', 'roles'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        // convertEnums: false — TestHelper otherwise serializes an all-uppercase string as a bare
+        // GraphQL enum literal, so 'S_SELF' would fail the GraphQL type system with a 400 before
+        // ever reaching the validator under test. No argument here is a real enum.
+        { convertEnums: false, token: gToken },
+      );
+
+      // Assert the SHAPE before dereferencing: without the guard the mutation succeeds, `errors`
+      // is undefined, and a bare `.length` would throw an opaque TypeError instead of naming the
+      // actual problem.
+      expect(res.errors, `roles=${JSON.stringify(roles)} was accepted — the s_* guard is gone`).toBeDefined();
+      expect(res.errors.length).toBeGreaterThanOrEqual(1);
+      // Pipe validation errors reach GraphQL without a formatted originalError — the message is
+      // the stable contract: "Validation failed for 1 field: roles (matches)". It is built from
+      // constraint NAMES, never messages, so it is unaffected by the custom message.
+      expect(res.errors[0].message).toContain('Validation failed');
+      expect(res.errors[0].message).toContain('roles');
+      expect(res.data).toBe(null);
+
+      // Per payload, not once after the loop — otherwise a leak cannot be attributed, and under
+      // failure the assertion would never run at all.
+      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * Positive control — without it, an over-broad guard is indistinguishable from a correct one.
+     *
+     * 'gs_editor' contains "s_" but does not START with it. If the pattern were ever tightened to
+     * match s_ anywhere, every project using such a role name would break — and every rejection
+     * case above would stay green, because they only assert that bad input is refused.
+     */
+    it('accepts a project role that contains but does not start with s_', async () => {
+      const res: any = await testHelper.graphQl(
+        {
+          arguments: { id: targetId, input: { roles: ['admin', 'gs_editor'] } },
+          fields: ['id', 'roles'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: gToken },
+      );
+
+      expect(res.errors, `a legitimate role was rejected: ${JSON.stringify(res.errors)}`).toBeUndefined();
+      expect(res.roles).toEqual(['admin', 'gs_editor']);
+
+      // Restore, so the rejection cases above keep their ['admin'] baseline if re-run.
+      await db.collection('users').findOneAndUpdate({ _id: new ObjectId(targetId) }, { $set: { roles: ['admin'] } });
+    });
+
+    /**
+     * setRoles() is the framework's canonical "assign roles" API and writes straight through
+     * findByIdAndUpdate — neither MapAndValidatePipe nor check() sees the value, so the DTO
+     * validator above does not cover it. Without its own check this is a complete bypass.
+     */
+    it('setRoles() refuses a system role', async () => {
+      await expect(userService.setRoles(targetId, ['s_self'])).rejects.toThrow(/System roles/);
+
+      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * The mongoose plugin is the backstop under BOTH paths above: it also covers force:true,
+     * runWithBypassRoleGuard() and direct Model writes, and it is not configurable — unlike
+     * mongooseRoleGuardPlugin, which answers "who may change roles" and CAN be switched off.
+     */
+    it('the mongoose plugin refuses a system role on a direct model write', async () => {
+      const userModel = userService['mainDbModel'];
+      await expect(userModel.findByIdAndUpdate(targetId, { roles: ['s_creator'] }).exec()).rejects.toThrow(
+        /System roles/,
+      );
+      await expect(userModel.updateOne({ _id: targetId }, { $addToSet: { roles: 's_user' } }).exec()).rejects.toThrow(
+        /System roles/,
+      );
+
+      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * REST is a separate pipe invocation from GraphQL, and it is the transport on which the
+     * per-field message is actually visible (Apollo drops the exception body without a formatted
+     * originalError, so the custom message is unobservable over GraphQL).
+     */
+    it('rejects a system role over REST (PATCH /users/:id) and surfaces the message', async () => {
+      const res: any = await testHelper.rest(`/users/${targetId}`, {
+        method: 'PATCH',
+        payload: { roles: ['s_self'] },
+        statusCode: 400,
+        token: gToken,
+      });
+
+      expect(JSON.stringify(res)).toContain('System roles');
+
+      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * CoreUserCreateInput inherits the field, so account CREATION carries the same guard — this is
+     * the path that would mint a skeleton-key account outright rather than upgrading an existing one.
+     */
+    it('rejects a system role on user creation (REST POST /users)', async () => {
+      const passwd = Math.random().toString(36).substring(7);
+      const res: any = await testHelper.rest('/users', {
+        method: 'POST',
+        payload: {
+          email: `${passwd}@s-role-create.com`,
+          password: passwd,
+          roles: ['s_self'],
+        },
+        statusCode: 400,
+        token: gToken,
+      });
+
+      expect(JSON.stringify(res)).toContain('System roles');
+      const created = await db.collection('users').findOne({ email: `${passwd}@s-role-create.com` });
+      expect(created).toBeNull();
+    });
+
+    /**
+     * A PRE-EXISTING system role must not lock the account out.
+     *
+     * CrudService.update() writes the whole object back, so an ordinary login
+     * (updateRefreshToken → update) re-sends the stored roles verbatim. If the plugin refused
+     * that, upgrading would lock every already-contaminated account out — and would do the same
+     * fleet-wide to any project whose own role name starts with s_. The guard therefore refuses
+     * only values it would INTRODUCE. Cleanup of stored values is the migration guide's audit
+     * query, not an outage.
+     */
+    it('permits writing back a system role that is already stored (no lockout on upgrade)', async () => {
+      const { insertedId } = await db.collection('users').insertOne({
+        email: `s-role-legacy-${Date.now()}@test.com`,
+        roles: ['admin', 's_manager'],
+      });
+      const legacyId = insertedId.toString();
+      const userModel = userService['mainDbModel'];
+
+      // Same value back — the shape every full-object write produces.
+      await expect(userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec()).resolves.toBeTruthy();
+
+      // But ADDING a further system role on top is still refused.
+      await expect(
+        userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager', 's_self'] }).exec(),
+      ).rejects.toThrow(/s_self/);
+
+      // And removing the legacy value stays possible — that is the documented cleanup path.
+      await expect(userModel.findByIdAndUpdate(legacyId, { roles: ['admin'] }).exec()).resolves.toBeTruthy();
+
+      await db.collection('users').deleteOne({ _id: insertedId });
+    });
+  });
+
+  /**
    * Find users
    */
   it('findUsers', async () => {

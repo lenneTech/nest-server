@@ -92,7 +92,15 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       this.logger.warn('Ignoring the `s3` configuration: no `bucket` is set, so S3 cannot be used.');
       return;
     }
-    const presigned = raw.presignedDownloads;
+    // `enabled: false` disables, exactly as everywhere else in the config (see
+    // .claude/rules/configurable-features.md). Reading any object as "enabled" made this the one
+    // knob where the documented pre-configuration idiom silently turned a feature ON — and it is a
+    // feature that hands out session-less bearer URLs.
+    const rawPresigned = raw.presignedDownloads;
+    const presigned =
+      rawPresigned && typeof rawPresigned === 'object' && (rawPresigned as { enabled?: boolean }).enabled === false
+        ? undefined
+        : rawPresigned;
     this.config = {
       accessKeyId: raw.accessKeyId,
       autoCreateBucket: raw.autoCreateBucket ?? false,

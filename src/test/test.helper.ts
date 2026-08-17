@@ -93,6 +93,16 @@ export interface TestGraphQLOptions {
   cookies?: Record<string, string> | string;
 
   /**
+   * Additional `connectionParams` for a SUBSCRIPTION handshake.
+   *
+   * Merged on top of the `Authorization` entry derived from `token`. A WebSocket carries no HTTP
+   * headers per operation, so anything the server reads from a header on the HTTP path — the tenant
+   * header above all — has to travel here instead. Without this a tenant-scoped subscription could
+   * not be tested at all.
+   */
+  connectionParams?: Record<string, string>;
+
+  /**
    * Count of subscription messages, specifies how many messages are to be received on subscription
    */
   countOfSubscriptionMessages?: number;
@@ -788,9 +798,12 @@ export class TestHelper {
     }
 
     // Prepare subscription
-    let connectionParams;
+    let connectionParams: Record<string, string> | undefined;
     if (options?.token) {
       connectionParams = { Authorization: `Bearer ${options?.token}` };
+    }
+    if (options?.connectionParams) {
+      connectionParams = { ...connectionParams, ...options.connectionParams };
     }
 
     // Init client
@@ -800,10 +813,27 @@ export class TestHelper {
     const client = createClient({ connectionParams, url: this.subscriptionUrl, webSocketImpl: ws });
     const messages: any[] = [];
     let unsubscribe: () => void;
+    let rejectSubscription: (reason: unknown) => void;
+
     const onNext = (message) => {
       if (options.log) {
         console.info('Subscription message', JSON.stringify(message, null, 2));
       }
+
+      // A REFUSED subscription arrives as a `next` message carrying `errors`, not through the
+      // transport's `error` callback: when a guard throws, graphql's `subscribe()` returns an
+      // ExecutionResult instead of an async iterable, and graphql-ws emits that as one payload
+      // followed by `complete`. Projecting only `data[name]` therefore turned "you may not subscribe
+      // to this" into an indistinguishable `undefined`/`null` message — so a test asserting that an
+      // unauthorized subscriber gets nothing passed just as well when the gate was wide open.
+      // Rejecting makes the refusal observable, which is what the caller actually experiences.
+      if (message?.errors?.length) {
+        const detail = message.errors.map((error: any) => error?.message ?? String(error)).join('; ');
+        rejectSubscription?.(new Error(`Subscription "${graphql.name}" failed: ${detail}`));
+        unsubscribe?.();
+        return;
+      }
+
       messages.push(message?.data?.[graphql.name]);
       if (messages.length <= options.countOfSubscriptionMessages) {
         unsubscribe();
@@ -811,16 +841,29 @@ export class TestHelper {
     };
 
     // Subscribe
-    await new Promise((resolve, reject) => {
-      unsubscribe = client.subscribe(
-        { query },
-        {
-          complete: resolve as any,
-          error: reject,
-          next: onNext,
-        },
-      );
-    });
+    //
+    // Disposed in `finally`, including on the refusal path: without it the client keeps its socket
+    // (and graphql-ws its reconnect timer) open past the end of the test, which surfaces later as a
+    // hanging process or as an error attributed to whichever test happened to run next.
+    try {
+      await new Promise((resolve, reject) => {
+        rejectSubscription = reject;
+        unsubscribe = client.subscribe(
+          { query },
+          {
+            complete: resolve as any,
+            error: reject,
+            next: onNext,
+          },
+        );
+      });
+    } finally {
+      try {
+        await client.dispose?.();
+      } catch {
+        // Already closing — nothing to clean up, and a teardown error must not mask the result.
+      }
+    }
 
     // Return subscribed messages
     return messages;

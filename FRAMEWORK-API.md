@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-08-14 (v11.34.1)
+> Auto-generated from source code on 2026-08-17 (v11.35.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -70,11 +70,14 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 ### IMultiTenancy
 
   - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Explicitly disable multi-tenancy even when config is present.
-  - `excludeSchemas?`: `string[] | undefined` — Model names (NOT collection names) to exclude from tenant filtering.
+  - `excludeSchemas?`: `string[] | undefined` (default: `[]`) — Model names (NOT collection names) to exclude from tenant filtering.
   - `headerName?`: `string | undefined` (default: `'x-tenant-id'`) — Header name for tenant selection.
   - `membershipModel?`: `string | undefined` (default: `'TenantMember'`) — Mongoose model name for the membership collection.
   - `adminBypass?`: `boolean | undefined` (default: `true`) — Whether system admins (RoleEnum.ADMIN) bypass the membership check.
   - `roleHierarchy?`: `Record<string, number> | undefined` (default: `{ member: 1, manager: 2, owner: 3 }`) — Custom role hierarchy for tenant membership roles.
+  - `globalOnlyRoles?`: `string[] | undefined` (default: `[] (only RoleEnum.ADMIN is global)`) — Project-defined roles that carry GLOBAL (platform-wide) authority.
+  - `strictMembershipRoles?`: `boolean | undefined` (default: `false`) — Refuse membership roles that are not declared anywhere (deny by default).
+  - `additionalMembershipRoles?`: `string[] | undefined` (default: `[]`) — Membership roles that are valid but carry no hierarchy level (exact-match roles).
   - `cacheTtlMs?`: `number | undefined` (default: `30000 (30 seconds)`) — TTL in milliseconds for the tenant guard's in-memory membership cache.
 
 ### IErrorCode
@@ -152,6 +155,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### IFileConfig
 
+  - `access?`: `"authenticated" | "custom" | "owner" | "public" | "tenant" | undefined` (default: `'custom'`) — WHICH PROJECT CLASS this deployment is — the per-file rule, as a declaration instead of code.
   - `deleteRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DELETE files (`deleteFile` mutation).
   - `downloadRoles?`: `string[] | undefined` (default: `['admin']`) — Roles allowed to DOWNLOAD files and read file info
   - `storage?`: `"filesystem" | "gridfs" | "s3" | undefined` (default: `derived — see above`) — Storage driver for CoreFileService. Three equivalent options:
@@ -178,7 +182,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean | undefined` (default: `true (when config object is present)`) — Whether S3 is enabled.
   - `endpoint?`: `string | undefined` (default: `undefined`) — Custom endpoint URL for S3-compatible services (MinIO, RustFS, ...).
   - `forcePathStyle?`: `boolean | undefined` (default: `false`) — Use path-style addressing (required by most self-hosted S3 services).
-  - `presignedDownloads?`: `boolean | { expiresInSeconds?: number; } | undefined` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
+  - `presignedDownloads?`: `boolean | { enabled?: boolean; expiresInSeconds?: number; } | undefined` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
   - `region?`: `string | undefined` (default: `'us-east-1'`) — AWS region
   - `secretAccessKey?`: `string | undefined` (default: `undefined`) — Secret access key.
   - `stagingBucket?`: `string | undefined` (default: `same as `bucket``) — Bucket used as staging area for resumable TUS uploads.

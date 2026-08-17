@@ -380,13 +380,52 @@ query {
 
 The following metadata is stored with each GridFS file:
 
-| Field              | Source                            |
-| ------------------ | --------------------------------- |
-| `filename`         | From TUS `Upload-Metadata` header |
-| `contentType`      | From TUS `filetype` metadata      |
-| `tusUploadId`      | Original TUS upload ID            |
-| `originalMetadata` | All TUS metadata                  |
-| `uploadedAt`       | Completion timestamp              |
+| Field              | Source                                |
+| ------------------ | ------------------------------------- |
+| `filename`         | From TUS `Upload-Metadata` header     |
+| `contentType`      | From TUS `filetype` metadata          |
+| `tusUploadId`      | Original TUS upload ID                |
+| `originalMetadata` | All TUS metadata                      |
+| `ownerId`          | The authenticated uploader (11.35.0+) |
+| `uploadedAt`       | Completion timestamp                  |
+
+### Upload ownership (11.35.0+)
+
+`tus.roles` decides **who may reach the endpoint**. It says nothing about **which upload** a caller may
+touch — and the protocol is built around a per-upload URL: after `POST /tus` the client holds
+`/tus/<id>` and uses it for `HEAD` (offset), `PATCH` (append bytes) and `DELETE` (terminate). Until
+11.35.0 all three carried only that coarse gate, so any other authenticated caller who learned an id
+could resume, **overwrite** or destroy somebody else's upload. Overwriting is the sharp end: the bytes
+are migrated into the file store under the ORIGINAL uploader's filename.
+
+Two things changed:
+
+- **`onUploadCreate` records the creator** in the upload's own metadata under
+  `TUS_OWNER_METADATA_KEY` (`ltOwnerId`). It **overwrites** any client-supplied value — metadata
+  arrives in the `Upload-Metadata` header, so a merged value would let a caller name somebody else as
+  the owner.
+- **`onIncomingRequest` refuses a request naming an upload the caller does not own**, with **404** — the
+  same "a refusal is indistinguishable from a missing resource" policy the file module uses, so the
+  endpoint is not an existence oracle for upload ids.
+
+The finished file's metadata gains `ownerId`, which is the key
+`CoreFileService.checkRights()` documents — so a tus-uploaded file can finally satisfy a per-file
+ownership rule. Before this it could not: the rule failed closed for everyone but ADMIN, and a project
+following the documented pattern ended up with files nobody could download.
+
+**An owner-LESS upload stays reachable by anyone who may reach the endpoint.** Deliberately: uploads
+created before 11.35.0 carry no owner, and neither does an intentionally public form
+(`tus.roles: [RoleEnum.S_EVERYONE]`). Denying those would break in-flight uploads on upgrade and a
+documented configuration. What is closed is an upload that HAS an owner being touched by somebody else.
+
+Both `readRequestUserId()` and `assertUploadOwnership()` are `protected` — override to read the owner
+from elsewhere (an API key, a signed form token), or to let a support role resume any upload.
+
+> **Note for a custom service:** `@tus/server` v2 does NOT hand the Express request to its hooks. It
+> converts the Node request into a WHATWG `ServerRequest` first, so anything a guard attached lives on
+> the original request, reachable through `runtime.node.req` — which is why `readRequestUserId()` checks
+> there as well. Reading only `req.user` finds nothing and every upload silently becomes owner-less,
+> failing in the permissive direction.
 
 ---
 
