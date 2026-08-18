@@ -152,6 +152,18 @@ export function warnOnPresignedDownloadsWithRestrictedRoles(
  * public logos, and refusing to start on a configuration that is correct for the second would be
  * wrong. What it can do is refuse to be silent.
  *
+ * ⚠️ KNOWN LIMITATION — it reads CONFIGURATION, not decorator metadata, and therefore cannot see a
+ * subclass that RE-DECLARES a download handler with its own `@Roles(...)`. `applyFileRoles()` writes
+ * onto `CoreFileController.prototype` by member name, and decorator metadata lives on the function
+ * object, so an override is a different function that keeps its own roles — see
+ * `README.md § Overriding: read this before you re-declare a member`. A project whose subclassed
+ * `getFileById()` carries `@Roles(RoleEnum.S_EVERYONE)` has anonymously readable downloads while
+ * `resolveRoles('downloadRoles', fileConfig)` still answers `[ADMIN]`, so nothing here fires. That is
+ * the deployment this warning most wants to reach, and it is exactly the one it stays silent about.
+ * `tests/unit/file-access-warning-subclass-blind-spot.spec.ts` reproduces it. Closing it needs the
+ * warning to reach the REGISTERED controller class, which this helper — called from the
+ * `CoreFileService` constructor — has no access to; see that test's docblock.
+ *
  * @param hasPerFileRule whether `CoreFileService.checkRights()` is overridden — the caller knows,
  *   because it has the instance; this helper stays a pure function so it can be unit-tested.
  * @returns the message, or `undefined` when there is nothing to warn about. Returned as well as
