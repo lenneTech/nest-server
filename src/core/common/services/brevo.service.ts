@@ -53,9 +53,8 @@ export class BrevoService {
         return false;
       }
 
-      // Exclude (test) users, must be done via config and not via configFastButReadOnly,
-      // otherwise the error TypeError: Cannot assign to read only property 'lastIndex' of object '[object RegExp]' occurs
-      if (this.configService.config?.brevo?.exclude?.test?.(to)) {
+      // Exclude (test) users
+      if (this.isExcluded(to)) {
         return 'TEST_USER!';
       }
 
@@ -98,9 +97,8 @@ export class BrevoService {
         return false;
       }
 
-      // Exclude (test) users, must be done via config and not via configFastButReadOnly,
-      // otherwise the error TypeError: Cannot assign to read only property 'lastIndex' of object '[object RegExp]' occurs
-      if (this.configService.config?.brevo?.exclude?.test?.(to)) {
+      // Exclude (test) users
+      if (this.isExcluded(to)) {
         return 'TEST_USER!';
       }
 
@@ -133,6 +131,36 @@ export class BrevoService {
    */
   protected buildIdempotencyHeaders(): Record<string, unknown> {
     return { 'Idempotency-Key': randomUUID() };
+  }
+
+  /**
+   * Checks a recipient against `brevo.exclude` without inheriting the pattern's match state.
+   *
+   * Two traps live in this one line, and both have bitten:
+   *
+   * 1. `RegExp.prototype.test` ADVANCES `lastIndex` on a pattern carrying `g` or `y`. The config
+   *    holds a single shared instance and projects declare it as `/…/gi`, so calling `.test()` on
+   *    it directly answers true, false, true, … for the very same address — every second excluded
+   *    recipient receives a real mail. Matching against a flagless copy keeps each call
+   *    independent and leaves the configured pattern untouched.
+   * 2. It must be read from `config`, never from `configFastButReadOnly`: assigning `lastIndex` on
+   *    the frozen copy throws `TypeError: Cannot assign to read only property 'lastIndex'`.
+   *    Point 1 removes the assignment, but the frozen object may still be a `deepFreeze`d clone
+   *    whose flags differ, so the mutable side stays the source of truth.
+   *
+   * @param to - Recipient email address
+   * @returns `true` when the recipient matches the configured exclude pattern
+   */
+  protected isExcluded(to: string): boolean {
+    const exclude = this.configService.config?.brevo?.exclude;
+    if (typeof exclude?.test !== 'function') {
+      return false;
+    }
+
+    const stateless =
+      exclude.global || exclude.sticky ? new RegExp(exclude.source, exclude.flags.replace(/[gy]/g, '')) : exclude;
+
+    return stateless.test(to);
   }
 
   /**

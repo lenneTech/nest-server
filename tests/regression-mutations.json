@@ -24,6 +24,18 @@
   ],
   "mutations": [
     {
+      "id": "brevo-exclude-stateful-regex",
+      "defect": "11.36.0 — the exclude guard called `.test()` on the CONFIGURED RegExp. Projects declare `brevo.exclude` with the `g` flag (`/@(testuser\\.com|test\\.de)/gi`), and `RegExp.prototype.test` advances `lastIndex` on a `g`/`y` pattern, so one shared instance answered true, false, true, … for the same address. Every SECOND excluded recipient was therefore sent a real, billable transactional mail. Found in production: a CI e2e run delivered five mails to a `@testuser.com` address the project's own exclude pattern lists, and Brevo flagged the runner's IP rather than the project noticing.",
+      "file": "src/core/common/services/brevo.service.ts",
+      "after": "protected isExcluded(to: string): boolean {",
+      "find": "    const stateless =\n      exclude.global || exclude.sticky ? new RegExp(exclude.source, exclude.flags.replace(/[gy]/g, '')) : exclude;\n\n    return stateless.test(to);",
+      "replace": "    return exclude.test(to);",
+      "specs": [
+        "tests/unit/brevo.service.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "restriction-flag-migration-warning-silent",
       "defect": "11.35.0 — tightening the `_objectAlreadyCheckedForRestrictions` opt-out is the safe direction but NOT a silent one: a project that set the flag by hand loses its exemption and the fields it set the flag to preserve are stripped. Three customer projects do exactly that across twelve call sites. Without the one-time warning naming markRestrictionsChecked(), they would debug stripped fields with nothing pointing at the cause.",
       "file": "src/core/common/decorators/restricted.decorator.ts",
