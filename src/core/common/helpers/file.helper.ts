@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import { randomBytes } from 'crypto';
 import { diskStorage, memoryStorage } from 'multer';
@@ -147,9 +148,14 @@ function normalizeMimeType(value: string): string {
  * `options.allowScriptableTypes` is set — that is what closes the hole for
  * expressions that already exist in consumer projects.
  *
- * Rejections are reported as a real `Error`. Passing a bare string (as this
- * helper did before) leaves multer with an "error" that has no `message`, which
- * NestJS's `transformException` cannot map to a 4xx.
+ * Rejections are reported as a `BadRequestException`, so the caller gets a 400
+ * with a readable reason. An `HttpException` is required, not merely tidier:
+ * NestJS's `transformException` returns any NON-`HttpException` unchanged — its
+ * switch matches only multer's own message constants (`LIMIT_FILE_SIZE`,
+ * `LIMIT_UNEXPECTED_FILE`, …), and a message written here matches none of them.
+ * A bare `new Error()` therefore still surfaced to the client as a 500, which
+ * reads as "the server broke" for what is in fact a refused file. See
+ * `tests/unit/file-upload-rejection-status.spec.ts`.
  */
 export function multerFileFilter(
   accept: RegExp | UploadAllowList = IMAGE_UPLOAD_ALLOW_LIST,
@@ -163,7 +169,7 @@ export function multerFileFilter(
       !options?.allowScriptableTypes &&
       (SCRIPTABLE_UPLOAD_MIME_TYPES.includes(mimeType) || SCRIPTABLE_UPLOAD_EXTENSIONS.includes(extension))
     ) {
-      return cb(new Error(`File upload rejected: ${mimeType || 'unknown type'} may execute as script`));
+      return cb(new BadRequestException(`File upload rejected: ${mimeType || 'unknown type'} may execute as script`));
     }
 
     const accepted =
@@ -174,7 +180,7 @@ export function multerFileFilter(
     if (accepted) {
       return cb(null, true);
     }
-    cb(new Error(`File upload only supports the following filetypes - ${describeAccept(accept)}`));
+    cb(new BadRequestException(`File upload only supports the following filetypes - ${describeAccept(accept)}`));
   };
 }
 
