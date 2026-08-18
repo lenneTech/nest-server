@@ -346,13 +346,15 @@ override async getFileById(@Param('id') id: string, @Res() res: Response) {
 A class-level `@Roles()` on your subclass cannot relax an inherited member either: the inherited
 function carries its own handler-level roles, and the two are unioned rather than overridden.
 
-> ⚠️ **Nothing at boot reports this.** The undecided-access warning reads `file.*Roles` from the
-> configuration; it never inspects decorator metadata, and it cannot reach your controller class from
-> where it runs. So a subclass whose `getFileById()` carries `@Roles(RoleEnum.S_EVERYONE)` serves
-> anonymous downloads while the warning — which exists precisely to separate a decision from an
-> omission — stays quiet, because the configuration it can see still says admin-only. **If you
-> re-declare a download member, its `@Roles()` is your whole audience gate: audit it by hand.** The
-> same widening written in `config.env.ts` instead does trigger the warning.
+> **Boot reports this, since 11.35.1 — but it only reports.** `CoreFileAccessAuditInitializer` reads
+> the roles off the class you actually registered and warns when a member is open beyond platform
+> admins for a reason the configuration cannot explain. So a subclass whose `getFileById()` carries
+> `@Roles(RoleEnum.S_EVERYONE)` is now named at startup, with the member and the offending roles.
+>
+> It does **not** correct anything: your `@Roles()` still wins, because overwriting it would silently
+> relax a route you may have pinned on purpose. **If you re-declare a download member, its `@Roles()`
+> is your whole audience gate** — the warning tells you so, it does not close it for you. Inherit the
+> member instead if you want `file.downloadRoles` to govern it.
 
 ### If you override `getFileInfo()`: `GET /files/id/:id` no longer calls it (11.33.0)
 

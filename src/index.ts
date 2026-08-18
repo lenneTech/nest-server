@@ -176,6 +176,7 @@ export * from './core/modules/error-code';
 // Core - Modules - File
 // =====================================================================================================================
 
+export * from './core/modules/file/core-file-access-audit.initializer';
 export * from './core/modules/file/core-file-info.model';
 export * from './core/modules/file/core-file.controller';
 export * from './core/modules/file/core-file.resolver';
