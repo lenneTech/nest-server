@@ -3414,6 +3414,30 @@ interface IBetterAuthBase {
      * @default true
      */
     enabled?: boolean;
+
+    /**
+     * End every existing session when the user completes a password reset.
+     *
+     * A reset is what somebody reaches for when they suspect their account was
+     * taken over, so leaving the older sessions alive defeats the point: the
+     * attacker keeps theirs and the new password changes nothing for them.
+     *
+     * Left off by default because it is a behaviour change for existing
+     * deployments — a reset then signs the user out everywhere, including on
+     * the devices they still hold.
+     *
+     * Passed through to better-auth's native
+     * `emailAndPassword.revokeSessionsOnPasswordReset`. It cannot be set via
+     * `options` instead: that object is spread SHALLOWLY over the resolved
+     * config, so an `options.emailAndPassword` would replace the whole block
+     * — including the scrypt `password.hash` / `password.verify` pair this
+     * framework installs — and every credential in the database would stop
+     * verifying.
+     *
+     * @default false
+     * @since 11.36.0
+     */
+    revokeSessionsOnPasswordReset?: boolean;
   };
 
   /**
