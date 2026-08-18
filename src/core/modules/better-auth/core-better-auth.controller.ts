@@ -24,6 +24,7 @@ import {
   ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -122,10 +123,18 @@ export class CoreBetterAuthResponse {
  * Sign-in input DTO
  */
 export class CoreBetterAuthSignInInput {
+  // Validated, not merely documented. Without these the sign-in endpoint — the
+  // most-probed surface of any deployment — answered malformed input with a
+  // 500 from the first property read, which tells a client to retry something
+  // that can never work and buries real faults in the same bucket.
   @ApiProperty({ description: 'User email address', example: 'user@example.com' })
+  @IsNotEmpty()
+  @IsEmail()
   email: string;
 
   @ApiProperty({ description: 'User password' })
+  @IsNotEmpty()
+  @IsString()
   password: string;
 }
 
@@ -134,12 +143,18 @@ export class CoreBetterAuthSignInInput {
  */
 export class CoreBetterAuthSignUpInput {
   @ApiProperty({ description: 'User email address', example: 'user@example.com' })
+  @IsNotEmpty()
+  @IsEmail()
   email: string;
 
   @ApiProperty({ description: 'Display name', example: 'John Doe', required: false })
+  @IsOptional()
+  @IsString()
   name?: string;
 
   @ApiProperty({ description: 'User password (min 8 characters)' })
+  @IsNotEmpty()
+  @IsString()
   password: string;
 
   @ApiProperty({ description: 'Whether user accepted terms and privacy policy', required: false })
@@ -329,6 +344,15 @@ export class CoreBetterAuthController {
   ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
 
+    // A request with no body at all reaches here as `undefined`, and every line
+    // below reads `input.email`. Without this the caller gets a 500 for what is
+    // plainly their own malformed request — and a 500 tells a client to retry
+    // later, which will never help. The legacy sign-in answered this case with
+    // a 400 "Missing input"; keep that contract.
+    if (!input) {
+      throw new BadRequestException('Missing input');
+    }
+
     const api = this.betterAuthService.getApi();
     if (!api) {
       throw new BadRequestException(ErrorCode.BETTERAUTH_API_NOT_AVAILABLE);
@@ -493,6 +517,11 @@ export class CoreBetterAuthController {
   ): Promise<CoreBetterAuthResponse> {
     this.ensureEnabled();
     this.betterAuthService.ensureSignUpEnabled();
+
+    // Same reasoning as in signIn: a body-less request must not become a 500.
+    if (!input) {
+      throw new BadRequestException('Missing input');
+    }
 
     // Validate sign-up input (termsAndPrivacyAccepted is required by default)
     if (this.signUpValidator) {
