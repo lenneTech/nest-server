@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { IFileConfig } from '../../common/interfaces/server-options.interface';
 import { CoreFileController } from './core-file.controller';
 import { CoreFileResolver } from './core-file.resolver';
-import { FileRoleKey, resolveRoles } from './file-roles.config';
+import { FILE_ROLE_MEMBERS, FileEndpointClassName, FileRoleKey, resolveRoles } from './file-roles.config';
 
 const logger = new Logger('CoreFileRoles');
 
@@ -12,32 +12,25 @@ const logger = new Logger('CoreFileRoles');
 // imports the endpoint classes, which inject CoreFileService — see file-roles.config.ts.
 export {
   FILE_ROLE_DEFAULTS,
+  FILE_ROLE_MEMBERS,
   resolveRoles,
   warnOnPresignedDownloadsWithRestrictedRoles,
+  warnOnUndecidedEffectiveFileAccess,
   warnOnUndecidedFileAccess,
 } from './file-roles.config';
-export type { FileRoleKey } from './file-roles.config';
+export type { FileEndpointClassName, FileRoleKey, ObservedFileHandler } from './file-roles.config';
 
 /**
- * Which member is governed by which knob.
+ * The prototypes the member names in {@link FILE_ROLE_MEMBERS} resolve against.
  *
- * `getFileInfo` rides with `downloadRoles` rather than getting its own knob:
- * it answers filename, size and content type for a blob, which is the metadata
- * half of a download. Splitting it would let a project accidentally publish the
- * bucket's contents list while believing downloads were still closed.
+ * The NAMES live in `file-roles.config.ts` so the boot audit can share them without importing these
+ * classes (that import is what makes this file a non-leaf — see the header of `file-roles.config.ts`
+ * for the temporal-dead-zone crash it caused). Only the class lookup lives here.
  */
-const ROLE_TARGETS: { key: FileRoleKey; member: string; owner: () => unknown }[] = [
-  {
-    key: 'downloadRoles',
-    member: 'CoreFileController.getFileById',
-    owner: () => CoreFileController.prototype.getFileById,
-  },
-  { key: 'downloadRoles', member: 'CoreFileController.getFile', owner: () => CoreFileController.prototype.getFile },
-  { key: 'downloadRoles', member: 'CoreFileResolver.getFileInfo', owner: () => CoreFileResolver.prototype.getFileInfo },
-  { key: 'uploadRoles', member: 'CoreFileResolver.uploadFile', owner: () => CoreFileResolver.prototype.uploadFile },
-  { key: 'uploadRoles', member: 'CoreFileResolver.uploadFiles', owner: () => CoreFileResolver.prototype.uploadFiles },
-  { key: 'deleteRoles', member: 'CoreFileResolver.deleteFile', owner: () => CoreFileResolver.prototype.deleteFile },
-];
+const ENDPOINT_PROTOTYPES: Record<FileEndpointClassName, unknown> = {
+  CoreFileController: CoreFileController.prototype,
+  CoreFileResolver: CoreFileResolver.prototype,
+};
 
 /**
  * Apply the configured file roles to the core file endpoints.
@@ -65,14 +58,14 @@ const ROLE_TARGETS: { key: FileRoleKey; member: string; owner: () => unknown }[]
 export function applyFileRoles(config?: IFileConfig): void {
   const resolved = new Map<FileRoleKey, string[]>();
 
-  for (const { key, member, owner } of ROLE_TARGETS) {
+  for (const { className, key, method } of FILE_ROLE_MEMBERS) {
     if (!resolved.has(key)) {
       resolved.set(key, resolveRoles(key, config));
     }
 
-    const target = owner();
+    const target = (ENDPOINT_PROTOTYPES[className] as Record<string, unknown>)[method];
     if (typeof target !== 'function') {
-      logger.warn(`Cannot apply file.${key}: ${member} is not a function — skipping.`);
+      logger.warn(`Cannot apply file.${key}: ${className}.${method} is not a function — skipping.`);
       continue;
     }
 

@@ -37,6 +37,31 @@ export const FILE_ROLE_DEFAULTS: Record<FileRoleKey, string[]> = {
 };
 
 /**
+ * Which endpoint member each knob governs, by NAME only.
+ *
+ * Deliberately strings rather than function references: this file must stay a leaf that imports
+ * nothing but enums and interfaces (see the header), and both consumers need the same list —
+ * `applyFileRoles()` writes metadata onto these members, and the boot audit reads it back off
+ * whichever class the project actually registered. Two hand-maintained copies of that list is
+ * exactly how one of them ends up governing a member the other forgot.
+ *
+ * `getFileInfo` rides with `downloadRoles` rather than getting its own knob: it answers filename,
+ * size and content type for a blob, which is the metadata half of a download. Splitting it would let
+ * a project accidentally publish the bucket's contents list while believing downloads were closed.
+ */
+export const FILE_ROLE_MEMBERS: { className: FileEndpointClassName; key: FileRoleKey; method: string }[] = [
+  { className: 'CoreFileController', key: 'downloadRoles', method: 'getFileById' },
+  { className: 'CoreFileController', key: 'downloadRoles', method: 'getFile' },
+  { className: 'CoreFileResolver', key: 'downloadRoles', method: 'getFileInfo' },
+  { className: 'CoreFileResolver', key: 'uploadRoles', method: 'uploadFile' },
+  { className: 'CoreFileResolver', key: 'uploadRoles', method: 'uploadFiles' },
+  { className: 'CoreFileResolver', key: 'deleteRoles', method: 'deleteFile' },
+];
+
+/** The two core endpoint classes the role knobs govern. */
+export type FileEndpointClassName = 'CoreFileController' | 'CoreFileResolver';
+
+/**
  * Resolve one knob to the role list that will actually be applied.
  *
  * An empty array is treated as "not configured". It cannot mean "nobody": the
@@ -60,6 +85,21 @@ export function resolveRoles(key: FileRoleKey, config?: IFileConfig): string[] {
   }
 
   return configured;
+}
+
+/**
+ * Did somebody DECLARE the per-file policy?
+ *
+ * Shared by both file-access warnings on purpose. They must silence on exactly the same conditions,
+ * and two copies of that rule is how a third silencer gets added to one and forgotten in the other —
+ * at which point the boot audit starts firing on a project that did decide, gets muted, and protects
+ * nobody. Keeping it in one place makes that particular drift impossible rather than merely unlikely.
+ *
+ * `'custom'` does not count: it is the escape hatch that says "I will answer this in code", so the
+ * only evidence that somebody actually did is an overridden `checkRights()`.
+ */
+export function hasDeclaredFilePolicy(options: { fileConfig?: IFileConfig; hasPerFileRule: boolean }): boolean {
+  return options.hasPerFileRule || !!(options.fileConfig?.access && options.fileConfig.access !== 'custom');
 }
 
 /**
@@ -152,6 +192,15 @@ export function warnOnPresignedDownloadsWithRestrictedRoles(
  * public logos, and refusing to start on a configuration that is correct for the second would be
  * wrong. What it can do is refuse to be silent.
  *
+ * SCOPE — this function reads CONFIGURATION, which is the right source for a member the project
+ * INHERITS: `applyFileRoles()` writes the configured roles onto the base-class function, the subclass
+ * picks them up through the prototype chain, and config and reality agree. It says nothing about a
+ * member the project RE-DECLARES, because an override is a different function carrying its own
+ * `@Roles()` and the configuration never reaches that route. That half is covered by
+ * {@link warnOnUndecidedEffectiveFileAccess}, driven from `CoreFileAccessAuditInitializer` at
+ * bootstrap — the earliest point at which the registered class exists. The two do not overlap: the
+ * audit reports only roles this function's source cannot account for.
+ *
  * @param hasPerFileRule whether `CoreFileService.checkRights()` is overridden — the caller knows,
  *   because it has the instance; this helper stays a pure function so it can be unit-tested.
  * @returns the message, or `undefined` when there is nothing to warn about. Returned as well as
@@ -166,7 +215,7 @@ export function warnOnUndecidedFileAccess(options: {
   const { fileConfig, hasPerFileRule, multiTenancyEnabled } = options;
 
   // (1) and (2): somebody decided.
-  if (hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {
+  if (hasDeclaredFilePolicy({ fileConfig, hasPerFileRule })) {
     return undefined;
   }
 
@@ -196,6 +245,112 @@ export function warnOnUndecidedFileAccess(options: {
     `one own upload reveals the neighbourhood), with no rate limit on the file routes.${tenantNote} ` +
     `Declare the project class with file.access ('public' | 'authenticated' | 'owner' | 'tenant'), or ` +
     `override checkRights() — see src/core/modules/file/README.md § Access control.`;
+
+  logger.warn(message);
+  return message;
+}
+
+/**
+ * One registered endpoint member, as the GUARDS will see it.
+ *
+ * `roles` is the union of handler-level and class-level metadata, because that is what
+ * `mergeRolesMetadata` computes — not the handler alone. A subclass that carries a class-level
+ * `@Roles(S_EVERYONE)` widens every member it declares, and reading only the handler would miss it.
+ */
+export interface ObservedFileHandler {
+  /** which knob governs this member */
+  key: FileRoleKey;
+  /** `'FileController.getFileById'` — named as REGISTERED, so the operator can go straight to it */
+  member: string;
+  /** the effective role union the guards will evaluate */
+  roles: string[];
+}
+
+/**
+ * Warn when a REGISTERED file endpoint is open beyond platform admins for a reason the configuration
+ * does not explain — i.e. a `@Roles()` written in the project's own subclass.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM {@link warnOnUndecidedFileAccess}. That one reads CONFIGURATION,
+ * which is the right source for the inherited case: `applyFileRoles()` writes the configured roles
+ * onto the base-class member, an inheriting subclass picks them up through the prototype chain, and
+ * config and reality agree. They stop agreeing the moment a project RE-DECLARES a member. Decorator
+ * metadata lives on the function object, so an override is a different function carrying its own
+ * roles — and that is the function Nest registers. The configuration never reaches the route.
+ *
+ * The consequence was a silence exactly where the noise was wanted: a subclassed `getFileById()` with
+ * `@Roles(RoleEnum.S_EVERYONE)` serves anonymous downloads while `resolveRoles('downloadRoles', …)`
+ * still answers `[ADMIN]`. Two independent consumer projects shipped that, and in both the actually
+ * open routes were the ones nothing reported. A warning that is quiet in the dangerous case and loud
+ * in the safe one is worse than no warning, because it reads as a clean bill of health.
+ *
+ * WHAT IT REPORTS — only roles the configuration does not account for:
+ *
+ *   effective = union(handler roles, class roles)      // what mergeRolesMetadata gives the guard
+ *   unexplained = effective − {ADMIN} − configured(key)
+ *
+ * That subtraction is what keeps this from double-warning. When the widening came from
+ * `file.downloadRoles`, {@link warnOnUndecidedFileAccess} has already said so and `unexplained` is
+ * empty. When an override widens FURTHER than the configuration does, only the extra roles are
+ * named — the part that is genuinely invisible elsewhere.
+ *
+ * ADMIN is subtracted because both endpoint classes carry a class-level `@Roles(ADMIN)` that the
+ * guards union in unconditionally. It is present on every member and never widens anything.
+ *
+ * The silencers are deliberately identical to {@link warnOnUndecidedFileAccess} — an overridden
+ * `checkRights()` or a declared `file.access` means somebody decided, and how they decided is beyond
+ * what a boot check can grade. A warning that fires on a correct setup gets muted, and a muted
+ * warning protects nobody.
+ *
+ * @returns the message, or `undefined` when there is nothing to report. Returned as well as logged
+ *   for the same reason as the other two warnings: the message IS the contract, and a module-private
+ *   Logger cannot be asserted against from a unit test.
+ */
+export function warnOnUndecidedEffectiveFileAccess(options: {
+  fileConfig?: IFileConfig;
+  handlers: ObservedFileHandler[];
+  hasPerFileRule: boolean;
+  multiTenancyEnabled: boolean;
+}): string | undefined {
+  const { fileConfig, handlers, hasPerFileRule, multiTenancyEnabled } = options;
+
+  // Somebody decided. The SAME predicate the configuration-side warning uses — see
+  // hasDeclaredFilePolicy() for why this must not be a second copy of the rule.
+  if (hasDeclaredFilePolicy({ fileConfig, hasPerFileRule })) {
+    return undefined;
+  }
+
+  const findings: string[] = [];
+  for (const handler of handlers) {
+    const configured = resolveRoles(handler.key, fileConfig);
+    const unexplained = handler.roles.filter((role) => role !== RoleEnum.ADMIN && !configured.includes(role));
+    if (unexplained.length) {
+      findings.push(`${handler.member} → ${JSON.stringify([...new Set(unexplained)])}`);
+    }
+  }
+
+  if (!findings.length) {
+    return undefined;
+  }
+
+  const tenantNote = multiTenancyEnabled
+    ? ' multiTenancy is active, and the leak crosses tenants too: the file stores are reached outside ' +
+      'Mongoose, so mongooseTenantPlugin never scopes them and these role names resolve against ' +
+      'user.roles — a GLOBAL attribute — never against membership.role.'
+    : '';
+
+  const message =
+    `A registered file endpoint is open beyond platform admins through roles declared in your own ` +
+    `class, not through configuration (${findings.join(', ')}), and no per-file policy is declared: ` +
+    `file.access is unset and CoreFileService.checkRights() is not overridden. Because the member is ` +
+    `RE-DECLARED, file.downloadRoles/uploadRoles/deleteRoles do NOT apply to it — decorator metadata ` +
+    `lives on the function object, so your override keeps its own @Roles() and the configuration ` +
+    `never reaches the route. Every holder of such a role can therefore read, overwrite or delete ` +
+    `EVERY file — and file ids are not secret, they are ENUMERABLE (an ObjectId shares a per-process ` +
+    `random part and an incrementing counter, so one own upload reveals the neighbourhood), with no ` +
+    `rate limit on the file routes.${tenantNote} Either inherit the member instead of re-declaring ` +
+    `it, so the knobs apply, or declare the per-file policy with file.access ` +
+    `('public' | 'authenticated' | 'owner' | 'tenant') or an overridden checkRights() — see ` +
+    `src/core/modules/file/README.md § Access control.`;
 
   logger.warn(message);
   return message;
