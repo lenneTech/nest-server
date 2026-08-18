@@ -34,6 +34,19 @@ import type { INestApplication } from '@nestjs/common';
  * passed while the client still got a 500 — the assertion restated the implementation instead of
  * the observable behaviour. The status code is the observable behaviour, and it needs the real
  * interceptor in the path. No database, no framework boot: a bare controller is enough.
+ *
+ * @regression   11.32.4 §8 — `multerFileFilter` reported a refusal as a bare `new Error(...)`,
+ *   intending a 400. `transformException` returns any non-`HttpException` unchanged, so the client
+ *   was told the SERVER failed for a file IT sent wrong — on both rejection paths, the allow-list
+ *   one and the scriptable-type one added by §6.
+ * @seen-failing Change either `cb(new BadRequestException(...))` in
+ *   `src/core/common/helpers/file.helper.ts` back to `cb(new Error(...))` — registered as
+ *   `upload-rejection-allow-list-not-http-exception` and
+ *   `upload-rejection-scriptable-not-http-exception` in `tests/regression-mutations.json`. Each
+ *   turns its own case red with `expected 500 to be 400` while the accept-a-valid-file case stays
+ *   green, so the failure is the status and not a stack that stopped working. Two mutations rather
+ *   than one because fixing a single branch was the concrete risk: one anchor cannot show the other
+ *   path is covered.
  */
 
 const DOCUMENTS: UploadAllowList = {

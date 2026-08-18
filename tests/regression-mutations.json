@@ -507,6 +507,28 @@
         "tests/tenant-isolation.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "upload-rejection-allow-list-not-http-exception",
+      "defect": "11.32.4 §8 replaced multerFileFilter's bare-string rejection with `new Error(...)`, intending a clean 400. It never produced one: NestJS's `transformException` returns any NON-HttpException unchanged — its switch matches only multer's OWN message constants — so a file refused by the allow-list still reached the client as a 500, which tells the caller to retry a request that can never succeed. The test shipped with that fix asserted only that the callback receives an `Error`; it passed while the client got a 500, because it restated the implementation instead of the observable status.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "cb(new BadRequestException(`File upload only supports the following filetypes",
+      "replace": "cb(new Error(`File upload only supports the following filetypes",
+      "specs": [
+        "tests/unit/file-upload-rejection-status.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "upload-rejection-scriptable-not-http-exception",
+      "defect": "The same defect on the scriptable-type rejection path added by 11.32.4 §6 (`text/html`, `image/svg+xml`). Registered as its own mutation rather than folded into the allow-list one: that branch is the more security-relevant of the two, and a single mutation cannot show the other is covered — fixing one and leaving the other was the concrete risk here.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "return cb(new BadRequestException(`File upload rejected:",
+      "replace": "return cb(new Error(`File upload rejected:",
+      "specs": [
+        "tests/unit/file-upload-rejection-status.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
