@@ -563,6 +563,39 @@
         "tests/file-access-audit-wiring.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "betterauth-signin-input-unvalidated",
+      "defect": "11.36.0 — the sign-in DTO carried @ApiProperty() only: documentation, no validation. Every line of the handler reads input.email, so a malformed body produced a TypeError and reached the client as a 500. On the most-probed endpoint any deployment has, that tells the caller to retry something that can never succeed and files their mistake in the same bucket as a real outage. This mutation strips the validators from the sign-in email so a present-but-wrong body is unguarded again.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "  @IsNotEmpty()\n  @IsEmail()\n  email: string;\n\n  @ApiProperty({ description: 'User password' })",
+      "replace": "  email: string;\n\n  @ApiProperty({ description: 'User password' })",
+      "specs": [
+        "tests/unit/better-auth-signin-input-validation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "betterauth-signin-missing-body-500",
+      "defect": "11.36.0 — the OTHER half of the same defect, and the reason the validators alone are not enough. MapAndValidatePipe returns early on a falsy value (`if (!value || typeof value !== 'object' …) return value`), so a request with NO body is never validated: it reaches the handler as `undefined` and the first `input.email` read throws. Registered separately because each fix covers inputs the other cannot see, and a single mutation would not show that.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "    // a 400 \"Missing input\"; keep that contract.\n    if (!input) {\n      throw new BadRequestException('Missing input');\n    }",
+      "replace": "    // a 400 \"Missing input\"; keep that contract.",
+      "specs": [
+        "tests/unit/better-auth-signin-input-validation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "betterauth-revoke-sessions-not-wired",
+      "defect": "Not a shipped defect — a NEW option, and this proves its wiring is not vacuous. `revokeSessionsOnPasswordReset` is only worth anything if it reaches `instance.options.emailAndPassword`, where Better-Auth reads it on its three reset routes. A field that never arrives would leave a password reset silently keeping the attacker's sessions alive while the configuration says the opposite — worse than not offering the option, because the operator believes they took the precaution.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "revokeSessionsOnPasswordReset: config.emailAndPassword?.revokeSessionsOnPasswordReset === true,",
+      "replace": "revokeSessionsOnPasswordReset: false,",
+      "specs": [
+        "tests/unit/better-auth-revoke-sessions-on-password-reset.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -24,7 +24,7 @@ import {
   ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Request, Response } from 'express';
 
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -157,7 +157,16 @@ export class CoreBetterAuthSignUpInput {
   @IsString()
   password: string;
 
+  // Deliberately left without a validator, unlike its three neighbours. Whether this field is
+  // REQUIRED is a policy question the framework cannot answer here — it depends on
+  // `betterAuth.signUpValidation`, which the handler consults through
+  // CoreBetterAuthSignUpValidatorService before anything else happens. A `@IsNotEmpty()` here would
+  // hard-code "consent is mandatory" into the DTO and reject a sign-up for a deployment that never
+  // asked for consent, with a message that names the wrong cause. The others carry validators
+  // because "an email must look like an email" needs no policy.
   @ApiProperty({ description: 'Whether user accepted terms and privacy policy', required: false })
+  @IsBoolean()
+  @IsOptional()
   termsAndPrivacyAccepted?: boolean;
 }
 
