@@ -63,8 +63,8 @@
       "defect": "11.35.0 — the boot warning for an open file gate with no per-file policy fired only when multiTenancy was active. Too narrow: `downloadRoles: [S_USER]` with no rule leaks every file to every signed-in user whether or not tenants exist, and file ids are enumerable. The mutation restores the multiTenancy gate.",
       "file": "src/core/modules/file/file-roles.config.ts",
       "after": "export function warnOnUndecidedFileAccess(options: {",
-      "find": "  if (hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {",
-      "replace": "  if (!multiTenancyEnabled || hasPerFileRule || (fileConfig?.access && fileConfig.access !== 'custom')) {",
+      "find": "  // (1) and (2): somebody decided.\n  if (hasDeclaredFilePolicy({ fileConfig, hasPerFileRule })) {",
+      "replace": "  // (1) and (2): somebody decided.\n  if (!multiTenancyEnabled || hasDeclaredFilePolicy({ fileConfig, hasPerFileRule })) {",
       "specs": [
         "tests/unit/file-access-warning.spec.ts"
       ],
@@ -505,6 +505,50 @@
       "replace": "  return;\n  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
       "specs": [
         "tests/tenant-isolation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "upload-rejection-allow-list-not-http-exception",
+      "defect": "11.32.4 §8 replaced multerFileFilter's bare-string rejection with `new Error(...)`, intending a clean 400. It never produced one: NestJS's `transformException` returns any NON-HttpException unchanged — its switch matches only multer's OWN message constants — so a file refused by the allow-list still reached the client as a 500, which tells the caller to retry a request that can never succeed. The test shipped with that fix asserted only that the callback receives an `Error`; it passed while the client got a 500, because it restated the implementation instead of the observable status.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "cb(new BadRequestException(`File upload only supports the following filetypes",
+      "replace": "cb(new Error(`File upload only supports the following filetypes",
+      "specs": [
+        "tests/unit/file-upload-rejection-status.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "upload-rejection-scriptable-not-http-exception",
+      "defect": "The same defect on the scriptable-type rejection path added by 11.32.4 §6 (`text/html`, `image/svg+xml`). Registered as its own mutation rather than folded into the allow-list one: that branch is the more security-relevant of the two, and a single mutation cannot show the other is covered — fixing one and leaving the other was the concrete risk here.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "return cb(new BadRequestException(`File upload rejected:",
+      "replace": "return cb(new Error(`File upload rejected:",
+      "specs": [
+        "tests/unit/file-upload-rejection-status.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "file-access-audit-ignores-handler-roles",
+      "defect": "11.35.x — the §16 boot warning read CONFIGURATION only. `applyFileRoles()` writes onto the BASE-class member, but decorator metadata lives on the function object, so a subclass that RE-DECLARES a download handler keeps its own @Roles() and that is the function Nest registers. A subclassed getFileById() with @Roles(S_EVERYONE) therefore served anonymous downloads while resolveRoles('downloadRoles', …) still answered [ADMIN] and nothing fired — silence in exactly the deployment the warning exists for. Two independent consumer projects shipped it. This mutation re-introduces the blind spot at its narrowest point: the audit stops reading the handler's own metadata and sees only the inherited class-level roles.",
+      "file": "src/core/modules/file/core-file-access-audit.initializer.ts",
+      "find": "const handlerRoles: string[] = Reflect.getMetadata('roles', fn as object) ?? [];",
+      "replace": "const handlerRoles: string[] = [];",
+      "specs": [
+        "tests/unit/file-access-effective-roles.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "file-access-audit-skips-controllers",
+      "defect": "Not a shipped defect — this proves the audit's WIRING is not vacuous. The subclass blind spot is only closed if DiscoveryService actually hands the initializer the registered file controller. If it returns nothing — provider never constructed, DiscoveryModule missing from CoreModule's imports, controllers absent from getControllers() for this application shape — every unit test still passes because they supply the classes through a stub, and the audit silently inspects nothing. A security check that quietly does not run is worse than none: its silence reads as a clean bill of health.",
+      "file": "src/core/modules/file/core-file-access-audit.initializer.ts",
+      "find": "    for (const wrapper of this.discoveryService?.getControllers() ?? []) {\n      consider(wrapper.instance);\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/file-access-audit-wiring.e2e-spec.ts"
       ],
       "driverSpecific": false
     }

@@ -36,9 +36,11 @@ export * from './core/common/helpers/cookies.helper';
 export * from './core/common/helpers/graceful-shutdown.helper';
 export * from './core/common/helpers/db.helper';
 export * from './core/common/helpers/decorator.helper';
+export * from './core/common/helpers/execution-context-request.helper';
 export * from './core/common/helpers/file.helper';
 export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/graphql.helper';
+export * from './core/common/helpers/graphql-ws-context.helper';
 export * from './core/common/helpers/interceptor.helper';
 export * from './core/common/helpers/gridfs.helper';
 export * from './core/common/helpers/input.helper';
@@ -94,6 +96,7 @@ export * from './core/common/services/core-cron-jobs.service';
 export * from './core/common/services/core-redis.service';
 export * from './core/common/services/core-redis-pubsub';
 export * from './core/common/services/core-s3.service';
+export * from './core/common/services/core-tenant-context.registry';
 export * from './core/common/services/rate-limit-store';
 export * from './core/common/services/crud.service';
 export * from './core/common/services/email.service';
@@ -173,6 +176,7 @@ export * from './core/modules/error-code';
 // Core - Modules - File
 // =====================================================================================================================
 
+export * from './core/modules/file/core-file-access-audit.initializer';
 export * from './core/modules/file/core-file-info.model';
 export * from './core/modules/file/core-file.controller';
 export * from './core/modules/file/core-file.resolver';

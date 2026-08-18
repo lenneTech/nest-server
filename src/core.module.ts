@@ -1,6 +1,6 @@
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, UnauthorizedException } from '@nestjs/common';
-import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import type { Context } from 'graphql-ws';
@@ -51,6 +51,7 @@ import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
+import { CoreFileAccessAuditInitializer } from './core/modules/file/core-file-access-audit.initializer';
 import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
 import { CoreHubModule } from './core/modules/hub/core-hub.module';
@@ -305,6 +306,11 @@ export class CoreModule implements NestModule {
 
       // Core Services
       CoreCronJobsInitializer,
+      // Audits the file endpoints the project actually REGISTERED. applyFileRoles() above can only
+      // reach the base-class members; a subclass that re-declares one keeps its own @Roles() and the
+      // configuration never reaches that route. Only a bootstrap-time look at the registered class
+      // can tell those apart — see the initializer.
+      CoreFileAccessAuditInitializer,
       CoreRedisService,
       CoreS3Service,
       CoreTrustProxyInitializer,
@@ -381,7 +387,9 @@ export class CoreModule implements NestModule {
       }
     }
 
-    const imports: any[] = [MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
+    // DiscoveryModule: CoreFileAccessAuditInitializer needs the registered controller/resolver
+    // classes, which only exist once Nest has built its route table.
+    const imports: any[] = [DiscoveryModule, MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
 
     if (isGraphQlEnabled && config.graphQl) {
       imports.push(

@@ -346,6 +346,16 @@ override async getFileById(@Param('id') id: string, @Res() res: Response) {
 A class-level `@Roles()` on your subclass cannot relax an inherited member either: the inherited
 function carries its own handler-level roles, and the two are unioned rather than overridden.
 
+> **Boot reports this, since 11.35.1 — but it only reports.** `CoreFileAccessAuditInitializer` reads
+> the roles off the class you actually registered and warns when a member is open beyond platform
+> admins for a reason the configuration cannot explain. So a subclass whose `getFileById()` carries
+> `@Roles(RoleEnum.S_EVERYONE)` is now named at startup, with the member and the offending roles.
+>
+> It does **not** correct anything: your `@Roles()` still wins, because overwriting it would silently
+> relax a route you may have pinned on purpose. **If you re-declare a download member, its `@Roles()`
+> is your whole audience gate** — the warning tells you so, it does not close it for you. Inherit the
+> member instead if you want `file.downloadRoles` to govern it.
+
 ### If you override `getFileInfo()`: `GET /files/id/:id` no longer calls it (11.33.0)
 
 Up to 11.32.x, `GET /files/id/:id` called the public `CoreFileService.getFileInfo()` and then let
