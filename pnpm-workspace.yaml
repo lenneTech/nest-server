@@ -63,25 +63,32 @@ peerDependencyRules:
 # therefore mirrored in nest-server-starter and lt-monorepo, and documented for hand-rolled setups
 # in docs/security-overrides.md (which ships, because `docs/**` is in package.json `files`).
 #
-# Last verified 2026-07-22 by resolving a lockfile with this block stripped:
+# Last verified 2026-07-22 by resolving a lockfile with this block stripped, statuses re-checked
+# 2026-08-19 against the resolved tree:
 #   LOAD-BEARING - removing them reintroduces a vulnerable version:
-#     ws                 -> regresses to 8.20.1 (@nestjs/graphql pins it EXACTLY, so it cannot
-#                           resolve forward on its own)
 #     @hono/node-server  -> regresses to 1.19.14
 #   INERT today - each already resolves to a patched version without help. Kept only as a pin, so
 #   each one silently becomes a DOWNGRADE-LOCK the moment a newer patch ships upstream. Re-check
 #   every maintenance run and drop what is no longer needed:
-#     axios, brace-expansion x3, js-yaml, fast-uri, body-parser
+#     ws (newly inert 2026-08-19 - see its entry), axios, brace-expansion x3, js-yaml, fast-uri,
+#     body-parser
 #
 # Every target MUST be a fixed version, never an unbounded range - see
 # .claude/rules/package-management.md for the incident that rule exists to prevent.
 # pnpm 11 `pnpm audit` is the safety net for regressions.
 overrides:
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
-  # LOAD-BEARING. Remove once @nestjs/graphql stops pinning ws 8.20.1 exactly.
+  # NO LONGER LOAD-BEARING as of 2026-08-19: @nestjs/graphql 13.4.5 pins `ws: 8.21.3` itself
+  # (13.4.2 pinned the vulnerable 8.20.1), and graphql-ws 6.2.1 takes ws as an optional peer. Every
+  # 8.x consumer in the tree now requests 8.21.3 unaided, so this entry has flipped to a pure pin.
+  # KEPT anyway, and safely: the key is RANGE-FLOORED (`<8.21.0`, i.e. it stops below the target),
+  # so it can only ever lift a vulnerable version up and can never drag a newer patch back down -
+  # it is not the downgrade-lock shape the header warns about. It is cheap insurance against a
+  # future @nestjs/graphql patch re-pinning an older ws.
   # Target raised 8.21.1 -> 8.21.3 on 2026-08-10 to match the direct `ws` dependency: with
   # nodeLinker: hoisted a lower target would leave a SECOND, older ws copy in the tree next to
   # the direct one. Keep the two in lockstep whenever the direct dependency moves.
+  # Remove once ws 8.x is no longer reachable at all, or once @nestjs/graphql floors it in a range.
   'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Inert today (axios already resolves >=1.18.0). Remove once node-mailjet requests >=1.18.0 itself.
@@ -188,9 +195,9 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   # Bumped 3.1105.0 -> 3.1106.0 alongside the devDependency; the AWS SDK publishes almost daily,
   # so this pair always trips a hold-back and the pinned version has to be carried along.
-  - '@aws-sdk/client-s3@3.1106.0'
-  - '@aws-sdk/s3-request-presigner@3.1106.0'
-  - bullmq@6.0.9
-  - '@nestjs/common@11.1.29'
-  - '@nestjs/core@11.1.29'
-  - '@nestjs/platform-express@11.1.29'
+  - '@aws-sdk/client-s3@3.1112.0'
+  - '@aws-sdk/s3-request-presigner@3.1112.0'
+  - bullmq@6.1.2
+  - '@nestjs/common@11.2.1'
+  - '@nestjs/core@11.2.1'
+  - '@nestjs/platform-express@11.2.1'
