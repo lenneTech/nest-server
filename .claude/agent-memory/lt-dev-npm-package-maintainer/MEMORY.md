@@ -73,6 +73,12 @@
 - **`oxlint` 1.66 → 1.74:** applied. lint PASSES (exit 0) but emits ONE new non-blocking warning: `import(namespace): "render" not found in imported namespace "ejs"` at `core-better-auth-email-verification.service.ts:219` — a static-analysis limitation on ejs's CJS/ESM interop (`ejs.render` is a real function). Not a failure; `lint` has no `--deny-warnings`.
 
 ### Key Files
-- `/Users/kaihaase/code/lenneTech/nest-server/package.json` - main package config
-- `/Users/kaihaase/code/lenneTech/nest-server/src/core/common/services/brevo.service.ts` - uses @getbrevo/brevo v3 API
-- `/Users/kaihaase/code/lenneTech/nest-server/src/types/graphql-upload.d.ts` - custom type declarations for graphql-upload
+- `package.json` - main package config
+- `src/core/common/services/brevo.service.ts` - uses @getbrevo/brevo v3 API
+- `src/types/graphql-upload.d.ts` - custom type declarations for graphql-upload
+
+## Index (topic files)
+- [Deferred major updates](deferred-major-updates.md) — better-auth 1.7 / graphql 17 / graphql-upload 18 / typescript 7 / pnpm pin: why each needs its own release.
+- [Override status](nest-server-override-status.md) — overrides live in pnpm-workspace.yaml; load-bearing vs inert, and the range-floored shape that makes an inert entry safe to keep.
+- [Maintenance gotchas](nest-server-maintenance-gotchas.md) — nest CLI exec bit, buffered pnpm output that fakes a hang, oxfmt drift check, depcheck false positives.
+- [Blocking updates](blocking-updates.md) — older per-package blocker detail.

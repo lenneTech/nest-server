@@ -195,6 +195,34 @@ describe('BrevoService', () => {
       await expect(service.sendMail('user@test.com', 42)).resolves.toBe('TEST_USER!');
     });
 
+    /**
+     * @regression   11.36.0 — the guard called `.test()` on the CONFIGURED RegExp, and projects
+     *   declare `exclude` with the `g` flag (`/@(testuser\.com|test\.de)/gi`). `RegExp.test`
+     *   advances `lastIndex` on a `g`/`y` pattern, so one shared instance answers true, false,
+     *   true, … for the very same address — every SECOND excluded recipient was sent a real,
+     *   billable mail. Seen live: a CI e2e run delivered five transactional mails to a
+     *   `@testuser.com` address that the project's own exclude pattern lists.
+     * @seen-failing Return `exclude.test(to)` directly from `isExcluded()` in
+     *   src/core/common/services/brevo.service.ts — registered as mutation
+     *   `brevo-exclude-stateful-regex` in tests/regression-mutations.json.
+     */
+    it('keeps excluding on repeated sends when the pattern carries the `g` flag', async () => {
+      const service = new BrevoService(makeConfigService({ exclude: /@test\.com$/gi }));
+      await expect(service.sendMail('first@test.com', 42)).resolves.toBe('TEST_USER!');
+      await expect(service.sendMail('second@test.com', 42)).resolves.toBe('TEST_USER!');
+      await expect(service.sendMail('third@test.com', 42)).resolves.toBe('TEST_USER!');
+      expect(brevoMock.sendTransacEmail).not.toHaveBeenCalled();
+    });
+
+    it('leaves the configured pattern`s lastIndex untouched', async () => {
+      // The config object is shared process-wide, so mutating it would leak into every later
+      // caller — including one that reads `exclude` for its own purposes.
+      const exclude = /@test\.com$/gi;
+      const service = new BrevoService(makeConfigService({ exclude }));
+      await service.sendMail('user@test.com', 42);
+      expect(exclude.lastIndex).toBe(0);
+    });
+
     it('returns null when the API call fails', async () => {
       brevoMock.sendTransacEmail.mockRejectedValue(new Error('Brevo down'));
       const service = new BrevoService(makeConfigService());
@@ -247,6 +275,20 @@ describe('BrevoService', () => {
     it('skips excluded (test) recipients', async () => {
       const service = new BrevoService(makeConfigService({ exclude: /@test\.com$/i }));
       await expect(service.sendHtmlMail('user@test.com', 'Subject', '<p>Hi</p>')).resolves.toBe('TEST_USER!');
+      expect(brevoMock.sendTransacEmail).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @regression   11.36.0 — same stateful-RegExp defect as on `sendMail`, on the second send
+     *   path. Both call sites read the shared pattern, so both alternated.
+     * @seen-failing Return `exclude.test(to)` directly from `isExcluded()` in
+     *   src/core/common/services/brevo.service.ts — registered as mutation
+     *   `brevo-exclude-stateful-regex` in tests/regression-mutations.json.
+     */
+    it('keeps excluding on repeated sends when the pattern carries the `g` flag', async () => {
+      const service = new BrevoService(makeConfigService({ exclude: /@test\.com$/gi }));
+      await expect(service.sendHtmlMail('first@test.com', 'Subject', '<p>Hi</p>')).resolves.toBe('TEST_USER!');
+      await expect(service.sendHtmlMail('second@test.com', 'Subject', '<p>Hi</p>')).resolves.toBe('TEST_USER!');
       expect(brevoMock.sendTransacEmail).not.toHaveBeenCalled();
     });
 

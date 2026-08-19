@@ -444,6 +444,10 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
         hash: nativeScryptHash,
         verify: nativeScryptVerify,
       },
+      // Opt-in: a reset then also ends the sessions that already existed, which
+      // is the point of resetting after a suspected takeover. Off by default so
+      // the behaviour of existing deployments does not change under them.
+      revokeSessionsOnPasswordReset: config.emailAndPassword?.revokeSessionsOnPasswordReset === true,
     },
     plugins,
     secret: validation.resolvedSecret || config.secret,
