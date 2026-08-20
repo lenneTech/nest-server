@@ -169,6 +169,9 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
   instance claims the setup by upserting the marker `{ _id: 'initial-admin' }` into the
   `system-setup-locks` collection — an atomic operation only one instance wins. The others log a
   debug message and skip. If creation fails, the marker is removed again so a later boot can retry.
+  After a SUCCESSFUL setup the marker REMAINS — setup must never run twice in a deployment. Test
+  suites that reset the database to replay the setup flow therefore have to drop `system-setup-locks`
+  alongside `users`; clearing only `users` leaves setup refused until the claim goes stale (5 min).
 
 ### Security Best Practices
 
