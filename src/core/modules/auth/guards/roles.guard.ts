@@ -147,7 +147,14 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // If no roles required, or S_EVERYONE is set, allow access without authentication
     // This allows public endpoints (without @Roles decorator or with S_EVERYONE) to work
+    //
+    // Access is granted either way, but the caller is still IDENTIFIED when they sent a valid
+    // token: returning early here left `request.user` unset, so a signed-in user hitting a
+    // public endpoint arrived as anonymous. Endpoints that are public AND personalise for
+    // signed-in callers — a search ranking by the caller's own location, a list marking the
+    // caller's own entries — silently lost that personalisation, with no error anywhere.
     if (!roles || !roles.some((value) => !!value) || roles.includes(RoleEnum.S_EVERYONE)) {
+      await this.tryIdentifyOptionalUser(context);
       return true;
     }
 
@@ -337,6 +344,43 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // Everything is ok
     return user;
+  }
+
+  /**
+   * Identify the caller on a PUBLIC endpoint without ever denying access.
+   *
+   * Mirrors the authentication order of the protected path (Better-Auth first, Passport JWT
+   * second) but treats every failure as "anonymous" instead of raising: a missing, expired or
+   * malformed token must not turn a public endpoint into a 401. It only sets `request.user`,
+   * so `@CurrentUser()` and `serviceOptions.currentUser` see a signed-in caller again.
+   */
+  protected async tryIdentifyOptionalUser(context: ExecutionContext): Promise<void> {
+    try {
+      const request = this.getRequest(context);
+      if (!request || request.user) {
+        return;
+      }
+
+      this.resolveServices();
+
+      if (this.betterAuthService?.isEnabled()) {
+        const user = await this.verifyBetterAuthTokenFromContext(context);
+        if (user) {
+          request.user = user;
+          return;
+        }
+      }
+
+      const result = super.canActivate(context);
+      if (isObservable(result)) {
+        await firstValueFrom(result);
+      } else {
+        await result;
+      }
+    } catch {
+      // Deliberately silent — see the call site: on a public endpoint an unusable token means
+      // "anonymous", never an error.
+    }
   }
 
   /**
