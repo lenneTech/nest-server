@@ -1,0 +1,76 @@
+# Runs the regression-evidence gate (`check:mutations`) ON DEMAND.
+#
+# WHY THIS EXISTS: the gate lived only in `publish.yml`, which triggers on `release: released`. So
+# the only way to observe it on a CI runner was to cut a release — and when it reported `0/51` while
+# publishing 11.36.3, investigating meant cutting another one. A gate you cannot run without
+# shipping is a gate you cannot debug.
+#
+# Deliberately NOT on push: it edits source and re-runs whole e2e suites (~10-18 min). It stays a
+# publish-path gate; this workflow only makes the same command reachable by hand.
+#
+# The setup mirrors publish.yml's steps up to the gate (which runs there BEFORE `build`, after
+# `prepublishOnly` = lint + tests). Lint and the suite are skipped here: they say nothing about the
+# gate, and the gate provisions its own databases.
+name: Regression evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      args:
+        description: 'Extra arguments, e.g. "--no-infra" or "--id=<mutation-id>" (empty = full registry)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  mutations:
+    name: Regression evidence
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ 24.x ]
+        mongodb-version: [ '7.0' ]
+    # Same container names and teardown contract as publish.yml / build.yml — a leftover container
+    # fails the NEXT job on a name conflict on a self-hosted runner.
+    env:
+      REDIS_CONTAINER: ci-redis
+      RUSTFS_CONTAINER: ci-rustfs
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        # No version input: the exact version is read from package.json's packageManager field.
+        uses: pnpm/action-setup@v6
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.12.1
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+
+      - name: Start test infrastructure (Redis + S3)
+        uses: ./.github/actions/test-infra
+        with:
+          redis-name: ${{ env.REDIS_CONTAINER }}
+          rustfs-name: ${{ env.RUSTFS_CONTAINER }}
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # The dispatch input goes through the ENVIRONMENT, never interpolated into the shell line:
+      # `run: pnpm run check:mutations ${{ inputs.args }}` would let a dispatcher inject arbitrary
+      # commands into the runner. Unquoted on use, because the value is a list of flags.
+      - name: Regression evidence (mutation check)
+        env:
+          MUTATION_ARGS: ${{ inputs.args }}
+        run: pnpm run check:mutations -- $MUTATION_ARGS
+
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true

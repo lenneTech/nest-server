@@ -13,7 +13,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyMutation, classifyRun, planJobs, resolveSinceRef, selectMutations } from '../../scripts/check-mutations.mjs';
+import {
+  applyMutation,
+  classifyRun,
+  planJobs,
+  resolveSinceRef,
+  selectMutations,
+  tailOf,
+} from '../../scripts/check-mutations.mjs';
 
 const clean = { cores: 12, mutationCount: 49 };
 
@@ -227,6 +234,52 @@ describe('classifyRun', () => {
   it('does not throw on empty or missing output', () => {
     expect(classifyRun({ code: 1, output: '' }).ok).toBe(false);
     expect(classifyRun({ code: 1, output: undefined }).ok).toBe(false);
+  });
+
+  /**
+   * A refusal has to carry its reason. `0/51 mutations confirmed` with every verdict INCONCLUSIVE
+   * and no captured output is what made the 11.36.3 CI failure impossible to diagnose without
+   * cutting another release.
+   */
+  it('attaches the captured output to a verdict that needs explaining', () => {
+    const inconclusive = classifyRun({ code: 1, output: 'Error: socket hang up' });
+    const vacuous = classifyRun({ code: 0, output: 'Tests  20 passed (20)' });
+
+    expect(inconclusive.evidence).toContain('socket hang up');
+    expect(vacuous.evidence).toContain('20 passed');
+  });
+
+  it('names the exit code, so a crash and a starved run are distinguishable', () => {
+    expect(classifyRun({ code: 137, output: 'killed' }).label).toContain('137');
+  });
+
+  it('attaches NO output to a passing verdict — there is nothing to explain', () => {
+    expect(classifyRun({ code: 1, output: 'Tests  2 failed | 18 passed (20)' }).evidence).toBeUndefined();
+  });
+});
+
+describe('tailOf', () => {
+  it('keeps the last lines, where a failure summary lives', () => {
+    const out = tailOf(Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n'), 3);
+
+    expect(out).toContain('line 99');
+    expect(out).not.toContain('line 50');
+  });
+
+  it('says how much it dropped rather than truncating silently', () => {
+    const out = tailOf(Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n'), 3);
+
+    expect(out).toContain('97 earlier line(s) omitted');
+  });
+
+  it('returns everything when it fits, with no omission notice', () => {
+    expect(tailOf('a\nb', 25)).toBe('a\nb');
+  });
+
+  it('says so explicitly when nothing was captured', () => {
+    // Distinguishes "the run printed nothing" from "we forgot to capture it".
+    expect(tailOf('')).toBe('(no output captured)');
+    expect(tailOf(undefined)).toBe('(no output captured)');
   });
 });
 
