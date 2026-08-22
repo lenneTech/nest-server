@@ -360,6 +360,17 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
 }
 
 /**
+ * Remove ANSI colour/style sequences from captured output.
+ *
+ * Anything that PARSES a spawned run's output must go through this: the same command is colourless
+ * on a pipe locally and colourised on a CI runner, so a regex tested locally can be reliably wrong
+ * in exactly the place where the answer matters.
+ */
+export function stripAnsi(text) {
+  return String(text ?? '').replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+/**
  * Turn one vitest run into a verdict — pure, so the rule can be tested without running vitest.
  *
  * Three outcomes, and the third is the one that matters:
@@ -377,7 +388,16 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
  *   only on a verdict that needs explaining — a passing one has nothing to explain.
  */
 export function classifyRun({ code, output }) {
-  const text = String(output ?? '');
+  // Strip ANSI first. vitest COLOURS its summary on a CI runner, so the raw line carries escape
+  // sequences between `Tests` and the number — and `\s+` matches whitespace only, never an escape
+  // sequence. Not hypothetical: it made every one of 51 mutations INCONCLUSIVE while the specs had
+  // gone red exactly as required.
+  //
+  // Worth knowing WHY this surfaced only now: the previous verdict was `failedCount ?? 'some'` with
+  // `ok: true` on any non-zero exit, so it never needed the count. The regex was already blind to
+  // colour — the gate simply accepted a crash, a timeout or a collection error as "went red". The
+  // strict count is the fix; this is what the fix depends on.
+  const text = stripAnsi(String(output ?? ''));
   const failedCount = text.match(/Tests\s+(\d+) failed/)?.[1];
   if (code === 0) {
     return {
@@ -414,7 +434,7 @@ export function classifyRun({ code, output }) {
  * Bounded deliberately: 51 mutations x a full vitest log would bury the summary that matters.
  */
 export function tailOf(output, lines = 25) {
-  const trimmed = String(output ?? '').trimEnd();
+  const trimmed = stripAnsi(String(output ?? '')).trimEnd();
   if (!trimmed) return '(no output captured)';
   const all = trimmed.split('\n');
   const tail = all.slice(-lines);

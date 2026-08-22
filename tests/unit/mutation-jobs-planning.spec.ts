@@ -19,6 +19,7 @@ import {
   planJobs,
   resolveSinceRef,
   selectMutations,
+  stripAnsi,
   tailOf,
 } from '../../scripts/check-mutations.mjs';
 
@@ -255,6 +256,59 @@ describe('classifyRun', () => {
 
   it('attaches NO output to a passing verdict — there is nothing to explain', () => {
     expect(classifyRun({ code: 1, output: 'Tests  2 failed | 18 passed (20)' }).evidence).toBeUndefined();
+  });
+});
+
+/**
+ * The defect that cost the 11.36.3 publish: vitest colours its summary on a CI runner, so the raw
+ * line reads `Tests <esc>[22m <esc>[1m<esc>[31m3 failed`. `\s+` matches whitespace, never an escape
+ * sequence — so the count did not parse, and all 51 mutations reported INCONCLUSIVE while their
+ * specs had gone red exactly as required.
+ *
+ * Locally the same command is COLOURLESS (stdout is a pipe), which is why nothing caught it: the
+ * one environment where the parse mattered was the one environment never exercised.
+ */
+describe('classifyRun on a colourised CI runner', () => {
+  const ESC = String.fromCharCode(27);
+  const colour = (code: string, text: string) => `${ESC}[${code}m${text}${ESC}[39m`;
+  const CI_SUMMARY =
+    `${ESC}[2m      Tests ${ESC}[22m ${colour('31', '3 failed')}${ESC}[2m | ${ESC}[22m${colour('32', '19 passed')}${ESC}[90m (22)${ESC}[39m`;
+
+  it('reads the failure count through the colour codes', () => {
+    const verdict = classifyRun({ code: 1, output: CI_SUMMARY });
+
+    expect(verdict.ok, 'a coloured "3 failed" is still three failures').toBe(true);
+    expect(verdict.note).toContain('3 test(s) failed');
+  });
+
+  it('still calls a coloured crash INCONCLUSIVE', () => {
+    // The paired refusal: stripping colour must not make everything parse as a pass.
+    const verdict = classifyRun({ code: 1, output: colour('31', 'Error: socket hang up') });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.label).toContain('INCONCLUSIVE');
+  });
+
+  it('strips colour from the evidence, so a human can read it', () => {
+    const verdict = classifyRun({ code: 1, output: colour('31', 'Error: boom') });
+
+    expect(verdict.evidence).toContain('Error: boom');
+    expect(verdict.evidence).not.toContain(ESC);
+  });
+});
+
+describe('stripAnsi', () => {
+  const ESC = String.fromCharCode(27);
+
+  it('removes colour sequences and keeps the text', () => {
+    expect(stripAnsi(`${ESC}[31mred${ESC}[39m`)).toBe('red');
+    expect(stripAnsi(`${ESC}[1m${ESC}[2mbold-dim${ESC}[22m`)).toBe('bold-dim');
+  });
+
+  it('leaves uncoloured text untouched and tolerates nothing at all', () => {
+    expect(stripAnsi('plain')).toBe('plain');
+    expect(stripAnsi('')).toBe('');
+    expect(stripAnsi(undefined)).toBe('');
   });
 });
 
