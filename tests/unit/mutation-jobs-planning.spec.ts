@@ -13,7 +13,15 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyMutation, classifyRun, planJobs, resolveSinceRef, selectMutations } from '../../scripts/check-mutations.mjs';
+import {
+  applyMutation,
+  classifyRun,
+  planJobs,
+  resolveSinceRef,
+  selectMutations,
+  stripAnsi,
+  tailOf,
+} from '../../scripts/check-mutations.mjs';
 
 const clean = { cores: 12, mutationCount: 49 };
 
@@ -227,6 +235,105 @@ describe('classifyRun', () => {
   it('does not throw on empty or missing output', () => {
     expect(classifyRun({ code: 1, output: '' }).ok).toBe(false);
     expect(classifyRun({ code: 1, output: undefined }).ok).toBe(false);
+  });
+
+  /**
+   * A refusal has to carry its reason. `0/51 mutations confirmed` with every verdict INCONCLUSIVE
+   * and no captured output is what made the 11.36.3 CI failure impossible to diagnose without
+   * cutting another release.
+   */
+  it('attaches the captured output to a verdict that needs explaining', () => {
+    const inconclusive = classifyRun({ code: 1, output: 'Error: socket hang up' });
+    const vacuous = classifyRun({ code: 0, output: 'Tests  20 passed (20)' });
+
+    expect(inconclusive.evidence).toContain('socket hang up');
+    expect(vacuous.evidence).toContain('20 passed');
+  });
+
+  it('names the exit code, so a crash and a starved run are distinguishable', () => {
+    expect(classifyRun({ code: 137, output: 'killed' }).label).toContain('137');
+  });
+
+  it('attaches NO output to a passing verdict — there is nothing to explain', () => {
+    expect(classifyRun({ code: 1, output: 'Tests  2 failed | 18 passed (20)' }).evidence).toBeUndefined();
+  });
+});
+
+/**
+ * The defect that cost the 11.36.3 publish: vitest colours its summary on a CI runner, so the raw
+ * line reads `Tests <esc>[22m <esc>[1m<esc>[31m3 failed`. `\s+` matches whitespace, never an escape
+ * sequence — so the count did not parse, and all 51 mutations reported INCONCLUSIVE while their
+ * specs had gone red exactly as required.
+ *
+ * Locally the same command is COLOURLESS (stdout is a pipe), which is why nothing caught it: the
+ * one environment where the parse mattered was the one environment never exercised.
+ */
+describe('classifyRun on a colourised CI runner', () => {
+  const ESC = String.fromCharCode(27);
+  const colour = (code: string, text: string) => `${ESC}[${code}m${text}${ESC}[39m`;
+  const CI_SUMMARY =
+    `${ESC}[2m      Tests ${ESC}[22m ${colour('31', '3 failed')}${ESC}[2m | ${ESC}[22m${colour('32', '19 passed')}${ESC}[90m (22)${ESC}[39m`;
+
+  it('reads the failure count through the colour codes', () => {
+    const verdict = classifyRun({ code: 1, output: CI_SUMMARY });
+
+    expect(verdict.ok, 'a coloured "3 failed" is still three failures').toBe(true);
+    expect(verdict.note).toContain('3 test(s) failed');
+  });
+
+  it('still calls a coloured crash INCONCLUSIVE', () => {
+    // The paired refusal: stripping colour must not make everything parse as a pass.
+    const verdict = classifyRun({ code: 1, output: colour('31', 'Error: socket hang up') });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.label).toContain('INCONCLUSIVE');
+  });
+
+  it('strips colour from the evidence, so a human can read it', () => {
+    const verdict = classifyRun({ code: 1, output: colour('31', 'Error: boom') });
+
+    expect(verdict.evidence).toContain('Error: boom');
+    expect(verdict.evidence).not.toContain(ESC);
+  });
+});
+
+describe('stripAnsi', () => {
+  const ESC = String.fromCharCode(27);
+
+  it('removes colour sequences and keeps the text', () => {
+    expect(stripAnsi(`${ESC}[31mred${ESC}[39m`)).toBe('red');
+    expect(stripAnsi(`${ESC}[1m${ESC}[2mbold-dim${ESC}[22m`)).toBe('bold-dim');
+  });
+
+  it('leaves uncoloured text untouched and tolerates nothing at all', () => {
+    expect(stripAnsi('plain')).toBe('plain');
+    expect(stripAnsi('')).toBe('');
+    expect(stripAnsi(undefined)).toBe('');
+  });
+});
+
+describe('tailOf', () => {
+  it('keeps the last lines, where a failure summary lives', () => {
+    const out = tailOf(Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n'), 3);
+
+    expect(out).toContain('line 99');
+    expect(out).not.toContain('line 50');
+  });
+
+  it('says how much it dropped rather than truncating silently', () => {
+    const out = tailOf(Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n'), 3);
+
+    expect(out).toContain('97 earlier line(s) omitted');
+  });
+
+  it('returns everything when it fits, with no omission notice', () => {
+    expect(tailOf('a\nb', 25)).toBe('a\nb');
+  });
+
+  it('says so explicitly when nothing was captured', () => {
+    // Distinguishes "the run printed nothing" from "we forgot to capture it".
+    expect(tailOf('')).toBe('(no output captured)');
+    expect(tailOf(undefined)).toBe('(no output captured)');
   });
 });
 

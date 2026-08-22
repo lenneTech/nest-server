@@ -360,6 +360,17 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
 }
 
 /**
+ * Remove ANSI colour/style sequences from captured output.
+ *
+ * Anything that PARSES a spawned run's output must go through this: the same command is colourless
+ * on a pipe locally and colourised on a CI runner, so a regex tested locally can be reliably wrong
+ * in exactly the place where the answer matters.
+ */
+export function stripAnsi(text) {
+  return String(text ?? '').replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+/**
  * Turn one vitest run into a verdict — pure, so the rule can be tested without running vitest.
  *
  * Three outcomes, and the third is the one that matters:
@@ -373,12 +384,24 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
  *   look like product failures. So require ACTUAL FAILING TESTS; anything else needs a human.
  *
  * @param {{ code: number, output: string }} run
- * @returns {{ label: string, note: string, ok: boolean }}
+ * @returns {{ evidence?: string, label: string, note: string, ok: boolean }} `evidence` is present
+ *   only on a verdict that needs explaining — a passing one has nothing to explain.
  */
 export function classifyRun({ code, output }) {
-  const failedCount = String(output ?? '').match(/Tests\s+(\d+) failed/)?.[1];
+  // Strip ANSI first. vitest COLOURS its summary on a CI runner, so the raw line carries escape
+  // sequences between `Tests` and the number — and `\s+` matches whitespace only, never an escape
+  // sequence. Not hypothetical: it made every one of 51 mutations INCONCLUSIVE while the specs had
+  // gone red exactly as required.
+  //
+  // Worth knowing WHY this surfaced only now: the previous verdict was `failedCount ?? 'some'` with
+  // `ok: true` on any non-zero exit, so it never needed the count. The regex was already blind to
+  // colour — the gate simply accepted a crash, a timeout or a collection error as "went red". The
+  // strict count is the fix; this is what the fix depends on.
+  const text = stripAnsi(String(output ?? ''));
+  const failedCount = text.match(/Tests\s+(\d+) failed/)?.[1];
   if (code === 0) {
     return {
+      evidence: tailOf(text),
       label: 'VACUOUS: the specs passed with the defect restored',
       note: 'specs stayed GREEN with the defect restored — vacuous',
       ok: false,
@@ -386,7 +409,8 @@ export function classifyRun({ code, output }) {
   }
   if (!failedCount) {
     return {
-      label: 'INCONCLUSIVE: the run failed but reported no failing tests — crash, timeout or collection error',
+      evidence: tailOf(text),
+      label: `INCONCLUSIVE: the run exited ${code} but reported no failing tests — crash, timeout or collection error`,
       note: 'run exited non-zero without reporting failing tests — inconclusive, re-run this one alone',
       ok: false,
     };
@@ -396,6 +420,25 @@ export function classifyRun({ code, output }) {
     note: `${failedCount} test(s) failed, as required`,
     ok: true,
   };
+}
+
+/**
+ * The last few lines of a captured run, for a verdict that needs explaining.
+ *
+ * WHY THIS EXISTS: `INCONCLUSIVE` was added so a crashed or starved run could not be counted as
+ * evidence — correct, but it left the operator with a verdict and nothing to act on. That cost a
+ * release: the gate reported `0/51 mutations confirmed` on a CI runner, every one of them
+ * inconclusive, and the vitest output that would have said WHY had been captured into a variable
+ * and thrown away. A refusal has to carry its reason, or the next person is where I was.
+ *
+ * Bounded deliberately: 51 mutations x a full vitest log would bury the summary that matters.
+ */
+export function tailOf(output, lines = 25) {
+  const trimmed = stripAnsi(String(output ?? '')).trimEnd();
+  if (!trimmed) return '(no output captured)';
+  const all = trimmed.split('\n');
+  const tail = all.slice(-lines);
+  return (all.length > lines ? [`… ${all.length - lines} earlier line(s) omitted`, ...tail] : tail).join('\n');
 }
 
 /**
@@ -626,6 +669,10 @@ async function runOne(mutation, cwd, jobs, live) {
     const { code, output } = await runSpecs(mutation.specs, cwd, jobs);
     const verdict = classifyRun({ code, output });
     emit(`   ${verdict.label}\n`);
+    // A failing verdict without its reason is what made the 11.36.3 CI failure undiagnosable.
+    if (verdict.evidence) {
+      emit(`${verdict.evidence.replace(/^/gm, '   | ')}\n`);
+    }
     return { id: mutation.id, log, note: verdict.note, ok: verdict.ok };
   } finally {
     // Only restore what we actually wrote — see the race check above.
