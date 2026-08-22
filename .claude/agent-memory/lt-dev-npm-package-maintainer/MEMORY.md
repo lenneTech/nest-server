@@ -78,6 +78,7 @@
 - `src/types/graphql-upload.d.ts` - custom type declarations for graphql-upload
 
 ## Index (topic files)
+- [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — override keys match the REQUESTED range (bare key = downgrade lock); install keeps stale lock entries; `check --no-fix` protects uncommitted src/.
 - [Deferred major updates](deferred-major-updates.md) — better-auth 1.7 / graphql 17 / graphql-upload 18 / typescript 7 / pnpm pin: why each needs its own release.
 - [Override status](nest-server-override-status.md) — overrides live in pnpm-workspace.yaml; load-bearing vs inert, and the range-floored shape that makes an inert entry safe to keep.
 - [Maintenance gotchas](nest-server-maintenance-gotchas.md) — nest CLI exec bit, buffered pnpm output that fakes a hang, oxfmt drift check, depcheck false positives.
