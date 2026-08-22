@@ -93,7 +93,7 @@ export class CoreBetterAuthService implements OnModuleInit {
   }
 
   /**
-   * Ensure performance indices exist on session and users collections.
+   * Ensure performance indices exist on the session, users, account and verification collections.
    * Indices are idempotent — calling createIndex on an existing index is a no-op.
    */
   async onModuleInit(): Promise<void> {
@@ -112,9 +112,17 @@ export class CoreBetterAuthService implements OnModuleInit {
         // Account: userId lookup ($lookup in getMigrationStatus) and providerId filtering
         db.collection('account').createIndex({ userId: 1 }),
         db.collection('account').createIndex({ providerId: 1, userId: 1 }),
+        // Verification: identifier lookup (findVerificationValue runs on every verify/reset).
+        db.collection('verification').createIndex({ identifier: 1 }),
+        // Verification TTL — this one is correctness, not just speed. Better-Auth writes a
+        // verification document per email-verification AND per password-reset request, and removes
+        // it only when the token is CONSUMED. `POST /iam/request-password-reset` is unauthenticated,
+        // so every un-clicked request left a row that nothing would ever delete. The documents
+        // already carry `expiresAt`; `expireAfterSeconds: 0` makes MongoDB honour it.
+        db.collection('verification').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
       ]);
 
-      this.logger.debug('Performance indices ensured on session, users, and account collections');
+      this.logger.debug('Performance indices ensured on session, users, account, and verification collections');
     } catch (error) {
       // Non-fatal: indices improve performance but are not required for correctness
       this.logger.warn(`Could not create performance indices: ${error instanceof Error ? error.message : 'unknown'}`);

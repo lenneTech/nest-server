@@ -11,18 +11,17 @@ A green `pnpm audit` inside the framework repo says nothing about your tree.
 
 ## What this concretely means for you
 
-The framework pulls in three transitive packages that resolve to a **vulnerable** version unless you
+The framework pulls in two transitive packages that resolve to a **vulnerable** version unless you
 override them yourself:
 
 | Package | Advisory | Why it cannot resolve forward on its own |
 |---------|----------|------------------------------------------|
 | `ws` | [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p) — high: memory-exhaustion DoS + uninitialized memory disclosure. Patched `>=8.21.0` | `@nestjs/graphql` declares `"ws": "8.20.1"` — an **exact pin**, not a caret. No amount of updating moves it |
-| `@hono/node-server` | [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9) (static-file path traversal) + [GHSA-9mqv-5hh9-4cgg](https://github.com/advisories/GHSA-9mqv-5hh9-4cgg) (unauthenticated memory leak). Patched `>=2.0.10` | `@modelcontextprotocol/sdk` declares `^1.19.9` and ships **no 1.x fix line**, so the fix is only available across a major |
 | `js-yaml` | [GHSA-pm4m-ph32-ghv5](https://github.com/advisories/GHSA-pm4m-ph32-ghv5) — high: exponential parsing time in flow collections (DoS). Patched `>=5.2.2` | `@nestjs/swagger` declares `"js-yaml": "5.2.1"` — an **exact pin**, the same shape as the `ws` case. It cannot resolve forward |
 
 `@nestjs/graphql` is a plain `dependencies` entry, so `ws` is installed even when you run with
-`graphQl: false`. `@nestjs/swagger` is likewise a plain `dependencies` entry. None of the three is
-optional in practice.
+`graphQl: false`. `@nestjs/swagger` is likewise a plain `dependencies` entry. Neither is optional in
+practice.
 
 ## The fix
 
@@ -37,18 +36,25 @@ overrides:
   # Remove once @nestjs/graphql stops pinning it.
   'ws@>=8.0.0 <8.21.0': '8.21.3'
 
-  # @modelcontextprotocol/sdk declares @hono/node-server ^1.19.9 with no 1.x fix line
-  # (GHSA-frvp-7c67-39w9, GHSA-9mqv-5hh9-4cgg). Deliberately a CROSS-MAJOR override.
-  # Verified safe: the SDK's only consumed symbol is `getRequestListener`, whose signature
-  # `(fetchCallback, options?)` is unchanged in 2.x. Engines >=20 and peer hono@^4 both fit.
-  # Remove once @modelcontextprotocol/sdk moves its own range to ^2.
-  '@hono/node-server@<2.0.10': '2.0.11'
-
   # @nestjs/swagger exact-pins js-yaml@5.2.1 (GHSA-pm4m-ph32-ghv5, high, patched >=5.2.2).
   # Same shape as the ws entry: an exact pin cannot resolve forward.
   # Remove once @nestjs/swagger stops pinning it.
   'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
 ```
+
+### Retired: `@hono/node-server` (removed 2026-08-22, nest-server 11.36.1)
+
+This list used to carry a third entry. `@modelcontextprotocol/sdk` declared `@hono/node-server@^1.19.9`
+with no 1.x fix line, so reaching the patched version needed a deliberate cross-major override.
+
+SDK `1.30.0` declares `"^1.19.9 || ^2.0.5"`, so a fresh resolve now picks the newest 2.x (2.1.1 at the
+time of writing) on its own — above the `>=2.0.10` that fixes GHSA-frvp-7c67-39w9 and
+GHSA-9mqv-5hh9-4cgg. The override became a **downgrade lock**: an override key is matched against the
+REQUESTED RANGE, not the resolved version, so the entry replaced the SDK's whole spec and pinned the
+tree to `2.0.11` even though nothing needed help any more.
+
+**Do not re-add it** unless the SDK narrows its range again. If you still carry it in your own
+`pnpm-workspace.yaml`, remove it and re-run `pnpm audit`.
 
 ### The `ws` target must stay in lockstep with the declared `ws` version
 

@@ -1733,6 +1733,52 @@ describe('CoreTenantService (e2e)', () => {
     const membership = await tenantService.getMembership(TENANT_A, 'non-existent');
     expect(membership).toBeNull();
   });
+
+  // =========================================================================
+  // getActiveMembership
+  //
+  // The distinction that matters for authorization. A removal suspends the
+  // membership instead of deleting it, so `getMembership` keeps answering for
+  // somebody who was thrown out — which is right for `addMember` (it
+  // reactivates the row) and wrong for any route that asks "may this user do
+  // X?". Routes carrying `@SkipTenantCheck()` decide for themselves and are
+  // therefore the ones that silently kept granting a removed administrator
+  // their rights.
+  // =========================================================================
+  it('should keep answering from getMembership after a removal', async () => {
+    await tenantService.addMember(TENANT_A, USER_1, 'owner');
+    await tenantService.addMember(TENANT_A, USER_2, 'owner');
+    await tenantService.removeMember(TENANT_A, USER_1);
+
+    const membership = await tenantService.getMembership(TENANT_A, USER_1);
+    expect(membership).toBeTruthy();
+    expect(membership.status).toBe(TenantMemberStatus.SUSPENDED);
+    // …and it still reports the role, which is the trap.
+    expect(membership.role).toBe('owner');
+  });
+
+  it('should NOT report a removed member as an active membership', async () => {
+    await tenantService.addMember(TENANT_A, USER_1, 'owner');
+    await tenantService.addMember(TENANT_A, USER_2, 'owner');
+    await tenantService.removeMember(TENANT_A, USER_1);
+
+    const active = await tenantService.getActiveMembership(TENANT_A, USER_1);
+    expect(active).toBeNull();
+  });
+
+  it('should report an active membership with its role', async () => {
+    await tenantService.addMember(TENANT_A, USER_1, 'manager');
+
+    const active = await tenantService.getActiveMembership(TENANT_A, USER_1);
+    expect(active).toBeTruthy();
+    expect(active.role).toBe('manager');
+    expect(active.status).toBe(TenantMemberStatus.ACTIVE);
+  });
+
+  it('should return null for empty ids instead of matching anything', async () => {
+    expect(await tenantService.getActiveMembership('', USER_1)).toBeNull();
+    expect(await tenantService.getActiveMembership(TENANT_A, '')).toBeNull();
+  });
 });
 
 // =============================================================================

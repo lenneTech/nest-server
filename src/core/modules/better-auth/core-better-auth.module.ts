@@ -13,13 +13,19 @@ import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
+import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
 import { BetterAuthRolesGuard } from './better-auth-roles.guard';
 import { BetterAuthTokenService } from './better-auth-token.service';
-import { BetterAuthInstance, CreateBetterAuthResult, createBetterAuthInstance } from './better-auth.config';
+import {
+  AuthEmailCallbackOptions,
+  BetterAuthInstance,
+  CreateBetterAuthResult,
+  createBetterAuthInstance,
+} from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
@@ -406,8 +412,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
       CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
 
-      // Apply rate limiting to Better-Auth endpoints only
-      if (CoreBetterAuthModule.currentConfig?.rateLimit?.enabled) {
+      // Apply rate limiting to Better-Auth endpoints only.
+      // Mirrors the "presence implies enabled" contract `CoreBetterAuthRateLimiter.configure()`
+      // implements. Gating the MOUNT on `.enabled` alone made that fix unobservable: the limiter
+      // would report itself enabled while no middleware was ever registered.
+      if (
+        CoreBetterAuthModule.currentConfig?.rateLimit &&
+        CoreBetterAuthModule.currentConfig.rateLimit.enabled !== false
+      ) {
         consumer.apply(CoreBetterAuthRateLimitMiddleware).forRoutes(`${basePath}/*path`);
         CoreBetterAuthModule.logger.debug(`Rate limiting middleware registered for ${basePath}/*path endpoints`);
       }
@@ -655,7 +667,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             const fallbackSecrets = [jwtConfig?.secret, jwtConfig?.refresh?.secret];
 
             // Create email verification callbacks that delegate to the NestJS service
-            const { onEmailVerified, sendVerificationEmail } = this.createEmailVerificationCallbacks();
+            const { onEmailVerified, sendResetPasswordEmail, sendVerificationEmail } =
+              this.createEmailVerificationCallbacks();
 
             // Note: Secret validation is now handled in createBetterAuthInstance
             // with fallback to jwt.secret, jwt.refresh.secret, or auto-generation
@@ -664,6 +677,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               db,
               fallbackSecrets,
               onEmailVerified,
+              sendResetPasswordEmail,
               sendVerificationEmail,
             });
             this.authInstance = result?.instance ?? null;
@@ -802,11 +816,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    */
   private static createEmailVerificationCallbacks(): {
     onEmailVerified: (userId: string) => Promise<void>;
-    sendVerificationEmail: (options: {
-      token: string;
-      url: string;
-      user: { email: string; id: string; name?: null | string };
-    }) => Promise<void>;
+    sendResetPasswordEmail: (options: AuthEmailCallbackOptions) => Promise<void>;
+    sendVerificationEmail: (options: AuthEmailCallbackOptions) => Promise<void>;
   } {
     return {
       onEmailVerified: async (userId: string) => {
@@ -829,14 +840,33 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           );
         }
       },
+      sendResetPasswordEmail: async (options) => {
+        // Delegate to the NestJS service
+        if (this.emailVerificationService) {
+          await this.emailVerificationService.sendPasswordResetEmail(options);
+        } else {
+          // Report the failure, never the capability. The reset URL is a bearer token for account
+          // takeover, this branch has no environment gate, and `this.logger` feeds
+          // `HubLogBufferService`'s ring buffer — which is readable over HTTP by any ADMIN. The
+          // operator needs to know delivery is broken, not to be handed the victim's token.
+          this.logger.error(
+            `Password reset requested for ${maskEmail(options.user.email)} but CoreBetterAuthEmailVerificationService ` +
+              'is not available — NO mail was sent. Register the service, or disable the flow via ' +
+              'betterAuth.emailAndPassword.passwordReset: false.',
+          );
+        }
+      },
       sendVerificationEmail: async (options) => {
         // Delegate to the NestJS service
         if (this.emailVerificationService) {
           await this.emailVerificationService.sendVerificationEmail(options);
         } else {
-          // Fallback: Log verification URL if service not available
-          this.logger.warn('Email verification service not available, logging URL for development');
-          this.logger.log(`[DEV] Verification URL for ${options.user.email}: ${options.url}`);
+          // Same reasoning as the password-reset branch above: the URL carries a token and this
+          // logger feeds the ADMIN-readable Hub log buffer, so report the breakage instead.
+          this.logger.error(
+            `Verification mail requested for ${maskEmail(options.user.email)} but ` +
+              'CoreBetterAuthEmailVerificationService is not available — NO mail was sent.',
+          );
         }
       },
     };
@@ -902,13 +932,15 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             this.mongoConnection = connection;
 
             // Create email verification callbacks that delegate to the NestJS service
-            const { onEmailVerified, sendVerificationEmail } = this.createEmailVerificationCallbacks();
+            const { onEmailVerified, sendResetPasswordEmail, sendVerificationEmail } =
+              this.createEmailVerificationCallbacks();
 
             // Build shared instance options
             const sharedInstanceOptions = {
               config,
               fallbackSecrets: options?.fallbackSecrets,
               onEmailVerified,
+              sendResetPasswordEmail,
               sendVerificationEmail,
               serverAppUrl: options?.serverAppUrl,
               serverBaseUrl: options?.serverBaseUrl,

@@ -4,6 +4,7 @@ import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
@@ -11,14 +12,24 @@ import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { EmailService } from '../../common/services/email.service';
 import { TemplateService } from '../../common/services/template.service';
-import { formatProjectName } from './better-auth.config';
+import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config';
 
 /**
  * Resolved configuration type for email verification
- * Uses Required for mandatory fields but preserves optional nature of brevoTemplateId
+ * Uses Required for mandatory fields but preserves optional nature of the
+ * Brevo template ids — those stay undefined when no Brevo template is
+ * configured, which is what selects the SMTP/EJS path.
  */
-type ResolvedEmailVerificationConfig = Pick<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL'> &
-  Required<Omit<IBetterAuthEmailVerificationConfig, 'brevoTemplateId' | 'callbackURL' | 'resendCooldownSeconds'>> & {
+type ResolvedEmailVerificationConfig = Pick<
+  IBetterAuthEmailVerificationConfig,
+  'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId'
+> &
+  Required<
+    Omit<
+      IBetterAuthEmailVerificationConfig,
+      'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'resendCooldownSeconds'
+    >
+  > & {
     resendCooldownSeconds: number;
   };
 
@@ -94,9 +105,36 @@ export interface SendVerificationEmailOptions {
  */
 const LOCAL_SLOT_TOKEN = 'local';
 
+/**
+ * Options for sending the password-reset email.
+ *
+ * Structurally the shared auth-email payload ({@link AuthEmailCallbackOptions}): `token` is the raw
+ * reset token for consumers that build their own link, `url` the ready-made link Better-Auth
+ * generated, `user` the account the reset was requested for. Aliased rather than redeclared so a
+ * future field lands in one place instead of six.
+ */
+export type SendPasswordResetEmailOptions = AuthEmailCallbackOptions;
+
+/**
+ * Template for the password-reset mail. Resolved through the same
+ * project-first / locale-aware lookup as the verification template, so a
+ * deployment brands it by dropping its own `password-reset[-<locale>].ejs`
+ * into the project template directory.
+ */
+const PASSWORD_RESET_TEMPLATE = 'password-reset';
+
 @Injectable()
 export class CoreBetterAuthEmailVerificationService {
   protected readonly logger = new Logger(CoreBetterAuthEmailVerificationService.name);
+
+  /** Memoised `getAppName()` result — see the note there. */
+  protected cachedAppName?: string;
+
+  /** Compiled nest-server templates, keyed by resolved absolute path — see renderFrameworkTemplate. */
+  protected readonly compiledTemplates = new Map<string, ejs.TemplateFunction>();
+
+  /** Memoised `resolveTemplatePath()` results, keyed by `<name>:<locale>`. */
+  protected readonly resolvedTemplatePaths = new Map<string, { isAbsolute: boolean; path: string }>();
   protected config: ResolvedEmailVerificationConfig = DEFAULT_CONFIG;
 
   /**
@@ -187,13 +225,7 @@ export class CoreBetterAuthEmailVerificationService {
         url = this.buildFrontendVerificationUrl(token);
       }
 
-      // Log verification URL in non-production environments for debugging and test capture
-      // Uses console.log directly to ensure reliable capture in test environments (Vitest)
-      // NestJS Logger may buffer output which makes interception unreliable in tests
-      if (process.env.NODE_ENV !== 'production') {
-        // oxlint-disable-next-line no-console
-        console.log(`[EMAIL VERIFICATION] User: ${user.email}, URL: ${url}`);
-      }
+      this.logAuthUrlForDevelopment('EMAIL VERIFICATION', user.email, url);
 
       // Brevo template path: send via Brevo transactional API if configured
       if (this.config.brevoTemplateId && this.brevoService) {
@@ -245,9 +277,8 @@ export class CoreBetterAuthEmailVerificationService {
         };
 
         if (resolved.isAbsolute) {
-          // Fallback template from nest-server: render directly via EJS
-          const templateContent = fs.readFileSync(`${resolved.path}.ejs`, 'utf-8');
-          const html = ejs.render(templateContent, templateData);
+          // Fallback template from nest-server: render directly via EJS (compiled once)
+          const html = this.renderFrameworkTemplate(resolved.path, templateData);
 
           await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
         } else {
@@ -269,6 +300,135 @@ export class CoreBetterAuthEmailVerificationService {
     } finally {
       if (!sent) {
         await this.releaseSendSlot(user.email, slotToken);
+      }
+    }
+  }
+
+  /**
+   * Send the password-reset email.
+   *
+   * Called from Better-Auth's `emailAndPassword.sendResetPassword` hook.
+   * Override to customise delivery.
+   *
+   * Deliberately does NOT consult `isEnabled()` / `emailVerification.enabled`. Those govern email
+   * VERIFICATION; switching that off must not also take away password recovery, which is a
+   * different concern and the only way back in for a locked-out user. The reset flow's own switch
+   * is `betterAuth.emailAndPassword.passwordReset`. (This method lives on the verification service
+   * because it shares the template lookup, the Brevo overlay and the cooldown store with it — the
+   * config key `passwordResetBrevoTemplateId` sits under `emailVerification` for the same reason.)
+   *
+   * Throttled per ADDRESS (see the slot comment in the body), not per session: the abuse this
+   * unauthenticated route enables runs on the recipient axis, which an IP-keyed limiter cannot
+   * express. The route-level `betterAuth.rateLimit` remains the IP-axis bound.
+   *
+   * @param options - The reset email options from Better-Auth
+   * @throws Re-throws a Brevo or SMTP send failure after logging it with the masked address. The
+   *   framework's own caller (`sendResetPassword` in better-auth.config.ts) invokes this through
+   *   `sendAuthEmailSafely`, which catches and logs — so a throw never reaches the request. An
+   *   override that calls this directly must handle it.
+   */
+  async sendPasswordResetEmail(options: SendPasswordResetEmailOptions): Promise<void> {
+    const { url, user } = options;
+
+    this.logAuthUrlForDevelopment('PASSWORD RESET', user.email, url);
+
+    // Per-ADDRESS throttle. The abuse this route enables runs on the RECIPIENT axis: an attacker
+    // rotating IPs mail-bombs one victim and writes one `verification` document per request, and an
+    // IP-keyed limiter cannot express "one reset mail per address per window". The slot is
+    // namespaced so the two flows cannot starve each other — a pending verification mail must not
+    // block a password reset.
+    //
+    // Returning early is enumeration-safe: Better-Auth has already produced its uniform
+    // "if this email exists in our system…" response by the time this hook runs, and the send is
+    // detached, so nothing about the response varies.
+    const slotKey = `${PASSWORD_RESET_TEMPLATE}:${user.email}`;
+    const slotToken = await this.acquireSendSlot(slotKey);
+    if (!slotToken) {
+      this.logger.debug(`Password-reset cooldown active for ${this.maskEmail(user.email)}, skipping email send`);
+      return;
+    }
+
+    // Only a SUCCESSFUL send may burn the cooldown — otherwise a transient SMTP failure would lock
+    // a user out of retrying for the whole window, on the one route that gets them back in.
+    let sent = false;
+
+    try {
+      const appName = this.getAppName();
+      const templateData = {
+        appName,
+        link: url,
+        name: user.name || user.email.split('@')[0],
+      };
+
+      // Brevo path: only when a reset-specific template is configured. Falling back
+      // to the VERIFICATION template id here would mail the user "confirm your
+      // address" for a password reset.
+      if (this.config.passwordResetBrevoTemplateId && this.brevoService) {
+        try {
+          const result = await this.brevoService.sendMail(
+            user.email,
+            this.config.passwordResetBrevoTemplateId,
+            templateData,
+          );
+
+          // `sendMail()` swallows SDK errors and resolves to `null` unless
+          // `brevo.throwOnError` is set, so "did not throw" is NOT "was delivered".
+          // Returning here on a null would leave a locked-out user with no mail at
+          // all; fall through to SMTP instead. Mirrors sendVerificationEmail.
+          if (result === null) {
+            this.logger.error(
+              `Brevo password-reset send failed for ${this.maskEmail(user.email)} — falling back to SMTP`,
+            );
+            // Deliberately no `return`: fall through to the EmailService path.
+          } else {
+            sent = true;
+            this.logger.debug(`Password-reset email sent via Brevo to ${this.maskEmail(user.email)}`);
+            return;
+          }
+        } catch (error) {
+          // Mirrors sendVerificationEmail: a Brevo THROW skips the SMTP fallback (only a `null`
+          // falls through). The address-identifying line matters — without it the only trace is
+          // the generic handler in better-auth.config.ts, which knows neither the user nor which
+          // of the two mail paths failed.
+          this.logger.error(
+            `Failed to send password-reset email via Brevo to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw error;
+        }
+      }
+
+      if (!this.emailService) {
+        this.logger.warn('EmailService not available, cannot send password-reset email');
+        return;
+      }
+
+      try {
+        const resolved = await this.resolveTemplatePath(PASSWORD_RESET_TEMPLATE, this.config.locale);
+        const subject = this.getPasswordResetSubject(appName);
+
+        if (resolved.isAbsolute) {
+          // nest-server fallback template: render directly via EJS (compiled once, see the helper)
+          const html = this.renderFrameworkTemplate(resolved.path, templateData);
+          await this.emailService.sendMail(user.email, subject, { html });
+        } else {
+          // Project template: use TemplateService (relative path)
+          await this.emailService.sendMail(user.email, subject, {
+            htmlTemplate: resolved.path,
+            templateData,
+          });
+        }
+
+        sent = true;
+        this.logger.debug(`Password-reset email sent to ${this.maskEmail(user.email)}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to send password-reset email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw error;
+      }
+    } finally {
+      if (!sent) {
+        await this.releaseSendSlot(slotKey, slotToken);
       }
     }
   }
@@ -448,6 +608,15 @@ export class CoreBetterAuthEmailVerificationService {
     templateName: string,
     locale: string,
   ): Promise<{ isAbsolute: boolean; path: string }> {
+    // Memoised: this walk costs up to four blocking `existsSync` calls, and it runs per outgoing
+    // auth mail on a route an unauthenticated caller can drive. Template files do not appear at
+    // runtime, so re-walking buys nothing after the first resolution.
+    const cacheKey = `${templateName}:${locale}`;
+    const cached = this.resolvedTemplatePaths.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const projectTemplatesPath = this.configService.getFastButReadOnly<string>('templates.path');
     const nestServerTemplatesPath = path.join(__dirname, '..', '..', '..', 'templates');
 
@@ -467,12 +636,13 @@ export class CoreBetterAuthEmailVerificationService {
 
       const fullPath = path.join(candidate.base, `${candidate.name}.ejs`);
       if (fs.existsSync(fullPath)) {
-        if (candidate.isNestServer) {
-          // nest-server template: return absolute path (rendered directly via EJS)
-          return { isAbsolute: true, path: fullPath.replace('.ejs', '') };
-        }
-        // Project template: return relative name (for TemplateService)
-        return { isAbsolute: false, path: candidate.name };
+        const resolved = candidate.isNestServer
+          ? // nest-server template: absolute path (rendered directly via EJS)
+            { isAbsolute: true, path: fullPath.replace('.ejs', '') }
+          : // Project template: relative name (for TemplateService)
+            { isAbsolute: false, path: candidate.name };
+        this.resolvedTemplatePaths.set(cacheKey, resolved);
+        return resolved;
       }
     }
 
@@ -484,7 +654,71 @@ export class CoreBetterAuthEmailVerificationService {
   /**
    * Get the app name for the email
    */
+  /**
+   * Render a nest-server fallback template, compiling it at most once per resolved path.
+   *
+   * `TemplateService` already caches compiled templates — but only for PROJECT templates. The
+   * absolute-path branch bypasses it entirely, so before this every outgoing auth mail re-read the
+   * file and re-compiled the EJS: measured at ~113 µs of event-loop-blocking work per mail against
+   * ~2 µs for a cached call. `readFileSync` blocks every other in-flight request while it runs, and
+   * the password-reset route that drives it is unauthenticated.
+   *
+   * Template files do not appear or change at runtime, so an unbounded map is bounded in practice
+   * by the number of templates on disk.
+   */
+  protected renderFrameworkTemplate(pathWithoutExtension: string, data: Record<string, unknown>): string {
+    let compiled = this.compiledTemplates.get(pathWithoutExtension);
+    if (!compiled) {
+      compiled = ejs.compile(fs.readFileSync(`${pathWithoutExtension}.ejs`, 'utf-8'));
+      this.compiledTemplates.set(pathWithoutExtension, compiled);
+    }
+    return compiled(data);
+  }
+
+  /**
+   * Print an auth link (verification / password reset) to stdout for local development.
+   *
+   * The URL embeds a bearer token: the verification link confirms an address, the reset link
+   * changes a password outright. Neither may reach a deployment holding real accounts, so the gate
+   * is `isProductionLikeEnv()` — the same two-layer check `EmailService` and the cookie helpers
+   * already use. `NODE_ENV !== 'production'` alone is NOT enough: a staging deployment sets
+   * `NODE_ENV=staging` so `getEnvironmentConfig()` loads its config block, which passes that test
+   * while holding real users.
+   *
+   * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
+   * full because following it without a mail server is the whole point locally. Set
+   * `LT_LOG_AUTH_URLS=0` to suppress it even outside production.
+   *
+   * `console.log` rather than the NestJS logger, deliberately and for two reasons: the logger
+   * buffers, which makes interception unreliable under Vitest, and a logger call would route the
+   * token into `HubLogBufferService`'s ring buffer, which is readable over HTTP by any ADMIN.
+   */
+  protected logAuthUrlForDevelopment(label: string, email: string, url: string): void {
+    if (process.env.LT_LOG_AUTH_URLS === '0') {
+      return;
+    }
+    if (isProductionLikeEnv(this.configService?.getFastButReadOnly<string>('env'))) {
+      return;
+    }
+    // oxlint-disable-next-line no-console
+    console.log(`[${label}] User: ${this.maskEmail(email)}, URL: ${url}`);
+  }
+
   protected getAppName(): string {
+    // `package.json` never changes at runtime, but this runs once per outgoing auth mail — on a
+    // route an unauthenticated caller can drive. Cache it so that cannot become a synchronous
+    // file read per request. Mirrors `cachedProjectAppName` in better-auth.config.ts.
+    if (this.cachedAppName !== undefined) {
+      return this.cachedAppName;
+    }
+    this.cachedAppName = this.resolveAppName();
+    return this.cachedAppName;
+  }
+
+  /**
+   * Resolve the application name from package.json, falling back to a framework default.
+   */
+  protected resolveAppName(): string {
     // Try to get from package.json name
     try {
       const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -515,6 +749,17 @@ export class CoreBetterAuthEmailVerificationService {
       return `${appName} - E-Mail-Adresse bestätigen`;
     }
     return `${appName} - Verify your email address`;
+  }
+
+  /**
+   * Subject line of the password-reset mail.
+   */
+  protected getPasswordResetSubject(appName: string): string {
+    const subjects: Record<string, string> = {
+      de: `${appName} - Passwort zurücksetzen`,
+      en: `${appName} - Reset your password`,
+    };
+    return subjects[this.config.locale] ?? subjects.en;
   }
 
   /**

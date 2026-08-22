@@ -159,8 +159,16 @@ export function redactSensitiveText(text: string): string {
       .replace(/eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{4,}/g, (match) => maskToken(match))
       // reset/verification/invite tokens carried as a URL PATH segment (e.g. /verify/<token>,
       // /reset/<token>) — these have no `key=value`, so the query-style rule below misses them.
+      //
+      // The COMPOUND spellings must come first and must be listed at all: Better-Auth emits
+      // `/reset-password/<token>`, and a bare `reset` alternative does not match it (`reset` is
+      // followed by `-password`, not `/`). That gap let a full account-takeover URL through
+      // `HubLogBufferService` into the ADMIN-readable Hub log panel verbatim, while the
+      // verification token — which travels as `?token=` and is caught by the rule below — was
+      // correctly masked. Order matters: alternation is first-match, so `reset-password` has to
+      // precede `reset`.
       .replace(
-        /(\/(?:verify|reset|confirm|activate|invite|magic-?link|set-password|change-email)\/)([A-Za-z0-9._~-]{16,})/gi,
+        /(\/(?:request-password-reset|reset-password|forget-password|forgot-password|set-password|change-email|magic-?link|verify|reset|confirm|activate|invite)\/)([A-Za-z0-9._~-]{16,})/gi,
         (_m, prefix, token) => `${prefix}${maskToken(token)}`,
       )
       // authorization: Bearer xyz / Authorization=xyz

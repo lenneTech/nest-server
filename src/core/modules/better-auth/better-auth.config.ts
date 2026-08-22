@@ -129,6 +129,18 @@ export interface CreateBetterAuthOptions {
   onEmailVerified?: OnEmailVerifiedCallback;
 
   /**
+   * Callback for sending the password-reset email.
+   * Injected from CoreBetterAuthModule to use NestJS services.
+   *
+   * When provided, it is wired into Better-Auth's
+   * `emailAndPassword.sendResetPassword` hook, which is what ENABLES the native
+   * `POST /iam/request-password-reset` flow. Without a callback Better-Auth
+   * answers `RESET_PASSWORD_DISABLED` and no reset mail is ever sent — a
+   * password-reset page that cannot work, and users locked out for good.
+   */
+  sendResetPasswordEmail?: SendResetPasswordEmailCallback;
+
+  /**
    * Callback for sending verification email
    * Injected from CoreBetterAuthModule to use NestJS services
    */
@@ -174,11 +186,35 @@ export type OnEmailVerifiedCallback = (userId: string) => Promise<void>;
  * Callback for sending verification email
  * Injected from CoreBetterAuthModule to use NestJS services
  */
-export type SendVerificationEmailCallback = (options: {
+export interface AuthEmailCallbackOptions {
+  /** The raw token, for consumers that build their own link. */
   token: string;
+
+  /** The ready-made URL Better-Auth generated. */
   url: string;
+
+  /** The user the mail is for. */
   user: { email: string; id: string; name?: null | string };
-}) => Promise<void>;
+}
+
+export type SendVerificationEmailCallback = (options: AuthEmailCallbackOptions) => Promise<void>;
+
+/**
+ * Sends the password-reset mail. Same shape as the verification callback —
+ * `url` is the ready-made reset link Better-Auth generated, `token` the raw
+ * token for consumers that build their own link.
+ */
+/**
+ * Sends the password-reset mail.
+ *
+ * Naming note — the word order flips at this boundary, once and deliberately. Everything on the
+ * Better-Auth side is `resetPassword` because Better-Auth's own option key is `sendResetPassword`;
+ * everything on the NestJS service side is `passwordReset`
+ * (`CoreBetterAuthEmailVerificationService.sendPasswordResetEmail`, `PASSWORD_RESET_TEMPLATE`,
+ * `passwordResetBrevoTemplateId`) because that is how the feature is named in this framework's
+ * config and templates. If you grep for one spelling and find half the feature, this is why.
+ */
+export type SendResetPasswordEmailCallback = (options: AuthEmailCallbackOptions) => Promise<void>;
 
 /**
  * Invoke an auth-email send (verification / password-reset) fire-and-forget.
@@ -191,6 +227,12 @@ export type SendVerificationEmailCallback = (options: {
  * keeps the send non-blocking while routing every failure (sync throw or async
  * rejection) to `onError` instead. `onError` itself is guarded too: if the
  * handler throws, the error is swallowed rather than crashing the process.
+ *
+ * Do NOT remove this wrapper on the grounds that Better-Auth "already detaches". Verified against
+ * better-auth 1.6.26 (`context/create-context.mjs:214`): `runInBackgroundOrAwait` detaches ONLY when
+ * `advanced.backgroundTasks.handler` is configured, and `else await promise`. This framework does
+ * not configure a handler, so without this wrapper Better-Auth would await the send — and the
+ * response time would once again reveal whether the address exists.
  *
  * Deliberate divergence from Better-Auth's own mechanism: Better-Auth awaits
  * these callbacks via `runInBackgroundOrAwait` and offers
@@ -212,6 +254,23 @@ export function sendAuthEmailSafely(send: () => unknown, onError: (error: unknow
         // crash the process this helper exists to protect.
       }
     });
+}
+
+/**
+ * Shallow-merge `override` onto `base`, skipping keys whose override value is `undefined`.
+ *
+ * Distinct from a spread on purpose — see the call site in the `emailAndPassword` merge.
+ */
+function mergeDefined(base: unknown, override: unknown): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...(base as Record<string, unknown> | undefined) };
+  if (override && typeof override === 'object') {
+    for (const [key, value] of Object.entries(override as Record<string, unknown>)) {
+      if (value !== undefined) {
+        merged[key] = value;
+      }
+    }
+  }
+  return merged;
 }
 
 /**
@@ -312,7 +371,8 @@ export interface CreateBetterAuthResult {
 }
 
 export function createBetterAuthInstance(options: CreateBetterAuthOptions): CreateBetterAuthResult | null {
-  const { config, db, fallbackSecrets, onEmailVerified, sendVerificationEmail, serverEnv } = options;
+  const { config, db, fallbackSecrets, onEmailVerified, sendResetPasswordEmail, sendVerificationEmail, serverEnv } =
+    options;
 
   // Return null only if better-auth is explicitly disabled
   // BetterAuth is enabled by default (zero-config)
@@ -448,6 +508,32 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
       // is the point of resetting after a suspected takeover. Off by default so
       // the behaviour of existing deployments does not change under them.
       revokeSessionsOnPasswordReset: config.emailAndPassword?.revokeSessionsOnPasswordReset === true,
+      // Presence of this hook is what turns the native password reset ON, so withholding it is the
+      // only way to keep `POST /iam/request-password-reset` answering RESET_PASSWORD_DISABLED.
+      //
+      // Note what this condition does NOT buy: `CoreBetterAuthModule.createEmailVerificationCallbacks()`
+      // always supplies a callback — the "no mail service" case is handled INSIDE it — so for every
+      // consumer that goes through the module, the callback half is always true. An earlier comment
+      // here claimed a mail-less server would keep answering RESET_PASSWORD_DISABLED; it would not.
+      // `emailAndPassword.passwordReset: false` is the real off switch, for deployments whose reset
+      // policy is support-mediated or SSO-primary.
+      // Mirrors the emailVerification.sendVerificationEmail wiring.
+      ...(sendResetPasswordEmail &&
+        config.emailAndPassword?.passwordReset !== false && {
+          sendResetPassword: async (data: AuthEmailCallbackOptions) => {
+            // Deliberately NOT awaited: Better-Auth answers the request the same
+            // way whether or not the address exists, and awaiting the send would
+            // leak that difference as response time. A failed send must still be
+            // logged rather than crash the process — see sendAuthEmailSafely.
+            sendAuthEmailSafely(
+              () => sendResetPasswordEmail(data),
+              (error) =>
+                logger.error(
+                  `Failed to send password-reset email: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+            );
+          },
+        }),
     },
     plugins,
     secret: validation.resolvedSecret || config.secret,
@@ -467,15 +553,61 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   // When undefined, Better-Auth uses its default CORS behavior (allows all origins)
   if (trustedOrigins) {
     betterAuthConfig.trustedOrigins = trustedOrigins;
+
+    // A wildcard here was a CORS-looseness problem before the password-reset flow was wired; it is
+    // an account-takeover vector now. `redirectTo` on POST /iam/request-password-reset is validated
+    // against trustedOrigins, and GET /iam/reset-password/:token redirects to
+    // `<callbackURL>?token=<token>` — so a wildcard that admits an attacker-controlled subdomain
+    // hands them a live reset token for whichever address they named.
+    const wildcardOrigins = trustedOrigins.filter((origin) => typeof origin === 'string' && origin.includes('*'));
+    if (wildcardOrigins.length) {
+      logger.warn(
+        `betterAuth.trustedOrigins contains a wildcard (${wildcardOrigins.join(', ')}). The password-reset ` +
+          'redirect is validated against this list, so any origin it admits can receive a live reset ' +
+          'token. List exact origins instead.',
+      );
+    }
   }
 
   // Merge with custom options passthrough
   // This allows projects to configure any Better-Auth option not explicitly defined
-  // Deep-merge 'advanced' to preserve cookiePrefix when options.advanced is provided
+  // Deep-merge 'advanced' to preserve cookiePrefix when options.advanced is provided,
+  // and 'emailAndPassword' to preserve the password hashing (see below).
   let finalConfig: Record<string, unknown>;
   if (config.options) {
-    const { advanced: optionsAdvanced, ...restOptions } = config.options as Record<string, unknown>;
+    const {
+      advanced: optionsAdvanced,
+      emailAndPassword: optionsEmailAndPassword,
+      ...restOptions
+    } = config.options as Record<string, unknown>;
     finalConfig = { ...betterAuthConfig, ...restOptions };
+
+    // `emailAndPassword` needs a DEEP merge, and this one is load-bearing.
+    // The block above carries `password: { hash: nativeScryptHash, verify:
+    // nativeScryptVerify }` — the hashing every stored credential was created
+    // with. A shallow spread would let a consumer who sets `options.
+    // emailAndPassword` for an unrelated reason (a `sendResetPassword` callback,
+    // `maxPasswordLength`) replace the whole block and drop those functions.
+    // Better-Auth would fall back to its own default hasher, every existing
+    // password would stop verifying, and every user of that deployment would be
+    // locked out at once — with nothing in the logs to say why.
+    // `password` is therefore re-applied as the BASE, so an explicit override
+    // still wins while an unrelated key can no longer clobber it.
+    if (optionsEmailAndPassword && typeof optionsEmailAndPassword === 'object') {
+      const base = betterAuthConfig.emailAndPassword as Record<string, unknown>;
+      const override = optionsEmailAndPassword as Record<string, unknown>;
+      finalConfig.emailAndPassword = {
+        ...base,
+        ...override,
+        // Merged key-by-key rather than spread, because object spread copies an EXPLICITLY
+        // undefined value as a present key: `password: { hash: undefined }` would survive as
+        // `hash: undefined`, and Better-Auth resolves `password?.hash || hashPassword`, silently
+        // switching to its own hasher for WRITES while nest-server's scrypt verify still handles
+        // READS. The result is an asymmetric pair — anyone who resets their password can then
+        // never sign in again. An explicit override still wins; only `undefined` is ignored.
+        password: mergeDefined(base.password, override.password),
+      };
+    }
     if (optionsAdvanced && typeof optionsAdvanced === 'object') {
       // Drift guard: a programmatic `options.advanced.cookiePrefix` would only
       // change what Better-Auth itself sets — the NestJS layer keeps resolving
@@ -590,10 +722,7 @@ function buildEmailVerificationConfig(
 
   // Add sendVerificationEmail callback if provided
   if (sendVerificationEmail) {
-    result.sendVerificationEmail = async (
-      data: { token: string; url: string; user: { email: string; id: string; name?: null | string } },
-      _request?: Request,
-    ) => {
+    result.sendVerificationEmail = async (data: AuthEmailCallbackOptions, _request?: Request) => {
       // Fire-and-forget (timing-attack mitigation, per Better-Auth docs) — but a
       // failed send must be logged, never crash the process (see sendAuthEmailSafely).
       // Note: delivery failures are also logged (with masked recipient) by the

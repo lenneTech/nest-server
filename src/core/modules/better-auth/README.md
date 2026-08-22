@@ -1732,31 +1732,116 @@ When a legacy user signs in via BetterAuth for the first time, their account is 
 
 ### BetterAuth Password Reset Configuration
 
-BetterAuth provides native password reset via `/iam/forgot-password` and `/iam/reset-password` endpoints. To enable this, configure the `sendResetPassword` callback:
+BetterAuth provides native password reset via `/iam/request-password-reset` and
+`/iam/reset-password`. It is **enabled automatically** — `CoreBetterAuthModule`
+injects a `sendResetPassword` hook that delegates to
+`CoreBetterAuthEmailVerificationService.sendPasswordResetEmail()`. Nothing needs
+to be configured for the flow to work; without that hook Better-Auth answers
+`RESET_PASSWORD_DISABLED`.
+
+> **This is a live, unauthenticated endpoint on every deployment.** Anyone can
+> POST any address to it and cause a mail to be sent and a token to be minted.
+> Before you ship, check the two bounds below (rate limit + cooldown), or turn
+> the flow off if your reset policy is support-mediated or SSO-primary:
+>
+> ```typescript
+> betterAuth: {
+>   emailAndPassword: { passwordReset: false },  // route answers RESET_PASSWORD_DISABLED again
+> },
+> ```
+
+#### Rate limiting (check this)
+
+Two independent bounds, on different axes:
+
+| Bound                                                       | Axis              | Default                   |
+| ----------------------------------------------------------- | ----------------- | ------------------------- |
+| `betterAuth.rateLimit` (route middleware)                   | IP                | **off unless configured** |
+| Mailer cooldown (`emailVerification.resendCooldownSeconds`) | recipient address | 60 s                      |
+
+The recipient-axis cooldown is what stops an attacker rotating IPs to mail-bomb
+one victim; the IP-axis limiter is what stops one caller hammering the route.
+`/request-password-reset` is listed in `strictEndpoints`, so it receives the
+halved limit when the limiter is on. Providing a `rateLimit` object at all —
+even `{}` — enables it:
+
+```typescript
+betterAuth: {
+  rateLimit: { max: 10, windowSeconds: 60 },
+},
+```
+
+#### Branding the mail
+
+Drop your own template into the project template directory — it wins over the
+nest-server default via the usual project-first, locale-aware lookup:
+
+```
+src/assets/templates/password-reset-de.ejs   # or -en, or plain password-reset.ejs
+```
+
+| Variable  | Always passed | Notes                                                                                                                                                                                                                                                      |
+| --------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`    | yes           | `user.name`, falling back to the local part of the address                                                                                                                                                                                                 |
+| `link`    | yes           | the ready-made reset URL                                                                                                                                                                                                                                   |
+| `appName` | yes           | derived from `package.json` `name`                                                                                                                                                                                                                         |
+| `logoSrc` | **no**        | optional. The shipped templates render an `<img>` when it is present and the app name as text otherwise. Nothing in the framework supplies it — pass it from a subclass that overrides `sendPasswordResetEmail()`, or reference it from your own template. |
+
+> **Keep the un-suffixed `password-reset.ejs` renderable from `{ link, name }` alone.**
+> The legacy `POST /users/password/reset-request` flow (`UserService.sendPasswordResetMail()`)
+> resolves that exact name and passes nothing else, so a template that
+> references `appName` unguarded turns legacy password recovery into an HTTP 500.
+> The framework's own shipped templates guard it; `tests/unit/email-templates.spec.ts`
+> pins the contract.
+
+For Brevo, set a **reset-specific** template id (never reuse `brevoTemplateId` —
+that is the verification mail, and the user would be told to confirm their
+address instead of resetting their password):
 
 ```typescript
 // config.env.ts
 betterAuth: {
-  options: {
-    emailAndPassword: {
-      sendResetPassword: async ({ user, url, token }) => {
-        // Send password reset email
-        // 'url' contains the full reset URL with token
-        await emailService.sendEmail({
-          to: user.email,
-          subject: 'Reset Your Password',
-          html: `<a href="${url}">Click here to reset your password</a>`,
-        });
-      },
-    },
+  emailVerification: {
+    passwordResetBrevoTemplateId: 42,
   },
 },
 ```
 
+A Brevo send that reports failure by resolving to `null` falls through to SMTP
+rather than returning, so an outage does not leave a locked-out user with no
+mail at all.
+
+To replace the sending logic entirely, override `sendPasswordResetEmail()` in a
+subclass of `CoreBetterAuthEmailVerificationService`, exactly as with
+`sendVerificationEmail()`.
+
+#### Why not `betterAuth.options.emailAndPassword`
+
+You _can_ set `sendResetPassword` there, and it will win — `options` is merged
+last. That is precisely why it is the wrong place:
+
+- **Your callback replaces the framework hook entirely.** The mail no longer
+  goes through `sendPasswordResetEmail()` or the templates above, and it loses
+  the fire-and-forget wrapper that keeps the response time from revealing
+  whether the address exists.
+- **The block you are writing into carries the password hashing.** It holds
+  `password: { hash: nativeScryptHash, verify: nativeScryptVerify }` — the
+  hashing every stored credential was created with. Since 11.36.1 the merge
+  protects `password` key-by-key, so an unrelated key can no longer drop it, but
+  staying out of that block is still the safer habit.
+
+Use the hook, the template, and `passwordReset: false` to opt out.
+
 #### Password Reset Flow (BetterAuth)
 
-1. User requests reset: `POST /iam/forgot-password` with `{ email }`
-2. BetterAuth generates token and calls `sendResetPassword` callback
+1. User requests reset: `POST /iam/request-password-reset` with `{ email }` and
+   an optional `redirectTo`. `redirectTo` is validated against
+   `trustedOrigins` — a value outside it is rejected. Do not put a wildcard in
+   `trustedOrigins`: the reset redirect carries the token, so any origin the
+   wildcard admits can collect a live one.
+2. BetterAuth generates a token (valid 1 h by default,
+   `resetPasswordTokenExpiresIn`) and calls the built-in `sendResetPassword`
+   hook, which delegates to `sendPasswordResetEmail()`
 3. User clicks link in email → navigates to reset page
 4. Frontend submits: `POST /iam/reset-password` with `{ token, newPassword }`
 5. BetterAuth updates password in `account` collection

@@ -596,6 +596,30 @@
         "tests/unit/better-auth-revoke-sessions-on-password-reset.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "betterauth-emailandpassword-shallow-merge",
+      "defect": "11.36.1 — `config.options` was merged over the resolved Better-Auth config with a SHALLOW spread (only `advanced` was deep-merged). An `options.emailAndPassword` therefore did not add a key, it REPLACED the whole block — including the `password: { hash: nativeScryptHash, verify: nativeScryptVerify }` pair the framework installs. Better-Auth silently fell back to its own hasher, so every credential already in the database stopped verifying and every user of that deployment was locked out at once, at runtime and with nothing in the logs. The module's own README recommended exactly that shape for wiring `sendResetPassword`.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "after": "    if (optionsEmailAndPassword && typeof optionsEmailAndPassword === 'object') {",
+      "find": "      finalConfig.emailAndPassword = {\n        ...base,\n        ...override,\n        // Merged key-by-key rather than spread, because object spread copies an EXPLICITLY\n        // undefined value as a present key: `password: { hash: undefined }` would survive as\n        // `hash: undefined`, and Better-Auth resolves `password?.hash || hashPassword`, silently\n        // switching to its own hasher for WRITES while nest-server's scrypt verify still handles\n        // READS. The result is an asymmetric pair — anyone who resets their password can then\n        // never sign in again. An explicit override still wins; only `undefined` is ignored.\n        password: mergeDefined(base.password, override.password),\n      };",
+      "replace": "      void base;\n      finalConfig.emailAndPassword = { ...override };",
+      "specs": [
+        "tests/unit/better-auth-password-reset-wiring.spec.ts",
+        "tests/unit/better-auth-revoke-sessions-on-password-reset.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "password-reset-template-requires-appname",
+      "defect": "11.36.1 — `src/templates/password-reset.ejs` was rewritten into a branded HTML mail that references `<%= appName %>`. The legacy caller `UserService.sendPasswordResetMail()` (and the byte-identical call in nest-server-starter) passes only `{ link, name }`, so `ejs.compile(tpl)(data)` threw `ReferenceError: appName is not defined`, `POST /users/password/reset-request` answered HTTP 500, and password recovery stopped working for every consumer that does not ship its own copy of the template. A template is never imported, type-checked or linted, so nothing else in the toolchain could see it.",
+      "file": "src/templates/password-reset.ejs",
+      "find": "<h1>Hello <%= name %>,</h1>",
+      "replace": "<h1><%= appName %> — Hello <%= name %>,</h1>",
+      "specs": [
+        "tests/unit/email-templates.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

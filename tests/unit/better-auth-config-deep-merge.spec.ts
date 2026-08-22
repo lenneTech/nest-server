@@ -15,6 +15,17 @@
  *     }
  *   }
  */
+/**
+ * SCOPE NOTE (11.36.1)
+ * --------------------
+ * `mergeConfigWithOptions()` below is a STANDALONE re-implementation of the merge, not the
+ * production function — so it documents the `advanced` behaviour but cannot fail when production
+ * changes. That is acceptable for what remains here and unacceptable for anything load-bearing,
+ * which is why `emailAndPassword` (where a wrong merge silently drops the scrypt password pair and
+ * locks out every account) is covered against the REAL `createBetterAuthInstance()` in
+ * `better-auth-password-reset-wiring.spec.ts` instead. Do not add security-relevant merge cases
+ * here; add them there.
+ */
 import { describe, expect, it } from 'vitest';
 
 import { resolveCrossSubDomainCookies } from '../../src/core/modules/better-auth/better-auth.config';

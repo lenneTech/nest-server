@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-08-19 (v11.36.0)
+> Auto-generated from source code on 2026-08-22 (v11.36.1)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -242,12 +242,13 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean | undefined` (default: `true (enabled by default when BetterAuth is active)`) — Whether email verification is enabled.
   - `expiresIn?`: `number | undefined` (default: `86400 (24 hours)`) — Time in seconds until the verification link expires.
   - `locale?`: `string | undefined` (default: `'en'`) — Locale for the verification email template.
+  - `passwordResetBrevoTemplateId?`: `number | undefined` (default: `undefined (uses SMTP/EJS templates)`) — Brevo transactional template ID for the PASSWORD-RESET mail.
   - `resendCooldownSeconds?`: `number | undefined` (default: `60`) — Cooldown in seconds between resend requests for the same email address.
   - `template?`: `string | undefined` (default: `'email-verification'`) — Custom template name for the verification email.
 
 ### IBetterAuthRateLimit
 
-  - `enabled?`: `boolean | undefined` (default: `false`) — Whether rate limiting is enabled
+  - `enabled?`: `boolean | undefined` (default: `true when a `rateLimit` object is present, false when it is absent`) — Whether rate limiting is enabled.
   - `max?`: `number | undefined` (default: `10`) — Maximum number of requests within the time window
   - `maxEntries?`: `number | undefined` (default: `10000`) — Maximum number of distinct counters this limiter may hold — the bound on the keyspace a
   - `message?`: `string | undefined` — Custom message when rate limit is exceeded

@@ -362,6 +362,23 @@ export interface IBetterAuthEmailVerificationConfig {
   locale?: string;
 
   /**
+   * Brevo transactional template ID for the PASSWORD-RESET mail.
+   *
+   * Separate from `brevoTemplateId` on purpose: that one is the verification
+   * mail, and reusing it would send "confirm your email address" to someone who
+   * asked to reset their password. When this is unset the reset mail goes out
+   * over SMTP with the `password-reset[-<locale>].ejs` template instead.
+   *
+   * Template variables passed to Brevo:
+   * - `name`: User display name
+   * - `link`: Reset URL
+   * - `appName`: Application name
+   *
+   * @default undefined (uses SMTP/EJS templates)
+   */
+  passwordResetBrevoTemplateId?: number;
+
+  /**
    * Cooldown in seconds between resend requests for the same email address.
    * Prevents abuse by limiting how often verification emails can be resent.
    * Applied per email address in-memory.
@@ -543,8 +560,13 @@ export interface IBetterAuthPasskeyConfig {
  */
 export interface IBetterAuthRateLimit {
   /**
-   * Whether rate limiting is enabled
-   * @default false
+   * Whether rate limiting is enabled.
+   *
+   * Follows the "presence implies enabled" pattern: providing a `rateLimit` object at all — even
+   * `{}` — turns the limiter ON, and only an explicit `enabled: false` keeps it off while letting
+   * you pre-configure the rest. Omitting `rateLimit` entirely leaves it off.
+   *
+   * @default true when a `rateLimit` object is present, false when it is absent
    */
   enabled?: boolean;
 
@@ -3416,6 +3438,22 @@ interface IBetterAuthBase {
     enabled?: boolean;
 
     /**
+     * Whether Better-Auth's native password-reset flow is available.
+     *
+     * `CoreBetterAuthModule` wires the `sendResetPassword` hook automatically, and the presence of
+     * that hook is what Better-Auth treats as the on switch — so the flow is ON out of the box and
+     * `POST /iam/request-password-reset` mints a token and sends mail.
+     *
+     * Set `false` to withhold the hook, which makes that route answer `RESET_PASSWORD_DISABLED`
+     * again. For deployments whose reset policy is support-mediated or SSO-primary, and which
+     * therefore do not want an unauthenticated, token-minting, mail-sending endpoint at all.
+     *
+     * @default true
+     * @since 11.36.1
+     */
+    passwordReset?: boolean;
+
+    /**
      * End every existing session when the user completes a password reset.
      *
      * A reset is what somebody reaches for when they suspect their account was
@@ -3427,12 +3465,16 @@ interface IBetterAuthBase {
      * the devices they still hold.
      *
      * Passed through to better-auth's native
-     * `emailAndPassword.revokeSessionsOnPasswordReset`. It cannot be set via
-     * `options` instead: that object is spread SHALLOWLY over the resolved
-     * config, so an `options.emailAndPassword` would replace the whole block
-     * — including the scrypt `password.hash` / `password.verify` pair this
-     * framework installs — and every credential in the database would stop
-     * verifying.
+     * `emailAndPassword.revokeSessionsOnPasswordReset`. Prefer this named field
+     * over `options.emailAndPassword`: it is validated (`=== true`, so a JSON
+     * env string cannot enable a sign-out-everywhere behaviour), typed and
+     * discoverable.
+     *
+     * Until 11.36.1 the reason was harsher — `options` was spread SHALLOWLY, so
+     * an `options.emailAndPassword` replaced the whole block including the
+     * scrypt `password.hash` / `password.verify` pair, and every credential in
+     * the database stopped verifying. `emailAndPassword` is deep-merged now,
+     * with `password` re-applied as the base, so that trap is closed.
      *
      * @default false
      * @since 11.36.0
