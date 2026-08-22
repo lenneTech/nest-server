@@ -38,9 +38,33 @@
  *   pnpm run check:mutations -- --id=<id>       one mutation
  *   pnpm run check:mutations -- --list          show the registry without running anything
  *   pnpm run check:mutations -- --allow-dirty   run against an uncommitted working tree
+ *   pnpm run check:mutations -- --jobs=4        run 4 mutations at a time (see below)
+ *
+ * PARALLELISM
+ * -----------
+ * The work here is not the tests — the whole registry's specs add up to well under a minute. It is
+ * paying vitest's cold start (process spawn, transform, module graph, mongod connect, DB create and
+ * drop) once per mutation. That is idle-core time, so it parallelises well.
+ *
+ * A mutation WRITES INTO THE SOURCE TREE, which is why this cannot simply run N at once: two
+ * mutations in one tree would see each other's edits, and the specs would be answering about a
+ * source state nobody registered. So each worker gets its own `git worktree` (with `node_modules`
+ * symlinked from the main checkout — pnpm's internal links are relative, so this works and costs
+ * nothing) and mutates only inside it.
+ *
+ * That isolation has a consequence worth stating: a worktree is checked out at HEAD, so parallel
+ * mode tests COMMITTED code. When the working tree is dirty — or `--allow-dirty` is passed, which
+ * is exactly the "fix and its evidence share a tree" case — the run falls back to sequential, where
+ * the real working tree is what gets mutated. Getting a fast answer about the wrong source is worse
+ * than a slow answer about the right one.
+ *
+ * `--jobs` defaults to a value derived from the core count, capped at 4: each worker starts a vitest
+ * that forks again, so oversubscribing costs more than it buys. `--jobs=1` forces the sequential
+ * path, byte-for-byte the behaviour that existed before parallelism was added.
  */
-import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { availableParallelism, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +75,7 @@ const args = process.argv.slice(2);
 const only = args.find((arg) => arg.startsWith('--id='))?.slice('--id='.length);
 const listOnly = args.includes('--list');
 const allowDirty = args.includes('--allow-dirty');
+const jobsArg = args.find((arg) => arg.startsWith('--jobs='))?.slice('--jobs='.length);
 
 /** Files restored on any exit path, keyed by absolute path. */
 const originals = new Map();
@@ -104,18 +129,237 @@ function gitIsClean(file) {
   return result.status === 0 && result.stdout.trim() === '';
 }
 
-function runSpecs(specs) {
+function specEnv(specs, jobs) {
   const unit = specs.every((spec) => spec.startsWith('tests/unit/'));
-  const config = unit ? 'vitest.config.ts' : 'vitest-e2e.config.ts';
-  const result = spawnSync('npx', ['vitest', 'run', '--config', config, ...specs], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, CHECK_LOW_RESOURCE: process.env.CHECK_LOW_RESOURCE ?? '0', NODE_ENV: unit ? 'test' : 'e2e' },
-  });
-  return { code: result.status ?? 1, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+  return {
+    ...process.env,
+    CHECK_LOW_RESOURCE: process.env.CHECK_LOW_RESOURCE ?? '0',
+    // Every worker runs its own e2e vitest, and the machine-wide run governor would otherwise make
+    // them queue behind each other — turning the parallel run back into a sequential one with extra
+    // steps. These workers ARE one coordinated run, so raise the cap to fit them.
+    ...(jobs > 1 ? { LT_E2E_MAX_RUNS: String(Math.max(jobs, Number(process.env.LT_E2E_MAX_RUNS) || 0)) } : {}),
+    NODE_ENV: unit ? 'test' : 'e2e',
+  };
 }
 
-function main() {
+function specConfig(specs) {
+  return specs.every((spec) => spec.startsWith('tests/unit/')) ? 'vitest.config.ts' : 'vitest-e2e.config.ts';
+}
+
+/**
+ * Run a mutation's specs.
+ *
+ * Deliberately `spawn` and not `spawnSync`: `spawnSync` blocks the whole event loop, so a
+ * `Promise.all` over several of them executes strictly one after another. The parallel path would
+ * have looked parallel, taken exactly as long as the sequential one, and nothing would have said so.
+ */
+function runSpecs(specs, cwd = ROOT, jobs = 1) {
+  return new Promise((resolveRun) => {
+    const child = spawn('npx', ['vitest', 'run', '--config', specConfig(specs), ...specs], {
+      cwd,
+      env: specEnv(specs, jobs),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => (output += chunk));
+    child.stderr.on('data', (chunk) => (output += chunk));
+    child.on('error', (error) => resolveRun({ code: 1, output: `${output}\n${error.message}` }));
+    child.on('close', (code) => resolveRun({ code: code ?? 1, output }));
+  });
+}
+
+/** Worktrees created for a parallel run — removed on every exit path. */
+const worktrees = [];
+
+function removeWorktrees() {
+  for (const dir of worktrees.splice(0)) {
+    try {
+      spawnSync('git', ['worktree', 'remove', '--force', dir], { cwd: ROOT });
+      if (existsSync(dir)) rmSync(dir, { force: true, recursive: true });
+    } catch {
+      process.stderr.write(`\n!! Could not remove worktree ${dir} — run \`git worktree prune\`\n`);
+    }
+  }
+}
+
+process.on('exit', removeWorktrees);
+
+/**
+ * How many mutations to run at once.
+ *
+ * Capped at 4 because each worker starts a vitest that forks again — past that the workers fight
+ * each other for the same cores and the wall clock stops improving. Falls back to sequential
+ * whenever the worktree would not be a faithful stand-in for what the caller wants tested.
+ */
+/**
+ * Decide how many mutations to run at once — pure, so the decision can be tested without a repo,
+ * worktrees and seven minutes. See `tests/unit/mutation-jobs-planning.spec.ts`.
+ *
+ * @param {object} options
+ * @param {boolean} [options.allowDirty] `--allow-dirty` was passed
+ * @param {number} options.cores available parallelism
+ * @param {number} [options.explicit] `--jobs=N`, `NaN` when absent or malformed
+ * @param {number} options.mutationCount how many mutations this run will apply
+ * @param {boolean} [options.sourceDirty] `src/` or `tests/` has uncommitted changes
+ * @returns {{ jobs: number, why?: string }} `why` is set only when it fell back to sequential
+ */
+export function planJobs({
+  allowDirty: dirtyAllowed = false,
+  cores,
+  explicit = Number.NaN,
+  mutationCount,
+  sourceDirty = false,
+}) {
+  // Floor of 2, not 1: the dominant cost is vitest's cold start, which is largely single-threaded
+  // I/O and does NOT scale with cores — the full registry takes ~744s on a 12-core laptop and ~777s
+  // on a 4-vCPU CI runner. A core-proportional formula would therefore hand the smallest runner no
+  // parallelism at all, which is exactly where the wall clock is worth reclaiming. Capped at 4
+  // because each worker starts a vitest that forks again; measured 744s -> 399s (1.87x) at 4 jobs
+  // on 12 cores, so the scaling is real but sub-linear and more workers stop paying.
+  const requested =
+    Number.isInteger(explicit) && explicit > 0 ? explicit : Math.min(4, Math.max(2, Math.floor(cores / 3)));
+  if (requested === 1 || mutationCount < 2) return { jobs: 1 };
+
+  // A worktree is checked out at HEAD. If the caller is testing uncommitted work, that is the wrong
+  // source — answer slowly about the right code rather than quickly about the wrong code.
+  if (dirtyAllowed) {
+    return { jobs: 1, why: '--allow-dirty tests the working tree, which a worktree at HEAD is not' };
+  }
+  if (sourceDirty) {
+    return { jobs: 1, why: 'src/ or tests/ is dirty, so HEAD would not be what you are testing' };
+  }
+  return { jobs: Math.min(requested, mutationCount) };
+}
+
+function resolveJobs(mutations) {
+  // Scoped to what can actually change a verdict: the code a mutation edits and the specs that
+  // judge it. A dirty README or a package.json bump cannot, and refusing to parallelise over those
+  // would mean the fast path is almost never available in a real working session.
+  const dirty = spawnSync('git', ['status', '--porcelain', '--', 'src', 'tests'], { cwd: ROOT, encoding: 'utf8' });
+  const { jobs, why } = planJobs({
+    allowDirty,
+    cores: availableParallelism(),
+    explicit: Number(jobsArg),
+    mutationCount: mutations.length,
+    sourceDirty: Boolean((dirty.stdout ?? '').trim()),
+  });
+  if (why) process.stdout.write(`   (sequential: ${why})\n`);
+  return jobs;
+}
+
+/**
+ * Run the registry across `jobs` worktrees.
+ *
+ * Output is assembled in REGISTRY order, not completion order — a run whose report reshuffles
+ * itself depending on machine timing is a run nobody can diff against the last one.
+ */
+function runParallel(mutations, jobs) {
+  const base = mkdtempSync(join(tmpdir(), 'lt-mutations-'));
+  process.stdout.write(`\nRunning ${mutations.length} mutations across ${jobs} worktrees\n`);
+
+  const lanes = [];
+  for (let i = 0; i < jobs; i++) {
+    const dir = join(base, `w${i}`);
+    const added = spawnSync('git', ['worktree', 'add', '--detach', dir, 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+    if (added.status !== 0) {
+      removeWorktrees();
+      process.stderr.write(`\n!! Could not create worktree: ${added.stderr ?? ''}\nFalling back to sequential.\n`);
+      return mutations.map((mutation) => runOne(mutation, ROOT, 1, true));
+    }
+    worktrees.push(dir);
+    // pnpm's internal links are relative to node_modules, so one symlink serves every worktree —
+    // no second install, no store duplication.
+    symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'));
+    lanes.push(dir);
+  }
+
+  // Round-robin rather than contiguous slices: the expensive mutations are the e2e ones and they
+  // cluster together in the registry, so a contiguous split would hand one worker all of them.
+  const assigned = mutations.map((mutation, index) => ({ index, lane: index % jobs, mutation }));
+  const settled = Array.from({ length: mutations.length });
+  let done = 0;
+  const workers = lanes.map((dir, lane) =>
+    (async () => {
+      for (const item of assigned.filter((entry) => entry.lane === lane)) {
+        // `await` is load-bearing: without it this assigns the PENDING PROMISE, the lane never
+        // waits, and all N mutations launch at once instead of N-at-a-time. The progress counter
+        // then counts promises and reports a run that has not happened yet.
+        settled[item.index] = await runOne(item.mutation, dir, jobs, false);
+        done += 1;
+        process.stdout.write(`   [${done}/${mutations.length}] ${item.mutation.id}\n`);
+      }
+    })(),
+  );
+
+  return Promise.all(workers).then(() => {
+    removeWorktrees();
+    for (const result of settled) process.stdout.write(result.log.join(''));
+    return settled;
+  });
+}
+
+/**
+ * Run ONE mutation inside `cwd` and report whether its specs went red.
+ *
+ * Shared by the sequential and the parallel paths so the two cannot drift into answering the
+ * question differently — the verdict logic exists once.
+ *
+ * `live` distinguishes the two callers: the sequential path mutates the developer's real working
+ * tree, so it honours the dirty-file guard and registers the snapshot with the process-wide restore
+ * handler. A worktree is disposable and checked out at HEAD, so neither applies there.
+ */
+async function runOne(mutation, cwd, jobs, live) {
+  const file = resolve(cwd, mutation.file);
+  const log = [`\n── ${mutation.id} ──\n   ${mutation.file}\n`];
+  const emit = (line) => {
+    log.push(line);
+    if (jobs === 1) process.stdout.write(line);
+  };
+
+  if (live && !allowDirty && !gitIsClean(mutation.file)) {
+    emit('   SKIPPED: uncommitted changes in the target file (--allow-dirty to override)\n');
+    return {
+      id: mutation.id,
+      log,
+      note: 'target file has uncommitted changes — re-run with --allow-dirty if that is expected',
+      ok: false,
+    };
+  }
+
+  const original = readFileSync(file, 'utf8');
+  let mutated;
+  try {
+    mutated = applyMutation(original, mutation);
+  } catch (error) {
+    emit(`   STALE: ${error.message}\n`);
+    return { id: mutation.id, log, note: `mutation is stale: ${error.message}`, ok: false };
+  }
+
+  if (live) originals.set(file, original);
+  try {
+    // Last-moment race check. Between reading the snapshot and writing the mutation another
+    // process (a parallel agent, a watch-mode formatter) may have rewritten the file; restoring
+    // the snapshot afterwards would silently discard that edit.
+    if (readFileSync(file, 'utf8') !== original) {
+      throw new Error('the target file changed while this mutation was being prepared');
+    }
+    writeFileSync(file, mutated);
+    emit(`   applied, running ${mutation.specs.join(' ')}\n`);
+    const { code, output } = await runSpecs(mutation.specs, cwd, jobs);
+    const failedCount = output.match(/Tests\s+(\d+) failed/)?.[1];
+    if (code === 0) {
+      emit('   VACUOUS: the specs passed with the defect restored\n');
+      return { id: mutation.id, log, note: 'specs stayed GREEN with the defect restored — vacuous', ok: false };
+    }
+    emit(`   OK: ${failedCount ?? 'some'} test(s) went red\n`);
+    return { id: mutation.id, log, note: `${failedCount ?? 'some'} test(s) failed, as required`, ok: true };
+  } finally {
+    writeFileSync(file, original);
+    if (live) originals.delete(file);
+  }
+}
+
+async function main() {
   const registry = JSON.parse(readFileSync(REGISTRY, 'utf8'));
   const mutations = registry.mutations.filter((mutation) => !only || mutation.id === only);
 
@@ -133,54 +377,14 @@ function main() {
     return;
   }
 
-  const results = [];
-
-  for (const mutation of mutations) {
-    const file = resolve(ROOT, mutation.file);
-    process.stdout.write(`\n── ${mutation.id} ──\n   ${mutation.file}\n`);
-
-    if (!allowDirty && !gitIsClean(mutation.file)) {
-      results.push({
-        id: mutation.id,
-        note: 'target file has uncommitted changes — re-run with --allow-dirty if that is expected',
-        ok: false,
-      });
-      process.stdout.write('   SKIPPED: uncommitted changes in the target file (--allow-dirty to override)\n');
-      continue;
-    }
-
-    const original = readFileSync(file, 'utf8');
-    let mutated;
-    try {
-      mutated = applyMutation(original, mutation);
-    } catch (error) {
-      results.push({ id: mutation.id, note: `mutation is stale: ${error.message}`, ok: false });
-      process.stdout.write(`   STALE: ${error.message}\n`);
-      continue;
-    }
-
-    originals.set(file, original);
-    try {
-      // Last-moment race check. Between reading the snapshot and writing the mutation another
-      // process (a parallel agent, a watch-mode formatter) may have rewritten the file; restoring
-      // the snapshot afterwards would silently discard that edit.
-      if (readFileSync(file, 'utf8') !== original) {
-        throw new Error('the target file changed while this mutation was being prepared');
-      }
-      writeFileSync(file, mutated);
-      process.stdout.write(`   applied, running ${mutation.specs.join(' ')}\n`);
-      const { code, output } = runSpecs(mutation.specs);
-      const failedCount = output.match(/Tests\s+(\d+) failed/)?.[1];
-      if (code === 0) {
-        results.push({ id: mutation.id, note: 'specs stayed GREEN with the defect restored — vacuous', ok: false });
-        process.stdout.write('   VACUOUS: the specs passed with the defect restored\n');
-      } else {
-        results.push({ id: mutation.id, note: `${failedCount ?? 'some'} test(s) failed, as required`, ok: true });
-        process.stdout.write(`   OK: ${failedCount ?? 'some'} test(s) went red\n`);
-      }
-    } finally {
-      writeFileSync(file, original);
-      originals.delete(file);
+  const jobs = resolveJobs(mutations);
+  let results;
+  if (jobs > 1) {
+    results = await runParallel(mutations, jobs);
+  } else {
+    results = [];
+    for (const mutation of mutations) {
+      results.push(await runOne(mutation, ROOT, 1, true));
     }
   }
 

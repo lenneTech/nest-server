@@ -233,10 +233,33 @@ pnpm run check:mutations                    # apply every registered mutation, r
 pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
+pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
 ```
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
-and on the publish path. Between runs the registry is kept from rotting by
+and on the publish path.
+
+### The cost is vitest's cold start, not the tests
+
+Worth knowing before optimising the wrong thing: the specs behind all 29 e2e mutations add up to
+**~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 49 times.
+That work is largely single-threaded I/O and barely scales with cores: the full registry measures
+**744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
+
+So it parallelises well, and `--jobs` does exactly that: **744s → 399s (1.87×) at 4 jobs**. Verified
+by diffing all 49 verdicts against a sequential run — a parallel mode that changes a verdict is not
+an optimisation, it is a broken safety net.
+
+**A mutation writes into the source tree**, which is why N cannot simply run at once: two mutations
+in one tree would see each other's edits and the specs would answer about a source state nobody
+registered. Each worker therefore gets its own `git worktree`, with `node_modules` symlinked from
+the main checkout (pnpm's internal links are relative, so one symlink serves every worktree).
+
+That isolation has a consequence: a worktree is at **HEAD**, so parallel mode tests COMMITTED code.
+When `src/` or `tests/` is dirty — or `--allow-dirty` is passed — the run says so and falls back to
+sequential. A fast answer about the wrong source is worse than a slow answer about the right one.
+`tests/unit/mutation-jobs-planning.spec.ts` pins that decision. Between runs the registry is kept from rotting by
 `tests/unit/regression-evidence.spec.ts`, which asserts every `find` still matches its target
 **exactly once**: a stale mutation would silently become a no-op, and a no-op "confirms" evidence
 that was never checked.
