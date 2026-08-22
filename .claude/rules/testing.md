@@ -256,7 +256,39 @@ for a test that has since gone vacuous — exactly what the gate is there to pre
 mutations. Worth revisiting around 100, where the full run approaches half an hour.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
-and on the publish path.
+and on the publish path. It is also reachable on demand, without cutting a release:
+
+```
+gh workflow run regression-evidence.yml --ref develop                      # the full registry
+gh workflow run regression-evidence.yml --ref develop -f args="--no-infra" # the unit subset
+```
+
+**Why that matters, and what it cost to learn (11.36.3).** The gate lived only in `publish.yml`,
+which triggers on `release: released`. So the only way to observe it on a CI runner was to cut a
+release — and when it reported `0/51 mutations confirmed`, diagnosing that required cutting another
+one. A gate you cannot run without shipping is a gate you cannot debug.
+
+**A verdict must carry its reason.** `INCONCLUSIVE` exists so a crashed, timed-out or starved run is
+not counted as evidence — but the first version reported the verdict and discarded the output that
+explained it. `classifyRun()` now attaches the last 25 lines (`tailOf`) and names the exit code.
+
+**The parser must strip ANSI, and this is the load-bearing part.** vitest COLOURS its summary on a CI
+runner, so the line carries escape sequences between `Tests` and the number; `\s+` matches whitespace,
+never an escape. The count therefore did not parse in CI — and it never had. The *previous* verdict
+was `failedCount ?? 'some'` with `ok: true` on any non-zero exit, so it never needed the count: on the
+publish path the gate had been accepting a crash, a timeout or a collection error as "went red".
+
+Two consequences worth stating plainly:
+
+1. Requiring a real failure count is what makes the gate a check rather than a rubber stamp. Do not
+   relax it back to "non-zero exit is enough" — that is the defect, not a convenience.
+2. **Mutation confirmations from CI runs before 11.36.3 are not evidence.** They were verified
+   locally (where output is colourless) and stamped in CI. The first trustworthy full-registry run on
+   a runner is the `51/51` from the 11.36.3 retag.
+
+Anything that PARSES a spawned run's output belongs behind `stripAnsi()`: the same command is
+colourless on a pipe and colourised on a runner, so a regex tested locally can be reliably wrong in
+exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
