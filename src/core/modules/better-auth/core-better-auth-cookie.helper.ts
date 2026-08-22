@@ -3,7 +3,19 @@ import { Response } from 'express';
 
 import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
 import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
+import { isJwtShaped } from './core-better-auth-token.helper';
 import { signCookieValue } from './core-better-auth-web.helper';
+
+/**
+ * Last-resort logger for the JWT refusal below.
+ *
+ * `BetterAuthCookieHelperConfig.logger` is optional and `createCookieHelper()` takes it as an
+ * optional third argument, so a consumer constructing this class directly gets none. The refusal
+ * is the one message here that must never be silent: without it the symptom is "no cookie, HTTP
+ * 200, no explanation" — the same diagnostic blind spot that let the defect it guards against ship
+ * in the first place.
+ */
+const fallbackLogger = new Logger('BetterAuthCookieHelper');
 
 /**
  * Standard cookie names used by Better-Auth and nest-server.
@@ -193,6 +205,24 @@ export class BetterAuthCookieHelper {
    * @param _sessionId - Deprecated, kept for API compatibility but no longer used
    */
   setSessionCookies(res: Response, sessionToken: string, _sessionId?: string): void {
+    // Structural invariant, independent of whichever call site got here: Better-Auth resolves a
+    // session by the OPAQUE token it stored, so a JWT in this cookie authenticates nothing. That is
+    // not hypothetical — it shipped: with `cookies.exposeTokenInBody` the body's JWT was written
+    // here, sign-in appeared to work and every following request was anonymous.
+    //
+    // Enforced here rather than at the call sites because a call site can forget, and this one
+    // cannot: whoever adds the next authentication route inherits the guard for free.
+    if (isJwtShaped(sessionToken)) {
+      // NOT `this.config.logger?.error(...)`: `logger` is optional, and a silent refusal leaves the
+      // caller with no cookie, a 200 response and nothing to go on.
+      (this.config.logger ?? fallbackLogger).error(
+        'Refusing to write a JWT into the session cookie — Better-Auth resolves a session by the ' +
+          'opaque token it stored, so this would authenticate nothing. Pass the session token, ' +
+          'not the value destined for the response body.',
+      );
+      return;
+    }
+
     const cookieOptions = this.getDefaultCookieOptions();
 
     // Sign the session token for Better-Auth
@@ -323,6 +353,13 @@ export class BetterAuthCookieHelper {
    * @param result - The result object to process (modified in place)
    * @param cookiesEnabled - Whether cookie handling is enabled (from config)
    * @param exposeTokenInBody - Whether to keep the token in the response body (default: false)
+   * @param sessionToken - The OPAQUE Better-Auth session token, for the COOKIE. Pass it whenever
+   *   the body's `token` may already be a JWT — i.e. `exposeTokenInBody` together with the JWT
+   *   plugin. Better-Auth resolves a session by the opaque value it stored, so a JWT in the cookie
+   *   authenticates nothing: sign-in appears to succeed and every following request is anonymous.
+   *   Falls back to `result.token`, which is correct only in cookies-only mode, where the two
+   *   values are the same thing. `setSessionCookies()` refuses a JWT-shaped value regardless, so
+   *   omitting this fails loudly rather than silently.
    * @returns The modified result (same reference as input)
    */
   processAuthResult<T extends CookieProcessingResult>(
@@ -330,19 +367,24 @@ export class BetterAuthCookieHelper {
     result: T,
     cookiesEnabled: boolean,
     exposeTokenInBody: boolean = false,
+    sessionToken?: string,
   ): T {
     if (!cookiesEnabled) {
       return result;
     }
 
-    if (result.token) {
-      // Set cookies
-      this.setSessionCookies(res, result.token);
+    // The cookie and the body carry DIFFERENT values whenever both delivery modes are on at once —
+    // see the `sessionToken` note on the signature above. `result.token` is the fallback for
+    // cookies-only mode, where the two are the same thing anyway.
+    const cookieToken = sessionToken ?? result.token;
 
-      // Remove token from response body unless exposeTokenInBody is enabled
-      if (!exposeTokenInBody) {
-        delete result.token;
-      }
+    if (cookieToken) {
+      this.setSessionCookies(res, cookieToken);
+    }
+
+    // Remove token from response body unless exposeTokenInBody is enabled
+    if (result.token && !exposeTokenInBody) {
+      delete result.token;
     }
 
     return result;

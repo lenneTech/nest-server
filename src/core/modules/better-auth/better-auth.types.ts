@@ -120,6 +120,36 @@ export function hasSession<T>(
 }
 
 /**
+ * Whether a Better-Auth response carries a usable top-level `token`.
+ *
+ * Sibling of {@link hasSession} / {@link hasUser}, and the reason it exists: `api.signInEmail()`
+ * and `api.signUpEmail()` return the session token at the TOP level and no `session` object at all,
+ * so `response.session?.token` is `undefined` on exactly the routes that matter most.
+ */
+export function hasToken<T>(response: T): response is T & { token: string } {
+  return typeof (response as { token?: unknown })?.token === 'string' && (response as { token: string }).token !== '';
+}
+
+/**
+ * The OPAQUE Better-Auth session token carried by an outgoing auth response, if any.
+ *
+ * A PRECEDENCE CHAIN, not a ternary on {@link hasSession}, and the difference is load-bearing:
+ * `hasSession()` narrows to `session: { …; token?: string }`, so `token` is OPTIONAL on the guard
+ * itself. A response carrying a `session` object WITHOUT a token inside it satisfies the guard,
+ * yields `undefined` and skips the top-level fallback. `api.signInEmail()` is the mirror case:
+ * top-level token, no `session` object at all.
+ *
+ * Neither shape is reachable in better-auth 1.6.26 today; both are one minor bump away, and the
+ * failure is silent — which is why every caller that needs the stored session value shares this
+ * one chain rather than re-deriving it. Callers that need the value for a COOKIE must additionally
+ * refuse a JWT; see `CoreBetterAuthController.sessionTokenForCookie()`.
+ */
+export function sessionTokenFromResponse(response: unknown): string | undefined {
+  const fromSession = hasSession(response) && hasToken(response.session) ? response.session.token : undefined;
+  return fromSession ?? (hasToken(response) ? response.token : undefined);
+}
+
+/**
  * Type guard to check if response has user
  * Preserves the original type while asserting user is defined
  */

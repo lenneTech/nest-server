@@ -11,6 +11,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 import { BetterAuthInstance } from './better-auth.config';
+import { isJwtShaped } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
 import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
@@ -359,8 +360,10 @@ export class CoreBetterAuthService implements OnModuleInit {
       return token;
     }
 
-    // Already a JWT (three base64url segments separated by dots)
-    if (token.startsWith('eyJ') && token.split('.').length === 3) {
+    // Already a JWT (three base64url segments separated by dots). Shares ONE definition with the
+    // session-cookie guard — two copies of this predicate would let the conversion path and the
+    // cookie path disagree about the same token, silently.
+    if (isJwtShaped(token)) {
       return token;
     }
 

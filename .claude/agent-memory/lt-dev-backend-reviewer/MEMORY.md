@@ -8,3 +8,4 @@
 - [CoreFileResolver is untested here](project_core-file-resolver-untested.md) — exported but in no module; src/server has a drifted hand-copy, so core-resolver changes ship with zero coverage.
 - [11.33.0 multi-replica file storage](project_multi-replica-file-storage.md) — `getRawFileInfoByName` skips the filesystem store, S3 reads are gated on the current driver, and guide §7 contradicts the fail-fast boot.
 - [Brevo SDK v3→v6](project_brevo-sdk-v6.md) — awaited shape identical (dropping `.body` is correct); real breaks are removed symbols, new BrevoError type, and new default retries.
+- [Review tree is shared and mutable](review-tree-is-shared-and-mutable.md) — parallel reviewers share the checkout and check-mutations leaves applied source residue; never git stash, revert suspect files individually.

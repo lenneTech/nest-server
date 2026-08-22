@@ -186,3 +186,73 @@ describe('regression-test evidence', () => {
     });
   });
 });
+
+/**
+ * The docs quote concrete numbers ("the 21 that need no MongoDB", "at 51 mutations"). Prose about a
+ * JSON file rots the moment somebody adds an entry, and a wrong number in a rule file is worse than
+ * no number — it reads as verified. This is the cheap guard: the docs and the registry must agree.
+ *
+ * TWO files, not one. The first version of this guard read `.claude/rules/testing.md` only, and
+ * shipped in the same commit as three stale numbers in `scripts/check-mutations.mjs` — the script
+ * whose behaviour that prose describes. A guard that covers the file its author was editing, and
+ * not the file they were editing it about, institutionalises the illusion that the counts are
+ * maintained. Both files are checked here, and every count the docs state has an assertion.
+ *
+ * Whitespace is normalised before matching, so an assertion can never fail merely because a
+ * paragraph re-wrapped.
+ */
+describe('the documented counts match the registry', () => {
+  const flatten = (text: string) => text.replace(/\s+/g, ' ');
+  const RULES = flatten(readFileSync(join(ROOT, '.claude', 'rules', 'testing.md'), 'utf8'));
+  const SCRIPT = flatten(readFileSync(join(ROOT, 'scripts', 'check-mutations.mjs'), 'utf8'));
+
+  const unitOnly = registry.mutations.filter(mutation =>
+    mutation.specs.every(spec => spec.startsWith('tests/unit/')),
+  );
+  const total = registry.mutations.length;
+  const e2eCount = total - unitOnly.length;
+
+  describe('.claude/rules/testing.md', () => {
+    it('states the current total', () => {
+      expect(RULES, `testing.md must name ${total} mutations`).toContain(`at ${total} mutations`);
+    });
+
+    it('states the current infrastructure-free count', () => {
+      expect(RULES, `testing.md must name ${unitOnly.length} MongoDB-free mutations`).toContain(
+        `only the ${unitOnly.length} that need no MongoDB`,
+      );
+    });
+
+    it('states the current e2e count', () => {
+      // The count this guard originally missed, which then went stale in the very commit that
+      // introduced the guard.
+      expect(RULES, `testing.md must name ${e2eCount} e2e mutations`).toContain(
+        `all ${e2eCount} e2e mutations`,
+      );
+    });
+
+    it('states how many times vitest is started', () => {
+      expect(RULES, `testing.md must say once per mutation, ${total} times`).toContain(
+        `once per mutation, ${total} times`,
+      );
+    });
+  });
+
+  describe('scripts/check-mutations.mjs', () => {
+    it('states the current infrastructure-free count', () => {
+      expect(SCRIPT, `the --no-infra comment must name ${unitOnly.length} mutations`).toContain(
+        `selects the ${unitOnly.length} mutations`,
+      );
+    });
+
+    it('states the current total where it justifies running everything', () => {
+      expect(SCRIPT, `the caching-rationale comment must name ${total}`).toContain(
+        `still runs all ${total}`,
+      );
+    });
+
+    it('states the current total in the bad-trade conclusion', () => {
+      expect(SCRIPT, `the bad-trade comment must name ${total}`).toContain(`Bad trade at ${total} mutations`);
+    });
+  });
+});

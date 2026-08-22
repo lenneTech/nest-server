@@ -34,11 +34,17 @@ import type { ICookiesConfig } from '../../common/interfaces/server-options.inte
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
-import { BetterAuthSignInResponse, hasSession, hasUser, requires2FA } from './better-auth.types';
+import {
+  BetterAuthSignInResponse,
+  hasSession,
+  hasUser,
+  requires2FA,
+  sessionTokenFromResponse,
+} from './better-auth.types';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
-import { isSessionToken } from './core-better-auth-token.helper';
+import { isJwtShaped, isSessionToken } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
@@ -469,7 +475,14 @@ export class CoreBetterAuthController {
         // Get token: JWT accessToken > top-level token > session.token
         const rawToken =
           responseAny.accessToken || responseAny.token || (hasSession(response) ? response.session.token : undefined);
+        // `rawToken` prefers the top-level token; `sessionTokenForCookie()` prefers `session.token`.
+        // The inversion is deliberate: the body wants whatever Better-Auth called the token, the
+        // cookie wants the stored session value specifically.
         const token = await this.resolveJwtToken(rawToken);
+
+        // Kept separately from `token`: `resolveJwtToken` turns the session token into a JWT when
+        // the body is meant to carry one, and the cookie must not get that JWT.
+        const sessionToken = this.sessionTokenForCookie(response);
 
         const result: CoreBetterAuthResponse = {
           requiresTwoFactor: false,
@@ -479,7 +492,7 @@ export class CoreBetterAuthController {
           user: mappedUser ? this.mapUser(response.user, mappedUser) : undefined,
         };
 
-        return this.processCookies(res, result);
+        return this.processCookies(res, result, sessionToken);
       }
 
       throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
@@ -583,7 +596,11 @@ export class CoreBetterAuthController {
         // The user must verify their email before they can use any session
         if (this.emailVerificationService?.isEnabled()) {
           // Revoke the Better-Auth session server-side so the token is invalidated
-          const sessionToken = hasSession(response) ? response.session.token : undefined;
+          // Shared chain, NOT `hasSession(response) ? response.session.token : undefined`: `token` is
+          // optional on the guard, so that expression returns `undefined` for a response shape that
+          // still carries a revocable token — and the endpoint would then report a revoked session
+          // while a live one remained in the database.
+          const sessionToken = sessionTokenFromResponse(response);
           if (sessionToken) {
             await this.betterAuthService.revokeSession(sessionToken);
           }
@@ -607,7 +624,9 @@ export class CoreBetterAuthController {
           user: mappedUser ? this.mapUser(response.user, mappedUser) : undefined,
         };
 
-        return this.processCookies(res, result);
+        // Same as sign-in: the cookie gets the opaque session token, the body keeps whatever
+        // `resolveJwtToken` produced.
+        return this.processCookies(res, result, this.sessionTokenForCookie(response));
       }
 
       throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
@@ -868,6 +887,27 @@ export class CoreBetterAuthController {
   }
 
   /**
+   * The value that belongs in the SESSION COOKIE — never the value destined for the response body.
+   *
+   * Not to be confused with {@link extractSessionToken}, which reads a token out of an INCOMING
+   * request. This one derives it from an OUTGOING Better-Auth response; the two run in opposite
+   * directions, which is why they do not share a name.
+   *
+   * The precedence chain itself lives in {@link sessionTokenFromResponse}, shared with the
+   * session-revocation paths so the two cannot drift. What this method adds is the COOKIE-specific
+   * half: a JWT-shaped result is refused outright, because Better-Auth resolves a session by the
+   * opaque value it stored and a JWT in the cookie would authenticate nothing.
+   *
+   * Override to source the cookie token differently. `setSessionCookies()` refuses a JWT-shaped
+   * value regardless, so an override cannot reintroduce the defect either.
+   */
+  protected sessionTokenForCookie(response: unknown): string | undefined {
+    const resolved = sessionTokenFromResponse(response);
+    // A JWT here means somebody handed over the body's value; refuse rather than pass it on.
+    return isJwtShaped(resolved) ? undefined : resolved;
+  }
+
+  /**
    * Process cookies for response
    *
    * Sets multiple cookies for authentication compatibility using the centralized cookie helper.
@@ -903,8 +943,14 @@ export class CoreBetterAuthController {
       return result;
     }
 
-    // Otherwise, use the cookie helper's standard processing
-    return this.cookieHelper.processAuthResult(res, result, cookiesEnabled, exposeTokenInBody);
+    // Otherwise the helper's standard processing. Read this carefully before deleting anything:
+    // a TRUTHY `sessionToken` reaches here only when cookies are disabled, in which case
+    // `processAuthResult` returns immediately anyway. But `sessionTokenForCookie()` legitimately
+    // returns `undefined` — no token in the response, or a JWT it refused — and THAT case falls
+    // through with cookies ENABLED, where `cookieToken` falls back to `result.token`, i.e. the
+    // body's JWT. What makes that safe is not unreachability; it is `setSessionCookies()` refusing
+    // a JWT-shaped value. Remove the refusal and this line reinstates the defect.
+    return this.cookieHelper.processAuthResult(res, result, cookiesEnabled, exposeTokenInBody, sessionToken);
   }
 
   /**

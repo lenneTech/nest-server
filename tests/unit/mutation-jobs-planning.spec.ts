@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { planJobs } from '../../scripts/check-mutations.mjs';
+import { applyMutation, classifyRun, planJobs, resolveSinceRef, selectMutations } from '../../scripts/check-mutations.mjs';
 
 const clean = { cores: 12, mutationCount: 49 };
 
@@ -56,8 +56,22 @@ describe('planJobs', () => {
       expect(planJobs({ ...clean, cores: 64 }).jobs).toBe(4);
     });
 
+    it('wants at least two mutations per worker before building worktrees', () => {
+      // A worktree costs real setup time. Three mutations across four lanes finishes before the
+      // parallelism has paid for itself, so the run stays narrow.
+      expect(planJobs({ cores: 12, mutationCount: 3 }).jobs).toBe(1);
+      expect(planJobs({ cores: 12, mutationCount: 8 }).jobs).toBe(4);
+    });
+
     it('never spawns more workers than there are mutations', () => {
-      expect(planJobs({ cores: 12, mutationCount: 3 }).jobs).toBe(3);
+      expect(planJobs({ cores: 12, mutationCount: 4 }).jobs).toBeLessThanOrEqual(4);
+      expect(planJobs({ cores: 12, mutationCount: 2 }).jobs).toBe(1);
+    });
+
+    it('caps an explicit --jobs so one run cannot evict the machine-wide governor', () => {
+      // `LT_E2E_MAX_RUNS` is raised to the lane count, and that slot directory is shared with every
+      // other lt project on the machine.
+      expect(planJobs({ ...clean, explicit: 50 }).jobs).toBe(8);
     });
 
     it('stays sequential for a single mutation', () => {
@@ -75,6 +89,14 @@ describe('planJobs', () => {
       expect(planJobs({ ...clean, explicit: 1 }).jobs).toBe(1);
     });
 
+    it('does NOT let --jobs override the dirty-tree refusal', () => {
+      // The file's stated safety property. The dirty checks run after `requested` is computed, so a
+      // refactor that hoists the explicit branch above them would re-arm testing-the-wrong-source
+      // while every other case here stayed green.
+      expect(planJobs({ ...clean, explicit: 4, sourceDirty: true }).jobs).toBe(1);
+      expect(planJobs({ ...clean, allowDirty: true, explicit: 4 }).jobs).toBe(1);
+    });
+
     it('ignores a non-numeric or non-positive value rather than failing the run', () => {
       // `--jobs=` / `--jobs=oops` come through as NaN; a mutation run must not die over a typo in
       // a performance knob.
@@ -82,5 +104,206 @@ describe('planJobs', () => {
       expect(planJobs({ ...clean, explicit: 0 }).jobs).toBe(4);
       expect(planJobs({ ...clean, explicit: -2 }).jobs).toBe(4);
     });
+  });
+});
+
+/**
+ * The two LOCAL selection filters. Neither is wired into the publish path, and the thing worth
+ * pinning is that a narrowed run can never be mistaken for the full evidence.
+ */
+describe('selectMutations', () => {
+  const mutations = [
+    { file: 'src/a.ts', id: 'unit-one', specs: ['tests/unit/a.spec.ts'] },
+    { file: 'src/b.ts', id: 'e2e-one', specs: ['tests/b.e2e-spec.ts'] },
+    { file: 'src/c.ts', id: 'mixed-one', specs: ['tests/unit/c.spec.ts', 'tests/c.e2e-spec.ts'] },
+  ];
+
+  describe('--no-infra', () => {
+    it('keeps only mutations whose specs all run without MongoDB', () => {
+      // The unit runner has no globalSetup; a mixed set still needs the e2e runner, so it is out.
+      const { mutations: selected } = selectMutations({ mutations, noInfra: true });
+
+      expect(selected.map((m) => m.id)).toEqual(['unit-one']);
+    });
+
+    it('says how many it did NOT check', () => {
+      // A narrowed run that reports only what it ran reads like a full pass. It must not.
+      const { notes } = selectMutations({ mutations, noInfra: true });
+
+      expect(notes.join(' ')).toMatch(/2 were NOT checked/);
+    });
+  });
+
+  describe('--since', () => {
+    it('keeps mutations whose target file changed', () => {
+      const { mutations: selected } = selectMutations({ changed: ['src/b.ts'], mutations });
+
+      expect(selected.map((m) => m.id)).toEqual(['e2e-one']);
+    });
+
+    it('keeps mutations whose spec changed even when the source did not', () => {
+      // Editing the spec can make it vacuous without touching the code it judges.
+      const { mutations: selected } = selectMutations({ changed: ['tests/unit/a.spec.ts'], mutations });
+
+      expect(selected.map((m) => m.id)).toEqual(['unit-one']);
+    });
+
+    it('runs EVERYTHING when a global input changed', () => {
+      // A changed registry, vitest config or setup file can move any verdict, so per-mutation
+      // reasoning is not available — the only honest answer is the full set. All seven, because a
+      // partially-covered list is how one of them quietly stops being honoured.
+      const globalInputs = [
+        'tests/regression-mutations.json',
+        'tests/setup.ts',
+        'tests/global-setup.ts',
+        'vitest.config.ts',
+        'vitest-e2e.config.ts',
+        'vitest.include-globs.ts',
+        'scripts/check-mutations.mjs',
+      ];
+      for (const file of globalInputs) {
+        const { mutations: selected } = selectMutations({ changed: [file], mutations });
+        expect(selected).toHaveLength(3);
+      }
+    });
+
+    it('labels itself a heuristic', () => {
+      // It does not follow transitive imports; saying so in the output is the whole safeguard.
+      const { notes } = selectMutations({ changed: ['src/a.ts'], mutations });
+
+      expect(notes.join(' ')).toMatch(/HEURISTIC/);
+    });
+
+    it('selects nothing rather than everything when nothing relevant changed', () => {
+      // Failing open here would silently turn a narrowed run into a full one and hide the cost.
+      const { mutations: selected } = selectMutations({ changed: ['README.md'], mutations });
+
+      expect(selected).toHaveLength(0);
+    });
+  });
+
+  it('composes both filters', () => {
+    const { mutations: selected } = selectMutations({
+      changed: ['src/a.ts', 'src/b.ts'],
+      mutations,
+      noInfra: true,
+    });
+
+    expect(selected.map((m) => m.id)).toEqual(['unit-one']);
+  });
+});
+
+/**
+ * The verdict rule, extracted so it can be tested without running vitest 51 times.
+ *
+ * The third case is the point: a non-zero exit is NOT evidence on its own, because vitest also
+ * exits non-zero when it crashed, timed out or was starved. Before that distinction existed, a
+ * starved parallel run reported "confirmed" for a mutation nothing had actually checked.
+ */
+describe('classifyRun', () => {
+  it('calls a green run VACUOUS — the specs passed with the defect restored', () => {
+    const verdict = classifyRun({ code: 0, output: 'Tests  20 passed (20)' });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.label).toContain('VACUOUS');
+  });
+
+  it('accepts a non-zero run that REPORTS failing tests', () => {
+    const verdict = classifyRun({ code: 1, output: 'Tests  2 failed | 18 passed (20)' });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.note).toContain('2 test(s) failed');
+  });
+
+  it('calls a non-zero run with no reported failures INCONCLUSIVE, not evidence', () => {
+    // A crash, a timeout, a collection error, or resource starvation. Each exits non-zero and each
+    // would previously have been counted as "the mutation was caught".
+    const verdict = classifyRun({ code: 1, output: 'Error: socket hang up' });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.label).toContain('INCONCLUSIVE');
+  });
+
+  it('does not throw on empty or missing output', () => {
+    expect(classifyRun({ code: 1, output: '' }).ok).toBe(false);
+    expect(classifyRun({ code: 1, output: undefined }).ok).toBe(false);
+  });
+});
+
+/**
+ * The only security-shaped code in this script: git reads a leading dash as an OPTION, so an
+ * unvalidated `--since` value reaches `--output=<path>` and TRUNCATES that file.
+ */
+describe('resolveSinceRef', () => {
+  const neverCalled = () => {
+    throw new Error('rev-parse must not run for a value rejected on shape alone');
+  };
+
+  it('refuses a value git would read as an option, without invoking git', () => {
+    for (const evil of ['--output=victim.txt', '-O/tmp/victim', '--no-such-flag', '-']) {
+      const result = resolveSinceRef(evil, neverCalled);
+
+      expect(result.ok, `${evil} must be refused`).toBe(false);
+    }
+  });
+
+  it('refuses an empty or non-string value', () => {
+    expect(resolveSinceRef('', neverCalled).ok).toBe(false);
+    expect(resolveSinceRef(undefined, neverCalled).ok).toBe(false);
+  });
+
+  it('refuses a ref git cannot resolve', () => {
+    // Cast rather than narrowed: the helper is JSDoc-typed in a .mjs, so `ok` widens to `boolean`
+    // and cannot discriminate the union.
+    const result = resolveSinceRef('no-such-branch', () => ({ status: 1, stdout: '' })) as {
+      ok: boolean;
+      reason: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('not a commit');
+  });
+
+  it('refuses output that is not a full 40-character SHA', () => {
+    // Belt and braces: the shape check does not depend on git having behaved.
+    const result = resolveSinceRef('weird', () => ({ status: 0, stdout: 'not-a-sha\n' }));
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('resolves a real ref to its SHA', () => {
+    const sha = 'a'.repeat(40);
+    const result = resolveSinceRef('develop', () => ({ status: 0, stdout: `${sha}\n` }));
+
+    expect(result).toEqual({ ok: true, sha });
+  });
+});
+
+/**
+ * `applyMutation` uses index arithmetic rather than `String.replace`, because `replace` interprets
+ * `$&`, `$1` and `` $` `` in the REPLACEMENT even when the pattern is a plain string. A registry
+ * entry containing one would write code the registry does not describe — and the run would then
+ * report a verdict about a defect nobody introduced.
+ */
+describe('applyMutation', () => {
+  it('treats `$&` in the replacement as a literal', () => {
+    const source = 'const a = 1;\nconst target = original;\n';
+    const result = applyMutation(source, { find: 'original', replace: '$& + $&' });
+
+    expect(result).toContain('const target = $& + $&;');
+  });
+
+  it('treats `$1` and backtick-dollar in the replacement as literals', () => {
+    const source = 'const target = original;\n';
+
+    expect(applyMutation(source, { find: 'original', replace: '$1' })).toContain('= $1;');
+    expect(applyMutation(source, { find: 'original', replace: '$`x' })).toContain('= $`x;');
+  });
+
+  it('still refuses a find string that does not match exactly once', () => {
+    const source = 'dup\ndup\n';
+
+    expect(() => applyMutation(source, { find: 'dup', replace: 'x' })).toThrow(/expected exactly 1/);
+    expect(() => applyMutation(source, { find: 'absent', replace: 'x' })).toThrow(/expected exactly 1/);
   });
 });

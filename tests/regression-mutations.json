@@ -620,6 +620,28 @@
         "tests/unit/email-templates.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-cookie-must-not-carry-body-jwt",
+      "defect": "With `cookies: { exposeTokenInBody: true }` the sign-in path converts the session token into a JWT for the response body (`resolveJwtToken`), which is what a bearer-using client needs. `processAuthResult()` then wrote that same JWT into the session cookie. Better-Auth resolves a session by the opaque token it stored, so the cookie pointed at nothing: the sign-in itself succeeded and every request afterwards was anonymous — `/iam/session` answered `success: false` for a session that plainly existed in the database, and a browser client was logged out again the moment it navigated. Invisible in the usual `local` baseline, where cookies-only mode makes the two values identical; it only bites in environments that set `exposeTokenInBody` (typically `e2e` / `ci`), which is exactly where nobody browses manually. Found from the outside: a consumer's whole Playwright suite passed locally (`lt dev test` runs NODE_ENV=local) and every authenticated spec failed in CI.",
+      "file": "src/core/modules/better-auth/core-better-auth-cookie.helper.ts",
+      "find": "    const cookieToken = sessionToken ?? result.token;",
+      "replace": "    const cookieToken = result.token;",
+      "specs": [
+        "tests/unit/better-auth-cookie-helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "signin-cookie-drops-session-token",
+      "defect": "11.36.2 — the sign-in call site stopped handing the opaque session token to processCookies(), so with `cookies.exposeTokenInBody` the cookie was written from the body's JWT again. Better-Auth resolves a session by the opaque token it stored, so `/iam/session` answered `success: false` for a session that existed in the database and a browser client was anonymous on the next navigation. The sibling mutation `session-cookie-must-not-carry-body-jwt` cannot catch this: `processCookies()` returns early once a session token is present, so `processAuthResult()` and every unit test of it are unreachable from the repaired path. Reachable only in local/development/ci/e2e — assertCookiesProductionSafe() refuses exposeTokenInBody in production and staging.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        return this.processCookies(res, result, sessionToken);",
+      "replace": "        return this.processCookies(res, result);",
+      "specs": [
+        "tests/stories/cookies-security-property.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

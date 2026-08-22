@@ -13,6 +13,7 @@ import {
   hasSession,
   hasUser,
   requires2FA,
+  sessionTokenFromResponse,
 } from './better-auth.types';
 import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
@@ -490,7 +491,11 @@ export class CoreBetterAuthResolver {
         // If email verification is enabled, revoke the session and don't return session data
         // The user must verify their email before they can use any session
         if (this.emailVerificationService?.isEnabled()) {
-          const sessionToken = hasSession(response) ? response.session.token : undefined;
+          // Shared chain, NOT `hasSession(response) ? response.session.token : undefined`: `token` is
+          // optional on the guard, so that expression returns `undefined` for a response shape that
+          // still carries a revocable token — and the endpoint would then report a revoked session
+          // while a live one remained in the database.
+          const sessionToken = sessionTokenFromResponse(response);
           if (sessionToken) {
             await this.betterAuthService.revokeSession(sessionToken);
           }

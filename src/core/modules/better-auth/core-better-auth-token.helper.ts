@@ -157,6 +157,22 @@ export function isJwt(token: string): boolean {
 }
 
 /**
+ * Whether a value has the SHAPE of a JWT — three dot-separated segments starting with `eyJ`.
+ *
+ * Deliberately structural and deliberately not `startsWith('eyJ')` alone: a Better-Auth session
+ * token is `generateId(32)` over `a-zA-Z0-9-_`, so roughly one in 262 144 of them begins with those
+ * three characters by chance. That is rare enough to reach production as a ghost and frequent
+ * enough to happen. Requiring the dots removes the false positive entirely, because an opaque
+ * session token can never contain one.
+ *
+ * Unlike {@link analyzeToken} this makes no claim about the token's CONTENTS or validity — it
+ * answers "could this be a JWT?", which is the question a guard on a session cookie needs.
+ */
+export function isJwtShaped(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('eyJ') && value.split('.').length === 3;
+}
+
+/**
  * Checks if a token is a Legacy JWT (Passport/JWT strategy).
  *
  * Legacy JWTs are identified by having an 'id' claim (user ID)

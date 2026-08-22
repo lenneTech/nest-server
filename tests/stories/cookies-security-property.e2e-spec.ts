@@ -270,10 +270,73 @@ describe('Story: Cookie Security Property (token-not-in-body)', () => {
       expect(response.body.token.split('.').length).toBe(3);
       expect(response.body.token.startsWith('eyJ')).toBe(true);
 
-      // Cookie: iam.session_token MUST ALSO be set in parallel
+      // Cookie: iam.session_token MUST ALSO be set in parallel — and must NOT be the body's JWT.
+      // Asserting only "defined and non-empty" is what let the defect below ship: the broken build
+      // set a cookie too, just the wrong value.
       const cookies = TestHelper.extractCookies(response);
       expect(cookies['iam.session_token']).toBeDefined();
       expect(cookies['iam.session_token'].length).toBeGreaterThan(0);
+      expect(decodeURIComponent(cookies['iam.session_token']).startsWith('eyJ')).toBe(false);
+    });
+
+    /**
+     * The one assertion that observes the defect from the outside: take the cookie the server
+     * actually issued and use it the way a browser would — on the next request.
+     *
+     * Every other cookie test in this repo either checks the cookie's SHAPE, or reads the raw
+     * session token out of MongoDB and builds the header itself. Both routes around the bug: they
+     * never ask whether the value the SERVER chose still authenticates.
+     *
+     * @regression   11.36.2 — with `exposeTokenInBody` the sign-in cookie was written from the
+     *   body's JWT instead of the opaque session token. Better-Auth resolves a session by the
+     *   opaque value, so `/iam/session` answered `success: false` for a session that plainly
+     *   existed in the database, and a browser client was anonymous again on the next navigation.
+     *   Only reachable in `local`/`development`/`ci`/`e2e`: `assertCookiesProductionSafe()` refuses
+     *   `exposeTokenInBody` in production and staging.
+     * @seen-failing Drop the third argument from `this.processCookies(res, result, sessionToken)`
+     *   in `src/core/modules/better-auth/core-better-auth.controller.ts` — registered as mutation
+     *   `signin-cookie-drops-session-token` in `tests/regression-mutations.json`.
+     */
+    // The helper-level mutation on `BetterAuthCookieHelper` does NOT cover this case, and naming it
+    // above would be false evidence: `processCookies()` returns early once a session token is
+    // present, so `processAuthResult()` — and every unit test of it — is unreachable from the path
+    // this fix repairs. Two mutations, two levels, neither substituting for the other.
+    // (Deliberately a line comment: the evidence guard reads block comments and requires every
+    // mutation id it finds there to actually run THIS file.)
+    it('the session cookie from a hybrid sign-in MUST still authenticate the NEXT request', async () => {
+      const email = makeEmail('iam-hybrid-usable');
+
+      await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: {
+          email,
+          name: 'IAM Hybrid Usable',
+          password: 'SecurePass123!',
+          termsAndPrivacyAccepted: true,
+        },
+        statusCode: 201,
+      });
+
+      const signIn: any = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password: 'SecurePass123!' },
+        returnResponse: true,
+        statusCode: 200,
+      });
+
+      const cookieValue = TestHelper.extractCookies(signIn)['iam.session_token'];
+      expect(cookieValue).toBeDefined();
+
+      // Replay it exactly as a browser would. This is the user-visible symptom, and nothing else
+      // in the suite reproduces it.
+      const session: any = await testHelper.rest('/iam/session', {
+        cookies: { 'iam.session_token': cookieValue },
+        method: 'GET',
+        statusCode: 200,
+      });
+
+      expect(session.success).toBe(true);
+      expect(session.user?.email).toBe(email);
     });
   });
 });
