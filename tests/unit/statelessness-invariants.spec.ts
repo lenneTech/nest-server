@@ -67,6 +67,25 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'Compiled EJS templates keyed by resolved absolute path. Template files ship with the '
+      + 'image and do not change at runtime, so every replica compiles the identical function '
+      + 'from the identical file. Nothing user-specific is retained — the data is passed per '
+      + 'render.',
+    classification: 'derived',
+    file: 'modules/better-auth/core-better-auth-email-verification.service.ts',
+    name: 'compiledTemplates',
+  },
+  {
+    because:
+      'Memoised template-path lookups keyed by `<name>:<locale>`. Resolution reads the same '
+      + 'filesystem layout on every replica, so two replicas cannot disagree; the map only '
+      + 'avoids repeating four blocking existsSync calls per outgoing auth mail.',
+    classification: 'derived',
+    file: 'modules/better-auth/core-better-auth-email-verification.service.ts',
+    name: 'resolvedTemplatePaths',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',

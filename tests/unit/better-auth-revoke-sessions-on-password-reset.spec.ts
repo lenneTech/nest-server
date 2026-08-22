@@ -4,14 +4,15 @@
  *
  * WHY IT IS A FIRST-CLASS FIELD AND NOT JUST `options`
  * ----------------------------------------------------
- * `createBetterAuthInstance()` merges `config.options` with a SHALLOW spread
- * (`{ ...betterAuthConfig, ...restOptions }`; only `advanced` is deep-merged). An
- * `options.emailAndPassword` therefore does not add a key — it REPLACES the whole block, including
- * the scrypt `password.hash` / `password.verify` pair this framework installs. Every credential in
- * the database would stop verifying, and nothing would say so at boot.
+ * Because a named field is validated (`=== true`, so a JSON-env string does not enable a
+ * sign-out-everywhere behaviour), typed, and discoverable — none of which `options` offers.
  *
- * The last test in this file pins that hazard directly, so the justification for the field is a
- * checked property rather than a claim in a docblock that could quietly stop being true.
+ * It used to be for a harsher reason: `config.options` was merged with a SHALLOW spread, so an
+ * `options.emailAndPassword` REPLACED the whole block including the scrypt `password.hash` /
+ * `password.verify` pair, and every credential in the database stopped verifying with nothing said
+ * at boot. `emailAndPassword` is deep-merged now, with `password` re-applied as the base, so that
+ * particular trap is closed — the last test in this file pins the merge that closes it. The field
+ * stays first-class on its own merits.
  *
  * WHY OFF BY DEFAULT
  * ------------------
@@ -96,17 +97,20 @@ describe('betterAuth.emailAndPassword.revokeSessionsOnPasswordReset', () => {
     expect(typeof block.password?.verify).toBe('function');
   });
 
-  describe('the hazard this field exists to avoid', () => {
-    it('shows that options.emailAndPassword REPLACES the block, scrypt pair included', () => {
-      // Not a defect — the documented shallow-merge contract. It is pinned here because it is the
-      // whole reason the flag is a first-class config field: routing it through `options` instead
-      // would take the password functions with it and break every login, silently and at runtime.
+  describe('the hazard the deep-merge closes', () => {
+    it('keeps the scrypt pair when the flag is routed through options instead', () => {
+      // This used to assert `password` was UNDEFINED — the shallow-merge contract, pinned as a
+      // known hazard. Going through `options` took the password functions with it and broke every
+      // login, silently and at runtime. `emailAndPassword` is deep-merged now and `password` is
+      // re-applied as the base, so the wrong-but-plausible config no longer costs a deployment its
+      // logins. Reaching for the named field is still the better habit.
       const block = buildEmailAndPassword({
         options: { emailAndPassword: { enabled: true, revokeSessionsOnPasswordReset: true } },
       });
 
       expect(block.revokeSessionsOnPasswordReset).toBe(true);
-      expect(block.password).toBeUndefined();
+      expect(typeof block.password?.hash).toBe('function');
+      expect(typeof block.password?.verify).toBe('function');
     });
   });
 });

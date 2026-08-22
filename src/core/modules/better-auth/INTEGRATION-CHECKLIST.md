@@ -270,6 +270,44 @@ Available variables: `name`, `link`, `expiresIn`, `appName`
 
 ---
 
+## Password Reset (v11.36.1+)
+
+**Native password reset is ON by default and needs no configuration.**
+`CoreBetterAuthModule` injects the `emailAndPassword.sendResetPassword` hook, so
+`POST /iam/request-password-reset` is live from the first boot. Before 11.36.1 no hook was wired
+and the route answered `RESET_PASSWORD_DISABLED`, so **this changes behaviour on upgrade**: reset
+mail starts going out to real users.
+
+Check these four things when integrating:
+
+- [ ] **Rate limiting is on.** The route is unauthenticated and sends mail. `betterAuth.rateLimit`
+      is off unless you configure it — providing the object at all (even `{}`) enables it. The
+      mailer additionally holds a per-ADDRESS cooldown (`emailVerification.resendCooldownSeconds`,
+      60 s), which is the axis that matters against mail-bombing one victim from rotating IPs.
+- [ ] **Your reset page exists and points at `POST /iam/reset-password`** with `{ token, newPassword }`.
+      Tokens are valid for 1 h by default.
+- [ ] **`trustedOrigins` contains no wildcard.** `redirectTo` is validated against it and the reset
+      redirect carries the token, so a wildcard hands a live token to any origin it admits. The
+      framework warns at boot if it finds one.
+- [ ] **If you ship your own `password-reset.ejs`, it must render from `{ link, name }` alone.**
+      The legacy `POST /users/password/reset-request` flow resolves that exact template name and
+      passes nothing else. Locale variants (`password-reset-de.ejs` / `-en.ejs`) are only reached
+      by the IAM flow and may use `appName`.
+
+To turn the flow off entirely (support-mediated or SSO-primary reset policies):
+
+```typescript
+betterAuth: {
+  emailAndPassword: { passwordReset: false },
+},
+```
+
+Optional: `betterAuth.emailVerification.passwordResetBrevoTemplateId` routes the mail through
+Brevo. It deliberately does **not** fall back to `brevoTemplateId` — that is the verification
+template, which would tell the user to confirm their address instead of resetting their password.
+
+---
+
 ## Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted`.

@@ -295,8 +295,26 @@ export class CustomEmailVerificationService extends CoreBetterAuthEmailVerificat
     await super.sendVerificationEmail(options);
     // Custom logic after (e.g., analytics)
   }
+
+  // The password-reset mail is a separate override point with the same shape. Better-Auth calls it
+  // through the `emailAndPassword.sendResetPassword` hook CoreBetterAuthModule injects.
+  override async sendPasswordResetEmail(options: SendPasswordResetEmailOptions): Promise<void> {
+    // e.g. supply a logo for the shipped templates, which render an <img> when `logoSrc` is set
+    await super.sendPasswordResetEmail(options);
+  }
+
+  // Subject lines are separate protected hooks on both flows.
+  protected override getPasswordResetSubject(appName: string): string {
+    return `${appName} — choose a new password`;
+  }
 }
 ```
+
+**Note:** `sendPasswordResetEmail()` re-throws a Brevo or SMTP send failure after logging it with
+the masked address. The framework's own caller wraps it in `sendAuthEmailSafely`, so a throw never
+reaches the request — an override that calls it directly must handle it. It is also throttled per
+recipient address (see `resendCooldownSeconds`); a send that fails releases the slot so the
+locked-out user may retry immediately.
 
 ### CoreBetterAuthUserMapper
 
@@ -324,7 +342,7 @@ Email templates are resolved in this order:
 | Template             | Purpose                             | Default Locales |
 | -------------------- | ----------------------------------- | --------------- |
 | `email-verification` | Email verification after sign-up    | `en`, `de`      |
-| `password-reset`     | Password reset email                | `en`            |
+| `password-reset`     | Password reset email                | `en`, `de`      |
 | `welcome`            | Welcome email (not used by default) | `en`            |
 
 ### How to Override Templates
@@ -357,12 +375,20 @@ const config = {
 
 Available variables in email templates:
 
-| Variable    | Type   | Description                                       |
-| ----------- | ------ | ------------------------------------------------- |
-| `name`      | string | User's name or email prefix                       |
-| `link`      | string | Verification/reset URL                            |
-| `appName`   | string | Application name from package.json                |
-| `expiresIn` | string | Human-readable expiration time (e.g., "24 hours") |
+| Variable    | Type   | Passed by             | Description                                                                                                                                                                              |
+| ----------- | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`      | string | both flows            | User's name or email prefix                                                                                                                                                              |
+| `link`      | string | both flows            | Verification/reset URL                                                                                                                                                                   |
+| `appName`   | string | both flows            | Application name from package.json                                                                                                                                                       |
+| `expiresIn` | string | verification only     | Human-readable expiration time (e.g., "24 hours")                                                                                                                                        |
+| `logoSrc`   | string | **nobody — optional** | Not supplied by the framework. The shipped password-reset templates render an `<img>` when it is present and the app name as text otherwise; pass it from a subclass override to use it. |
+
+**A template may only reference what its caller passes.** EJS resolves variables at render time, so
+a missing one is a `ReferenceError` and an HTTP 500, not a build error. Two shapes reach
+`password-reset`: the IAM flow passes `{ name, link, appName }`, and the LEGACY
+`POST /users/password/reset-request` flow (`UserService.sendPasswordResetMail()`) passes
+`{ name, link }` only. Guard anything else with `typeof x !== 'undefined'`, as the shipped
+templates do.
 
 ### Example Template
 

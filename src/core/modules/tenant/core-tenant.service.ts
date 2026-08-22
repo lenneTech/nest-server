@@ -74,11 +74,45 @@ export class CoreTenantService {
   }
 
   /**
-   * Get a single membership (any status).
+   * Get a single membership REGARDLESS of its status.
+   *
+   * Read the name literally: a removal is a status change to `SUSPENDED`, not
+   * a delete, so this still answers for somebody who was thrown out. That is
+   * deliberate and `addMember` depends on it — it reactivates the existing row
+   * instead of creating a duplicate.
+   *
+   * It is therefore the WRONG method for an authorization check. Asking "is
+   * this user a member with role X?" through it answers yes for a removed
+   * member, and a route that guards itself this way keeps granting a
+   * suspended administrator the right to invite, remove and re-role — the very
+   * rights that being removed was supposed to take away. Routes that carry
+   * `@SkipTenantCheck()` and decide for themselves are exactly the ones at
+   * risk, because the tenant guard never sees them.
+   *
+   * For an authorization check use {@link getActiveMembership}.
    */
   async getMembership(tenantId: string, userId: string): Promise<CoreTenantMemberModel | null> {
     return this.memberModel
       .findOne({ tenant: tenantId, user: userId })
+      .lean()
+      .exec() as Promise<CoreTenantMemberModel | null>;
+  }
+
+  /**
+   * Get a membership only while it is live — the one to use when deciding what
+   * somebody may do.
+   *
+   * Returns `null` for a suspended or invited membership, so "removed" means
+   * removed everywhere, not just for the data the tenant guard happens to
+   * cover.
+   */
+  async getActiveMembership(tenantId: string, userId: string): Promise<CoreTenantMemberModel | null> {
+    if (!tenantId?.trim() || !userId?.trim()) {
+      return null;
+    }
+
+    return this.memberModel
+      .findOne({ status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId })
       .lean()
       .exec() as Promise<CoreTenantMemberModel | null>;
   }
@@ -193,8 +227,11 @@ export class CoreTenantService {
     assertAssignableMembershipRole(role);
     const highestRole = this.getHighestRole();
 
-    // If demoting from highest role, ensure it's not the last one
-    const existing = await this.getMembership(tenantId, userId);
+    // If demoting from highest role, ensure it's not the last one. Active
+    // only: a suspended membership is not an owner any more, and letting it
+    // trigger the guard produces "cannot demote the last owner" for a user who
+    // is not even a member.
+    const existing = await this.getActiveMembership(tenantId, userId);
     if (existing?.role === highestRole && role !== highestRole) {
       await this.assertNotLastOwner(tenantId, userId);
     }
@@ -237,7 +274,7 @@ export class CoreTenantService {
       });
 
       if (ownerCount <= 1) {
-        const membership = await this.getMembership(tenantId, userId);
+        const membership = await this.getActiveMembership(tenantId, userId);
         if (membership?.role === highestRole) {
           throw new BadRequestException('Cannot remove or demote the last owner of a tenant');
         }

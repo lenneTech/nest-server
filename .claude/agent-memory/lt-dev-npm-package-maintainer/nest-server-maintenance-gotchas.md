@@ -56,4 +56,27 @@ Frequent depcheck false positives here — all genuinely required, do not remove
 just `src/`), `tsconfig-paths` + `npm-watch` + `rimraf` (package.json scripts), `husky`
 (`.husky/`), `@compodoc/compodoc` (`compodoc` binary in `docs` scripts).
 
+## `pnpm ... | tail` / `| head` fakes a hang (recurred 2026-08-22)
+
+Reconfirmed twice in one session, and it now costs a 10-minute timeout each time. A
+`pnpm install ... > file 2>&1; grep ... | head` compound ALSO hangs — redirecting the
+install output to a file is not enough if a LATER command in the same compound pipes to
+`head`/`tail`.
+
+**How to apply:** never pipe to `head`/`tail` in a compound with pnpm. Use `grep -c`,
+`grep -m1`, or redirect and read the file in a separate call. Confirm the work landed by
+checking the artifact (lockfile mtime, `package.json` contents) before diagnosing a hang.
+
+## oxlint 1.79.0 warns on an INTENTIONAL zero-width space
+
+`tests/unit/toolchain-contract.spec.ts:16` embeds U+200B in `scripts/**<ZWSP>/*.ts` inside
+a JSDoc block, so the `*/` does not terminate the comment early. oxlint 1.79.0's
+`no-irregular-whitespace` flags it.
+
+**Why it is safe to ignore:** `lint` has no `--deny-warnings`, so it exits 0, and
+`lint:fix` does NOT auto-remove the character (verified 2026-08-22 — the file stayed
+byte-identical). Removing it would break the comment and the file.
+
+**How to apply:** leave it. Do not "fix" it, and do not modify the test to silence it.
+
 Related: [[nest-server-override-status]], [[deferred-major-updates]]

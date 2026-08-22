@@ -63,15 +63,23 @@ peerDependencyRules:
 # therefore mirrored in nest-server-starter and lt-monorepo, and documented for hand-rolled setups
 # in docs/security-overrides.md (which ships, because `docs/**` is in package.json `files`).
 #
-# Last verified 2026-07-22 by resolving a lockfile with this block stripped, statuses re-checked
-# 2026-08-19 against the resolved tree:
-#   LOAD-BEARING - removing them reintroduces a vulnerable version:
-#     @hono/node-server  -> regresses to 1.19.14
-#   INERT today - each already resolves to a patched version without help. Kept only as a pin, so
-#   each one silently becomes a DOWNGRADE-LOCK the moment a newer patch ships upstream. Re-check
-#   every maintenance run and drop what is no longer needed:
-#     ws (newly inert 2026-08-19 - see its entry), axios, brace-expansion x3, js-yaml, fast-uri,
-#     body-parser
+# Last verified 2026-08-22 by resolving TWO fresh lockfiles - one with this block, one without -
+# and diffing the resolved versions. Do it that way: comparing against the committed lockfile
+# hides every effect, because that lockfile already carries the pinned versions.
+#   LOAD-BEARING - removing them reintroduces a vulnerable or unpatched version:
+#     brace-expansion (2.x line returns), minimatch (9.0.9 returns), hono (SDK's ^4.11.4 alone
+#     does not reach the advisories), axios + ip-address (their keys are what lift the parent
+#     ranges onto the patched line)
+#   INERT today - each already resolves to a patched version without help, and each target is at
+#   the latest release in its major, so none is currently holding anything back. Kept as cheap
+#   insurance against a parent re-pinning downwards. Re-check every maintenance run:
+#     ws, js-yaml x2, fast-uri, nanoid, postcss, undici, body-parser
+#
+# DOWNGRADE-LOCK is the failure mode to hunt for here, and the 2026-08-22 run found three of them
+# (axios, ip-address, hono). A key is matched against the REQUESTED RANGE, not the resolved
+# version, so even a "floored" key replaces the parent's whole spec. An entry therefore stops
+# being harmless the moment its target falls behind the newest release in the major - check every
+# target against `npm view <pkg> versions` each run, and raise the target and the key together.
 #
 # Every target MUST be a fixed version, never an unbounded range - see
 # .claude/rules/package-management.md for the incident that rule exists to prevent.
@@ -91,8 +99,14 @@ overrides:
   # Remove once ws 8.x is no longer reachable at all, or once @nestjs/graphql floors it in a range.
   'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
-  # Inert today (axios already resolves >=1.18.0). Remove once node-mailjet requests >=1.18.0 itself.
-  'axios@<1.18.0': '1.18.1'
+  # Target raised 1.18.1 -> 1.19.0 on 2026-08-22, and the key upper bound with it. NOT cosmetic: an
+  # override key matches the REQUESTED RANGE, not the resolved version, so `axios@<1.18.0` still
+  # matched node-mailjet's `^1.x` and replaced the whole spec - holding axios at 1.18.1 while a
+  # clean resolve gives 1.19.0. A "floored" key does NOT make an entry downgrade-proof; only a
+  # target at the latest release in the major does. Verified 2026-08-22 by diffing two fresh
+  # lockfile resolves (with/without this block).
+  # Remove once node-mailjet requests >=1.18.0 itself.
+  'axios@<1.19.0': '1.19.0'
   # Security: brace-expansion DoS - two advisories. GHSA-3jxr-9vmj-r5cp (exponential-time expansion of
   # consecutive non-expanding {} groups) and GHSA-mh99-v99m-4gvg (unbounded expansion length -> OOM,
   # patched ONLY in 5.0.8; verified 2026-07-28 that 1.1.16 and 2.1.2 carry no length guard at all).
@@ -129,8 +143,11 @@ overrides:
   'fast-uri@>=3.0.0 <3.1.5': '3.1.5'
   # Security: ip-address ReDoS + parser confusion (high + moderate, patched >=10.3.1) - dev/transitive
   # via @modelcontextprotocol/sdk>express-rate-limit>ip-address.
+  # Target raised 10.3.1 -> 10.5.0 on 2026-08-22 (key upper bound with it): the old entry pinned
+  # ip-address two minors behind the 10.5.0 a clean resolve gives - see the axios entry above for
+  # why a floored key is not enough on its own.
   # Remove once express-rate-limit requests >=10.3.1.
-  'ip-address@<10.3.1': '10.3.1'
+  'ip-address@<10.5.0': '10.5.0'
   # Security: TWO advisories on the 3.x line — predictable output with a non-integer size
   # (patched >=3.3.17) and, since 2026-08, custom generators looping indefinitely when size
   # is zero (high, patched >=3.3.18). The target is the LATER of the two; a 3.3.17 target
@@ -149,7 +166,10 @@ overrides:
   # stays a patch bump inside major 4 and cannot drag a future 5.x across a major.
   # KEEP THIS ENTRY - see the hono note below for the earlier form that was removed and why this
   # one is not it. Remove only once the SDK requests >=4.12.34 itself.
-  'hono@>=4.0.0 <4.12.34': '4.12.34'
+  # Target raised 4.12.34 -> 4.13.3 on 2026-08-22, key upper bound with it: the old entry matched
+  # the SDK's `^4.11.4` and replaced it, holding hono a minor behind the 4.13.3 a clean resolve
+  # gives. See the axios entry for the general form of this trap.
+  'hono@>=4.0.0 <4.13.3': '4.13.3'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'
@@ -159,16 +179,30 @@ overrides:
   # the whole matched spec with the target, so such an entry is a HARD PIN - it dragged hono BACK
   # four patch releases from the 4.12.31 the SDK resolved on its own, silently reintroducing
   # everything fixed in 4.12.28-4.12.31. That shape must not come back.
-  # The current entry is RANGE-FLOORED (`hono@>=4.0.0 <4.12.34` -> `4.12.34`): the key stops BELOW
-  # the target, so it can only ever lift a vulnerable version up to the patch and never pulls a
-  # newer one down. That is the correct shape, and it is required for the three moderate advisories
-  # (GHSA-xgm2-5f3f-mvvc, GHSA-hvrm-45r6-mjfj, GHSA-w62v-xxxg-mg59) plus the 4.12.34 path-handling
-  # and body-limit fixes, which the SDK's `^4.11.4` does not reach on its own.
-  # Security: @hono/node-server path traversal in the static-file handler (GHSA-frvp-7c67-39w9, patched >=2.0.5) plus an unauthenticated memory leak in the 2.x line itself (GHSA-9mqv-5hh9-4cgg, patched >=2.0.10); both moderate.
-  # Transitive via @modelcontextprotocol/sdk, which declares ^1.19.9 and ships NO 1.x fix line, so this is deliberately a cross-major override.
-  # Verified safe: the SDK's only consumed symbol is `getRequestListener` (server/streamableHttp.js, loaded by core-ai-mcp.controller.ts), unchanged in 2.x as `(fetchCallback, options?)` and confirmed present at runtime. Engines `>=20` fit this package's `>= 22`, peer `hono@^4` is satisfied by the resolved 4.12.31.
-  # LOAD-BEARING. Drop this entry as soon as @modelcontextprotocol/sdk moves its own range to ^2.
-  '@hono/node-server@<2.0.10': '2.0.11'
+  # CORRECTION 2026-08-22: the claim that used to stand here - that a RANGE-FLOORED key "can only
+  # ever lift a vulnerable version up and never pulls a newer one down" - is FALSE, and believing it
+  # cost three entries (axios, ip-address, hono) a silent hold-back. An override key is matched
+  # against the REQUESTED RANGE a parent declares, not against the version that would resolve. The
+  # SDK's `^4.11.4` intersects `<4.12.34`, so the floored key matched and replaced the whole spec,
+  # pinning hono at the target while a clean resolve gave 4.13.3. Flooring the key bounds the
+  # BLAST RADIUS (it cannot drag a future 5.x across a major) but it does NOT make the entry
+  # downgrade-proof. The only thing that does is keeping the TARGET at the latest release in the
+  # major - so every raise must move the target and the key upper bound together, and every
+  # maintenance run must re-check the targets against `npm view <pkg> versions`.
+  # Method that shows it: resolve two fresh lockfiles, one with this block and one without, and
+  # diff the resolved versions. Reusing the committed lockfile hides the effect, because it already
+  # carries the pinned versions.
+  # The hono entry is still required for the three moderate advisories (GHSA-xgm2-5f3f-mvvc,
+  # GHSA-hvrm-45r6-mjfj, GHSA-w62v-xxxg-mg59) plus the 4.12.34 path-handling and body-limit fixes,
+  # which the SDK's `^4.11.4` does not reach on its own.
+  #
+  # REMOVED 2026-08-22: '@hono/node-server@<2.0.10': '2.0.11'
+  # Its own documented removal condition - "drop this entry as soon as @modelcontextprotocol/sdk
+  # moves its own range to ^2" - is now met. SDK 1.30.0 declares `^1.19.9 || ^2.0.5`, and a fresh
+  # resolve WITHOUT the override picks 2.1.1, i.e. above the 2.0.10 that fixes GHSA-9mqv-5hh9-4cgg
+  # (memory leak) and well above the 2.0.5 that fixes GHSA-frvp-7c67-39w9 (static-file path
+  # traversal). Keeping it would have held the package at 2.0.11 for no benefit. The old comment's
+  # "regresses to 1.19.14" is stale - that was true while the SDK declared ^1.19.9 alone.
 
 # Supply-chain hold-back: do not resolve a version published less than a day ago, so a compromised
 # release has time to be detected and unpublished before it can enter this lockfile.
@@ -193,11 +227,12 @@ minimumReleaseAge: 1440
 #   - an install that must resolve a fresh version (a same-day dependency bump) records it here.
 # Every entry is an EXACT version, so an exemption can never widen to a later release.
 minimumReleaseAgeExclude:
-  # Bumped 3.1105.0 -> 3.1106.0 alongside the devDependency; the AWS SDK publishes almost daily,
-  # so this pair always trips a hold-back and the pinned version has to be carried along.
-  - '@aws-sdk/client-s3@3.1112.0'
-  - '@aws-sdk/s3-request-presigner@3.1112.0'
-  - bullmq@6.1.2
+  # Cleared 2026-08-22: the AWS SDK pair (3.1112.0) and bullmq (6.1.2) were bumped to 3.1115.0 and
+  # 6.2.0, and all three of those releases are already older than the 1440-minute hold-back, so no
+  # exemption is needed to install them. Superseded exemptions are removed rather than carried:
+  # each one names an EXACT version, so it goes dead the moment that version stops resolving, and a
+  # dead entry reads like a live waiver of the supply-chain policy. Re-add one only when an install
+  # genuinely cannot resolve without it.
   - '@nestjs/common@11.2.1'
   - '@nestjs/core@11.2.1'
   - '@nestjs/platform-express@11.2.1'

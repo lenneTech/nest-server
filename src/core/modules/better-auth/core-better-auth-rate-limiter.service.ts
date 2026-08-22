@@ -49,7 +49,21 @@ const DEFAULT_CONFIG: Required<IBetterAuthRateLimit> = {
   maxEntries: 10000,
   message: 'Too many requests, please try again later.',
   skipEndpoints: ['/session', '/callback'],
-  strictEndpoints: ['/sign-in', '/sign-up', '/forgot-password', '/reset-password'],
+  // The routes Better-Auth actually serves, plus the spellings a project may route itself.
+  // `/request-password-reset` is the entry point that MINTS a reset token and sends mail; it
+  // matched nothing here before (the only `/` in it is followed by `request`, so
+  // `includes('/reset-password')` is false), which left the expensive, mail-sending half of the
+  // flow on the FULL limit while the cheap submit half got the halved one. `/forget-password` is
+  // Better-Auth's own alias spelling — `/forgot-password` never matched any real route.
+  strictEndpoints: [
+    '/sign-in',
+    '/sign-up',
+    '/request-password-reset',
+    '/forget-password',
+    '/forgot-password',
+    '/reset-password',
+    '/change-password',
+  ],
   windowSeconds: 60,
 };
 
@@ -88,10 +102,24 @@ export class CoreBetterAuthRateLimiter {
    *
    * @param config - Rate limiting configuration
    */
-  configure(config: IBetterAuthRateLimit | undefined): void {
+  configure(config: IBetterAuthRateLimit | null | undefined): void {
+    // Absent config leaves rate limiting off — backward compatible.
+    if (config === undefined || config === null) {
+      return;
+    }
+
+    // Presence of config implies enabled, unless explicitly disabled. This is the contract
+    // `.claude/rules/configurable-features.md` documents for `betterAuth.rateLimit`, and the one
+    // `LegacyAuthRateLimiter.configure()` has always implemented. Spreading over an
+    // `enabled: false` default without recomputing meant the two sibling limiters had OPPOSITE
+    // semantics: a documented `rateLimit: { max: 20 }` armed the legacy limiter and silently
+    // armed nothing here — on the side where every new project lives.
+    const enabled = config.enabled !== false;
+
     this.config = {
       ...DEFAULT_CONFIG,
       ...config,
+      enabled,
       // Ensure arrays are properly merged
       skipEndpoints: config?.skipEndpoints ?? DEFAULT_CONFIG.skipEndpoints,
       strictEndpoints: config?.strictEndpoints ?? DEFAULT_CONFIG.strictEndpoints,
