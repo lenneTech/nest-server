@@ -372,6 +372,59 @@ this question.
 > marked `@deprecated` and exist **only** for external deep importers. Never use them from inside
 > the module — that is precisely the path that re-creates the cycle.
 
+## 7. Session Cookie vs. Body Token — Never the Same Value
+
+The session cookie and the token in the response body are **two different things** whenever both
+delivery modes are active at once (`cookies: { exposeTokenInBody: true }`).
+
+| Carrier | Value | Why |
+|---|---|---|
+| `Set-Cookie: <prefix>.session_token` | the **opaque session token** | Better-Auth resolves a session by exactly this value |
+| response body `token` | a **JWT** (via `resolveJwtToken`) — **only when the JWT plugin is enabled** | what a bearer-using client needs |
+
+`shouldConvertSessionTokenToJwt()` turns the session token into a JWT as soon as the body is meant
+to carry one **and** the JWT plugin is active. With `exposeTokenInBody` but no JWT plugin, no
+conversion happens and both carriers hold the same value — the divergence needs all three. Writing that JWT into the cookie is silent and catastrophic: the sign-in itself
+succeeds, and **every request afterwards is anonymous** — `/iam/session` answers `success: false`
+for a session that plainly exists in the database. A browser client is therefore logged out again
+the moment it navigates.
+
+The failure hides especially well because `cookies`-only mode (the usual `local` baseline) is
+unaffected — there the two values are the same thing. It only appears in environments that set
+`exposeTokenInBody` (typically `e2e` / `ci`), which is exactly where nobody browses manually.
+`assertCookiesProductionSafe()` refuses `exposeTokenInBody` in `production` and `staging`, so a live
+deployment can never be in this state — the blast radius is development and CI.
+
+**Rule:** every **IAM** authentication path must hand the session token to `processCookies()`
+explicitly. Do not rely on `result.token` — by then it may already be a JWT. This is about
+`CoreBetterAuthController`; the identically-named `processCookies()` on the LEGACY
+`CoreAuthController` / `CoreAuthResolver` takes two arguments and legitimately carries the JWT.
+
+```ts
+// A PRECEDENCE CHAIN, not a ternary on hasSession(): `session.token` is OPTIONAL on the type
+// guard, so a response with a `session` object but no token inside it would satisfy the guard,
+// yield undefined, skip the fallback and hand the JWT to the cookie. api.signInEmail() is the
+// mirror case — top-level token, no `session` object at all.
+const sessionToken = this.sessionTokenForCookie(response);
+
+return this.processCookies(res, result, sessionToken);
+```
+
+**The invariant does not depend on remembering this.** `setSessionCookies()` refuses a JWT-shaped
+value outright, so a call site that forgets produces no cookie and an error log — loud, rather than
+a cookie that authenticates nothing.
+
+Covered on two levels, because a unit test of the helper cannot see a call site:
+
+| Level | Test | Mutation |
+|---|---|---|
+| Helper contract | `tests/unit/better-auth-cookie-helper.spec.ts` → *"session cookie vs. body token"* | `session-cookie-must-not-carry-body-jwt` |
+| The repaired path | `tests/stories/cookies-security-property.e2e-spec.ts` → hybrid mode, replaying the cookie against `/iam/session` | `signin-cookie-drops-session-token` |
+
+Both are needed. `processCookies()` returns early once a session token is present, so
+`processAuthResult()` — and every unit test of it — is **unreachable** from the path the fix
+repairs. Only the second row observes the defect the way a browser would.
+
 ## Summary
 
 | Principle | Requirement |
@@ -382,3 +435,4 @@ this question.
 | Customization | Use correct registration pattern, re-declare Resolver decorators |
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
+| Session cookie | Always the opaque session token — never the body JWT (§7) |

@@ -28,4 +28,6 @@
 
 - [project-e2e-node-env-trap.md](project-e2e-node-env-trap.md) — e2e without NODE_ENV=e2e fabricates 5 bogus BetterAuth "Invalid credentials" failures; reproduces on base branch too, so a control-diff won't catch it
 - [project-betterauth-native-cookie-forwarding.md](project-betterauth-native-cookie-forwarding.md) — BetterAuth native-handler paths forward Set-Cookie verbatim, bypass the cookie helper's Secure flag; useSecureCookies:false (11.27.6) drops Secure on 2FA/social/magic-link session cookies
+- [project-betterauth-cookie-vs-body-token.md](project-betterauth-cookie-vs-body-token.md) — **FIXED 11.36.3**; why isJwtShaped() is sound (no dots in better-auth ids) + where the refusal is still silent
+- [project-check-mutations-tooling-risks.md](project-check-mutations-tooling-risks.md) — **all 3 risks FIXED 11.36.3**; keeps the git option-injection probe + the one residual ordering window
 - [project-exception-wire-format.md](project-exception-wire-format.md) — HttpExceptionLogFilter sends `{...exception}` (class `name` is client-visible); `extends HttpException` breaks instanceof vs native Forbidden/Unauthorized

@@ -256,4 +256,152 @@ describe('BetterAuthCookieHelper', () => {
       expect(service.getSessionCookieName()).toBe('acme.session_token');
     });
   });
+
+  /**
+   * The session cookie and the body token are two different things.
+   *
+   * With `cookies` AND `exposeTokenInBody` both on, the sign-in path converts
+   * the session token into a JWT for the response body — that is what a
+   * bearer-using client wants. The cookie must NOT get that JWT: BetterAuth
+   * looks a session up by the opaque token it stored, and a JWT is not it. The
+   * result was a request that authenticated once and was anonymous ever after
+   * — `/iam/session` answered `success: false` on a session that plainly
+   * existed in the database.
+   *
+   * So the cookie takes the session token explicitly, and the body keeps the
+   * JWT.
+   */
+  /**
+   * @regression   11.36.2 — `processAuthResult()` wrote the body's JWT into the session cookie when
+   *   both delivery modes were active, so Better-Auth could not resolve the session it had just
+   *   created.
+   * @seen-failing Replace `const cookieToken = sessionToken ?? result.token;` with
+   *   `const cookieToken = result.token;` in
+   *   `src/core/modules/better-auth/core-better-auth-cookie.helper.ts` — registered as mutation
+   *   `session-cookie-must-not-carry-body-jwt` in `tests/regression-mutations.json`.
+   */
+  // Scope, so nobody reads these four cases as proof the BUG is fixed: they pin the HELPER's
+  // contract. The controller returns early before reaching the helper on the sign-in path, so the
+  // fix itself is pinned one level up, by the hybrid-mode case in
+  // tests/stories/cookies-security-property.e2e-spec.ts. Both are needed.
+  // (Line comment on purpose: the evidence guard requires every mutation id inside a block comment
+  // to run the file the block lives in.)
+  describe('session cookie vs. body token', () => {
+    const SESSION_TOKEN = 'nikIcyg9nohjB7LtAPYdwTkVwkUdQDGs';
+    const JWT = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJl';
+
+    function collectingRes() {
+      const calls: Array<{ name: string; value: string }> = [];
+      return {
+        calls,
+        res: { cookie: vi.fn((name: string, value: string) => calls.push({ name, value })) } as any,
+      };
+    }
+
+    it('writes the SESSION token into the cookie when one is handed over', () => {
+      const helper = new BetterAuthCookieHelper(createConfig({ secret: 'test-secret' }));
+      const { calls, res } = collectingRes();
+
+      const result = helper.processAuthResult(res, { token: JWT }, true, true, SESSION_TOKEN);
+
+      const sessionCookie = calls.find((c) => c.name === 'iam.session_token');
+      expect(sessionCookie).toBeDefined();
+      // Signed, so the value carries the token plus a signature — the token
+      // itself has to be in there, and the JWT must not.
+      expect(decodeURIComponent(sessionCookie!.value)).toContain(SESSION_TOKEN);
+      expect(sessionCookie!.value).not.toContain('eyJhbGciOiJFZERTQSJ9');
+
+      // …and the body still carries the JWT for bearer-using clients.
+      expect(result.token).toBe(JWT);
+    });
+
+    it('never lets a JWT reach the session cookie', () => {
+      // The regression this whole block exists for: a JWT in the session
+      // cookie authenticates the sign-in response and nothing afterwards.
+      const helper = new BetterAuthCookieHelper(createConfig({ secret: 'test-secret' }));
+      const { calls, res } = collectingRes();
+
+      helper.processAuthResult(res, { token: JWT }, true, true, SESSION_TOKEN);
+
+      // Load-bearing, and the reason this test was vacuous before: under the registered mutation
+      // `setSessionCookies()` REFUSES the JWT and writes nothing, so `calls` is empty and the loop
+      // below iterates zero times — passing with the defect fully restored. Assert that cookies
+      // were written at all before asserting anything about their contents.
+      expect(calls.length).toBeGreaterThan(0);
+
+      for (const call of calls) {
+        expect(call.value.startsWith('eyJ')).toBe(false);
+      }
+    });
+
+    it('falls back to the body token when no session token is handed over', () => {
+      const helper = new BetterAuthCookieHelper(createConfig({ secret: 'test-secret' }));
+      const { calls, res } = collectingRes();
+
+      helper.processAuthResult(res, { token: SESSION_TOKEN }, true, true);
+
+      const sessionCookie = calls.find((c) => c.name === 'iam.session_token');
+      expect(decodeURIComponent(sessionCookie!.value)).toContain(SESSION_TOKEN);
+    });
+
+    it('still removes the body token in cookies-only mode', () => {
+      const helper = new BetterAuthCookieHelper(createConfig({ secret: 'test-secret' }));
+      const { calls, res } = collectingRes();
+
+      const result = helper.processAuthResult(res, { token: SESSION_TOKEN }, true, false, SESSION_TOKEN);
+
+      expect(result.token).toBeUndefined();
+      expect(decodeURIComponent(calls.find((c) => c.name === 'iam.session_token')!.value)).toContain(
+        SESSION_TOKEN,
+      );
+    });
+  });
+});
+
+/**
+ * Structural invariant, in the style of `import-cycle-invariants.spec.ts`.
+ *
+ * `processAuthResult()` is public API on an exported class, and `processCookies()` is a documented
+ * inheritance seam. TypeScript permits an override with FEWER parameters, so a subclass that still
+ * declares the pre-11.36.2 four-argument signature keeps compiling while silently dropping the
+ * session token — reintroducing the defect in a consumer project with no compile error.
+ *
+ * Two things answer that. `setSessionCookies()` refuses a JWT-shaped value outright, so the failure
+ * is loud (no cookie, an error log) rather than silent (the wrong cookie). And this test pins the
+ * arity, so the parameter cannot quietly disappear from the framework side either.
+ *
+ * The cleaner fix is an options object, which would turn a short override into a compile error —
+ * but that is a breaking change to a shipped public signature and belongs in a MINOR release, not
+ * in a patch that projects need urgently.
+ */
+describe('processAuthResult signature (structural invariant)', () => {
+  it('still accepts the session token as its fifth parameter', () => {
+    // `Function.length` counts parameters before the first default, so `exposeTokenInBody = false`
+    // truncates it at 3. Read the source instead — this is about the declared shape, not arity.
+    //
+    // Only the PARAMETER LIST, not the whole function: `sessionToken` also appears in the body
+    // (`const cookieToken = sessionToken ?? result.token`), so matching the full source would keep
+    // passing after the parameter was removed — the one change this test exists to catch.
+    const source = BetterAuthCookieHelper.prototype.processAuthResult.toString();
+    const signature = source.slice(0, source.indexOf('{'));
+
+    expect(signature, 'processAuthResult must still declare a sessionToken parameter').toContain('sessionToken');
+  });
+
+  it('prefers the session token over the body token when both are present', () => {
+    // The behavioural half of the same invariant: the parameter existing is worthless if the body
+    // token wins. Fails the moment the precedence is inverted.
+    const sessionToken = 'nikIcyg9nohjB7LtAPYdwTkVwkUdQDGs';
+    const jwt = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJl';
+    const written: Array<{ name: string; value: string }> = [];
+    const res = { cookie: vi.fn((name: string, value: string) => written.push({ name, value })) } as any;
+    const helper = new BetterAuthCookieHelper({ basePath: '/iam', secret: 'test-secret' });
+
+    helper.processAuthResult(res, { token: jwt }, true, true, sessionToken);
+
+    expect(written.length).toBeGreaterThan(0);
+    for (const cookie of written) {
+      expect(decodeURIComponent(cookie.value).startsWith('eyJ'), `${cookie.name} must not carry the JWT`).toBe(false);
+    }
+  });
 });

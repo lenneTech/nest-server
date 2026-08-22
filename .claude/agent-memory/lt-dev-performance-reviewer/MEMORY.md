@@ -14,6 +14,7 @@
 ## Micro-costs (measured, reusable)
 - [ConfigService.get cost](config-service-get-cost.md) — measured 152 ns/call (rfdc factory rebuilt every call); `getFastButReadOnly` is the 79 ns option. Only matters inside loops.
 - [GridFS verify + stream costs](gridfs-verify-and-stream-costs.md) — COUNT_SCAN is index-only but O(chunks); connect/close ~43 ms/file; `pipe()` leaks the source on client abort; `process.exit()` truncates piped stdout at 64 KB.
+- [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: npx 239ms vs .bin 41ms, worktree add ~190ms; the cited 1.87x predates CHECK_LOW_RESOURCE=1 and needs re-measuring.
 
 ## Memory & Process
 - [Heap Ceiling + Sync stderr](heap-ceiling-and-sync-stderr.md) — measured: `--max-old-space-size=4096` is a no-op on 32GB hosts; bare `node` in prod is correct (cgroup auto-sizing); `writeSync(2)` blocks forever on a stalled pipe.

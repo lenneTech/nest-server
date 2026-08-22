@@ -234,21 +234,41 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
+pnpm run check:mutations -- --no-infra      # only the 21 that need no MongoDB
+pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
+
+`--no-infra` and `--since` narrow the run for LOCAL work and are deliberately not wired into the
+publish path. Both print how many mutations they did NOT check, because a narrowed run that reports
+only what it ran reads exactly like a full pass. An empty selection exits **2**, not 0 — the message
+alone would not stop a `&&` chain or a hook from reading "nothing ran" as "everything passed".
+
+`--since` is a **heuristic**: it matches a mutation's own target file and spec files, and does NOT
+follow what those specs transitively import or read at runtime (`email-templates.spec.ts` reads
+`.ejs` files that appear in no import graph). A refactor three modules away can hollow out a test it
+will happily skip — the precise failure this tool exists to catch. It falls back to the full set
+when the registry, a vitest config or a setup file changed, since those can move any verdict.
+
+**Why the gate does not cache per-mutation verdicts instead.** It runs ONCE PER RELEASE, not per
+commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
+model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
+for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 51
+mutations. Worth revisiting around 100, where the full run approaches half an hour.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 29 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 30 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 49 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 51 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
 So it parallelises well, and `--jobs` does exactly that: **744s → 399s (1.87×) at 4 jobs**. Verified
-by diffing all 49 verdicts against a sequential run — a parallel mode that changes a verdict is not
+by diffing all 49 verdicts against a sequential run (measured at the 49-mutation registry) — a
+parallel mode that changes a verdict is not
 an optimisation, it is a broken safety net.
 
 **A mutation writes into the source tree**, which is why N cannot simply run at once: two mutations

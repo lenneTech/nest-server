@@ -179,6 +179,12 @@ export class ServerModule {}
 > **Never set `exposeTokenInBody: true` in production** — the framework throws at
 > startup if this is detected in `production` or `staging` environments (XSS-risk guard).
 >
+> **In this hybrid mode the body token and the session cookie carry DIFFERENT values** whenever
+> the JWT plugin is also active: the body gets a JWT, the cookie keeps the opaque Better-Auth
+> session token. If you override a sign-in handler or `processCookies()`, read
+> [CUSTOMIZATION.md → _Session cookie vs. body token_](./CUSTOMIZATION.md#session-cookie-vs-body-token--do-not-conflate-them)
+> before you derive the cookie value yourself — conflating the two is what caused 11.36.3.
+>
 > To keep the old behavior (cookies off, tokens in body everywhere), set `cookies: false`.
 
 #### Zero-Config (Default):

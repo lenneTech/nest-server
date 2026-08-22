@@ -13,7 +13,8 @@ import { join } from 'node:path';
  * The fix has two halves, and BOTH are load-bearing. Removing either one re-arms the trap in one
  * of the two directories, so each is pinned here:
  *
- *  1. `tsconfig.tests.json` raises `lib` to ES2023 — tests and `scripts/**​/*.ts` ship to nobody, so
+ *  1. `tsconfig.tests.json` raises `lib` to ES2023 — tests and everything under `scripts/` ship to
+ *     nobody, so
  *     they may use the API the linter prefers.
  *  2. `.oxlintrc.json` turns the rule OFF for `src/**` — shipped source may NOT, because vendor-mode
  *     consumers copy `src/core/**` into their own tree and compile it with the starter's tsconfig

@@ -181,6 +181,31 @@ export class IamController extends CoreBetterAuthController {
 }
 ```
 
+### Session cookie vs. body token — do not conflate them
+
+If you override a sign-in / sign-up handler, or `processCookies()` itself, know that these two
+carry **different values** whenever `cookies.exposeTokenInBody` is on together with the JWT plugin:
+
+| Carrier                              | Value                                    |
+| ------------------------------------ | ---------------------------------------- |
+| `Set-Cookie: <prefix>.session_token` | the **opaque** Better-Auth session token |
+| response body `token`                | a **JWT**                                |
+
+Better-Auth resolves a session by the opaque token it stored, so a JWT in the cookie authenticates
+nothing — sign-in succeeds and every following request is anonymous. That shipped once (11.36.3).
+
+In an override, derive the cookie value with `this.sessionTokenForCookie(response)` rather than
+reading `response.session?.token` yourself: `session.token` is optional on the `hasSession()` type
+guard, and `api.signInEmail()` returns the token at the top level with no `session` object at all,
+so the obvious expression yields `undefined` in exactly the case that matters.
+
+You do not have to get this right for it to be safe: `setSessionCookies()` refuses a JWT-shaped
+value and logs an error, so a mistake here costs you the cookie, not the session.
+
+Overriding `processAuthResult()` on `BetterAuthCookieHelper`? Keep the fifth parameter
+(`sessionToken`). TypeScript accepts an override with fewer parameters, so dropping it compiles
+cleanly and silently disables the distinction above.
+
 ### Important Notes
 
 - Always extend `CoreBetterAuthController`

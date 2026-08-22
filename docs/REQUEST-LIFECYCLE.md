@@ -1460,6 +1460,14 @@ All security features are configured in `config.env.ts` under the `security` key
 | JWT-only | `cookies: false` | Yes | No | Yes |
 | Hybrid | `cookies: { exposeTokenInBody: true }` | Yes | Yes | Yes |
 
+> **In hybrid mode the body token and the cookie are DIFFERENT values.** With the JWT plugin active,
+> the body carries a JWT while the cookie keeps the opaque Better-Auth session token — Better-Auth
+> resolves a session by that opaque value, so a JWT in the cookie authenticates nothing. Treating
+> them as one token is what caused 11.36.3, where sign-in succeeded and every following request was
+> anonymous. `setSessionCookies()` now refuses a JWT-shaped cookie value. Hybrid mode is confined to
+> development and CI: `assertCookiesProductionSafe()` forbids `exposeTokenInBody` in `production`
+> and `staging`.
+
 ### Guardian Gates
 
 | Config Path | Type | Default | Description |
