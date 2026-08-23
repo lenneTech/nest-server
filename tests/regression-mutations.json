@@ -664,6 +664,43 @@
         "tests/public-endpoint-identity.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "account-issuer-backfill-missing",
+      "defect": "11.37.0 — better-auth 1.7 keys an account by (issuer, accountId) and sign-in filters on it verbatim (`account.issuer === createLocalAccountIssuer('credential')`). Every credential row written by 1.6 has no `issuer` field at all, so the comparison can never hold: the upgrade itself locked out EVERY existing password user, with a bare 401 and nothing in the log explaining it. The boot-time backfill closes that gap on the first start after the upgrade. Removing the call restores the lockout.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "after": "  async onModuleInit(): Promise<void> {",
+      "find": "    await this.backfillAccountIssuers();",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-account-issuer-backfill.spec.ts",
+        "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "account-issuer-missing-on-migrate",
+      "defect": "11.37.0 — the legacy->IAM account migration wrote the credential account WITHOUT an `issuer`, so better-auth 1.7 could not find the row it had just created. The very sign-in that triggered the migration answered 401, and every later sign-in did too. Dropping the field restores that.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "after": "      await accountsCollection.insertOne({",
+      "find": "        issuer: createLocalAccountIssuer('credential'),\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "account-issuer-missing-on-link-account",
+      "defect": "11.37.0 — system setup linked the initial admin's credential account WITHOUT an `issuer`, so better-auth 1.7 could not resolve it. A fresh deployment created an admin who could never sign in — the one account that must work on a new installation.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "after": "      await context.internalAdapter.linkAccount({",
+      "find": "        issuer: createLocalAccountIssuer('credential'),\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/system-setup.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

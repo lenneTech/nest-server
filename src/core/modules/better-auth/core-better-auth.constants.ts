@@ -71,3 +71,29 @@ export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
  * Declared `@Optional()` in the CoreBetterAuthService constructor.
  */
 export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
+
+/**
+ * better-auth's default name for the account collection, and for the `issuer` field inside it.
+ *
+ * Both are overridable by a consumer through `betterAuth.options.account.modelName` /
+ * `.fields.issuer`, which `better-auth.config.ts` spreads onto the resolved config verbatim. Any
+ * framework code touching that collection directly MUST resolve the real names from the running
+ * instance and fall back to these — a hardcoded name silently addresses a collection better-auth
+ * does not use, which on the issuer backfill means every password user stays locked out while the
+ * operation reports success by saying nothing.
+ */
+export const DEFAULT_ACCOUNT_MODEL_NAME = 'account';
+export const DEFAULT_ACCOUNT_ISSUER_FIELD = 'issuer';
+
+/**
+ * Collection holding one-shot completion markers for boot-time data migrations, and the marker id
+ * of the `account.issuer` backfill (better-auth 1.7).
+ *
+ * The marker exists for cost, not for correctness: the backfill is idempotent and safe to repeat,
+ * but its filters (`$exists: false`, `$ne`) cannot use an index, so without a marker every boot of
+ * every replica pays a full pass over the account collection — forever, and inside the `await` that
+ * precedes `app.listen()`. Versioned in the id so a future backfill of the same field can run
+ * again without clearing this one.
+ */
+export const BACKFILL_MARKER_COLLECTION = 'better-auth-backfills';
+export const ACCOUNT_ISSUER_BACKFILL_ID = 'account-issuer-backfill-v1';

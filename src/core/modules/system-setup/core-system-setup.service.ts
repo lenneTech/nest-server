@@ -1,3 +1,4 @@
+import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { isEmail } from 'class-validator';
@@ -271,11 +272,32 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       const normalizedPassword = this.userMapper.normalizePasswordForIam(input.password);
 
       // Create user via internalAdapter (bypasses disableSignUp)
-      const iamUser = await context.internalAdapter.createUser({
-        email: input.email,
-        emailVerified: true,
-        name: input.name || input.email.split('@')[0],
-      });
+      //
+      // better-auth >= 1.7 requires a provisioning source. Without it, `createUser` throws
+      // FORBIDDEN/validation_source_missing as soon as a project configures
+      // `betterAuth.options.user.validateUserInfo`. `admin` is the honest value — the system
+      // provisions the FIRST admin, nobody signs up — and it is what better-auth's own admin
+      // plugin passes.
+      //
+      // This does NOT bypass `validateUserInfo`. The hook still runs and receives
+      // `{ method: 'admin', action: 'create-user' }`, so a project gate can still reject the
+      // initial admin; branch on `method` there if the setup should be exempt.
+      //
+      // KNOWN LIMITATION, and the reason this is spelled out: when `validateUserInfo` is
+      // configured, better-auth additionally calls `getCurrentAuthContext()`, which throws outside
+      // an endpoint context. System setup runs from `OnApplicationBootstrap` / a plain controller,
+      // never inside better-auth's request pipeline, so the call fails with
+      // FORBIDDEN/validation_context_missing and no initial admin is created. Fail-closed, but
+      // opaque. A project using that hook must provision the first admin another way — see
+      // migration-guides/11.36.x-to-11.37.0.md §7.
+      const iamUser = await context.internalAdapter.createUser(
+        {
+          email: input.email,
+          emailVerified: true,
+          name: input.name || input.email.split('@')[0],
+        },
+        { method: 'admin' },
+      );
 
       if (!iamUser) {
         throw new Error('Failed to create IAM user');
@@ -283,8 +305,14 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
 
       // Hash password and create credential account
       const hashedPassword = await context.password.hash(normalizedPassword);
+      // better-auth >= 1.7 keys accounts by (issuer, accountId) and requires the
+      // issuer. Credential accounts have no real issuer, so better-auth derives a
+      // synthetic one — always via this helper, never a hand-written literal:
+      // the format is better-auth's to change, and a copy of it would silently
+      // stop matching the accounts better-auth writes itself.
       await context.internalAdapter.linkAccount({
         accountId: iamUser.id,
+        issuer: createLocalAccountIssuer('credential'),
         password: hashedPassword,
         providerId: 'credential',
         userId: iamUser.id,

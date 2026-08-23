@@ -19,6 +19,16 @@
  * ISOLATION: This test uses separate temporary MongoDB databases because it
  * requires zero users to test the "fresh deployment" scenario. Using the shared
  * e2e database would interfere with tests running in parallel.
+ *
+ * @regression   11.37.0 — system setup linked the initial admin's credential account WITHOUT an
+ *   `issuer`. better-auth 1.7 keys accounts by (issuer, accountId), so the account could not be
+ *   resolved: a fresh deployment produced an admin who could never sign in — the one account that
+ *   has to work on a new installation. The "can sign in via BetterAuth" cases below are what catch
+ *   it; creating the admin still succeeds, so every other assertion stays green.
+ * @seen-failing Drop the `issuer: createLocalAccountIssuer('credential'),` line from the
+ *   `linkAccount` call in src/core/modules/system-setup/core-system-setup.service.ts —
+ *   registered as mutation `account-issuer-missing-on-link-account` in
+ *   tests/regression-mutations.json (2 cases go red).
  */
 
 import { Module } from '@nestjs/common';

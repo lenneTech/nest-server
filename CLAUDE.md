@@ -82,11 +82,21 @@ compatible with either downstream layout:
   reads it at sync time — keep the migration guides readable outside
   of an npm-install context (no `node_modules/…` path references).
 
-- **`package.json` devDeps** used at runtime by framework code (e.g.
-  `find-file-up` in the config loader) must be listed in the CLI's
-  `src/config/vendor-runtime-deps.json` as a runtime helper, otherwise
-  vendor consumers miss them at install time. Prefer putting
-  runtime-used packages in `dependencies` directly, not `devDependencies`.
+- **`package.json` devDeps AND peerDeps** used at runtime by framework code
+  must be listed in the CLI's `src/config/vendor-runtime-deps.json` as a
+  runtime helper, otherwise vendor consumers miss them at install time.
+  The vendoring step copies `dependencies` only — it never reads
+  `peerDependencies` — so a package in either of the other two sections is
+  invisible to it. Both cases are live today: `find-file-up` (a devDep the
+  config loader imports) and `better-auth` / `@better-auth/passkey` /
+  `@better-auth/core` (required peers since 11.37.0).
+  **A peer listed there must ALSO stay in `devDependencies`**: the CLI reads
+  the version from the upstream devDeps, so removing it as "redundant with
+  the peer range" silently leaves vendor consumers without the package, with
+  nothing failing in this repo. Prefer putting runtime-used packages in
+  `dependencies` directly — the exception is a package whose version the
+  CONSUMER must own (better-auth, because a fullstack project's api and app
+  must not resolve different versions of it).
 
 - **Vendor-mode projects never run `pnpm update @lenne.tech/nest-server`.**
   They use `/lt-dev:backend:update-nest-server-core` instead, which
@@ -207,6 +217,13 @@ See `.claude/rules/role-system.md` for complete documentation.
 ### Versioning
 
 `MAJOR.MINOR.PATCH` where MAJOR = NestJS version, MINOR = breaking changes, PATCH = non-breaking.
+
+**A breaking change gets a MINOR here. Never reach for a MAJOR.** The MAJOR digit means "targets
+NestJS N" and moves only when NestJS does — so removed APIs, changed signatures, a dependency
+turned into a required peer all ship as a minor. Semver habits say otherwise; they are wrong in
+this repo, and the mistake is easy to make precisely while writing a genuinely breaking release.
+The migration guide carries that weight instead: state up front that the minor contains breaking
+changes, so nobody reads the version number as a promise it does not make.
 
 See `.claude/rules/versioning.md` for release process.
 

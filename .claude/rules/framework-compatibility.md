@@ -75,5 +75,6 @@ This framework compatibility strategy spans multiple repositories:
 | `nuxt-extensions` | Same pattern: `CLAUDE.md` shipped with npm package |
 | `nuxt-base-starter` | `CLAUDE.md` points Claude to nuxt-extensions source |
 | `claude-code/plugins/lt-dev` | Hooks detect frameworks, Skills reference source paths |
+| `cli` (lt CLI) | Holds `src/config/vendor-runtime-deps.json`. Every change to THIS repo's dependency **shape** — a package moved between `dependencies`, `devDependencies` and `peerDependencies` — must be mirrored there in the same release, or vendor-mode consumers install a core whose imports they do not declare |
 
 The full strategy document is maintained in the claude-code plugin repository.

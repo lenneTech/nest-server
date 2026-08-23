@@ -30,6 +30,7 @@ const config = {
 - [Features](#features)
 - [Quick Integration](#quick-integration-for-claude-code--ai-assistants)
 - [Project Integration Guide](#project-integration-guide-required-steps)
+- [Boot-Time Behaviour](#boot-time-behaviour)
 - [Configuration](#configuration)
 - [REST API Endpoints](#rest-api-endpoints)
 - [GraphQL API](#graphql-api)
@@ -1015,6 +1016,61 @@ const config = {
 - Full flexibility for specialized plugins
 - No package updates needed for new Better-Auth plugins
 
+## Boot-Time Behaviour
+
+`CoreBetterAuthService.onModuleInit()` runs two steps against the database before the application
+starts listening. Both are `protected`, so a subclass can override either — **an override of
+`onModuleInit()` that does not call `super.onModuleInit()` skips both.**
+
+### 1. `ensureIndices()` — performance
+
+Idempotent indices on `session`, `users`, `account` and `verification`, including a TTL index that
+expires unconsumed verification and password-reset documents. Failures are logged at `warn` and do
+not block the boot: these help speed, not correctness.
+
+### 2. `backfillAccountIssuers()` — correctness (11.37.0+)
+
+From better-auth 1.7 an account is keyed by `(issuer, accountId)` and the sign-in route filters on
+it verbatim. Rows written by better-auth 1.6 have no `issuer` field, so **every existing password
+user would be locked out by the upgrade**, with a bare 401 and nothing in the log to explain it.
+This step repairs those rows on the first boot after the upgrade.
+
+| Property         | Behaviour                                                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scope            | Credential accounts only. OAuth/SSO rows are reported, never rewritten — see below                                                                                                           |
+| Idempotency      | Structural: only rows missing the field are selected                                                                                                                                         |
+| Repeat cost      | A completion marker in `better-auth-backfills` short-circuits later boots to one `_id` lookup. Neither backfill query is indexable, so without it every boot would scan the whole collection |
+| Schema overrides | Collection and field names are resolved from the running better-auth instance; a customised name is logged at `warn`                                                                         |
+| Partial failure  | The write is unordered, so one bad row cannot shadow the rest. The marker is **not** written, and the next boot retries                                                                      |
+| Failure          | Logged at `error`; the boot continues. A server that starts with a loud error beats one that will not start                                                                                  |
+
+**Log lines to expect on the first boot after upgrading:**
+
+| Line                                                           | Meaning                                                                                                |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `Backfilled account.issuer on N credential account(s)`         | Success — those N users can sign in again                                                              |
+| `Backfilled N/M credential accounts. X user(s) CANNOT sign in` | Partial. Usually a duplicate `(issuer, accountId)` pair from an earlier migration. Resolve and restart |
+| `Could not backfill the account issuer: …`                     | The operation failed entirely. Affected users cannot sign in until it succeeds                         |
+| `At least one non-credential account has no "issuer"`          | See below — act before the next social sign-in                                                         |
+| `Backfilling the account issuer against a customised schema`   | You renamed the account model or issuer field                                                          |
+
+**Why OAuth/SSO rows are not backfilled.** `local:credential` is a pure function of the provider id
+and therefore derivable. An OAuth issuer is not — it is either the provider's real OIDC issuer or
+the synthetic `local:oauth:<providerId>` fallback, decided per provider. Guessing would not fail
+loudly: better-auth falls back to matching the user by the provider-asserted email and implicitly
+links a **second** account row; if that email has changed, it creates a **new user** and orphans the
+old account together with its provider tokens, which no unlink will ever remove. So those rows are
+reported and the decision stays with the project. Set the issuer per provider **before** the first
+social sign-in after the upgrade — see
+[migration-guides/11.36.x-to-11.37.0.md](../../../../migration-guides/11.36.x-to-11.37.0.md) §4.
+
+> **Do not add `issuer` to this package's own reads of the `account` collection**
+> (`syncPasswordChangeToIam`, `migrateAccountToIam`, `getMigrationStatus`). They filter on
+> `providerId` alone on purpose, so they keep working on rows the backfill has not reached yet —
+> which matters most when the backfill has failed.
+
+---
+
 ## Module Setup
 
 See the [Project Integration Guide](#project-integration-guide-required-steps) at the top of this document for complete step-by-step instructions.
@@ -1893,6 +1949,14 @@ When a user is deleted:
    ```javascript
    // MongoDB query
    db.account.findOne({ userId: ObjectId('...'), providerId: 'credential' });
+   ```
+
+   From better-auth 1.7 the row must ALSO carry `issuer: 'local:credential'`. A row matching only
+   `providerId` is not usable — better-auth keys accounts by `(issuer, accountId)` and will not find
+   it, so sign-in answers 401 while this query happily reports that the account exists:
+
+   ```javascript
+   db.account.findOne({ issuer: 'local:credential', providerId: 'credential', userId: ObjectId('...') });
    ```
 
 3. Check server logs for sync warnings:
