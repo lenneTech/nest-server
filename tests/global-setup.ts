@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { MongoClient } from 'mongodb';
 
 import envConfig from '../src/config.env';
-import { isStaleTestDb, SAFE_TEST_DB_PATTERN, splitMongoUri } from './db-lifecycle.reporter';
+import {
+  isDroppableTestDb,
+  isStaleTestDb,
+  NON_DISPOSABLE_DB_PATTERN,
+  SAFE_TEST_DB_PATTERN,
+  splitMongoUri,
+} from './db-lifecycle.reporter';
 import { acquireRunSlot } from './e2e-run-slots';
 // Plain .mjs helper, shared with the npm scripts and CI
 import { up as startTestInfra } from '../scripts/test-infra.mjs';
@@ -65,6 +71,18 @@ const ARTIFACT_EXTENSIONS = ['.bin', '.png', '.txt'];
 
 export async function setup() {
   if (process.env.MONGODB_URI) {
+    // A URI without a path (`mongodb://host`, `mongodb://host/`) makes the driver resolve to its
+    // DEFAULT database, `test` — a name the guard below accepts, so a truncated or malformed
+    // MONGODB_URI would drop the server's `test` database instead of failing. Nobody chose that
+    // database, so refuse before connecting rather than acting on an accident.
+    if (!splitMongoUri(process.env.MONGODB_URI).dbName) {
+      throw new Error(
+        `Refusing to use MONGODB_URI="${process.env.MONGODB_URI}": it names no database, so the `
+          + 'driver would fall back to its default ("test") and this setup would drop that. '
+          + 'Give the URI an explicit database path.',
+      );
+    }
+
     const connection = await MongoClient.connect(process.env.MONGODB_URI);
     const db = connection.db();
 
@@ -72,11 +90,20 @@ export async function setup() {
     // whatever MONGODB_URI points at, and that variable is not always a test DB: a running
     // `lt dev` session exports it pointing at the project's DEVELOPMENT database, so without
     // this guard, running the suite from that shell silently wipes the developer's data.
-    if (!SAFE_TEST_DB_PATTERN.test(db.databaseName)) {
+    //
+    // This is the ONE drop site with no second condition — the sweep below and the reporter's
+    // collection both additionally require isStaleTestDb(), i.e. the name must belong to this
+    // project's own base. So the name is the only evidence here, and it gets the strictest
+    // reading available: the marker must be a delimited segment AND the name must not carry an
+    // environment suffix (`-local`, `-prod`, …). Without the second half, a project slug that
+    // legitimately contains `ci` (Corporate Identity) or `test` (an exam product) still lost its
+    // `lt dev` database.
+    if (!isDroppableTestDb(db.databaseName)) {
       await connection.close();
       throw new Error(
-        `Refusing to dropDatabase("${db.databaseName}"): not a recognized test database `
-          + `(expected a name matching ${SAFE_TEST_DB_PATTERN}). `
+        `Refusing to dropDatabase("${db.databaseName}"): not a recognized disposable test database `
+          + `(needs a delimited e2e/ci/test/acctest segment — ${SAFE_TEST_DB_PATTERN} — and must not `
+          + `carry an environment suffix — ${NON_DISPOSABLE_DB_PATTERN}). `
           + 'MONGODB_URI must point at a disposable test database.',
       );
     }
@@ -119,14 +146,30 @@ export async function setup() {
     try {
       const { databases } = await connection.db().admin().listDatabases({ nameOnly: true });
       const swept: string[] = [];
+      let guardSkipped = 0;
       for (const { name } of databases) {
-        if (isStaleTestDb(name, dbName) && SAFE_TEST_DB_PATTERN.test(name)) {
-          await connection.db(name).dropDatabase();
-          swept.push(name);
+        if (!isStaleTestDb(name, dbName)) {
+          continue;
         }
+        if (!SAFE_TEST_DB_PATTERN.test(name)) {
+          guardSkipped++;
+          continue;
+        }
+        await connection.db(name).dropDatabase();
+        swept.push(name);
       }
       if (swept.length > 0) {
         console.info(`Startup sweep: dropped ${swept.length} stale test database(s): ${swept.join(', ')}`);
+      }
+      if (guardSkipped > 0) {
+        // Stale by ownership, refused by name. Under the naming contract documented at
+        // SAFE_TEST_DB_PATTERN this is zero; a non-zero count means this project's base name
+        // violates it and its databases now accumulate with nothing collecting them. Silence
+        // here is exactly how that goes unnoticed, so it gets a line.
+        console.warn(
+          `Startup sweep: ${guardSkipped} stale database(s) skipped by the safety guard — `
+            + `"${dbName}" needs a delimited e2e/ci/test/acctest segment for cleanup to work.`,
+        );
       }
     } finally {
       await connection.close();
