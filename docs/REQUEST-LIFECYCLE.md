@@ -620,6 +620,30 @@ async updateUser(...): Promise<User> { ... }
 async getPublicUsers(): Promise<User[]> { ... }
 ```
 
+**Public does not mean anonymous (since 11.36.5).** On a public endpoint (`S_EVERYONE`, or no
+`@Roles` at all) `RolesGuard` still tries to IDENTIFY the caller before granting access —
+Better-Auth first, Passport JWT second, every failure swallowed. Access is granted either way: a
+missing, expired or malformed token can never turn a public endpoint into a 401. The effect is that
+`@CurrentUser()`, `serviceOptions.currentUser` and `securityCheck(user)` see a signed-in caller, so
+a public endpoint can personalise — a search ranking by the caller's own location, a list marking
+the caller's own entries.
+
+Before 11.36.5 the guard returned early and `request.user` stayed unset. That mattered **only in
+legacy-JWT deployments**: with Better-Auth enabled, `CoreBetterAuthMiddleware` is applied via
+`forRoutes('(.*)')` and had already set `request.user` before any guard ran. `BetterAuthRolesGuard`
+keeps its early return for exactly that reason — it only runs when Better-Auth is enabled, where the
+middleware has already done the work.
+
+Two consequences worth knowing when you own a public endpoint:
+
+- **Owner-restricted output widens for its owner.** `@Restricted(S_SELF)` / `@Restricted(S_CREATOR)`
+  fields evaluate against `currentUser`; with `undefined` they always stripped. They now appear for
+  the caller who owns the record. That is the declared policy finally being applied, not a leak —
+  but it may be the first time anyone sees those fields on that route.
+- **An anonymous caller stays ABSENT, not falsy.** Passport answers `false` for "no credentials";
+  the guard normalises that away so `@CurrentUser()` yields `undefined` as before. Pinned by
+  `tests/public-endpoint-identity.e2e-spec.ts`.
+
 **Important:** `@Roles()` already handles JWT authentication internally. Do NOT add `@UseGuards(AuthGuard(JWT))` — it is redundant.
 
 #### System Roles (S_ prefix)
@@ -634,7 +658,7 @@ When `X-Tenant-Id` header is present and a system role grants access, membership
 
 | System Role | Check Logic | Use Case |
 |-------------|-------------|----------|
-| `S_EVERYONE` | Always true | Public endpoints |
+| `S_EVERYONE` | Always true — access granted unconditionally; the caller is still identified when a valid token is present (see above) | Public endpoints |
 | `S_NO_ONE` | Always false | Permanently locked |
 | `S_USER` | `currentUser` exists | Any authenticated user |
 | `S_VERIFIED` | `user.verified \|\| user.verifiedAt \|\| user.emailVerified` | Email-verified users |

@@ -46,7 +46,16 @@ class IdentityProbeController {
   @Get('public')
   @Roles(RoleEnum.S_EVERYONE)
   publicEndpoint(@CurrentUser() user: any) {
-    return { email: user?.email ?? null, identified: !!user?.id, userId: user?.id ?? null };
+    // `userType` distinguishes an ABSENT user from a FALSY-but-present one. Passport's
+    // verify callback yields `false` for "no credentials", and MixinAuthGuard assigns that
+    // verbatim — so without this, `identified: false` would look identical whether
+    // @CurrentUser() gave back `undefined` or `false`.
+    return {
+      email: user?.email ?? null,
+      identified: !!user?.id,
+      userId: user?.id ?? null,
+      userType: user === undefined ? 'undefined' : user === false ? 'false' : typeof user,
+    };
   }
 
   @Get('protected')
@@ -133,6 +142,12 @@ describe('Public endpoint identity — BetterAuth ENABLED', () => {
     const res = await testHelper.rest('/identity-probe/public');
     expect(res.identified).toBe(false);
     expect(res.email).toBeNull();
+    // ABSENT, not falsy-but-present. Passport's verify callback answers `false` when a request
+    // carries no credentials, and MixinAuthGuard assigns it verbatim — so identifying on the
+    // public path can silently change `@CurrentUser()` from `undefined` to `false` for every
+    // anonymous request. A handler typing the param `User`, or testing `'user' in ctx`, sees the
+    // difference; `!!user` does not.
+    expect(res.userType, '@CurrentUser() must stay absent for an anonymous caller').toBe('undefined');
   });
 
   it('does not turn an INVALID token into a 401 on the PUBLIC endpoint', async () => {
@@ -146,8 +161,19 @@ describe('Public endpoint identity — BetterAuth ENABLED', () => {
  *
  * Without BetterAuth there is no `forRoutes('(.*)')` middleware, so nothing populates `req.user`
  * before the guard runs — and the guard returns early for a public route, before authenticating.
- * This is the configuration PR #591 was reported from (an upgrade from 11.1.13, where the
+ * This is the configuration the defect was reported from (an upgrade from 11.1.13, where the
  * S_EVERYONE branch was evaluated AFTER the user had been resolved).
+ *
+ * @regression   11.36.5 — RolesGuard granted a public endpoint WITHOUT authenticating, so
+ *   `request.user` stayed unset and a signed-in caller arrived anonymous at `@CurrentUser()`,
+ *   `serviceOptions.currentUser` and `securityCheck()`. Only reachable in a legacy-JWT
+ *   deployment: with Better-Auth enabled the middleware had already identified the caller,
+ *   which is why the sibling describe above passed even before the fix.
+ * @seen-failing Delete `await this.tryIdentifyOptionalUser(context);` from the public-route
+ *   branch of `canActivate()` in src/core/modules/auth/guards/roles.guard.ts — registered as
+ *   mutation `public-endpoint-drops-caller-identity` in tests/regression-mutations.json.
+ *   Exactly ONE case flips: 'identifies a signed-in caller on a PUBLIC endpoint' in this
+ *   describe. The four Better-Auth cases stay green, and that split IS the blast-radius claim.
  */
 describe('Public endpoint identity — legacy JWT, BetterAuth DISABLED', () => {
   const email = `probe-jwt-${Date.now()}@test.com`;
@@ -213,9 +239,75 @@ describe('Public endpoint identity — legacy JWT, BetterAuth DISABLED', () => {
   it('leaves an anonymous caller anonymous on the PUBLIC endpoint, without erroring', async () => {
     const res = await testHelper.rest('/identity-probe/public');
     expect(res.identified).toBe(false);
+    // ABSENT, not falsy-but-present. Passport's verify callback answers `false` when a request
+    // carries no credentials, and MixinAuthGuard assigns it verbatim — so identifying on the
+    // public path can silently change `@CurrentUser()` from `undefined` to `false` for every
+    // anonymous request. A handler typing the param `User`, or testing `'user' in ctx`, sees the
+    // difference; `!!user` does not.
+    expect(res.userType, '@CurrentUser() must stay absent for an anonymous caller').toBe('undefined');
   });
 
   it('does not turn an INVALID token into a 401 on the PUBLIC endpoint', async () => {
+    const res = await testHelper.rest('/identity-probe/public', { token: 'not-a-real-token' });
+    expect(res.identified).toBe(false);
+  });
+});
+
+/**
+ * The configuration where the swallowed exception is LOAD-BEARING.
+ *
+ * IAM-only: BetterAuth is enabled, and `AuthModule` — which registers the Passport JWT strategy —
+ * is NOT imported. `super.canActivate()` then throws `Unknown authentication strategy "jwt"`. On the
+ * protected path the guard handles that explicitly; on the public path the only thing between that
+ * throw and a 500 on EVERY public endpoint is the `catch {}` in `tryIdentifyOptionalUser()`.
+ *
+ * The other two describes cannot reach it: both import `AuthModule`, so the strategy exists and
+ * Passport answers `false` instead of throwing. Removing the catch leaves them green and takes this
+ * describe down — which is exactly why it is here.
+ */
+describe('Public endpoint identity — IAM-only, no Passport JWT strategy', () => {
+  let app: any;
+  let testHelper: TestHelper;
+
+  // GraphQL off: this probe only needs the REST guard path, and the trimmed module (no
+  // AuthModule) does not register every resolver the GraphQL schema expects.
+  const config: any = {
+    ...envConfig,
+    graphQl: false,
+    mongoose: { ...envConfig.mongoose, uri: deriveTestDbUri('probe-iam') },
+  };
+
+  beforeAll(async () => {
+    CoreBetterAuthModule.reset();
+
+    @Module({
+      controllers: [IdentityProbeController],
+      // Deliberately NO AuthModule: nothing registers the 'jwt' Passport strategy.
+      imports: [CoreModule.forRoot(config), ScheduleModule.forRoot(), BetterAuthModule.forRoot({}), UserModule],
+      providers: [Any, DateScalar, JSONScalar, { provide: 'PUB_SUB', useValue: new PubSub() }],
+    })
+    class ProbeIamModule {}
+
+    const fixture: TestingModule = await Test.createTestingModule({ imports: [ProbeIamModule] }).compile();
+    app = fixture.createNestApplication();
+    await app.init();
+    testHelper = new TestHelper(app);
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+    CoreBetterAuthModule.reset();
+  });
+
+  it('serves a PUBLIC endpoint anonymously instead of 500-ing on the missing strategy', async () => {
+    const res = await testHelper.rest('/identity-probe/public');
+    expect(res.identified).toBe(false);
+    expect(res.userType).toBe('undefined');
+  });
+
+  it('still serves a PUBLIC endpoint when a token is present but unverifiable', async () => {
     const res = await testHelper.rest('/identity-probe/public', { token: 'not-a-real-token' });
     expect(res.identified).toBe(false);
   });

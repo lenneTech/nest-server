@@ -18,9 +18,15 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
  * Exposes the AI tool registry to external MCP clients. The request must carry a
  * valid Bearer token (or session); the handler resolves the user via
  * {@link CoreAiMcpController.resolveUser} (which reuses `req.user` and falls back to
- * verifying the Bearer token directly, since `@Roles(S_EVERYONE)` does not populate
- * `req.user`). The MCP session is bound to that user and only their permitted tools
- * are exposed/executed.
+ * verifying the Bearer token directly). Since 11.36.5 `@Roles(S_EVERYONE)` DOES populate
+ * `req.user` — the guard identifies without denying — so the fallback is now a second line
+ * of defence rather than the only path. One consequence worth knowing: in a legacy-JWT
+ * deployment this endpoint previously answered 401 for everyone, because `req.user` was
+ * unset and no other resolution path applied; it now authenticates any holder of a valid
+ * legacy access token. That is not an elevation — the server is still built per user with
+ * the registry's role filter and the per-owner session binding — but it is a surface that
+ * was effectively unreachable before. The MCP session is bound to that user and only their
+ * permitted tools are exposed/executed.
  *
  * `@Roles(S_EVERYONE)` lets the request reach the handler (the guard would
  * otherwise reject), and the handler performs the MCP-specific 401 with a

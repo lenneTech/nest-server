@@ -466,10 +466,12 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
 
       // app.init() already ran the bootstrap once. Reset to a fresh-deployment state so
       // the two instances below start the race from zero users and an unclaimed marker.
-      await db.collection('users').deleteMany({});
-      await db.collection('account').deleteMany({});
-      await db.collection('session').deleteMany({});
-      await db.collection('system-setup-locks').deleteMany({});
+      // deleteMany, not drop: dropping `users` would drop its unique email index, which is what
+      // prevents a duplicate admin. Kept as a loop because three documents quote this verbatim as
+      // "the framework's own reset" — a snippet nobody runs drifts; this one runs every suite.
+      for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
+        await db.collection(col).deleteMany({});
+      }
 
       // Two service instances sharing one database = two replicas booting simultaneously.
       const connection = moduleFixture.get(getConnectionToken());
@@ -558,6 +560,12 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
   });
 
   it('accepts a fresh init once `system-setup-locks` is cleared too — the documented remedy', async () => {
+    // Precondition, asserted rather than assumed: this case depends on state the previous one
+    // leaves behind. Run alone (or under `-t` filtering, or sharded) there would be no claim to
+    // clear, `deleteMany` would be a no-op, and the case would pass GREEN without ever
+    // exercising the remedy it is named after — a false pass, which is worse than a false fail.
+    expect(await db.collection('system-setup-locks').countDocuments({})).toBe(1);
+
     await db.collection('system-setup-locks').deleteMany({});
 
     const email = `reset-ok-${Date.now()}@test.com`;
