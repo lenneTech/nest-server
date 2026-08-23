@@ -131,6 +131,32 @@ describe('regression-test evidence', () => {
     });
   });
 
+  describe('every mutation runs under exactly one vitest runner', () => {
+    // `check-mutations.mjs` spawns ONE vitest per mutation, and the two runners have disjoint
+    // globs. A spec the chosen config does not match is not an error there — vitest just runs the
+    // ones it recognises — so a mixed list silently drops half the specs and then reports the
+    // survivors as the whole story. In 11.37.0 the dropped half was the only spec that could
+    // observe the defect, and the mutation was reported as vacuous evidence.
+    //
+    // The script refuses such a list at runtime; this asserts it structurally, so the registry
+    // cannot reach that state in the first place — a mutation is only checked by the script when
+    // somebody runs the (release-path) gate, while this runs on every `check`.
+    it.each(registry.mutations.map(mutation => [mutation.id, mutation] as const))(
+      '%s does not mix unit and e2e specs',
+      (_id, mutation) => {
+        const unit = mutation.specs.filter(spec => spec.startsWith('tests/unit/'));
+        const e2e = mutation.specs.filter(spec => !spec.startsWith('tests/unit/'));
+
+        expect(
+          unit.length === 0 || e2e.length === 0,
+          `mutation '${mutation.id}' spans both runners (unit: ${unit.join(', ') || 'none'} | `
+            + `e2e: ${e2e.join(', ') || 'none'}). Split it — each half is its own claim about the `
+            + 'defect, and one vitest run cannot execute both.',
+        ).toBe(true);
+      },
+    );
+  });
+
   describe('the registry cannot rot into a no-op', () => {
     it.each(registry.mutations.map(mutation => [mutation.id, mutation] as const))(
       '%s still matches its target exactly once',

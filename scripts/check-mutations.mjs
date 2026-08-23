@@ -189,8 +189,36 @@ function specEnv(specs, jobs) {
   };
 }
 
-function specConfig(specs) {
-  return specs.every((spec) => spec.startsWith('tests/unit/')) ? 'vitest.config.ts' : 'vitest-e2e.config.ts';
+/**
+ * Pick the ONE vitest config a mutation's specs run under.
+ *
+ * The two runners have DISJOINT globs — `vitest.config.ts` claims `tests/unit/**`, the e2e config
+ * claims `tests/**\/*.e2e-spec.ts` and `tests/stories/**\/*.story.test.ts`. A spec that the chosen
+ * config does not match is not an error there: vitest simply runs the ones it recognises. So a
+ * mixed list used to resolve to the e2e config and DROP the unit specs in silence — the mutation
+ * then reported "specs stayed GREEN", i.e. vacuous, for specs that had never executed.
+ *
+ * That happened in 11.37.0, and the failure is worse than a wrong verdict: the dropped spec was
+ * the only one that could observe the defect, so the registry claimed evidence it did not have.
+ * Refusing the configuration makes the mode unreachable instead of merely avoided this once — a
+ * mutation needs its specs on ONE side of the split, and a defect that needs both is two
+ * mutations, because the two halves are genuinely different claims.
+ */
+function specConfig(specs, id) {
+  const unit = specs.filter((spec) => spec.startsWith('tests/unit/'));
+
+  if (unit.length && unit.length !== specs.length) {
+    const e2e = specs.filter((spec) => !spec.startsWith('tests/unit/'));
+    throw new Error(
+      `mutation '${id ?? '(unknown)'}' mixes unit and e2e specs, which cannot run under one vitest config:\n` +
+        `  unit: ${unit.join(', ')}\n` +
+        `  e2e : ${e2e.join(', ')}\n` +
+        'Split it into one mutation per runner. Each half is its own claim about the defect, and a\n' +
+        'mixed list would silently drop one of them and report the survivors as the whole story.',
+    );
+  }
+
+  return unit.length === specs.length ? 'vitest.config.ts' : 'vitest-e2e.config.ts';
 }
 
 /**
@@ -200,13 +228,13 @@ function specConfig(specs) {
  * `Promise.all` over several of them executes strictly one after another. The parallel path would
  * have looked parallel, taken exactly as long as the sequential one, and nothing would have said so.
  */
-function runSpecs(specs, cwd = ROOT, jobs = 1) {
+function runSpecs(specs, cwd = ROOT, jobs = 1, id = undefined) {
   return new Promise((resolveRun) => {
     // `node_modules/.bin/vitest`, not `npx`: measured 0.04s vs 0.24s per spawn, and this runs once
     // per mutation.
     const child = spawn(
       join(ROOT, 'node_modules', '.bin', 'vitest'),
-      ['run', '--config', specConfig(specs), ...specs],
+      ['run', '--config', specConfig(specs, id), ...specs],
       {
         cwd,
         env: specEnv(specs, jobs),
@@ -667,7 +695,7 @@ async function runOne(mutation, cwd, jobs, live) {
     writeFileSync(file, mutated);
     applied = true;
     emit(`   applied, running ${mutation.specs.join(' ')}\n`);
-    const { code, output } = await runSpecs(mutation.specs, cwd, jobs);
+    const { code, output } = await runSpecs(mutation.specs, cwd, jobs, mutation.id);
     const verdict = classifyRun({ code, output });
     emit(`   ${verdict.label}\n`);
     // A failing verdict without its reason is what made the 11.36.3 CI failure undiagnosable.

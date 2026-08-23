@@ -77,16 +77,9 @@ jobs:
       - name: SWC module-graph guard (TDZ)
         run: pnpm run check:swc-tdz
 
-      # Re-runs the evidence behind every `@regression` test: applies each mutation registered in
-      # tests/regression-mutations.json and REQUIRES the specs that claim to catch it to go red.
-      #
-      # Not redundant with the test run above, which proves the suite is GREEN. Green is exactly
-      # what a vacuous test also is — and two regression tests written while fixing 11.33.1 passed
-      # with the defect fully restored. This is the only step that can tell the two apart. It
-      # belongs on the publish path rather than on every push because it edits source and re-runs
-      # whole e2e suites; a CI checkout is clean, so the working-tree guard is satisfied.
-      - name: Regression evidence (mutation check)
-        run: pnpm run check:mutations
+      # NOTE: the regression-evidence gate used to run HERE, and moved to its own parallel job
+      # (see `regression-evidence` below). It cost ~13 of this job's ~18 minutes while blocking
+      # every release behind it. It now runs alongside the publish instead of in front of it.
 
       - name: Build
         run: pnpm run build
@@ -125,6 +118,128 @@ jobs:
       # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
       # NEXT job fail on a name conflict before a single test runs.
       # `if: always()` so a failed job cleans up too.
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true
+
+  # ---------------------------------------------------------------------------------------------
+  # Regression evidence — runs ALONGSIDE the publish, and deliberately does not block it.
+  #
+  # WHAT IT CHECKS, and why that justifies the unusual arrangement: it re-applies every mutation in
+  # tests/regression-mutations.json and REQUIRES the specs that claim to catch that defect to go
+  # red. It does not test the product — the `publish` job does that, in full, and still gates the
+  # release. This job tests the TESTS: a regression test that has gone vacuous is green, and a
+  # green test looks identical whether it checks something or nothing. Two tests written while
+  # fixing 11.33.1 passed with the defect fully restored, and 11.37.0 shipped a mutation whose
+  # spec list silently dropped the only spec that could observe it.
+  #
+  # WHY IT NO LONGER BLOCKS: it costs ~13 minutes against the publish job's ~5, so every release
+  # waited on it. What it protects is the FRESHNESS OF THE SAFETY NET, not the correctness of the
+  # artifact — a vacuous regression test does not make the published package wrong, it makes a
+  # future regression harder to catch. That is worth fixing promptly; it is not worth holding
+  # every release hostage. So the package ships on the `publish` job's own gates, and this job
+  # reports independently.
+  #
+  # HOW A FAILURE IS SEEN — three ways, none of which rely on someone watching a log:
+  #   1. The workflow run is marked failed (the publish itself has already happened).
+  #   2. A GitHub issue is opened automatically, labelled `regression-evidence`.
+  #   3. `/lt-dev:publish` checks this job's last conclusion BEFORE starting a new release and
+  #      refuses to proceed silently past a red one.
+  # Remove any of the three and this becomes a job nobody reads.
+  regression-evidence:
+    name: Regression evidence (non-blocking)
+    runs-on: ubuntu-latest
+    # No `needs:` — this is the point. It starts with the publish job, not after it.
+    strategy:
+      matrix:
+        node-version: [ 24.x ]
+        mongodb-version: [ '7.0' ]
+    env:
+      REDIS_CONTAINER: evidence-redis
+      RUSTFS_CONTAINER: evidence-rustfs
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.12.1
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+
+      # Own container names: this job runs CONCURRENTLY with `publish`, and on a self-hosted
+      # runner the two would otherwise collide on `ci-redis` / `ci-rustfs`.
+      - name: Start test infrastructure (Redis + S3)
+        uses: ./.github/actions/test-infra
+        with:
+          redis-name: ${{ env.REDIS_CONTAINER }}
+          rustfs-name: ${{ env.RUSTFS_CONTAINER }}
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Regression evidence (mutation check)
+        id: evidence
+        run: pnpm run check:mutations
+
+      # Opens an issue when the gate goes red. Without this, a red run is only noticed at the NEXT
+      # release — which may be weeks away, and the whole point is that nobody has to watch.
+      # `if: failure()` covers a crashed run too, which is itself a finding: an INCONCLUSIVE gate
+      # proves nothing about the evidence.
+      - name: Open an issue on failure
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const release = context.payload.release?.tag_name ?? context.sha.slice(0, 8);
+            const title = `Regression evidence failed for ${release}`;
+            const body = [
+              `The regression-evidence gate failed while publishing **${release}**.`,
+              '',
+              `**The package was published** — this job does not block the release. What failed is the`,
+              'evidence behind the regression tests, not the product: one or more mutations no longer',
+              'turn their specs red, which means those tests may be checking nothing.',
+              '',
+              `Run: ${run}`,
+              '',
+              '### What to do',
+              '',
+              '1. Read which mutation failed. `FAIL … stayed GREEN` means a vacuous test;',
+              '   `INCONCLUSIVE` means the run crashed and proved nothing either way.',
+              '2. Reproduce locally: `pnpm run check:mutations -- --id=<mutation-id>`',
+              '3. Either repair the test so it observes the defect again, or re-point the mutation if',
+              '   the defect is no longer reachable. Both are real outcomes; silently deleting the',
+              '   mutation is not.',
+              '',
+              'This issue is opened automatically. `/lt-dev:publish` also refuses to start a new release',
+              'while the last run of this job is red, so it cannot be missed on the next release either.',
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'regression-evidence',
+            });
+            if (existing.data.some((issue) => issue.title === title)) return;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['regression-evidence'],
+            });
+
       - name: Remove test infrastructure
         if: always()
         run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true
