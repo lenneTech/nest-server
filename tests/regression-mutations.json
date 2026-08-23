@@ -673,8 +673,7 @@
       "find": "    await this.backfillAccountIssuers();",
       "replace": "",
       "specs": [
-        "tests/unit/better-auth-account-issuer-backfill.spec.ts",
-        "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
+        "tests/unit/better-auth-account-issuer-backfill.spec.ts"
       ],
       "driverSpecific": false
     },
@@ -699,6 +698,18 @@
       "replace": "",
       "specs": [
         "tests/stories/system-setup.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "account-issuer-backfill-writes-nothing",
+      "defect": "11.37.0 — the boot-time backfill is what lets a credential account written by better-auth 1.6 sign in after the upgrade. Narrowing its filter so it matches no row leaves every legacy account without an `issuer`, and better-auth 1.7 cannot resolve them: the user gets a bare 401. This mutation targets the backfill's WRITE, not its wiring — the e2e suite calls the method directly, so it can only observe the former.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "after": "      const pending = await accounts",
+      "find": "        .find({ [issuerField]: { $exists: false }, providerId: 'credential' }, { projection: { _id: 1 } })",
+      "replace": "        .find({ [issuerField]: { $exists: false }, providerId: '__never_matches__' }, { projection: { _id: 1 } })",
+      "specs": [
+        "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
       ],
       "driverSpecific": false
     }
