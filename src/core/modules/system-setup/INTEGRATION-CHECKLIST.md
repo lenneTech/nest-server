@@ -92,13 +92,14 @@ export class SystemSetupController extends CoreSystemSetupController {
 
 ## Common Mistakes
 
-| Mistake                                     | Symptom                          | Fix                                      |
-| ------------------------------------------- | -------------------------------- | ---------------------------------------- |
-| BetterAuth not enabled                      | 404 on endpoints or 403 on init  | Ensure `betterAuth` is configured        |
-| Calling init with existing users            | 403 "System setup not available" | Init only works on empty database        |
-| Password too short                          | 400 validation error             | Password must be at least 8 characters   |
-| Missing ENV password                        | Auto-creation silently skipped   | Set both `email` and `password` ENV vars |
-| `systemSetup: { enabled: false }` in config | 404 on endpoints                 | Remove the explicit disable              |
+| Mistake                                     | Symptom                          | Fix                                                                                                                                                                |
+| ------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| BetterAuth not enabled                      | 404 on endpoints or 403 on init  | Ensure `betterAuth` is configured                                                                                                                                  |
+| Calling init with existing users            | 403 "System setup not available" | Init requires an empty `users` collection                                                                                                                          |
+| Re-running init after a successful setup    | 403, even with an empty `users`  | The claim marker in `system-setup-locks` outlives a SUCCESSFUL setup (it is released only on failure) — drop that collection too, or wait 5 min for it to go stale |
+| Password too short                          | 400 validation error             | Password must be at least 8 characters                                                                                                                             |
+| Missing ENV password                        | Auto-creation silently skipped   | Set both `email` and `password` ENV vars                                                                                                                           |
+| `systemSetup: { enabled: false }` in config | 404 on endpoints                 | Remove the explicit disable                                                                                                                                        |
 
 ---
 

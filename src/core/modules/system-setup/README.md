@@ -94,7 +94,7 @@ Creates the initial admin user. Only works when zero users exist.
 
 ```json
 {
-  "message": "LTNS_0050: System setup not available - users already exist"
+  "message": "LTNS_0050: System setup not available - users already exist, or the initial-admin setup is claimed"
 }
 ```
 
@@ -169,6 +169,9 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
   instance claims the setup by upserting the marker `{ _id: 'initial-admin' }` into the
   `system-setup-locks` collection — an atomic operation only one instance wins. The others log a
   debug message and skip. If creation fails, the marker is removed again so a later boot can retry.
+  After a SUCCESSFUL setup the marker REMAINS — setup must never run twice in a deployment. Test
+  suites that reset the database to replay the setup flow therefore have to drop `system-setup-locks`
+  alongside `users`; clearing only `users` leaves setup refused until the claim goes stale (5 min).
 
 ### Security Best Practices
 
@@ -181,7 +184,9 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 
 ## Security
 
-1. **Zero-user guard** - Init only works when `countDocuments({}) === 0`
+1. **Zero-user guard** - Init requires `countDocuments({}) === 0`. Necessary but not sufficient:
+   the atomic claim below must also be winnable, so an empty `users` collection alone does not
+   re-open setup
 2. **Enabled by default** - Safe because endpoints are permanently locked once any user exists
 3. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
    bootstrap is additionally claimed atomically via the `system-setup-locks` marker
@@ -226,12 +231,41 @@ if (needsSetup) {
 
 ### Init returns 403 "System setup not available"
 
-**Cause:** Users already exist in the database.
+**Two different guards raise this, and the response cannot tell you which.**
 
-**Solutions:**
+**Cause 1 - users already exist.** The ordinary case on a deployment that is already set up.
 
 1. Check `GET /system-setup/status` - `needsSetup` should be `true`
 2. If this is a fresh deployment, verify the database is empty
+
+**Cause 2 - the initial-admin setup is claimed.** The marker `{ _id: 'initial-admin' }` in
+`system-setup-locks` is held. Either another instance is running the setup right now, or a previous
+SUCCESSFUL setup left it behind: it is removed only when creation FAILS.
+
+This is the one that costs time, because the obvious checks all point the other way. `needsSetup` is
+computed from the **user count alone**, so it reports `true` while init is refused - step 1 above
+confirms a state that is not the problem, and step 2 confirms an empty database that is genuinely
+empty.
+
+1. Look at the server log. Since 11.36.5 the service logs a warning naming the collection, the
+   release-on-failure semantics and the stale window.
+2. Check the collection directly: `db.getCollection('system-setup-locks').find()`
+3. If you reset the database to replay the setup, drop `system-setup-locks` alongside `users` -
+   see **Resetting for tests** below. Otherwise wait for the claim to go stale (5 minutes after it
+   was taken).
+
+### Resetting for tests
+
+Emptying `users` is not enough - the claim outlives a successful setup. The framework's own reset,
+executed on every test run in `tests/stories/system-setup.e2e-spec.ts`:
+
+```typescript
+// deleteMany, not drop: dropping `users` would drop its unique email index,
+// which is what prevents a duplicate admin.
+for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
+  await db.collection(col).deleteMany({});
+}
+```
 
 ### Init returns 403 "System setup requires BetterAuth"
 
@@ -265,11 +299,11 @@ if (needsSetup) {
 
 ## Error Codes
 
-| Code      | Key                                | Description                        |
-| --------- | ---------------------------------- | ---------------------------------- |
-| LTNS_0050 | `SYSTEM_SETUP_NOT_AVAILABLE`       | Users already exist, setup locked  |
-| LTNS_0051 | `SYSTEM_SETUP_DISABLED`            | System setup is disabled in config |
-| LTNS_0052 | `SYSTEM_SETUP_BETTERAUTH_REQUIRED` | BetterAuth must be enabled         |
+| Code      | Key                                | Description                                                |
+| --------- | ---------------------------------- | ---------------------------------------------------------- |
+| LTNS_0050 | `SYSTEM_SETUP_NOT_AVAILABLE`       | Users already exist, OR the initial-admin setup is claimed |
+| LTNS_0051 | `SYSTEM_SETUP_DISABLED`            | System setup is disabled in config                         |
+| LTNS_0052 | `SYSTEM_SETUP_BETTERAUTH_REQUIRED` | BetterAuth must be enabled                                 |
 
 ---
 

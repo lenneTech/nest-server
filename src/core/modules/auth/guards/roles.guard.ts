@@ -147,7 +147,14 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // If no roles required, or S_EVERYONE is set, allow access without authentication
     // This allows public endpoints (without @Roles decorator or with S_EVERYONE) to work
+    //
+    // Access is granted either way, but the caller is still IDENTIFIED when they sent a valid
+    // token: returning early here left `request.user` unset, so a signed-in user hitting a
+    // public endpoint arrived as anonymous. Endpoints that are public AND personalise for
+    // signed-in callers — a search ranking by the caller's own location, a list marking the
+    // caller's own entries — silently lost that personalisation, with no error anywhere.
     if (!roles || !roles.some((value) => !!value) || roles.includes(RoleEnum.S_EVERYONE)) {
+      await this.tryIdentifyOptionalUser(context);
       return true;
     }
 
@@ -337,6 +344,67 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
 
     // Everything is ok
     return user;
+  }
+
+  /**
+   * Identify the caller on a PUBLIC endpoint without ever denying access.
+   *
+   * Mirrors the authentication order of the protected path (Better-Auth first, Passport JWT
+   * second) but treats every failure as "anonymous" instead of raising: a missing, expired or
+   * malformed token must not turn a public endpoint into a 401. It only sets `request.user`,
+   * so `@CurrentUser()` and `serviceOptions.currentUser` see a signed-in caller again.
+   *
+   * ANONYMOUS MUST STAY ABSENT. Passport's verify callback answers `false` — not `undefined` —
+   * when a request carries no usable credentials, and `MixinAuthGuard` assigns that verbatim.
+   * Without the normalisation at the end, every anonymous request to a public route would come
+   * out of here with `request.user === false` where it previously had no `user` at all. That is
+   * invisible to `!!user` and to `user?.id`, and visible to a handler that types the parameter
+   * `User`, tests `'user' in request`, or forwards it into `serviceOptions.currentUser`. Pinned
+   * by the `userType` assertions in tests/public-endpoint-identity.e2e-spec.ts.
+   */
+  protected async tryIdentifyOptionalUser(context: ExecutionContext): Promise<void> {
+    try {
+      const request = this.getRequest(context);
+      if (!request || request.user) {
+        return;
+      }
+
+      this.resolveServices();
+
+      if (this.betterAuthService?.isEnabled()) {
+        const user = await this.verifyBetterAuthTokenFromContext(context);
+        if (user) {
+          request.user = user;
+          return;
+        }
+      }
+
+      const result = super.canActivate(context);
+      if (isObservable(result)) {
+        await firstValueFrom(result);
+      } else {
+        await result;
+      }
+    } catch (error) {
+      // Never denies — but "the caller sent no usable token" and "the strategy itself failed" are
+      // not the same thing, and a bare `catch {}` makes them indistinguishable. A rotated secret,
+      // an unreachable database inside `validate()`, or a throwing user lookup would degrade every
+      // PUBLIC endpoint to anonymous while protected ones 401 — a split brain with nothing in the
+      // log to explain it. `debug`, not `warn`: the ordinary case (no credentials, expired token)
+      // reaches here too and must not be noise.
+      this.logger.debug(
+        `Optional identification failed on a public endpoint: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+    } finally {
+      // `finally`, not the try body: the catch above swallows a throw from Passport, and that
+      // path can have assigned a falsy user before throwing.
+      const request = this.getRequest(context);
+      if (request && !request.user && 'user' in request) {
+        delete request.user;
+      }
+    }
   }
 
   /**

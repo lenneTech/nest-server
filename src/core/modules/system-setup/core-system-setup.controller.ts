@@ -60,7 +60,10 @@ export class CoreSystemSetupController {
     summary: 'Create initial admin',
   })
   @ApiResponse({ description: 'Initial admin created', status: 201 })
-  @ApiResponse({ description: 'System setup not available - users already exist', status: 403 })
+  @ApiResponse({
+    description: 'System setup not available - users already exist, or the initial-admin setup is claimed',
+    status: 403,
+  })
   @Post('init')
   @Roles(RoleEnum.S_EVERYONE)
   async createInitialAdmin(@Body() input: SystemSetupInitDto): Promise<SystemSetupInitResult> {

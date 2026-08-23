@@ -239,6 +239,27 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
     // racing a fresh deployment can no longer obtain an admin account ALONGSIDE the
     // configured one.
     if (!(await this.claimInitialAdminSetup())) {
+      // Say WHICH guard refused. This one and the user-count guard above share
+      // ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE, and the response cannot tell them apart — so
+      // without this line a caller that just emptied `users` is told users exist while the
+      // collection is empty. That is a genuinely expensive thing to diagnose from the outside:
+      // the marker outlives a SUCCESSFUL setup (it is released only on failure), so the usual
+      // "reset the database" reflex does not clear it.
+      // `log`, not `warn`. Both entry points reach this line, and for one of them a refusal is
+      // the EXPECTED outcome: on a multi-replica fresh rollout every replica but one loses the
+      // claim race, so `warn` would fire N-1 times per normal deployment — each time immediately
+      // followed by onApplicationBootstrap's own INFO line calling the same event a normal skip.
+      // Two records with contradictory severity for one non-event trains operators to ignore the
+      // louder one. The HTTP caller is not left without a diagnosis: the message is unchanged and
+      // an operator investigating a 403 reads it at the default level.
+      this.logger.log(
+        `System setup refused: the initial-admin claim in "${SETUP_LOCK_COLLECTION}" is held. ` +
+          'Either another instance is running the setup right now, or a previous SUCCESSFUL setup ' +
+          'left the marker behind — it is removed only when creation FAILS. If you reset the ' +
+          `database to replay the setup, drop "${SETUP_LOCK_COLLECTION}" alongside "users"; ` +
+          `otherwise setup stays refused until the claim goes stale after ` +
+          `${INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 60_000} minutes.`,
+      );
       throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);
     }
 

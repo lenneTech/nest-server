@@ -466,10 +466,12 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
 
       // app.init() already ran the bootstrap once. Reset to a fresh-deployment state so
       // the two instances below start the race from zero users and an unclaimed marker.
-      await db.collection('users').deleteMany({});
-      await db.collection('account').deleteMany({});
-      await db.collection('session').deleteMany({});
-      await db.collection('system-setup-locks').deleteMany({});
+      // deleteMany, not drop: dropping `users` would drop its unique email index, which is what
+      // prevents a duplicate admin. Kept as a loop because three documents quote this verbatim as
+      // "the framework's own reset" — a snippet nobody runs drifts; this one runs every suite.
+      for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
+        await db.collection(col).deleteMany({});
+      }
 
       // Two service instances sharing one database = two replicas booting simultaneously.
       const connection = moduleFixture.get(getConnectionToken());
@@ -518,6 +520,59 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
     const marker = await db.collection('system-setup-locks').findOne({ _id: 'initial-admin' });
     expect(marker).toBeDefined();
     expect(marker.claimedAt).toBeDefined();
+  });
+
+  /**
+   * The reset trap, pinned from the consumer's side.
+   *
+   * Emptying `users` is the reflex for replaying the setup flow, and it is not enough: the claim
+   * marker is released only when creation FAILS, so it outlives a SUCCESSFUL setup by design.
+   * Both guards in createInitialAdmin() raise the same ErrorCode, so the response cannot say
+   * which one fired — a suite that just emptied `users` is told users exist while the collection
+   * is empty. That cost a consumer project a full CI cycle to diagnose.
+   *
+   * These two cases exist so that behaviour cannot change silently in either direction: if the
+   * marker is ever released on success, the first goes red; if the documented remedy stops
+   * working, the second does.
+   */
+  it('refuses a fresh init when only `users` was cleared — the claim outlives a successful setup', async () => {
+    await db.collection('users').deleteMany({});
+    expect(await db.collection('users').countDocuments({})).toBe(0);
+    expect(await db.collection('system-setup-locks').countDocuments({})).toBe(1);
+
+    // A bare `.rejects.toThrow()` would be satisfied by ANY failure — a misconfigured BetterAuth,
+    // a dropped connection — and would still look like evidence. Pin the actual refusal.
+    let caught: any;
+    try {
+      await services[0].createInitialAdmin({
+        email: `reset-${Date.now()}@test.com`,
+        password: 'ResetPassword123!',
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught, 'init must be refused while the claim is held').toBeDefined();
+    expect(caught.getStatus?.()).toBe(403);
+    expect(JSON.stringify(caught.getResponse?.() ?? caught.message)).toContain('LTNS_0050');
+    // And no user was created as a side effect of the refused attempt.
+    expect(await db.collection('users').countDocuments({})).toBe(0);
+  });
+
+  it('accepts a fresh init once `system-setup-locks` is cleared too — the documented remedy', async () => {
+    // Precondition, asserted rather than assumed: this case depends on state the previous one
+    // leaves behind. Run alone (or under `-t` filtering, or sharded) there would be no claim to
+    // clear, `deleteMany` would be a no-op, and the case would pass GREEN without ever
+    // exercising the remedy it is named after — a false pass, which is worse than a false fail.
+    expect(await db.collection('system-setup-locks').countDocuments({})).toBe(1);
+
+    await db.collection('system-setup-locks').deleteMany({});
+
+    const email = `reset-ok-${Date.now()}@test.com`;
+    const result = await services[0].createInitialAdmin({ email, password: 'ResetPassword123!' });
+
+    expect(result.success).toBe(true);
+    expect(await db.collection('users').countDocuments({})).toBe(1);
   });
 });
 

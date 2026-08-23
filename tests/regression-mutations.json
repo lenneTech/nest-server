@@ -653,6 +653,17 @@
         "tests/unit/db-lifecycle-guard.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "public-endpoint-drops-caller-identity",
+      "defect": "11.36.5 — RolesGuard returned early on a public endpoint (@Roles(S_EVERYONE), or no @Roles) BEFORE authenticating, leaving `request.user` unset. In a legacy-JWT deployment there is no CoreBetterAuthMiddleware on forRoutes('(.*)'), so the guard was the only thing that could identify the caller: a signed-in user arrived anonymous at @CurrentUser(), serviceOptions.currentUser and securityCheck(). A public endpoint that personalises for signed-in callers degraded silently, with no error and no log. Reported on an upgrade from 11.1.13, where the S_EVERYONE branch was evaluated AFTER the user had been resolved.",
+      "file": "src/core/modules/auth/guards/roles.guard.ts",
+      "find": "      await this.tryIdentifyOptionalUser(context);\n",
+      "replace": "",
+      "specs": [
+        "tests/public-endpoint-identity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
