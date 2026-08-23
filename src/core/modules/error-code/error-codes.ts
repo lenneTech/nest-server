@@ -468,12 +468,22 @@ export const LtnsErrors = {
   // System Setup Errors (LTNS_0050-LTNS_0059)
   // =====================================================
 
+  /**
+   * Raised by BOTH guards in `createInitialAdmin()`, which is why the message names both.
+   *
+   * The first guard refuses because users exist. The second refuses because the initial-admin
+   * claim in `system-setup-locks` is held — and that marker is removed only when creation FAILS,
+   * so it OUTLIVES a successful setup by design. A test suite that resets the database by
+   * emptying `users` therefore still hits the claim, and until 11.36.5 was told "users already
+   * exist" while the users collection was empty. That mismatch cost a consumer project a full CI
+   * cycle to diagnose, so the message now covers both conditions.
+   */
   SYSTEM_SETUP_NOT_AVAILABLE: {
     code: 'LTNS_0050',
-    message: 'System setup not available - users already exist',
+    message: 'System setup not available - users already exist, or the initial-admin setup is claimed',
     translations: {
-      de: 'System-Setup nicht verfügbar - es existieren bereits Benutzer.',
-      en: 'System setup not available - users already exist.',
+      de: 'System-Setup nicht verfügbar - es existieren bereits Benutzer, oder das Initial-Admin-Setup ist bereits beansprucht.',
+      en: 'System setup not available - users already exist, or the initial-admin setup is claimed.',
     },
   },
 

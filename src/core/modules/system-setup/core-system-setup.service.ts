@@ -239,6 +239,20 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
     // racing a fresh deployment can no longer obtain an admin account ALONGSIDE the
     // configured one.
     if (!(await this.claimInitialAdminSetup())) {
+      // Say WHICH guard refused. This one and the user-count guard above share
+      // ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE, and the response cannot tell them apart — so
+      // without this line a caller that just emptied `users` is told users exist while the
+      // collection is empty. That is a genuinely expensive thing to diagnose from the outside:
+      // the marker outlives a SUCCESSFUL setup (it is released only on failure), so the usual
+      // "reset the database" reflex does not clear it.
+      this.logger.warn(
+        `System setup refused: the initial-admin claim in "${SETUP_LOCK_COLLECTION}" is held. ` +
+          'Either another instance is running the setup right now, or a previous SUCCESSFUL setup ' +
+          'left the marker behind — it is removed only when creation FAILS. If you reset the ' +
+          `database to replay the setup, drop "${SETUP_LOCK_COLLECTION}" alongside "users"; ` +
+          `otherwise setup stays refused until the claim goes stale after ` +
+          `${INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 60_000} minutes.`,
+      );
       throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);
     }
 
