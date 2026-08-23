@@ -42,7 +42,7 @@
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
  *
- * `--no-infra` selects the 21 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 22 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 51 rather than caching per-mutation verdicts: the gate runs
+ * Why the release gate still runs all 52 rather than caching per-mutation verdicts: the gate runs
  * ONCE PER RELEASE, not per commit, so the saving is ~10 minutes a release. The price would be a
  * cache that has to model each spec's full dependency closure correctly, and the failure mode of
  * getting that wrong is a stale PASS for a test that has since gone vacuous — the precise thing the
- * gate is there to prevent. Bad trade at 51 mutations. Revisit around 100, where the full run
+ * gate is there to prevent. Bad trade at 52 mutations. Revisit around 100, where the full run
  * approaches half an hour.
  *
  * PARALLELISM
@@ -367,6 +367,7 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
  * in exactly the place where the answer matters.
  */
 export function stripAnsi(text) {
+  // oxlint-disable-next-line no-control-regex -- ESC (\u001b) is exactly what an ANSI sequence is made of
   return String(text ?? '').replace(/\u001b\[[0-9;]*m/g, '');
 }
 

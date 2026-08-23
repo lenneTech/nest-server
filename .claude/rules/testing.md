@@ -107,6 +107,38 @@ pnpm run test:cleanup
   `@UnifiedField` deprecation warnings filtered).
 - Database (E2E only): **one unique database per run** (`nest-server-e2e-run-<ts>-p<pid>`), created by `tests/global-setup.ts` so concurrent runs cannot interfere with each other. Specs needing an extra DB derive it via `deriveTestDbUri('<suffix>')` — never a hardcoded/`Date.now()` name (escapes the cleanup scheme).
 - DB lifecycle (`tests/db-lifecycle.reporter.ts`): run passes → DB dropped immediately + stale run DBs from crashed/failed runs collected; run fails → DB kept for debugging. Additionally `tests/global-setup.ts` runs a **startup sweep** (shared `isStaleTestDb()` predicate, dead-PID/age guarded) — leftovers are removed when the NEXT run starts, which survives SIGKILL (check watchdog) and `--reporter` CLI overrides. An externally set `MONGODB_URI` (CI) opts out of the scheme.
+- The drop guard (`SAFE_TEST_DB_PATTERN` + `NON_DISPOSABLE_DB_PATTERN`): nothing in the scheme drops
+  a database whose name does not carry `e2e`, `ci`, `test` or `acctest` as a **whole segment**
+  (`/(^|[-_])(e2e|ci|test|acctest)([-_]|$)/i`). It gates all three drop sites: the externally-set
+  `MONGODB_URI` branch, the startup sweep, and the reporter's post-run collection. **The anchoring
+  is the point, not decoration.** The original form matched the marker as a substring ANYWHERE, and
+  `ci` hides inside soCIal / speCIal / finanCIal / priCIng / muniCIpal, `test` inside laTEST /
+  conTEST / TESTimonials. `lt dev up` exports `MONGODB_URI` at the project's DEVELOPMENT database
+  (`<slug>-local`), so a developer on a project named e.g. `pricing-portal` who started the e2e
+  suite from that shell had their working data dropped BY the guard that exists to prevent exactly
+  that. It had never had a test.
+
+  Three things about it are load-bearing and easy to undo:
+
+  1. **`acctest` is a separate alternative BECAUSE of the anchoring** — `test` no longer matches
+     inside it, so deleting it as "redundant" silently stops acceptance-test databases from ever
+     being collected.
+  2. **The externally-set-URI branch is the only drop site with no second condition.** The other two
+     also require `isStaleTestDb()`, i.e. the name must belong to this project's own base. So that
+     one branch additionally applies `NON_DISPOSABLE_DB_PATTERN` (`-local`, `-dev`, `-prod`,
+     `-staging`, …) via `isDroppableTestDb()`: a project slug may legitimately carry a marker as a
+     whole word — `ci` is the German abbreviation for *Corporate Identity*, `test` a product noun
+     for an exam — and `ci-portal-local` passes the segment rule. It also refuses a URI that names
+     **no** database, because the driver would fall back to its default (`test`) and that name
+     passes the guard.
+  3. **The anchoring is a naming contract on the base DB name.** A base like `shope2e` or
+     `app-e2edb` satisfies nothing, and its databases would then accumulate with nothing collecting
+     them — silently, which is why both sweep loops now COUNT and log the stale candidates the
+     guard refused.
+
+  Pinned by `tests/unit/db-lifecycle-guard.spec.ts` (registered mutation
+  `safe-test-db-pattern-unanchored`; reverting the anchoring turns 13 cases red). **The refusal list
+  in that spec IS the specification** — extend it rather than loosening the pattern.
 - Run governor (`tests/e2e-run-slots.ts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open).
 - `retry: 2` (e2e) is deliberate — with `retry: 5`, one spec file with broken app/socket state ground through 6 attempts × 30s timeout × 22 tests ≈ an hour at 0% CPU (looked like a deadlock; the check watchdog killed it). Never raise retry to paper over contention.
 - Infrastructure containers (E2E only, the **seven** specs listed under "Infrastructure containers"
@@ -234,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 21 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 22 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -252,7 +284,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 **Why the gate does not cache per-mutation verdicts instead.** It runs ONCE PER RELEASE, not per
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
-for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 51
+for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 52
 mutations. Worth revisiting around 100, where the full run approaches half an hour.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
@@ -294,7 +326,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 30 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 51 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 52 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

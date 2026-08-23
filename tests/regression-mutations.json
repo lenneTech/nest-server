@@ -642,6 +642,17 @@
         "tests/stories/cookies-security-property.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "safe-test-db-pattern-unanchored",
+      "defect": "SAFE_TEST_DB_PATTERN, the last guard before dropDatabase(), matched its markers as a substring ANYWHERE in the database name instead of as a delimited segment. `ci` hides inside soCIal / speCIal / finanCIal / priCIng / muniCIpal and `test` inside laTEST / conTEST / TESTimonials, so ordinary project databases read as disposable. tests/global-setup.ts drops whatever MONGODB_URI points at, and `lt dev up` exports it at the project's `<slug>-local` DEVELOPMENT database — so a developer on such a project who ran the e2e suite from that shell lost it, to the guard that exists to prevent exactly that. The guard had never had a test.",
+      "file": "tests/db-lifecycle.reporter.ts",
+      "find": "export const SAFE_TEST_DB_PATTERN = /(^|[-_])(e2e|ci|test|acctest)([-_]|$)/i;",
+      "replace": "export const SAFE_TEST_DB_PATTERN = /(e2e|ci|test|acctest)/i;",
+      "specs": [
+        "tests/unit/db-lifecycle-guard.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
