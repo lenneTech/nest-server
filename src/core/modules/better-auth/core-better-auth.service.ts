@@ -1,3 +1,4 @@
+import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Request } from 'express';
@@ -14,7 +15,15 @@ import { BetterAuthInstance } from './better-auth.config';
 import { isJwtShaped } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
-import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+import {
+  ACCOUNT_ISSUER_BACKFILL_ID,
+  BACKFILL_MARKER_COLLECTION,
+  BETTER_AUTH_CONFIG,
+  BETTER_AUTH_COOKIE_DOMAIN,
+  BETTER_AUTH_INSTANCE,
+  DEFAULT_ACCOUNT_ISSUER_FIELD,
+  DEFAULT_ACCOUNT_MODEL_NAME,
+} from './core-better-auth.constants';
 
 /**
  * Result of a session validation
@@ -94,11 +103,30 @@ export class CoreBetterAuthService implements OnModuleInit {
   }
 
   /**
-   * Ensure performance indices exist on the session, users, account and verification collections.
-   * Indices are idempotent — calling createIndex on an existing index is a no-op.
+   * Boot steps for the better-auth integration.
+   *
+   * Two jobs live here and they are deliberately separate methods: ensuring indices is a
+   * PERFORMANCE concern that repeats forever and degrades gracefully (hence `warn`), while the
+   * issuer backfill is a CORRECTNESS concern that should happen once and locks users out when it
+   * does not (hence `error`). Keeping them in one method made those two severities look like one
+   * decision.
+   *
+   * Order matters: the backfill's update can use the `{ providerId: 1, userId: 1 }` index created
+   * below, so indices come first.
    */
   async onModuleInit(): Promise<void> {
     if (!this.isEnabled() || !this.connection?.db) return;
+
+    await this.ensureIndices();
+    await this.backfillAccountIssuers();
+  }
+
+  /**
+   * Ensure performance indices exist on the session, users, account and verification collections.
+   * Indices are idempotent — calling createIndex on an existing index is a no-op.
+   */
+  protected async ensureIndices(): Promise<void> {
+    if (!this.connection?.db) return;
 
     try {
       const db = this.connection.db;
@@ -127,6 +155,154 @@ export class CoreBetterAuthService implements OnModuleInit {
     } catch (error) {
       // Non-fatal: indices improve performance but are not required for correctness
       this.logger.warn(`Could not create performance indices: ${error instanceof Error ? error.message : 'unknown'}`);
+    }
+  }
+
+  /**
+   * Backfills `account.issuer` on rows written before better-auth 1.7.
+   *
+   * From 1.7 an account is keyed by (issuer, accountId), and sign-in filters on
+   * it verbatim:
+   *
+   *   account.providerId === 'credential' && account.issuer === credentialIssuer
+   *
+   * A row written by 1.6 has no `issuer` at all, so that comparison can never
+   * hold: every existing password user would be locked out by the upgrade
+   * itself, with a 401 and nothing in the logs to explain it. This closes that
+   * gap on the first boot after the upgrade.
+   *
+   * Idempotent — the filter only matches rows still missing the field, so the
+   * second start updates nothing.
+   *
+   * Scope is deliberately limited to credential accounts, where the issuer is
+   * derivable without guessing. OAuth accounts are NOT touched: their issuer
+   * depends on the provider (a real OIDC issuer, or the synthetic
+   * `local:oauth:<id>` fallback), and writing the wrong one would not fail
+   * loudly — it would create a second account on the next social sign-in. Those
+   * rows are reported instead, so the decision stays with the project.
+   *
+   * ONE THING NOT TO "TIDY UP": this package's own reads of the `account`
+   * collection filter on `providerId` alone — `syncPasswordChangeToIam`,
+   * `migrateAccountToIam` and `getMigrationStatus` in
+   * core-better-auth-user.mapper.ts. Adding `issuer` to those filters looks like
+   * consistency and is a regression. This backfill is deliberately NON-FATAL: if
+   * it fails, the server still boots and logs an error. Reads that do not require
+   * the field keep working on un-backfilled rows — `getMigrationStatus` would
+   * otherwise report zero migrated users, and `syncPasswordChangeToIam` would
+   * stop finding the account it is meant to update. Only better-auth's own
+   * sign-in path needs the issuer, and that one is better-auth's code, not ours.
+   */
+  protected async backfillAccountIssuers(): Promise<void> {
+    if (!this.isEnabled() || !this.connection?.db) return;
+
+    const db = this.connection.db;
+
+    // The consumer can rename both of these through `betterAuth.options.account`, which
+    // better-auth.config.ts spreads onto the resolved config verbatim. Hardcoding them turns this
+    // whole method into a silent no-op on such a project: nothing matches, `modifiedCount` is 0,
+    // neither log line fires, and every password user is locked out while the operator's upgrade
+    // checklist is satisfied by silence in both directions.
+    const accountOptions = (this.authInstance as any)?.options?.account;
+    const modelName: string = accountOptions?.modelName ?? DEFAULT_ACCOUNT_MODEL_NAME;
+    const issuerField: string = accountOptions?.fields?.issuer ?? DEFAULT_ACCOUNT_ISSUER_FIELD;
+
+    try {
+      const accounts = db.collection(modelName);
+
+      // A completion marker, checked before anything expensive. Without it both queries below run
+      // on EVERY boot of EVERY replica, forever — and neither is indexable (`$exists: false` cannot
+      // appear in a partialFilterExpression, `$ne` is not selective), so each is a full pass over
+      // the account collection, awaited before the app starts listening. With the marker the steady
+      // state is a single `_id` lookup. `system-setup-locks` in CoreSystemSetupService is the
+      // precedent for this kind of once-per-deployment boot state.
+      const markers = db.collection(BACKFILL_MARKER_COLLECTION);
+      if (await markers.findOne({ _id: ACCOUNT_ISSUER_BACKFILL_ID as any })) {
+        this.logger.debug(`account.${issuerField} backfill already completed — skipping.`);
+        return;
+      }
+
+      if (modelName !== DEFAULT_ACCOUNT_MODEL_NAME || issuerField !== DEFAULT_ACCOUNT_ISSUER_FIELD) {
+        this.logger.warn(
+          `Backfilling the account issuer against a customised schema (collection "${modelName}", ` +
+            `field "${issuerField}"). Verify these match what better-auth actually writes.`,
+        );
+      }
+
+      const pending = await accounts
+        .find({ [issuerField]: { $exists: false }, providerId: 'credential' }, { projection: { _id: 1 } })
+        .toArray();
+
+      let backfilled = 0;
+
+      if (pending.length) {
+        // `ordered: false` is load-bearing. better-auth declares a UNIQUE index on
+        // (issuer, accountId); a single pre-existing duplicate would abort an ordered write and
+        // leave every row after it untouched — those users stay locked out, with one log line and
+        // a green boot. Unordered, one bad row costs only itself.
+        const result = await accounts.bulkWrite(
+          pending.map((doc) => ({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $set: { [issuerField]: createLocalAccountIssuer('credential') } },
+            },
+          })),
+          { ordered: false },
+        );
+
+        backfilled = result.modifiedCount;
+
+        if (backfilled > 0) {
+          this.logger.log(
+            `Backfilled account.${issuerField} on ${backfilled} credential account(s) for better-auth >= 1.7. ` +
+              'Without it these users could not sign in.',
+          );
+        }
+
+        if (backfilled < pending.length) {
+          // Do NOT write the marker in this case — the next boot must retry the remainder.
+          this.logger.error(
+            `Backfilled ${backfilled}/${pending.length} credential accounts. ` +
+              `${pending.length - backfilled} user(s) CANNOT sign in until this is resolved manually. ` +
+              'The most likely cause is a duplicate (issuer, accountId) pair from an earlier partial migration.',
+          );
+          return;
+        }
+      } else {
+        this.logger.debug(`No account.${issuerField} backfill needed — no credential rows predate better-auth 1.7.`);
+      }
+
+      // Only a complete run earns the marker.
+      await markers.updateOne(
+        { _id: ACCOUNT_ISSUER_BACKFILL_ID as any },
+        { $set: { backfilled, completedAt: new Date(), issuerField, modelName } },
+        { upsert: true },
+      );
+
+      // Existence probe rather than a count: `$ne` cannot use an index, so counting to the end is a
+      // guaranteed collection scan for a log line. "At least one" is all the message needs to say.
+      const staleOther = await accounts.findOne(
+        { [issuerField]: { $exists: false }, providerId: { $ne: 'credential' } },
+        { projection: { _id: 1 } },
+      );
+
+      if (staleOther) {
+        this.logger.warn(
+          `At least one non-credential account has no "${issuerField}". better-auth >= 1.7 will not match it by ` +
+            '(issuer, accountId) — and such a sign-in does NOT simply fail: it falls back to matching the user by ' +
+            'the provider-asserted email and implicitly links a SECOND account row. If the provider-side email has ' +
+            'changed, a NEW user is created instead and the existing account is orphaned, together with the provider ' +
+            'tokens on the old row, which no unlink will ever remove. Set the issuer per provider BEFORE the first ' +
+            "social sign-in after this upgrade: the provider's real OIDC issuer, or the synthetic " +
+            '"local:oauth:<providerId>".',
+        );
+      }
+    } catch (error) {
+      // Correctness, not performance — say so loudly, but do not stop the boot:
+      // a server that starts with a warning beats one that will not start at all.
+      this.logger.error(
+        `Could not backfill the account issuer: ${error instanceof Error ? error.message : 'unknown'}. ` +
+          'Existing password users may be unable to sign in until this succeeds.',
+      );
     }
   }
 

@@ -1,3 +1,4 @@
+import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
@@ -509,10 +510,16 @@ export class CoreBetterAuthUserMapper {
       // Store account matching Better-Auth's format:
       // - userId: ObjectId referencing users._id
       // - accountId: string version of users._id
+      // - issuer: from better-auth >= 1.7 accounts are keyed by (issuer,
+      //   accountId), and credential accounts carry a synthetic issuer. Writing
+      //   the row without it produces an account better-auth cannot find, so the
+      //   migrated user gets a 401 on the very sign-in that triggered the
+      //   migration. Always derive it from the helper, never hand-write it.
       await accountsCollection.insertOne({
         accountId: userIdHex,
         createdAt: now,
         id: this.generateId(),
+        issuer: createLocalAccountIssuer('credential'),
         password: passwordHash,
         providerId: 'credential',
         updatedAt: now,

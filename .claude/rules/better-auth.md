@@ -425,6 +425,37 @@ Both are needed. `processCookies()` returns early once a session token is presen
 `processAuthResult()` — and every unit test of it — is **unreachable** from the path the fix
 repairs. Only the second row observes the defect the way a browser would.
 
+## 8. Do NOT add `issuer` to this package's own `account` reads
+
+From better-auth 1.7 an account is keyed by `(issuer, accountId)`, and `CoreBetterAuthService`
+backfills the field on boot for rows written by 1.6. It is tempting to make this package's own
+reads of the `account` collection match — they filter on `providerId` alone:
+
+| Method | File |
+|---|---|
+| `syncPasswordChangeToIam()` | `core-better-auth-user.mapper.ts` |
+| `migrateAccountToIam()` (the fast-path existence check) | `core-better-auth-user.mapper.ts` |
+| `getMigrationStatus()` | `core-better-auth-user.mapper.ts` |
+
+**Adding `issuer` to those filters looks like consistency and is a regression.** They must keep
+working on rows the backfill has not reached:
+
+- `getMigrationStatus()` would report **zero** migrated users on a database that has not been
+  backfilled yet — the exact moment an operator consults it.
+- `syncPasswordChangeToIam()` would stop finding the account it is meant to update, silently
+  desynchronising the password it was called to sync.
+
+This matters most when the backfill has **failed**: it is deliberately non-fatal, so the server
+boots and these reads are the only thing still working on un-backfilled rows. A "unified" filter
+breaks precisely in the situation it would be needed.
+
+Only better-auth's own sign-in path requires the issuer, and that code is better-auth's, not ours.
+**Writes are the opposite rule** — every write to the collection MUST set the issuer, derived via
+`createLocalAccountIssuer(...)` and never hand-written.
+
+Covered by mutations `account-issuer-backfill-missing`, `account-issuer-missing-on-migrate` and
+`account-issuer-missing-on-link-account` in `tests/regression-mutations.json`.
+
 ## Summary
 
 | Principle | Requirement |
@@ -436,3 +467,4 @@ repairs. Only the second row observes the defect the way a browser would.
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
+| `account` reads | Filter on `providerId` alone; never add `issuer` to a READ. Every WRITE must set it (§8) |

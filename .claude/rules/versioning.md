@@ -16,6 +16,12 @@
 
 ## Important Rules
 
+0. **Never promote a breaking change to a MAJOR.** The MAJOR digit is not ours to spend — it
+   states which NestJS major this package targets, and moves only when NestJS does. A removed
+   API, a changed signature, a dependency turned into a required peer: all of them are MINOR
+   releases here. This is the rule most likely to be broken by someone applying ordinary semver
+   reflexes, and the moment it happens is exactly when the change feels big enough to "deserve"
+   a major.
 1. **Document breaking changes** clearly in commit messages when incrementing MINOR version
 2. **Update nest-server-starter** with migration instructions for breaking changes
 3. **Consider downstream impact** - this package is used by multiple projects

@@ -2,13 +2,36 @@
 
 **For integrating BetterAuth into projects using `@lenne.tech/nest-server`.**
 
-> **Estimated time:** 10-15 minutes
+> **Estimated time:** 10-15 minutes (plus Step 0 on a fresh integration)
 
 **Need customization?** See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for:
 
 - Module registration patterns (Zero-Config, Config-based, Separate Module)
 - Controller, Resolver, and Service customization
 - Email template customization
+
+---
+
+## Step 0: Install the Peer Dependencies (required from 11.37.0)
+
+From `@lenne.tech/nest-server` 11.37.0, better-auth is **not** a dependency of this package. It is a
+non-optional **peer dependency**, so your project declares and owns the version:
+
+```bash
+pnpm add better-auth@1.7.1 @better-auth/passkey@1.7.1 @better-auth/core@1.7.1
+```
+
+**Pin all three to the same exact version** — no `^`, no `~`. They are one release train, and a
+mixed set fails in ways the type checker does not catch.
+
+> **Do not rely on `pnpm install` to remind you.** On pnpm's default `autoInstallPeers: true` the
+> packages are installed silently at whatever version satisfies `>=1.7.1 <1.8.0` — your build stays
+> green while the version is unpinned and free to drift. Verify with `pnpm why better-auth`.
+
+**Why peers rather than dependencies:** in a fullstack project the frontend talks to better-auth
+too. When this package owned the version, the API and the app could silently end up on different
+better-auth versions with incompatible payload shapes. Owning it in your own manifest makes that a
+single, visible decision.
 
 ---
 

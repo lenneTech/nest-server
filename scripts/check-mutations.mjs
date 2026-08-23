@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 53 rather than caching per-mutation verdicts: the gate runs
+ * Why the release gate still runs all 56 rather than caching per-mutation verdicts: the gate runs
  * ONCE PER RELEASE, not per commit, so the saving is ~10 minutes a release. The price would be a
  * cache that has to model each spec's full dependency closure correctly, and the failure mode of
  * getting that wrong is a stale PASS for a test that has since gone vacuous — the precise thing the
- * gate is there to prevent. Bad trade at 53 mutations. Revisit around 100, where the full run
+ * gate is there to prevent. Bad trade at 56 mutations. Revisit around 100, where the full run
  * approaches half an hour.
  *
  * PARALLELISM

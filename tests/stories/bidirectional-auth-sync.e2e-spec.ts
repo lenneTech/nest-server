@@ -19,6 +19,16 @@
  *
  * Prerequisites:
  * - Better-Auth must be enabled for these tests to run
+ *
+ * @regression   11.37.0 — the legacy->IAM account migration wrote the credential account WITHOUT
+ *   an `issuer`. better-auth 1.7 keys accounts by (issuer, accountId), so it could not find the
+ *   row it had just created: the very sign-in that triggered the migration answered 401, and so
+ *   did every later one. The repeated-sign-in scenarios below are what catch it — a single
+ *   sign-in passes, because the migration itself succeeds.
+ * @seen-failing Drop the `issuer: createLocalAccountIssuer('credential'),` line from the
+ *   `insertOne` in `migrateAccountToIam()` in
+ *   src/core/modules/better-auth/core-better-auth-user.mapper.ts — registered as mutation
+ *   `account-issuer-missing-on-migrate` in tests/regression-mutations.json (7 cases go red).
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
