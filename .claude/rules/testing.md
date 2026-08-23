@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 22 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 23 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -284,7 +284,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 **Why the gate does not cache per-mutation verdicts instead.** It runs ONCE PER RELEASE, not per
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
-for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 56
+for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 57
 mutations. Worth revisiting around 100, where the full run approaches half an hour.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
@@ -326,7 +326,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 34 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 56 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 57 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

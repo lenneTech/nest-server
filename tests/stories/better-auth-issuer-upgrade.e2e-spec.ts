@@ -26,9 +26,15 @@
  *
  * @regression   11.37.0 — upgrading better-auth 1.6 -> 1.7 locked out every existing password user,
  *   because their `account` rows predate the (issuer, accountId) key and sign-in filters on it.
- * @seen-failing Remove the `await this.backfillAccountIssuers();` call from `onModuleInit()` in
- *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
- *   `account-issuer-backfill-missing` in tests/regression-mutations.json.
+ * @seen-failing Narrow the backfill's own query so it matches no row (`providerId: '__never_matches__'`)
+ *   in src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+ *   `account-issuer-backfill-writes-nothing` in tests/regression-mutations.json.
+ *
+ *   Deliberately NOT the mutation that removes the `onModuleInit()` call: this suite invokes
+ *   `backfillAccountIssuers()` directly, so it is structurally blind to the wiring and would stay
+ *   green with that defect restored. The wiring is pinned by the unit spec instead. The two halves
+ *   need separate mutations, and a mutation whose specs span both runners silently drops the unit
+ *   half — `check-mutations.mjs` picks ONE vitest config per mutation.
  *
  * The two account WRITE sites carry their own evidence, pinned by the suites that already cover
  * them rather than by this one: see tests/stories/bidirectional-auth-sync.e2e-spec.ts and
