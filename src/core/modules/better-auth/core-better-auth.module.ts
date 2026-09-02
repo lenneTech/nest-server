@@ -18,6 +18,7 @@ import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options
 import { BrevoService } from '../../common/services/brevo.service';
 import { ConfigService } from '../../common/services/config.service';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
+import { isLegacyEndpointEnabled } from '../auth/helpers/legacy-endpoints.helper';
 import { BetterAuthRolesGuard } from './better-auth-roles.guard';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import {
@@ -25,6 +26,7 @@ import {
   BetterAuthInstance,
   CreateBetterAuthResult,
   createBetterAuthInstance,
+  OnPasswordResetCallback,
 } from './better-auth.config';
 import { DefaultBetterAuthResolver } from './better-auth.resolver';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
@@ -32,6 +34,7 @@ import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.ser
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
+import { getInFlightResetPassword } from './core-better-auth-password-reset.registry';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
@@ -261,6 +264,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   // Static reference to email verification service for Better-Auth hooks (outside DI context)
   private static emailVerificationService: CoreBetterAuthEmailVerificationService | null = null;
   private static mongoConnection: Connection | null = null;
+  /**
+   * Config reference for the Better-Auth callbacks, which run OUTSIDE the DI context.
+   * Set from the same factories that build the auth instance.
+   */
+  private static configServiceInstance: ConfigService | null = null;
   // Safety Net: Track if forRoot() has already been called to detect duplicate registration
   private static forRootCalled = false;
   private static cachedDynamicModule: DynamicModule | null = null;
@@ -662,12 +670,14 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               throw new Error('MongoDB database not available');
             }
 
+            this.configServiceInstance = configService;
+
             // Get JWT secrets from config for backwards compatibility fallback
             const jwtConfig = configService.get<{ refresh?: { secret?: string }; secret?: string }>('jwt');
             const fallbackSecrets = [jwtConfig?.secret, jwtConfig?.refresh?.secret];
 
             // Create email verification callbacks that delegate to the NestJS service
-            const { onEmailVerified, sendResetPasswordEmail, sendVerificationEmail } =
+            const { onEmailVerified, onPasswordReset, sendResetPasswordEmail, sendVerificationEmail } =
               this.createEmailVerificationCallbacks();
 
             // Note: Secret validation is now handled in createBetterAuthInstance
@@ -677,6 +687,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               db,
               fallbackSecrets,
               onEmailVerified,
+              onPasswordReset,
               sendResetPasswordEmail,
               sendVerificationEmail,
             });
@@ -814,8 +825,16 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * They access the service via static reference since Better-Auth hooks run outside DI context.
    * @internal
    */
-  private static createEmailVerificationCallbacks(): {
+  /**
+   * `protected` rather than `private`: the callbacks it returns include `onPasswordReset`, which
+   * decides what mirroring a reset into the legacy store means for a deployment. A project with a
+   * different answer (a different store, an extra audit record, skipping it entirely) must be able
+   * to say so through the Module Inheritance Pattern rather than by reaching for
+   * `options.emailAndPassword` — which cannot replace the hook anyway, since the two are chained.
+   */
+  protected static createEmailVerificationCallbacks(): {
     onEmailVerified: (userId: string) => Promise<void>;
+    onPasswordReset: OnPasswordResetCallback;
     sendResetPasswordEmail: (options: AuthEmailCallbackOptions) => Promise<void>;
     sendVerificationEmail: (options: AuthEmailCallbackOptions) => Promise<void>;
   } {
@@ -837,6 +856,47 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         } catch (error) {
           this.logger.error(
             `Failed to sync verifiedAt for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        }
+      },
+      onPasswordReset: async ({ user }) => {
+        // Mirror the new password into the legacy bcrypt store, so a deployment running
+        // Legacy Auth next to IAM does not keep the OLD password valid on the legacy path
+        // after a reset — including a reset performed BECAUSE the old one leaked.
+        //
+        // The password is not in Better-Auth's callback payload: it comes from the API
+        // middleware through the reset registry, already normalized, i.e. byte-identical
+        // to what Better-Auth just hashed for IAM.
+        // Skip entirely where there is no legacy surface to keep in step. On an IAM-only
+        // deployment the mirror would maintain a bcrypt credential nothing ever reads, and its
+        // "the legacy password now differs" warning would name a consequence that cannot occur.
+        // Gated on the same resolver the endpoints themselves use, so the two cannot drift.
+        const legacyConfig = this.configServiceInstance?.getFastButReadOnly('auth')?.legacyEndpoints;
+        if (!isLegacyEndpointEnabled(legacyConfig, 'graphql') && !isLegacyEndpointEnabled(legacyConfig, 'rest')) {
+          return;
+        }
+
+        const normalizedPassword = getInFlightResetPassword();
+        if (!normalizedPassword) {
+          // Not a reset whose body we saw. Skipping is the only safe answer — writing a
+          // guessed hash would lock the account out of the legacy path.
+          this.logger.debug('Password reset without an in-flight password — skipping the legacy mirror.');
+          return;
+        }
+        if (!user?.email) {
+          this.logger.warn('Password reset without a user email — cannot mirror it to the legacy store.');
+          return;
+        }
+
+        const mirrored = await this.userMapperInstance?.syncPasswordToLegacy(user.id, user.email, normalizedPassword);
+        if (mirrored) {
+          this.logger.debug(`Mirrored IAM password reset to the legacy store for ${maskEmail(user.email)}`);
+        } else {
+          // Report the miss. A silent `false` here is exactly how the opposite direction of
+          // this sync stayed broken unnoticed: the endpoint answers success either way.
+          this.logger.warn(
+            `Could not mirror the IAM password reset to the legacy store for ${maskEmail(user.email)} — ` +
+              'the legacy password now differs from the IAM credential.',
           );
         }
       },
@@ -921,18 +981,20 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         {
           // Inject Mongoose Connection to ensure NestJS waits for it to be ready
           // Also inject EmailVerificationService to set static reference before Better-Auth init
-          inject: [getConnectionToken(), CoreBetterAuthEmailVerificationService],
+          inject: [getConnectionToken(), CoreBetterAuthEmailVerificationService, ConfigService],
           provide: BETTER_AUTH_INSTANCE,
           useFactory: async (
             connection: Connection,
             emailVerificationService: CoreBetterAuthEmailVerificationService,
+            configService: ConfigService,
           ) => {
             // Set static references for callbacks BEFORE creating Better-Auth instance
             this.setEmailVerificationService(emailVerificationService);
             this.mongoConnection = connection;
+            this.configServiceInstance = configService;
 
             // Create email verification callbacks that delegate to the NestJS service
-            const { onEmailVerified, sendResetPasswordEmail, sendVerificationEmail } =
+            const { onEmailVerified, onPasswordReset, sendResetPasswordEmail, sendVerificationEmail } =
               this.createEmailVerificationCallbacks();
 
             // Build shared instance options
@@ -940,6 +1002,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               config,
               fallbackSecrets: options?.fallbackSecrets,
               onEmailVerified,
+              onPasswordReset,
               sendResetPasswordEmail,
               sendVerificationEmail,
               serverAppUrl: options?.serverAppUrl,

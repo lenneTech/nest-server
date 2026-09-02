@@ -97,6 +97,21 @@ overrides:
   # nodeLinker: hoisted a lower target would leave a SECOND, older ws copy in the tree next to
   # the direct one. Keep the two in lockstep whenever the direct dependency moves.
   # Remove once ws 8.x is no longer reachable at all, or once @nestjs/graphql floors it in a range.
+  # Security: browserslist — two HIGH advisories, both patched >=4.28.7 (added 2026-09-01)
+  #   GHSA-c83g-rgw3-j3cx  unbounded memory growth: the query cache has no eviction, so distinct
+  #                        queries accumulate until OOM
+  #   GHSA-73wf-gq98-2v4g  uncaught crash / prototype write via an untrusted
+  #                        browserslist-stats.json in normalizeStats()
+  # BUILD-TIME ONLY. All three paths are devDependencies — @nestjs/cli>webpack,
+  # @nestjs/cli>fork-ts-checker-webpack-plugin>webpack, unplugin-swc>unplugin>webpack — so nothing
+  # here reaches a consumer's runtime, and neither advisory is reachable from untrusted input in a
+  # build: the queries come from our own browserslist config and there is no stats file. Pinned
+  # anyway rather than accepted, because the fix costs one line and "unreachable today" is a
+  # property of the current build graph, not a guarantee about the next one.
+  # Key is RANGE-FLOORED, so it can only lift a vulnerable version and never drag a newer patch
+  # down. Target is 4.28.8, the latest in the line — see the header note on downgrade-locks.
+  # Remove once webpack requests >=4.28.7 itself.
+  'browserslist@<4.28.7': '4.28.8'
   'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Target raised 1.18.1 -> 1.19.0 on 2026-08-22, and the key upper bound with it. NOT cosmetic: an

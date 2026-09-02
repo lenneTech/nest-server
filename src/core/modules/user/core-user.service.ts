@@ -5,6 +5,7 @@ import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
 import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
+import { maskEmail } from '../../common/helpers/logging.helper';
 import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -185,12 +186,41 @@ export abstract class CoreUserService<
     // Get user
     const dbObject = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
     if (!dbObject) {
-      throw new NotFoundException(`No user found with password reset token: ${token}`);
+      // The token is NOT echoed. It is attacker-supplied so nothing secret leaks, but it lands
+      // in the response body and in every log line that records the exception — and this logger
+      // feeds the ADMIN-readable Hub log buffer. An unbounded caller-controlled string there is
+      // free log-stuffing, and the message is no more useful for it.
+      throw new NotFoundException('Invalid or expired password reset token');
     }
 
-    // Store the original plain password for IAM sync before any hashing
-    // We need the plain password because IAM uses scrypt, not bcrypt+sha256
-    const plainPasswordForIamSync = /^[a-f0-9]{64}$/i.test(newPassword) ? undefined : newPassword;
+    // Capture the submitted password for the IAM sync before the closure below
+    // reassigns `newPassword` to its sha256 form.
+    //
+    // It is passed on exactly as received, INCLUDING an already-sha256-hashed
+    // one. This used to skip the sync for a 64-hex value, on the reasoning that
+    // "IAM uses scrypt, not bcrypt+sha256" — but the sync does not need a plain
+    // password: `hashPasswordForBetterAuth` runs its input through
+    // `normalizePasswordForIam`, which passes a 64-hex string through unchanged
+    // by design, and `migrateAccountToIam` is fed the very same pre-hashed value
+    // when an account is created.
+    //
+    // The guard therefore disabled the sync for exactly the clients this stack
+    // ships. The lt frontends hash in the browser before sending — seven call
+    // sites in `nuxt-extensions/src/runtime/lib/auth-client.ts` (`signIn.email`,
+    // `resetPassword`, `changePassword` and the rest) run `ltSha256` on the
+    // password first. That is independent of the `sha256` config option, which
+    // only governs what the SERVER does with a plaintext password it happens to
+    // receive. So the value arriving here is 64-hex whatever that option says,
+    // and every such reset took the skipped branch.
+    //
+    // The legacy password was updated, the IAM credential was not, and sign-in —
+    // which goes through IAM — kept accepting the OLD password and refusing the
+    // new one. The endpoint reported success throughout, so the failure surfaced
+    // only at the next sign-in.
+    //
+    // A client that posts a plaintext password was never affected: the old guard
+    // let that one through, and the sync normalized it the same way IAM does.
+    const passwordForIamSync = newPassword;
 
     return this.process(
       async () => {
@@ -204,17 +234,38 @@ export abstract class CoreUserService<
         const updatedUser = await assignPlain(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
+          // A reset is what somebody reaches for after a suspected takeover, so it must not
+          // leave the attacker's session live. Clearing the refresh tokens ends every legacy
+          // session; the IAM half is `betterAuth.emailAndPassword.revokeSessionsOnPasswordReset`,
+          // which is off by default because it is a behaviour change for existing deployments —
+          // the migration guide recommends turning it on.
+          //
+          // Without this, "the reset now lands in both stores" would still leave the account
+          // reachable with the credential the reset was meant to retire.
+          refreshTokens: {},
         }).save();
 
         // Sync password to Better-Auth (IAM) if mapper is available
         // This ensures users can sign in via IAM after password reset
-        if (this.options?.betterAuthUserMapper && plainPasswordForIamSync && dbObject.email) {
+        if (this.options?.betterAuthUserMapper && passwordForIamSync && dbObject.email) {
           try {
-            await this.options.betterAuthUserMapper.syncPasswordChangeToIam(dbObject.email, plainPasswordForIamSync);
+            // Same reasoning as in update(): a `false` return means the reset landed in the
+            // legacy store only, which is the shape of failure this whole path exists to
+            // prevent. It must not be indistinguishable from success.
+            const synced = await this.options.betterAuthUserMapper.syncPasswordChangeToIam(
+              dbObject.email,
+              passwordForIamSync,
+            );
+            if (!synced) {
+              this.userServiceLogger.warn(
+                `Password reset for ${maskEmail(dbObject.email)} was NOT synced to IAM (no credential account) — ` +
+                  'the legacy password now differs from the IAM credential.',
+              );
+            }
           } catch (error) {
             // Log but don't fail - Legacy Auth password was updated successfully
             this.userServiceLogger.warn(
-              `Failed to sync password reset to IAM for ${dbObject.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              `Failed to sync password reset to IAM for ${maskEmail(dbObject.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
             );
           }
         }
@@ -226,13 +277,48 @@ export abstract class CoreUserService<
   }
 
   /**
-   * Set password rest token for email
+   * Set a password-reset token for an email address
+   *
+   * Returns `null` for an unknown address when `auth.passwordReset.preventUserEnumeration` is on
+   * (the default since 11.38.0) — the caller must then answer exactly as it would for a known one.
+   * With the option off it throws `NotFoundException`, the pre-11.38.0 behaviour.
+   *
+   * WHY THE DEFAULT CHANGED
+   *
+   * Throwing made the endpoint an account oracle: HTTP 404 for an unknown address, 201 for a known
+   * one, so anyone could test who has an account. In a multi-tenant product that also answers who
+   * works at which customer. The framework already answers this correctly on the IAM path —
+   * Better-Auth's `/request-password-reset` returns the same body either way — so the two halves
+   * of one framework disagreed about the same question.
+   *
+   * THE STATUS CODE IS THE SMALLER HALF
+   *
+   * Response TIME distinguishes the cases too, and by far more: the known path writes a token and
+   * (in the caller) sends mail, the unknown path returns immediately. This method equalises what it
+   * can — the token generation still happens, so the CPU cost matches — but the mail send lives in
+   * the caller. A `sendPasswordResetMail()` that AWAITS the send leaks the difference as latency,
+   * whatever this method does. `src/server/modules/user/user.service.ts` shows the shape that does
+   * not; the IAM path uses the same trick, with the reasoning recorded in `better-auth.config.ts`.
+   *
+   * Anything measuring this honestly should say so rather than claim the channel is closed.
    */
-  async setPasswordResetTokenForEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
+  async setPasswordResetTokenForEmail(email: string, serviceOptions?: ServiceOptions): Promise<null | TUser> {
     // Get user
     const dbObject = await this.mainDbModel.findOne({ email }).exec();
     if (!dbObject) {
-      throw new NotFoundException(`No user found with email: ${email}`);
+      const preventEnumeration =
+        this.configService.getFastButReadOnly('auth')?.passwordReset?.preventUserEnumeration !== false;
+
+      if (!preventEnumeration) {
+        throw new NotFoundException(`No user found with email: ${email}`);
+      }
+
+      // Do the work the known path does, so the two do not differ in CPU cost. It is cheap next to
+      // a mail send, which is why this alone does not close the timing channel — see the note above.
+      crypto.randomBytes(32).toString('hex');
+
+      this.userServiceLogger.debug(`Password reset requested for an unknown address (${maskEmail(email)})`);
+      return null;
     }
 
     return this.process(
@@ -311,10 +397,14 @@ export abstract class CoreUserService<
     const oldUser = (await this.mainDbModel.findById(id).lean().exec()) as null | TUser;
     const oldEmail = oldUser?.email;
 
-    // Store plain password for IAM sync before any hashing occurs
-    // We need to capture this before super.update() which may hash it
-    const inputPassword = (input as any).password;
-    const plainPasswordForIamSync = inputPassword && !/^[a-f0-9]{64}$/i.test(inputPassword) ? inputPassword : undefined;
+    // Capture the submitted password for the IAM sync before super.update()
+    // hashes it in place.
+    //
+    // Passed on exactly as received, including an already-sha256-hashed one —
+    // see the note in `resetPassword`: the sync normalizes a 64-hex value
+    // through unchanged, so skipping it there disabled the sync for the
+    // standard setup, where the frontend hashes before sending.
+    const passwordForIamSync = (input as any).password;
 
     // Perform the update
     const updatedUser = await super.update(id, input, serviceOptions);
@@ -333,13 +423,28 @@ export abstract class CoreUserService<
     }
 
     // Sync password change to IAM if password was changed and mapper is available
-    if (this.options?.betterAuthUserMapper && plainPasswordForIamSync && oldUser?.email) {
+    if (this.options?.betterAuthUserMapper && passwordForIamSync && oldUser?.email) {
       try {
-        await this.options.betterAuthUserMapper.syncPasswordChangeToIam(oldUser.email, plainPasswordForIamSync);
-        this.userServiceLogger.debug(`Synced password change to IAM for user ${oldUser.email}`);
+        // Report what actually happened, not that the call was made. `syncPasswordChangeToIam`
+        // answers `false` — never throws — when there is no IAM credential to update, and
+        // logging success regardless is how a half-applied password change stays invisible:
+        // the endpoint reports success, the user is left with two different passwords, and
+        // nothing in the log says so.
+        const synced = await this.options.betterAuthUserMapper.syncPasswordChangeToIam(
+          oldUser.email,
+          passwordForIamSync,
+        );
+        if (synced) {
+          this.userServiceLogger.debug(`Synced password change to IAM for user ${maskEmail(oldUser.email)}`);
+        } else {
+          this.userServiceLogger.warn(
+            `Password change for ${maskEmail(oldUser.email)} was NOT synced to IAM (no credential account) — ` +
+              'the legacy password now differs from the IAM credential.',
+          );
+        }
       } catch (error) {
         this.userServiceLogger.warn(
-          `Failed to sync password change to IAM for ${oldUser.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Failed to sync password change to IAM for ${maskEmail(oldUser.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         // Don't throw - password sync failure shouldn't block the update
       }

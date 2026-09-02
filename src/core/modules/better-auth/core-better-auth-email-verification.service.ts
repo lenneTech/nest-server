@@ -22,12 +22,12 @@ import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.confi
  */
 type ResolvedEmailVerificationConfig = Pick<
   IBetterAuthEmailVerificationConfig,
-  'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId'
+  'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'passwordResetLink'
 > &
   Required<
     Omit<
       IBetterAuthEmailVerificationConfig,
-      'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'resendCooldownSeconds'
+      'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'passwordResetLink' | 'resendCooldownSeconds'
     >
   > & {
     resendCooldownSeconds: number;
@@ -328,7 +328,8 @@ export class CoreBetterAuthEmailVerificationService {
    *   override that calls this directly must handle it.
    */
   async sendPasswordResetEmail(options: SendPasswordResetEmailOptions): Promise<void> {
-    const { url, user } = options;
+    const { user } = options;
+    const url = this.buildPasswordResetUrl(options);
 
     this.logAuthUrlForDevelopment('PASSWORD RESET', user.email, url);
 
@@ -567,6 +568,69 @@ export class CoreBetterAuthEmailVerificationService {
       ...rawConfig,
       enabled: rawConfig.enabled !== false,
     };
+  }
+
+  /**
+   * Where the password-reset mail points.
+   *
+   * Defaults to the APP rather than to the link Better-Auth generates, which points at the API
+   * (`https://api.example.com/iam/reset-password/<token>?callbackURL=…`) and redirects from there.
+   * That works, but it puts an unfamiliar domain into a password mail — the one thing recipients
+   * are trained to check. In this stack an app host and an API host are the norm, so the app is
+   * the better default.
+   *
+   * WHAT THIS GIVES UP, STATED PLAINLY
+   *
+   * Better-Auth's redirect route validates the token and its expiry before forwarding, so an
+   * expired link produced an error page rather than a form that fails on submit. Linking straight
+   * to the app moves that error later. It is NOT a security difference: the token reaches the app
+   * URL either way, and the `callbackURL` origin check only exists because of the hop it removes.
+   * `passwordResetLink: false` keeps Better-Auth's link for anyone who wants the early error.
+   *
+   * Resolution order — the first that yields something wins:
+   *   1. `betterAuth.emailVerification.passwordResetLink` (`false` → Better-Auth's own link)
+   *   2. `<appUrl>/auth/reset-password` — the starter's reset page
+   *   3. Better-Auth's link, when no app URL can be resolved
+   *
+   * `{token}` is substituted anywhere in the configured value; without it the token is appended as
+   * `?token=`. That is what lets a page reading a PATH parameter configure
+   * `https://example.com/auth/reset-password/{token}`.
+   */
+  protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {
+    const configured = this.config.passwordResetLink;
+
+    // Explicit opt-out: keep Better-Auth's link, including its token validation hop.
+    if (configured === false) {
+      return options.url;
+    }
+
+    let target = typeof configured === 'string' && configured.trim().length ? configured.trim() : undefined;
+
+    if (!target) {
+      const appUrl = this.configService.getFastButReadOnly<string>('appUrl');
+      if (!appUrl) {
+        // Nothing to point at. Better-Auth's link at least works, which beats a guess.
+        return options.url;
+      }
+      target = `${appUrl.replace(/\/$/, '')}/auth/reset-password`;
+    }
+
+    // Resolve a relative value against appUrl, like buildFrontendVerificationUrl does.
+    if (target.startsWith('/')) {
+      const appUrl = this.configService.getFastButReadOnly<string>('appUrl');
+      if (!appUrl) {
+        return options.url;
+      }
+      target = `${appUrl.replace(/\/$/, '')}${target}`;
+    }
+
+    const token = options.token;
+    if (target.includes('{token}')) {
+      return target.replace(/\{token\}/g, encodeURIComponent(token));
+    }
+
+    const separator = target.includes('?') ? '&' : '?';
+    return `${target}${separator}token=${encodeURIComponent(token)}`;
   }
 
   /**

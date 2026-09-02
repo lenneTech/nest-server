@@ -29,6 +29,7 @@ import {
   IServerOptions,
 } from './core/common/interfaces/server-options.interface';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware';
+import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
 import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
@@ -84,6 +85,13 @@ export class CoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // RequestContext middleware must run for all routes to provide AsyncLocalStorage context
     consumer.apply(RequestContextMiddleware).forRoutes('*');
+
+    // Security headers on EVERY response, guards' rejections included. Middleware rather than an
+    // interceptor for exactly that reason: an interceptor never runs for a request a guard turns
+    // away, and those are the ones an attacker generates most of. The middleware itself decides
+    // whether it is enabled — keeping the policy in one file rather than splitting it between a
+    // config read here and the values there.
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
     if (CoreModule.graphQlEnabled) {
       consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
     }

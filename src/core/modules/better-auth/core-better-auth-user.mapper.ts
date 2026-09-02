@@ -58,6 +58,22 @@ export interface MappedUser {
 }
 
 /**
+ * Options for {@link CoreBetterAuthUserMapper.getMigrationStatus}.
+ */
+export interface GetMigrationStatusOptions {
+  /**
+   * Whether to collect `pendingUserEmails` (up to 100 addresses).
+   *
+   * Costs two extra collection-scale queries, one of them a guaranteed COLLSCAN. Pass `false`
+   * from callers that only need the counts — they get the same numbers without the scan, and
+   * without handling addresses they were going to discard.
+   *
+   * @default true
+   */
+  includePendingEmails?: boolean;
+}
+
+/**
  * Interface for migration status result
  */
 export interface MigrationStatus {
@@ -340,6 +356,11 @@ export class CoreBetterAuthUserMapper {
       const bcryptHash = await bcrypt.hash(normalizedPassword, saltRounds);
 
       // Update the users collection with the bcrypt hash
+      // `$or` across two different indexes (`users.email` unique, `users.iamId` sparse) forces an
+      // index-union plan rather than a single-index point lookup. Deliberate — the caller may know
+      // only one of the two — and irrelevant at password-change frequency. It would NOT be
+      // irrelevant in a bulk or migration loop; anything calling this in one should look up the
+      // user once and address it by `_id`.
       const result = await usersCollection.updateOne(
         { $or: [{ email: userEmail }, { iamId: iamUserId }] },
         { $set: { password: bcryptHash, updatedAt: new Date() } },
@@ -976,7 +997,13 @@ export class CoreBetterAuthUserMapper {
    *
    * @returns Migration status object with counts and percentage
    */
-  async getMigrationStatus(): Promise<MigrationStatus> {
+  async getMigrationStatus(options?: GetMigrationStatusOptions): Promise<MigrationStatus> {
+    // Building `pendingUserEmails` costs two collection-scale queries, one of them a
+    // guaranteed COLLSCAN (`$exists: false` cannot use the sparse `iamId` index) that scans
+    // the WHOLE collection precisely in the all-migrated steady state, where it finds nothing.
+    // A caller that only needs the counts — the boot-time deprecation warning does — should
+    // not pay for a field it discards.
+    const includePendingEmails = options?.includePendingEmails !== false;
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot get migration status');
       return {
@@ -1004,10 +1031,13 @@ export class CoreBetterAuthUserMapper {
       });
 
       // Get unique userIds that have credential accounts
-      const credentialAccounts = await accountCollection
-        .aggregate([{ $match: { providerId: 'credential' } }, { $group: { _id: '$userId' } }])
+      // Counted server-side. The previous form materialized one `{_id}` object per distinct
+      // migrated user in the Node heap only to read `.length` — an allocation that grows with
+      // the user count, at boot, before the first request.
+      const credentialAccountCount = await accountCollection
+        .aggregate([{ $match: { providerId: 'credential' } }, { $group: { _id: '$userId' } }, { $count: 'count' }])
         .toArray();
-      const usersWithIamAccount = credentialAccounts.length;
+      const usersWithIamAccount = credentialAccountCount[0]?.count ?? 0;
 
       // Get users that are fully migrated (have both iamId AND credential account)
       // We need to find users where iamId exists AND there's a matching account
@@ -1047,15 +1077,17 @@ export class CoreBetterAuthUserMapper {
       // Get emails of pending users (limit to 100)
       // Two-phase approach: first get users without iamId (no $lookup needed),
       // then check users with iamId but missing credential account
-      const usersWithoutIamId = await usersCollection
-        .find({ $or: [{ iamId: { $exists: false } }, { iamId: null }] })
-        .limit(100)
-        .project({ email: 1 })
-        .toArray();
+      const usersWithoutIamId = !includePendingEmails
+        ? []
+        : await usersCollection
+            .find({ $or: [{ iamId: { $exists: false } }, { iamId: null }] })
+            .limit(100)
+            .project({ email: 1 })
+            .toArray();
 
       const remaining = 100 - usersWithoutIamId.length;
       let usersWithIamButNoAccount: { email?: string }[] = [];
-      if (remaining > 0) {
+      if (includePendingEmails && remaining > 0) {
         usersWithIamButNoAccount = await usersCollection
           .aggregate([
             { $match: { iamId: { $exists: true, $ne: null } } },

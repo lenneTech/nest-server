@@ -144,7 +144,13 @@ export class UserController {
   @Post('password/reset-request')
   @Roles(RoleEnum.S_EVERYONE)
   async requestPasswordResetMail(@Body('email') email: string): Promise<boolean> {
-    return !!(await this.userService.sendPasswordResetMail(email));
+    // Always `true`, whether or not the address exists. `sendPasswordResetMail` returns `null` for
+    // an unknown one (see CoreUserService.setPasswordResetTokenForEmail), and forwarding that as
+    // `false` would rebuild the account oracle one layer up: the status code is equal, the body
+    // is not. The caller is told the same thing either way — "if this address is known, mail is on
+    // its way" — which is the only honest answer that reveals nothing.
+    await this.userService.sendPasswordResetMail(email);
+    return true;
   }
 
   /**

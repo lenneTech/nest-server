@@ -78,7 +78,7 @@ JWT-based authentication for existing projects:
 | **Refresh Tokens** | Automatic token renewal |
 | **Sign In / Sign Up / Logout** | GraphQL mutations + REST endpoints |
 | **Rate Limiting** | Configurable per-endpoint rate limits (`auth.rateLimit`). Same `RateLimitStore` selection, async signatures and Redis-outage degradation as the BetterAuth row above (namespace `legacy-auth`) |
-| **Legacy Endpoint Controls** | Disable legacy endpoints after migration (`auth.legacyEndpoints`) |
+| **Legacy Endpoint Controls** | Legacy endpoints are OFF unless `auth.legacyEndpoints.enabled: true` (default flipped in 11.38.0 — it was an opt-out, it is now an opt-in). `CoreLegacyAuthDeprecationInitializer` reports the state and the IAM migration progress at boot |
 | **Migration Tracking** | `betterAuthMigrationStatus` query for monitoring |
 
 #### Role System
@@ -591,6 +591,40 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > input rejection is the correct control here because the guard layer does not run on these
 > raw-forwarded routes. A forged `POST /iam/update-user {"roles":["admin"]}` is rejected with
 > `FIELD_NOT_ALLOWED` (HTTP 400) at the input-parse stage, before any persistence.
+
+> **"Raw" has one exception since 11.38.0: the password-setting reset routes.**
+> `CoreBetterAuthApiMiddleware.normalizeResetPassword()` rewrites the password field of
+> `/reset-password`, `/email-otp/reset-password` and `/phone-number/reset-password` to its
+> normalized (sha256) form **before** building the Web Request, then runs the Better-Auth handler
+> inside an `AsyncLocalStorage` context carrying that value.
+>
+> Both halves are load-bearing. Without the rewrite, a client posting a plaintext password would
+> have `scrypt(plaintext)` stored while every sign-in — which *is* normalized, in
+> `CoreBetterAuthController` — checks `scrypt(sha256(...))`: the account is locked out with the
+> password its owner just chose. Without the context, `emailAndPassword.onPasswordReset` knows
+> *which* user was reset but not to *what*, and cannot mirror the new password into the legacy
+> bcrypt store — leaving the old password valid on the legacy path after a reset.
+>
+> A project subclassing the middleware must know this: the body it forwards is no longer
+> byte-identical to the body it received. `normalizeResetPassword()` is `protected`.
+
+#### 2b. SecurityHeadersMiddleware
+
+Sets the browser security headers on **every** response — `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and the removal of
+`X-Powered-By`. On by default; `security.headers: false` disables it, individual fields switch off
+individually. No CSP is sent unless one is configured.
+
+Middleware rather than an interceptor, and the distinction is the whole point: an interceptor never
+runs for a request a guard turns away, and a `401` is still a response a browser renders. Those are
+also the responses an attacker generates most of. `tests/security-headers.e2e-spec.ts` asserts the
+headers on an actual guard rejection rather than trusting the ordering.
+
+HSTS is decided by the request protocol — `x-forwarded-proto` first, connection protocol as
+fallback — and never by configuration. A browser remembers it, so one sent over `http://localhost`
+makes every project on that host unreachable over http for up to a year, with no server-side undo.
+Behind a TLS-terminating proxy the inward connection is plain http, which makes `trustProxy`
+load-bearing for this header too.
 
 #### 3. graphqlUploadExpress
 

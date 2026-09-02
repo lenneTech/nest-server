@@ -74,19 +74,45 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
 
   /**
    * Request password reset mail
+   *
+   * REFERENCE IMPLEMENTATION — the two details below are the ones that matter, and a project
+   * copying this method needs both. Either one alone leaves the endpoint an account oracle.
+   *
+   * 1. An unknown address yields `null` (since 11.38.0, unless
+   *    `auth.passwordReset.preventUserEnumeration` is off) and this method returns quietly, so the
+   *    caller answers the same way it would for a known one.
+   * 2. The mail send is NOT awaited. This is the half that actually closes the channel: the send
+   *    is a network round trip to SMTP or Brevo, orders of magnitude above everything else in the
+   *    request. Awaiting it would make the known path visibly slower whatever the status code says
+   *    — you would have given up the "unknown address" hint in the UI and kept the oracle.
+   *
+   * A failed send must still be reported rather than crash the process, which is why it carries
+   * its own `catch`. The user is told the mail is on its way either way; that is the same trade
+   * Better-Auth makes on the IAM path.
    */
-  async sendPasswordResetMail(email: string, serviceOptions?: ServiceOptions): Promise<User> {
+  async sendPasswordResetMail(email: string, serviceOptions?: ServiceOptions): Promise<null | User> {
     // Set password reset token
     const user = await super.setPasswordResetTokenForEmail(email, serviceOptions);
 
-    // Send email
-    await this.emailService.sendMail(user.email, 'Password reset', {
-      htmlTemplate: 'password-reset',
-      templateData: {
-        link: `${this.configService.configFastButReadOnly.email.passwordResetLink}/${user.passwordResetToken}`,
-        name: user.username,
-      },
-    });
+    if (!user) {
+      // Unknown address, enumeration protection on. Answer exactly as for a known one.
+      return null;
+    }
+
+    // Deliberately NOT awaited — see the note above.
+    void this.emailService
+      .sendMail(user.email, 'Password reset', {
+        htmlTemplate: 'password-reset',
+        templateData: {
+          link: `${this.configService.configFastButReadOnly.email.passwordResetLink}/${user.passwordResetToken}`,
+          name: user.username,
+        },
+      })
+      .catch((error: unknown) => {
+        this.userServiceLogger.error(
+          `Failed to send the password-reset mail: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
 
     // Return user
     return user;

@@ -135,7 +135,12 @@ The `CoreBetterAuthUserMapper` enables bidirectional password synchronization:
 
 - User signs up via BetterAuth → password synced to Legacy Auth (bcrypt hash)
 - User changes password → synced between both systems
+- User resets via IAM → mirrored into the legacy store (11.38.0+; see Password Reset below)
+- User resets via the legacy user endpoint → synced into the IAM credential
 - **Without this, users can only authenticate via ONE system!**
+
+The mapper is also what the IAM→legacy reset mirror runs through. Without it registered, that
+mirror is skipped — the reset itself still succeeds, and a warning names the divergence.
 
 ---
 
@@ -315,6 +320,23 @@ Check these four things when integrating:
       60 s), which is the axis that matters against mail-bombing one victim from rotating IPs.
 - [ ] **Your reset page exists and points at `POST /iam/reset-password`** with `{ token, newPassword }`.
       Tokens are valid for 1 h by default.
+- [ ] **The IAM→legacy mirror is wired (11.38.0+).** `emailAndPassword.onPasswordReset` mirrors an
+      applied IAM reset into the legacy bcrypt store, for every native reset route (token,
+      email-OTP, phone-number), so a deployment running both systems does not keep the OLD
+      password valid on the legacy path — including after a reset performed _because_ it leaked.
+      Automatic, but it needs `CoreBetterAuthUserMapper` resolvable (see above), and it is skipped
+      entirely when no legacy endpoint is enabled. A skipped mirror logs
+      `Could not mirror the IAM password reset to the legacy store` — if you see that, the mapper
+      is missing, not the reset.
+- [ ] **You did not add your own `options.emailAndPassword.onPasswordReset`** expecting it to
+      replace the framework's. It cannot: the two are CHAINED, framework first. That is
+      deliberate — a project hook is an addition, never a way to silently switch off credential-
+      store parity.
+- [ ] **Password length is enforced client-side too.** The middleware normalizes a plaintext reset
+      password to sha256 before Better-Auth sees it, so Better-Auth's own
+      `minPasswordLength`/`maxPasswordLength` cannot fire. nest-server checks the raw value it
+      receives — but a client that hashes before sending (every lt frontend does) presents a
+      64-hex string that carries no length information. The policy has to live in the form.
 - [ ] **`trustedOrigins` contains no wildcard.** `redirectTo` is validated against it and the reset
       redirect carries the token, so a wildcard hands a live token to any origin it admits. The
       framework warns at boot if it finds one.

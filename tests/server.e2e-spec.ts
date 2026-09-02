@@ -213,9 +213,19 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
-   * Request password reset mail
+   * Request password reset mail for an address that does not exist
+   *
+   * Since 11.38.0 this answers exactly as it does for a known address. It used to return HTTP 404
+   * with the address echoed back — a working oracle for "does this person have an account here",
+   * which in a multi-tenant product also answers who works at which customer. The framework
+   * already answered this correctly on the IAM path, so the two halves disagreed about the same
+   * question.
+   *
+   * The assertion is inverted rather than deleted: what used to prove the error now proves its
+   * absence. Restoring the throw (registered mutation `reset-request-reveals-unknown-email`) turns
+   * this red again.
    */
-  it('requestPasswordResetMail with invalid email', async () => {
+  it('requestPasswordResetMail with invalid email reveals nothing', async () => {
     const res: any = await testHelper.graphQl({
       arguments: {
         email: `invalid${gEmail}`,
@@ -223,8 +233,9 @@ describe('ServerModule (e2e)', () => {
       name: 'requestPasswordResetMail',
       type: TestGraphQLType.MUTATION,
     });
-    expect(res.errors[0].extensions.originalError.statusCode).toEqual(404);
-    expect(res.errors[0].message).toEqual(`No user found with email: invalid${gEmail}`);
+
+    expect(res.errors, 'an unknown address must not produce an error a caller can distinguish').toBeUndefined();
+    expect(res, 'and it must answer exactly as a known address does').toEqual(true);
   });
 
   /**
