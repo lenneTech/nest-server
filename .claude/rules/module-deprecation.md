@@ -166,9 +166,33 @@ Users must sign in at least once via BetterAuth to create a new hash.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable all legacy endpoints |
+| `enabled` | boolean | **`false` since 11.38.0** (was `true`) | Enable/disable all legacy endpoints |
 | `graphql` | boolean | inherits `enabled` | Enable/disable GraphQL endpoints only |
 | `rest` | boolean | inherits `enabled` | Enable/disable REST endpoints only |
+
+**The default flipped in 11.38.0.** A project that registered the legacy module and never
+made a decision used to keep a second, fully functional password-authentication surface
+open indefinitely. A way in that nobody chose is a liability, so it now has to be asked
+for. Only the three-argument `CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(...),
+envConfig)` is affected — the one-argument form never registers the legacy module at all.
+
+Both transports resolve this through one exported function, `isLegacyEndpointEnabled()`,
+rather than a copy each. The resolution table, including the one asymmetry:
+
+| Configuration | Result |
+|---------------|--------|
+| `enabled: false` | off, whatever `graphql` / `rest` say |
+| per-transport flag set | that flag wins |
+| `enabled: true` | on |
+| nothing set | **off** |
+
+`enabled: false` is a hard off switch that a per-transport `true` cannot reopen: it is the
+setting a project reached for to close legacy down, and an upgrade must never widen it.
+
+While any legacy endpoint is open, `CoreLegacyAuthDeprecationInitializer` warns once per
+boot and reports the IAM migration percentage — so `canDisableLegacyAuth` no longer has to
+be asked for. It only REPORTS; closing the endpoints for a project mid-migration would lock
+out every user who has not signed in through IAM yet.
 
 ### Legacy Endpoints Affected
 

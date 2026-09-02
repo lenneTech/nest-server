@@ -53,7 +53,7 @@ function generateSecureSecret(): string {
  * Hash a password using Node.js native crypto.scrypt (libuv thread pool).
  * Output format matches Better-Auth: "salt:hash" (both hex encoded).
  */
-async function nativeScryptHash(password: string): Promise<string> {
+export async function nativeScryptHash(password: string): Promise<string> {
   const salt = crypto.randomBytes(16).toString('hex');
   const normalized = password.normalize('NFKC');
   const key = await new Promise<Buffer>((resolve, reject) => {
@@ -67,8 +67,14 @@ async function nativeScryptHash(password: string): Promise<string> {
 
 /**
  * Verify a password against a Better-Auth scrypt hash using Node.js native crypto.scrypt.
+ *
+ * Exported so tests can ask the PRODUCT whether a stored credential accepts a password, rather
+ * than re-declaring the scrypt parameters next to their assertion. A copy drifts silently: change
+ * a parameter here and the copy derives a different key, turning every affected assertion into a
+ * red with a misleading diagnosis — or, if both drift compatibly, into a green for the wrong
+ * reason.
  */
-async function nativeScryptVerify(data: { hash: string; password: string }): Promise<boolean> {
+export async function nativeScryptVerify(data: { hash: string; password: string }): Promise<boolean> {
   const [salt, storedKey] = data.hash.split(':');
   if (!salt || !storedKey) return false;
   const normalized = data.password.normalize('NFKC');
@@ -129,6 +135,13 @@ export interface CreateBetterAuthOptions {
   onEmailVerified?: OnEmailVerifiedCallback;
 
   /**
+   * Callback invoked after a password reset has been written to the IAM credential.
+   * Injected from CoreBetterAuthModule to mirror the new password into the legacy store,
+   * so a deployment running both systems does not end up with two different passwords.
+   */
+  onPasswordReset?: OnPasswordResetCallback;
+
+  /**
    * Callback for sending the password-reset email.
    * Injected from CoreBetterAuthModule to use NestJS services.
    *
@@ -178,6 +191,51 @@ export interface CreateBetterAuthOptions {
  * Injected from CoreBetterAuthModule to sync verifiedAt
  */
 export type OnEmailVerifiedCallback = (userId: string) => Promise<void>;
+
+/**
+ * Callback for when a password reset has been APPLIED to the IAM credential.
+ *
+ * Injected from CoreBetterAuthModule so the new password can also be mirrored into the
+ * legacy bcrypt store. Better-Auth reports only WHICH user was reset — the password
+ * itself comes from `core-better-auth-password-reset.registry.ts`, which the API
+ * middleware fills for the duration of the handler call.
+ *
+ * Fires for every native reset route (token, email-OTP, phone-number).
+ */
+/**
+ * Combines the framework's `onPasswordReset` with a project-supplied one so neither is lost.
+ *
+ * Returns an empty object when there is nothing to install, so the caller can spread it
+ * unconditionally without writing an `onPasswordReset: undefined` key — Better-Auth resolves
+ * the hook by presence, and an explicitly-undefined key reads as "declared, does nothing".
+ *
+ * The framework hook runs FIRST and its failure does not prevent the project hook: they are
+ * independent consequences of the same event, and one broken listener must not silently
+ * cancel the other.
+ */
+function chainOnPasswordReset(base: unknown, override: unknown): { onPasswordReset?: OnPasswordResetCallback } {
+  const baseHook = typeof base === 'function' ? (base as OnPasswordResetCallback) : undefined;
+  const overrideHook = typeof override === 'function' ? (override as OnPasswordResetCallback) : undefined;
+
+  if (!baseHook) {
+    return overrideHook ? { onPasswordReset: overrideHook } : {};
+  }
+  if (!overrideHook) {
+    return { onPasswordReset: baseHook };
+  }
+
+  return {
+    onPasswordReset: async (data) => {
+      const results = await Promise.allSettled([baseHook(data), overrideHook(data)]);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure && failure.status === 'rejected') {
+        throw failure.reason;
+      }
+    },
+  };
+}
+
+export type OnPasswordResetCallback = (data: { user: { email?: string; id: string } }) => Promise<void>;
 
 /**
  * Options for creating a better-auth instance
@@ -371,8 +429,16 @@ export interface CreateBetterAuthResult {
 }
 
 export function createBetterAuthInstance(options: CreateBetterAuthOptions): CreateBetterAuthResult | null {
-  const { config, db, fallbackSecrets, onEmailVerified, sendResetPasswordEmail, sendVerificationEmail, serverEnv } =
-    options;
+  const {
+    config,
+    db,
+    fallbackSecrets,
+    onEmailVerified,
+    onPasswordReset,
+    sendResetPasswordEmail,
+    sendVerificationEmail,
+    serverEnv,
+  } = options;
 
   // Return null only if better-auth is explicitly disabled
   // BetterAuth is enabled by default (zero-config)
@@ -517,6 +583,29 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
       // here claimed a mail-less server would keep answering RESET_PASSWORD_DISABLED; it would not.
       // `emailAndPassword.passwordReset: false` is the real off switch, for deployments whose reset
       // policy is support-mediated or SSO-primary.
+      // Mirror an applied reset into the legacy bcrypt store.
+      //
+      // Without this, a deployment running Legacy Auth next to IAM keeps the OLD password
+      // valid on the legacy path after a reset — including a reset somebody performed
+      // BECAUSE the old password was compromised. Better-Auth tells us which user was
+      // reset; the password comes from the API middleware via the reset registry.
+      ...(onPasswordReset && {
+        onPasswordReset: (async (data) => {
+          try {
+            await onPasswordReset(data);
+          } catch (error) {
+            // Never fail the reset itself: the IAM credential is already written, and
+            // refusing the response would tell the user their reset did not work when it
+            // half did. Report it instead.
+            logger.error(
+              `Failed to mirror the password reset to the legacy store: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }) satisfies OnPasswordResetCallback,
+      }),
+
       // Mirrors the emailVerification.sendVerificationEmail wiring.
       ...(sendResetPasswordEmail &&
         config.emailAndPassword?.passwordReset !== false && {
@@ -606,6 +695,19 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
         // READS. The result is an asymmetric pair — anyone who resets their password can then
         // never sign in again. An explicit override still wins; only `undefined` is ignored.
         password: mergeDefined(base.password, override.password),
+        // `onPasswordReset` is subject to the SAME hazard as `password` above, and needs the
+        // opposite treatment: it must not be replaceable at all.
+        //
+        // It is what mirrors an applied IAM reset into the legacy bcrypt store. A project has
+        // an entirely reasonable motive to declare its own (audit logging, a notification
+        // mail) — and the spread would then drop the framework's, silently restoring the
+        // pre-11.38.0 defect where the OLD password stays valid on the legacy path after a
+        // reset, including a reset performed BECAUSE it leaked. Both stores report success.
+        //
+        // So the two are CHAINED rather than merged: the framework mirror always runs, the
+        // project hook runs after it. That is a deliberate asymmetry to `password`, where an
+        // explicit override wins — a hasher is a choice, a credential-store mirror is not.
+        ...chainOnPasswordReset(base.onPasswordReset, override.onPasswordReset),
       };
     }
     if (optionsAdvanced && typeof optionsAdvanced === 'object') {

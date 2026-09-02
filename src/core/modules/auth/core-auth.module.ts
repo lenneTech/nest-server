@@ -12,6 +12,7 @@ import { RolesGuardRegistry } from './guards/roles-guard-registry';
 import { RolesGuard } from './guards/roles.guard';
 import { CoreAuthUserService } from './services/core-auth-user.service';
 import { CoreAuthService } from './services/core-auth.service';
+import { CoreLegacyAuthDeprecationInitializer } from './core-legacy-auth-deprecation.initializer';
 import { LegacyAuthRateLimiter } from './services/legacy-auth-rate-limiter.service';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -64,6 +65,10 @@ export class CoreAuthModule {
     let providers: any[] = [
       // [Global] The GraphQLAuthGuard integrates the user into context
       ...rolesGuardProvider,
+      // Reports at boot that this deployment still exposes Legacy Auth, and how far the
+      // IAM migration has come. Registered here because this module exists only in
+      // legacy mode — an IAM-only project never loads it.
+      CoreLegacyAuthDeprecationInitializer,
       {
         provide: CoreAuthUserService,
         useClass: UserService,

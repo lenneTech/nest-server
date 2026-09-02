@@ -117,7 +117,9 @@ describe('Story: Three Authentication Scenarios', () => {
       //
       // Use case: New projects starting fresh with BetterAuth
 
-      expect(true).toBe(true); // Documentation test
+      // Intentionally assertion-free: this block documents the scenario in prose for the
+      // reader. `expect(true).toBe(true)` used to stand here and asserted nothing while
+      // looking like coverage — the exact shape the regression-evidence rules exist against.
     });
   });
 

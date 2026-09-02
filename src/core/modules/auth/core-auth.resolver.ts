@@ -15,6 +15,7 @@ import { CoreAuthModel } from './core-auth.model';
 import { LegacyAuthDisabledException } from './exceptions/legacy-auth-disabled.exception';
 import { AuthGuard } from './guards/auth.guard';
 import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
+import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper';
 import { CoreAuthSignInInput } from './inputs/core-auth-sign-in.input';
 import { CoreAuthSignUpInput } from './inputs/core-auth-sign-up.input';
 import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
@@ -62,23 +63,15 @@ export class CoreAuthResolver {
   /**
    * Check if legacy GraphQL endpoints are enabled
    *
-   * Throws LegacyAuthDisabledException if:
-   * - config.auth.legacyEndpoints.enabled is false
-   * - config.auth.legacyEndpoints.graphql is false
+   * Since 11.38.0 legacy endpoints are OFF unless a project asks for them — see
+   * `isLegacyEndpointEnabled()` for the full resolution table.
    *
    * @throws LegacyAuthDisabledException
    */
   protected checkLegacyGraphQLEnabled(endpointName: string): void {
     const authConfig = this.configService.getFastButReadOnly('auth');
-    const legacyConfig = authConfig?.legacyEndpoints;
 
-    // Check if legacy endpoints are globally disabled
-    if (legacyConfig?.enabled === false) {
-      throw new LegacyAuthDisabledException(endpointName);
-    }
-
-    // Check if GraphQL endpoints specifically are disabled
-    if (legacyConfig?.graphql === false) {
+    if (!isLegacyEndpointEnabled(authConfig?.legacyEndpoints, 'graphql')) {
       throw new LegacyAuthDisabledException(endpointName);
     }
   }

@@ -520,6 +520,10 @@ const config: { [env: string]: IServerOptions } = {
       maxIterations: 5,
       rateLimit: { max: 20, windowSeconds: 60 },
     },
+    // Legacy auth is OFF by default since 11.38.0 (see isLegacyEndpointEnabled). This
+    // repository's own `src/server` registers the legacy module and its suites exercise
+    // BOTH auth systems, so every non-production environment here opts in explicitly —
+    // which is exactly what a project still running legacy now has to do.
     auth: {
       legacyEndpoints: { enabled: true },
     },
@@ -653,7 +657,11 @@ const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
   production: {
     auth: {
-      legacyEndpoints: { enabled: process.env.LEGACY_AUTH_ENABLED !== 'false' },
+      // Opt-IN since 11.38.0: an unset LEGACY_AUTH_ENABLED now means "no legacy auth",
+      // not "legacy auth, because nobody said otherwise". Deployments that still need
+      // the legacy endpoints set LEGACY_AUTH_ENABLED=true until their users are migrated
+      // (`betterAuthMigrationStatus.canDisableLegacyAuth` says when they are).
+      legacyEndpoints: { enabled: process.env.LEGACY_AUTH_ENABLED === 'true' },
     },
     automaticObjectIdFiltering: true,
     baseUrl: process.env.BASE_URL,

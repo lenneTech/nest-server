@@ -599,10 +599,10 @@
     },
     {
       "id": "betterauth-emailandpassword-shallow-merge",
-      "defect": "11.36.1 — `config.options` was merged over the resolved Better-Auth config with a SHALLOW spread (only `advanced` was deep-merged). An `options.emailAndPassword` therefore did not add a key, it REPLACED the whole block — including the `password: { hash: nativeScryptHash, verify: nativeScryptVerify }` pair the framework installs. Better-Auth silently fell back to its own hasher, so every credential already in the database stopped verifying and every user of that deployment was locked out at once, at runtime and with nothing in the logs. The module's own README recommended exactly that shape for wiring `sendResetPassword`.",
+      "defect": "11.36.1 — `config.options` was merged over the resolved Better-Auth config with a SHALLOW spread (only `advanced` was deep-merged). An `options.emailAndPassword` therefore did not add a key, it REPLACED the whole block — including the `password: { hash: nativeScryptHash, verify: nativeScryptVerify }` pair the framework installs. Better-Auth silently fell back to its own hasher, so every credential already in the database stopped verifying and every user of that deployment was locked out at once, at runtime and with nothing in the logs. The module's own README recommended exactly that shape for wiring `sendResetPassword`. Re-pointed in 11.38.0: the block now also chains `onPasswordReset`, so a shallow spread drops the legacy-store mirror as well as the password hasher — two credential-integrity guarantees, one spread.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "after": "    if (optionsEmailAndPassword && typeof optionsEmailAndPassword === 'object') {",
-      "find": "      finalConfig.emailAndPassword = {\n        ...base,\n        ...override,\n        // Merged key-by-key rather than spread, because object spread copies an EXPLICITLY\n        // undefined value as a present key: `password: { hash: undefined }` would survive as\n        // `hash: undefined`, and Better-Auth resolves `password?.hash || hashPassword`, silently\n        // switching to its own hasher for WRITES while nest-server's scrypt verify still handles\n        // READS. The result is an asymmetric pair — anyone who resets their password can then\n        // never sign in again. An explicit override still wins; only `undefined` is ignored.\n        password: mergeDefined(base.password, override.password),\n      };",
+      "find": "      finalConfig.emailAndPassword = {\n        ...base,\n        ...override,\n        // Merged key-by-key rather than spread, because object spread copies an EXPLICITLY\n        // undefined value as a present key: `password: { hash: undefined }` would survive as\n        // `hash: undefined`, and Better-Auth resolves `password?.hash || hashPassword`, silently\n        // switching to its own hasher for WRITES while nest-server's scrypt verify still handles\n        // READS. The result is an asymmetric pair — anyone who resets their password can then\n        // never sign in again. An explicit override still wins; only `undefined` is ignored.\n        password: mergeDefined(base.password, override.password),\n        // `onPasswordReset` is subject to the SAME hazard as `password` above, and needs the\n        // opposite treatment: it must not be replaceable at all.\n        //\n        // It is what mirrors an applied IAM reset into the legacy bcrypt store. A project has\n        // an entirely reasonable motive to declare its own (audit logging, a notification\n        // mail) — and the spread would then drop the framework's, silently restoring the\n        // pre-11.38.0 defect where the OLD password stays valid on the legacy path after a\n        // reset, including a reset performed BECAUSE it leaked. Both stores report success.\n        //\n        // So the two are CHAINED rather than merged: the framework mirror always runs, the\n        // project hook runs after it. That is a deliberate asymmetry to `password`, where an\n        // explicit override wins — a hasher is a choice, a credential-store mirror is not.\n        ...chainOnPasswordReset(base.onPasswordReset, override.onPasswordReset),\n      };",
       "replace": "      void base;\n      finalConfig.emailAndPassword = { ...override };",
       "specs": [
         "tests/unit/better-auth-password-reset-wiring.spec.ts",
@@ -710,6 +710,163 @@
       "replace": "        .find({ [issuerField]: { $exists: false }, providerId: '__never_matches__' }, { projection: { _id: 1 } })",
       "specs": [
         "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-skips-iam-sync-for-hashed-password",
+      "defect": "11.38.0 — CoreUserService.resetPassword skipped the IAM password sync whenever the incoming value was already sha256, on the reasoning that IAM 'needs the plain password'. It does not: hashPasswordForBetterAuth runs its input through normalizePasswordForIam, which passes a 64-hex string through unchanged. The lt auth client hashes in the browser (ltSha256, seven call sites in nuxt-extensions), so the skipped branch was the ONLY branch a real frontend ever took: the legacy store got the new password, the IAM credential kept the old one, and the endpoint reported success. The plaintext case — the one the existing e2e test covered — worked throughout, which is why it survived.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "async resetPassword(token: string, newPassword: string",
+      "find": "    const passwordForIamSync = newPassword;",
+      "replace": "    const passwordForIamSync = /^[a-f0-9]{64}$/i.test(newPassword) ? undefined : newPassword;",
+      "specs": [
+        "tests/stories/password-reset-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "update-skips-iam-sync-for-hashed-password",
+      "defect": "11.38.0 — the same 64-hex guard as reset-skips-iam-sync-for-hashed-password, on the OTHER password-writing path: CoreUserService.update(). Registered separately because the two are different entry points with different callers, and a fix applied to only one of them leaves a working password-reset next to a broken password-change.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "// Capture the submitted password for the IAM sync before super.update()",
+      "find": "    const passwordForIamSync = (input as any).password;",
+      "replace": "    const inputPassword = (input as any).password;\n    const passwordForIamSync = inputPassword && !/^[a-f0-9]{64}$/i.test(inputPassword) ? inputPassword : undefined;",
+      "specs": [
+        "tests/stories/password-reset-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-reset-does-not-sync-to-legacy",
+      "defect": "11.38.0 — nothing mirrored an IAM password reset back into the legacy bcrypt store. Better-Auth's onPasswordReset hook was never wired, so a deployment running Legacy Auth next to IAM kept the OLD password valid on the legacy path after a reset — including a reset performed BECAUSE the old password was compromised. Invisible through the sign-in APIs, because CoreAuthService.signIn delegates to IAM for any user carrying an iamId; it surfaces only once IAM is switched off, which is the one moment nobody is watching.",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "after": "onPasswordReset: async ({ user }) => {",
+      "find": "        const mirrored = await this.userMapperInstance?.syncPasswordToLegacy(user.id, user.email, normalizedPassword);",
+      "replace": "        const mirrored = !!normalizedPassword && !!user.id;",
+      "specs": [
+        "tests/stories/password-reset-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-reset-password-not-normalized",
+      "defect": "11.38.0 — the native Better-Auth reset routes are forwarded rather than controller-handled, so nothing normalized their password while sign-in and sign-up both do. A plaintext reset was therefore stored as scrypt(plaintext) while every later sign-in checks scrypt(sha256(...)): the account was locked out with the password its owner had just chosen, one request after being told the reset succeeded.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "after": "protected normalizeResetPassword(req: Request, relativePath: string)",
+      "find": "    req.body[route.field] = normalized;\n    return normalized;",
+      "replace": "    return normalized;",
+      "specs": [
+        "tests/stories/password-reset-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-endpoints-default-on",
+      "defect": "11.38.0 — `auth.legacyEndpoints.enabled` defaulted to true, so a project that registered the legacy auth module and never made a decision kept a second, fully functional password-authentication surface open indefinitely: signIn/signUp/logout/refreshToken over GraphQL and /auth/* over REST, served by CoreAuthService rather than Better-Auth and therefore bypassing every IAM-side control (2FA, passkey, session revocation). The flip to false was the release's headline breaking change and was, when registered, observable by NOTHING: every environment in this repo's own config.env.ts opts in explicitly, and the only suites touching the option set `enabled: false`, the branch that behaved identically before and after. Reverting the fall-through left 1958 unit tests and the legacy-relevant e2e specs green — measured, not assumed.",
+      "file": "src/core/modules/auth/helpers/legacy-endpoints.helper.ts",
+      "after": "export function isLegacyEndpointEnabled(",
+      "find": "  return legacyConfig?.enabled === true;",
+      "replace": "  return legacyConfig?.enabled !== false;",
+      "specs": [
+        "tests/unit/legacy-endpoints-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "deprecation-initializer-blocks-boot",
+      "defect": "11.38.0 — CoreLegacyAuthDeprecationInitializer awaited getMigrationStatus() inside onApplicationBootstrap. Nest waits for every bootstrap hook before listen() resolves, and that call is collection-scale work (six operations, including a guaranteed COLLSCAN and an aggregation materializing one object per migrated user). Every pod of every rolling deploy therefore paid for a log line, and a readiness probe could fail while the server counted users. Invisible to tsc: a voided promise and an awaited one type-check identically.",
+      "file": "src/core/modules/auth/core-legacy-auth-deprecation.initializer.ts",
+      "after": "onApplicationBootstrap(): void {",
+      "find": "    void this.reportMigrationStatus();",
+      "replace": "    return this.reportMigrationStatus() as unknown as void;",
+      "specs": [
+        "tests/unit/legacy-auth-deprecation-initializer.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-registry-leaks-across-requests",
+      "defect": "11.38.0 — the in-flight reset password is carried from the API middleware to Better-Auth's onPasswordReset hook. Holding it in a module-level variable instead of an AsyncLocalStorage store makes two concurrent resets observe each other's value, which mirrors one user's password into another user's legacy account — a credential cross-contamination in which both requests succeed and nothing is logged. The registry states this safety property in its docstring; this mutation is what keeps the statement honest.",
+      "file": "src/core/modules/better-auth/core-better-auth-password-reset.registry.ts",
+      "after": "const storage = new AsyncLocalStorage<PasswordResetContext>();",
+      "find": "export function runWithResetPassword<T>(normalizedPassword: string, fn: () => T): T {\n  return storage.run({ normalizedPassword }, fn);\n}\n\n/**\n * The normalized password of the reset currently being handled, or `undefined`\n * outside such a request.\n *\n * `undefined` means \"not a reset we saw the body of\" — never \"no password\". Callers\n * must skip the mirror rather than guess, because writing a wrong bcrypt hash would\n * lock the account out of the legacy path.\n *\n * @internal\n */\nexport function getInFlightResetPassword(): string | undefined {\n  const store = storage.getStore();\n  if (!store) {\n    return undefined;\n  }\n\n  // ONE-SHOT. The legacy mirror is the only legitimate reader and it reads once, so handing the\n  // value out a second time can only serve something that should not have it.\n  //\n  // Defence in depth rather than a fix for a known hole: an AsyncLocalStorage store is retained\n  // by any async resource created INSIDE the `run()` that outlives it — a timer registered during\n  // lazy plugin init, a cached promise. Such a resource would otherwise keep observing a\n  // password-equivalent from a request that finished long ago. Clearing on read bounds that to\n  // the moment the mirror actually runs.\n  const { normalizedPassword } = store;\n  store.normalizedPassword = undefined;\n  return normalizedPassword;\n}",
+      "replace": "let sharedPassword: string | undefined;\n\nexport function runWithResetPassword<T>(normalizedPassword: string, fn: () => T): T {\n  sharedPassword = normalizedPassword;\n  return fn();\n}\n\nexport function getInFlightResetPassword(): string | undefined {\n  const value = sharedPassword;\n  sharedPassword = undefined;\n  return value;\n}",
+      "specs": [
+        "tests/unit/password-reset-registry.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-request-reveals-unknown-email",
+      "defect": "11.38.0 — setPasswordResetTokenForEmail threw NotFoundException for an unknown address, so POST /users/password/reset-request answered 404 for unknown and 201 for known: a working oracle for 'does this person have an account here'. In a multi-tenant product that also answers who works at which customer. The framework already answered this correctly on the IAM path (Better-Auth returns the same body either way), so the two halves of one framework disagreed about the same question.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "async setPasswordResetTokenForEmail(",
+      "find": "      if (!preventEnumeration) {\n        throw new NotFoundException(`No user found with email: ${email}`);\n      }",
+      "replace": "      throw new NotFoundException(`No user found with email: ${email}`);",
+      "specs": [
+        "tests/stories/password-reset-enumeration.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-request-awaits-mail-send",
+      "defect": "11.38.0 — the timing half of the account oracle. Equalising the status code is pointless while the response TIME still separates the two cases: the known path awaits a mail send (a network round trip to SMTP/Brevo, tens to hundreds of ms) and the unknown one returns immediately. A fix that changed only the status code would have given up the 'unknown address' hint in the UI and kept the oracle fully intact — strictly worse than before. Registered separately from reset-request-reveals-unknown-email because the two halves are independent: each turns a different assertion red.",
+      "file": "src/server/modules/user/user.service.ts",
+      "after": "async sendPasswordResetMail(",
+      "find": "    // Deliberately NOT awaited — see the note above.\n    void this.emailService\n      .sendMail(user.email, 'Password reset', {",
+      "replace": "    await this.emailService\n      .sendMail(user.email, 'Password reset', {",
+      "specs": [
+        "tests/stories/password-reset-enumeration.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "security-headers-disabled-by-default",
+      "defect": "11.38.0 — the security headers must be ON for a project that configures nothing. Making them opt-in reproduces the state this feature was built for: projects across the stack rebuilding the same header set by hand, and a freshly generated project sending none at all. A missing header produces no error anywhere; it surfaces in a pentest report months later. The safe answer has to be the one you get without thinking about it.",
+      "file": "src/core/common/middlewares/security-headers.middleware.ts",
+      "after": "protected resolveConfig()",
+      "find": "    const options: ISecurityHeaders = raw === true || raw === undefined ? {} : raw;",
+      "replace": "    if (raw === undefined) {\n      return null;\n    }\n    const options: ISecurityHeaders = raw === true ? {} : raw;",
+      "specs": [
+        "tests/security-headers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "security-headers-hsts-ignores-protocol",
+      "defect": "11.38.0 — HSTS must be decided by the actual request protocol and never by configuration. A browser REMEMBERS Strict-Transport-Security: one sent from a dev server over http://localhost makes every other project on that host unreachable over http for up to a year, and nothing on the server side can withdraw it. Sending it regardless of protocol is therefore not a cosmetic bug but an unrecoverable one, and it is invisible in production (where the header is correct) — it only bites developers.",
+      "file": "src/core/common/middlewares/security-headers.middleware.ts",
+      "after": "use(req: Request, res: ExpressResponse, next: NextFunction): void {",
+      "find": "    if (config.hsts && this.isSecureRequest(req)) {",
+      "replace": "    if (config.hsts) {",
+      "specs": [
+        "tests/security-headers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-request-body-reveals-unknown-email",
+      "defect": "11.38.0 — the third layer of the same oracle, and the one that survived the first two fixes. With the service returning null for an unknown address and the status codes equalised, the resolver still answered `!!user`: `true` for a known address, `false` for an unknown one. Equal status, different body — the distinction simply moved one layer up, to the value the caller actually reads. Found by the story suite during development, which is why it exists.",
+      "file": "src/server/modules/user/user.resolver.ts",
+      "after": "async requestPasswordResetMail(",
+      "find": "    await this.userService.sendPasswordResetMail(email);\n    return true;",
+      "replace": "    return !!(await this.userService.sendPasswordResetMail(email));",
+      "specs": [
+        "tests/stories/password-reset-enumeration.e2e-spec.ts",
+        "tests/server.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "password-reset-link-ignores-config",
+      "defect": "11.38.0 — the password-reset mail linked to the API host, because Better-Auth's generated URL (https://api.example.com/iam/reset-password/<token>?callbackURL=...) was passed through into the template untouched. It works — the API redirects to the app — but it puts a domain the recipient does not recognise into a password mail, which is exactly what people are trained to check before clicking. Restoring the pass-through also silently ignores `betterAuth.emailVerification.passwordResetLink`, so a project that configured its reset page would still mail the API link with nothing indicating why.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "after": "async sendPasswordResetEmail(",
+      "find": "    const { user } = options;\n    const url = this.buildPasswordResetUrl(options);",
+      "replace": "    const { url, user } = options;",
+      "specs": [
+        "tests/unit/password-reset-link.spec.ts"
       ],
       "driverSpecific": false
     }

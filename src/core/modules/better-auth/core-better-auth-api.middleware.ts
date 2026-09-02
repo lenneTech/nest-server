@@ -1,10 +1,12 @@
-import { Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
 import { Response as ExpressResponse, NextFunction, Request } from 'express';
 
 import { isProduction } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
+import { runWithResetPassword } from './core-better-auth-password-reset.registry';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
@@ -22,6 +24,29 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  * native handler via this middleware for maximum compatibility.
  */
 const CONTROLLER_HANDLED_PATHS = ['/features', '/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
+
+/**
+ * Native Better-Auth routes that set a NEW password from a token or OTP, with the body
+ * field each of them carries it in.
+ *
+ * These are forwarded (they are not in CONTROLLER_HANDLED_PATHS), so unlike sign-in and
+ * sign-up nothing normalizes their password — Better-Auth hashes whatever arrives. That
+ * is a problem, because the sign-in path DOES normalize: a plaintext reset would be
+ * stored as `scrypt(plaintext)` while every later sign-in checks `scrypt(sha256(...))`,
+ * and the account is locked out with the password its owner just chose. Normalizing
+ * here puts every write of a credential on the same footing as every read of one.
+ *
+ * Matching is EXACT (after trimming a trailing slash and lower-casing), not prefix-based. So
+ * `/reset-password/:token` — Better-Auth's GET redirect — never matches an entry at all and is
+ * forwarded untouched. That is the intended outcome, but for this reason and not because "the
+ * body has no password field": switching the matcher to `startsWith` would start rewriting that
+ * redirect's body on the strength of a comment that was never true.
+ */
+export const PASSWORD_RESET_PATHS: { field: string; path: string }[] = [
+  { field: 'newPassword', path: '/reset-password' },
+  { field: 'password', path: '/email-otp/reset-password' },
+  { field: 'newPassword', path: '/phone-number/reset-password' },
+];
 
 /**
  * Passkey paths that generate challenges
@@ -59,7 +84,87 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
   constructor(
     private readonly betterAuthService: CoreBetterAuthService,
     @Optional() private readonly challengeService?: CoreBetterAuthChallengeService,
+    @Optional() private readonly userMapper?: CoreBetterAuthUserMapper,
   ) {}
+
+  /**
+   * Brings a native reset route's password to the same shape sign-in will present, and
+   * returns that value so the legacy mirror can reuse it.
+   *
+   * Returns `undefined` when this is not a password-setting route or the body carries no
+   * password — both mean "leave the request untouched".
+   *
+   * @throws BadRequestException when a plaintext password violates the configured length policy
+   */
+  protected normalizeResetPassword(req: Request, relativePath: string): string | undefined {
+    // Trailing slashes and case are normalized before matching. Express does not collapse a
+    // trailing slash on `originalUrl`, and Better-Auth's own router is more permissive than
+    // `===` — so a variant it accepts but this table does not would silently skip BOTH the
+    // normalization and the legacy mirror, i.e. reproduce the exact lockout this method exists
+    // to prevent, through a URL shape rather than a code change.
+    const normalizedPath = relativePath.replace(/\/+$/, '').toLowerCase();
+    const route = PASSWORD_RESET_PATHS.find((entry) => normalizedPath === entry.path);
+    if (!route) {
+      return undefined;
+    }
+
+    if (!this.userMapper) {
+      // Fail LOUD rather than open. Today every module variant that provides this middleware
+      // also provides the mapper, so this is unreachable — but silently forwarding an
+      // un-normalized password stores `scrypt(plaintext)` against a sign-in that checks
+      // `scrypt(sha256(...))`, and the user is locked out with the password they just chose.
+      // A guard on a correctness-critical step must not degrade quietly.
+      this.logger.error(
+        `No CoreBetterAuthUserMapper available — the password on ${relativePath} is NOT normalized. ` +
+          'Better-Auth will store scrypt(plaintext) while sign-in checks scrypt(sha256(...)), ' +
+          'locking the account out with its new password.',
+      );
+      return undefined;
+    }
+
+    const submitted = req.body?.[route.field];
+    if (!submitted || typeof submitted !== 'string') {
+      return undefined;
+    }
+
+    this.assertResetPasswordLength(submitted);
+
+    const normalized = this.userMapper.normalizePasswordForIam(submitted);
+    // `toWebRequest` serializes `req.body`, so writing it back here is what Better-Auth
+    // actually hashes.
+    req.body[route.field] = normalized;
+    return normalized;
+  }
+
+  /**
+   * Enforces the configured password length on the value the CLIENT actually sent.
+   *
+   * Better-Auth checks `minPasswordLength`/`maxPasswordLength` against the body it receives —
+   * and by then this middleware has replaced it with a 64-character sha256, so both bounds
+   * always pass. Without this check there would be no server-side minimum password length on
+   * any reset path at all.
+   *
+   * An already-hashed value carries no length information, so it cannot be checked here. That
+   * limit is real and belongs in the client; it is stated in the migration guide rather than
+   * pretended away.
+   */
+  protected assertResetPasswordLength(submitted: string): void {
+    if (/^[a-f0-9]{64}$/i.test(submitted)) {
+      return;
+    }
+
+    // The bounds live on the Better-Auth passthrough (`betterAuth.options.emailAndPassword`),
+    // not on the framework's own typed block — so they are read defensively. The fallbacks are
+    // Better-Auth's own defaults, which is what applied before this check existed.
+    const passthrough = (this.betterAuthService.getConfig()?.options as Record<string, any> | undefined)
+      ?.emailAndPassword;
+    const min = typeof passthrough?.minPasswordLength === 'number' ? passthrough.minPasswordLength : 8;
+    const max = typeof passthrough?.maxPasswordLength === 'number' ? passthrough.maxPasswordLength : 128;
+
+    if (submitted.length < min || submitted.length > max) {
+      throw new BadRequestException(`Password must be between ${min} and ${max} characters`);
+    }
+  }
 
   /**
    * Gets or creates the cookie helper instance.
@@ -186,6 +291,10 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         }
       }
 
+      // Put a reset password into the shape sign-in expects BEFORE the body is
+      // serialized, and keep the value for the legacy mirror below.
+      const resetPassword = this.normalizeResetPassword(req, relativePath);
+
       // Convert Express request to Web Standard Request with proper cookie signing
       const webRequest = await toWebRequest(req, {
         basePath,
@@ -195,8 +304,15 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         sessionToken,
       });
 
-      // Call Better Auth's native handler
-      const response = await authInstance.handler(webRequest);
+      // Call Better Auth's native handler.
+      //
+      // For a reset, the call is wrapped so that `emailAndPassword.onPasswordReset` — which
+      // Better-Auth invokes inside this call, and which is told WHICH user was reset but not
+      // to WHAT — can read the new password and mirror it into the legacy store. The context
+      // lives exactly as long as the handler call, so no other request can observe it.
+      const response = resetPassword
+        ? await runWithResetPassword(resetPassword, () => authInstance.handler(webRequest))
+        : await authInstance.handler(webRequest);
 
       this.logger.debug(`Better Auth handler response: ${response.status}`);
 

@@ -1745,23 +1745,37 @@ When both Legacy Auth and BetterAuth (IAM) are active, passwords are automatical
 | Sign up via BetterAuth          | IAM    | Legacy | ✅ Yes                  |
 | Sign up via Legacy Auth         | Legacy | IAM    | ⚠️ On first IAM sign-in |
 | Password reset via Legacy       | Legacy | IAM    | ✅ Yes                  |
-| Password reset via BetterAuth   | IAM    | Legacy | ⚠️ See below            |
+| Password reset via BetterAuth   | IAM    | Legacy | ✅ Yes (since 11.38.0)  |
 | Password change via user update | Legacy | IAM    | ✅ Yes                  |
 
 #### IAM Password Reset → Legacy Sync
 
-When a user resets their password via BetterAuth's native `/iam/reset-password` endpoint, the password is hashed with scrypt before storage. Since we don't have access to the plain password after hashing, we **cannot** automatically sync to Legacy Auth.
+**Automatic since 11.38.0. No configuration, and nothing to implement.**
 
-**Solutions:**
+This used to be the one direction the framework could not cover, on the reasoning that the
+plain password is gone once BetterAuth has hashed it with scrypt. That is true of the hash,
+but the password is still in the request — and the two halves needed to mirror it are simply
+known in two different places:
 
-1. **Recommended: Custom Password Reset Flow**
-   Override the password reset to capture the plain password for sync. See [Custom Password Reset with Sync](#custom-password-reset-with-sync).
+| half                     | known by                                                                 |
+| ------------------------ | ------------------------------------------------------------------------ |
+| the new password         | `CoreBetterAuthApiMiddleware`, which sees the request body               |
+| which user it belongs to | `emailAndPassword.onPasswordReset`, which BetterAuth calls with the user |
 
-2. **Use Legacy Password Reset Only**
-   Direct users to the Legacy Auth password reset flow, which syncs to IAM automatically.
+The middleware normalizes the password on the native reset routes and puts it on an
+`AsyncLocalStorage` context scoped to exactly that handler call
+(`core-better-auth-password-reset.registry.ts`); the `onPasswordReset` hook reads it there and
+calls `syncPasswordToLegacy()`. The mirror therefore covers **every** native reset route —
+token, email-OTP and phone-number — and writes the same value BetterAuth just hashed, so the
+two stores cannot drift.
 
-3. **Re-authenticate After Reset**
-   After IAM password reset, users can sign in via IAM. On next Legacy sign-in attempt, they'll need to reset via Legacy too.
+Failure is non-fatal by design: the hook is wrapped, and a failed mirror is logged rather than
+turned into a failed reset. The IAM credential is already written at that point, and telling a
+user their reset did not work when it half did is the worse outcome.
+
+> **Why this matters beyond convenience.** Before 11.38.0 a reset performed _because a password
+> leaked_ left that password valid on the legacy path. Two stores that disagree about a
+> credential is not an inconvenience — it is the old password still working somewhere.
 
 ### Automatic Sync (No Configuration Required)
 
@@ -1982,57 +1996,16 @@ await betterAuthUserMapper.migrateAccountToIam(email, plainPassword);
 
 ### Custom Password Reset with Sync
 
-To enable bidirectional password reset sync, implement a custom password reset endpoint that captures the plain password and syncs to both systems:
+**Retired in 11.38.0 — do not build this.** This section used to carry a custom
+`reset-password-sync` controller endpoint, because the framework could not mirror an IAM reset
+into the legacy store. It now does, automatically, for every native reset route (see
+[IAM Password Reset → Legacy Sync](#iam-password-reset--legacy-sync)).
 
-```typescript
-// src/server/modules/better-auth/better-auth.controller.ts
-import { Body, Controller, Post } from '@nestjs/common';
-import { CoreBetterAuthController, CoreBetterAuthUserMapper, Roles, RoleEnum } from '@lenne.tech/nest-server';
-
-@Controller('iam')
-export class BetterAuthController extends CoreBetterAuthController {
-  constructor(
-    // ... other dependencies
-    private readonly betterAuthUserMapper: CoreBetterAuthUserMapper,
-  ) {
-    super(...);
-  }
-
-  /**
-   * Custom password reset that syncs to both auth systems
-   */
-  @Post('reset-password-sync')
-  @Roles(RoleEnum.S_EVERYONE)
-  async resetPasswordWithSync(
-    @Body() input: { token: string; newPassword: string },
-  ): Promise<{ success: boolean }> {
-    // 1. Reset password via BetterAuth native API
-    const api = this.betterAuthService.getApi();
-    await api.resetPassword({
-      body: { token: input.token, newPassword: input.newPassword },
-    });
-
-    // 2. Sync to Legacy Auth using the plain password
-    // Get user email from the token (you may need to decode it or lookup)
-    const userEmail = await this.getUserEmailFromToken(input.token);
-    if (userEmail) {
-      await this.betterAuthUserMapper.syncPasswordToLegacy(
-        '', // iamUserId not needed for email lookup
-        userEmail,
-        input.newPassword,
-      );
-    }
-
-    return { success: true };
-  }
-
-  private async getUserEmailFromToken(token: string): Promise<string | null> {
-    // Implementation depends on your token structure
-    // You may need to query the database or decode the token
-    return null;
-  }
-}
-```
+Re-implementing it is now actively harmful: the middleware has already normalized the body, so
+a hand-rolled endpoint that calls `normalizePasswordForIam()` again would hash an
+already-hashed value and store a credential nothing can verify. If you carry such an override
+from an earlier version, remove it — the framework mirror runs either way, and the second write
+is what breaks.
 
 **Alternative: Use Legacy Password Reset**
 

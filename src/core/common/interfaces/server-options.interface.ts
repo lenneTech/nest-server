@@ -119,6 +119,13 @@ export interface IAuth {
   preventUserEnumeration?: boolean;
 
   /**
+   * Password-reset request behaviour.
+   *
+   * @since 11.38.0
+   */
+  passwordReset?: IAuthPasswordReset;
+
+  /**
    * Rate limiting configuration for Legacy Auth endpoints
    *
    * Protects against brute-force attacks on signIn, signUp, and other
@@ -154,23 +161,166 @@ export interface IAuth {
  * @since 11.7.1
  * @see https://github.com/lenneTech/nest-server/blob/develop/.claude/rules/module-deprecation.md
  */
-export interface IAuthLegacyEndpoints {
+/**
+ * Interface for the legacy password-reset request endpoint
+ *
+ * @since 11.38.0
+ */
+/**
+ * Browser security headers set on every response.
+ *
+ * @since 11.38.0
+ */
+export interface ISecurityHeaders {
   /**
-   * Whether legacy auth endpoints are enabled.
+   * `Content-Security-Policy` value.
    *
-   * Set to false to disable all legacy auth endpoints (GraphQL and REST).
-   * Use this after all users have migrated to BetterAuth (IAM).
+   * **Opt-in on purpose — there is no safe default.** A CSP that does not match what the
+   * application loads breaks it rather than hardening it, and only the project knows that. This
+   * package additionally serves its own HTML from two surfaces (the Hub and the GraphQL
+   * playground), so any value shipped here would be wrong for somebody.
    *
-   * Check migration status via the `betterAuthMigrationStatus` query.
+   * @default undefined (no header)
+   */
+  contentSecurityPolicy?: string;
+
+  /**
+   * `X-Content-Type-Options: nosniff` — stops a browser from re-interpreting a response as a
+   * type the server did not declare, which is what turns an uploaded file into a script.
    *
-   * **Environment Variable:** `LEGACY_AUTH_ENABLED`
+   * @default true
+   */
+  contentTypeOptions?: boolean;
+
+  /**
+   * Whether the headers are set at all. `false` disables the middleware entirely.
+   *
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * `X-Frame-Options` — clickjacking protection. `false` omits the header.
+   *
+   * @default 'DENY'
+   */
+  frameOptions?: 'DENY' | 'SAMEORIGIN' | false;
+
+  /**
+   * `Strict-Transport-Security`. `false` omits it.
+   *
+   * **Only ever sent on a request that actually arrived over HTTPS** — decided by
+   * `x-forwarded-proto`, falling back to the connection protocol, and never by configuration.
+   * A browser REMEMBERS this header: one sent from a dev server over `http://localhost` makes
+   * every project on that host unreachable over http for up to a year, with no way to undo it
+   * from the server. So it must not be possible to switch it on where it does not belong.
+   *
+   * Note this makes `trustProxy` load-bearing here too: behind a TLS-terminating proxy the
+   * connection reaching Node is plain http, so without a trusted forwarded header no production
+   * request looks secure and no HSTS is sent.
+   *
+   * @default `{ includeSubDomains: true, maxAge: 31536000, preload: false }`
+   */
+  hsts?: boolean | ISecurityHstsOptions;
+
+  /**
+   * `Referrer-Policy` — how much of the current URL travels to a third party. `false` omits it.
+   *
+   * @default 'strict-origin-when-cross-origin'
+   */
+  referrerPolicy?: false | string;
+
+  /**
+   * Whether to strip Express's `X-Powered-By`, which names the stack to an attacker and buys
+   * nothing.
+   *
+   * @default true
+   */
+  removePoweredBy?: boolean;
+}
+
+/**
+ * `Strict-Transport-Security` directives.
+ *
+ * @since 11.38.0
+ */
+export interface ISecurityHstsOptions {
+  /** Apply to every subdomain. @default true */
+  includeSubDomains?: boolean;
+
+  /** Lifetime in seconds. @default 31536000 (one year) */
+  maxAge?: number;
+
+  /**
+   * Add the `preload` directive.
+   *
+   * **Off by default.** It is a submission to a browser-vendor list that is slow and awkward to
+   * reverse and commits every subdomain — a decision for whoever owns the domain, not a framework
+   * default.
+   *
+   * @default false
+   */
+  preload?: boolean;
+}
+
+export interface IAuthPasswordReset {
+  /**
+   * Whether `POST /users/password/reset-request` answers identically for a known and an unknown
+   * address.
+   *
+   * **Defaults to `true`** — the safe answer. Set `false` only to restore the previous behaviour,
+   * where an unknown address produced HTTP 404 and a known one HTTP 201: a working oracle for
+   * "does this person have an account here", which matters most in a multi-tenant product, where
+   * it also answers "who works at which customer".
+   *
+   * Deliberately NOT the same switch as {@link IAuth.preventUserEnumeration}, which governs the
+   * SIGN-IN messages and defaults to `false` for backward compatibility. Two settings because the
+   * trade-offs differ: at sign-in the distinction is genuine UX ("wrong password" vs "unknown
+   * address"), while a reset request carries no password at all — the only thing given up here is
+   * the form's ability to say "we do not know this address".
+   *
+   * **The status code is the smaller half.** The response TIME also distinguishes the two cases:
+   * the known path writes a token and sends mail, the unknown path returns immediately. This
+   * option equalises what the framework controls, but a project whose `sendPasswordResetMail()`
+   * AWAITS the mail send still leaks the difference — the send is a network round trip, orders of
+   * magnitude above anything else in the request. See `src/server/modules/user/user.service.ts`
+   * for the reference implementation, which does not await it, and the 11.38.x migration guide.
    *
    * @default true
    *
    * @example
    * ```typescript
-   * // Via environment variable
-   * enabled: process.env.LEGACY_AUTH_ENABLED !== 'false',
+   * auth: {
+   *   // Restore the pre-11.38.0 behaviour — the reset form can then say "unknown address"
+   *   passwordReset: { preventUserEnumeration: false },
+   * }
+   * ```
+   */
+  preventUserEnumeration?: boolean;
+}
+
+export interface IAuthLegacyEndpoints {
+  /**
+   * Whether legacy auth endpoints are enabled.
+   *
+   * **Since 11.38.0 this defaults to `false`.** Legacy Auth is superseded by IAM
+   * (Better-Auth) and slated for removal. A project that registers the legacy module
+   * but never made a decision here used to keep a second, fully functional
+   * password-authentication surface open indefinitely; it now has to be asked for.
+   * Disabled endpoints answer HTTP 410 Gone.
+   *
+   * Set `true` while users are still migrating. `betterAuthMigrationStatus` →
+   * `canDisableLegacyAuth` says when it can go back off; the boot log reports the same
+   * figure on every start.
+   *
+   * **Environment Variable:** `LEGACY_AUTH_ENABLED`
+   *
+   * @default false (was `true` before 11.38.0)
+   *
+   * @example
+   * ```typescript
+   * // Via environment variable — note `=== 'true'`, not `!== 'false'`
+   * enabled: process.env.LEGACY_AUTH_ENABLED === 'true',
    * ```
    */
   enabled?: boolean;
@@ -179,15 +329,21 @@ export interface IAuthLegacyEndpoints {
    * Whether legacy GraphQL auth endpoints are enabled.
    * Affects: signIn, signUp, signOut, refreshToken mutations
    *
-   * @default true (inherits from `enabled`)
+   * Overrides `enabled` for this transport — except that an explicit
+   * `enabled: false` stays a hard off switch and cannot be reopened here.
+   *
+   * @default false (inherits from `enabled`, which defaults to false since 11.38.0)
    */
   graphql?: boolean;
 
   /**
    * Whether legacy REST auth endpoints are enabled.
-   * Affects: /auth/sign-in, /auth/sign-up, etc.
+   * Affects: /auth/signin, /auth/signup, etc.
    *
-   * @default true (inherits from `enabled`)
+   * Overrides `enabled` for this transport — except that an explicit
+   * `enabled: false` stays a hard off switch and cannot be reopened here.
+   *
+   * @default false (inherits from `enabled`, which defaults to false since 11.38.0)
    */
   rest?: boolean;
 }
@@ -377,6 +533,51 @@ export interface IBetterAuthEmailVerificationConfig {
    * @default undefined (uses SMTP/EJS templates)
    */
   passwordResetBrevoTemplateId?: number;
+
+  /**
+   * Where the password-reset mail sends the recipient.
+   *
+   * **Defaults to the APP**, derived as `<appUrl>/auth/reset-password?token=<token>` — the path the
+   * starter's reset page lives at.
+   *
+   * Without this, the link is the one Better-Auth generates, and that points at the **API**
+   * (`https://api.example.com/iam/reset-password/<token>?callbackURL=…`), which then redirects to
+   * the app. That works, but it puts a domain the recipient does not recognise into a password
+   * mail — precisely what people are trained to be suspicious of. In this stack an app and an API
+   * host are the norm, so the app is the better default.
+   *
+   * **What the API hop did, and what you give up.** Better-Auth's redirect route validates the
+   * token and its expiry before forwarding, so an expired link produced an error page instead of a
+   * form that fails on submit. Linking straight to the app moves that error later, to the moment
+   * the new password is submitted. It is NOT a security difference — the token ends up in the app
+   * URL either way, and the `callbackURL` origin check only exists because of the hop. If you want
+   * the early error back, either leave this unset or have the reset page validate the token before
+   * rendering.
+   *
+   * `{token}` is substituted anywhere in the value. Without the placeholder, `?token=<token>` is
+   * appended — so a page that reads a PATH parameter configures
+   * `https://example.com/auth/reset-password/{token}`.
+   *
+   * Set to `false` to keep Better-Auth's own link.
+   *
+   * Note this is separate from `email.passwordResetLink`, which serves the LEGACY
+   * `/users/password/reset-request` flow and appends the token as a path segment. Two flows, two
+   * conventions; a project using both should point them at the same page.
+   *
+   * @default `<appUrl>/auth/reset-password?token={token}`
+   * @since 11.38.0
+   *
+   * @example
+   * ```typescript
+   * betterAuth: {
+   *   emailVerification: {
+   *     // A page that reads the token from the path
+   *     passwordResetLink: 'https://example.com/auth/reset-password/{token}',
+   *   },
+   * }
+   * ```
+   */
+  passwordResetLink?: false | string;
 
   /**
    * Cooldown in seconds between resend requests for the same email address.
@@ -2643,6 +2844,21 @@ export interface IServerOptions {
      *
      * @since 11.18.0
      */
+    /**
+     * Browser security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy).
+     *
+     * Set on EVERY response, including the ones a guard rejects — they are registered as
+     * middleware, so a `401` carries them too.
+     *
+     * `true` / `{}` / omitted → enabled with the safe defaults. `false` → no headers at all.
+     * A reverse proxy setting the same headers wins, because it writes last; this layer exists so
+     * that a deployment without one, or a local instance, is not bare.
+     *
+     * @default true
+     * @since 11.38.0
+     */
+    headers?: boolean | ISecurityHeaders;
+
     responseModelInterceptor?:
       | boolean
       | {

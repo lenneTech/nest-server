@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-08-23 (v11.37.0)
+> Auto-generated from source code on 2026-09-01 (v11.38.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -65,6 +65,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `legacyEndpoints?`: `IAuthLegacyEndpoints | undefined` — Configuration for legacy auth endpoints
   - `preventUserEnumeration?`: `boolean | undefined` (default: `false (backward compatible - specific error messages)`) — Prevent user enumeration via unified error messages
+  - `passwordReset?`: `IAuthPasswordReset | undefined` — Password-reset request behaviour.
   - `rateLimit?`: `IAuthRateLimit | undefined` (default: `{ enabled: false }`) — Rate limiting configuration for Legacy Auth endpoints
 
 ### IMultiTenancy
@@ -243,6 +244,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `expiresIn?`: `number | undefined` (default: `86400 (24 hours)`) — Time in seconds until the verification link expires.
   - `locale?`: `string | undefined` (default: `'en'`) — Locale for the verification email template.
   - `passwordResetBrevoTemplateId?`: `number | undefined` (default: `undefined (uses SMTP/EJS templates)`) — Brevo transactional template ID for the PASSWORD-RESET mail.
+  - `passwordResetLink?`: `string | false | undefined` (default: ``<appUrl>/auth/reset-password?token={token}``) — Where the password-reset mail sends the recipient.
   - `resendCooldownSeconds?`: `number | undefined` (default: `60`) — Cooldown in seconds between resend requests for the same email address.
   - `template?`: `string | undefined` (default: `'email-verification'`) — Custom template name for the verification email.
 
@@ -344,7 +346,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | Module | Docs | Path |
 |--------|------|------|
 | `ai` | README, CHECKLIST | `src/core/modules/ai/` |
-| `auth` | — | `src/core/modules/auth/` |
+| `auth` | README | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |
 | `file` | README, CHECKLIST | `src/core/modules/file/` |

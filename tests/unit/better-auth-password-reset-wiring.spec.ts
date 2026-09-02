@@ -45,7 +45,9 @@ const noopSender = async () => undefined;
 /** Read back the `emailAndPassword` block Better-Auth was actually constructed with. */
 function buildBlock(
   config: Record<string, unknown> = {},
-  options: { sendResetPasswordEmail?: typeof noopSender } = { sendResetPasswordEmail: noopSender },
+  options: { onPasswordReset?: (data: any) => Promise<void>; sendResetPasswordEmail?: typeof noopSender } = {
+    sendResetPasswordEmail: noopSender,
+  },
 ): Record<string, any> {
   const result = createBetterAuthInstance({
     config: { enabled: true, secret: VALID_SECRET, ...config } as any,
@@ -55,6 +57,43 @@ function buildBlock(
   expect(result).not.toBeNull();
   return (result!.instance as any).options.emailAndPassword as Record<string, any>;
 }
+
+describe('the legacy-store mirror hook', () => {
+  // `onPasswordReset` is what mirrors an applied IAM reset into the legacy bcrypt store. It is
+  // proven end-to-end by tests/stories/password-reset-parity.e2e-spec.ts; what THIS file adds is
+  // the wiring seen from the real constructed instance, and one property the e2e cannot reach:
+  // that a project's own hook cannot displace the framework's.
+
+  it('grafts onPasswordReset when a callback is supplied', () => {
+    const block = buildBlock({}, { onPasswordReset: async () => undefined, sendResetPasswordEmail: noopSender });
+
+    expect(typeof block.onPasswordReset).toBe('function');
+  });
+
+  it('omits it entirely when no callback is supplied', () => {
+    // Better-Auth resolves the hook by presence, so an explicitly-undefined key would read as
+    // "declared, does nothing" rather than "not declared".
+    const block = buildBlock();
+
+    expect('onPasswordReset' in block && block.onPasswordReset !== undefined).toBe(false);
+  });
+
+  it('CHAINS a project hook after the framework one instead of letting it replace it', async () => {
+    // The asymmetry to `password`, where an explicit override wins: a hasher is a choice, a
+    // credential-store mirror is not. A project has a legitimate motive to add its own hook
+    // (audit log, notification mail) — and a spread would then silently drop the mirror,
+    // restoring the pre-11.38.0 defect in which the OLD password stays valid on the legacy path.
+    const order: string[] = [];
+    const block = buildBlock(
+      { options: { emailAndPassword: { onPasswordReset: async () => void order.push('project') } } },
+      { onPasswordReset: async () => void order.push('framework'), sendResetPasswordEmail: noopSender },
+    );
+
+    await block.onPasswordReset({ user: { email: 'x@test.com', id: 'x' } });
+
+    expect(order, 'both hooks must run, framework first').toEqual(['framework', 'project']);
+  });
+});
 
 describe('password-reset hook grafting', () => {
   it('grafts sendResetPassword when a callback is supplied — this is what enables the flow', () => {

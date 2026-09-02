@@ -42,7 +42,7 @@
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
  *
- * `--no-infra` selects the 23 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 27 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 57 rather than caching per-mutation verdicts: the gate runs
+ * Why the release gate still runs all 70 rather than caching per-mutation verdicts: the gate runs
  * ONCE PER RELEASE, not per commit, so the saving is ~10 minutes a release. The price would be a
  * cache that has to model each spec's full dependency closure correctly, and the failure mode of
  * getting that wrong is a stale PASS for a test that has since gone vacuous — the precise thing the
- * gate is there to prevent. Bad trade at 57 mutations. Revisit around 100, where the full run
+ * gate is there to prevent. Bad trade at 70 mutations. Revisit around 100, where the full run
  * approaches half an hour.
  *
  * PARALLELISM

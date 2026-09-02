@@ -97,11 +97,26 @@ export abstract class CoreUserInput extends CoreInput {
 
   /**
    * Password of the user
+   *
+   * Restricted to ADMIN and the account owner since 11.38.0. It used to be `S_EVERYONE`, i.e.
+   * settable by whoever was allowed to update the record at all — and `updateUser` grants that to
+   * `S_CREATOR`, which in an invite or admin-provisioning flow is the INVITING ADMIN, permanently
+   * (see `.claude/rules/role-system.md`).
+   *
+   * That was largely inert before: the lt frontends hash client-side, and the 64-hex guard then
+   * routed such a write away from the IAM sync, so it only ever landed in the legacy store — which
+   * this release also turns off by default. Removing the guard makes the same write reach the LIVE
+   * IAM credential. A dormant privilege issue would have become an account-takeover path in the
+   * very release that closes the legacy door, so the field is narrowed in the same step.
+   *
+   * A user changing their own password is unaffected (`S_SELF`). A project that genuinely needs a
+   * third party to set a password should go through an invitation or reset flow, both of which
+   * prove possession of the mailbox.
    */
   @UnifiedField({
     description: 'Password of the user',
     isOptional: true,
-    roles: RoleEnum.S_EVERYONE,
+    roles: [RoleEnum.ADMIN, RoleEnum.S_SELF],
   })
   password?: string = undefined;
 }
