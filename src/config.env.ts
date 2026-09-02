@@ -3,7 +3,7 @@ import * as dotenv from 'dotenv';
 import { join } from 'path';
 
 import { RoleEnum } from './core/common/enums/role.enum';
-import { getEnvironmentConfig } from './core/common/helpers/config.helper';
+import { getEnvironmentConfig, resolveSmtpSecure } from './core/common/helpers/config.helper';
 import { IServerOptions } from './core/common/interfaces/server-options.interface';
 
 /**
@@ -21,6 +21,16 @@ import { IServerOptions } from './core/common/interfaces/server-options.interfac
 // which is purely cosmetic and carries promotional content. Warnings (`⚠`) for genuine
 // misconfiguration still surface.
 dotenv.config({ quiet: true });
+
+/**
+ * Resolved once so the TLS flag can be derived from the very port that will be used.
+ *
+ * `secure` means implicit TLS, which only port 465 speaks; 587 upgrades via STARTTLS and needs
+ * `secure: false`. This profile used to hard-default `secure` to true alongside port 587 — a pair
+ * that cannot connect, and which killed every outgoing mail in a default production deployment
+ * while the API still answered 200. See `resolveSmtpSecure()` for the full account.
+ */
+const productionSmtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
 
 const config: { [env: string]: IServerOptions } = {
   // ===========================================================================
@@ -712,8 +722,14 @@ const config: { [env: string]: IServerOptions } = {
           user: process.env.SMTP_USER,
         },
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: process.env.SMTP_SECURE !== 'false',
+        port: productionSmtpPort,
+        // Refuse to send rather than send in the clear. `secure: false` means STARTTLS, and
+        // nodemailer upgrades only when the server ADVERTISES it — an on-path attacker who strips
+        // that capability line gets the SMTP credentials and a working password-reset link in
+        // plaintext, silently. Repairing the transport without pinning it would have shipped that.
+        // Inert on 465, where the connection is already TLS from the first byte.
+        requireTLS: process.env.SMTP_REQUIRE_TLS !== 'false',
+        secure: resolveSmtpSecure(process.env.SMTP_SECURE, productionSmtpPort),
       },
     },
     env: 'production',

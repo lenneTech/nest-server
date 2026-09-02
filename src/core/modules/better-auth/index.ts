@@ -31,6 +31,7 @@ export * from './core-better-auth-api.middleware';
 export * from './core-better-auth-auth.model';
 export * from './core-better-auth-cookie.helper';
 export * from './core-better-auth-email-verification.service';
+export * from './core-better-auth-error-codes.helper';
 export * from './core-better-auth-migration-status.model';
 export * from './core-better-auth-models';
 export * from './core-better-auth-rate-limit.middleware';

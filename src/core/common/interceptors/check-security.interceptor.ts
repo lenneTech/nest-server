@@ -21,6 +21,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       'password',
       'verificationToken',
       'passwordResetToken',
+      'passwordResetTokenExpiresAt',
       'refreshTokens',
       'tempTokens',
       'apiKeyEncrypted',

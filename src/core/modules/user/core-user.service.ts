@@ -5,11 +5,13 @@ import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
 import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
+import { resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
-import { assignPlain, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
+import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { CrudService } from '../../common/services/crud.service';
+import { ErrorCode } from '../error-code/error-codes';
 import { EmailService } from '../../common/services/email.service';
 import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
 import { CoreUserModel } from './core-user.model';
@@ -23,6 +25,14 @@ import { CoreUserServiceOptions } from './interfaces/core-user-service-options.i
  * Provides user management with automatic synchronization between
  * Legacy Auth and Better-Auth (IAM) systems when both are enabled.
  */
+/**
+ * Default lifetime of a legacy password-reset token, in minutes.
+ *
+ * One hour, matching Better-Auth's `resetPasswordTokenExpiresIn` — the half of this framework that
+ * already had an expiry. Before 11.38.0 the legacy half had none at all.
+ */
+const DEFAULT_PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = 60;
+
 export abstract class CoreUserService<
   TUser extends CoreUserModel,
   TUserInput extends CoreUserInput,
@@ -42,6 +52,56 @@ export abstract class CoreUserService<
     protected readonly options?: CoreUserServiceOptions,
   ) {
     super();
+    this.warnOnAmbiguousResetLinkConvention();
+  }
+
+  /**
+   * Warn once at boot when `email.passwordResetLink` is set WITHOUT a `{token}` placeholder.
+   *
+   * Two conventions live side by side in this flow, and which one applies depends on something
+   * nobody would guess: whether the option is present at all.
+   *
+   *   not set                                     → `<appUrl>/auth/reset-password?token=<token>`
+   *   set to `<appUrl>/auth/reset-password`       → `<appUrl>/auth/reset-password/<token>`
+   *
+   * Same string, same intent, different link. Writing the default out by hand — to make it
+   * overridable per environment, or to derive it from `appUrl` — silently selects the OTHER
+   * convention. The mail still arrives, still looks right, and fails only for whoever clicks it:
+   * the exact failure mode this whole area was repaired for.
+   *
+   * The path-segment rule is kept regardless, because a project that already configures such a
+   * value has a page built for it, and moving it to `?token=` would break that page. So the fix
+   * cannot be to change the behaviour — it has to be to make it visible.
+   *
+   * Adding `{token}` explicitly silences this warning AND records the intent in the config, which
+   * is why that is the remedy named in the message rather than "ignore this if deliberate".
+   *
+   * The message also names a PRECONDITION for that remedy, and it is load-bearing: `{token}` is
+   * substituted by `buildPasswordResetLink()` and by nothing else. A project whose
+   * `sendPasswordResetMail()` still concatenates the link by hand — i.e. precisely the projects
+   * this warning is aimed at — would follow the advice and mail `/reset-password/{token}/<token>`.
+   * That is the same failure this whole area was repaired for: a mail that arrives, looks right,
+   * and fails only for whoever clicks it. Advice that is correct for half its audience and
+   * silently harmful to the other half is worse than none, so the ORDER of the two steps belongs
+   * in the message rather than in a doc the reader may never reach.
+   */
+  protected warnOnAmbiguousResetLinkConvention(): void {
+    const configured = this.configService.getFastButReadOnly<string>('email.passwordResetLink');
+
+    if (typeof configured !== 'string' || !configured.trim().length || configured.includes('{token}')) {
+      return;
+    }
+
+    this.userServiceLogger.warn(
+      `email.passwordResetLink is set without a {token} placeholder ("${configured.trim()}"), so the token is ` +
+        'appended as a PATH segment. Leaving the option unset would instead produce "?token=", the shape the ' +
+        'reset page shipped by nuxt-base-starter reads. Both are supported — add {token} where your page ' +
+        'expects it (".../reset-password/{token}" or ".../reset-password?token={token}") to state which, and ' +
+        'to silence this warning. FIRST make sure the mail is built by ' +
+        'CoreUserService.buildPasswordResetLink(): it is the only thing that substitutes {token}, so a ' +
+        'sendPasswordResetMail() that still concatenates the link itself would mail the placeholder ' +
+        'verbatim ("/reset-password/{token}/<token>").',
+    );
   }
 
   // ===================================================================================================================
@@ -137,6 +197,10 @@ export abstract class CoreUserService<
    * Get verified state of user by token
    */
   async getVerifiedState(token: string, _serviceOptions?: ServiceOptions): Promise<boolean> {
+    if (!isQueryableString(token)) {
+      return false;
+    }
+
     const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
 
     if (!user) {
@@ -151,6 +215,10 @@ export abstract class CoreUserService<
    */
   async verify(token: string, serviceOptions?: ServiceOptions): Promise<string | TUser> {
     // Get user
+    if (!isQueryableString(token)) {
+      throw new NotFoundException(ErrorCode.INVALID_TOKEN);
+    }
+
     const dbObject = await this.mainDbModel.findOne({ verificationToken: token }).exec();
     if (!dbObject) {
       throw new NotFoundException(`No user found with verify token: ${token}`);
@@ -184,13 +252,36 @@ export abstract class CoreUserService<
    */
   async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {
     // Get user
+    // A client-supplied value reaches here with its declared `string` type erased — see
+    // `isQueryableString`. Without this, `{ $ne: null }` selects the first user holding ANY live
+    // reset token and takes over that account without the attacker ever seeing the mail.
+    if (!isQueryableString(token)) {
+      throw new NotFoundException(ErrorCode.LINK_INVALID_OR_EXPIRED);
+    }
+
     const dbObject = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
-    if (!dbObject) {
+
+    // An EXPIRED token is answered exactly like an unknown one — same exception, same 404. The
+    // distinction would tell a caller holding a stale token that it was once real and belongs to a
+    // live account, which is precisely what a stolen mail archive wants confirmed.
+    if (dbObject && this.isPasswordResetTokenExpired(dbObject.passwordResetTokenExpiresAt)) {
+      // Burn it on sight rather than leaving it to be retried. It is worthless now, and a value
+      // that stays in the row is one a later change could start honouring again.
+      await this.mainDbModel
+        // `$unset`, not `$set: null` — a null still counts as present, so it would keep an entry
+        // in the partial index the token field carries and grow it by one per user who ever
+        // requested a reset.
+        .updateOne({ _id: dbObject._id }, { $unset: { passwordResetToken: 1, passwordResetTokenExpiresAt: 1 } })
+        .exec();
+      this.userServiceLogger.debug(`Rejected an expired password-reset token for ${maskEmail(dbObject.email)}`);
+    }
+
+    if (!dbObject || this.isPasswordResetTokenExpired(dbObject.passwordResetTokenExpiresAt)) {
       // The token is NOT echoed. It is attacker-supplied so nothing secret leaks, but it lands
       // in the response body and in every log line that records the exception — and this logger
       // feeds the ADMIN-readable Hub log buffer. An unbounded caller-controlled string there is
       // free log-stuffing, and the message is no more useful for it.
-      throw new NotFoundException('Invalid or expired password reset token');
+      throw new NotFoundException(ErrorCode.LINK_INVALID_OR_EXPIRED);
     }
 
     // Capture the submitted password for the IAM sync before the closure below
@@ -234,6 +325,7 @@ export abstract class CoreUserService<
         const updatedUser = await assignPlain(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
+          passwordResetTokenExpiresAt: null,
           // A reset is what somebody reaches for after a suspected takeover, so it must not
           // leave the attacker's session live. Clearing the refresh tokens ends every legacy
           // session; the IAM half is `betterAuth.emailAndPassword.revokeSessionsOnPasswordReset`,
@@ -303,6 +395,45 @@ export abstract class CoreUserService<
    * Anything measuring this honestly should say so rather than claim the channel is closed.
    */
   async setPasswordResetTokenForEmail(email: string, serviceOptions?: ServiceOptions): Promise<null | TUser> {
+    return (await this.createPasswordResetToken(email, serviceOptions))?.user ?? null;
+  }
+
+  /**
+   * Mint a password-reset token and hand back BOTH the token and the user.
+   *
+   * Use this instead of `setPasswordResetTokenForEmail` whenever the token itself is needed —
+   * which is every caller that sends the mail, i.e. every project, because the mail templates are
+   * project-specific.
+   *
+   * ── Why this method exists ──────────────────────────────────────────────────────
+   * `setPasswordResetTokenForEmail` returns its result through `process()`, and the security
+   * interceptor strips `passwordResetToken` on the way out. That is correct and must stay: a reset
+   * token may never leave the server inside a response, and this service backs an endpoint.
+   *
+   * But the same return value is the only thing a caller had to build the mail link from. The
+   * method named after setting the token did not hand it over, so `user.passwordResetToken` read
+   * `undefined` and the mail went out with a link ending in `/undefined`.
+   *
+   * It fails in the worst shape available: the request succeeds, the mail arrives, it looks right,
+   * and only the click reveals it — to somebody who by definition has no second way in. It reached
+   * real recipients in a downstream project before anyone noticed, with a green test suite either
+   * side of it, because the tests read the token from the DATABASE and never from the mail.
+   *
+   * The token is therefore generated OUTSIDE `process()` and returned alongside the scrubbed user.
+   * Nothing about what leaves the server in a response changes.
+   */
+  async createPasswordResetToken(
+    email: string,
+    serviceOptions?: ServiceOptions,
+  ): Promise<null | { token: string; user: TUser }> {
+    // Same erased-type hazard as the token sinks (see `isQueryableString`): `{ $ne: null }` here
+    // would select an arbitrary account and mint a live reset token for it. Treated as an unknown
+    // address, which is the answer this method already gives for anything it cannot resolve — so
+    // the enumeration parity below covers it too.
+    if (!isQueryableString(email)) {
+      return null;
+    }
+
     // Get user
     const dbObject = await this.mainDbModel.findOne({ email }).exec();
     if (!dbObject) {
@@ -321,10 +452,14 @@ export abstract class CoreUserService<
       return null;
     }
 
-    return this.process(
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = this.passwordResetTokenExpiry();
+
+    const user = await this.process(
       async () => {
         // Set reset token and return
-        dbObject.passwordResetToken = crypto.randomBytes(32).toString('hex');
+        dbObject.passwordResetToken = token;
+        dbObject.passwordResetTokenExpiresAt = expiresAt;
 
         // Save
         await dbObject.save();
@@ -334,6 +469,133 @@ export abstract class CoreUserService<
       },
       { dbObject, serviceOptions },
     );
+
+    return { token, user };
+  }
+
+  /**
+   * How many minutes a password-reset token stays valid; `0` means it never expires.
+   *
+   * `0` opts OUT while any INVALID value falls back to the default, which is asymmetric on purpose:
+   * switching off the expiry of a full-account-takeover credential is a decision somebody has to
+   * state, and a typo in an environment variable must never be the thing that states it. So a
+   * negative number, `NaN`, an empty string and a word all resolve to 60 rather than to "unbounded".
+   *
+   * The value is coerced from a string because configuration reaches this through `NEST_SERVER_CONFIG`
+   * and `NSC__*`, where a number frequently arrives as one. `Number('')` is `0`, so an empty value
+   * would otherwise read as a deliberate opt-out — it is rejected before the coercion.
+   */
+  protected passwordResetTokenExpiryMinutes(): number {
+    const raw = this.configService.getFastButReadOnly<unknown>('auth.passwordReset.tokenExpiresInMinutes');
+
+    if (typeof raw === 'string' && !raw.trim().length) {
+      return DEFAULT_PASSWORD_RESET_TOKEN_EXPIRY_MINUTES;
+    }
+
+    const value = typeof raw === 'string' ? Number(raw) : raw;
+
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+
+    return DEFAULT_PASSWORD_RESET_TOKEN_EXPIRY_MINUTES;
+  }
+
+  /**
+   * The moment the token being minted stops being valid, or `null` when expiry is switched off.
+   */
+  protected passwordResetTokenExpiry(): Date | null {
+    const minutes = this.passwordResetTokenExpiryMinutes();
+    return minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
+  }
+
+  /**
+   * Whether a stored expiry timestamp has passed.
+   *
+   * A MISSING timestamp counts as expired. That is the load-bearing half: every token minted before
+   * 11.38.0 has none, and reading "no timestamp" as "valid forever" would preserve exactly the
+   * defect this closes — permanently, since those rows never gain one. The cost is that an
+   * unredeemed reset mail from before the upgrade stops working, and the remedy is one click.
+   *
+   * With expiry switched off (`0`) nothing is expired, including those legacy rows: a project that
+   * deliberately opted out must not have its tokens invalidated by the same setting.
+   */
+  protected isPasswordResetTokenExpired(expiresAt: Date | null | undefined): boolean {
+    if (this.passwordResetTokenExpiryMinutes() === 0) {
+      return false;
+    }
+
+    if (!expiresAt) {
+      return true;
+    }
+
+    const time = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+
+    // An unparseable timestamp is treated as expired rather than trusted — the safe direction for
+    // a credential.
+    return !Number.isFinite(time) || time <= Date.now();
+  }
+
+  /**
+   * Build the link that goes into the password-reset mail.
+   *
+   * Mirrors `CoreBetterAuthEmailVerificationService.buildPasswordResetUrl` so the two reset flows
+   * in this package resolve their link the same way. Resolution order, first hit wins:
+   *
+   *   1. `email.passwordResetLink` from the configuration
+   *   2. `<appUrl>/auth/reset-password` — the starter's reset page
+   *   3. `null`, when neither is available
+   *
+   * The app URL comes from `resolveServerUrls`, the same resolution the cookie and CORS setup
+   * uses, rather than a raw read of `appUrl`. That is what gives `local`/`ci`/`e2e` their
+   * documented localhost default and derives the app origin from a host-split `baseUrl` such as
+   * `https://api.crm.localhost`. Reading the option directly — which is what the IAM twin still
+   * does — makes a link that works in production come back empty in every local environment.
+   *
+   * `{token}` is substituted anywhere in the configured value. WITHOUT it the token is appended as
+   * a PATH segment, which is what this flow has always done — changing that would silently break
+   * every project already relying on it.
+   *
+   * Returns `null` rather than a string containing `undefined`. The option has no default and
+   * nothing validated it, so a project that never set it produced `undefined/<token>` and sent it.
+   * A caller that gets `null` here can log and send nothing, which is the honest failure: a mail
+   * that does not arrive says "try again", one with a dead link says nothing at all.
+   */
+  buildPasswordResetLink(token: string): null | string {
+    const configured = this.configService.getFastButReadOnly<string>('email.passwordResetLink');
+    // One resolver for every mail link in this package — localhost defaults, host-split `baseUrl`,
+    // and the `cors.deriveAppUrl` opt-out that keeps a reset token out of an untrusted apex domain.
+    // Shared rather than inlined because the IAM twin drifted away from exactly this logic once.
+    const appUrl = resolveAppUrlFromConfig(this.configService);
+
+    let target = typeof configured === 'string' && configured.trim().length ? configured.trim() : undefined;
+
+    if (!target) {
+      if (!appUrl) {
+        this.userServiceLogger.error(
+          'Cannot build a password-reset link: neither `email.passwordResetLink` nor `appUrl` is configured',
+        );
+        return null;
+      }
+      target = `${appUrl.replace(/\/$/, '')}/auth/reset-password?token={token}`;
+    }
+
+    // A relative value resolves against appUrl, like the IAM flow does.
+    if (target.startsWith('/')) {
+      if (!appUrl) {
+        this.userServiceLogger.error(
+          'Cannot build a password-reset link: `email.passwordResetLink` is relative and `appUrl` is not configured',
+        );
+        return null;
+      }
+      target = `${appUrl.replace(/\/$/, '')}${target}`;
+    }
+
+    if (target.includes('{token}')) {
+      return target.replace(/\{token\}/g, encodeURIComponent(token));
+    }
+
+    return `${target.replace(/\/$/, '')}/${encodeURIComponent(token)}`;
   }
 
   /**

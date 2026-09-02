@@ -1,8 +1,9 @@
 import { createHash } from 'crypto';
-import { Inject, Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import nodemailer = require('nodemailer');
 import { Attachment } from 'nodemailer/lib/mailer';
 
+import { isImpossibleSmtpTlsCombination } from '../helpers/config.helper';
 import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
 import { MailTransportOptions } from '../interfaces/server-options.interface';
 import { HUB_EMAIL_CAPTURE } from '../../modules/hub/hub.constants';
@@ -22,6 +23,11 @@ export class EmailService implements OnModuleDestroy {
   private cachedTransporter: nodemailer.Transporter | null = null;
   private cachedSmtpConfig: string | null = null;
 
+  protected readonly emailServiceLogger = new Logger(EmailService.name);
+
+  /** Once-per-process latch for the SMTP TLS warning — a per-send warning would be noise. */
+  private smtpTlsWarningEmitted = false;
+
   /**
    * Inject services
    */
@@ -32,6 +38,43 @@ export class EmailService implements OnModuleDestroy {
     // capture mode, suppresses the actual send). Undefined otherwise — zero cost.
     @Optional() @Inject(HUB_EMAIL_CAPTURE) protected readonly emailCapture?: IHubEmailCapture,
   ) {}
+
+  /**
+   * Warn once when the SMTP port and TLS mode describe a connection that cannot be established.
+   *
+   * `secure: true` means implicit TLS, which only port 465 speaks. On 587 — the submission port,
+   * which upgrades through STARTTLS — nodemailer sends a TLS ClientHello, the server answers with
+   * an SMTP greeting, and OpenSSL reports `wrong version number`. This package's own `production`
+   * profile shipped that pair, and because authentication mail is deliberately not awaited, the
+   * API answered 200 while every message died in transport. It was found in production.
+   *
+   * Reported rather than corrected: a deployment may legitimately run submission on a non-standard
+   * port, and silently overriding an explicit setting is how the original defect stayed invisible.
+   * A warning names the problem without deciding it.
+   */
+  protected warnOnImpossibleSmtpTlsCombination(smtp: unknown): void {
+    if (this.smtpTlsWarningEmitted || typeof smtp !== 'object' || smtp === null) {
+      return;
+    }
+
+    const { port, secure } = smtp as { port?: unknown; secure?: unknown };
+    if (typeof port !== 'number' || typeof secure !== 'boolean') {
+      return;
+    }
+
+    if (!isImpossibleSmtpTlsCombination(port, secure)) {
+      return;
+    }
+
+    this.smtpTlsWarningEmitted = true;
+    this.emailServiceLogger.warn(
+      `SMTP is configured with port ${port} and secure: ${secure}, a combination that cannot connect. ` +
+        '`secure: true` starts TLS immediately, which only port 465 supports; port 587 and friends open in ' +
+        'plaintext and upgrade via STARTTLS, which needs `secure: false`. Expect ' +
+        '"wrong version number" from OpenSSL and NO outgoing mail — silently, because authentication mail ' +
+        'is not awaited. Set SMTP_SECURE=false for port 587, or SMTP_PORT=465 to keep implicit TLS.',
+    );
+  }
 
   onModuleDestroy(): void {
     if (this.cachedTransporter) {
@@ -108,6 +151,8 @@ export class EmailService implements OnModuleDestroy {
         );
       }
     }
+
+    this.warnOnImpossibleSmtpTlsCombination(smtp);
 
     // Hub mailbox capture (Mailpit-style). Runs after templates are rendered, before the transport.
     // In capture mode it records the mail and suppresses the send (returns a jsonTransport-like ack).

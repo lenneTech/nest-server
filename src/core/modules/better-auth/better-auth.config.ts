@@ -1691,6 +1691,18 @@ function validateConfig(
     case 'auto-generated':
       warnings.push('BETTER_AUTH: No secret configured - using auto-generated secret.');
       warnings.push('CONSEQUENCE: All user sessions will be invalidated on server restart!');
+      // The session consequence above is transient — a restart clears it. This one is not, and it
+      // surfaces long after the cause: the JWT plugin PERSISTS a `jwks` document encrypted with
+      // whatever secret was active when it was created. Booting once without a secret is therefore
+      // enough to leave a row that no later, real secret can decrypt. Nothing fails at the time;
+      // `/iam/token` starts answering "Failed to decrypt private key" whenever somebody next asks
+      // for a JWT, which on a deployment with few sign-ins can be months later. Observed in
+      // production on a key written at setup time.
+      warnings.push(
+        'CONSEQUENCE: a `jwks` key persisted now is encrypted with THIS throwaway secret and stays ' +
+          'unreadable once a real one is configured — /iam/token then fails with "Failed to decrypt ' +
+          'private key". Drop the `jwks` collection after setting a permanent secret.',
+      );
       warnings.push(
         'FOR PRODUCTION: Set betterAuth.secret in config or provide a valid fallback secret (min 32 chars).',
       );
@@ -1699,6 +1711,19 @@ function validateConfig(
     case 'fallback':
       warnings.push(
         'BETTER_AUTH: Using fallback secret (backwards compatible). Consider setting betterAuth.secret explicitly.',
+      );
+      // The same persistence trap as the auto-generated branch, and MORE likely to be walked into,
+      // because this transition is a planned upgrade step rather than an accident: a deployment
+      // runs on `jwt.secret`, the JWT plugin persists a `jwks` document encrypted with it, and
+      // months later somebody "configures betterAuth properly" with a NEW value. The key is then
+      // unreadable, nothing fails at the time, and `/iam/token` starts answering "Failed to
+      // decrypt private key" whenever the next JWT is requested. Observed in production, where
+      // cause and symptom were five weeks apart.
+      warnings.push(
+        'BEFORE setting betterAuth.secret later: any `jwks` key persisted now is encrypted with THIS ' +
+          'fallback secret. Setting a DIFFERENT explicit secret makes it unreadable and /iam/token ' +
+          'then fails with "Failed to decrypt private key" — reuse the same value, or drop the `jwks` ' +
+          'collection when you change it.',
       );
       break;
     // 'explicit' - no warning needed, explicitly configured

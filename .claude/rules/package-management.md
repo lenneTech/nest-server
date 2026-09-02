@@ -214,6 +214,72 @@ The fix was to change every override target to a fixed version:
 "@apollo/server": "5.5.0"
 ```
 
+### Overrides AGE, and a stale one is a lock rather than a no-op
+
+**Rule: when a new advisory raises the patch line for a package you already override, RAISE the
+existing entry. Never add a second one beside it.**
+
+Both failure modes below were hit on the same day, in this repo and in `nest-server-starter`, and
+neither is what the "unbounded target" warning above describes. An override is not a fact you record
+once; it is a claim about a moving patch line.
+
+**Mode 1 — the floor is overtaken.** The entry keeps doing exactly what it was written to do, and
+that becomes the problem:
+
+```yaml
+# Written in August for two advisories patched >= 3.1.4
+'fast-uri@>=3.0.0 <3.1.5': '3.1.5'
+```
+
+Four newer advisories then land, patched `>= 3.1.6`. The entry now **pins** every matching path at
+3.1.5 — below the new line. Adding a second, higher entry does not help: the narrower key claims
+its paths first, and the tree ends up carrying *both* versions while `audit` still reports the
+vulnerability. It looks addressed in the file and is not.
+
+**Mode 2 — the target itself becomes vulnerable.** Worse, because nothing about the entry looks
+wrong:
+
+```yaml
+# Target was clean when written; a later advisory covers >=6.14.2 <=6.15.3
+'qs@>=6.11.1 <=6.15.1': '6.15.3'
+```
+
+The override is now actively pinning the tree to a vulnerable version, and the narrow key hides it
+from a casual read.
+
+**How to spot both — and the check that does NOT work.** "The same package appears twice under
+`overrides:`" is the obvious heuristic and it is wrong: several packages legitimately need one entry
+per major, because different majors coexist in the tree. This repo has three `brace-expansion`
+entries (1.x, 2.x, 5.x) and two for `js-yaml` (4.x, 5.x), all correct. Flagging those trains the
+reader to ignore the check.
+
+The reliable tells are narrower:
+
+1. **`pnpm audit` reports a package you already override.** That is never "transitive, pre-existing,
+   not our problem" — it means the entry itself is the cause, in one of the two modes above.
+2. **Two entries for the same package within ONE major**, one of them floored below the other's
+   target. That is the stale-versus-new collision; the narrower key wins and the higher entry is
+   decoration.
+3. **The lockfile resolves two versions of the package inside one major.** Beware `@types/x`, which
+   looks like a second resolution of `x` and is not.
+
+**The fix in both cases is one entry, floored below the current patch line, targeting a version at
+or above it:**
+
+```yaml
+'fast-uri@<3.1.6': '3.1.6'
+'qs@<6.16.0': '6.16.0'
+```
+
+**Two constraints on the target, both learned the hard way:**
+
+1. **Stay within the major.** A newer major usually exists; crossing one to fix a *transitive*
+   advisory is the shape that broke a project in April 2026 (see the incident above).
+2. **The newest patch may be refused.** This repo enforces a `minimumReleaseAge` supply-chain
+   policy, and a version published inside that window fails the install with
+   `ERR_PNPM_NO_MATURE_MATCHING_VERSION`. Take the oldest version that clears every advisory — which
+   is the right instinct regardless of the policy.
+
 ### Safe Override Workflow
 
 When adding an override to fix a vulnerability:

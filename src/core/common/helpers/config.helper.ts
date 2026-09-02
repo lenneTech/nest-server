@@ -194,3 +194,82 @@ export function merge(obj: Record<string, any>, ...sources: any[]): any {
     }
   });
 }
+
+/**
+ * Resolve nodemailer's `smtp.secure` flag, deriving it from the port when it was not set.
+ *
+ * ── The defect this exists for ─────────────────────────────────────────────────
+ * `secure` does not mean "use encryption". It means "start the TLS handshake IMMEDIATELY, before
+ * any SMTP conversation" — implicit TLS, which only port **465** speaks. Port 587 is the
+ * submission port: the session opens in plaintext and is upgraded via STARTTLS, which nodemailer
+ * does on its own with `secure: false`.
+ *
+ * Pairing the common default port 587 with `secure: true` therefore cannot work. Nodemailer sends
+ * a TLS ClientHello, the server answers with an SMTP greeting, and OpenSSL reports
+ * `wrong version number`. This framework's `production` profile shipped exactly that pairing —
+ * port 587 by default, `secure` true unless explicitly disabled — so a deployment that configured
+ * nothing beyond host and credentials could not send ANY mail.
+ *
+ * It stayed invisible because authentication mail is deliberately fire-and-forget: the send is not
+ * awaited (it would leak whether an address exists), so the failure never reached a response. The
+ * API answered 200, the operator saw success, and every password-reset mail died in transport with
+ * only a log line. Found in production, not by a test.
+ *
+ * ── Why ONLY the two canonical values override ─────────────────────────────────
+ * `secure` is not an independent setting. It is a CONSEQUENCE of the port: 465 negotiates TLS
+ * immediately, everything else upgrades through STARTTLS. Letting the two be configured
+ * independently is precisely what allowed the broken pairing to exist.
+ *
+ * Both obvious string rules have a silent wrong side:
+ *
+ *   `value !== 'false'`  — an unset or unknown value yields TRUE, paired with 587. The reported
+ *                          outage.
+ *   `value === 'true'`   — `1` or `yes` yields FALSE. On port 465 that is a plaintext handshake
+ *                          against a TLS-only port: the same outage, mirrored.
+ *
+ * So only `'true'` and `'false'` override. Anything else — `1`, `yes`, a typo — falls back to the
+ * port, which is the fact rather than a guess. No input value can produce a pair that cannot
+ * connect, which is a stronger property than either rule had.
+ *
+ * The one behaviour change for a value that IS set: a non-canonical value on a non-465 port now
+ * resolves to `false` where it used to be `true`. Every such combination was broken, so this fixes
+ * rather than regresses — and `SMTP_SECURE=1` on 465, the case worth protecting, still resolves to
+ * `true` via the port.
+ *
+ * An explicit `'true'` on 587 (or `'false'` on 465) is still honoured and still impossible; that is
+ * deliberate, and `warnOnImpossibleSmtpTlsCombination()` reports it rather than overruling it.
+ *
+ * @param value - the raw `SMTP_SECURE` environment value, if any
+ * @param port  - the resolved SMTP port
+ * @returns whether nodemailer should open the connection with implicit TLS
+ */
+export function resolveSmtpSecure(value: string | undefined, port: number): boolean {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : undefined;
+
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+
+  // Unset or non-canonical: 465 is the only port that speaks implicit TLS.
+  return port === 465;
+}
+
+/**
+ * Whether an SMTP port/TLS pair describes a connection that cannot succeed.
+ *
+ * `secure: true` off port 465 is the fatal one — a TLS handshake against a plaintext greeting.
+ * `secure: false` ON 465 is its mirror and equally broken, just rarer.
+ *
+ * Reported rather than corrected: a deployment may legitimately run submission on a non-standard
+ * port, and silently overriding an explicit setting is how the original defect became invisible in
+ * the first place.
+ */
+export function isImpossibleSmtpTlsCombination(port: number, secure: boolean): boolean {
+  if (!Number.isFinite(port)) {
+    return false;
+  }
+  return secure ? port !== 465 : port === 465;
+}

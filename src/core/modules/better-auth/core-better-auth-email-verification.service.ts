@@ -4,7 +4,7 @@ import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
+import { isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
@@ -222,7 +222,7 @@ export class CoreBetterAuthEmailVerificationService {
     try {
       // Override URL if callbackURL is configured (frontend-based verification)
       if (this.config.callbackURL) {
-        url = this.buildFrontendVerificationUrl(token);
+        url = this.buildFrontendVerificationUrl(token, user.email);
       }
 
       this.logAuthUrlForDevelopment('EMAIL VERIFICATION', user.email, url);
@@ -358,6 +358,10 @@ export class CoreBetterAuthEmailVerificationService {
       const templateData = {
         appName,
         link: url,
+        // Better-Auth's own lifetime, NOT the legacy `auth.passwordReset.tokenExpiresInMinutes`.
+        // The two flows expire independently, and announcing the wrong one would be worse than
+        // announcing none.
+        linkExpiresInMinutes: this.passwordResetLinkExpiryMinutes(),
         name: user.name || user.email.split('@')[0],
       };
 
@@ -596,6 +600,27 @@ export class CoreBetterAuthEmailVerificationService {
    * `?token=`. That is what lets a page reading a PATH parameter configure
    * `https://example.com/auth/reset-password/{token}`.
    */
+  /**
+   * How long the IAM reset link stays valid, in whole minutes, for the mail to state.
+   *
+   * Read from Better-Auth's own `emailAndPassword.resetPasswordTokenExpiresIn` — expressed in
+   * SECONDS, defaulting to 3600 (`password.mjs`). Deliberately not the legacy
+   * `auth.passwordReset.tokenExpiresInMinutes`: the two flows expire independently, and a mail that
+   * announces the other flow's deadline is worse than one that announces none.
+   *
+   * Returns 0 for anything unusable, which the templates render as no sentence at all — silence is
+   * the safe failure for a deadline nobody can verify.
+   */
+  protected passwordResetLinkExpiryMinutes(): number {
+    const raw = this.configService.getFastButReadOnly<unknown>(
+      'betterAuth.options.emailAndPassword.resetPasswordTokenExpiresIn',
+    );
+    const seconds = typeof raw === 'string' ? Number(raw) : raw;
+    const resolved = typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? seconds : 3600;
+
+    return Math.max(1, Math.round(resolved / 60));
+  }
+
   protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {
     const configured = this.config.passwordResetLink;
 
@@ -606,8 +631,21 @@ export class CoreBetterAuthEmailVerificationService {
 
     let target = typeof configured === 'string' && configured.trim().length ? configured.trim() : undefined;
 
+    // The caller's own `redirectTo`, when it sent one, beats anything this server would guess.
+    // `nuxt-base-starter` sends it on every request (`forgot-password.vue` →
+    // `requestPasswordReset({ email, redirectTo: appUrl('/auth/reset-password', siteUrl) })`), and
+    // a client that names its page is a better authority on that page than a framework default.
     if (!target) {
-      const appUrl = this.configService.getFastButReadOnly<string>('appUrl');
+      target = this.readCallbackUrlFromBetterAuthLink(options.url);
+    }
+
+    // The SAME resolver the legacy twin uses. Until 11.39.0 this read `appUrl` straight off the
+    // configuration, which meant no localhost default in local/ci/e2e, no host-split `baseUrl`
+    // derivation, and no `cors.deriveAppUrl` opt-out — three behaviours the other half of the same
+    // framework had. Two hand-maintained copies of one decision is how that happened.
+    const appUrl = resolveAppUrlFromConfig(this.configService);
+
+    if (!target) {
       if (!appUrl) {
         // Nothing to point at. Better-Auth's link at least works, which beats a guess.
         return options.url;
@@ -617,7 +655,6 @@ export class CoreBetterAuthEmailVerificationService {
 
     // Resolve a relative value against appUrl, like buildFrontendVerificationUrl does.
     if (target.startsWith('/')) {
-      const appUrl = this.configService.getFastButReadOnly<string>('appUrl');
       if (!appUrl) {
         return options.url;
       }
@@ -634,6 +671,43 @@ export class CoreBetterAuthEmailVerificationService {
   }
 
   /**
+   * Read the `callbackURL` out of the link Better-Auth built, i.e. the caller's own `redirectTo`.
+   *
+   * ── Why reading this back is SAFE, and why that is not obvious ──────────────────
+   * `redirectTo` arrives in the REQUEST BODY of `/request-password-reset`, which is unauthenticated.
+   * Putting a client-supplied URL into a password-reset mail would otherwise be a token-exfiltration
+   * vector in its purest form: an attacker requests a reset for a victim's address with
+   * `redirectTo: https://evil.example`, and the victim receives a genuine mail, from the real
+   * sender, carrying a valid token to the attacker's site.
+   *
+   * It is safe here only because Better-Auth validates the value BEFORE this runs. The endpoint
+   * declares `use: [originCheck((ctx) => ctx.body.redirectTo)]`, so a `redirectTo` outside
+   * `trustedOrigins` is rejected at request time and `sendResetPassword` is never reached. By the
+   * time we see it, the origin is one this deployment already trusts.
+   *
+   * That makes `trustedOrigins` load-bearing for THIS path too, not only for CORS — which is worth
+   * knowing before anyone widens it. `cors.allowAll` does not widen it (an origin check has no
+   * "allow everything" mode), but an over-broad `allowedOrigins` would.
+   *
+   * Returns `undefined` for anything unparseable or absent, so the caller falls through to its own
+   * resolution rather than to a half-formed URL.
+   */
+  protected readCallbackUrlFromBetterAuthLink(betterAuthUrl: string): string | undefined {
+    if (typeof betterAuthUrl !== 'string' || !betterAuthUrl.length) {
+      return undefined;
+    }
+
+    try {
+      const callbackUrl = new URL(betterAuthUrl).searchParams.get('callbackURL');
+      return callbackUrl?.trim().length ? callbackUrl.trim() : undefined;
+    } catch {
+      // Not a parseable absolute URL. Nothing to read, and nothing worth logging — the caller has
+      // two further fallbacks.
+      return undefined;
+    }
+  }
+
+  /**
    * Build the frontend verification URL from the configured callbackURL and token.
    *
    * Resolves relative paths against `appUrl`. Appends the token as a query parameter.
@@ -641,7 +715,7 @@ export class CoreBetterAuthEmailVerificationService {
    * @param token - The verification token from Better-Auth
    * @returns The full frontend URL with token query parameter
    */
-  protected buildFrontendVerificationUrl(token: string): string {
+  protected buildFrontendVerificationUrl(token: string, email?: string): string {
     let baseUrl = this.config.callbackURL!;
 
     // Resolve relative paths against appUrl
@@ -652,7 +726,28 @@ export class CoreBetterAuthEmailVerificationService {
 
     // Append token as query parameter
     const separator = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${separator}token=${token}`;
+    let url = `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+
+    // The address travels alongside the token so the page can offer "send a new email" when the
+    // token turns out to be expired — which is the ONLY moment that button matters, and precisely
+    // the moment the page has nothing else to work with. The verification page shipped by
+    // nuxt-base-starter gates that button on `route.query.email`, so without this the user is told
+    // correctly what went wrong and left with no way to fix it.
+    //
+    // The frontend cannot recover the address itself. It is inside the token's JWT payload, and
+    // reading it there would mean trusting an unverified signature for display — not a pattern to
+    // put in a starter.
+    //
+    // The cost, stated plainly: the address appears in the URL, so it reaches browser history and
+    // any access log the app keeps. It is the recipient's OWN address, arriving in their own
+    // mailbox next to a token that is far more sensitive, so this widens nothing that the link did
+    // not already carry. Encoded, because a `+` in an address (Gmail tags, and therefore most test
+    // addresses) would otherwise arrive as a space.
+    if (email) {
+      url += `&email=${encodeURIComponent(email)}`;
+    }
+
+    return url;
   }
 
   /**

@@ -91,21 +91,40 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * Better-Auth makes on the IAM path.
    */
   async sendPasswordResetMail(email: string, serviceOptions?: ServiceOptions): Promise<null | User> {
-    // Set password reset token
-    const user = await super.setPasswordResetTokenForEmail(email, serviceOptions);
+    // `createPasswordResetToken`, not `setPasswordResetTokenForEmail`: the latter returns the user
+    // through `process()`, where the security interceptor strips `passwordResetToken`. Reading the
+    // token off that object is what mailed the word `undefined` to a real recipient.
+    const created = await this.createPasswordResetToken(email, serviceOptions);
 
-    if (!user) {
+    if (!created) {
       // Unknown address, enumeration protection on. Answer exactly as for a known one.
       return null;
     }
 
+    // `buildPasswordResetLink`, not string concatenation: `email.passwordResetLink` has no default,
+    // and this config file does not set one, so concatenating produced `undefined/<token>`.
+    const link = this.buildPasswordResetLink(created.token);
+    if (!link) {
+      // Sending a mail whose link cannot work is worse than sending none. The recipient has no
+      // second way in, and a dead link gives them nothing to act on — while no mail at least reads
+      // as "try again". The address is still answered exactly as a known one.
+      this.userServiceLogger.error(
+        'Password reset mail not sent: no reset link could be built. Set `email.passwordResetLink` or `appUrl`.',
+      );
+      return created.user;
+    }
+
     // Deliberately NOT awaited — see the note above.
     void this.emailService
-      .sendMail(user.email, 'Password reset', {
+      .sendMail(created.user.email, 'Password reset', {
         htmlTemplate: 'password-reset',
         templateData: {
-          link: `${this.configService.configFastButReadOnly.email.passwordResetLink}/${user.passwordResetToken}`,
-          name: user.username,
+          link,
+          // The mail is the only place the recipient can learn there IS a deadline. Without it an
+          // expired link is indistinguishable from a broken one — the same experience this whole
+          // area was repaired for.
+          linkExpiresInMinutes: this.passwordResetTokenExpiryMinutes(),
+          name: created.user.username,
         },
       })
       .catch((error: unknown) => {
@@ -115,7 +134,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
       });
 
     // Return user
-    return user;
+    return created.user;
   }
 
   /**

@@ -856,3 +856,40 @@ export function typeofArray(arr: any[], strict = false): string {
   }
   return type;
 }
+
+/**
+ * Whether a value is safe to use as the right-hand side of a Mongoose equality filter.
+ *
+ * ── The hole this closes ───────────────────────────────────────────────────────
+ * A controller parameter declared as `@Body('token') token: string` has
+ * `metatype === String`, and `MapAndValidatePipe` short-circuits on exactly that shape:
+ * `if (!value || typeof value !== 'object' || !metatype || isBasicType(metatype)) return value`.
+ * The declared type is erased at runtime, so nothing checks it — a JSON object reaches the
+ * service verbatim.
+ *
+ * `findOne({ passwordResetToken: token })` with `token = { $ne: null }` therefore selects the
+ * first user holding ANY live reset token, and the caller sets that person's password without
+ * ever seeing their mail. Confirmed by probe against the real route, not by reading.
+ *
+ * Express parses query strings with `qs` in extended mode, so `?token[$ne]=` produces the same
+ * object without a JSON body at all — `@Query('token') token: string` is exposed identically.
+ *
+ * `{ $ne: null }` is the takeover primitive; `null` is the quieter one, because MongoDB matches
+ * MISSING fields against `null` and selects a user who never requested anything.
+ *
+ * ── Why a guard at the sink rather than `mongoose.set('sanitizeFilter', true)` ──
+ * The global switch wraps every object-valued filter in `$eq`, which would break the framework's
+ * own operator-bearing queries (`$in`, `$ne`, `$gt` in the filter helpers) unless each is wrapped
+ * in `mongoose.trusted()`. That is a fleet-wide audit, not a fix. This guard is exact: it says
+ * "this particular value came from a client and must be a plain string".
+ *
+ * Rejects an empty string too — `findOne({ token: '' })` is never a legitimate credential lookup,
+ * and `undefined` would be stripped from the filter entirely by Mongoose, turning the query into
+ * `findOne({})` and matching the first document in the collection.
+ *
+ * @param value - the raw value as it arrived from the transport
+ * @returns whether it may be used as a filter value
+ */
+export function isQueryableString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}

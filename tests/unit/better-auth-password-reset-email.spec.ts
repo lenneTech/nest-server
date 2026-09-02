@@ -16,6 +16,21 @@ import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/b
 const USER = { email: 'reset.user@test.com', id: 'u1', name: 'Reset User' };
 const RESET_URL = 'https://api.test.local/iam/reset-password/JnQ2K8xL5pR7wT1vB4hZ9mCd';
 
+/**
+ * What the mail actually carries for this fixture since 11.39.0.
+ *
+ * The stub configures `env: 'local'` and nothing else. Before 11.39.0 the twin read `appUrl`
+ * straight off the configuration, found nothing, and fell back to Better-Auth's own API-hosted
+ * link — so `RESET_URL` appeared in the mail. It now resolves through `resolveAppUrlFromConfig`,
+ * the same function the legacy twin uses, and `local` is one of the three environments whose
+ * localhost default lives inside that resolver.
+ *
+ * The change is the point of the refactor: in local, ci and e2e the IAM mail now links at the APP
+ * rather than the API, which is what the legacy half had done all along. A deployed environment
+ * sets `appUrl` or `baseUrl`, so nothing changes there.
+ */
+const EXPECTED_LINK = 'http://localhost:3001/auth/reset-password?token=t';
+
 function createService(opts: {
   brevoResult?: null | unknown;
   brevoTemplateId?: number;
@@ -85,7 +100,7 @@ describe('sendPasswordResetEmail', () => {
       expect(to).toBe(USER.email);
       expect(subject).toContain('Reset your password');
       // The absolute (nest-server) branch renders to HTML rather than passing a template name.
-      expect(payload.html).toContain(RESET_URL);
+      expect(payload.html).toContain(EXPECTED_LINK);
     });
 
     it('uses the German subject when the configured locale is de', async () => {
@@ -129,7 +144,7 @@ describe('sendPasswordResetEmail', () => {
 
       await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
 
-      expect(sendMailBrevo).toHaveBeenCalledWith(USER.email, 42, expect.objectContaining({ link: RESET_URL }));
+      expect(sendMailBrevo).toHaveBeenCalledWith(USER.email, 42, expect.objectContaining({ link: EXPECTED_LINK }));
       expect(sendMailSmtp).not.toHaveBeenCalled();
     });
 
@@ -204,7 +219,7 @@ describe('sendPasswordResetEmail', () => {
       const line = logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'));
       expect(line).toBeDefined();
       expect(line).not.toContain(USER.email);
-      expect(line).toContain(RESET_URL);
+      expect(line).toContain(EXPECTED_LINK);
     });
 
     it('prints nothing in a staging deployment', async () => {

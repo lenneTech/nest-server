@@ -18,7 +18,15 @@ import { clone, plainToInstanceClean, processDeep } from './input.helper';
 // Fields like refreshTokens/tempTokens are kept — they are needed for token validation
 // and process flows (password reset, email verification). The CheckSecurityInterceptor
 // removes those from HTTP responses as a separate layer.
-const SECRET_FIELD_NAMES = Object.freeze(['password', 'verificationToken', 'passwordResetToken']);
+const SECRET_FIELD_NAMES = Object.freeze([
+  'password',
+  'verificationToken',
+  'passwordResetToken',
+  // `S_NO_ONE` covers Model instances; this list is what runs on a plain-object path (`.lean()`,
+  // `aggregate`, a spread). Its sibling token has always been here — the timestamp says "a reset
+  // is pending for this account", which is exactly what the field's own JSDoc calls attacker-useful.
+  'passwordResetTokenExpiresAt',
+]);
 
 /**
  * Helper class for services

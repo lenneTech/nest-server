@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 27 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 45 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -284,8 +284,8 @@ when the registry, a vitest config or a setup file changed, since those can move
 **Why the gate does not cache per-mutation verdicts instead.** It runs ONCE PER RELEASE, not per
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
-for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade at 70
-mutations. Worth revisiting around 100, where the full run approaches half an hour.
+for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
+at 91 mutations. Worth revisiting around 100, where the full run approaches half an hour.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -324,9 +324,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 43 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 46 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 70 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 91 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -369,6 +369,60 @@ When a change adds or edits a test that claims to fix or pin a bug:
    explains the green just as well as the fix does.
 4. **"Is the mutation the defect, or a proxy for it?"** A mutation that breaks everything proves
    nothing about the specific behaviour.
+
+## A catch that asserts nothing makes its test pass on every outcome
+
+**Rule: a `catch` block in a test either asserts something that could be false, or rethrows. Never
+`expect(error).toBeDefined()`, and never an empty body.**
+
+The shape, which reads as careful error handling and is the opposite:
+
+```typescript
+try {
+  const response = await testHelper.rest('/iam/two-factor/enable', { statusCode: 200 });
+  expect(response).toBeDefined();
+} catch (error) {
+  expect(error).toBeDefined();   // ← both branches assert "something happened"
+}
+```
+
+`testHelper.rest()` throws when the status does not match — that is what passing `statusCode` is
+for. The catch swallows exactly that throw. The case is green whether the endpoint works, answers
+404, 500s, or is not routed at all.
+
+### What it was hiding, measured
+
+Removing the swallow from `better-auth-plugins.story.test.ts` turns **17 of its 45 cases red**. All
+are status-code mismatches — `404` where `200` was declared, `400` where `401` was, and the reverse.
+None describes a broken user path. They are expectations written against assumptions nobody could
+check, because the catch hid the answer for the whole life of the test.
+
+### Why they were not simply fixed
+
+Writing down what each endpoint currently answers would be **worse than leaving them**: it turns a
+test that checks nothing into one that certifies possibly-wrong behaviour, and freezes it. Deciding
+what each endpoint *should* answer is real investigation — 40 blocks across 6 suites — and belongs
+in its own change.
+
+`tests/unit/swallowing-catch-baseline.spec.ts` therefore locks the count at its current value
+instead. It may fall, never rise; a new suite gaining the pattern fails separately from the total,
+because a flat total can still hide a migration into a fresh file. When you fix a batch, lower the
+baseline in the same commit — the failure message tells you the number.
+
+### The sibling shape: a guard that is never false
+
+```typescript
+it('should build the frontend URL', () => {
+  if (config.callbackURL) {      // ← set in NO environment of this repo
+    expect(url).toContain('token=');
+  }
+});
+```
+
+Two such cases lived in `better-auth-email-verification.story.test.ts` and asserted nothing for
+their entire life. They were deleted once `tests/unit/verification-link.spec.ts` covered the
+behaviour unconditionally. **A guard that depends on configuration must be checked against the
+configuration that actually exists** — `grep` for the key in `config.env.ts` before trusting one.
 
 ## Known coverage gap: no load-test baseline for the auth endpoints
 

@@ -814,8 +814,8 @@
       "defect": "11.38.0 — the timing half of the account oracle. Equalising the status code is pointless while the response TIME still separates the two cases: the known path awaits a mail send (a network round trip to SMTP/Brevo, tens to hundreds of ms) and the unknown one returns immediately. A fix that changed only the status code would have given up the 'unknown address' hint in the UI and kept the oracle fully intact — strictly worse than before. Registered separately from reset-request-reveals-unknown-email because the two halves are independent: each turns a different assertion red.",
       "file": "src/server/modules/user/user.service.ts",
       "after": "async sendPasswordResetMail(",
-      "find": "    // Deliberately NOT awaited — see the note above.\n    void this.emailService\n      .sendMail(user.email, 'Password reset', {",
-      "replace": "    await this.emailService\n      .sendMail(user.email, 'Password reset', {",
+      "find": "    // Deliberately NOT awaited — see the note above.\n    void this.emailService\n      .sendMail(created.user.email, 'Password reset', {",
+      "replace": "    await this.emailService\n      .sendMail(created.user.email, 'Password reset', {",
       "specs": [
         "tests/stories/password-reset-enumeration.e2e-spec.ts"
       ],
@@ -865,6 +865,259 @@
       "after": "async sendPasswordResetEmail(",
       "find": "    const { user } = options;\n    const url = this.buildPasswordResetUrl(options);",
       "replace": "    const { url, user } = options;",
+      "specs": [
+        "tests/unit/password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-link-raw-appurl",
+      "defect": "11.38.0 — `buildPasswordResetLink` read `appUrl` straight from the configuration instead of resolving it. The `local`/`ci`/`e2e` environments do not set the option (their localhost default lives in `resolveServerUrls`), so the read returned nothing and the method answered `null` in every local environment — including the framework's own e2e suite, where this was found. A host-split `baseUrl` such as `https://api.crm.localhost` from `lt dev up` was likewise never derived. Since 11.39.0 the resolution lives in the shared `resolveAppUrlFromConfig`, so this mutation reverts the CALL rather than the inlined block.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  buildPasswordResetLink(token: string): null | string {",
+      "find": "    const appUrl = resolveAppUrlFromConfig(this.configService);",
+      "replace": "    const appUrl = this.configService.getFastButReadOnly<string>('appUrl');",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-link-concatenates-undefined",
+      "defect": "11.38.0 — `email.passwordResetLink` had no default and nothing validated it, and callers concatenated whatever it held with the token. A project that never set it mailed `…/auth/reset-password/undefined` to a real recipient. The worst shape a bug can take: the request succeeds, the mail arrives, it looks right, and only the click reveals it — to somebody who by definition has no second way in. Returning `null` lets the caller send nothing instead, which at least says \"try again\".",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  buildPasswordResetLink(token: string): null | string {",
+      "find": "      if (!appUrl) {\n        this.userServiceLogger.error(\n          'Cannot build a password-reset link: neither `email.passwordResetLink` nor `appUrl` is configured',\n        );\n        return null;\n      }\n      target = `${appUrl.replace(/\\/$/, '')}/auth/reset-password?token={token}`;",
+      "replace": "      target = `${appUrl}/auth/reset-password`;",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "password-reset-token-lost-in-process",
+      "defect": "11.38.0 — the token was read back off the object `process()` returns, and the security interceptor strips `passwordResetToken` there (correctly: a reset token in a response body is one in a log, a proxy cache and a browser history). So the only method that could mint a token could not hand it over, and a project that asked for it got `undefined` and mailed it. Generating the token OUTSIDE `process()` is what makes it reachable without weakening the scrubbing.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  async createPasswordResetToken(",
+      "find": "    return { token, user };",
+      "replace": "    return { token: (user as unknown as { passwordResetToken?: string }).passwordResetToken as string, user };",
+      "specs": [
+        "tests/stories/password-reset-token-reachable.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-link-ignores-derive-optout",
+      "defect": "11.38.0 — the app-URL resolution did not forward `cors.deriveAppUrl`, so the derivation ran even for a deployment that had switched it off. That flag is how a project states the apex domain is NOT its own — the documented case being a third-party-hosted marketing site — and `buildCorsConfig` honours it. Ignoring it mails a password-reset token to that origin, where it lands in somebody else's access log. Since 11.39.0 the resolution is shared, so a single omission here breaks BOTH reset flows at once — which is the point of sharing it: one decision, one place, one test surface.",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "after": "export function resolveAppUrlFromConfig(configService: {",
+      "find": "    deriveAppUrl: configService.getFastButReadOnly<boolean>('cors.deriveAppUrl'),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts",
+        "tests/unit/password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reference-impl-rebuilds-reset-link",
+      "defect": "11.38.0 — the framework's OWN reference implementation (`src/server/modules/user/user.service.ts`) kept `setPasswordResetTokenForEmail` plus a hand-built link after `createPasswordResetToken` and `buildPasswordResetLink` existed to replace them. `email.passwordResetLink` is never set in this repo's config and the token is stripped by the security interceptor, so the mail said literally `undefined/undefined` — both production incidents reproduced verbatim in the repository that fixed them. It mattered beyond this repo because CLAUDE.md points projects at that file as the shape to copy and the CLI generates from the starter that mirrors it. Nothing caught it: every new test asserted a building block, none asserted the mail.",
+      "file": "src/server/modules/user/user.service.ts",
+      "after": "  async sendPasswordResetMail(email: string, serviceOptions?: ServiceOptions): Promise<null | User> {",
+      "find": "          link,\n",
+      "replace": "          link: `${this.configService.configFastButReadOnly.email.passwordResetLink}/${created.user.passwordResetToken}`,\n",
+      "specs": [
+        "tests/stories/password-reset-token-reachable.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-link-fallback-path-segment",
+      "defect": "11.38.0 — the legacy fallback appended the token as a PATH segment while the reset page shipped by nuxt-base-starter (`app/pages/auth/reset-password.vue`) reads `route.query.token`. A project that configured nothing therefore got a link that reached the right page, which then reported an invalid token because it read an empty one. The fallback now carries a `{token}` placeholder in the query position, so an unconfigured project gets a working link against the frontend this stack actually ships. Configured values keep the path-segment rule — that half is what protects the projects whose page IS built for a path.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  buildPasswordResetLink(token: string): null | string {",
+      "find": "/auth/reset-password?token={token}`;",
+      "replace": "/auth/reset-password`;",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-link-convention-warning-disarmed",
+      "defect": "11.38.0 — two link conventions live side by side, and which one applies depends on whether `email.passwordResetLink` is set at all: the same string yields `?token=` when omitted and a path segment when written out. The behaviour is kept deliberately (a project configuring such a value has a page built for it), so the boot warning is the ONLY thing that makes the divergence discoverable. Disarming it restores a silent mismatch whose symptom appears solely to whoever clicks the link in the mail.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  protected warnOnAmbiguousResetLinkConvention(): void {",
+      "find": "    if (typeof configured !== 'string' || !configured.trim().length || configured.includes('{token}')) {\n      return;\n    }",
+      "replace": "    return;",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "password-reset-link-ignores-redirectto",
+      "defect": "11.38.0 — `buildPasswordResetUrl` resolved the app link purely from configuration and ignored the `redirectTo` the caller had sent, even though nuxt-base-starter sends it on every request and Better-Auth's own hop would have redirected to exactly that value. A project that renamed its reset page therefore received the framework's guess instead of its own page, and the recipient landed on a route that does not exist. Reading it back is safe only because Better-Auth runs originCheck on `redirectTo` at request time — see readCallbackUrlFromBetterAuthLink().",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "after": "  protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {",
+      "find": "      target = this.readCallbackUrlFromBetterAuthLink(options.url);",
+      "replace": "      target = undefined;",
+      "specs": [
+        "tests/unit/password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-errors-not-wrapped",
+      "defect": "11.38.0 — Better-Auth's error responses reached the client in Better-Auth's own vocabulary (`{ code: 'INVALID_TOKEN', message: 'Invalid token' }`), while the frontends in this stack translate by parsing nest-server's `#LTNS_XXXX:` marker and nothing else. The parser found no code and passed the raw English string through, so every IAM error was shown to the end user as developer text. It bit hardest on the password-reset page, where an expired link answers INVALID_TOKEN and the person who already cannot sign in is the one reading it.",
+      "file": "src/core/modules/better-auth/core-better-auth-error-codes.helper.ts",
+      "after": "export async function wrapBetterAuthErrorResponse(response: Response): Promise<Response> {",
+      "find": "  if (response.ok) {\n    return response;\n  }",
+      "replace": "  return response;",
+      "specs": [
+        "tests/unit/better-auth-error-codes.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-link-warning-omits-precondition",
+      "defect": "11.38.0 — the boot warning told projects to add a `{token}` placeholder without saying that only `CoreUserService.buildPasswordResetLink()` substitutes it. Its audience is by definition the projects that have NOT switched yet — one of them followed the advice while still concatenating the link by hand, which would have mailed `/reset-password/{token}/<token>`: a link that arrives, looks right, and fails only for whoever clicks it. That is the exact failure this area was repaired for, re-created by the warning meant to prevent it. Advice correct for half its audience and silently harmful to the other half is worse than none.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  protected warnOnAmbiguousResetLinkConvention(): void {",
+      "find": "        'to silence this warning. FIRST make sure the mail is built by ' +\n        'CoreUserService.buildPasswordResetLink(): it is the only thing that substitutes {token}, so a ' +\n        'sendPasswordResetMail() that still concatenates the link itself would mail the placeholder ' +\n        'verbatim (\"/reset-password/{token}/<token>\").',",
+      "replace": "        'to silence this warning.',",
+      "specs": [
+        "tests/unit/legacy-password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-expired-link-says-sign-in-again",
+      "defect": "11.38.0 — `TOKEN_EXPIRED` was mapped to nest-server's session-oriented `TOKEN_EXPIRED` (\"please sign in again\"). Better-Auth throws that code in exactly one place: an expired verification LINK (email-verification.mjs:178), one line above the INVALID_TOKEN it throws for a broken one. So a single user action — clicking an old link in a mail — produced two opposite instructions, and the wrong one covered the MORE common half, since links expire far more often than they are mangled. At that point the user is typically not signed in at all, which makes \"sign in again\" a dead end rather than merely imprecise.",
+      "file": "src/core/modules/better-auth/core-better-auth-error-codes.helper.ts",
+      "after": "const BETTER_AUTH_ERROR_CODE_MAP: Readonly<Record<string, string>> = Object.freeze({",
+      "find": "  TOKEN_EXPIRED: ErrorCode.LINK_INVALID_OR_EXPIRED,",
+      "replace": "  TOKEN_EXPIRED: ErrorCode.TOKEN_EXPIRED,",
+      "specs": [
+        "tests/unit/better-auth-error-codes.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-link-omits-email",
+      "defect": "11.38.0 — the email-verification link carried only the token. That is sufficient while the token is valid and useless once it is not: the verification page shipped by nuxt-base-starter gates its \"send a new email\" button on `route.query.email`, so an expired link produced a correct explanation and no way to act on it. The page cannot recover the address itself — it lives in the token's JWT payload, and reading it there would mean rendering data from an unverified signature. The dead end was reached by exactly the people who needed the button.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "after": "  protected buildFrontendVerificationUrl(token: string, email?: string): string {",
+      "find": "    if (email) {\n      url += `&email=${encodeURIComponent(email)}`;\n    }",
+      "replace": "",
+      "specs": [
+        "tests/unit/verification-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "smtp-secure-ignores-port",
+      "defect": "11.38.0 — the production SMTP profile paired the default port 587 with `secure` resolving to true unless explicitly disabled. `secure` means implicit TLS, which only port 465 speaks; 587 opens in plaintext and upgrades via STARTTLS. Nodemailer therefore sent a TLS ClientHello to a server answering with an SMTP greeting and OpenSSL reported `wrong version number`. A deployment that configured only host and credentials could send NO mail at all — invisibly, because authentication mail is deliberately not awaited, so the API answered 200 while every password-reset message died in transport. Found on a production deployment, not by a test.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "after": "export function resolveSmtpSecure(value: string | undefined, port: number): boolean {",
+      "find": "  // Unset or non-canonical: 465 is the only port that speaks implicit TLS.\n  return port === 465;",
+      "replace": "  return normalized !== 'false';",
+      "specs": [
+        "tests/unit/smtp-tls-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-token-never-expires",
+      "defect": "11.38.0 — a legacy password-reset token had no expiry at all: `resetPassword()` looked it up by value and compared no time, while the exception it threw read \"Invalid or expired password reset token\", claiming a check that did not exist. A reset link takes over an EXISTING account, so an unbounded lifetime means a mail in an archive, a forwarded message or a restored backup opens that account years later. Treating a MISSING timestamp as valid is the specific half that matters: every row written before this release has none, so reading it as \"valid forever\" would preserve the defect permanently rather than for a migration window.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  protected isPasswordResetTokenExpired(expiresAt: Date | null | undefined): boolean {",
+      "find": "    if (!expiresAt) {\n      return true;\n    }",
+      "replace": "    if (!expiresAt) {\n      return false;\n    }",
+      "specs": [
+        "tests/unit/password-reset-token-expiry.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-reset-expiry-invalid-opts-out",
+      "defect": "11.38.0 — the expiry knob resolves `0` to \"never expires\" and ANY invalid value to the 60-minute default. The asymmetry is the protection: switching off the expiry of an account-takeover credential is a decision somebody has to state, and a typo, an empty variable or a negative number must never be the thing that states it. `Number('')` is `0`, so an empty environment variable would otherwise read as a deliberate opt-out.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  protected passwordResetTokenExpiryMinutes(): number {",
+      "find": "    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {\n      return value;\n    }\n\n    return DEFAULT_PASSWORD_RESET_TOKEN_EXPIRY_MINUTES;",
+      "replace": "    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;",
+      "specs": [
+        "tests/unit/password-reset-token-expiry.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-mail-omits-deadline",
+      "defect": "11.38.0 — the reset token gained an expiry (§11) and no mail template mentioned it. Until then there was nothing to announce, because the token never expired; afterwards the link dies after 60 minutes and the recipient learns that nowhere. Somebody who reads the mail in the evening, clicks, and is told the link is invalid cannot tell an expired link from a broken one — which is the same experience the whole area was repaired for: a mail arrives, looks right, and does not work. Found by the session that wrote the original fix, while applying the new expiry to its own project.",
+      "file": "src/templates/password-reset-de.ejs",
+      "after": "<html lang=\"de\">",
+      "find": "              <% if (expiryMinutes) { %>",
+      "replace": "              <% if (false) { %>",
+      "specs": [
+        "tests/unit/email-templates.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-password-accepts-nosql-operator",
+      "defect": "11.38.1 — `@Body('token') token: string` has `metatype === String`, and MapAndValidatePipe returns basic-type values verbatim (`isBasicType(metatype)` short-circuit), so the declared type is erased at runtime and a JSON object reaches the service. `findOne({ passwordResetToken: { $ne: null } })` then selected the first user holding ANY live reset token and set that account's password — full takeover, with the attacker never seeing the mail. Confirmed by probe against the real route before the guard existed. Express parses query strings with qs in extended mode, so `?token[$ne]=` reaches the sibling verification sinks identically.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "after": "  async resetPassword(token: string, newPassword: string, serviceOptions?: ServiceOptions): Promise<TUser> {",
+      "find": "    if (!isQueryableString(token)) {\n      throw new NotFoundException(ErrorCode.LINK_INVALID_OR_EXPIRED);\n    }\n\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/password-reset-token-reachable.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "production-smtp-secure-unwired",
+      "defect": "11.38.0 — the production profile paired port 587 with `secure` defaulting to true, a combination that cannot connect, so a deployment configuring only host and credentials sent no mail at all. The helper that fixes it has its own coverage; the WIRING in config.env.ts had none, so reverting this one line restored the outage verbatim and left the whole suite green. That is the same 'block-level tests green, mail broken' shape the rest of this release exists to end.",
+      "file": "src/config.env.ts",
+      "after": "  production: {",
+      "find": "        secure: resolveSmtpSecure(process.env.SMTP_SECURE, productionSmtpPort),",
+      "replace": "        secure: process.env.SMTP_SECURE !== 'false',",
+      "specs": [
+        "tests/unit/smtp-production-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "production-smtp-no-require-tls",
+      "defect": "11.38.1 — repairing the SMTP transport made the channel usable for the first time, and `secure: false` alone means OPPORTUNISTIC STARTTLS: nodemailer upgrades only when the server advertises it (smtp-connection/index.js:1506), and `requireTLS` is opt-in. An on-path attacker stripping that capability line gets a plaintext session carrying the SMTP credentials and a working password-reset link. Before the repair nothing was sent at all, so this is a new exposure introduced by the fix rather than a pre-existing one.",
+      "file": "src/config.env.ts",
+      "after": "  production: {",
+      "find": "        requireTLS: process.env.SMTP_REQUIRE_TLS !== 'false',\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/smtp-production-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "error-wrapper-collapses-set-cookie",
+      "defect": "11.38.1 — the header rebuild in `wrapBetterAuthErrorResponse` used `Headers.forEach` + `set()`. `forEach` yields each `set-cookie` entry separately and `set()` overwrites, so all but the last were discarded. Better-Auth CLEARS session and 2FA cookies on several failure paths — precisely the responses this function rewrites — so the clear was lost or partial and a stale credential stayed in the browser. `sendWebResponse` already used `getSetCookie()` for this exact reason; the new helper reintroduced the hazard upstream of that care.",
+      "file": "src/core/modules/better-auth/core-better-auth-error-codes.helper.ts",
+      "after": "export async function wrapBetterAuthErrorResponse(response: Response): Promise<Response> {",
+      "find": "    for (const cookie of response.headers.getSetCookie?.() ?? []) {\n      headers.append('set-cookie', cookie);\n    }\n\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-error-codes.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-reset-link-raw-appurl",
+      "defect": "11.39.0 — `buildPasswordResetUrl` read `appUrl` straight off the configuration while its legacy twin had already been moved to the shared resolver. Three behaviours were missing as a result: the localhost default that `local`/`ci`/`e2e` rely on (none of them set `appUrl`), the derivation from a host-split `baseUrl` such as `https://api.crm.localhost` that `lt dev up` serves, and the `cors.deriveAppUrl` opt-out that keeps a reset token out of an untrusted apex domain. The registry asserted the raw read was a defect on the legacy side while tolerating it here — two hand-maintained copies of one decision, drifting.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "after": "  protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {",
+      "find": "    const appUrl = resolveAppUrlFromConfig(this.configService);",
+      "replace": "    const appUrl = this.configService.getFastButReadOnly<string>('appUrl');",
       "specs": [
         "tests/unit/password-reset-link.spec.ts"
       ],
