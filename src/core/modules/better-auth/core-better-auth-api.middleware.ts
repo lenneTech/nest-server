@@ -5,6 +5,7 @@ import { isProduction } from '../../common/helpers/logging.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
+import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.helper';
 import { runWithResetPassword } from './core-better-auth-password-reset.registry';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
@@ -310,9 +311,15 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // Better-Auth invokes inside this call, and which is told WHICH user was reset but not
       // to WHAT — can read the new password and mirror it into the legacy store. The context
       // lives exactly as long as the handler call, so no other request can observe it.
-      const response = resetPassword
+      const rawResponse = resetPassword
         ? await runWithResetPassword(resetPassword, () => authInstance.handler(webRequest))
         : await authInstance.handler(webRequest);
+
+      // The single choke point for every error exit below. Each later branch acts only on
+      // `response.ok`, so rewriting failures HERE reaches all of them without touching any — and
+      // without a second place that has to remember to do it. Successful responses are returned
+      // by identity, so nothing on the happy path changes shape.
+      const response = await wrapBetterAuthErrorResponse(rawResponse);
 
       this.logger.debug(`Better Auth handler response: ${response.status}`);
 

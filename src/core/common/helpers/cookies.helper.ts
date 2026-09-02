@@ -577,3 +577,41 @@ export function buildCorsConfig(options: Partial<IServerOptions>): Record<string
   // No origins resolvable → return empty (secure default — no open CORS with credentials)
   return {};
 }
+
+/**
+ * The app URL as every mail-link builder in this package must resolve it.
+ *
+ * ── Why this exists rather than four inline reads ──────────────────────────────
+ * Two classes build a password-reset link — `CoreUserService.buildPasswordResetLink()` for the
+ * legacy flow and `CoreBetterAuthEmailVerificationService.buildPasswordResetUrl()` for IAM — and a
+ * third builds the verification link. They are near-identical by construction and were maintained
+ * by hand, which is exactly how they drifted: one was fixed to resolve through `resolveServerUrls`
+ * while the others kept reading `appUrl` straight off the configuration.
+ *
+ * A raw read is wrong in three situations that all look fine locally:
+ *
+ * - `local` / `ci` / `e2e` do not set `appUrl` — their localhost default lives inside
+ *   `resolveServerUrls`, so a raw read yields nothing and the builder falls back or returns null.
+ * - A host-split `baseUrl` such as `https://api.crm.localhost` (what `lt dev up` serves) carries
+ *   the app origin one label away; a raw read cannot see it.
+ * - `cors.deriveAppUrl: false` is how a deployment states that the apex domain is NOT its own —
+ *   the documented case being a third-party-hosted marketing site. Deriving anyway puts a
+ *   password-reset token into that origin's access log.
+ *
+ * The third point is why this is a shared function rather than a convention: it is a security
+ * decision, and a security decision repeated by hand in three places is one that will eventually
+ * be made differently in one of them.
+ *
+ * @param configService - anything exposing the frozen-config reader
+ * @returns the resolved app URL, or `undefined` when nothing can be resolved — never a guess
+ */
+export function resolveAppUrlFromConfig(configService: {
+  getFastButReadOnly<T = any>(key: string, defaultValue?: any): T;
+}): string | undefined {
+  return resolveServerUrls({
+    appUrl: configService.getFastButReadOnly<string>('appUrl'),
+    baseUrl: configService.getFastButReadOnly<string>('baseUrl'),
+    deriveAppUrl: configService.getFastButReadOnly<boolean>('cors.deriveAppUrl'),
+    env: configService.getFastButReadOnly<string>('env'),
+  }).appUrl;
+}

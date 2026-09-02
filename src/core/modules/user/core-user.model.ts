@@ -95,10 +95,37 @@ export abstract class CoreUserModel extends CorePersistenceModel {
    */
   @UnifiedField({
     isOptional: true,
-    mongoose: true,
+    // PARTIAL, not plain and not sparse. `findOne({ passwordResetToken: token })` runs on an
+    // unauthenticated, unrated endpoint, and without an index every call is a full collection scan
+    // of `users` — the dominant cost of that path and an easy amplifier for a request loop.
+    // Sparse would be wrong: the reset path clears the field by UNSETTING it, but a document that
+    // once held `null` would still count as present, so the index would accumulate an entry for
+    // every user who ever requested a reset. The `$type: 'string'` predicate keeps it to the rows
+    // that can actually match.
+    //
+    // NEVER give the companion `passwordResetTokenExpiresAt` a TTL index: it is a Date, and a TTL
+    // index there would delete the USER DOCUMENT rather than the token.
+    mongoose: { index: { partialFilterExpression: { passwordResetToken: { $type: 'string' } } } },
     roles: RoleEnum.S_NO_ONE,
   })
   passwordResetToken: string = undefined;
+
+  /**
+   * When the current password-reset token stops being valid.
+   *
+   * `S_NO_ONE` like the token itself: it never belongs in a response, and revealing that a reset is
+   * pending is information an account holder gains nothing from and an attacker does.
+   *
+   * A user document written before 11.38.0 has no value here, and the reset path treats that as
+   * expired — see `IAuthPasswordReset.tokenExpiresInMinutes` for why that direction was chosen.
+   */
+  @UnifiedField({
+    isOptional: true,
+    mongoose: true,
+    roles: RoleEnum.S_NO_ONE,
+    type: () => Date,
+  })
+  passwordResetTokenExpiresAt: Date = undefined;
 
   /**
    * Refresh tokens (for devices)

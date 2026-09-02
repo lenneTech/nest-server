@@ -372,8 +372,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       // Check for our specific error message
       const errorMessage = response.errors[0]?.message || '';
       expect(
-        errorMessage.includes('LTNS_0021') ||
-        errorMessage.includes('Terms and privacy policy must be accepted'),
+        errorMessage.includes('LTNS_0021') || errorMessage.includes('Terms and privacy policy must be accepted'),
       ).toBe(true);
     });
 
@@ -679,46 +678,26 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
         return;
       }
 
-      // Use a random invalid token
-      try {
-        await testHelper.rest('/iam/verify-email?token=invalid-token-12345', {
-          method: 'GET',
-          statusCode: 200,
-        });
-        // If it returns 200 with status: false, that's also valid
-      } catch {
-        // Expected: invalid token should fail
-      }
+      // Asserts the actual contract. This case previously wrapped the call in a try/catch whose
+      // catch block was EMPTY, with a comment saying a 200 "is also valid" — so it passed on a
+      // rejection, on a success, and on an exception alike. Measured: an unknown token answers 401.
+      await testHelper.rest('/iam/verify-email?token=invalid-token-12345', {
+        method: 'GET',
+        statusCode: 401,
+      });
     });
   });
 
   // ===================================================================================================================
-  // Redirect Flow Tests (without callbackURL)
+  // Redirect Flow Tests
+  //
+  // Two cases lived here and asserted NOTHING: both were wrapped in `if (config.callbackURL)`, and
+  // `callbackURL` is set in no environment of this repository (0 hits in `config.env.ts`), so the
+  // bodies never executed. They were green for their whole life without checking anything.
+  //
+  // `tests/unit/verification-link.spec.ts` now covers `buildFrontendVerificationUrl()`
+  // UNCONDITIONALLY — five cases including the `&email=` parameter, the `+` encoding and the
+  // omitted-address fallback — so deleting them loses no coverage and removes two false positives
+  // from the report.
   // ===================================================================================================================
-
-  describe('Verification Redirect Flow', () => {
-    it('should build correct frontend URL when callbackURL is configured', () => {
-      // When callbackURL is configured, the service should build a frontend URL
-      const service = emailVerificationService as any;
-      const config = emailVerificationService.getConfig();
-
-      if (config.callbackURL) {
-        const url = service.buildFrontendVerificationUrl('test-token-123');
-        expect(url).toContain('test-token-123');
-        expect(url).toContain('token=');
-      }
-    });
-
-    it('should use appUrl for relative callbackURL paths', () => {
-      const service = emailVerificationService as any;
-      const config = emailVerificationService.getConfig();
-
-      if (config.callbackURL && config.callbackURL.startsWith('/')) {
-        const url = service.buildFrontendVerificationUrl('test-token-456');
-        // Should contain a full URL, not just a relative path
-        expect(url).toMatch(/^https?:\/\//);
-        expect(url).toContain('token=test-token-456');
-      }
-    });
-  });
 });

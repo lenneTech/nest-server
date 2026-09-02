@@ -20,6 +20,7 @@ const FRAMEWORK_SECRET_FIELDS = [
   'password',
   'verificationToken',
   'passwordResetToken',
+  'passwordResetTokenExpiresAt',
   'refreshTokens',
   'tempTokens',
   'apiKeyEncrypted',

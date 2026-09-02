@@ -177,6 +177,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
             'password',
             'verificationToken',
             'passwordResetToken',
+            'passwordResetTokenExpiresAt',
             'refreshTokens',
             'tempTokens',
           ]);

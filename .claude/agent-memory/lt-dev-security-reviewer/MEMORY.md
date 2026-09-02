@@ -31,3 +31,4 @@
 - [project-betterauth-cookie-vs-body-token.md](project-betterauth-cookie-vs-body-token.md) — **FIXED 11.36.3**; why isJwtShaped() is sound (no dots in better-auth ids) + where the refusal is still silent
 - [project-check-mutations-tooling-risks.md](project-check-mutations-tooling-risks.md) — **all 3 risks FIXED 11.36.3**; keeps the git option-injection probe + the one residual ordering window
 - [project-exception-wire-format.md](project-exception-wire-format.md) — HttpExceptionLogFilter sends `{...exception}` (class `name` is client-visible); `extends HttpException` breaks instanceof vs native Forbidden/Unauthorized
+- [Primitive @Body/@Args args skip validation](project-primitive-body-args-bypass-validation.md) — metatype String ⇒ MapAndValidatePipe returns objects untouched; live $ne-injection in resetPassword + createPasswordResetToken

@@ -608,6 +608,20 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > A project subclassing the middleware must know this: the body it forwards is no longer
 > byte-identical to the body it received. `normalizeResetPassword()` is `protected`.
 
+> **Response side, since 11.38.0 — `wrapBetterAuthErrorResponse()`.** The mirror image of the note
+> above. Immediately after `authInstance.handler()` returns, every **failed** response passes
+> through a single choke point that rewrites its `message` to carry nest-server's `#LTNS_XXXX:`
+> marker, so frontends can translate it instead of showing Better-Auth's English. The `code` field
+> is left untouched, successful responses are returned **by identity** (the body is a single-read
+> stream, so rebuilding one would break every later branch), and 3xx is skipped — Better-Auth
+> reports some failures by redirecting with `?error=<CODE>`, and rewriting that query string would
+> invent a second contract over its documented one.
+>
+> It sits at ONE point on purpose: every branch below it acts only on `response.ok`, so all error
+> exits inherit the rewrite without any of them being touched. A subclass overriding the middleware
+> must know the counterpart of the rule above — the response body it forwards is no longer
+> byte-identical to the one Better-Auth produced.
+
 #### 2b. SecurityHeadersMiddleware
 
 Sets the browser security headers on **every** response — `X-Content-Type-Options`,

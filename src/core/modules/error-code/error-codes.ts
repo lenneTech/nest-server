@@ -287,6 +287,61 @@ export const LtnsErrors = {
     },
   },
 
+  /**
+   * A link the user followed from an email is invalid, already used, or expired.
+   *
+   * Deliberately SEPARATE from `INVALID_TOKEN` (LTNS_0003), which the legacy auth service uses for
+   * refresh/session tokens. Those two look alike to a developer and are opposites to a user: one
+   * means "your session ended, sign in again", the other means "the link in your mail is dead,
+   * request another". Telling somebody who cannot sign in to sign in is the worse of the two.
+   *
+   * Deliberately BROADER than `EMAIL_VERIFICATION_TOKEN_INVALID` (LTNS_0024), because the
+   * underlying `INVALID_TOKEN` from Better-Auth covers password reset, email verification and
+   * magic links alike, and cannot tell them apart.
+   *
+   * "nicht (mehr) gültig" covers unknown AND expired on purpose: Better-Auth answers both with the
+   * same code, so a message claiming to know which one would be guessing half the time.
+   */
+  /**
+   * The submitted password is outside the configured length bounds.
+   *
+   * Separate codes rather than one "does not meet requirements", because the recipient can only
+   * act on a message that names the direction. Better-Auth answers `PASSWORD_TOO_LONG` with the
+   * same HTTP 400 it uses for an invalid token, so without a distinct code a reset page shows
+   * "this link is no longer valid" — the user requests a new link, pastes the same over-long
+   * passphrase from their password manager, and fails again. A closed loop with no hint at the
+   * cause.
+   *
+   * The numbers are Better-Auth's defaults (8 / 128) and a project may configure others; the text
+   * therefore names the common case rather than claiming to know the deployment's bounds.
+   */
+  PASSWORD_TOO_LONG: {
+    code: 'LTNS_0028',
+    message: 'Password exceeds the maximum length',
+    translations: {
+      de: 'Das Passwort ist zu lang. Erlaubt sind standardmäßig höchstens 128 Zeichen.',
+      en: 'The password is too long. The default maximum is 128 characters.',
+    },
+  },
+
+  PASSWORD_TOO_SHORT: {
+    code: 'LTNS_0029',
+    message: 'Password is below the minimum length',
+    translations: {
+      de: 'Das Passwort ist zu kurz. Erforderlich sind standardmäßig mindestens 8 Zeichen.',
+      en: 'The password is too short. The default minimum is 8 characters.',
+    },
+  },
+
+  LINK_INVALID_OR_EXPIRED: {
+    code: 'LTNS_0027',
+    message: 'Link is invalid or expired',
+    translations: {
+      de: 'Dieser Link ist nicht (mehr) gültig. Bitte fordern Sie einen neuen an.',
+      en: 'This link is no longer valid. Please request a new one.',
+    },
+  },
+
   // =====================================================
   // Authorization Errors (LTNS_0100-LTNS_0199)
   // =====================================================

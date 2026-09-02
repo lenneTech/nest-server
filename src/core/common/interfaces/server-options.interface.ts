@@ -297,6 +297,51 @@ export interface IAuthPasswordReset {
    * ```
    */
   preventUserEnumeration?: boolean;
+
+  /**
+   * How long a LEGACY password-reset token stays valid, in minutes.
+   *
+   * **Before 11.38.0 it never expired at all.** `resetPassword()` looked the token up by value and
+   * nothing else, while the exception it threw on a miss read "Invalid or expired password reset
+   * token" — a message describing a check that did not exist. A reset link is a bearer credential
+   * for full account takeover, so an unbounded one means a mail sitting in an archive, a forwarded
+   * message or a restored backup opens the account years later.
+   *
+   * That gap became more reachable in this very release, which is why it is closed here: until now
+   * a project relying on the default mailed a link containing the word `undefined`, so the eternal
+   * token was unusable by accident. Repairing the link without adding an expiry would have turned a
+   * dead credential into a live and permanent one.
+   *
+   * The IAM flow already expires its token after one hour (Better-Auth's
+   * `resetPasswordTokenExpiresIn`), so 60 matches the half of the framework that had it right.
+   *
+   * **Value semantics — the two ends mean different things, deliberately:**
+   *
+   * | Value | Meaning |
+   * |-------|---------|
+   * | unset | 60 minutes |
+   * | a positive number | that many minutes |
+   * | `0` | **no expiry** — restores the pre-11.38.0 behaviour |
+   * | negative, `NaN`, non-numeric | 60 minutes, i.e. the safe default rather than "unbounded" |
+   *
+   * `0` opting OUT while an invalid value falls back to the DEFAULT is intentional: switching the
+   * expiry off is a decision somebody has to state, and a typo in an environment variable must
+   * never be the thing that states it.
+   *
+   * **Upgrade note:** a token minted before this release carries no expiry timestamp and is treated
+   * as expired. Anyone holding an unredeemed reset mail must request a new one — which, for every
+   * project that relied on the default link, is the first one that will actually work.
+   *
+   * @default 60
+   *
+   * @example
+   * ```typescript
+   * auth: {
+   *   passwordReset: { tokenExpiresInMinutes: 15 },
+   * }
+   * ```
+   */
+  tokenExpiresInMinutes?: number;
 }
 
 export interface IAuthLegacyEndpoints {
@@ -493,6 +538,12 @@ export interface IBetterAuthEmailVerificationConfig {
    * When not set, the verification link points directly to the backend
    * endpoint which handles verification and redirects.
    *
+   * Since 11.38.0 the generated link carries the recipient's address as well —
+   * `{callbackURL}?token=<token>&email=<address>`. The verification page needs it to offer
+   * "send a new email" once the token has expired, and it cannot recover the address itself:
+   * that value lives inside the token's JWT payload, and reading it there would mean rendering
+   * data from an unverified signature.
+   *
    * @default undefined (backend-handled verification)
    * @since 11.13.0
    */
@@ -560,9 +611,15 @@ export interface IBetterAuthEmailVerificationConfig {
    *
    * Set to `false` to keep Better-Auth's own link.
    *
+   * **Resolution order**, first hit wins: this option → the caller's `redirectTo` → `<appUrl>/auth/
+   * reset-password` → Better-Auth's own URL. `false` is a hard opt-out that a `redirectTo` does not
+   * override.
+   *
    * Note this is separate from `email.passwordResetLink`, which serves the LEGACY
-   * `/users/password/reset-request` flow and appends the token as a path segment. Two flows, two
-   * conventions; a project using both should point them at the same page.
+   * `/users/password/reset-request` flow. Both DEFAULTS point at the same page with `?token=`; what
+   * still differs is the fallback for a configured value without a placeholder — `?token=` here, a
+   * path segment there. A project using both should point them at the same page, and writing
+   * `{token}` in both makes them identical.
    *
    * @default `<appUrl>/auth/reset-password?token={token}`
    * @since 11.38.0
@@ -2184,7 +2241,50 @@ export interface IServerOptions {
     mailjet?: MailjetOptions;
 
     /**
-     * Password reset link for email
+     * Base of the link in the LEGACY password-reset mail (`/users/password/reset-request`).
+     *
+     * Three cases, and the difference between them is where the token lands:
+     *
+     * | Value                                   | Link the recipient gets                  |
+     * | --------------------------------------- | ---------------------------------------- |
+     * | contains `{token}`                      | placeholder replaced, wherever it sits   |
+     * | set, but no `{token}`                   | token appended as a PATH segment         |
+     * | not set (the default below)             | `?token=<token>`, per the default's shape |
+     *
+     * **Copying the default is safe; writing your own base is where it gets sharp.** The default
+     * carries `{token}`, so pasting it lands in row one and behaves exactly as leaving the option
+     * out. A base WITHOUT the placeholder lands in row two instead — same URL, different link. That
+     * is deliberate: it is the convention the legacy flow has always used, and changing it would
+     * silently break every project whose page reads a path parameter. It is also easy to walk into
+     * by accident, so the framework logs a warning at boot for any configured value without a
+     * placeholder. The way to silence it is to write `{token}` where you want the token, which
+     * states the convention in the place it applies instead of leaving it implicit.
+     *
+     * Build the link with `CoreUserService.buildPasswordResetLink(token)` rather than by
+     * concatenation. It returns `null` when it can resolve nothing — which is the difference
+     * between sending no mail and sending one whose link reads `undefined/<token>`. The latter
+     * happened in a downstream project and reached real recipients: the request succeeds, the mail
+     * arrives, it looks right, and only the click reveals it, to somebody who by definition has no
+     * second way in.
+     *
+     * Note this is separate from `betterAuth.emailVerification.passwordResetLink`, which serves the
+     * IAM flow. Both DEFAULTS now point at the same page with `?token=`; what still differs is the
+     * fallback for a configured value without a placeholder — path segment here, `?token=` there.
+     * A project using both flows should point them at the same page, and writing `{token}` in both
+     * makes them identical.
+     *
+     * @default `<appUrl>/auth/reset-password?token={token}`
+     * @since 11.38.0
+     *
+     * @example
+     * ```typescript
+     * email: {
+     *   // A page that reads the token from the path. Spelling out `{token}` is what keeps the
+     *   // boot warning quiet — `'https://example.com/auth/reset-password'` produces the same
+     *   // link, but leaves the reader guessing which convention was meant.
+     *   passwordResetLink: 'https://example.com/auth/reset-password/{token}',
+     * }
+     * ```
      */
     passwordResetLink?: string;
 

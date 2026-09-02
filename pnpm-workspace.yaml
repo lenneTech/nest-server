@@ -85,6 +85,14 @@ peerDependencyRules:
 # .claude/rules/package-management.md for the incident that rule exists to prevent.
 # pnpm 11 `pnpm audit` is the safety net for regressions.
 overrides:
+  # Security: qs — two MODERATE advisories, patched >=6.16.0 (added 2026-09-02)
+  #   array-limit bypass via bracket-key comma parsing, and a DoS via attacker-controlled isBuffer
+  # RUNTIME: qs is how Express parses query strings, so it is on the request path of every route.
+  # That also makes it load-bearing for a security property this release depends on — the extended
+  # parsing is what lets `?token[$ne]=` arrive as an object, which the new `isQueryableString`
+  # guards reject. Same major, so this is a plain patch lift.
+  # Remove once express/body-parser floor it themselves.
+  'qs@<6.16.0': '6.16.0'
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
   # NO LONGER LOAD-BEARING as of 2026-08-19: @nestjs/graphql 13.4.5 pins `ws: 8.21.3` itself
   # (13.4.2 pinned the vulnerable 8.20.1), and graphql-ws 6.2.1 takes ws as an optional peer. Every
@@ -153,9 +161,30 @@ overrides:
   'js-yaml@>=4.0.0 <4.3.1': '4.3.1'
   # Security: js-yaml exponential parsing time in flow collections (GHSA-pm4m-ph32-ghv5, high, patched >=5.2.2) - transitive via @nestjs/swagger>js-yaml. Separate line from the 4.x entry above: same package, different major.
   'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
-  # Security: fast-uri host confusion via failed IDN canonicalization (GHSA-v2hh-gcrm-f6hx, high, patched >=3.1.3) and via literal backslash authority delimiter (high, patched >=3.1.4) - transitive via @modelcontextprotocol/sdk>ajv and @modelcontextprotocol/sdk>ajv-formats>ajv
-  # Inert today. Remove once ajv / ajv-formats request >=3.1.4.
-  'fast-uri@>=3.0.0 <3.1.5': '3.1.5'
+  # Security: fast-uri - SIX advisories now, all four newest patched >=3.1.6 (raised 2026-09-02)
+  #   GHSA-v2hh-gcrm-f6hx  host confusion via failed IDN canonicalization        (>=3.1.3)
+  #   (unnamed)            literal backslash authority delimiter                 (>=3.1.4)
+  #   GHSA-5jgf-p345-68v8  host confusion, skipped IDN canonicalization on
+  #                        scheme-relative references                            (>=3.1.6)
+  #   GHSA-f65p-4m7j-42xc  SSRF via malformed IPv6 normalization                 (>=3.1.6)
+  #   GHSA-4mjr-xmp4-gh2g  SSRF via repeated hostname percent-decoding           (>=3.1.6)
+  #   (+1 sibling)                                                              (>=3.1.6)
+  # THIS ENTRY WAS THE THING KEEPING THE TREE VULNERABLE. It floored at `<3.1.5` for the two 2026-08
+  # advisories, so once the four newer ones landed it actively PINNED matching paths at 3.1.5 -
+  # below the new patch line. Adding a second, higher entry does not help: the narrower floor still
+  # claims its paths first, and the tree ends up carrying both versions. A superseded override is
+  # not inert, it is a lock; raise the existing one rather than stacking a new one beside it.
+  # RUNTIME, not build-time - the difference from the browserslist entry below. It arrives through
+  # `@modelcontextprotocol/sdk`, a direct `dependency` (not an optional peer), so every consumer of
+  # this package carries it in the production tree. @compodoc/compodoc pulls a second copy at build
+  # time; both are covered.
+  # Target 3.1.6, not the newer 3.1.7: this repo enforces a `minimumReleaseAge` policy and 3.1.7 was
+  # published inside that window - the install refuses it outright. Taking the oldest version that
+  # clears every advisory is the right instinct regardless.
+  # Pinned WITHIN the 3.x major; 4.x exists, and crossing a major to fix a transitive advisory is
+  # the shape that broke a project in April 2026 (see package-management.md).
+  # Remove once ajv floors it - ajv is the only importer in all 38 paths.
+  'fast-uri@<3.1.6': '3.1.6'
   # Security: ip-address ReDoS + parser confusion (high + moderate, patched >=10.3.1) - dev/transitive
   # via @modelcontextprotocol/sdk>express-rate-limit>ip-address.
   # Target raised 10.3.1 -> 10.5.0 on 2026-08-22 (key upper bound with it): the old entry pinned

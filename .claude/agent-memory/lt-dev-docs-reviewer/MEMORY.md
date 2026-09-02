@@ -14,3 +14,4 @@
 - [exposeTokenInBody is dev-only](exposetokeninbody-is-dev-only.md) — the boot guard blocks it in production/staging, so bugs gated on it can never have hit a real deployment; scope severity accordingly
 - [Mutation-count drift in tooling prose](number-drift-in-tooling-prose.md) — testing.md AND the check-mutations.mjs header quote registry counts; the new guard test covers only 2 of ~8
 - [Legacy-auth / password-sync stale claims](legacy-auth-and-password-sync-stale-claims.md) — two surfaces that asserted the OPPOSITE of the code (inverted LEGACY_AUTH_ENABLED default; "IAM→legacy sync impossible"); fixed in 11.38.0, re-check on every auth/password diff
+- [config.env.ts is consumer-owned](config-env-is-consumer-owned.md) — a fix landing in src/config.env.ts is NOT delivered by `pnpm update`; a guide claiming "it now just works" is inaccurate
