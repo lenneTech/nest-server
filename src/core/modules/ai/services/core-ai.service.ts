@@ -186,6 +186,50 @@ export class CoreAiService {
   }
 
   /**
+   * Connection ids whose capability detection just failed, with the timestamp after
+   * which they may be probed again. Process-local and deliberately so: it holds
+   * nothing worth sharing, entries expire on their own, and a multi-replica
+   * deployment re-probing once per replica is exactly the intended cost.
+   */
+  protected readonly detectionBackoff = new Map<string, number>();
+
+  /** How long a thrown capability detection suppresses the next attempt. */
+  protected readonly detectionBackoffMs = 5 * 60 * 1000;
+
+  /**
+   * True while a recent detection failure still suppresses the next attempt.
+   *
+   * Checks the STORED DEADLINE rather than mere presence: a bare `has()` would keep
+   * a connection suppressed until some unrelated failure happened to sweep the map,
+   * turning a five-minute backoff into a permanent one.
+   */
+  protected detectionSuppressed(connectionId: string): boolean {
+    const until = this.detectionBackoff.get(connectionId);
+    if (until === undefined) {
+      return false;
+    }
+    if (until > Date.now()) {
+      return true;
+    }
+    this.detectionBackoff.delete(connectionId);
+    return false;
+  }
+
+  /**
+   * Record a failed detection and drop expired entries in the same pass, so the map
+   * cannot grow with connection ids that were retried long ago.
+   */
+  protected rememberFailedDetection(connectionId: string): void {
+    const now = Date.now();
+    for (const [id, until] of this.detectionBackoff) {
+      if (until <= now) {
+        this.detectionBackoff.delete(id);
+      }
+    }
+    this.detectionBackoff.set(connectionId, now + this.detectionBackoffMs);
+  }
+
+  /**
    * Common per-run setup: rate limit, budget, connection, provider, role-filtered
    * tools, tool context and conversation history.
    */
@@ -225,9 +269,22 @@ export class CoreAiService {
       (connection.supportsJsonResponse === undefined ||
         connection.supportsNativeTools === undefined ||
         connection.contextWindow === undefined) &&
-      typeof this.connectionService?.detectAndPersistCapabilities === 'function'
+      typeof this.connectionService?.detectAndPersistCapabilities === 'function' &&
+      !this.detectionSuppressed(connection.id)
     ) {
-      connection = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => connection);
+      const detected = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => undefined);
+      if (detected) {
+        connection = detected;
+      } else {
+        // Detection THREW, so nothing was persisted — deliberately, because a
+        // transient blip must not pin a wrong flag forever. Without a backoff that
+        // correctness costs a re-probe on EVERY subsequent prompt, ahead of the rate
+        // limiter and outside budget accounting: an endpoint that answers the first
+        // probe and then times out on the retry burns a full timeout per user prompt,
+        // indefinitely. Suppress re-detection briefly instead — still nothing
+        // persisted, still self-healing, but bounded.
+        this.rememberFailedDetection(connection.id);
+      }
     }
 
     await this.checkRateLimit(currentUser?.id);

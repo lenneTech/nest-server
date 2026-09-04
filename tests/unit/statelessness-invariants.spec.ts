@@ -59,6 +59,18 @@ interface StateEntry {
 const INVENTORY: StateEntry[] = [
   {
     because:
+      'Connection ids whose capability detection just threw, mapped to the timestamp after '
+      + 'which they may be probed again. Genuinely divergent across replicas and deliberately '
+      + 'so: the bound is the 5-minute TTL, entries expire on their own and are swept on write, '
+      + 'and nothing is persisted either way. A second replica re-probing once is exactly the '
+      + 'intended cost — the alternative, sharing it, would let one replica suppress detection '
+      + 'for an endpoint the others can reach.',
+    classification: 'bounded',
+    file: 'modules/ai/services/core-ai.service.ts',
+    name: 'detectionBackoff',
+  },
+  {
+    because:
       'Reflection metadata keyed by class, derived from decorators at first use. Two replicas '
       + 'compute the identical map from the identical code.',
     classification: 'derived',
