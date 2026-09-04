@@ -240,7 +240,18 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
         128_000,
         ['gpt-4o', 'gpt-4.1', 'gpt-4-turbo', 'o1', 'o3', 'gpt-oss', 'mistral-large', 'mistral-small3', 'command-r'],
       ],
-      [131_072, ['qwen2.5', 'qwen3', 'llama-3.1', 'llama3.1', 'llama-3.3', 'llama3.3']],
+      // Two DIFFERENT gaps, both closed here (measured 2026-07-25 against an
+      // OpenAI-compatible hosting endpoint; both models verified to accept >=163k
+      // prompt tokens):
+      //   - `mistral-medium` DID match the generic `mistral` -> 32768 entry below,
+      //     capping a 256k model at an eighth of its window. It must therefore be
+      //     matched before it -- this bucket is evaluated first.
+      //   - `ministral` matched NOTHING at all: "ministral" does not contain the
+      //     substring "mistral" (m-i-n-i-s-t-r-a-l), so it fell through the whole
+      //     table to the conservative 8192 default.
+      // Pinned one power of two below the verified capacity so the orchestrator
+      // trims before the endpoint rejects.
+      [131_072, ['qwen2.5', 'qwen3', 'llama-3.1', 'llama3.1', 'llama-3.3', 'llama3.3', 'ministral', 'mistral-medium']],
       [65_536, ['mixtral']],
       [32_768, ['qwen2', 'mistral', 'gemma2', 'gemma-2']],
       [16_385, ['gpt-3.5']],
