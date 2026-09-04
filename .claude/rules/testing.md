@@ -598,6 +598,33 @@ The vector predates 11.38.0 — Better-Auth already hashed on reset — so this 
 factor roughly doubling, not a new exposure. It is not scaffolded here because a load profile
 belongs with a running API and an agreed traffic shape, not bolted onto a static review.
 
+## A test that reads `CI` answers differently on a runner
+
+**Rule: when a spec drives behaviour that depends on the `CI` environment variable, it must PIN the
+variable — never inherit it.** Otherwise the assertion means one thing on a laptop and another on a
+runner, and the laptop is where it gets written.
+
+`scripts/check-overrides.mjs` is the case: an unverified suppression is TOLERATED locally and
+ESCALATED to a hard failure under `CI`, deliberately, because a skip nobody reads is
+indistinguishable from a check that ran. `tests/unit/check-overrides.guard.spec.ts` spawns that
+guard, so every case it runs inherits whatever `CI` the surrounding process has.
+
+One case did not pin it, asserted `status === 0`, and passed locally for its whole life. It failed
+the release CI run for 11.40.0 — the first time it had ever executed on a runner. The fix is one
+line (`env: { CI: '' }`); the point is that nothing would have found it earlier, because the
+environment that breaks it is the one nobody runs tests in by hand.
+
+**Before a release, run the unit suite the way a runner sees it:**
+
+```bash
+CI=true npx vitest run --config vitest.config.ts --reporter=dot
+```
+
+Deliberately NOT wired into `check`. It would run all 2381 unit tests a second time — about 40s on
+every local check — to protect against a class that currently has exactly one member, and CI itself
+already catches it at the cost of one failed PR run. Revisit that trade if a second env-dependent
+spec appears; the balance is about how many, not about principle.
+
 ## Consumer gate: the starter runs BEFORE publish, not after
 
 `pnpm run check:consumer` builds the tarball (`pnpm pack`), installs it into a **throwaway copy** of

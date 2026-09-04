@@ -441,8 +441,16 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     // `null` is what the API path yields on a network error. Treating it as
     // "still no fix" would turn an outage into a silent all-clear — and these
     // advisories are invisible to pnpm audit, so nothing else would catch it.
+    //
+    // `CI: ''` is load-bearing, not tidiness. An unverified suppression is TOLERATED locally and
+    // ESCALATED to a hard failure under `CI` — that is the guard's documented design, and the
+    // dedicated cases further down pin both halves. This case is about the REPORTING, so it has to
+    // fix the variable that decides the exit code; inheriting it makes the assertion mean one thing
+    // on a laptop and another on a runner. It did: this test passed locally and failed the release
+    // CI run for 11.40.0, the first time it ever executed on a runner.
     const r = run({
       advisoryData: { [GHSA]: null },
+      env: { CI: '' },
       ignoreGhsas: [GHSA],
     });
     expect(r.status, 'an unreachable API must not fail the chain').toBe(0);
