@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.39.0",
+  "version": "11.40.0",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -25,11 +25,12 @@
     "cf": "pnpm run check:fix",
     "check": "node scripts/check.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
-    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
     "check:manifest": "node scripts/check-package-manifest.mjs",
     "check:mutations": "node scripts/check-mutations.mjs",
-    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
-    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
+    "check:overrides": "node scripts/check-overrides.mjs",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && bash scripts/check-server-start.sh",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",
     "cnaf": "pnpm run check:naf",
     "docs": "pnpm run docs:ci && open http://127.0.0.1:8080/ && open ./public/index.html && compodoc -p tsconfig.json -s ",

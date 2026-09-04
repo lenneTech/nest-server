@@ -180,6 +180,39 @@ calling and executes tools itself through `CrudService` with the caller's permis
 the child runs in a temp dir so no `CLAUDE.md`/settings leak into the context. See
 `ClaudeCliProvider` for the full security model and the optional `ai.claudeCli` config.
 
+## Egress allowlist (`ai.allowedBaseUrlHosts`)
+
+A connection's `baseUrl` decides where the server sends outbound HTTP. It is admin-set, so the
+threat model is a compromised or mistyped admin rather than end-user input — but the request still
+leaves from inside your network, which is what makes it an SSRF surface.
+
+**Unset (the default) means no restriction**, so a local provider works out of the box. When set,
+only the listed hosts are reachable and everything else is refused with
+`ServiceUnavailableException` plus a WARN naming the host:
+
+```typescript
+ai: {
+  allowedBaseUrlHosts: ['llm.example.com', 'localhost:11434'],
+}
+```
+
+```bash
+# Same setting via the canonical env spelling — a comma-separated string is understood
+NSC__AI__ALLOWED_BASE_URL_HOSTS=llm.example.com,localhost:11434
+```
+
+Matching details worth knowing before you debug a refusal:
+
+- A bare hostname entry matches **any port** on that host. An entry that names the scheme's default
+  port (`example.com:443` for https) also matches the portless URL.
+- Entries and URLs are both trimmed, lowercased, and stripped of a fully-qualifying trailing dot, so
+  `LLM.Example.com`, `llm.example.com` and `llm.example.com.` are one host.
+- The check covers **all three** outbound paths: chat completions, the capability probe, and the
+  Ollama context-window probe.
+- A value that is neither a list nor a string carries no hostnames. The allowlist is then inactive
+  and the framework logs an error — from the outside that state is indistinguishable from
+  "correctly unset", which is exactly why it is not silent.
+
 ## Connections (DB configuration)
 
 Connections live in the `aiConnections` collection and are managed by admins via

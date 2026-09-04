@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 45 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 63 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -285,7 +285,10 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
 for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 91 mutations. Worth revisiting around 100, where the full run approaches half an hour.
+at 109 mutations — past the threshold this paragraph has carried since the gate was written,
+now reached exactly. The full run is approaching half an hour. **The re-evaluation is due now**: the
+next person to add a mutation should decide whether selective re-running has become worth its
+failure mode (a stale PASS for a test that has since gone vacuous), not bump this number again.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -326,7 +329,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 46 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 91 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 109 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -369,6 +372,155 @@ When a change adds or edits a test that claims to fix or pin a bug:
    explains the green just as well as the fix does.
 4. **"Is the mutation the defect, or a proxy for it?"** A mutation that breaks everything proves
    nothing about the specific behaviour.
+
+## `disableConsoleIntercept` — why both runners set it
+
+**Rule: both vitest configs in THIS repo set `disableConsoleIntercept: true`, because both were
+measured and both showed exposure. Do not remove it to get per-file console attribution back
+without reading this first — and do not copy it into another repo without measuring there.**
+
+It is the fix for an `EnvironmentTeardownError` that failed `pnpm run check` roughly **1 run in
+10**, with every test green:
+
+```
+EnvironmentTeardownError: [vitest-worker]: Closing rpc while "onUserConsoleLog" was pending
+ Test Files  108 passed (108)
+      Tests  2300 passed | 1 skipped (2301)
+     Errors  1 error
+```
+
+### The mechanism
+
+vitest normally replaces `globalThis.console` in every worker (`setupConsoleLogSpy()`) and
+forwards each write to the main thread as an `onUserConsoleLog` RPC. At worker teardown
+`execute()` does **not** await those calls — it rejects whatever is still in flight:
+
+```js
+rpc.$rejectPendingCalls(({ method, reject }) =>
+  reject(new EnvironmentTeardownError(`Closing rpc while "${method}" was pending`)))
+```
+
+The rejection surfaces as an unhandled error and fails the run. So a console write from the last
+test of a file can lose a race against its own cleanup.
+
+`disableConsoleIntercept: true` skips `setupConsoleLogSpy()` entirely, so the custom console is
+never installed. Worker-side, `rpc.onUserConsoleLog` has exactly ONE caller — `sendLog()` inside
+that console (`vitest/dist/chunks/console.*.js`); every other reference is main-process reporter
+code. No spy, no caller, nothing that can be pending. **That is a structural fix, not a reduced
+probability** — which matters, because the rate is load-dependent and no number of green runs
+would have proved it.
+
+### The cost, and why it is not what it looks like
+
+The obvious reading — "you lose the `stdout | <file>` prefix" — is wrong, and both configs said so
+until it was measured. With the intercept ON, the default reporter **swallows console output from
+PASSING tests entirely** in a piped run (which is how CI and every piped `check` runs). Removing it
+does not strip a prefix; it makes previously invisible output appear:
+
+```
+nest-server unit    disableConsoleIntercept: false -> 0 visible lines
+                    disableConsoleIntercept: true  -> 8-9 visible lines
+```
+
+The range is not sloppiness: three of those lines are the rate-limit-store capacity warning, whose
+count depends on how many counters a run happens to create, so the total moves between runs. Quote a
+range when a measurement varies — a single number invites the next reader to treat a normal 8 as a
+regression from 9 and go looking for it.
+
+**And count the writes, not one phrasing of them.** A first attempt at re-measuring this grepped for
+`Configured for|No local config` and reported **1**, because the other seven lines are a hub-buffer
+warning, a ConfigService merge notice, three rate-limit warnings and two dev auth URLs — none of
+which match those words. That reads as "no exposure" and is the same artefact as counting reporter
+output, arrived at from a different direction. Diff a flag-off run against a flag-on run instead;
+the difference IS the answer, and it cannot be narrowed by a pattern.
+
+Measure by flipping the value IN THE CONFIG. A CLI override does not win against a config value —
+a first attempt at this measurement was worthless for exactly that reason.
+
+**And it does not point the same way in every suite.** In an e2e config, where the reporter DOES
+print passing-test output, the intercept adds a header line per write, so removing it roughly
+halves the volume. Same flag, opposite ledger.
+
+That direction is the finding; do not quote a figure for it. The `57 → 37` this line used to carry
+came from a comment in the starter's own config (`vitest-e2e.config.ts:96`, "this run went from 57
+visible lines to 37") that nobody here has re-run, and whose scope is ambiguous — the paragraph
+above it discusses a single-spec run, so the numbers may describe one file or the whole suite.
+**Where a number has not been measured, state the direction and stop.** The claim that matters —
+that the ledger flips in an e2e config, because that reporter does print passing-test output — needs
+no figure at all, and a figure nobody can source invites the next reader to treat it as a baseline.
+
+### Not a rule to apply blindly — measure both sides
+
+`nest-server` sets it in both runners because both showed exposure. That is a finding here, not a
+default. `nest-server-starter` deliberately sets it ONLY in the e2e config, `nuxt-base-starter`
+and `offers` set it nowhere — each after measuring.
+
+The trap is the measurement itself. Counting `grep -cE '^(stdout|stderr) \| '` reports what the
+REPORTER PRINTS, not the RPC traffic — so a suite with 114 suppressed writes measures 0 and looks
+immune. That artefact produced a wrong "zero exposure" verdict in the starter before
+`nuxt-base-starter` caught it. The honest procedure is:
+
+1. Exposure — does the suite make `console.*` calls at all? (Nest `Logger` output does not count;
+   it bypasses the intercept.)
+2. Cost — visible lines with the flag versus without, flipped in the config.
+3. Does it actually flake? Write COUNT does not predict the race; write TIMING relative to the end
+   of a file does. The starter's unit suite makes 114 writes and did not flake in 15 runs;
+   nest-server's makes 9 and flaked about 1 in 10.
+
+Where a suite flakes AND the noise cost is high, the better fix is neither option: silence the
+writes at the source. `nuxt-base-starter` measures 0 writes and 0 noise because its
+`tests/unit/setup.ts` mocks `console.debug`/`console.info` globally.
+
+### Three things that made this expensive to diagnose
+
+1. **It is a race, not a late log.** Every spec involved `await`s correctly. Hunting for an
+   unawaited promise finds nothing and sends you the wrong way.
+2. **The reported file is not the cause.** vitest attributes the unhandled rejection to whichever
+   file's worker was running ("It doesn't mean the error was thrown inside the file itself").
+   The file it named logs nothing of its own.
+3. **A wrong explanation survives five green runs.** The first diagnosis here — a keep-alive
+   socket holding a handle — was plausible, fitted the observation, and was WRONG; a bisect with
+   the suspected file excluded still reproduced it. At ~1 in 10, a handful of green runs is not
+   evidence of anything. Bisect, or do not claim a cause.
+
+### Where the output actually came from
+
+Worth recording, because `tests/setup.ts` looks like it already handles this and does not — and
+because the obvious remedy is the wrong one.
+
+**Only raw `console.*` calls feed the RPC. Nest `Logger` output does not.** vitest replaces
+`globalThis.console` and nothing else; it does not patch `process.stdout`/`stderr`. Nest's
+`ConsoleLogger` writes straight to those streams, so its output reaches the terminal without ever
+becoming an `onUserConsoleLog` call. Verified both ways: a `[Nest] … DEBUG …` line carries no
+`stdout | <file>` prefix, while every attributed line traces to a bare `console.*`.
+
+The consequence is the useful part: **silencing the Nest logger does nothing for this flake.**
+`Logger.overrideLogger(['error','fatal'])` — and any per-spec capture of `logger.error` — is noise
+reduction, not a fix. Reaching for it because the loud lines look like the culprit is a dead end.
+
+The writes that actually fed the RPC:
+
+| Source | Call |
+|--------|------|
+| `common/helpers/config.helper.ts` | `console.info` — "Configured for: …", "No local config.json found!" |
+| `common/services/config.service.ts` | `console.warn` from `mergeConfig` |
+| `common/services/rate-limit-store.ts` | `console.warn` from `InMemoryRateLimitStore.hit` |
+| `modules/hub/hub-buffer.ts` | `console.debug` from `readShared` |
+| `modules/better-auth/…-email-verification.service.ts` | `console.log` from `logAuthUrlForDevelopment` |
+
+### Separately: capture the error output a spec EXPECTS
+
+Independent of the flake, and still worth doing — `captureExpectedLogs()` in
+`tests/helpers/expected-log-output.ts`. A spec that deliberately drives a failure path (SMTP down,
+Redis refused, GridFS chunks missing) otherwise prints `logger.error` plus stack traces on a GREEN
+run. That is the same "output that is always there is output nobody reads" argument the rest of
+this file makes, and the helper RETURNS what was logged so the message becomes an assertion rather
+than noise. Four specs use it; three gained a real assertion in the process, and one —
+`'re-throws a send failure after logging it'` — had never asserted the half of its name after the
+comma.
+
+Do not reach for a global silence instead: `Logger.overrideLogger([])` would also silence the
+failing run, removing the diagnostics you need exactly when something breaks.
 
 ## A catch that asserts nothing makes its test pass on every outcome
 
@@ -445,6 +597,33 @@ cause.
 The vector predates 11.38.0 — Better-Auth already hashed on reset — so this is an amplification
 factor roughly doubling, not a new exposure. It is not scaffolded here because a load profile
 belongs with a running API and an agreed traffic shape, not bolted onto a static review.
+
+## A test that reads `CI` answers differently on a runner
+
+**Rule: when a spec drives behaviour that depends on the `CI` environment variable, it must PIN the
+variable — never inherit it.** Otherwise the assertion means one thing on a laptop and another on a
+runner, and the laptop is where it gets written.
+
+`scripts/check-overrides.mjs` is the case: an unverified suppression is TOLERATED locally and
+ESCALATED to a hard failure under `CI`, deliberately, because a skip nobody reads is
+indistinguishable from a check that ran. `tests/unit/check-overrides.guard.spec.ts` spawns that
+guard, so every case it runs inherits whatever `CI` the surrounding process has.
+
+One case did not pin it, asserted `status === 0`, and passed locally for its whole life. It failed
+the release CI run for 11.40.0 — the first time it had ever executed on a runner. The fix is one
+line (`env: { CI: '' }`); the point is that nothing would have found it earlier, because the
+environment that breaks it is the one nobody runs tests in by hand.
+
+**Before a release, run the unit suite the way a runner sees it:**
+
+```bash
+CI=true npx vitest run --config vitest.config.ts --reporter=dot
+```
+
+Deliberately NOT wired into `check`. It would run all 2381 unit tests a second time — about 40s on
+every local check — to protect against a class that currently has exactly one member, and CI itself
+already catches it at the cost of one failed PR run. Revisit that trade if a second env-dependent
+spec appears; the balance is about how many, not about principle.
 
 ## Consumer gate: the starter runs BEFORE publish, not after
 

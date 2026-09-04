@@ -61,6 +61,33 @@ jobs:
       - name: Audit dependencies
         run: pnpm audit
 
+      # `pnpm audit` above reports advisories. What it cannot say is that a supposed remedy for
+      # one is already sitting in pnpm-workspace.yaml with its target BELOW the fix line — which
+      # is precisely the regression the comment above worries about, now automated.
+      #
+      # The report is captured and handed over with --audit-file rather than letting the guard
+      # run its own audit. It saves a second network round trip, but the load-bearing reason is
+      # different: the guard EXITS 0 when it cannot obtain a report, which is right for an
+      # offline laptop and wrong for a runner, where the step would go green having verified
+      # nothing. With an explicit --audit-file, an unreadable report hard-fails instead.
+      # `|| true` is on the capture only — `pnpm audit` exits non-zero whenever it finds
+      # anything, and the gate for that is the step above, not this one.
+      - name: Capture audit report
+        run: pnpm audit --json > audit.json || true
+
+      - name: Security overrides + suppressions guard
+        # GITHUB_TOKEN raises the Advisory API quota from 60/hour per IP (shared across every
+        # repo on a hosted runner) to 1000/hour for this repository. Without it a neighbour's
+        # traffic could exhaust the quota and fail this step, which would read as a security
+        # finding rather than the quota problem it is.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-overrides.mjs --audit-file audit.json
+
+      # Unmet or missing peers are a lockfile-level defect that no other step here would notice.
+      - name: Peer dependency consistency
+        run: pnpm peers check
+
       - name: Optimize and check
         run: pnpm run prepublishOnly
 

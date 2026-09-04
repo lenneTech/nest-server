@@ -1712,9 +1712,25 @@ export interface IAi {
    * bare `hostname`); unset → permissive (so local providers like Ollama on localhost
    * work out of the box). `baseUrl` is admin-only, so this guards a compromised or
    * misconfigured admin, not end-user input.
+   *
+   * Accepts an array OR a comma-separated string. The string form is not a convenience:
+   * it is the shape the framework's own env mapping produces. `NSC__AI__ALLOWED_BASE_URL_HOSTS`
+   * becomes `{ ai: { allowedBaseUrlHosts: '<string>' } }`, and lodash `merge` assigns that
+   * scalar straight over a configured array — so the canonical `NSC__` spelling MUST be
+   * understood here or the control silently switches itself off.
+   *
+   * Entries are trimmed, lowercased and stripped of a fully-qualifying trailing dot, and the
+   * same normalisation is applied to the URL being checked, so neither side can win by
+   * spelling the same DNS name differently. A bare hostname entry matches any port on that
+   * host; an entry naming the scheme's default port (`example.com:443` for https) also matches
+   * the portless URL. A value that is neither an array nor a string carries no hostnames, so
+   * the allowlist is inactive — that case is LOGGED as an error rather than passed over, since
+   * it looks identical to "correctly unset" from the outside.
+   *
    * @example ['llm.example.com', 'localhost:11434']
+   * @example 'llm.example.com,localhost:11434'   // NSC__AI__ALLOWED_BASE_URL_HOSTS
    */
-  allowedBaseUrlHosts?: string[];
+  allowedBaseUrlHosts?: string | string[];
 
   /**
    * Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
