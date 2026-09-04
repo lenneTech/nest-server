@@ -134,6 +134,17 @@ Both probes run concurrently. Override `OpenAiCompatibleProvider.detectCapabilit
 for custom backends, or implement the optional `ILlmProvider.detectCapabilities()` in
 your own provider.
 
+> **`supportsJsonResponse` is a CONNECTION flag, but whether an answer must be JSON is
+> a property of the PROMPT.** The JSON output contract is carried only by the
+> `output_contract` / `tool_protocol_emulated` fragments (both `capability: 'emulated'`)
+> and by `plan_protocol`. A **native**-tools run receives none of them and is asked for
+> prose — attaching `response_format` on top is a contradiction the model can only
+> resolve by inventing a shape of its own, which then reaches the user as the answer.
+> The orchestrator therefore decides JSON mode per CALL, not per connection: pass
+> `jsonResponse: false` in `LlmCompletionOptions` from any call whose prompt asks for
+> prose. The option only ever NARROWS — it can never assert JSON mode for a connection
+> whose endpoint was not probed for it.
+
 ### Backend examples (external, local, CLI)
 
 The same module connects to all of these — the only differences are the connection's

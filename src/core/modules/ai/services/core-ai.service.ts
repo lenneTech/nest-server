@@ -399,6 +399,33 @@ export class CoreAiService {
       },
     );
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
+    // The JSON output contract belongs to the EMULATED protocol only: `output_contract`
+    // and `tool_protocol_emulated` both carry `capability: 'emulated'`, so a NATIVE-tools
+    // run is asked for PROSE and is handed no JSON shape to fill. Forcing
+    // `response_format: {type:'json_object'}` on top is a contradiction the model can only
+    // resolve by inventing a shape of its own — which the final-answer branch below then
+    // has to catch. Measured against an OpenAI-compatible hosting endpoint on
+    // 2026-09-03 (`Mistral-Medium-3.5-128B`, varying only `response_format` and the
+    // offered tools):
+    //
+    //   native   + on  -> `{"answer":"A clear sky is blue."}`, and with tools offered
+    //                     `{"name":"<a_tool>","parameters":{}}` in `content` with NO
+    //                     native `tool_calls` at all — the tool call is LOST, not merely
+    //                     mis-rendered (the run ends at `iterations=1, actions=0`)
+    //   native   + off -> prose plus real `tool_calls`
+    //   emulated + on  -> `{"tool_calls":[…]}`
+    //   emulated + off -> `{"tool_calls":[…]}`
+    //
+    // Harmful in exactly ONE cell, and both emulated cells work — so narrow per call
+    // rather than clearing the connection flag, which would cost the emulated protocol
+    // its deterministic parse for no gain.
+    //
+    // `capability: 'emulated'` is a DEFAULT, not an invariant: an admin can point a
+    // prompt slot at `native` via `CoreAiSlotService`, and such a run would then be asked
+    // for JSON while this narrows it off. The degradation is graceful — prompt-driven
+    // JSON is the fallback the module is built around, and `extractJsonObject` is
+    // lenient — so the gate is well-correlated rather than exact.
+    const jsonMode = provider.capabilities.nativeTools ? { jsonResponse: false } : {};
 
     const messages: LlmMessage[] = [{ content: systemPrompt, role: 'system' }];
     for (const turn of history) {
@@ -447,6 +474,7 @@ export class CoreAiService {
       await this.compactMessages(messages, connection);
       this.fitMessagesToContext(messages, connection);
       const completion = await provider.chat(messages, toolSchemas, {
+        ...jsonMode,
         maxTokens: connection.defaultMaxTokens,
         temperature: connection.defaultTemperature,
       });
@@ -549,25 +577,40 @@ export class CoreAiService {
 
       // No tool calls → this is the final answer.
       const parsed = this.extractJsonObject(completion.text);
+      const residue = this.isProtocolResidue(completion.text, parsed, this.hitOutputCeiling(completion));
       if (parsed && typeof parsed.final === 'string') {
         finalText = parsed.final;
         finalData = parsed.data ?? undefined;
-      } else if (parsed && 'tool_calls' in parsed && !nudgedForFinal && iterations < maxIterations) {
-        // The model emitted the protocol wrapper (e.g. an empty `{"tool_calls":[]}`
-        // batch) but no user-facing answer. Nudge once for a proper final answer
-        // instead of leaking the raw protocol JSON to the user.
+      } else if (residue && !nudgedForFinal && iterations < maxIterations) {
+        // The model returned a bare JSON value where a user-facing answer belongs:
+        // an empty `{"tool_calls":[]}` batch, an echoed TOOL_RESULTS blob, or a
+        // half-formed tool call. Nudge once for a real answer instead of leaking the
+        // raw protocol JSON to the user. The wording follows the contract this run
+        // actually gave the model — telling an EMULATED run to drop the JSON would
+        // contradict its own output contract.
+        //
+        // The off-contract output is NOT fed back verbatim. The tool-call path above
+        // refuses that for a documented reason ("never the raw text, which may carry
+        // […] a model-hallucinated TOOL_RESULTS block"), and this branch's own input
+        // may be exactly such a blob — re-admitting it as an accepted assistant turn
+        // would let the next answer be grounded in data no tool returned. The nudge
+        // needs the TURN, not its content.
         nudgedForFinal = true;
-        messages.push({ content: completion.text, role: 'assistant' });
+        messages.push({ content: '(previous reply was machine output, not an answer)', role: 'assistant' });
         messages.push({
-          content: 'You did not request any tool. Now reply with your final answer ONLY as {"final":"<your answer>"}.',
+          content: provider.capabilities.nativeTools
+            ? 'That was not an answer for the user. Reply now in plain natural language — no JSON, no code fences.'
+            : 'You did not request any tool. Now reply with your final answer ONLY as {"final":"<your answer>"}.',
           role: 'user',
         });
         continue;
       } else {
-        // Plain-text answer — but never surface a bare protocol wrapper. If the model
-        // still returned only a `tool_calls`/`final`-shaped object, drop it so the
-        // generic fallback message applies instead of leaking JSON.
-        finalText = parsed && ('tool_calls' in parsed || 'final' in parsed) ? '' : completion.text;
+        // Plain-text answer — but a bare JSON value is protocol residue, never
+        // something to show a user, so drop it and let the generic fallback message
+        // apply instead of leaking JSON. A whitespace-only answer is dropped for the
+        // same reason: it is TRUTHY, so leaving it in place would defeat the
+        // `no_final_answer` fallback below and render an empty chat bubble.
+        finalText = residue || !completion.text?.trim() ? '' : completion.text;
       }
       break;
     }
@@ -706,15 +749,26 @@ export class CoreAiService {
     }
     messages.push({ content: `TOOL_RESULTS:\n${this.capToolResults(JSON.stringify(results))}`, role: 'user' });
 
-    // 5. Final summary call.
+    // 5. Final summary call. The plan prompt's JSON contract covers the PLAN only —
+    // `buildPlanSystemPrompt` drops `output_contract` — so the summary is a
+    // natural-language answer and must not be forced into JSON.
     this.fitMessagesToContext(messages, connection);
-    const finalCompletion = await provider.chat(messages, [], chatOptions);
+    const finalCompletion = await provider.chat(messages, [], { ...chatOptions, jsonResponse: false });
     this.accumulateUsage(usage, finalCompletion);
+    // Same residue guard as `runAuto`: this call sits directly after a TOOL_RESULTS
+    // push, so an echo of those results is the likeliest off-contract output — and
+    // it must not reach the user verbatim. Plan mode has no nudge loop, so a bare
+    // value degrades straight to the plan's own summary.
     const finalParsed = this.extractJsonObject(finalCompletion.text);
+    const finalResidue = this.isProtocolResidue(
+      finalCompletion.text,
+      finalParsed,
+      this.hitOutputCeiling(finalCompletion),
+    );
     const finalText =
       finalParsed && typeof finalParsed.final === 'string'
         ? finalParsed.final
-        : finalCompletion.text || parsed?.summary || this.translate('done', language);
+        : (finalResidue ? '' : finalCompletion.text) || parsed?.summary || this.translate('done', language);
 
     const response = this.baseResponse(connection.id, input);
     response.actions = actions;
@@ -1204,6 +1258,116 @@ export class CoreAiService {
   }
 
   /**
+   * True when the completion stopped because it ran out of output budget
+   * (`finish_reason: 'length'`) rather than because the model was done.
+   *
+   * The distinction decides whether unparseable JSON is residue or prose — see
+   * {@link isBareJsonValue}. Read defensively off the provider-agnostic `raw`
+   * payload: not every backend reports a `finish_reason`, and an absent one must
+   * read as "finished normally", never as "truncated".
+   */
+  protected hitOutputCeiling(completion: LlmResponse): boolean {
+    return (completion?.raw as { choices?: { finish_reason?: string }[] })?.choices?.[0]?.finish_reason === 'length';
+  }
+
+  /**
+   * True when the answer is nothing but a bare JSON value — no prose around it and
+   * no markdown fence.
+   *
+   * Under either output contract that is protocol residue rather than an answer: the
+   * emulated contract permits exactly `{"final":…}` / `{"tool_calls":…}` (both
+   * handled before this check), and the native contract asks for prose.
+   *
+   * Three boundaries, each chosen deliberately:
+   *
+   * - **Arrays count too.** `{"success":true,"data":{"contacts":[…]}}` and
+   *   `[{"id":"…","displayName":"…"}]` are the same failure to a user, and a
+   *   `find_*` tool returns a collection — an echo of its result is as likely to
+   *   arrive as a bare array as wrapped in an object.
+   * - **A truncated value counts, but only when the completion actually hit the
+   *   output ceiling** (`truncated`, i.e. `finish_reason: 'length'`). Tool-result
+   *   echoes are long, so running out of budget mid-object is their most likely
+   *   shape — and it neither closes its brace nor parses. Requiring the caller to
+   *   supply that fact keeps prose that merely opens with a brace safe.
+   * - **A FENCED value is NOT matched.** A ```json block is how a model presents
+   *   JSON the user actually asked for; suppressing it would break the legitimate
+   *   "give me that as JSON" request.
+   *
+   * Deliberately stricter than {@link extractJsonObject}, which is lenient by design
+   * so a protocol object survives surrounding noise. Leniency is right when looking
+   * FOR the protocol and wrong when deciding what may reach the user: prose that
+   * merely quotes a JSON snippet must pass through untouched.
+   */
+  protected isBareJsonValue(text: string, truncated = false): boolean {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return false;
+    }
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      // Unparseable. Only a TRUNCATED answer is residue: the model began a machine
+      // payload and ran out of output budget mid-object, which is the LIKELIEST
+      // shape of an echoed tool result — those are long, so they hit the ceiling
+      // before they close. Anything else that merely opens with a brace is prose
+      // ("{Platzhalter} wird ersetzt durch …") and must reach the user untouched.
+      return truncated;
+    }
+  }
+
+  /**
+   * True when the ENTIRE answer is a markdown-fenced JSON value.
+   *
+   * The counterpart to {@link isBareJsonValue}: a fence is normally a deliberate
+   * presentation choice and must reach the user. The one exception is our own
+   * protocol vocabulary, which the model has no reason to present — see
+   * {@link isProtocolResidue}.
+   */
+  protected isFencedJsonValue(text: string): boolean {
+    const fence = (text ?? '').trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    const inner = fence?.[1]?.trim();
+    if (!inner || (!inner.startsWith('{') && !inner.startsWith('['))) {
+      return false;
+    }
+    try {
+      JSON.parse(inner);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * True when the model's answer is machine output rather than something to show a
+   * user. The union of two rules, because neither covers the other:
+   *
+   * 1. **Any BARE JSON value** ({@link isBareJsonValue}) — under either output
+   *    contract, an answer that is nothing but a JSON value is protocol residue.
+   * 2. **A fenced value carrying our protocol vocabulary** — a `tool_calls` batch,
+   *    or a `final` that is not a string. A fence otherwise means "the user asked
+   *    for JSON", but no user asks for the orchestrator's own wire format.
+   *
+   * Rule 2 exists because the predecessor guard used the LENIENT
+   * {@link extractJsonObject}, which strips fences — so it caught a fenced empty
+   * `{"tool_calls":[]}` batch, the very case its comment named. Replacing it with the
+   * bare-only check alone would have silently un-fixed that. `parsed` is passed in
+   * rather than re-derived so the caller's single lenient parse is reused.
+   *
+   * What deliberately stays OUT of both rules: prose that merely quotes a JSON
+   * snippet, which is a legitimate answer and was a false positive of the old
+   * lenient-only check.
+   */
+  protected isProtocolResidue(text: string, parsed: any | null, truncated = false): boolean {
+    if (this.isBareJsonValue(text, truncated)) {
+      return true;
+    }
+    const protocolShaped =
+      !!parsed && ('tool_calls' in parsed || ('final' in parsed && typeof parsed.final !== 'string'));
+    return protocolShaped && this.isFencedJsonValue(text);
+  }
+
+  /**
    * Robustly extract a single JSON object from an LLM text response (tolerates
    * markdown code fences and surrounding prose).
    *
@@ -1347,7 +1511,12 @@ export class CoreAiService {
           { content: transcript, role: 'user' },
         ],
         [],
-        { temperature: 0 },
+        // Prose, not JSON: the system prompt above asks for "strict prose, no markdown",
+        // and a connection flagged `supportsJsonResponse` would otherwise make the
+        // provider send `response_format: json_object` — so the summary came back
+        // JSON-wrapped and was spliced into the transcript that way, which is the
+        // opposite of what compaction is for.
+        { jsonResponse: false, temperature: 0 },
       );
       const text = (summary?.text || '').trim();
       if (!text) {

@@ -77,7 +77,18 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
         type: 'function',
       }));
     }
-    if (this.capabilities.jsonResponse) {
+    // A per-request `model` overrides the connection's — but the capability flags
+    // were probed against `connection.model` and persisted per CONNECTION, never
+    // per model. Applying them to a different model asserts something that was
+    // never measured: the endpoint may reject `response_format` for it, and the
+    // caller sees a transport error where it expected an answer. Fall back to the
+    // safe subset (prompt-driven JSON + defensive parsing) whenever the model the
+    // request actually targets is not the one the probe ran against.
+    // `options.jsonResponse === false` narrows this off for a single call — the way a
+    // caller whose PROMPT asks for prose says so. It can only ever narrow: the flag
+    // was measured against this connection, so no option may assert it where the
+    // probe never ran.
+    if (this.capabilities.jsonResponse && options?.jsonResponse !== false && body.model === this.connection.model) {
       body.response_format = { type: 'json_object' };
     }
 
