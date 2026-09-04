@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on 2026-09-02 (v11.39.0)
+> Auto-generated from source code as of 2026-09-02 (v11.40.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -109,7 +109,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### IAi
 
-  - `allowedBaseUrlHosts?`: `string[] | undefined` — Optional SSRF allowlist for connection base URLs. When set (non-empty), the
+  - `allowedBaseUrlHosts?`: `string | string[] | undefined` — Optional SSRF allowlist for connection base URLs. When set (non-empty), the
   - `audit?`: `boolean | undefined` (default: `false`) — Persist an audit record (`aiInteractions`) for every prompt run (admin-readable).
   - `budget?`: `{ period?: "day" | "month" | "none"; tenant?: { maxPrompts?: number; maxToken...` — Token/prompt budgets for AI prompts, enforced before a run (HTTP 429 + translated
   - `capabilityDriftCheck?`: `boolean | undefined` (default: `false`) — Opt-in boot self-check: after startup, probe each enabled connection that declares

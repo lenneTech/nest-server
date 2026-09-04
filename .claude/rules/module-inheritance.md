@@ -83,6 +83,8 @@ override async signIn(...): Promise<Auth> {
 |------------|--------|---------|
 | `CoreAuthResolver` | `checkLegacyGraphQLEnabled(name)` | Throws HTTP 410 if legacy endpoints disabled |
 | `CoreAuthController` | `checkLegacyRESTEnabled(name)` | Throws HTTP 410 if legacy endpoints disabled |
+| `OpenAiCompatibleProvider` | `resolveAllowedBaseUrlHosts()` | Normalises the SSRF egress allowlist (CSV string, case, trailing dot) and reports a malformed value. An override of `assertBaseUrlAllowed()` that re-reads `ConfigService` directly silently loses all of it — including the string form the framework's own `NSC__` mapping produces, which is the shape that used to switch the control off |
+| `OpenAiCompatibleProvider` | `assertBaseUrlAllowed(url)` | Call it before ANY new outbound `fetch` you add to a provider. It already guards `chat()`, `probe()` and `probeContextWindow()`; a fourth path that forgets it is a hole the allowlist's own tests cannot see unless they assert on `fetch` |
 
 **Rule**: When you override a method, check if the parent calls any `protected` helper methods. If so, call them in your override too.
 

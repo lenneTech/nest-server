@@ -134,8 +134,8 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
    * admin, not an end-user input.
    */
   protected assertBaseUrlAllowed(url: string): void {
-    const allowedHosts = ConfigService.get<string[]>('ai.allowedBaseUrlHosts');
-    if (!Array.isArray(allowedHosts) || !allowedHosts.length) {
+    const allowedHosts = this.resolveAllowedBaseUrlHosts();
+    if (!allowedHosts.length) {
       return;
     }
     let parsed: URL;
@@ -144,12 +144,78 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     } catch {
       throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_INVALID_URL);
     }
-    if (!allowedHosts.includes(parsed.host) && !allowedHosts.includes(parsed.hostname)) {
+    // A hostname entry stays host-wide (any port); the extra candidates only make an
+    // operator who was MORE explicit than necessary succeed rather than fail. `URL.host`
+    // omits the default port, so a conscientious `llm.example.com:443` entry would
+    // otherwise never match `https://llm.example.com/` — a lockout whose only symptom is
+    // a WARN and "the AI stopped working". Nothing here widens the set of reachable hosts.
+    const defaultPort = parsed.protocol === 'https:' ? '443' : parsed.protocol === 'http:' ? '80' : '';
+    const candidates = [parsed.host, parsed.hostname];
+    if (defaultPort && parsed.host === parsed.hostname) {
+      candidates.push(`${parsed.hostname}:${defaultPort}`);
+    }
+    if (!candidates.map((candidate) => this.normaliseHostEntry(candidate)).some((c) => allowedHosts.includes(c))) {
       this.logger.warn(
         `AI connection "${this.connection.name}" host "${parsed.host}" is not in ai.allowedBaseUrlHosts`,
       );
       throw new ServiceUnavailableException(ErrorCode.AI_CONNECTION_NOT_AVAILABLE);
     }
+  }
+
+  /**
+   * The configured egress allowlist as a lowercase array, whatever shape it has.
+   *
+   * A STRING is split as CSV rather than rejected, because `ai.allowedBaseUrlHosts`
+   * is reachable through the framework's own `NSC__AI__ALLOWED_BASE_URL_HOSTS`
+   * environment mapping: `getEnvironmentObject()` turns that variable into
+   * `{ ai: { allowedBaseUrlHosts: '<string>' } }` and lodash `merge` assigns the
+   * scalar straight over the configured array. A bare `!Array.isArray(...) -> return`
+   * then reads it as "no allowlist configured" and skips the check entirely — so an
+   * operator using the canonical `NSC__` spelling silently disables SSRF egress
+   * control, with no log line and no error. A malformed security setting must be
+   * interpreted or fail CLOSED, never fail open.
+   *
+   * Entries are lowercased because `URL.host` / `URL.hostname` always are; a
+   * differently-cased entry would otherwise fail closed for no stated reason, and
+   * the only symptom would be a WARN log plus "the AI stopped working".
+   *
+   * A value that is NEITHER an array nor a string carries no hostnames and cannot be
+   * interpreted — `NSC__AI__ALLOWED_BASE_URL_HOSTS=0` coerces to a number, and
+   * `NEST_SERVER_CONFIG` can deliver an object. Returning an empty list there is the
+   * only honest answer, but it reopens egress while the operator believes the control
+   * is on, so it is LOGGED every time rather than passed over in silence. That is the
+   * difference between this and the documented unset-is-permissive default: unset is a
+   * decision, a malformed value is an accident nobody is told about.
+   */
+  protected resolveAllowedBaseUrlHosts(): string[] {
+    const configured = ConfigService.get<unknown>('ai.allowedBaseUrlHosts');
+    if (configured === undefined || configured === null) {
+      return [];
+    }
+    const entries = typeof configured === 'string' ? configured.split(',') : configured;
+    if (!Array.isArray(entries)) {
+      this.logger.error(
+        `ai.allowedBaseUrlHosts is a ${typeof configured} and carries no hostnames — the SSRF egress ` +
+          'allowlist is NOT active. Use an array or a comma-separated string.',
+      );
+      return [];
+    }
+    return entries.map((host) => this.normaliseHostEntry(String(host))).filter(Boolean);
+  }
+
+  /**
+   * Lowercase, trim, and drop a fully-qualifying trailing dot.
+   *
+   * Applied to BOTH the allowlist entry and the URL being checked, so neither side can
+   * win by spelling the same DNS name differently. `llm.example.com.` and
+   * `llm.example.com` resolve identically, so treating them as different hosts only ever
+   * produced a confusing refusal — never protection.
+   */
+  protected normaliseHostEntry(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\.(?=$|:)/, '');
   }
 
   /**
@@ -263,6 +329,13 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     if (!base.startsWith('http')) {
       return undefined;
     }
+    // The third outbound path from the same admin-controlled baseUrl, and the one the
+    // allowlist used to miss. It is NOT admin-only in practice: CoreAiService calls
+    // detectAndPersistCapabilities() on an ordinary user prompt whenever contextWindow is
+    // undefined, and it runs BEFORE checkRateLimit(). A guard applied to two of three
+    // egress paths is not a guard. Throwing is right here — detectContextWindow() already
+    // wraps this call, so a refusal degrades to "context window unknown".
+    this.assertBaseUrlAllowed(`${base}/api/show`);
     const response = await fetch(`${base}/api/show`, {
       body: JSON.stringify({ name: this.connection.model }),
       headers: { 'Content-Type': 'application/json' },

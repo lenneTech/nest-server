@@ -2,9 +2,10 @@ import { NotFoundException } from '@nestjs/common';
 import type { Response } from 'express';
 import { validateHeaderValue } from 'http';
 import { PassThrough, Readable } from 'stream';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { CoreFileService } from '../../src/core/modules/file/core-file.service';
+import { captureExpectedLogs } from '../helpers/expected-log-output';
 import {
   buildContentDisposition,
   CoreFileController,
@@ -70,6 +71,14 @@ function responseStub(headersSent = false) {
 }
 
 describe('pipeFileToResponse', () => {
+  // The error branches below deliberately drive a failed GridFS read, and the controller
+  // reports each one via `logger.error` WITH a stack trace. On a green run that is pure noise
+  // — and it is a console write racing vitest's worker teardown. See the helper.
+  let expectedErrors: string[];
+  beforeEach(() => {
+    expectedErrors = captureExpectedLogs();
+  });
+
   it('turns a read error into 404 while nothing has been written yet', async () => {
     // A GridFS record and its bytes are two separate writes, so the record can
     // outlive the chunks. GridFS reports that on the stream, asynchronously.
@@ -87,6 +96,9 @@ describe('pipeFileToResponse', () => {
     expect(calls.status).toBe(404);
     expect(calls.json).toMatchObject({ statusCode: 404 });
     expect(calls.destroyed).toBe(false);
+    // The caller is told 404 on purpose — which makes the SERVER-side log the only place the
+    // real cause survives. Capturing it and asserting nothing would discard exactly that.
+    expect(expectedErrors.some((line) => line.includes('FileNotFound'))).toBe(true);
   });
 
   it('drops every header that describes the file, not just the download one', async () => {

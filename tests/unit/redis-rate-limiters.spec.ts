@@ -1,5 +1,5 @@
 import { HttpException } from '@nestjs/common';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LegacyAuthRateLimiter } from '../../src/core/modules/auth/services/legacy-auth-rate-limiter.service';
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
@@ -7,6 +7,7 @@ import { CoreBetterAuthRateLimiter } from '../../src/core/modules/better-auth/co
 import { CoreAiService } from '../../src/core/modules/ai/services/core-ai.service';
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
 import { ConfigService } from '../../src/core/common/services/config.service';
+import { captureExpectedLogs } from '../helpers/expected-log-output';
 import { InMemoryRateLimitStore, RedisRateLimitStore } from '../../src/core/common/services/rate-limit-store';
 
 import type { CoreRedisService } from '../../src/core/common/services/core-redis.service';
@@ -77,6 +78,14 @@ function createRedisService(enabled: boolean) {
   } as unknown as CoreRedisService;
   return { client, redisService };
 }
+
+// File-level, because three separate describes here drive deliberate failure paths: a refused
+// Redis (`RedisRateLimitStore` reports the degradation to the in-memory fallback) and a dead SMTP
+// server. Both report via `logger.error`, which on a green run is noise AND a console write racing
+// vitest's worker teardown. See tests/helpers/expected-log-output.ts.
+beforeEach(() => {
+  captureExpectedLogs();
+});
 
 describe('CoreBetterAuthRateLimiter store selection', () => {
   afterEach(() => {

@@ -63,6 +63,24 @@ jobs:
       - name: Audit dependencies
         run: pnpm audit
 
+      # See build.yml for the reasoning. On the publish path it matters more, not less: this is
+      # the last gate before a release, and an override that silently pins a package BELOW its
+      # advisory's fix line looks exactly like a security fix in the diff.
+      - name: Capture audit report
+        run: pnpm audit --json > audit.json || true
+
+      - name: Security overrides + suppressions guard
+        # GITHUB_TOKEN raises the Advisory API quota from 60/hour per IP (shared across every
+        # repo on a hosted runner) to 1000/hour for this repository. Without it a neighbour's
+        # traffic could exhaust the quota and fail this step, which would read as a security
+        # finding rather than the quota problem it is.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-overrides.mjs --audit-file audit.json
+
+      - name: Peer dependency consistency
+        run: pnpm peers check
+
       - name: Optimize and check
         run: pnpm run prepublishOnly
 

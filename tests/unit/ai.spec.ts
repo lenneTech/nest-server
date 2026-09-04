@@ -445,11 +445,32 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     // Each side is the BEST of several attempts, not a single one. The original claim — that a
     // machine stall "scales both measurements and cancels out" — only holds when the stall spans
     // both; a GC pause inside just one of them does not cancel, it lands directly in the ratio.
-    // Measured at ratio 9.8 against the threshold of 8 on an otherwise green run, i.e. a false
-    // failure roughly once per ~25 runs. A minimum is the right estimator here because noise can
-    // only ADD time: best-of-N converges on the true compute cost from above, so the threshold
-    // stays at 8 and keeps its full discriminating power against the ~16x quadratic case rather
-    // than being loosened to accommodate the noise.
+    // A minimum is the right estimator because noise can only ADD time: best-of-N converges on the
+    // true compute cost from above, so the threshold keeps its full discriminating power against
+    // the ~16x quadratic case rather than being loosened to accommodate noise.
+    //
+    // Best-of-3 was NOT enough, and the comment here used to say so and leave it: "a false failure
+    // roughly once per ~25 runs". It then failed a release check at ratio 8.27 while every other
+    // test was green. A test that is documented to fail one run in 25 is not a documented
+    // limitation, it is an unreliable gate — and the cost lands on whoever is trying to ship.
+    //
+    // The fix keeps the threshold and retries the whole comparison instead. Noise only ever pushes
+    // the ratio UP (a stall inside `large` inflates it; `small` cannot be measured below its true
+    // cost), so retrying until the ratio clears the bar cannot make a quadratic implementation
+    // pass: that one measures ~16x on EVERY attempt, so all five fail and the assertion fires on
+    // the last. The healthy path still exits after the first attempt and costs nothing.
+    /**
+     * @regression   The sentence splitter must match the TERMINATOR only. A leading `[^.!?]+` is
+     *   quadratic and took 6.7 SECONDS on a 100 KB description — of BLOCKED EVENT LOOP, on every
+     *   prompt build. Tool descriptions are not all first-party: `CoreAiMcpClientService` wraps
+     *   whatever a remote MCP server advertises, uncapped.
+     * @seen-failing Restore the leading `[^.!?]+` in the `matchAll` of
+     *   src/core/modules/ai/services/core-ai-prompt-builder.service.ts — registered as mutation
+     *   `sentence-splitter-quadratic` in tests/regression-mutations.json. Verified 2026-09-04:
+     *   ratio 16.6 against the threshold of 8, failing on the first attempt. Until then this test
+     *   only CLAIMED to pin the defect — nothing had ever watched it go red, and the retry logic
+     *   it gained the same day could plausibly have masked it.
+     */
     it('stays linear on a long description with no sentence terminator', () => {
       const measureOnce = (size: number): number => {
         const description = `Short one. ${'a'.repeat(size)}`;
@@ -464,10 +485,22 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
         Math.min(measureOnce(size), measureOnce(size), measureOnce(size));
       // Warm up so JIT compilation does not land inside the first measurement.
       measureOnce(1000);
-      const small = Math.max(measure(25000), 0.01);
-      const large = measure(100000);
       // 4x the input. Linear ⇒ ~4x or less (measured ~3). Quadratic ⇒ ~16x.
-      expect(large / small).toBeLessThan(8);
+      const THRESHOLD = 8;
+      let ratio = Number.POSITIVE_INFINITY;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const small = Math.max(measure(25000), 0.01);
+        ratio = measure(100000) / small;
+        // Retry only inside the NOISE band. Above it, the shape is the defect, not a stall —
+        // and retrying there is actively harmful: the quadratic form takes ~6.7s for ONE call on
+        // this input, so a further four attempts turn a specific failure into a timeout, which
+        // reports nothing about linearity. Observed noise reached 8.27 and 9.8; the quadratic
+        // signature is ~16. The band stops well below it.
+        if (ratio < THRESHOLD || ratio >= THRESHOLD * 1.5) {
+          break;
+        }
+      }
+      expect(ratio).toBeLessThan(THRESHOLD);
       expectPrefix(builder.summarize(`Short one. ${'a'.repeat(100000)}`, 300), `Short one. ${'a'.repeat(100000)}`);
     });
   });

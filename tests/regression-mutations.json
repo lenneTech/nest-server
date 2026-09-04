@@ -1122,6 +1122,222 @@
         "tests/unit/password-reset-link.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-allowlist-string-fails-open",
+      "defect": "11.39.x — `ai.allowedBaseUrlHosts` is reachable through the framework's own `NSC__AI__ALLOWED_BASE_URL_HOSTS` mapping, which delivers a STRING. `getEnvironmentObject()` plus lodash `merge` assigns that scalar straight over the configured array, and the old `!Array.isArray(...) -> return` read it as \"no allowlist configured\" and skipped the SSRF egress check entirely. An operator using the canonical `NSC__` spelling silently disabled egress control, with no log line and no error.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "after": "protected resolveAllowedBaseUrlHosts(): string[] {",
+      "find": "    const entries = typeof configured === 'string' ? configured.split(',') : configured;",
+      "replace": "    const entries = configured;",
+      "specs": [
+        "tests/unit/ai-egress-allowlist.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-allowlist-case-sensitive",
+      "defect": "11.39.x — `URL.host` / `URL.hostname` are always lowercase, so an allowlist entry written `LLM.Example.com` in a .env would never match. It fails CLOSED, so it is not an egress hole — but the only symptom is a WARN plus \"the AI stopped working\", which is a slow and confusing incident for a purely cosmetic difference.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "after": "protected normaliseHostEntry(value: string): string {",
+      "find": "      .toLowerCase()\n      .replace(/\\.(?=$|:)/, '');",
+      "replace": "      .replace(/\\.(?=$|:)/, '');",
+      "specs": [
+        "tests/unit/ai-egress-allowlist.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-allowlist-probe-unguarded",
+      "defect": "11.39.x — the provider has three outbound `fetch` paths and `probeContextWindow()` consulted the allowlist on none of them. It is not admin-only: `CoreAiService` calls `detectAndPersistCapabilities()` on an ordinary user prompt whenever `contextWindow` is undefined, and it runs BEFORE `checkRateLimit()`. The original spec drove `assertBaseUrlAllowed` directly, so it proved the rule and could not see that a caller skipped it.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "after": "protected async probeContextWindow(): Promise<number | undefined> {",
+      "find": "    this.assertBaseUrlAllowed(`${base}/api/show`);\n    const response = await fetch(`${base}/api/show`, {",
+      "replace": "    const response = await fetch(`${base}/api/show`, {",
+      "specs": [
+        "tests/unit/ai-egress-allowlist.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-overrides-range-key-blind",
+      "defect": "11.39.x — `targetPackage()` split an override key on `>` to strip the `parent>child` scope, but `>` is also the version operator. `\"ws@>=8.0.0 <8.21.0\"` resolved to `\"=8.0.0 <8.21.0\"`, so no advisory ever matched such a key: the TOO LOW and NOT MATCHING classes were unreachable for 10 of this repo's 17 overrides, while the run still closed with `ok — 17 override(s) checked ... none is failing` and printed 10 false UNUSED warnings. One-sided keys (`pkg@<X`) were unaffected, which is why the original suite — bare and one-sided keys only — stayed green.",
+      "file": "scripts/check-overrides.mjs",
+      "after": "function targetPackage(key) {",
+      "find": "    .split(/(?<![@<>=\\s])>/)",
+      "replace": "    .split('>')",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-overrides-ignores-workspace-yaml",
+      "defect": "11.39.x — pnpm 11 no longer reads the `pnpm` field in package.json and expects `overrides` / `auditConfig` in pnpm-workspace.yaml. A guard reading only package.json reports \"no overrides declared\" for every pnpm 11 workspace — finding nothing and reporting it as the all-clear, which is the exact failure the script exists to catch. All lenne.tech base repos are on pnpm 11 with their overrides in the YAML, so this is the normal case, not an edge one.",
+      "file": "scripts/check-overrides.mjs",
+      "after": "const overrides = {",
+      "find": "  ...workspaceMap(['overrides']),",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graceful-shutdown-rejection-unreported",
+      "defect": "11.39.x — the test guarding this was `await expect(Promise.resolve()).resolves.toBeUndefined()`, which is true no matter what the helper does. Verified by sabotage: with the `.catch` removed so a failing close vanished silently, the old suite stayed green at 7/7. It also never awaited the helper's `.catch` chain, so the log landed after the test — occasionally after the whole FILE, during worker teardown, surfacing as `EnvironmentTeardownError: Closing rpc while \"onUserConsoleLog\" was pending` blamed on whichever spec ran last.",
+      "file": "src/core/common/helpers/graceful-shutdown.helper.ts",
+      "after": "timer = setTimeout(() => {",
+      "find": "\n        .catch((error) => logger.error(`Shutdown failed: ${error instanceof Error ? error.message : 'Unknown error'}`));",
+      "replace": ";",
+      "specs": [
+        "tests/unit/graceful-shutdown.helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graceful-shutdown-cap-silent",
+      "defect": "11.39.x — an implausible `shutdownDelayMs` is capped so a typo ends in a late shutdown rather than a SIGKILL, but the cap is only half the behaviour: an operator who never hears about it keeps the typo, and the next orchestrator with a shorter grace period kills the process mid-wait. The test asserted only that the close happened at the capped time, not that anything was reported.",
+      "file": "src/core/common/helpers/graceful-shutdown.helper.ts",
+      "after": "if (delayMs > MAX_SHUTDOWN_DELAY_MS) {",
+      "find": "    logger.warn(\n      `shutdownDelayMs is ${delayMs}ms, which exceeds the ${MAX_SHUTDOWN_DELAY_MS}ms cap and is longer than a typical ` +\n        `orchestrator grace period — capping it, since a longer wait only ends in SIGKILL.`,\n    );",
+      "replace": "",
+      "specs": [
+        "tests/unit/graceful-shutdown.helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-counts-assume-advisories",
+      "defect": "11.39.x — the audit counts were derived from `parsed.advisories` unconditionally. npm 7+ emits `auditReportVersion: 2` with a `vulnerabilities` map and NO `advisories` key at all, so every severity came out 0 while the whole raw tally was filed under \"ignored\": a real, unassessed CRITICAL rendered as `critical 0 (1 ignored)`. That is the exact confusion the assessed/ignored split exists to prevent, produced in reverse — and the branch shipped with no test at all, because `runAudit` was not exported.",
+      "file": "scripts/check.mjs",
+      "after": "export function splitAuditCounts(parsed) {",
+      "find": "  if (raw && parsed?.advisories) {\n    const advisories = Object.values(parsed.advisories);",
+      "replace": "  if (raw) {\n    const advisories = Object.values(parsed.advisories ?? {});",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-degrade-retired-only",
+      "defect": "11.39.x — the degraded-audit path matched ONLY the retired legacy endpoint signature. When the WORKING bulk advisory endpoint failed transiently (registry itself answering 200 in 0.24s, `/-/npm/v1/security/advisories/bulk` timing out after 20s), pnpm emitted its own error envelope `{\"error\":{\"code\":23,\"message\":\"The operation was aborted due to timeout\"}}` and `check` hard-failed at its FIRST step. It hit nest-server, nest-server-starter and nuxt-extensions inside one hour. That is the exact \"paints every check red until somebody stops reading a red audit\" hazard the surrounding comment argues against, produced by the guard written to prevent it.",
+      "file": "scripts/check.mjs",
+      "after": "export function isAuditEndpointUnavailable(out) {",
+      "find": "  let envelope;\n  try {\n    envelope = JSON.parse(out.slice(out.indexOf('{')))?.error;\n  } catch {\n    envelope = undefined;\n  }",
+      "replace": "  let envelope;",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-degrades-auth-refusal",
+      "defect": "11.39.x — the degraded-audit signature matched `\\b5\\d\\d\\b` anywhere in pnpm's error envelope, including a status QUOTED by a proxy that refused the request itself (`403 Forbidden: upstream returned 503`). A wrong token therefore degraded to \"infrastructure, not blocking\": the audit silently stopped running for good and nobody was told why. The plain 401/403 cases could not catch it — they never reach the signature at all, so they stayed green with the guard deleted.",
+      "file": "scripts/check.mjs",
+      "after": "export function isAuditEndpointUnavailable(out) {",
+      "find": "    if (\n      /\\b(4\\d\\d)\\b/.test(String(envelope.code ?? '')) ||\n      /\\bunauthor|\\bforbidden\\b|\\bauthentication\\b/i.test(String(envelope.message ?? ''))\n    ) {\n      return false;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-ambiguity-blind",
+      "defect": "11.39.x — with the advisory service unreachable, pnpm can exit 0 with `advisories: {}` and every count at zero, byte-identical to a genuinely clean repo and carrying no error envelope. The degraded path keys on a non-zero exit plus a signature, so it was never consulted: the run printed a green `✓ audit  critical 0 · high 0 · …` and PASSED, locally and in CI, having verified nothing. A hang is loud and a timeout is catchable; this asserts SAFETY that was never established.",
+      "file": "scripts/check.mjs",
+      "after": "export function isAuditResultAmbiguous(parsed) {",
+      "find": "  return SEVERITIES.every((severity) => !raw[severity]);",
+      "replace": "  return false;",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-hang-unrecognised",
+      "defect": "11.39.x — `pnpm audit` against an unreachable registry does not fail, it HANGS: no output, no exit, no error envelope. Measured by lt-monorepo-00 at >240s and zero bytes. Every degraded signature needs the process to have said something, so none could fire, and the audit step had no time limit at all (the idle watchdog is scoped to test steps because build/typecheck/audit legitimately buffer their output). `check` then waited forever — strictly worse than a red run, because a failure tells you something and a hang tells you nothing while holding the terminal.",
+      "file": "scripts/check.mjs",
+      "after": "export function isAuditEndpointUnavailable(out) {",
+      "find": "  if (/AUDIT_STEP_HUNG/.test(out)) {\n    return 'hung';\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-zero-exit-no-tally",
+      "defect": "11.39.x — an audit that exited 0 while emitting nothing the gate could parse printed a GREEN tick with a literal `0` beside it, having assessed nothing. `counts` was null so the all-zero ambiguity probe was never entered (it needs a parsed report), and the degradation expression only considered a NON-zero exit, so `degradedReason` stayed false. The Vulnerabilities section said 'counts unavailable' while the step line said the audit passed. Sibling of the silent-outage case one step further out: no report at all rather than an empty one, and the probe cannot rescue it — an answering service says nothing about a tally that was never parsed.",
+      "file": "scripts/check.mjs",
+      "after": "export function resolveAuditDegradation({ code, counts, out, silentOutage }) {",
+      "find": "    return code !== 0 ? isAuditEndpointUnavailable(out) : 'unreadable';",
+      "replace": "    return isAuditEndpointUnavailable(out);",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "jsonc-stripper-eats-globs",
+      "defect": "11.39.x — readJsonc() stripped block comments with a regex that cannot tell a comment from a string literal, and every config it reads is full of globs that look like one. `src/**/*.spec.ts` collapsed to `src*.spec.ts` (the `/**/` IS a complete comment pair) and a bare `src/**` opened a comment running to the next `*/` anywhere later in the file. Measured: 2783 bytes gone from tsconfig.tests.json, and .oxlintrc.json lost an entire overrides entry (4 -> 3). Both files still PARSED, so all four assertions in the suite ran green against a mutilated config for their whole life.",
+      "file": "tests/unit/toolchain-contract.spec.ts",
+      "after": "const stripJsonComments = (raw: string): string => {",
+      "find": "  let out = '';\n  let inString = false;",
+      "replace": "  return raw.replace(/^\\s*\\/\\/.*$/gm, '').replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');\n  let out = '';\n  let inString = false;",
+      "specs": [
+        "tests/unit/toolchain-contract.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-5xx-from-free-text",
+      "defect": "11.40.0 — the 5xx signature was matched with `\\b5\\d\\d\\b` against `code + message` joined, so any number 500-599 anywhere in the envelope degraded the run. pnpm's own progress prose supplies one (`audited 503 packages`), turning a run that had to BLOCK into a yellow 'not blocking' warning. Found by lt-monorepo-00 by testing the signature list against cases that must NOT degrade.",
+      "file": "scripts/check.mjs",
+      "after": "export function isAuditEndpointUnavailable(out) {",
+      "find": "      /\\btimeout\\b|\\baborted\\b|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN/i.test(message) ||",
+      "replace": "      /\\btimeout\\b|\\baborted\\b|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|\\b5\\d\\d\\b/i.test(message) ||",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-probe-ignores-registry",
+      "defect": "11.40.0 — the reachability probe asked registry.npmjs.org unconditionally while pnpm audits against the CONFIGURED registry. Behind a private registry or proxy: pnpm fails silently against its own registry, the probe asks npmjs.org, npmjs.org answers, the run reports 'no outage' and prints a green tick. The exact false-green the probe exists to prevent, one layer down. Found by measuring three real outage modes (502, dead DNS, connection refused), all of which make pnpm audit exit 0 with a complete all-zero report and NO error envelope.",
+      "file": "scripts/check.mjs",
+      "after": "function advisoryBulkUrl(registry) {",
+      "find": "  let base = typeof registry === 'string' ? registry.trim() : '';",
+      "replace": "  let base = '';",
+      "specs": [
+        "tests/unit/check-script-metrics.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "shared-registry-block-drift",
+      "defect": "11.40.0 — the registry-resolution block is duplicated in scripts/check.mjs and scripts/check-overrides.mjs because the guard is copied ALONE into a temp dir by its own spec (an import broke 40 cases with ERR_MODULE_NOT_FOUND). Duplication without a drift check means one copy can silently keep asking the wrong host while both runs stay green — which IS the defect being fixed, since both probes originally hardcoded registry.npmjs.org while pnpm audits against the configured registry.",
+      "file": "scripts/check-overrides.mjs",
+      "after": "// >>> SHARED-WITH-CHECK-MJS",
+      "find": "  const fallback = 'https://registry.npmjs.org/';",
+      "replace": "  const fallback = 'https://registry.example.invalid/';",
+      "specs": [
+        "tests/unit/shared-registry-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sentence-splitter-quadratic",
+      "defect": "The sentence splitter must match the TERMINATOR only. A leading `[^.!?]+` is quadratic: it eats to end-of-string, backtracks a character at a time when the terminator fails, and matchAll restarts the walk one position along. That form took 6.7 SECONDS on a 100 KB description — of BLOCKED EVENT LOOP, on every prompt build — and tool descriptions are not all first-party: CoreAiMcpClientService wraps whatever a remote MCP server advertises, uncapped. The linearity test claimed to pin this and nothing proved it did; verified 2026-09-04 at ratio 16.6 against a threshold of 8.",
+      "file": "src/core/modules/ai/services/core-ai-prompt-builder.service.ts",
+      "after": "The pattern matches the TERMINATOR ONLY, via a lookahead.",
+      "find": "for (const match of text.matchAll(/[.!?]+(?=\\s|$)/g)) {",
+      "replace": "for (const match of text.matchAll(/[^.!?]+[.!?]+(?=\\s|$)/g)) {",
+      "specs": [
+        "tests/unit/ai.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
