@@ -96,7 +96,22 @@ export class CoreAiController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Content-Type', 'text/event-stream');
+    // Disable proxy-side response buffering (nginx and friends honour this); without
+    // it an intermediary can hold the events until the response ends, which defeats
+    // the whole point of the stream.
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
+
+    // A prompt run can stay silent for a long time — a multi-step turn measured
+    // 30-40 s, and `ai.maxRunMs` allows up to two minutes. Many proxies close an
+    // idle connection at 60 s, which the client then sees as a turn that silently
+    // vanished. Comment frames are ignored by every SSE client and keep the
+    // connection observably alive.
+    const heartbeat = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 15_000);
+    heartbeat.unref?.();
+
     try {
       for await (const event of this.aiService.promptStream(input, serviceOptions)) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -104,6 +119,7 @@ export class CoreAiController {
     } catch (err) {
       res.write(`data: ${JSON.stringify({ message: (err as Error).message, type: 'error' })}\n\n`);
     } finally {
+      clearInterval(heartbeat);
       res.end();
     }
   }
