@@ -153,29 +153,208 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
   }
 
   /**
+   * Output budget for the native-tool probe.
+   *
+   * A reasoning model spends output tokens on its thinking phase BEFORE it emits
+   * `tool_calls`. With a budget of a few tokens the endpoint answers `200` with
+   * `finish_reason: 'length'` and no tool call at all — which the probe used to read
+   * as "native tools unsupported", persisting a false negative that is never
+   * re-probed and degrades the assistant to emulated tool calling for good.
+   *
+   * Measured against an OpenAI-compatible hosting endpoint on 2026-07-25
+   * (`tool_choice: 'required'` plus a trivial `ping` tool, varying only
+   * `max_tokens`):
+   *
+   * | model                    |  8 | 64 | 256 |
+   * |--------------------------|----|----|-----|
+   * | Ministral-3-14B-Instruct | ✅ | ✅ | ✅  |
+   * | Mistral-Medium-3.5-128B  | ✅ | ✅ | ✅  |
+   * | gpt-oss-120b             | ❌ | ✅ | ✅  |
+   * | Qwen3.5-122B-A10B-FP8    | ❌ | ✅ | ✅  |
+   * | Qwen3.6-35B-A3B-FP8      | ❌ | ❌ | ✅  |
+   *
+   * 256 covers every model tested and costs a few hundred tokens ONCE per
+   * connection, which is nothing against the cost of the wrong flag.
+   */
+  protected static readonly NATIVE_TOOL_PROBE_MAX_TOKENS = 256;
+
+  /**
+   * Second and FINAL budget for the native-tool probe, used only when the first
+   * attempt came back truncated.
+   *
+   * The retry has to be bounded, and the bound has to live here. An inconclusive
+   * result leaves the capability `undefined`, `detectAndPersistCapabilities` only
+   * persists booleans, and the orchestrator re-runs detection whenever a flag is
+   * undefined — so "just leave it undetected and try again later" would fire one
+   * extra upstream completion before EVERY user prompt, ahead of the rate limiter
+   * and outside any budget accounting. Two attempts, then a definite answer.
+   *
+   * Returning `false` after a model failed to emit a tool call within 1024 output
+   * tokens is not the false negative this fix exists to prevent: a model that needs
+   * more than that before its first tool call cannot drive an agent loop usefully
+   * anyway, and emulated tool calling is the correct fallback for it.
+   */
+  protected static readonly NATIVE_TOOL_PROBE_MAX_TOKENS_RETRY = 1024;
+
+  /**
    * Probe the backend to auto-detect capabilities for flags the connection left
    * undefined. Explicit flags are authoritative and are NOT probed. Best effort:
-   * - JSON: send `response_format: json_object`; 2xx → true, 4xx → false.
+   * - JSON: send `response_format: json_object`; 2xx AND content that actually
+   *   parses as JSON → true. A 2xx alone is not evidence — a backend that does not
+   *   implement `response_format` simply ignores the field and answers normally.
    * - Native tools: send a trivial tool with `tool_choice: 'required'`; 2xx WITH a
-   *   `tool_calls` result → true, otherwise → false (a backend that silently ignores
-   *   tools returns no tool_calls and is treated as unsupported).
+   *   `tool_calls` result → true. A backend that answers fully but silently ignores
+   *   the tools returns no tool_calls and IS a real negative. A response truncated
+   *   by the token budget (`finish_reason: 'length'` without tool_calls) proves
+   *   nothing, so it is retried ONCE with
+   *   {@link NATIVE_TOOL_PROBE_MAX_TOKENS_RETRY}; a second truncation resolves to
+   *   `false`.
+   *
+   * This method always returns a definite boolean for a flag it probed. That is
+   * deliberate: an `undefined` result is not persisted by
+   * `detectAndPersistCapabilities`, and the orchestrator re-runs detection whenever
+   * a flag is undefined — so an endpoint that keeps truncating would trigger one
+   * extra upstream completion before every user prompt, ahead of the rate limiter
+   * and outside budget accounting.
    *
    * Throws on a transport error so callers can treat the connection as undetected
    * (and retry later) rather than persisting a wrong value.
    */
   async detectCapabilities(): Promise<{ jsonResponse?: boolean; nativeTools?: boolean }> {
+    const needsJson = this.connection.supportsJsonResponse === undefined;
+    const needsTools = this.connection.supportsNativeTools === undefined;
+    // Independent upstream calls, so run them together. This matters more since both
+    // probes gained a truncation retry: sequentially, a fresh connection can now cost
+    // FOUR round trips before the user's own completion starts — and lazy detection
+    // sits inline on the interactive prompt path.
+    const [jsonResponse, nativeTools] = await Promise.all([
+      needsJson ? this.probeJsonResponse() : Promise.resolve(undefined),
+      needsTools ? this.probeNativeTools() : Promise.resolve(undefined),
+    ]);
     const result: { jsonResponse?: boolean; nativeTools?: boolean } = {};
-    if (this.connection.supportsJsonResponse === undefined) {
+    if (needsJson) {
+      result.jsonResponse = jsonResponse;
+    }
+    if (needsTools) {
+      result.nativeTools = nativeTools;
+    }
+    return result;
+  }
+
+  /**
+   * Probe structured-JSON support.
+   *
+   * A 2xx alone is NOT evidence: a backend that does not implement
+   * `response_format` typically ignores the unknown field and answers normally, so
+   * trusting the status code alone persists `supportsJsonResponse: true` for an
+   * endpoint that never honours it — after which `chat()` sends `response_format`
+   * on every single call. Like the native-tool flag this is written once and never
+   * re-probed, so the wrong value is permanent.
+   *
+   * The response content must therefore actually parse as JSON. The budget matches
+   * the tool probe for the same reason: a reasoning model needs room to get past
+   * its thinking phase before it emits anything parseable — INCLUDING the tool
+   * probe's retry on truncation, which this probe needs just as badly.
+   *
+   * Measured against an OpenAI-compatible hosting endpoint on 2026-09-03 (this
+   * same probe, varying only `max_tokens`; the number is the completion tokens the
+   * model actually spent):
+   *
+   * | model                         | 256          | 1024   |
+   * |-------------------------------|--------------|--------|
+   * | Ministral-3-14B-Instruct-2512 | ✅ 9         | —      |
+   * | gpt-oss-120b                  | ✅ 88        | —      |
+   * | Qwen3.6-35B-A3B-FP8           | ✅ 202       | —      |
+   * | Mistral-Medium-3.5-128B       | ❌ truncated | ✅ 878 |
+   * | Qwen3.5-122B-A10B-FP8         | ❌ truncated | ✅ 365 |
+   *
+   * TWO of five need the retry — so without it the probe records "structured JSON
+   * unsupported" for an endpoint that demonstrably supports it.
+   *
+   * That false negative costs on two different paths, and the expensive one is the
+   * quiet one. `detectAndPersistCapabilities` WRITES what the probe returns, and a
+   * written flag is authoritative and never re-probed — so a fresh connection whose
+   * flags are unset is pinned to the wrong `false` for good, silently falling back
+   * to prompt-driven JSON. The loud path is the `ai.capabilityDriftCheck` boot
+   * warning (`supportsJsonResponse declared true but the endpoint reports false`),
+   * which merely reads as endpoint drift and sends the next reader hunting for one
+   * — which is how this was found. Note the warning fires only where that
+   * opt-in check is enabled, while the persisted flag is wrong everywhere.
+   *
+   * A COMPLETE answer that merely is not JSON stays a real negative: the endpoint
+   * ignored `response_format`, and a larger budget cannot change that.
+   */
+  protected async probeJsonResponse(): Promise<boolean> {
+    const budgets = [
+      OpenAiCompatibleProvider.NATIVE_TOOL_PROBE_MAX_TOKENS,
+      OpenAiCompatibleProvider.NATIVE_TOOL_PROBE_MAX_TOKENS_RETRY,
+    ];
+
+    for (const [attempt, maxTokens] of budgets.entries()) {
       const res = await this.probe({
-        max_tokens: 8,
+        max_tokens: maxTokens,
         messages: [{ content: 'Reply with the JSON object {"ok":true}.', role: 'user' }],
         response_format: { type: 'json_object' },
       });
-      result.jsonResponse = res.ok;
+      if (!res.ok) {
+        return false;
+      }
+      const choice = res.json?.choices?.[0];
+      const content = choice?.message?.content;
+      const truncated = choice?.finish_reason === 'length';
+      if (typeof content === 'string' && content.trim()) {
+        try {
+          JSON.parse(content);
+          return true;
+        } catch {
+          // A parse failure is only a REAL negative when the model finished on its
+          // own terms. Truncation is the other reason JSON does not parse, and it
+          // arrives in two shapes depending on how the model emits: a reasoning
+          // model buffers behind its thinking phase and returns EMPTY content, while
+          // one that streams directly returns a partial body like `{"ok":tr`. Both
+          // are `finish_reason: 'length'`, and classifying the partial one here
+          // instead of retrying reaches the exact false negative this ladder exists
+          // to remove — just through the other door.
+          if (!truncated) {
+            this.logger.warn(
+              `JSON-response probe for model "${this.connection.model}" returned non-JSON content — ` +
+                'recording structured JSON as unsupported',
+            );
+            return false;
+          }
+        }
+      } else if (!truncated) {
+        // Empty content that finished on its own terms is a real negative.
+        return false;
+      }
+
+      const isLastAttempt = attempt === budgets.length - 1;
+      this.logger.warn(
+        `JSON-response probe for model "${this.connection.model}" was truncated (finish_reason=length) at ` +
+          `max_tokens=${maxTokens}` +
+          (isLastAttempt
+            ? ' on the final attempt — recording structured JSON as unsupported; a model that cannot emit a ' +
+              'trivial JSON object within a usable output budget is better served by the prompt-driven fallback'
+            : ' — retrying once with a larger budget'),
+      );
     }
-    if (this.connection.supportsNativeTools === undefined) {
+
+    return false;
+  }
+
+  /**
+   * Run the native-tool probe, escalating the output budget once on truncation.
+   * Extracted so the retry policy is overridable and testable on its own.
+   */
+  protected async probeNativeTools(): Promise<boolean> {
+    const budgets = [
+      OpenAiCompatibleProvider.NATIVE_TOOL_PROBE_MAX_TOKENS,
+      OpenAiCompatibleProvider.NATIVE_TOOL_PROBE_MAX_TOKENS_RETRY,
+    ];
+
+    for (const [attempt, maxTokens] of budgets.entries()) {
       const res = await this.probe({
-        max_tokens: 8,
+        max_tokens: maxTokens,
         messages: [{ content: 'Call the ping tool.', role: 'user' }],
         tool_choice: 'required',
         tools: [
@@ -189,9 +368,29 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
           },
         ],
       });
-      result.nativeTools = res.ok && !!res.json?.choices?.[0]?.message?.tool_calls?.length;
+      const choice = res.json?.choices?.[0];
+
+      if (res.ok && choice?.message?.tool_calls?.length) {
+        return true;
+      }
+      // A non-2xx, or a complete answer without tool calls, is a REAL negative —
+      // retrying with a bigger budget would not change it.
+      if (!res.ok || choice?.finish_reason !== 'length') {
+        return false;
+      }
+
+      const isLastAttempt = attempt === budgets.length - 1;
+      this.logger.warn(
+        `Native-tool probe for model "${this.connection.model}" was truncated (finish_reason=length) at ` +
+          `max_tokens=${maxTokens}` +
+          (isLastAttempt
+            ? ' on the final attempt — recording native tools as unsupported; the model does not reach a tool ' +
+              'call within a usable output budget, so emulated tool calling is the correct fallback'
+            : ' — retrying once with a larger budget'),
+      );
     }
-    return result;
+
+    return false;
   }
 
   /**

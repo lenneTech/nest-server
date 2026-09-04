@@ -118,11 +118,21 @@ never probed). Detection runs in two complementary ways:
   warns — the stored value is never changed. OFF by default because it makes outbound calls to
   the LLM endpoints on every boot; also skipped in the ci/e2e runners.
 
-The probe is provider-agnostic best effort: `response_format: json_object` is sent
-(2xx → JSON supported); a trivial tool with `tool_choice: 'required'` is sent (2xx
-returning a `tool_calls` result → native tools supported; a `4xx` or a silent ignore
-→ unsupported). Override `OpenAiCompatibleProvider.detectCapabilities()` for custom
-backends, or implement the optional `ILlmProvider.detectCapabilities()` in your own provider.
+The probe is provider-agnostic best effort, and a 2xx alone is never the verdict —
+a backend that does not implement a parameter typically ignores it and answers
+normally, which would persist a `true` it never earns:
+
+- **JSON:** `response_format: json_object` is sent and the CONTENT must actually
+  parse. A response truncated by the output budget (`finish_reason: 'length'`, empty
+  OR partial) proves nothing and is retried once with a larger budget before the
+  probe settles on `false`.
+- **Native tools:** a trivial tool with `tool_choice: 'required'` is sent; a
+  `tool_calls` result → supported, a `4xx` or a complete answer without tool calls →
+  unsupported, a truncation → the same one retry.
+
+Both probes run concurrently. Override `OpenAiCompatibleProvider.detectCapabilities()`
+for custom backends, or implement the optional `ILlmProvider.detectCapabilities()` in
+your own provider.
 
 ### Backend examples (external, local, CLI)
 
