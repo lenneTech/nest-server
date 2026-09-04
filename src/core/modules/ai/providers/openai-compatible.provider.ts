@@ -217,6 +217,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
    */
   protected static readonly NATIVE_TOOL_PROBE_MAX_TOKENS_RETRY = 1024;
 
+  /**
    * The configured egress allowlist as a lowercase array, whatever shape it has.
    *
    * A STRING is split as CSV rather than rejected, because `ai.allowedBaseUrlHosts`
