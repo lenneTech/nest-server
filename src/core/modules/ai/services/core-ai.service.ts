@@ -65,6 +65,15 @@ export interface AiRunContext {
   currentUser: ServiceOptions['currentUser'];
   history: { content: string; role: string }[];
   language?: string;
+  /**
+   * Optional per-action hook, invoked as soon as a tool action completes.
+   *
+   * Exists so a streaming caller can surface progress WHILE the agent loop runs.
+   * Without it `promptStream` can only emit the action list once the whole run has
+   * resolved, which makes the "watch the agent work" affordance purely decorative:
+   * every action arrives in one burst after the work is already done.
+   */
+  onAction?: (action: CoreAiAction) => void;
   provider: import('../interfaces/llm-provider.interface').ILlmProvider;
   tenantId?: string;
   tools: IAiTool[];
@@ -123,13 +132,20 @@ export class CoreAiService {
    * Nutzer mit ID `{{userId}}` …" gets the real value substituted at run time.
    * Unknown tokens are left as-is so plain text with curly braces survives.
    */
-  async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
+  async prompt(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+    hooks?: { onAction?: (action: CoreAiAction) => void },
+  ): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
     const resolvedInput = await this.resolvePromptPlaceholders(input, serviceOptions);
     const run = await this.prepareRun(resolvedInput, serviceOptions);
     // No usable connection → AI handling is effectively disabled.
     if (!run) {
       return this.unavailableResponse(resolvedInput, serviceOptions?.language);
+    }
+    if (hooks?.onAction) {
+      run.onAction = hooks.onAction;
     }
     const response = mode === 'plan' ? await this.runPlan(resolvedInput, run) : await this.runAuto(resolvedInput, run);
     // Attach the compact token-budget summary after the run was recorded.
@@ -396,6 +412,7 @@ export class CoreAiService {
     });
 
     const maxIterations = ConfigService.get<number>('ai.maxIterations') ?? 5;
+    const maxRunMs = ConfigService.get<number>('ai.maxRunMs') ?? 0;
     const confirm = !!input.confirm;
     const actions: CoreAiAction[] = [];
     const pendingActions: CoreAiAction[] = [];
@@ -407,7 +424,23 @@ export class CoreAiService {
     let pendingQuestion: { options?: { label: string; value: string }[]; question: string } | undefined;
     let requiresConfirmation = false;
 
+    // `maxRunMs` is the wall-clock ceiling for the whole run. `maxIterations` alone
+    // does not bound the time: each iteration carries the provider's PER-CALL
+    // timeout (120 s by default) and compaction can add another call on top, so the
+    // iteration cap multiplies rather than limits the duration. Checked before
+    // starting an iteration — never mid-call, so an in-flight completion is always
+    // consumed rather than paid for and thrown away.
+    const runStartedAt = Date.now();
+    const runDeadlineExceeded = () => maxRunMs > 0 && Date.now() - runStartedAt >= maxRunMs;
+
     while (iterations < maxIterations) {
+      if (iterations > 0 && runDeadlineExceeded()) {
+        this.logger.warn(
+          `AI run stopped after ${Date.now() - runStartedAt}ms (ai.maxRunMs=${maxRunMs}) at iteration ` +
+            `${iterations}/${maxIterations} — answering with what the run has so far`,
+        );
+        break;
+      }
       iterations++;
       // Keep the session within the model's context window before every call:
       // LLM-driven compaction first (summarize), then hard trim as a fallback.
@@ -491,6 +524,7 @@ export class CoreAiService {
         for (const call of toolCalls) {
           const action = await this.executeToolCall(call, tools, context, input);
           actions.push(action);
+          run.onAction?.(action);
           results.push({ name: action.name, result: action.result, success: action.success });
           // Detect the ask_user_question sentinel — model paused to clarify with the user.
           const sentinel = this.extractAskUserQuestion(action);
@@ -700,15 +734,65 @@ export class CoreAiService {
    * (for SSE). Emits `action` events for executed tools, then the answer as
    * `token` chunks, then a `final` event with the full response.
    *
-   * Note: the agent/tool loop runs to completion first (emulated tool calling
-   * needs the full model output to detect tool calls), then the final answer is
-   * streamed in chunks. This gives a progressive UX without a second LLM call.
+   * Note: the ANSWER is not token-streamed from the model — the agent loop has to
+   * run to completion first (emulated tool calling needs the full model output to
+   * detect tool calls, and the final answer arrives wrapped in JSON), so the text is
+   * chunked after the fact. `action` events, however, ARE emitted as each tool
+   * completes: they are the only genuine real-time signal a caller gets, and on a
+   * multi-step turn they are the difference between a silent minute and visible
+   * progress.
    */
   async *promptStream(input: CoreAiPromptInput, serviceOptions: ServiceOptions): AsyncGenerator<AiStreamEvent> {
-    const response = await this.prompt(input, serviceOptions);
-    for (const action of response.actions ?? []) {
-      yield { action, type: 'action' };
+    // Bridge the callback-style hook into the generator: tools complete while we are
+    // awaiting the run, so buffer them and hand them out whenever the consumer asks.
+    const pending: CoreAiAction[] = [];
+    let notify: (() => void) | undefined;
+    const runPromise = this.prompt(input, serviceOptions, {
+      onAction: (action) => {
+        pending.push(action);
+        notify?.();
+      },
+    });
+
+    // Held in an object rather than a plain `let`: it is assigned from the promise
+    // callbacks below, i.e. never inside the loop body, which reads to a linter as an
+    // unmodified loop condition.
+    const run = { settled: false };
+    const settle: Promise<{ error?: Error; response?: CoreAiResponse }> = runPromise.then(
+      (response) => {
+        run.settled = true;
+        notify?.();
+        return { response };
+      },
+      (error) => {
+        run.settled = true;
+        notify?.();
+        return { error: error as Error };
+      },
+    );
+
+    for (;;) {
+      while (pending.length) {
+        yield { action: pending.shift() as CoreAiAction, type: 'action' };
+      }
+      if (run.settled) {
+        break;
+      }
+      // Wake on the next action OR on the run finishing, whichever comes first.
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+        if (run.settled || pending.length) {
+          resolve();
+        }
+      });
+      notify = undefined;
     }
+
+    const outcome = await settle;
+    if (outcome.error) {
+      throw outcome.error;
+    }
+    const response = outcome.response as CoreAiResponse;
     for (const token of this.chunkText(response.text)) {
       yield { token, type: 'token' };
     }
