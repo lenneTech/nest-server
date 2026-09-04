@@ -28,22 +28,30 @@ allowBuilds:
 # three sentences honestly, fix the dependency instead.
 # ----------------------------------------------------------------------------------
 auditConfig:
-  ignoreGhsas:
-    # brace-expansion DoS via unbounded expansion (HIGH). Patched ONLY in 5.0.8 — verified
-    # 2026-07-28 that neither 1.1.16 nor 2.1.2 contains a length guard, so there is no 1.x
-    # backport to move to. After the `minimatch@>=5.0.0 <10.2.6 -> 10.2.6` override above
-    # (10.2.6 requests the patched ^5.0.8) exactly ONE path remains:
-    #   @nestjs/cli > fork-ts-checker-webpack-plugin > minimatch@3 > brace-expansion@1
-    # Not fixable: fork-ts-checker calls `__importDefault(require('minimatch')).default(...)`.
-    # minimatch@10 sets `__esModule: true` without a `.default`, so substituting it throws
-    # "minimatch_1.default is not a function"; forcing brace-expansion@5.0.8 under minimatch@3
-    # throws "expand is not a function". Both reproduced 2026-07-28.
-    # Residual accepted: dev-only build tooling, running on a developer machine or CI runner
-    # over repo-local input. It is not a dependency of the published package (`files` ships
-    # dist + docs only), so no consumer and no runtime ever reaches this code.
-    # Re-verify when @nestjs/cli drops fork-ts-checker-webpack-plugin — then delete this entry.
-    # Verified 2026-07-28 (DEV-2698).
-    - GHSA-mh99-v99m-4gvg
+  # Empty on purpose — see below before adding anything here.
+  #
+  # This list held GHSA-mh99-v99m-4gvg (brace-expansion DoS, HIGH) from 2026-07-28
+  # until 2026-09-03, with a careful justification: at the time the newest 1.x was
+  # 1.1.16 and carried no length guard, so the one remaining path
+  #   @nestjs/cli > fork-ts-checker-webpack-plugin > minimatch@3 > brace-expansion@1
+  # had nowhere to move to. Substituting minimatch@10 there throws
+  # "minimatch_1.default is not a function"; forcing brace-expansion@5.0.8 under
+  # minimatch@3 throws "expand is not a function". All of that was true and stayed true.
+  #
+  # What changed is the world, not the analysis: 1.1.17 — the backport the entry
+  # said did not exist — was published on 2026-07-29, ONE DAY after the check.
+  # 1.1.18 followed on 07-30, and the `brace-expansion@<1.1.18 -> 1.1.18` override
+  # above has been quietly resolving that path to a patched version ever since.
+  # `pnpm why` confirms it: minimatch@3.1.5 now pulls brace-expansion@1.1.18, and
+  # minimatch@10.2.6 pulls 5.0.9. Both are above their fix lines.
+  #
+  # THE LESSON IS THE ENTRY, NOT THE PACKAGE. A suppression is removed from
+  # `pnpm audit --json` entirely — `advisories` drops it, `muted` comes back empty —
+  # so no audit run ever mentions it again. This one was obsolete for five weeks and
+  # nothing said so; it only surfaced when a guard re-checked the GHSA against the
+  # GitHub Advisory API. Before adding an entry here, make sure something will tell
+  # you when it stops being true.
+  ignoreGhsas: []
 
 peerDependencyRules:
   allowedVersions:
@@ -131,8 +139,12 @@ overrides:
   # Remove once node-mailjet requests >=1.18.0 itself.
   'axios@<1.19.0': '1.19.0'
   # Security: brace-expansion DoS - two advisories. GHSA-3jxr-9vmj-r5cp (exponential-time expansion of
-  # consecutive non-expanding {} groups) and GHSA-mh99-v99m-4gvg (unbounded expansion length -> OOM,
-  # patched ONLY in 5.0.8; verified 2026-07-28 that 1.1.16 and 2.1.2 carry no length guard at all).
+  # consecutive non-expanding {} groups) and GHSA-mh99-v99m-4gvg (unbounded expansion length -> OOM).
+  # CORRECTED 2026-09-03: this comment used to read "patched ONLY in 5.0.8; verified 2026-07-28 that
+  # 1.1.16 and 2.1.2 carry no length guard at all". That was true when written and stopped being true
+  # the following DAY - the Advisory API lists fix lines per major: 1.x -> 1.1.17, 2.x -> 2.1.3,
+  # 3.x -> 3.0.3, 4/5.x -> 5.0.8, none withdrawn. The "only 5.0.8" reading is what justified the
+  # suppression that then sat obsolete for five weeks (see auditConfig at the top of this file).
   # One entry per affected major, each a patch bump INSIDE that major.
   # v5 (prod): ts-morph>@ts-morph/common>minimatch, directly and via @nestjs/graphql + @nestjs/apollo. v2/v1 (dev only): @nestjs/cli + @swc/cli > minimatch, @nestjs/cli>fork-ts-checker-webpack-plugin>minimatch.
   # The v5 key is floored at >=5.0.0 on purpose: a wider `>=3.0.0` would ALSO match a future 3.x/4.x
@@ -143,7 +155,11 @@ overrides:
   # Kept anyway, and deliberately: it is not inert because the dependency was fixed, but because
   # ANOTHER override happens to hide it. Drop the minimatch entry and 2.x returns immediately, so
   # deleting this one would couple two unrelated lines. Remove it once minimatch@9 is gone for good.
-  'brace-expansion@>=2.0.0 <2.1.2': '2.1.2'
+  # Target raised 2.1.2 -> 2.1.4 on 2026-09-03. NOT cosmetic: the 2.x fix line for
+  # GHSA-mh99-v99m-4gvg is 2.1.3, so the old target pinned this line one patch BELOW its own
+  # advisory - the "stale override" shape `pnpm run check:overrides` now catches. Latent rather
+  # than exploitable, since nothing resolves in 2.x today; raised so it cannot become live silently.
+  'brace-expansion@>=2.0.0 <2.1.4': '2.1.4'
   'brace-expansion@<1.1.18': '1.1.18'
   # Security: the real lever for GHSA-mh99-v99m-4gvg. Only brace-expansion 5.0.8 carries the fix, and
   # forcing it onto a minimatch@3 consumer throws "expand is not a function" (5.x exports a namespace
@@ -154,7 +170,11 @@ overrides:
   # `.default`), so forcing them onto 10 would throw the very "is not a function" documented below as
   # the reason minimatch@3 is excluded. Nothing resolves in 5-8 today, so the wider floor was latent
   # rather than broken - but it pre-authorized exactly the break it warns about.
-  # minimatch@3 is deliberately NOT matched - see auditConfig above.
+  # minimatch@3 is deliberately NOT matched: substituting minimatch@10 there throws
+  # "minimatch_1.default is not a function" (fork-ts-checker calls it via __importDefault).
+  # That path is fine anyway - the `brace-expansion@<1.1.18` entry above lifts its
+  # brace-expansion to 1.1.18, past the 1.x fix line of 1.1.17. This used to say
+  # "see auditConfig above", which now points at an empty `ignoreGhsas: []`.
   'minimatch@>=9.0.0 <10.2.6': '10.2.6'
   # Security: js-yaml quadratic CPU consumption via YAML merge-key chains (GHSA-52cp-r559-cp3m, high, patched >=4.3.0) - dev only, transitive via @compodoc/compodoc>cosmiconfig and @nestjs/cli>fork-ts-checker-webpack-plugin>cosmiconfig
   # Inert today. Remove once cosmiconfig requests >=4.3.0.

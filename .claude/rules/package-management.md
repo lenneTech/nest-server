@@ -151,7 +151,7 @@ Two ordering rules, both enforced by the contract test:
 | Rule | Why |
 |------|-----|
 | `packageManager` is exact (`x.y.z+sha512.<hash>`), never a range | Same fixed-version rule as dependencies; corepack rejects ranges outright |
-| `engines.pnpm` tracks the pin's major (`^<major>.0.0`) | A soft gate that warns pnpm 10 users. It is not a pin and cannot tell CI what to install |
+| `engines.pnpm` tracks the pin's major (`^<major>.0.0`) | A soft gate that warns pnpm 10 users. It is not a pin and cannot tell CI what to install. Note it is deliberately looser than what the check chains rely on: `pnpm peers check` is a pnpm 11 subcommand, and `^11.0.0` does not guarantee the minor that introduced it. The real guarantee is `packageManager`, which is exact — this range is not the place to encode a floor |
 | Never declare `devEngines.packageManager` | npm/npx abort with `EBADDEVENGINES`; corepack rejects ranges inside it |
 | Never pass `version:` to `pnpm/action-setup` | Two sources drift; the action hard-errors on a mismatch |
 | Never `RUN corepack …` | Absent on Node >= 25 |
@@ -168,7 +168,8 @@ Two ordering rules, both enforced by the contract test:
 
 Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
 
-**Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 still load-bearing — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+**Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
+load-bearing (it has since grown back to 17 as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
 
 ### Rule: Override Targets MUST Be Fixed Versions
 
@@ -263,6 +264,16 @@ The reliable tells are narrower:
 3. **The lockfile resolves two versions of the package inside one major.** Beware `@types/x`, which
    looks like a second resolution of `x` and is not.
 
+**This is automated now — `pnpm run check:overrides`.** The guard (`scripts/check-overrides.mjs`)
+cross-references every `overrides:` entry against a live `pnpm audit` report and reports four
+classes: **TOO LOW** (the override resolves and still delivers a version the advisory covers — modes
+1 and 2 above), **NOT MATCHING** (the selector no longer reaches the path it was written for), plus
+**NO FIX** and **UNUSED** as warnings. It runs inside `check`, `check:fix`, `check:naf` and
+`check:raw`, and in CI on both `build.yml` and `publish.yml`. The three tells above are still how you
+*read* a report by hand; the guard is what makes sure somebody does. `--audit-file` and
+`--advisory-file` make a run reproducible offline, and CI passes `--audit-file` so the
+cannot-obtain-a-report skip (correct on a laptop, a silent pass on a runner) is unreachable there.
+
 **The fix in both cases is one entry, floored below the current patch line, targeting a version at
 or above it:**
 
@@ -279,6 +290,44 @@ or above it:**
    policy, and a version published inside that window fails the install with
    `ERR_PNPM_NO_MATURE_MATCHING_VERSION`. Take the oldest version that clears every advisory — which
    is the right instinct regardless of the policy.
+
+### Suppressions age the same way, and worse
+
+`auditConfig.ignoreGhsas` in `pnpm-workspace.yaml` suppresses an advisory outright. It is the other
+half of the problem above, and the blinder half.
+
+An override at least stays visible: `pnpm audit` keeps reporting its package, so a stale entry can be
+caught by reading the report against the file. **A suppressed advisory is removed from
+`pnpm audit --json` entirely** — `advisories` drops it and `muted` comes back empty. Once a GHSA is
+listed there, no audit run ever mentions it again. If upstream ships a fix tomorrow, nothing says so.
+
+That is not hypothetical either. `GHSA-mh99-v99m-4gvg` was suppressed on 2026-07-28 with a
+justification that was correct in every detail: the newest 1.x was 1.1.16 and carried no length
+guard, and the one remaining path could not be lifted. **1.1.17 — the backport the entry said did not
+exist — was published on 2026-07-29, one day later.** The entry sat obsolete for five weeks, and
+nothing in the repo could have said so.
+
+**Rules for an entry here:**
+
+1. **Name the advisory, the affected path, and why it cannot be fixed** — not just why it is
+   tolerable.
+2. **Record what you verified and when**, with a re-verification trigger ("re-check when @nestjs/cli
+   drops fork-ts-checker-webpack-plugin"). A justification without a date cannot be audited later.
+3. **Assume it will stop being true without telling you.** Ask, before adding it: *what will notice
+   when this expires?* If the answer is "nothing", the entry is a liability regardless of how good
+   today's reasoning is.
+4. **Prefer an override.** A suppression is the last resort, for an advisory with no patched version
+   anywhere. A drifted override is at least still visible.
+
+`pnpm run check:overrides` re-checks every listed GHSA against the GitHub Advisory API and **fails**
+on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advisory. An unreachable
+API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`**, because a skip
+nobody reads is indistinguishable from a check that ran.
+
+One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
+has a patched version for **any** affected range. That makes `ignoreGhsas` nearly unusable for an
+advisory that is fixed *somewhere* but unfixable on *your* path — which is the honest outcome, since
+that case is an override problem, not a suppression problem.
 
 ### Safe Override Workflow
 

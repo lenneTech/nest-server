@@ -22,18 +22,43 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '../..');
 
-/** Packages whose advisories are currently suppressed, and must stay dev-only. */
-const DEV_ONLY_SUPPRESSIONS = [
-  {
-    // GHSA-mh99-v99m-4gvg — unbounded expansion (OOM). Patched only in 5.0.8;
-    // 1.1.16 has no length guard. The remaining path is
-    // @nestjs/cli > fork-ts-checker-webpack-plugin > minimatch@3 > brace-expansion@1,
-    // which cannot be lifted (minimatch@10 has no callable default export).
-    ghsa: 'GHSA-mh99-v99m-4gvg',
-    pkg: 'brace-expansion',
-    vulnerableInProd: /^brace-expansion@[12]\./m,
-  },
-];
+/**
+ * Packages whose advisories are currently suppressed, and must stay dev-only.
+ *
+ * Empty since 2026-09-03, and the entry that used to be here is worth keeping in
+ * view — it shows what this spec does NOT cover.
+ *
+ * GHSA-mh99-v99m-4gvg (brace-expansion, unbounded expansion → OOM) was suppressed
+ * on 2026-07-28 with a justification that was accurate in every detail: the newest
+ * 1.x was 1.1.16 and carried no length guard, and the one remaining path
+ * (@nestjs/cli > fork-ts-checker-webpack-plugin > minimatch@3 > brace-expansion@1)
+ * could not be lifted, because minimatch@10 has no callable default export.
+ *
+ * 1.1.17 — the backport the entry said did not exist — was published on 2026-07-29.
+ * ONE DAY later. The `brace-expansion@<1.1.18 -> 1.1.18` override has been resolving
+ * that path to a patched version ever since, and `pnpm audit` is green with the
+ * suppression removed. It sat here obsolete for five weeks.
+ *
+ * THE GAP THIS SPEC LEAVES: it asks "is the justification still in scope?" — is the
+ * package still dev-only — and answers that well. It cannot ask "is the
+ * justification still TRUE?", because upstream publishing a backport changes
+ * nothing in this repo. Nothing here moves, so nothing here fails. A suppressed
+ * advisory is also removed from `pnpm audit --json` entirely (`advisories` drops
+ * it, `muted` comes back empty), so the audit cannot notice either.
+ *
+ * Closing that gap needs a check against the advisory upstream — a GHSA that gains
+ * a `first_patched_version` or is withdrawn makes its suppression obsolete. That
+ * belongs in a guard with network access, not in a unit test.
+ *
+ * THAT GUARD NOW EXISTS: `scripts/check-overrides.mjs` (`pnpm run check:overrides`)
+ * re-checks every listed GHSA against the GitHub Advisory API and fails on FIX
+ * AVAILABLE or a withdrawal. It runs inside `check` and in CI. So the two halves are
+ * split on purpose and neither should grow the other's job: this spec answers "is the
+ * justification still in SCOPE?" offline, the guard answers "is it still TRUE?" online.
+ * An entry added below should still carry a date to re-verify by — the guard tells you
+ * when upstream moves, not when your own reasoning stopped applying.
+ */
+const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [];
 
 describe('audit suppressions stay within their justification', () => {
   const workspace = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');

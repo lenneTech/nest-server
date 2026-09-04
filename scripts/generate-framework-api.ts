@@ -7,6 +7,7 @@
  */
 
 import { Project, type InterfaceDeclaration } from 'ts-morph';
+import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -320,11 +321,34 @@ function main() {
   // ─── Assemble document ─────────────────────────────────────────
 
   const version = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8')).version;
-  const now = new Date().toISOString().split('T')[0];
+
+  // Derived from the SOURCE, never from the wall clock.
+  //
+  // `new Date()` here meant every `pnpm run build` on a new day rewrote this tracked file with
+  // no source change behind it. That is not cosmetic: `build` is a step inside `check`, so
+  // merely verifying the repo dirtied the working tree — and on 2026-09-03 it produced a
+  // phantom path in a provenance audit, complete with an mtime and an apparent author, costing
+  // two sessions a round of "did you change this?" over a one-line diff nobody had written.
+  //
+  // The commit date of HEAD answers the question the line is actually asking ("how current is
+  // this?") and only moves when the source does. Outside a git checkout (an npm consumer
+  // rebuilding from the tarball) there is no honest answer, so the clause is dropped rather
+  // than guessed.
+  let generatedFrom = '';
+  try {
+    const committed = execSync('git log -1 --format=%cs', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(committed)) {
+      generatedFrom = ` as of ${committed}`;
+    }
+  } catch {
+    /* not a git checkout — omit the date rather than invent one */
+  }
 
   const doc = `# @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code on ${now} (v${version})
+> Auto-generated from source code${generatedFrom} (v${version})
 > File: \`FRAMEWORK-API.md\` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()

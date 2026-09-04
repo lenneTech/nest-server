@@ -8,6 +8,7 @@ import {
 } from '../../src/core/common/services/rate-limit-store';
 
 import type { CoreRedisService } from '../../src/core/common/services/core-redis.service';
+import { captureExpectedLogs } from '../helpers/expected-log-output';
 
 describe('InMemoryRateLimitStore', () => {
   let store: InMemoryRateLimitStore;
@@ -134,6 +135,15 @@ describe('InMemoryRateLimitStore', () => {
 });
 
 describe('RedisRateLimitStore', () => {
+  // The degradation cases below deliberately refuse Redis, and the store REPORTS that via
+  // `logger.error`. Captured rather than printed: on a green run it is noise, and it is a
+  // console write racing vitest's worker teardown (tests/helpers/expected-log-output.ts).
+  // Captured, not discarded — 'logs once per transition' is documented behaviour, asserted below.
+  let degradationLogs: string[];
+  beforeEach(() => {
+    degradationLogs = captureExpectedLogs();
+  });
+
   /**
    * Translate a Redis `SCAN MATCH` pattern the way Redis itself does (`stringmatchlen`): `\x` is a
    * LITERAL x, `*` any run, `?` one character, `[...]` a class.
@@ -309,6 +319,9 @@ describe('RedisRateLimitStore', () => {
 
     expect(first.count).toBe(1);
     expect(second.count).toBe(2);
+    // Reported ONCE, not per call: a limiter that logs on every hit during a Redis outage
+    // floods the log exactly when somebody is trying to read it.
+    expect(degradationLogs.filter((line) => line.includes('Falling back to per-replica'))).toHaveLength(1);
   });
 
   it('resumes shared counting once Redis recovers', async () => {

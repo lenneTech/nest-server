@@ -84,6 +84,12 @@ export default defineConfig({
     // modules (global setup, worker setup, DB reporter). Leaving `exclude` unset keeps vitest's
     // own defaults (node_modules, dist, …) in place instead of replacing them.
     // Enable parallel file execution for speed
+    // Same reasoning as vitest.config.ts — see the long comment there. Applied here too, and if
+    // anything the exposure is larger: the e2e suite boots real apps and logs far more, so more
+    // console writes are in flight at any worker teardown. `pnpm run check` runs BOTH suites
+    // (`test` = `vitest:unit && vitest`), so leaving one half on the RPC path would keep the
+    // check flaky for the same reason.
+    disableConsoleIntercept: true,
     fileParallelism: true,
     globalSetup: ['tests/global-setup.ts'],
     globals: true,

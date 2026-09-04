@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
+import { captureExpectedLogs } from '../helpers/expected-log-output';
 
 const USER = { email: 'reset.user@test.com', id: 'u1', name: 'Reset User' };
 const RESET_URL = 'https://api.test.local/iam/reset-password/JnQ2K8xL5pR7wT1vB4hZ9mCd';
@@ -79,9 +80,12 @@ function createService(opts: {
 
 describe('sendPasswordResetEmail', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
+  /** Expected `logger.error` output from the deliberate failure paths below — see the helper. */
+  let expectedErrors: string[];
 
   beforeEach(() => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    expectedErrors = captureExpectedLogs();
   });
 
   afterEach(() => {
@@ -135,6 +139,10 @@ describe('sendPasswordResetEmail', () => {
       await expect(service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER })).rejects.toThrow(
         'smtp down',
       );
+      // "after logging it" is half this test's name and was never asserted. The address must
+      // stay masked in the log line — an operator debugging a failed send should not need a
+      // plaintext address in the log to do it.
+      expect(expectedErrors.some((line) => line.includes('smtp down') && line.includes('re***@test.com'))).toBe(true);
     });
   });
 
