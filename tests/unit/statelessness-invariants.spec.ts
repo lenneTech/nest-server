@@ -59,6 +59,29 @@ interface StateEntry {
 const INVENTORY: StateEntry[] = [
   {
     because:
+      'Connection ids whose capability detection just threw, mapped to the timestamp after '
+      + 'which they may be probed again. Genuinely divergent across replicas and deliberately '
+      + 'so: the bound is the 5-minute TTL, entries expire on their own and are swept on write, '
+      + 'and nothing is persisted either way. A second replica re-probing once is exactly the '
+      + 'intended cost — the alternative, sharing it, would let one replica suppress detection '
+      + 'for an endpoint the others can reach.',
+    classification: 'bounded',
+    file: 'modules/ai/services/core-ai.service.ts',
+    name: 'detectionBackoff',
+  },
+  {
+    because:
+      'The SSE keep-alive timer for ONE in-flight response. It closes over that response '
+      + 'socket, so it cannot leave the process by definition, and it lives and dies with the '
+      + 'request — cleared in the `finally` of the handler that created it, and `unref`ed so it '
+      + 'never holds the event loop open. A second replica serving a different stream has its '
+      + 'own, and the two have nothing to agree about.',
+    classification: 'local',
+    file: 'modules/ai/core-ai.controller.ts',
+    name: 'heartbeat',
+  },
+  {
+    because:
       'Reflection metadata keyed by class, derived from decorators at first use. Two replicas '
       + 'compute the identical map from the identical code.',
     classification: 'derived',

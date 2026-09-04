@@ -1901,6 +1901,23 @@ export interface IAi {
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
 
+  /**
+   * Wall-clock ceiling for ONE prompt run, in milliseconds. Checked before each
+   * agent-loop iteration; once exceeded the run stops and answers with whatever it
+   * has (or the translated "no final answer" message).
+   *
+   * Without it the only bound is `maxIterations` multiplied by the connection's
+   * PER-CALL timeout — e.g. 8 iterations at the 120 s default is a request that can
+   * legitimately occupy a socket, its message buffer and a request context for 16
+   * minutes, and compaction can add a further call per iteration on top. Set this
+   * to something a client would actually wait for.
+   *
+   * `0` or omitted disables the check (previous behaviour).
+   *
+   * @default 0
+   */
+  maxRunMs?: number;
+
   /** Maximum characters of a tool-results payload fed back to the model. @default 12000 */
   maxToolResultChars?: number;
 

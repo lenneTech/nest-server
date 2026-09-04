@@ -66,6 +66,24 @@ describe('OpenAiCompatibleProvider — egress allowlist (ai.allowedBaseUrlHosts)
       expect(() => assertHost('https://evil.example.com/v1')).toThrow(ServiceUnavailableException);
     });
 
+    it('lets a BARE hostname entry match any port, and a ported entry only its own', () => {
+      // The widening half of the matching rule, and the only one with no test until now — the
+      // migration guide documents it, and the starter session corrected its own `.env.example`
+      // draft against that table, so it was load-bearing documentation with nothing behind it.
+      //
+      // Both directions matter and they fail differently: if a bare entry narrowed to exact-match,
+      // every deployment reaching its provider on a non-default port would break on upgrade. If a
+      // PORTED entry widened to host-wide, an operator who deliberately restricted egress to one
+      // port would silently get all of them — a hole that looks like a working allowlist.
+      withAllowedHosts(['llm.example.com']);
+      expect(() => assertHost('https://llm.example.com:9200/v1')).not.toThrow();
+      expect(() => assertHost('http://llm.example.com:11434/v1')).not.toThrow();
+
+      withAllowedHosts(['llm.example.com:9200']);
+      expect(() => assertHost('https://llm.example.com:9200/v1')).not.toThrow();
+      expect(() => assertHost('https://llm.example.com:11434/v1')).toThrow(ServiceUnavailableException);
+    });
+
     it('refuses the link-local metadata endpoint a mistyped baseUrl would reach', () => {
       withAllowedHosts(['llm.example.com']);
       expect(() => assertHost('http://169.254.169.254/latest/meta-data/')).toThrow(ServiceUnavailableException);

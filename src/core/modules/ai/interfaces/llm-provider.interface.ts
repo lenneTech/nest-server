@@ -108,6 +108,21 @@ export interface LlmUsage {
  * when omitted.
  */
 export interface LlmCompletionOptions {
+  /**
+   * Set `false` to suppress structured-JSON mode for THIS call even though the
+   * connection advertises `supportsJsonResponse`.
+   *
+   * Narrowing only — it can never switch JSON mode ON for a connection whose
+   * endpoint was not probed for it, because the flag is measured per connection and
+   * asserting it elsewhere is what produces a 4xx nobody expected.
+   *
+   * It exists because `supportsJsonResponse` is CONNECTION state while whether an
+   * answer must be JSON is a property of the PROMPT. A caller that asks for prose —
+   * a summary, a native-tools chat turn, a plan summary — must be able to say so
+   * without rebuilding the connection object around the flag.
+   */
+  jsonResponse?: boolean;
+
   /** Maximum number of tokens to generate. */
   maxTokens?: number;
 

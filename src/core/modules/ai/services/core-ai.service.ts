@@ -65,6 +65,15 @@ export interface AiRunContext {
   currentUser: ServiceOptions['currentUser'];
   history: { content: string; role: string }[];
   language?: string;
+  /**
+   * Optional per-action hook, invoked as soon as a tool action completes.
+   *
+   * Exists so a streaming caller can surface progress WHILE the agent loop runs.
+   * Without it `promptStream` can only emit the action list once the whole run has
+   * resolved, which makes the "watch the agent work" affordance purely decorative:
+   * every action arrives in one burst after the work is already done.
+   */
+  onAction?: (action: CoreAiAction) => void;
   provider: import('../interfaces/llm-provider.interface').ILlmProvider;
   tenantId?: string;
   tools: IAiTool[];
@@ -123,13 +132,20 @@ export class CoreAiService {
    * Nutzer mit ID `{{userId}}` …" gets the real value substituted at run time.
    * Unknown tokens are left as-is so plain text with curly braces survives.
    */
-  async prompt(input: CoreAiPromptInput, serviceOptions: ServiceOptions): Promise<CoreAiResponse> {
+  async prompt(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+    hooks?: { onAction?: (action: CoreAiAction) => void },
+  ): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
     const resolvedInput = await this.resolvePromptPlaceholders(input, serviceOptions);
     const run = await this.prepareRun(resolvedInput, serviceOptions);
     // No usable connection → AI handling is effectively disabled.
     if (!run) {
       return this.unavailableResponse(resolvedInput, serviceOptions?.language);
+    }
+    if (hooks?.onAction) {
+      run.onAction = hooks.onAction;
     }
     const response = mode === 'plan' ? await this.runPlan(resolvedInput, run) : await this.runAuto(resolvedInput, run);
     // Attach the compact token-budget summary after the run was recorded.
@@ -186,6 +202,50 @@ export class CoreAiService {
   }
 
   /**
+   * Connection ids whose capability detection just failed, with the timestamp after
+   * which they may be probed again. Process-local and deliberately so: it holds
+   * nothing worth sharing, entries expire on their own, and a multi-replica
+   * deployment re-probing once per replica is exactly the intended cost.
+   */
+  protected readonly detectionBackoff = new Map<string, number>();
+
+  /** How long a thrown capability detection suppresses the next attempt. */
+  protected readonly detectionBackoffMs = 5 * 60 * 1000;
+
+  /**
+   * True while a recent detection failure still suppresses the next attempt.
+   *
+   * Checks the STORED DEADLINE rather than mere presence: a bare `has()` would keep
+   * a connection suppressed until some unrelated failure happened to sweep the map,
+   * turning a five-minute backoff into a permanent one.
+   */
+  protected detectionSuppressed(connectionId: string): boolean {
+    const until = this.detectionBackoff.get(connectionId);
+    if (until === undefined) {
+      return false;
+    }
+    if (until > Date.now()) {
+      return true;
+    }
+    this.detectionBackoff.delete(connectionId);
+    return false;
+  }
+
+  /**
+   * Record a failed detection and drop expired entries in the same pass, so the map
+   * cannot grow with connection ids that were retried long ago.
+   */
+  protected rememberFailedDetection(connectionId: string): void {
+    const now = Date.now();
+    for (const [id, until] of this.detectionBackoff) {
+      if (until <= now) {
+        this.detectionBackoff.delete(id);
+      }
+    }
+    this.detectionBackoff.set(connectionId, now + this.detectionBackoffMs);
+  }
+
+  /**
    * Common per-run setup: rate limit, budget, connection, provider, role-filtered
    * tools, tool context and conversation history.
    */
@@ -225,9 +285,22 @@ export class CoreAiService {
       (connection.supportsJsonResponse === undefined ||
         connection.supportsNativeTools === undefined ||
         connection.contextWindow === undefined) &&
-      typeof this.connectionService?.detectAndPersistCapabilities === 'function'
+      typeof this.connectionService?.detectAndPersistCapabilities === 'function' &&
+      !this.detectionSuppressed(connection.id)
     ) {
-      connection = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => connection);
+      const detected = await this.connectionService.detectAndPersistCapabilities(connection.id).catch(() => undefined);
+      if (detected) {
+        connection = detected;
+      } else {
+        // Detection THREW, so nothing was persisted — deliberately, because a
+        // transient blip must not pin a wrong flag forever. Without a backoff that
+        // correctness costs a re-probe on EVERY subsequent prompt, ahead of the rate
+        // limiter and outside budget accounting: an endpoint that answers the first
+        // probe and then times out on the retry burns a full timeout per user prompt,
+        // indefinitely. Suppress re-detection briefly instead — still nothing
+        // persisted, still self-healing, but bounded.
+        this.rememberFailedDetection(connection.id);
+      }
     }
 
     await this.checkRateLimit(currentUser?.id);
@@ -326,6 +399,33 @@ export class CoreAiService {
       },
     );
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
+    // The JSON output contract belongs to the EMULATED protocol only: `output_contract`
+    // and `tool_protocol_emulated` both carry `capability: 'emulated'`, so a NATIVE-tools
+    // run is asked for PROSE and is handed no JSON shape to fill. Forcing
+    // `response_format: {type:'json_object'}` on top is a contradiction the model can only
+    // resolve by inventing a shape of its own — which the final-answer branch below then
+    // has to catch. Measured against an OpenAI-compatible hosting endpoint on
+    // 2026-09-03 (`Mistral-Medium-3.5-128B`, varying only `response_format` and the
+    // offered tools):
+    //
+    //   native   + on  -> `{"answer":"A clear sky is blue."}`, and with tools offered
+    //                     `{"name":"<a_tool>","parameters":{}}` in `content` with NO
+    //                     native `tool_calls` at all — the tool call is LOST, not merely
+    //                     mis-rendered (the run ends at `iterations=1, actions=0`)
+    //   native   + off -> prose plus real `tool_calls`
+    //   emulated + on  -> `{"tool_calls":[…]}`
+    //   emulated + off -> `{"tool_calls":[…]}`
+    //
+    // Harmful in exactly ONE cell, and both emulated cells work — so narrow per call
+    // rather than clearing the connection flag, which would cost the emulated protocol
+    // its deterministic parse for no gain.
+    //
+    // `capability: 'emulated'` is a DEFAULT, not an invariant: an admin can point a
+    // prompt slot at `native` via `CoreAiSlotService`, and such a run would then be asked
+    // for JSON while this narrows it off. The degradation is graceful — prompt-driven
+    // JSON is the fallback the module is built around, and `extractJsonObject` is
+    // lenient — so the gate is well-correlated rather than exact.
+    const jsonMode = provider.capabilities.nativeTools ? { jsonResponse: false } : {};
 
     const messages: LlmMessage[] = [{ content: systemPrompt, role: 'system' }];
     for (const turn of history) {
@@ -339,6 +439,7 @@ export class CoreAiService {
     });
 
     const maxIterations = ConfigService.get<number>('ai.maxIterations') ?? 5;
+    const maxRunMs = ConfigService.get<number>('ai.maxRunMs') ?? 0;
     const confirm = !!input.confirm;
     const actions: CoreAiAction[] = [];
     const pendingActions: CoreAiAction[] = [];
@@ -350,13 +451,30 @@ export class CoreAiService {
     let pendingQuestion: { options?: { label: string; value: string }[]; question: string } | undefined;
     let requiresConfirmation = false;
 
+    // `maxRunMs` is the wall-clock ceiling for the whole run. `maxIterations` alone
+    // does not bound the time: each iteration carries the provider's PER-CALL
+    // timeout (120 s by default) and compaction can add another call on top, so the
+    // iteration cap multiplies rather than limits the duration. Checked before
+    // starting an iteration — never mid-call, so an in-flight completion is always
+    // consumed rather than paid for and thrown away.
+    const runStartedAt = Date.now();
+    const runDeadlineExceeded = () => maxRunMs > 0 && Date.now() - runStartedAt >= maxRunMs;
+
     while (iterations < maxIterations) {
+      if (iterations > 0 && runDeadlineExceeded()) {
+        this.logger.warn(
+          `AI run stopped after ${Date.now() - runStartedAt}ms (ai.maxRunMs=${maxRunMs}) at iteration ` +
+            `${iterations}/${maxIterations} — answering with what the run has so far`,
+        );
+        break;
+      }
       iterations++;
       // Keep the session within the model's context window before every call:
       // LLM-driven compaction first (summarize), then hard trim as a fallback.
       await this.compactMessages(messages, connection);
       this.fitMessagesToContext(messages, connection);
       const completion = await provider.chat(messages, toolSchemas, {
+        ...jsonMode,
         maxTokens: connection.defaultMaxTokens,
         temperature: connection.defaultTemperature,
       });
@@ -434,6 +552,7 @@ export class CoreAiService {
         for (const call of toolCalls) {
           const action = await this.executeToolCall(call, tools, context, input);
           actions.push(action);
+          run.onAction?.(action);
           results.push({ name: action.name, result: action.result, success: action.success });
           // Detect the ask_user_question sentinel — model paused to clarify with the user.
           const sentinel = this.extractAskUserQuestion(action);
@@ -458,25 +577,40 @@ export class CoreAiService {
 
       // No tool calls → this is the final answer.
       const parsed = this.extractJsonObject(completion.text);
+      const residue = this.isProtocolResidue(completion.text, parsed, this.hitOutputCeiling(completion));
       if (parsed && typeof parsed.final === 'string') {
         finalText = parsed.final;
         finalData = parsed.data ?? undefined;
-      } else if (parsed && 'tool_calls' in parsed && !nudgedForFinal && iterations < maxIterations) {
-        // The model emitted the protocol wrapper (e.g. an empty `{"tool_calls":[]}`
-        // batch) but no user-facing answer. Nudge once for a proper final answer
-        // instead of leaking the raw protocol JSON to the user.
+      } else if (residue && !nudgedForFinal && iterations < maxIterations) {
+        // The model returned a bare JSON value where a user-facing answer belongs:
+        // an empty `{"tool_calls":[]}` batch, an echoed TOOL_RESULTS blob, or a
+        // half-formed tool call. Nudge once for a real answer instead of leaking the
+        // raw protocol JSON to the user. The wording follows the contract this run
+        // actually gave the model — telling an EMULATED run to drop the JSON would
+        // contradict its own output contract.
+        //
+        // The off-contract output is NOT fed back verbatim. The tool-call path above
+        // refuses that for a documented reason ("never the raw text, which may carry
+        // […] a model-hallucinated TOOL_RESULTS block"), and this branch's own input
+        // may be exactly such a blob — re-admitting it as an accepted assistant turn
+        // would let the next answer be grounded in data no tool returned. The nudge
+        // needs the TURN, not its content.
         nudgedForFinal = true;
-        messages.push({ content: completion.text, role: 'assistant' });
+        messages.push({ content: '(previous reply was machine output, not an answer)', role: 'assistant' });
         messages.push({
-          content: 'You did not request any tool. Now reply with your final answer ONLY as {"final":"<your answer>"}.',
+          content: provider.capabilities.nativeTools
+            ? 'That was not an answer for the user. Reply now in plain natural language — no JSON, no code fences.'
+            : 'You did not request any tool. Now reply with your final answer ONLY as {"final":"<your answer>"}.',
           role: 'user',
         });
         continue;
       } else {
-        // Plain-text answer — but never surface a bare protocol wrapper. If the model
-        // still returned only a `tool_calls`/`final`-shaped object, drop it so the
-        // generic fallback message applies instead of leaking JSON.
-        finalText = parsed && ('tool_calls' in parsed || 'final' in parsed) ? '' : completion.text;
+        // Plain-text answer — but a bare JSON value is protocol residue, never
+        // something to show a user, so drop it and let the generic fallback message
+        // apply instead of leaking JSON. A whitespace-only answer is dropped for the
+        // same reason: it is TRUTHY, so leaving it in place would defeat the
+        // `no_final_answer` fallback below and render an empty chat bubble.
+        finalText = residue || !completion.text?.trim() ? '' : completion.text;
       }
       break;
     }
@@ -615,15 +749,26 @@ export class CoreAiService {
     }
     messages.push({ content: `TOOL_RESULTS:\n${this.capToolResults(JSON.stringify(results))}`, role: 'user' });
 
-    // 5. Final summary call.
+    // 5. Final summary call. The plan prompt's JSON contract covers the PLAN only —
+    // `buildPlanSystemPrompt` drops `output_contract` — so the summary is a
+    // natural-language answer and must not be forced into JSON.
     this.fitMessagesToContext(messages, connection);
-    const finalCompletion = await provider.chat(messages, [], chatOptions);
+    const finalCompletion = await provider.chat(messages, [], { ...chatOptions, jsonResponse: false });
     this.accumulateUsage(usage, finalCompletion);
+    // Same residue guard as `runAuto`: this call sits directly after a TOOL_RESULTS
+    // push, so an echo of those results is the likeliest off-contract output — and
+    // it must not reach the user verbatim. Plan mode has no nudge loop, so a bare
+    // value degrades straight to the plan's own summary.
     const finalParsed = this.extractJsonObject(finalCompletion.text);
+    const finalResidue = this.isProtocolResidue(
+      finalCompletion.text,
+      finalParsed,
+      this.hitOutputCeiling(finalCompletion),
+    );
     const finalText =
       finalParsed && typeof finalParsed.final === 'string'
         ? finalParsed.final
-        : finalCompletion.text || parsed?.summary || this.translate('done', language);
+        : (finalResidue ? '' : finalCompletion.text) || parsed?.summary || this.translate('done', language);
 
     const response = this.baseResponse(connection.id, input);
     response.actions = actions;
@@ -643,15 +788,65 @@ export class CoreAiService {
    * (for SSE). Emits `action` events for executed tools, then the answer as
    * `token` chunks, then a `final` event with the full response.
    *
-   * Note: the agent/tool loop runs to completion first (emulated tool calling
-   * needs the full model output to detect tool calls), then the final answer is
-   * streamed in chunks. This gives a progressive UX without a second LLM call.
+   * Note: the ANSWER is not token-streamed from the model — the agent loop has to
+   * run to completion first (emulated tool calling needs the full model output to
+   * detect tool calls, and the final answer arrives wrapped in JSON), so the text is
+   * chunked after the fact. `action` events, however, ARE emitted as each tool
+   * completes: they are the only genuine real-time signal a caller gets, and on a
+   * multi-step turn they are the difference between a silent minute and visible
+   * progress.
    */
   async *promptStream(input: CoreAiPromptInput, serviceOptions: ServiceOptions): AsyncGenerator<AiStreamEvent> {
-    const response = await this.prompt(input, serviceOptions);
-    for (const action of response.actions ?? []) {
-      yield { action, type: 'action' };
+    // Bridge the callback-style hook into the generator: tools complete while we are
+    // awaiting the run, so buffer them and hand them out whenever the consumer asks.
+    const pending: CoreAiAction[] = [];
+    let notify: (() => void) | undefined;
+    const runPromise = this.prompt(input, serviceOptions, {
+      onAction: (action) => {
+        pending.push(action);
+        notify?.();
+      },
+    });
+
+    // Held in an object rather than a plain `let`: it is assigned from the promise
+    // callbacks below, i.e. never inside the loop body, which reads to a linter as an
+    // unmodified loop condition.
+    const run = { settled: false };
+    const settle: Promise<{ error?: Error; response?: CoreAiResponse }> = runPromise.then(
+      (response) => {
+        run.settled = true;
+        notify?.();
+        return { response };
+      },
+      (error) => {
+        run.settled = true;
+        notify?.();
+        return { error: error as Error };
+      },
+    );
+
+    for (;;) {
+      while (pending.length) {
+        yield { action: pending.shift() as CoreAiAction, type: 'action' };
+      }
+      if (run.settled) {
+        break;
+      }
+      // Wake on the next action OR on the run finishing, whichever comes first.
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+        if (run.settled || pending.length) {
+          resolve();
+        }
+      });
+      notify = undefined;
     }
+
+    const outcome = await settle;
+    if (outcome.error) {
+      throw outcome.error;
+    }
+    const response = outcome.response as CoreAiResponse;
     for (const token of this.chunkText(response.text)) {
       yield { token, type: 'token' };
     }
@@ -1063,6 +1258,116 @@ export class CoreAiService {
   }
 
   /**
+   * True when the completion stopped because it ran out of output budget
+   * (`finish_reason: 'length'`) rather than because the model was done.
+   *
+   * The distinction decides whether unparseable JSON is residue or prose — see
+   * {@link isBareJsonValue}. Read defensively off the provider-agnostic `raw`
+   * payload: not every backend reports a `finish_reason`, and an absent one must
+   * read as "finished normally", never as "truncated".
+   */
+  protected hitOutputCeiling(completion: LlmResponse): boolean {
+    return (completion?.raw as { choices?: { finish_reason?: string }[] })?.choices?.[0]?.finish_reason === 'length';
+  }
+
+  /**
+   * True when the answer is nothing but a bare JSON value — no prose around it and
+   * no markdown fence.
+   *
+   * Under either output contract that is protocol residue rather than an answer: the
+   * emulated contract permits exactly `{"final":…}` / `{"tool_calls":…}` (both
+   * handled before this check), and the native contract asks for prose.
+   *
+   * Three boundaries, each chosen deliberately:
+   *
+   * - **Arrays count too.** `{"success":true,"data":{"contacts":[…]}}` and
+   *   `[{"id":"…","displayName":"…"}]` are the same failure to a user, and a
+   *   `find_*` tool returns a collection — an echo of its result is as likely to
+   *   arrive as a bare array as wrapped in an object.
+   * - **A truncated value counts, but only when the completion actually hit the
+   *   output ceiling** (`truncated`, i.e. `finish_reason: 'length'`). Tool-result
+   *   echoes are long, so running out of budget mid-object is their most likely
+   *   shape — and it neither closes its brace nor parses. Requiring the caller to
+   *   supply that fact keeps prose that merely opens with a brace safe.
+   * - **A FENCED value is NOT matched.** A ```json block is how a model presents
+   *   JSON the user actually asked for; suppressing it would break the legitimate
+   *   "give me that as JSON" request.
+   *
+   * Deliberately stricter than {@link extractJsonObject}, which is lenient by design
+   * so a protocol object survives surrounding noise. Leniency is right when looking
+   * FOR the protocol and wrong when deciding what may reach the user: prose that
+   * merely quotes a JSON snippet must pass through untouched.
+   */
+  protected isBareJsonValue(text: string, truncated = false): boolean {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return false;
+    }
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      // Unparseable. Only a TRUNCATED answer is residue: the model began a machine
+      // payload and ran out of output budget mid-object, which is the LIKELIEST
+      // shape of an echoed tool result — those are long, so they hit the ceiling
+      // before they close. Anything else that merely opens with a brace is prose
+      // ("{Platzhalter} wird ersetzt durch …") and must reach the user untouched.
+      return truncated;
+    }
+  }
+
+  /**
+   * True when the ENTIRE answer is a markdown-fenced JSON value.
+   *
+   * The counterpart to {@link isBareJsonValue}: a fence is normally a deliberate
+   * presentation choice and must reach the user. The one exception is our own
+   * protocol vocabulary, which the model has no reason to present — see
+   * {@link isProtocolResidue}.
+   */
+  protected isFencedJsonValue(text: string): boolean {
+    const fence = (text ?? '').trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    const inner = fence?.[1]?.trim();
+    if (!inner || (!inner.startsWith('{') && !inner.startsWith('['))) {
+      return false;
+    }
+    try {
+      JSON.parse(inner);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * True when the model's answer is machine output rather than something to show a
+   * user. The union of two rules, because neither covers the other:
+   *
+   * 1. **Any BARE JSON value** ({@link isBareJsonValue}) — under either output
+   *    contract, an answer that is nothing but a JSON value is protocol residue.
+   * 2. **A fenced value carrying our protocol vocabulary** — a `tool_calls` batch,
+   *    or a `final` that is not a string. A fence otherwise means "the user asked
+   *    for JSON", but no user asks for the orchestrator's own wire format.
+   *
+   * Rule 2 exists because the predecessor guard used the LENIENT
+   * {@link extractJsonObject}, which strips fences — so it caught a fenced empty
+   * `{"tool_calls":[]}` batch, the very case its comment named. Replacing it with the
+   * bare-only check alone would have silently un-fixed that. `parsed` is passed in
+   * rather than re-derived so the caller's single lenient parse is reused.
+   *
+   * What deliberately stays OUT of both rules: prose that merely quotes a JSON
+   * snippet, which is a legitimate answer and was a false positive of the old
+   * lenient-only check.
+   */
+  protected isProtocolResidue(text: string, parsed: any | null, truncated = false): boolean {
+    if (this.isBareJsonValue(text, truncated)) {
+      return true;
+    }
+    const protocolShaped =
+      !!parsed && ('tool_calls' in parsed || ('final' in parsed && typeof parsed.final !== 'string'));
+    return protocolShaped && this.isFencedJsonValue(text);
+  }
+
+  /**
    * Robustly extract a single JSON object from an LLM text response (tolerates
    * markdown code fences and surrounding prose).
    *
@@ -1206,7 +1511,12 @@ export class CoreAiService {
           { content: transcript, role: 'user' },
         ],
         [],
-        { temperature: 0 },
+        // Prose, not JSON: the system prompt above asks for "strict prose, no markdown",
+        // and a connection flagged `supportsJsonResponse` would otherwise make the
+        // provider send `response_format: json_object` — so the summary came back
+        // JSON-wrapped and was spliced into the transcript that way, which is the
+        // opposite of what compaction is for.
+        { jsonResponse: false, temperature: 0 },
       );
       const text = (summary?.text || '').trim();
       if (!text) {

@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-09-02 (v11.40.0)
+> Auto-generated from source code as of 2026-09-04 (v11.41.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -125,6 +125,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `deferToolSchemas?`: `boolean | undefined` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
   - `deferToolSummaryChars?`: `number | undefined` (default: `0`) — Maximum characters per tool description in the DEFERRED catalog
   - `maxIterations?`: `number | undefined` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
+  - `maxRunMs?`: `number | undefined` (default: `0`) — Wall-clock ceiling for ONE prompt run, in milliseconds. Checked before each
   - `maxToolResultChars?`: `number | undefined` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; } | undefined` — Governed self-improvement loop for the system prompt. The orchestrator records
   - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string; } | und...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for

@@ -133,9 +133,18 @@ export class CoreAiSlot extends CorePersistenceModel {
    * slot is effectively system-wide.
    */
   @UnifiedField({
+    // No `index: true`: declaring the `tenantId` PATH is what activates
+    // `mongooseTenantPlugin`, and the plugin then adds `schema.index({ tenantId: 1 })`
+    // itself. Declaring it here as well makes Mongoose log
+    // "Duplicate schema index on {"tenantId":1}" on every boot.
+    //
+    // The `mongoose` key itself MUST stay: `UnifiedField` emits `@Prop` only inside
+    // `if (opts.mongoose)`, so dropping the whole key would remove the schema path —
+    // and `mongooseTenantPlugin` returns early on `!schema.path('tenantId')`, i.e.
+    // the model would lose its tenant filtering entirely.
     description: 'Tenant id the slot applies to (auto-set; undefined = system-wide)',
     isOptional: true,
-    mongoose: { index: true },
+    mongoose: { type: String },
     roles: RoleEnum.ADMIN,
   })
   tenantId?: string = undefined;
