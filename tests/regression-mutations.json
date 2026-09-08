@@ -24,6 +24,40 @@
   ],
   "mutations": [
     {
+      "id": "ai-retry-usage-not-merged",
+      "defect": "11.41.0 — the reasoning retry returned ONLY the second call's `LlmResponse`, dropping the starved call's `usage`. That call is the expensive one: by definition it burned the entire `max_tokens` allowance. `CoreAiService` accumulates solely from what `chat()` returns, that total becomes the audit record's `totalTokens`, and `CoreAiBudgetService` enforces `ai.budget` by summing exactly that field — so on a model that starves on every call (the shipped case: Mistral-Medium-3.5, Qwen3.6), a configured token limit was enforced against roughly a quarter of the real spend, and the `budget` summary returned to the client understated it by the same factor. The failure path was already correct; only the happy path lost it.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "find": "      return { ...retried, usage: this.mergeUsage(answer.usage, retried.usage) };",
+      "replace": "      return retried;",
+      "specs": [
+        "tests/unit/ai-reasoning-budget.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-retry-fresh-timeout",
+      "defect": "11.41.0 — the reasoning retry was handed the FULL `timeoutMs` again rather than what remained of it, installing a second, independent `AbortSignal.timeout`. One `chat()` could therefore hold a socket, its message buffer and a request context for twice the per-call timeout (240 s at the defaults), doubling the ceiling the framework documents as `maxIterations` x the per-call timeout. `ai.maxRunMs` cannot absorb it: `CoreAiService` evaluates the deadline BETWEEN agent-loop iterations and never mid-call. On the SSE path the whole overshoot is silent, because `promptStream()` yields nothing but tool actions until the run settles and a starved completion produces no tool call.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "find": "    const remainingMs = timeoutMs - (Date.now() - startedAt);",
+      "replace": "    const remainingMs = timeoutMs;",
+      "specs": [
+        "tests/unit/ai-reasoning-budget.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-reasoning-starved-no-retry",
+      "defect": "11.41.0 — a reasoning model behind an OpenAI-compatible endpoint can spend the WHOLE `max_tokens` budget on its thinking phase and answer 200 with `finish_reason: 'length'` and empty content. `chat()` handed that on as an empty string, indistinguishable from \"the model had nothing to say\", so every consumer with a modest `maxTokens` silently received nothing. Found in a consumer project where five call sites broke at once (budgets 256/300/500/900/900); four degrade to a null-fallback and reported nothing, only the fifth surfaced an error. Raising the budget does not help — the model spends 900/900, 1500/1500, 2048/2048 and 4096/4096 on thinking; only `reasoning_effort: 'none'` returns an answer, and it cannot be sent pre-emptively because other models reject it with 400.",
+      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
+      "after": "  protected isReasoningStarved(response: LlmResponse): boolean {",
+      "find": "    return response.finishReason === 'length' && !response.text && !response.toolCalls?.length;",
+      "replace": "    return false;",
+      "specs": [
+        "tests/unit/ai-reasoning-budget.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "brevo-exclude-stateful-regex",
       "defect": "11.36.0 — the exclude guard called `.test()` on the CONFIGURED RegExp. Projects declare `brevo.exclude` with the `g` flag (`/@(testuser\\.com|test\\.de)/gi`), and `RegExp.prototype.test` advances `lastIndex` on a `g`/`y` pattern, so one shared instance answered true, false, true, … for the same address. Every SECOND excluded recipient was therefore sent a real, billable transactional mail. Found in production: a CI e2e run delivered five mails to a `@testuser.com` address the project's own exclude pattern lists, and Brevo flagged the runner's IP rather than the project noticing.",
       "file": "src/core/common/services/brevo.service.ts",

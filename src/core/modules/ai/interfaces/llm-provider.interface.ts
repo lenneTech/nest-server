@@ -100,6 +100,17 @@ export interface LlmToolCall {
 export interface LlmUsage {
   completionTokens?: number;
   promptTokens?: number;
+  /**
+   * Output tokens the model spent THINKING before answering, where the backend
+   * reports them (`completion_tokens_details.reasoning_tokens`). Part of
+   * {@link completionTokens}, not additional to it.
+   *
+   * Worth surfacing because the thinking phase competes with the answer for the
+   * SAME budget: when it equals `completionTokens` the model never got to the
+   * answer, which is a very different failure from a model that had nothing to
+   * say. See {@link LlmResponse.finishReason}.
+   */
+  reasoningTokens?: number;
   totalTokens?: number;
 }
 
@@ -140,6 +151,19 @@ export interface LlmCompletionOptions {
  * Normalized response of a single LLM completion.
  */
 export interface LlmResponse {
+  /**
+   * Why the model stopped, as reported by the backend (`stop`, `length`,
+   * `tool_calls`, …). Undefined when the backend omits it.
+   *
+   * Without this a caller cannot tell an answer apart from a fragment: `length`
+   * means the output budget ran out mid-flight, so short or empty text is a
+   * truncation and not the model's verdict. Retrying an identical request is
+   * pointless in that case — and actively misleading against a backend that
+   * caches identical prompts, which answers the retry from cache in
+   * milliseconds.
+   */
+  finishReason?: string;
+
   /** Raw provider payload (for debugging/audit, never sent to clients). */
   raw?: unknown;
 
