@@ -9,6 +9,7 @@ import {
   LlmMessage,
   LlmResponse,
   LlmToolSchema,
+  LlmUsage,
 } from '../interfaces/llm-provider.interface';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
 
@@ -28,6 +29,22 @@ import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.inter
 export class OpenAiCompatibleProvider implements ILlmProvider {
   readonly capabilities: LlmCapabilities;
   readonly name = 'openai-compatible';
+
+  /**
+   * Floor below which the reasoning retry is not attempted at all.
+   *
+   * The retry shares the ORIGINAL call's timeout budget (see {@link chat}), so a
+   * first call that nearly exhausted it leaves too little for a second. Starting one
+   * anyway would spend the remainder waiting for a request that cannot finish, and
+   * then report the timeout as "the model rejects reasoning_effort". Measured retries
+   * answer in well under a second once the thinking phase is off.
+   *
+   * Consequence worth stating: a connection whose whole `timeoutMs` is below this floor
+   * never retries at all. That is the right trade for a value this far below any usable
+   * LLM timeout (the default is 120 s), but it is a behaviour the number decides, so it
+   * belongs here rather than in a reader's head.
+   */
+  protected static readonly MIN_REASONING_RETRY_MS = 1_000;
 
   private readonly logger = new Logger(OpenAiCompatibleProvider.name);
   private readonly defaultTimeoutMs: number;
@@ -93,6 +110,93 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     }
 
     const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
+    const startedAt = Date.now();
+    const answer = await this.postCompletion(url, body, timeoutMs);
+    if (!this.isReasoningStarved(answer)) {
+      return answer;
+    }
+
+    // The thinking phase ate the whole budget before a single character of the
+    // answer. Say so with the numbers — the failure is otherwise indistinguishable
+    // in a log from "the model had nothing to say", which is what made it so
+    // expensive to diagnose.
+    this.logger.warn(
+      `AI completion for model "${body.model}" returned NO content: finish_reason=${answer.finishReason}, ` +
+        `${answer.usage?.reasoningTokens ?? 0} of ${answer.usage?.completionTokens ?? 0} output tokens were spent ` +
+        `thinking against a budget of ${body.max_tokens}. Retrying once without the thinking phase.`,
+    );
+    // The retry shares the ORIGINAL call's timeout budget instead of starting a fresh
+    // one. `CoreAiService` checks `ai.maxRunMs` BETWEEN agent-loop iterations and never
+    // mid-call, so a second full timeout here would silently double the ceiling the
+    // framework documents as `maxIterations` x the per-call timeout — 20 minutes instead
+    // of 10 at the defaults. On the SSE path that is time the client spends in total
+    // silence: `promptStream()` yields nothing but tool actions until the run settles,
+    // and a starved completion produces no tool call to report.
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs < OpenAiCompatibleProvider.MIN_REASONING_RETRY_MS) {
+      this.logger.warn(
+        `Not retrying model "${body.model}" without the thinking phase: only ${Math.max(0, remainingMs)}ms of the ` +
+          `${timeoutMs}ms budget remain. Keeping the original, empty completion.`,
+      );
+      return answer;
+    }
+
+    try {
+      const retried = await this.postCompletion(url, { ...body, reasoning_effort: 'none' }, remainingMs);
+      // BOTH calls were billed upstream, so both must reach the caller. `CoreAiService`
+      // accumulates only what `chat()` returns, that total lands in the audit record's
+      // `totalTokens`, and `CoreAiBudgetService` enforces `ai.budget` from exactly that
+      // field. Returning the retry's usage alone would hide the STARVED call — the one
+      // that by definition burned the entire `max_tokens` allowance — from the limit
+      // that exists to bound it.
+      return { ...retried, usage: this.mergeUsage(answer.usage, retried.usage) };
+    } catch (err) {
+      // Usually a 400: the backend does not accept `reasoning_effort` for this model.
+      // But the same catch also sees timeouts and transport failures, and naming the
+      // 400 for one of those would send the reader after a cause that is not there —
+      // the precise kind of misdirection this whole change exists to remove. Report
+      // what actually happened and let the original answer stand: it keeps its
+      // `finishReason` and the usage the caller already paid for.
+      this.logger.warn(
+        `Retry without the thinking phase failed for model "${body.model}" ` +
+          `(${(err as Error)?.message ?? 'unknown error'}) — keeping the original, empty completion. ` +
+          'Raise the token budget or configure a model that answers within it.',
+      );
+      return answer;
+    }
+  }
+
+  /**
+   * Add up the usage of the two calls a retried completion actually made.
+   *
+   * Kept separate from {@link chat} because "what did this run cost" is a question the
+   * budget, the audit record and the client's usage summary all read from one number,
+   * and a provider that reports only half of it under-enforces every limit built on it.
+   *
+   * A field absent from BOTH sides stays absent — a backend that reports no breakdown
+   * must not be made to look like it reported zero.
+   */
+  protected mergeUsage(first?: LlmUsage, second?: LlmUsage): LlmUsage | undefined {
+    if (!first) {
+      return second;
+    }
+    if (!second) {
+      return first;
+    }
+    const sum = (a?: number, b?: number) => (a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0));
+    return {
+      completionTokens: sum(first.completionTokens, second.completionTokens),
+      promptTokens: sum(first.promptTokens, second.promptTokens),
+      reasoningTokens: sum(first.reasoningTokens, second.reasoningTokens),
+      totalTokens: sum(first.totalTokens, second.totalTokens),
+    };
+  }
+
+  /**
+   * POST one completion and map it to {@link LlmResponse}. Transport failures and
+   * non-2xx responses throw, exactly as a single-shot `chat()` always did.
+   */
+  protected async postCompletion(url: string, body: Record<string, any>, timeoutMs: number): Promise<LlmResponse> {
     let response: Response;
     try {
       response = await fetch(url, {
@@ -117,24 +221,62 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     }
 
     const result = (await response.json()) as {
-      choices?: { message?: { content?: string; tool_calls?: any[] } }[];
-      usage?: { completion_tokens?: number; prompt_tokens?: number; total_tokens?: number };
+      choices?: { finish_reason?: string; message?: { content?: string; tool_calls?: any[] } }[];
+      usage?: {
+        completion_tokens?: number;
+        completion_tokens_details?: { reasoning_tokens?: number };
+        prompt_tokens?: number;
+        total_tokens?: number;
+      };
     };
 
-    const choice = result.choices?.[0]?.message;
-    const text = choice?.content ?? '';
-    const nativeToolCalls = this.capabilities.nativeTools ? this.mapNativeToolCalls(choice?.tool_calls) : undefined;
+    const choice = result.choices?.[0];
+    const text = choice?.message?.content ?? '';
+    const nativeToolCalls = this.capabilities.nativeTools
+      ? this.mapNativeToolCalls(choice?.message?.tool_calls)
+      : undefined;
 
     return {
+      finishReason: choice?.finish_reason,
       raw: result,
       text,
       toolCalls: nativeToolCalls,
       usage: {
         completionTokens: result.usage?.completion_tokens,
         promptTokens: result.usage?.prompt_tokens,
+        reasoningTokens: result.usage?.completion_tokens_details?.reasoning_tokens,
         totalTokens: result.usage?.total_tokens,
       },
     };
+  }
+
+  /**
+   * True when the output budget was exhausted before the model produced ANY
+   * answer — a reasoning model that spent every token on its thinking phase.
+   *
+   * The backend answers `200` with `finish_reason: 'length'`, empty content and
+   * (where it reports the breakdown) `reasoning_tokens == completion_tokens`.
+   * Measured against an OpenAI-compatible hosting endpoint on 2026-09-07 with a 900-token budget:
+   * `Mistral-Medium-3.5-128B` and `Qwen3.6-35B-A3B-FP8` both return nothing,
+   * while `gpt-oss-120b` and `Ministral-3-14B-Instruct` answer normally.
+   *
+   * The narrowness is deliberate, in both directions:
+   *
+   * - **Content present** → the answer merely got cut short. That is a budget
+   *   question the caller can now see via `finishReason`, and discarding the
+   *   partial text to re-ask would lose something usable.
+   * - **`finish_reason: 'stop'` with empty content** → the model chose to say
+   *   nothing. No budget ran out, so removing the thinking phase addresses
+   *   nothing and would cost a second upstream call on every such answer.
+   * - **Tool calls present** → the model DID answer, in the tool channel.
+   *
+   * `reasoning_tokens` is treated as corroborating, not required: backends that
+   * omit the breakdown produce exactly the same symptom, and the retry is
+   * harmless where the diagnosis is wrong (one extra call on a request that
+   * returned nothing either way).
+   */
+  protected isReasoningStarved(response: LlmResponse): boolean {
+    return response.finishReason === 'length' && !response.text && !response.toolCalls?.length;
   }
 
   /**
