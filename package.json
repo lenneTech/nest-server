@@ -39,7 +39,7 @@
     "format": "oxfmt --write src/ scripts/",
     "format:check": "oxfmt --check src/ scripts/",
     "lint": "oxlint --ignore-path .oxlintignore src/ tests/ scripts/",
-    "lint:fix": "oxlint --fix --fix-suggestions --ignore-path .oxlintignore src/ tests/ scripts/",
+    "lint:fix": "oxlint --fix --ignore-path .oxlintignore src/ tests/ scripts/",
     "prepack": "pnpm run prestart:prod",
     "prepublishOnly": "pnpm run lint && pnpm run test:ci",
     "prestart:prod": "pnpm run build",
