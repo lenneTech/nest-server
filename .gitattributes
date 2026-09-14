@@ -1,0 +1,28 @@
+* text=auto eol=lf
+*.sh        text eol=lf
+.husky/*    text eol=lf
+.githooks/* text eol=lf
+Dockerfile  text eol=lf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.wasm binary
+*.node binary
+*.mp4 binary
+*.webm binary
+pnpm-lock.yaml text eol=lf linguist-generated=true
