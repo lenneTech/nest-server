@@ -6,6 +6,7 @@ settings:
 
 overrides:
   qs@<6.16.0: 6.16.0
+  multer@>=2.0.0 <2.3.0: 2.3.0
   browserslist@<4.28.7: 4.28.8
   ws@>=8.0.0 <8.21.0: 8.21.3
   axios@<1.19.0: 1.19.0
@@ -13,14 +14,14 @@ overrides:
   brace-expansion@>=2.0.0 <2.1.4: 2.1.4
   brace-expansion@<1.1.18: 1.1.18
   minimatch@>=9.0.0 <10.2.6: 10.2.6
-  js-yaml@>=4.0.0 <4.3.1: 4.3.1
+  js-yaml@>=4.0.0 <4.3.2: 4.3.2
   js-yaml@>=5.0.0 <5.2.2: 5.2.2
   fast-uri@<3.1.6: 3.1.6
   ip-address@<10.5.0: 10.5.0
   nanoid@>=3.0.0 <3.3.18: 3.3.18
   postcss@<8.5.23: 8.5.23
   undici@>=7.0.0 <7.29.0: 7.29.0
-  hono@>=4.0.0 <4.13.3: 4.13.3
+  hono@>=4.0.0 <4.13.7: 4.13.7
   body-parser@>=2.0.0 <2.3.0: 2.3.0
 
 importers:
@@ -142,14 +143,14 @@ importers:
         specifier: 9.9.3
         version: 9.9.3
       multer:
-        specifier: 2.2.0
-        version: 2.2.0
+        specifier: 2.3.0
+        version: 2.3.0
       node-mailjet:
         specifier: 6.0.11
         version: 6.0.11(supports-color@5.5.0)
       nodemailer:
-        specifier: 9.0.5
-        version: 9.0.5
+        specifier: 9.1.1
+        version: 9.1.1
       passport:
         specifier: 0.7.0
         version: 0.7.0
@@ -883,7 +884,7 @@ packages:
     resolution: {integrity: sha512-bjD221KPLoJTWUwso1J6fGKiTXEUFedG/s0visavY4zakFPkeGURMRNly+FhBHs7T8Dz4qHaZIMX9ZoJHSJtKA==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: 4.13.3
+      hono: 4.13.7
 
   '@inquirer/ansi@1.0.2':
     resolution: {integrity: sha512-S8qNSZiYzFd0wAcyG5AXCvUHC5Sr7xpZ9wZ2py9XR88jUz8wooStVx5M6dRzczbBWjic9NP7+rY0Xi7qqK/aMQ==}
@@ -3457,8 +3458,8 @@ packages:
     resolution: {integrity: sha512-eSmmWE5bZTK2Nou4g0AI3zZ9rswp7GRKoKXS1BLUkvPviOqs4YTN1djQIqrXy9k5gEtdLPy86JjRwsNM9tnDcA==}
     engines: {node: '>=0.10.0'}
 
-  hono@4.13.3:
-    resolution: {integrity: sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw==}
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   html-entities@2.6.0:
@@ -3671,8 +3672,8 @@ packages:
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
-  js-yaml@4.3.1:
-    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   js-yaml@5.3.0:
@@ -4092,8 +4093,8 @@ packages:
   msgpackr@2.0.5:
     resolution: {integrity: sha512-cef05H/dSYpLpqp3sj/qyZh5vhUYCalnaLO7j1yOmpsR0y/XwLVtK7r5gn+U/F7CTEfMowcGhlUQJDLcLf7jcA==}
 
-  multer@2.2.0:
-    resolution: {integrity: sha512-6rdyFg2kLrMh9Jee7/BMPuV9lEAd7lLW2YUpF9/YxR7njyoUwwQ0ZPh3TaIY50Sw6vlyD2HW3wGOkTS4P79xrQ==}
+  multer@2.3.0:
+    resolution: {integrity: sha512-cjNbm3sttszgZeGfJR124D+jFEfkXCVAsoPBmFn9X7UxmDSFHWqE2CoEj0vrmSpuAFnqWR1Szcm9QTsiHr60Xw==}
     engines: {node: '>= 10.16.0'}
 
   multistream@4.1.0:
@@ -4153,8 +4154,8 @@ packages:
     resolution: {integrity: sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ==}
     engines: {node: '>=18'}
 
-  nodemailer@9.0.5:
-    resolution: {integrity: sha512-wvjiKvjczmsN7U/8006JOdXubgBk2XFAbioDMbT+sM7cPs0QrhJTa6KBRX7P5REGGkDcLUz/EarWidb8G8C1jQ==}
+  nodemailer@9.1.1:
+    resolution: {integrity: sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==}
     engines: {node: '>=6.0.0'}
 
   nodemon@3.1.14:
@@ -5971,9 +5972,9 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@2.0.11(hono@4.13.3)':
+  '@hono/node-server@2.0.11(hono@4.13.7)':
     dependencies:
-      hono: 4.13.3
+      hono: 4.13.7
 
   '@inquirer/ansi@1.0.2': {}
 
@@ -6159,7 +6160,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.30.0':
     dependencies:
-      '@hono/node-server': 2.0.11(hono@4.13.3)
+      '@hono/node-server': 2.0.11(hono@4.13.7)
       ajv: 8.20.0
       ajv-formats: 3.0.1
       content-type: 1.0.5
@@ -6169,7 +6170,7 @@ snapshots:
       eventsource-parser: 3.0.8
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.13.3
+      hono: 4.13.7
       jose: 6.2.9
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -6406,7 +6407,7 @@ snapshots:
       '@nestjs/core': 11.2.1(@nestjs/common@11.2.1(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.2.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       cors: 2.8.6
       express: 5.2.1
-      multer: 2.2.0
+      multer: 2.3.0
       path-to-regexp: 8.4.2
       tslib: 2.8.1
     transitivePeerDependencies:
@@ -7846,7 +7847,7 @@ snapshots:
   cosmiconfig@8.3.6(typescript@5.9.3):
     dependencies:
       import-fresh: 3.3.1
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
       parse-json: 5.2.0
       path-type: 4.0.0
     optionalDependencies:
@@ -7856,7 +7857,7 @@ snapshots:
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.1
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.9.3
@@ -8449,7 +8450,7 @@ snapshots:
     dependencies:
       parse-passwd: 1.0.0
 
-  hono@4.13.3: {}
+  hono@4.13.7: {}
 
   html-entities@2.6.0: {}
 
@@ -8632,7 +8633,7 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.3.1:
+  js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
 
@@ -8974,7 +8975,7 @@ snapshots:
     optionalDependencies:
       msgpackr-extract: 3.0.4
 
-  multer@2.2.0:
+  multer@2.3.0:
     dependencies:
       append-field: 1.0.0
       busboy: 1.6.0
@@ -9026,7 +9027,7 @@ snapshots:
 
   node-releases@2.0.54: {}
 
-  nodemailer@9.0.5: {}
+  nodemailer@9.1.1: {}
 
   nodemon@3.1.14:
     dependencies:
