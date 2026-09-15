@@ -169,7 +169,7 @@ Two ordering rules, both enforced by the contract test:
 Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
 
 **Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
-load-bearing (it has since grown back to 17 as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+load-bearing (it has since grown back to 18 as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
 
 ### Rule: Override Targets MUST Be Fixed Versions
 
