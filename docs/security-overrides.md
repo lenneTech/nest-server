@@ -11,17 +11,18 @@ A green `pnpm audit` inside the framework repo says nothing about your tree.
 
 ## What this concretely means for you
 
-The framework pulls in two transitive packages that resolve to a **vulnerable** version unless you
+The framework pulls in three transitive packages that resolve to a **vulnerable** version unless you
 override them yourself:
 
 | Package | Advisory | Why it cannot resolve forward on its own |
 |---------|----------|------------------------------------------|
 | `ws` | [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p) — high: memory-exhaustion DoS + uninitialized memory disclosure. Patched `>=8.21.0` | `@nestjs/graphql` declares `"ws": "8.20.1"` — an **exact pin**, not a caret. No amount of updating moves it |
 | `js-yaml` | [GHSA-pm4m-ph32-ghv5](https://github.com/advisories/GHSA-pm4m-ph32-ghv5) — high: exponential parsing time in flow collections (DoS). Patched `>=5.2.2` | `@nestjs/swagger` declares `"js-yaml": "5.2.1"` — an **exact pin**, the same shape as the `ws` case. It cannot resolve forward |
+| `multer` | [GHSA-wc9g-mqfw-jrwm](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm), [GHSA-535w-7cp7-47q4](https://github.com/advisories/GHSA-535w-7cp7-47q4), [GHSA-qfvm-cv95-jqjf](https://github.com/advisories/GHSA-qfvm-cv95-jqjf) — high: DoS via crafted multipart input; [GHSA-qvfw-j98x-7q72](https://github.com/advisories/GHSA-qvfw-j98x-7q72) — low: file size limit bypass. Patched `>=2.3.0` | `@nestjs/platform-express` declares `"multer": "2.2.0"` — an **exact pin** in every 11.2.x. The framework's own `multer: 2.3.0` dependency does not move it: you get both copies, and FileInterceptor uses the vulnerable one |
 
 `@nestjs/graphql` is a plain `dependencies` entry, so `ws` is installed even when you run with
-`graphQl: false`. `@nestjs/swagger` is likewise a plain `dependencies` entry. Neither is optional in
-practice.
+`graphQl: false`. `@nestjs/swagger` and `@nestjs/platform-express` are likewise plain `dependencies`
+entries. None of them is optional in practice.
 
 ## The fix
 
@@ -40,6 +41,11 @@ overrides:
   # Same shape as the ws entry: an exact pin cannot resolve forward.
   # Remove once @nestjs/swagger stops pinning it.
   'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
+
+  # @nestjs/platform-express exact-pins multer@2.2.0 (GHSA-wc9g-mqfw-jrwm and three more, patched >=2.3.0).
+  # Keep the target in LOCKSTEP with the multer version @lenne.tech/nest-server declares.
+  # Remove once @nestjs/platform-express requests >=2.3.0 itself.
+  'multer@>=2.0.0 <2.3.0': '2.3.0'
 ```
 
 ### Retired: `@hono/node-server` (removed 2026-08-22, nest-server 11.36.1)
