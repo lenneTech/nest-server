@@ -1,0 +1,76 @@
+name: Windows
+
+# Non-blocking Windows smoke run (Windows roadmap M1, blocking from M5 at the earliest).
+#
+# Deliberately its own workflow file: nothing may wait for it. build.yml gates pushes,
+# publish.yml and regression-evidence.yml gate releases — none of them declares
+# `workflow_call` or a `needs:` on this file, and it must stay that way, or a Windows
+# runner would hold up a release for up to 45 minutes.
+#
+# Red is expected for now. `build:copy-*` use `mkdir -p` / `cp` and several scripts
+# prefix `NODE_ENV=`, neither of which runs under cmd.exe (pnpm's script shell on
+# Windows). That is M2. MongoDB and the e2e suite come later: no service containers
+# on Windows runners, MongoDB would have to run natively on loopback.
+
+on:
+  push:
+    branches:
+      - '*/*'
+      - '*'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows (non-blocking)
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 45
+
+    steps:
+      # Git for Windows' default. Setting it before the checkout makes this job prove
+      # that .gitattributes keeps every text file LF, instead of assuming it.
+      - name: Enable core.autocrlf
+        run: git config --global core.autocrlf true
+
+      - name: Git checkout
+        uses: actions/checkout@v7
+
+      # Only *.cmd / *.bat may be CRLF. docker-entrypoint.sh and the Dockerfile are copied
+      # into Linux images from the working tree, and the .husky hooks run under sh — with
+      # CRLF none of them work.
+      - name: Verify LF line endings
+        shell: bash
+        run: |
+          crlf="$(git ls-files --eol | grep -E 'w/(crlf|mixed)' | grep -vE '\.(cmd|bat)$' || true)"
+          if [ -n "$crlf" ]; then
+            echo "Files checked out with CRLF:"
+            echo "$crlf"
+            exit 1
+          fi
+
+      - name: Install pnpm
+        if: ${{ !cancelled() }}
+        # No version input: the exact version is read from package.json's packageManager field.
+        uses: pnpm/action-setup@v6
+
+      # Same runtime as the Linux build job, so a difference between the two is Windows.
+      - name: Use Node.js 24.x
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        id: install
+        if: ${{ !cancelled() }}
+        run: pnpm install --frozen-lockfile
+
+      # Build and unit tests are independent, so one red step does not hide the other.
+      - name: Build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm run build
+
+      - name: Unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm run vitest:unit
