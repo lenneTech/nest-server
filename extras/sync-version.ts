@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as find from 'find-file-up';
 import * as fs from 'fs';
 
@@ -12,10 +12,7 @@ class UpdateData {
   /**
    * Get file path
    */
-  public async getFilePath(
-    fileName: string,
-    options: { cwd?: string } = {},
-  ): Promise<string> {
+  public async getFilePath(fileName: string, options: { cwd?: string } = {}): Promise<string> {
     const opts = Object.assign({ cwd: process.cwd() }, options);
     const path = await find(fileName, opts.cwd);
     return path || '';
@@ -37,10 +34,11 @@ class UpdateData {
       throw new Error('Missing version in package.json');
     }
 
-    // Stage pnpm-lock.yaml if it exists
+    // Stage pnpm-lock.yaml if it exists. No shell: the absolute path may contain spaces
+    // (e.g. C:\Users\First Last\...), which an interpolated command string would split.
     const lockFilePath = await this.getFilePath('pnpm-lock.yaml');
     if (lockFilePath && fs.existsSync(lockFilePath)) {
-      execSync(`git add ${lockFilePath}`);
+      execFileSync('git', ['add', lockFilePath]);
     }
 
     // Return version
@@ -49,6 +47,8 @@ class UpdateData {
 }
 
 // Update version
-new UpdateData().run().then(version => {
-  console.log(version);
+new UpdateData().run().then((version) => {
+  // console.info, not console.log: lint-staged runs `oxlint --fix --fix-suggestions`, whose
+  // no-console suggestion deletes a console.log from any staged file
+  console.info(version);
 });

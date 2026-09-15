@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.41.1",
+  "version": "11.41.2",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -39,7 +39,7 @@
     "format": "oxfmt --write src/ scripts/",
     "format:check": "oxfmt --check src/ scripts/",
     "lint": "oxlint --ignore-path .oxlintignore src/ tests/ scripts/",
-    "lint:fix": "oxlint --fix --fix-suggestions --ignore-path .oxlintignore src/ tests/ scripts/",
+    "lint:fix": "oxlint --fix --ignore-path .oxlintignore src/ tests/ scripts/",
     "prepack": "pnpm run prestart:prod",
     "prepublishOnly": "pnpm run lint && pnpm run test:ci",
     "prestart:prod": "pnpm run build",
@@ -127,9 +127,9 @@
     "lodash": "4.18.1",
     "mongodb": "7.5.0",
     "mongoose": "9.9.3",
-    "multer": "2.2.0",
+    "multer": "2.3.0",
     "node-mailjet": "6.0.11",
-    "nodemailer": "9.0.5",
+    "nodemailer": "9.1.1",
     "passport": "0.7.0",
     "passport-jwt": "4.0.1",
     "reflect-metadata": "0.2.2",

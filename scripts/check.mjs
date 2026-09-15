@@ -154,7 +154,7 @@ function toFixCommand(kind, cmd) {
   if (kind === 'lint') {
     if (/\blint:fix\b/.test(cmd) || /--fix\b/.test(cmd)) return cmd;
     if (/\brun\s+lint\b/.test(cmd)) return cmd.replace(/\brun\s+lint\b/, 'run lint:fix');
-    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, 'oxlint --fix --fix-suggestions');
+    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, 'oxlint --fix');
     return cmd;
   }
   return cmd;
