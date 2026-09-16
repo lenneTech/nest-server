@@ -377,10 +377,16 @@ if (fileFlag !== -1) {
     // `pnpm audit` exits non-zero WHENEVER it finds anything, which is the normal
     // case here — the report on stdout is what matters, not the status. Only a
     // missing/garbled payload counts as a failure to run.
-    const stdout = execFileSync('pnpm', ['audit', '--json'], {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    const stdout = execFileSync('pnpm audit --json', {
       cwd: ROOT,
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
+      shell: true,
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 180_000,
     });
@@ -618,8 +624,14 @@ const ADVISORY_API_BASE = (() => {
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
   try {
-    return execFileSync('pnpm', ['config', 'get', 'registry'], {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    return execFileSync('pnpm config get registry', {
       encoding: 'utf8',
+      shell: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {

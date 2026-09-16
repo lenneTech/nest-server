@@ -47,7 +47,9 @@ describe('shared registry resolution stays in sync', () => {
     // The property the block exists for. A copy that stopped calling `pnpm config get registry`
     // would still be identical to its twin and still be wrong, so identity alone is not enough.
     const block = blockOf('scripts/check.mjs');
-    expect(block).toContain("execFileSync('pnpm', ['config', 'get', 'registry']");
+    // One command string, not an args array — see the note in the block itself: on Windows
+    // pnpm is a shim that needs a shell, and a shell plus an args array is DEP0190.
+    expect(block).toContain("execFileSync('pnpm config get registry'");
     expect(block).toContain('/-/npm/v1/security/advisories/bulk');
   });
 

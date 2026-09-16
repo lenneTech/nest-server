@@ -404,8 +404,14 @@ export function isAuditResultAmbiguous(parsed) {
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
   try {
-    return execFileSync('pnpm', ['config', 'get', 'registry'], {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    return execFileSync('pnpm config get registry', {
       encoding: 'utf8',
+      shell: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
