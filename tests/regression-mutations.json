@@ -1372,6 +1372,18 @@
         "tests/unit/ai.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "spectaql-spawn-without-shell",
+      "defect": "11.41.2 — scripts/run-spectaql.mjs spawned pnpm without `shell: true`. On Windows every package manager is a .cmd/.ps1/.exe shim, and Node has refused to spawn those directly since 20.12 (CVE-2024-27980), so the call died with `spawn pnpm ENOENT` (errno -4058). The `error` event had no listener either, so the process went down with `Unhandled 'error' event` — and `execAfterInit: 'pnpm run docs:bootstrap'` runs this right after a successful boot, so it took the running server with it. Invisible on Linux and macOS, where the same line works.",
+      "file": "scripts/run-spectaql.mjs",
+      "after": "const spectaql = spawn(",
+      "find": "  shell: true,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/windows-spawn-shims.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
