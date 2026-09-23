@@ -14,6 +14,12 @@ import { afterEach, describe, expect, it } from 'vitest';
  * escalates to SIGKILL after ~2 s WITHOUT failing, so a hung SIGTERM passes that gate silently.
  *
  * Costs one `tsx` child (~1 s), needs no MongoDB, and stays in the unit runner.
+ *
+ * WINDOWS. There is no signal to deliver: `child.kill()` terminates the process at once and the
+ * handler never runs. That is a property of the platform and therefore of the product — a
+ * termination from outside runs no graceful shutdown there — not a flaw in this test. So the two
+ * POSIX cases are skipped on win32 with that reason in their name, and the win32-only case below
+ * pins what DOES happen there. Every case only ever signals the child this spec spawned itself.
  */
 
 const FIXTURE = join(process.cwd(), 'tests/unit/fixtures/process-diagnostics-signal-child.ts');
@@ -59,9 +65,13 @@ async function startChild(): Promise<{ proc: ChildProcessWithoutNullStreams; std
   return { proc, stderr: () => stderr };
 }
 
+const IS_WINDOWS = process.platform === 'win32';
+const POSIX_ONLY_REASON =
+  ' (skipped on win32: Windows delivers no signal — kill() terminates without running the handler)';
+
 describe('process diagnostics against a real process', () => {
-  it(
-    'labels SIGTERM and actually terminates',
+  it.skipIf(IS_WINDOWS)(
+    `labels SIGTERM and actually terminates${IS_WINDOWS ? POSIX_ONLY_REASON : ''}`,
     async () => {
       const { proc, stderr } = await startChild();
       child = proc;
@@ -82,8 +92,8 @@ describe('process diagnostics against a real process', () => {
     45_000,
   );
 
-  it(
-    'labels SIGINT and actually terminates',
+  it.skipIf(IS_WINDOWS)(
+    `labels SIGINT and actually terminates${IS_WINDOWS ? POSIX_ONLY_REASON : ''}`,
     async () => {
       const { proc, stderr } = await startChild();
       child = proc;
@@ -97,6 +107,27 @@ describe('process diagnostics against a real process', () => {
 
       expect(signal).toBe('SIGINT');
       expect(stderr()).toContain('[signal] received SIGINT');
+    },
+    45_000,
+  );
+
+  it.runIf(IS_WINDOWS)(
+    'on Windows, kill() ends the process WITHOUT running the handler — no graceful shutdown from outside',
+    async () => {
+      const { proc, stderr } = await startChild();
+      child = proc;
+
+      const exited = new Promise<void>((settle) => {
+        proc.on('exit', () => settle());
+      });
+
+      proc.kill('SIGTERM');
+      await exited;
+
+      // The process is gone, and the handler never saw it. If Node ever starts delivering the
+      // signal on Windows, this goes red — and installGracefulShutdown()'s docblock is wrong.
+      expect(proc.exitCode !== null || proc.signalCode !== null).toBe(true);
+      expect(stderr()).not.toContain('[signal] received');
     },
     45_000,
   );

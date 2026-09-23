@@ -208,6 +208,10 @@ function describeError(value: unknown): string {
  * Call this as the first statement of `bootstrap()`, before `NestFactory.create()`. See the module
  * docblock for why it must not live inside `CoreModule.forRoot()`.
  *
+ * On Windows the signal labels are not written when the process is ended from outside: there is
+ * no signal to deliver, the process is terminated at once and no handler runs (measured on the
+ * Windows CI runner, see `installGracefulShutdown()`). Ctrl+C in a console is unmeasured.
+ *
  * @param options - Injectable dependencies; defaults target the real `process`
  *
  * @example

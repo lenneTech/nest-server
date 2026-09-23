@@ -29,6 +29,26 @@ const entries = Object.entries(scripts);
 /** `VAR=value` at the start of a command — also after `&&`, `||`, `;` or `|`. */
 const ENV_PREFIX = /(^|[\s;&|(])[A-Z_][A-Z0-9_]*=\S/;
 
+/**
+ * Programs a script may not call: POSIX-only, or (`find`) something else entirely on Windows.
+ * Adopted verbatim from nest-server-starter's `package-scripts-portable.spec.ts` (PR #54).
+ */
+const POSIX_ONLY = ['bash', 'cat', 'cp', 'find', 'grep', 'mv', 'open', 'rm', 'sed', 'sh', 'true', 'xdg-open'];
+
+/** The program in command position of every link in a `&&` / `||` / `;` / `|` chain. */
+function commandNames(command: string): string[] {
+  return command
+    .split(/&&|\|\||;|\|/)
+    .map((link) =>
+      link
+        .trim()
+        .replace(/^cross-env\s+/, '')
+        .replace(/^(?:[A-Z_][A-Z0-9_]*=\S+\s+)+/, ''),
+    )
+    .map((link) => link.split(/\s+/)[0])
+    .filter(Boolean);
+}
+
 const offenders = (re: RegExp) => entries.filter(([, command]) => re.test(command)).map(([name]) => name);
 
 describe('package.json scripts are portable', () => {
@@ -76,5 +96,39 @@ describe('package.json scripts are portable', () => {
     if (!usesCrossEnv) return; // nothing needs it — do not force the dependency
     expect(version, 'scripts call cross-env, so it must be declared').toBeDefined();
     expect(version, 'fixed versions only — no ^ or ~').toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe('commandNames — the detector itself', () => {
+  it('reads the program of every link in a chain', () => {
+    expect(commandNames('pnpm run docs:ci && open http://x/ && compodoc -s')).toEqual(['pnpm', 'open', 'compodoc']);
+    expect(commandNames('cpy ./bin ./dist/ || exit 0')).toEqual(['cpy', 'exit']);
+    expect(commandNames('a; b | c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('looks past cross-env and its assignments', () => {
+    expect(commandNames('cross-env NODE_ENV=e2e A=1 find tests -delete')).toEqual(['find']);
+  });
+
+  it('does not mistake an argument for a program', () => {
+    expect(commandNames('node scripts/open.mjs ./find ./bash')).toEqual(['node']);
+  });
+});
+
+describe('package.json scripts call no program cmd.exe lacks', () => {
+  it('does not call a program that cmd.exe lacks', () => {
+    // Listed rather than silently skipped. `bash scripts/check-server-start.sh` gets a Node
+    // replacement shared across the repos that carry it; `docs` (`open`) and `test:cleanup` (POSIX
+    // `find`) are developer conveniences outside the build and the test run. A SECOND offender
+    // fails the suite, and a script that is fixed must leave this list.
+    const KNOWN_UNPORTABLE = ['check:fix', 'check:naf', 'check:raw', 'docs', 'test:cleanup'];
+    const found = entries
+      .filter(([, command]) => commandNames(command).some((program) => POSIX_ONLY.includes(program)))
+      .map(([name]) => name);
+    const bad = found.filter((name) => !KNOWN_UNPORTABLE.includes(name));
+    expect(bad, `not available under cmd.exe: ${bad.join(', ')}`).toEqual([]);
+    expect(found.sort(), 'a script left KNOWN_UNPORTABLE — drop it from the list').toEqual(
+      KNOWN_UNPORTABLE.filter((name) => scripts[name] !== undefined).sort(),
+    );
   });
 });
