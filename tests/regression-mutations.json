@@ -1384,6 +1384,29 @@
         "tests/unit/windows-spawn-shims.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-plan-no-win32",
+      "defect": "11.41.3 — killTree() in scripts/check.mjs collected children via `pgrep -P` and signalled them with `process.kill` on every platform. Windows has neither, so the watchdog ended only the shell and orphaned the vitest tree it existed to clean up. The fix plans `taskkill /PID <pid> /T /F` on win32; this mutation makes the plan ignore the platform.",
+      "file": "scripts/check.mjs",
+      "find": "platform === 'win32' ? { args",
+      "replace": "platform === 'never' ? { args",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-falls-through-to-pgrep",
+      "defect": "11.41.3 — the Windows plan is only useful if killTree() stops after running it. Falling through to the `pgrep` / `process.kill` path after taskkill reintroduces the POSIX-only code on Windows.",
+      "file": "scripts/check.mjs",
+      "after": "function killTree(",
+      "find": "      /* already gone, or taskkill refused — nothing further to try */\n    }\n    return;\n",
+      "replace": "      /* already gone, or taskkill refused — nothing further to try */\n    }\n",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
