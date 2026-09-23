@@ -73,7 +73,10 @@ function envWithFakeDocker(): NodeJS.ProcessEnv {
   const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
   env[pathKey] = `${join(sandbox, 'bin')}${delimiter}${env[pathKey] ?? ''}`;
   if (IS_WINDOWS) {
-    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --require "${stubPreload}"`.trim();
+    // Forward slashes: NODE_OPTIONS treats `\` inside double quotes as an escape, so a native
+    // `C:\Users\…` arrives as `C:Users…` and EVERY node process of the test dies on the preload
+    // (measured on the Windows runner). Windows accepts `/` in paths.
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --require "${stubPreload.replaceAll('\\', '/')}"`.trim();
   }
   delete env.LT_TEST_INFRA;
   return env;
