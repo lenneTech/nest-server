@@ -16,8 +16,8 @@
   "scripts": {
     "build": "rimraf dist && nest build && pnpm run build:copy-types && pnpm run build:copy-templates && pnpm run build:add-type-references && pnpm run build:framework-api",
     "build:add-type-references": "node scripts/add-type-references.js",
-    "build:copy-templates": "mkdir -p dist/core/modules/migrate/templates && cp src/core/modules/migrate/templates/migration-project.template.ts dist/core/modules/migrate/templates/",
-    "build:copy-types": "mkdir -p dist/types && cp src/types/*.d.ts dist/types/",
+    "build:copy-templates": "node scripts/copy-build-assets.mjs templates",
+    "build:copy-types": "node scripts/copy-build-assets.mjs types",
     "build:dev": "pnpm run build",
     "build:framework-api": "tsx scripts/generate-framework-api.ts",
     "build:pack": "pnpm pack && echo \"use file:/ROOT_PATH_TO_TGZ_FILE to integrate the package\"",
