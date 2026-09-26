@@ -11,8 +11,10 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
 
 import { RoleEnum } from '../../common/enums/role.enum';
+import { ApiTokenKind } from '../api-token/core-api-token.constants';
+import { enforceApiTokenRoute } from '../api-token/core-api-token.helpers';
 import { ErrorCode } from '../error-code';
-import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
+import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
 import { BetterAuthTokenService } from './better-auth-token.service';
 import { BetterAuthenticatedUser } from './better-auth.types';
 import { getBetterAuthTokenService } from './core-better-auth.registry';
@@ -97,13 +99,25 @@ export class BetterAuthRolesGuard implements CanActivate {
       throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
 
+    // API tokens are decided BEFORE the public-route shortcut below: a token is denied on every route
+    // that does not declare @ApiTokenScopes(), public ones included. A tenant token is fully decided
+    // there; a user token continues through the ordinary checks as its user (see core-api-token.helpers).
+    const request = this.getRequest(context);
+    const apiTokenKind = enforceApiTokenRoute({
+      controllerClass: context.getClass(),
+      handler: context.getHandler(),
+      request,
+    });
+    if (apiTokenKind === ApiTokenKind.TENANT) {
+      return true;
+    }
+
     // If no roles required, or S_EVERYONE is set, allow access without authentication
     if (!roles || !roles.some((value) => !!value) || roles.includes(RoleEnum.S_EVERYONE)) {
       return true;
     }
 
-    // Get request and check for user (set by BetterAuth middleware)
-    const request = this.getRequest(context);
+    // Check for user (set by BetterAuth middleware or CoreApiTokenMiddleware)
     let user = request?.user;
 
     // If user isn't set (e.g., middleware didn't run in test environment),
@@ -129,7 +143,7 @@ export class BetterAuthRolesGuard implements CanActivate {
     // When multiTenancy active: pass through ALL non-system roles to CoreTenantGuard.
     // CoreTenantGuard handles hierarchy (level) and non-hierarchy (exact) checks
     // against membership.role (tenant) or user.roles (no tenant).
-    if (isMultiTenancyActive() && roles.some((r) => !isSystemRole(r))) {
+    if (delegatesRolesToTenantGuard() && roles.some((r) => !isSystemRole(r))) {
       return true;
     }
 

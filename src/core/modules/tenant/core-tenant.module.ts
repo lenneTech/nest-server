@@ -1,9 +1,10 @@
-import { CanActivate, DynamicModule, Global, Module, Type } from '@nestjs/common';
+import { CanActivate, DynamicModule, Global, Module, OnModuleDestroy, OnModuleInit, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
 import { roleScopeRegistry } from './core-role-scope.registry';
+import { registerActiveTenantGuard } from './core-tenant-guard.registry';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
 import { TENANT_MEMBER_MODEL_TOKEN } from './core-tenant.enums';
 import { assertRoleVocabularyIsCoherent, configRoleScopeSource } from './core-tenant.helpers';
@@ -58,7 +59,23 @@ export interface CoreTenantModuleOptions {
  */
 @Global()
 @Module({})
-export class CoreTenantModule {
+export class CoreTenantModule implements OnModuleDestroy, OnModuleInit {
+  /** Releases this module's tenant-guard registration (see core-tenant-guard.registry.ts). */
+  private releaseTenantGuard?: () => void;
+
+  /**
+   * Tell the role guards that a tenant guard really runs, so they may hand non-system roles to it.
+   * Registered by the MODULE, not only by CoreTenantGuard, because `forRoot({ guard })` may register
+   * a project's own guard class instead.
+   */
+  onModuleInit(): void {
+    this.releaseTenantGuard = registerActiveTenantGuard();
+  }
+
+  onModuleDestroy(): void {
+    this.releaseTenantGuard?.();
+  }
+
   static forRoot(options: CoreTenantModuleOptions = {}): DynamicModule {
     // Teach the role-scope registry which roles are global and which are tenant-scoped, then
     // refuse to boot on a vocabulary that cannot be enforced coherently (a tenant role named after

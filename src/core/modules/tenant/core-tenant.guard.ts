@@ -19,8 +19,16 @@ import { resolveGuardRequest } from '../../common/helpers/execution-context-requ
 import { ConfigService } from '../../common/services/config.service';
 import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { CoreRedisService } from '../../common/services/core-redis.service';
+import { ApiTokenKind } from '../api-token/core-api-token.constants';
+import {
+  capApiTokenTenantRole,
+  enforceApiTokenRoute,
+  getApiTokenContext,
+  getApiTokenTenantRestriction,
+} from '../api-token/core-api-token.helpers';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreTenantMemberModel } from './core-tenant-member.model';
+import { registerActiveTenantGuard } from './core-tenant-guard.registry';
 import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators';
 import { TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
 import {
@@ -165,7 +173,13 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     setTenantContextResolver({
       resolve: (user, headerTenantId) => this.resolveTenantContext(user, headerTenantId),
     });
+
+    // Lets the role guards delegate non-system roles to this guard — only while it exists.
+    this.releaseTenantGuard = registerActiveTenantGuard();
   }
+
+  /** Releases this guard's registration (see core-tenant-guard.registry.ts). */
+  private releaseTenantGuard?: () => void;
 
   /**
    * Answer "which tenant is this caller in?" WITHOUT an Express request.
@@ -253,6 +267,8 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   }
 
   onModuleDestroy(): void {
+    this.releaseTenantGuard?.();
+
     if (this.invalidationListener) {
       try {
         const subscriber = this.redisService?.getSubscriber();
@@ -324,11 +340,27 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       return true;
     }
 
+    // API tokens (see core-api-token.helpers): a TENANT token is fully decided there — scopes, roles,
+    // binding to its own tenant. A USER token passed its scope check and continues below as its user,
+    // through the same membership validation as a session; only its restrictions are added on top.
+    const apiTokenKind = enforceApiTokenRoute({
+      controllerClass: context.getClass(),
+      handler: context.getHandler(),
+      request,
+    });
+    if (apiTokenKind === ApiTokenKind.TENANT) {
+      return true;
+    }
+    // A user token restricted to one tenant is bound to it like a header naming it — the helper has
+    // already refused a header naming any other tenant.
+    const apiTokenTenant = getApiTokenTenantRestriction(request.user);
+
     // Parse tenant header
     const headerName = (config.headerName ?? 'x-tenant-id').toLowerCase();
     const rawHeader = request.headers?.[headerName] as string | undefined;
     const headerTenantId =
-      rawHeader && typeof rawHeader === 'string' && rawHeader.length <= 128 ? rawHeader.trim() : undefined;
+      apiTokenTenant ??
+      (rawHeader && typeof rawHeader === 'string' && rawHeader.length <= 128 ? rawHeader.trim() : undefined);
 
     // Two role sets for different purposes:
     //
@@ -367,7 +399,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         const membership = await this.findMembershipCached(request.user.id, headerTenantId);
         if (membership) {
           request.tenantId = headerTenantId;
-          request.tenantRole = membership.role as string;
+          request.tenantRole = capApiTokenTenantRole(request.user, membership.role as string) ?? undefined;
         }
       }
       return true;
@@ -380,10 +412,11 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     // Read @SkipTenantCheck early — it suppresses tenant membership validation for system roles too.
     // When set, S_USER and S_VERIFIED still enforce authentication/verification, but no membership
     // check is performed even when a tenant header is present.
-    const hasSkipDecorator = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_CHECK_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    // A tenant-restricted user token stays bound to its tenant even on @SkipTenantCheck() routes:
+    // skipping the check would drop the binding, and the restriction is the whole point of the token.
+    const hasSkipDecorator =
+      !apiTokenTenant &&
+      this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_CHECK_KEY, [context.getHandler(), context.getClass()]);
 
     // S_USER check — any authenticated user satisfies this system role.
     //
@@ -488,7 +521,9 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         throw new ForbiddenException('Not a member of this tenant');
       }
 
-      const memberRole = membership.role as string;
+      // A user token with maxTenantRole acts with the lower of its cap and the membership role; `null`
+      // (a role the hierarchy cannot compare with the cap) satisfies no tenant role at all.
+      const memberRole = capApiTokenTenantRole(user, membership.role as string);
 
       // Check role access if roles are required (hierarchy + normal, against membership.role).
       //
@@ -509,7 +544,8 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         // The length guard is NOT redundant here (unlike the `.some()` above): checkRoleAccess
         // returns TRUE for an empty required-roles list, so calling it with no tenant roles would
         // grant access to a handler that only ever required a global role.
-        const satisfiedByTenant = tenantRoles.length > 0 && checkRoleAccess(tenantRoles, undefined, memberRole);
+        const satisfiedByTenant =
+          tenantRoles.length > 0 && memberRole !== null && checkRoleAccess(tenantRoles, undefined, memberRole);
 
         if (!satisfiedGlobally && !satisfiedByTenant) {
           throw new ForbiddenException('Insufficient tenant role');
@@ -519,7 +555,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       // Set validated tenant context on request (consumed by RequestContextMiddleware
       // lazy getter → context.tenantId / context.tenantRole, and by @CurrentTenant() via RequestContext)
       request.tenantId = headerTenantId;
-      request.tenantRole = memberRole;
+      request.tenantRole = memberRole ?? undefined;
       return true;
     }
 
@@ -573,7 +609,10 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     }
 
     const userId = request.user.id;
-    const ttl = this.cacheTtlMs;
+    // A user token's maxTenantRole changes which memberships reach minLevel, so its answer is computed
+    // per request instead of shared through the per-user cache.
+    const capped = !!getApiTokenContext(request.user)?.maxTenantRole;
+    const ttl = capped ? 0 : this.cacheTtlMs;
 
     // When cache is enabled, check process-level cache
     if (ttl > 0) {
@@ -600,7 +639,8 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       const hierarchy = getRoleHierarchy();
       ids = memberships
         .filter((m) => {
-          const level = hierarchy[m.role as string] ?? 0;
+          const role = capApiTokenTenantRole(request.user, m.role as string);
+          const level = role === null ? 0 : (hierarchy[role] ?? 0);
           return level >= minLevel;
         })
         .map((m) => m.tenant as string);
@@ -808,7 +848,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       throw new ForbiddenException('Not a member of this tenant');
     }
     request.tenantId = headerTenantId;
-    request.tenantRole = membership.role as string;
+    request.tenantRole = capApiTokenTenantRole(user, membership.role as string) ?? undefined;
     return true;
   }
 

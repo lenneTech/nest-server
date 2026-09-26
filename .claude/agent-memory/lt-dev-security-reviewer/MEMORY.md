@@ -21,6 +21,7 @@
 - [project-rate-limit-store-asymmetry.md](project-rate-limit-store-asymmetry.md) — RedisRateLimitStore has NO key cap while the in-memory one carefully does; both key on an unconditionally trusted X-Forwarded-For
 - [project-redact-misses-reset-password-urls.md](project-redact-misses-reset-password-urls.md) — **FIXED 11.36.1**; kept for the probe + the "a redaction rule only knows the URL shapes it was told about" lesson
 - [project-betterauth-ratelimit-not-presence-implies-enabled.md](project-betterauth-ratelimit-not-presence-implies-enabled.md) — **FIXED 11.36.1**; kept for the two-layer lesson (configure() AND the middleware mount) + the probe
+- [project-api-token-module-security-model.md](project-api-token-module-security-model.md) — API tokens: enforceApiTokenRoute per kind; tenant token passed S_SELF/S_CREATOR-only routes; what was verified sound
 
 ## Review Methodology
 

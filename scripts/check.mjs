@@ -577,11 +577,39 @@ async function runAudit(auditCmd) {
 // ── command runner ─────────────────────────────────────────────────────────
 const RUNNING = new Set();
 
+/**
+ * How to kill a process tree on this platform.
+ *
+ * Windows has neither `pgrep` nor signals: `process.kill(pid, 'SIGTERM')` there ends the one
+ * process and orphans its children, and `taskkill /T` alone was measured to leave the tree
+ * running ("Die Beendigung dieses Prozesses muss erzwungen werden") with the port still held.
+ * `/F` is what actually frees it, so the whole tree is force-killed in one call.
+ *
+ * The consequence is worth stating, because it is a behaviour difference and not an
+ * implementation detail: on Windows there is no graceful stage. The SIGTERM call already
+ * terminates, so a child's graceful-shutdown hook does not run — a server gets no chance to
+ * close connections or flush. The SIGKILL escalation five seconds later then finds nothing.
+ *
+ * Split out as a pure function so both branches can be tested from either platform.
+ */
+export function killTreePlan(pid, signal, platform = process.platform) {
+  return platform === 'win32' ? { args: ['/PID', String(pid), '/T', '/F'], command: 'taskkill' } : { signal };
+}
+
 // Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
 // fork workers). Killing only the direct child orphans the tree — exactly the
 // zombie workers a deadlock leaves behind. Children are collected via pgrep
 // and killed leaves-first.
 function killTree(child, signal = 'SIGTERM') {
+  const plan = killTreePlan(child.pid, signal);
+  if (plan.command) {
+    try {
+      execFileSync(plan.command, plan.args, { stdio: 'ignore' });
+    } catch {
+      /* already gone, or taskkill refused — nothing further to try */
+    }
+    return;
+  }
   const pids = [];
   const collect = (pid) => {
     pids.push(pid);

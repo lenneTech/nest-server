@@ -1,6 +1,7 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
+import { hasApiTokenCredential } from '../api-token/core-api-token.helpers';
 import { isLegacyJwt } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, extractSessionToken } from './core-better-auth-web.helper';
@@ -51,6 +52,13 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
     // Skip if user is already set (e.g., by JWT auth)
     if (req.user) {
+      return next();
+    }
+
+    // Leave API tokens to CoreApiTokenMiddleware (recognised by their configured prefix, `apiTokens`).
+    // Not even the cookie fallback may run: a request that presents a token is a token request, and a
+    // session cookie riding along must not turn it into a session request with the user's full rights.
+    if (hasApiTokenCredential(req)) {
       return next();
     }
 

@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-09-18 (v11.41.3)
+> Auto-generated from source code as of 2026-09-23 (v11.41.4)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -14,6 +14,7 @@
 
   - `ai?`: `boolean | IAi | undefined` — Configuration for the AI assistant module.
   - `appUrl?`: `string | undefined` — Base URL of the frontend/app application.
+  - `apiTokens?`: `boolean | IApiTokens | undefined` (default: `undefined (disabled)`) — API tokens: bearer credentials for machine clients and embedded pages that cannot carry a session
   - `auth?`: `IAuth | undefined` — Authentication system configuration
   - `automaticObjectIdFiltering?`: `boolean | undefined` — Automatically detect ObjectIds in string values in FilterQueries
   - `baseUrl?`: `string | undefined` — Base URL of the API server.
@@ -208,6 +209,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### ICoreModuleOverrides
 
+  - `apiToken?`: `{ model?: Type<any>; service?: Type<any>; } | undefined` — Override API token collaborators with project-specific subclasses (`apiTokens` config).
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; } | undefined` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; } | undefined` — Override ErrorCode controller and/or service.
@@ -347,6 +349,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | Module | Docs | Path |
 |--------|------|------|
 | `ai` | README, CHECKLIST | `src/core/modules/ai/` |
+| `api-token` | README, CHECKLIST | `src/core/modules/api-token/` |
 | `auth` | README | `src/core/modules/auth/` |
 | `better-auth` | README, CHECKLIST | `src/core/modules/better-auth/` |
 | `error-code` | CHECKLIST | `src/core/modules/error-code/` |

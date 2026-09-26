@@ -657,8 +657,16 @@ also accepts OAuth access tokens. Mount the discovery/token endpoints in `main.t
 ```typescript
 // main.ts, after app.init()
 import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
-await mountAiMcpOAuth(app, { baseUrl: process.env.BASE_URL });
+await mountAiMcpOAuth(app);
 ```
+
+The issuer — and with it every endpoint URL in the discovery metadata, which MCP clients follow —
+is the server's `baseUrl` (`NSC__BASE_URL` when deployed), resolved the same way BetterAuth and
+CORS resolve it. `local` / `ci` / `e2e` fall back to `http://localhost:3000`; any other environment
+without a `baseUrl` fails the call instead of guessing, because a deployed API that advertised
+`http://localhost:3000` sent Claude Code off to register the client on the user's own machine.
+Pass `{ baseUrl }` only when the issuer must differ from the server's `baseUrl`, and do not add a
+`localhost` fallback of your own. The resolved issuer is logged once at boot.
 
 Override `CoreAiMcpOAuthService.authorizeConsent()` to wire your login/consent UI.
 Set `ai.mcp.oauthSecret` (or reuse `ai.encryptionSecret`) to a random 32+ char value.

@@ -56,6 +56,7 @@ consumer follows. See `.claude/rules/configurable-features.md` for the full opti
 
 | Module | Purpose |
 |--------|---------|
+| **ApiToken** | Opt-in bearer tokens: USER tokens (act as their user, no global roles) and TENANT tokens (lowest tenant role, own tenant only); deny by default via `@ApiTokenScopes()`; signed short-lived assertions |
 | **Auth** | JWT authentication, refresh tokens, role-based access |
 | **BetterAuth** | Modern auth integration (2FA, Passkey, Social) |
 | **ErrorCode** | Centralized error codes with unique identifiers |

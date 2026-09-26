@@ -38,7 +38,7 @@
  * produce ceremony rather than evidence. The TAG is the promise; prose is just a comment.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { applyMutation } from '../../scripts/check-mutations.mjs';
@@ -92,10 +92,12 @@ function blockComments(source: string): string[] {
   return source.match(/\/\*[\s\S]*?\*\//g) ?? [];
 }
 
-const TAGGED = testFiles().flatMap(file =>
+const TAGGED = testFiles().flatMap((file) =>
   blockComments(readFileSync(file, 'utf8'))
-    .filter(block => block.includes('@regression'))
-    .map((block, index) => ({ block, file: relative(ROOT, file), index })),
+    .filter((block) => block.includes('@regression'))
+    // Forward slashes, because that is how the registry names spec files. On Windows `relative()`
+    // answers `tests\x.e2e-spec.ts`, and every tag then failed to find its own mutation.
+    .map((block, index) => ({ block, file: relative(ROOT, file).split(sep).join('/'), index })),
 );
 
 describe('regression-test evidence', () => {
@@ -106,27 +108,24 @@ describe('regression-test evidence', () => {
   });
 
   describe('every @regression tag carries a re-runnable observation', () => {
-    it.each(TAGGED.map(entry => [`${entry.file} #${entry.index + 1}`, entry] as const))('%s', (_label, entry) => {
+    it.each(TAGGED.map((entry) => [`${entry.file} #${entry.index + 1}`, entry] as const))('%s', (_label, entry) => {
       expect(
         entry.block,
-        'an @regression block must state how the test was observed failing:\n'
-          + '  @seen-failing <mutation …, registered in tests/regression-mutations.json>',
+        'an @regression block must state how the test was observed failing:\n' +
+          '  @seen-failing <mutation …, registered in tests/regression-mutations.json>',
       ).toContain('@seen-failing');
 
-      const referenced = registry.mutations.filter(mutation => entry.block.includes(mutation.id));
+      const referenced = registry.mutations.filter((mutation) => entry.block.includes(mutation.id));
       expect(
-        referenced.map(mutation => mutation.id),
-        'the @seen-failing line must name a mutation id from tests/regression-mutations.json, so '
-          + '`pnpm run check:mutations` can re-run the observation',
+        referenced.map((mutation) => mutation.id),
+        'the @seen-failing line must name a mutation id from tests/regression-mutations.json, so ' +
+          '`pnpm run check:mutations` can re-run the observation',
       ).not.toEqual([]);
 
       // …and that mutation must actually run the file the tag lives in, or the "evidence" is for
       // some other suite entirely.
       for (const mutation of referenced) {
-        expect(
-          mutation.specs,
-          `mutation '${mutation.id}' does not run ${entry.file}`,
-        ).toContain(entry.file);
+        expect(mutation.specs, `mutation '${mutation.id}' does not run ${entry.file}`).toContain(entry.file);
       }
     });
   });
@@ -141,24 +140,24 @@ describe('regression-test evidence', () => {
     // The script refuses such a list at runtime; this asserts it structurally, so the registry
     // cannot reach that state in the first place — a mutation is only checked by the script when
     // somebody runs the (release-path) gate, while this runs on every `check`.
-    it.each(registry.mutations.map(mutation => [mutation.id, mutation] as const))(
+    it.each(registry.mutations.map((mutation) => [mutation.id, mutation] as const))(
       '%s does not mix unit and e2e specs',
       (_id, mutation) => {
-        const unit = mutation.specs.filter(spec => spec.startsWith('tests/unit/'));
-        const e2e = mutation.specs.filter(spec => !spec.startsWith('tests/unit/'));
+        const unit = mutation.specs.filter((spec) => spec.startsWith('tests/unit/'));
+        const e2e = mutation.specs.filter((spec) => !spec.startsWith('tests/unit/'));
 
         expect(
           unit.length === 0 || e2e.length === 0,
-          `mutation '${mutation.id}' spans both runners (unit: ${unit.join(', ') || 'none'} | `
-            + `e2e: ${e2e.join(', ') || 'none'}). Split it — each half is its own claim about the `
-            + 'defect, and one vitest run cannot execute both.',
+          `mutation '${mutation.id}' spans both runners (unit: ${unit.join(', ') || 'none'} | ` +
+            `e2e: ${e2e.join(', ') || 'none'}). Split it — each half is its own claim about the ` +
+            'defect, and one vitest run cannot execute both.',
         ).toBe(true);
       },
     );
   });
 
   describe('the registry cannot rot into a no-op', () => {
-    it.each(registry.mutations.map(mutation => [mutation.id, mutation] as const))(
+    it.each(registry.mutations.map((mutation) => [mutation.id, mutation] as const))(
       '%s still matches its target exactly once',
       (_id, mutation) => {
         const target = join(ROOT, mutation.file);
@@ -173,7 +172,7 @@ describe('regression-test evidence', () => {
       },
     );
 
-    it.each(registry.mutations.map(mutation => [mutation.id, mutation] as const))(
+    it.each(registry.mutations.map((mutation) => [mutation.id, mutation] as const))(
       '%s names spec files that exist',
       (_id, mutation) => {
         expect(mutation.specs.length).toBeGreaterThan(0);
@@ -188,15 +187,15 @@ describe('regression-test evidence', () => {
       // they cover, so `check:mutations` would be re-proving a claim no test is making.
       const referenced = new Set(
         registry.mutations
-          .filter(mutation => TAGGED.some(entry => entry.block.includes(mutation.id)))
-          .map(mutation => mutation.id),
+          .filter((mutation) => TAGGED.some((entry) => entry.block.includes(mutation.id)))
+          .map((mutation) => mutation.id),
       );
-      const orphans = registry.mutations.map(mutation => mutation.id).filter(id => !referenced.has(id));
+      const orphans = registry.mutations.map((mutation) => mutation.id).filter((id) => !referenced.has(id));
       expect(orphans, 'these mutations are registered but no @regression tag references them').toEqual([]);
     });
 
     it('has unique ids', () => {
-      const ids = registry.mutations.map(mutation => mutation.id);
+      const ids = registry.mutations.map((mutation) => mutation.id);
       expect(ids).toEqual([...new Set(ids)]);
     });
 
@@ -204,8 +203,8 @@ describe('regression-test evidence', () => {
       // 11.33.0's defect was correct under two drivers and broken under the third. If every
       // registered mutation is driver-agnostic, nothing re-proves that the matrix catches the class
       // it was built for — the parity harness would be trusted rather than checked.
-      const driverSpecific = registry.mutations.filter(mutation => mutation.driverSpecific);
-      expect(driverSpecific.map(mutation => mutation.id)).not.toEqual([]);
+      const driverSpecific = registry.mutations.filter((mutation) => mutation.driverSpecific);
+      expect(driverSpecific.map((mutation) => mutation.id)).not.toEqual([]);
       for (const mutation of driverSpecific) {
         expect(mutation.drivers?.length, `${mutation.id} must name the affected drivers`).toBeGreaterThan(0);
       }
@@ -232,8 +231,8 @@ describe('the documented counts match the registry', () => {
   const RULES = flatten(readFileSync(join(ROOT, '.claude', 'rules', 'testing.md'), 'utf8'));
   const SCRIPT = flatten(readFileSync(join(ROOT, 'scripts', 'check-mutations.mjs'), 'utf8'));
 
-  const unitOnly = registry.mutations.filter(mutation =>
-    mutation.specs.every(spec => spec.startsWith('tests/unit/')),
+  const unitOnly = registry.mutations.filter((mutation) =>
+    mutation.specs.every((spec) => spec.startsWith('tests/unit/')),
   );
   const total = registry.mutations.length;
   const e2eCount = total - unitOnly.length;
@@ -252,9 +251,7 @@ describe('the documented counts match the registry', () => {
     it('states the current e2e count', () => {
       // The count this guard originally missed, which then went stale in the very commit that
       // introduced the guard.
-      expect(RULES, `testing.md must name ${e2eCount} e2e mutations`).toContain(
-        `all ${e2eCount} e2e mutations`,
-      );
+      expect(RULES, `testing.md must name ${e2eCount} e2e mutations`).toContain(`all ${e2eCount} e2e mutations`);
     });
 
     it('states how many times vitest is started', () => {
@@ -272,9 +269,7 @@ describe('the documented counts match the registry', () => {
     });
 
     it('states the current total where it justifies running everything', () => {
-      expect(SCRIPT, `the caching-rationale comment must name ${total}`).toContain(
-        `still runs all ${total}`,
-      );
+      expect(SCRIPT, `the caching-rationale comment must name ${total}`).toContain(`still runs all ${total}`);
     });
 
     it('states the current total in the bad-trade conclusion', () => {

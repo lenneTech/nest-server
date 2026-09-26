@@ -1,6 +1,9 @@
+import { Logger } from '@nestjs/common';
+
 import { isForbiddenMembershipRole, isGlobalOnlyRole, looksLikeSystemRole } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
 import { RoleScope, roleScopeRegistry, RoleScopeSource } from './core-role-scope.registry';
+import { hasActiveTenantGuard } from './core-tenant-guard.registry';
 import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums';
 
 /**
@@ -170,6 +173,33 @@ export function tenantSatisfiableRoles(requiredRoles: string[]): string[] {
 export function isMultiTenancyActive(): boolean {
   const config = ConfigService.configFastButReadOnly?.multiTenancy;
   return !!config && config.enabled !== false;
+}
+
+let warnedAboutMissingTenantGuard = false;
+
+/**
+ * Should a role guard hand non-system roles over to the tenant guard?
+ *
+ * Only when multi-tenancy is on AND a tenant guard is actually registered. Configured-but-absent is
+ * not "someone else checks it" — it is "nobody checks it", so the role guard then resolves the roles
+ * itself against `user.roles` (fail-closed) and says so once.
+ */
+export function delegatesRolesToTenantGuard(): boolean {
+  if (!isMultiTenancyActive()) {
+    return false;
+  }
+  if (hasActiveTenantGuard()) {
+    return true;
+  }
+  if (!warnedAboutMissingTenantGuard) {
+    warnedAboutMissingTenantGuard = true;
+    new Logger('CoreTenantModule').warn(
+      'multiTenancy is configured but no tenant guard is registered — the role guards check non-system roles ' +
+        'against user.roles themselves instead of delegating them. Register CoreTenantModule (CoreModule does so ' +
+        'automatically when multiTenancy is set).',
+    );
+  }
+  return false;
 }
 
 /**

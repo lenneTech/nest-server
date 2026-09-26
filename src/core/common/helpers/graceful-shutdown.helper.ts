@@ -47,6 +47,15 @@ const SHUTDOWN_DELAY_ADVISORY_MS = 10_000;
  * Without a configured delay this is exactly `app.enableShutdownHooks()`, which is what the
  * framework did before.
  *
+ * **Windows: a termination from outside runs none of this.** Windows has no SIGTERM to deliver.
+ * Ending a process from outside, whether by `child.kill()`, `taskkill /F` (what `lt dev down` and
+ * the `check` watchdog use) or the Task Manager, terminates it at once. Measured on the Windows CI
+ * runner (`tests/unit/process-diagnostics-signal.spec.ts`): the process exits and the handler
+ * never runs. So on Windows neither `shutdownDelayMs` nor any `onModuleDestroy` /
+ * `onApplicationShutdown` hook runs on such a termination. Ctrl+C in a console window reaches Node
+ * as SIGINT and SHOULD reach this handler — that path is **unmeasured**. Do not rely on a graceful
+ * drain there; production targets Linux containers, where all of the above holds.
+ *
  * @param app the Nest application to shut down
  * @returns the same app, so it can be chained
  */

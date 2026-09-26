@@ -15,7 +15,7 @@
  * ~10MB, so it only runs in CI or when PIN_PROVISION_TEST is set.
  */
 import { execSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -70,7 +70,7 @@ describe('pnpm pin contract: Dockerfile', () => {
     // and AFTER package.json exists in the WORKDIR (an earlier COPY in the same stage,
     // or `COPY --from=` of a directory that contains it).
     const stages = dockerfile.split(/^FROM /m).slice(1);
-    const pnpmStages = stages.filter(stage => /^RUN[^\n]*\bpnpm\b/m.test(stage));
+    const pnpmStages = stages.filter((stage) => /^RUN[^\n]*\bpnpm\b/m.test(stage));
     expect(pnpmStages.length).toBeGreaterThan(0);
     for (const stage of pnpmStages) {
       const deriveIndex = stage.indexOf(DERIVE_PATTERN);
@@ -86,7 +86,7 @@ describe('pnpm pin contract: Dockerfile', () => {
 
 describe('pnpm pin contract: GitHub workflows', () => {
   const workflowDir = join(ROOT, '.github', 'workflows');
-  const workflows = readdirSync(workflowDir).filter(file => /\.ya?ml$/.test(file));
+  const workflows = readdirSync(workflowDir).filter((file) => /\.ya?ml$/.test(file));
 
   it('finds workflow files to check', () => {
     expect(workflows.length).toBeGreaterThan(0);
@@ -118,11 +118,11 @@ describe('pnpm pin contract: GitHub workflows', () => {
 // Functional proof of the whole chain: derive the spec exactly like the Dockerfile does, install
 // it into a throwaway npm prefix, and check the provisioned binary reports the pinned version.
 // Needs network + ~10MB, so it is gated to CI / explicit opt-in and must not slow local hooks.
-describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))('pnpm pin contract: provisioning (CI / PIN_PROVISION_TEST only)', () => {
-  it(
-    'derive-line yields the pinned spec and npm provisions exactly that pnpm version',
-    () => {
-      const derived = execSync('node -p "require(\'./package.json\').packageManager.split(\'+\')[0]"', {
+describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))(
+  'pnpm pin contract: provisioning (CI / PIN_PROVISION_TEST only)',
+  () => {
+    it('derive-line yields the pinned spec and npm provisions exactly that pnpm version', () => {
+      const derived = execSync("node -p \"require('./package.json').packageManager.split('+')[0]\"", {
         cwd: ROOT,
         encoding: 'utf8',
       }).trim();
@@ -137,12 +137,17 @@ describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))('pnpm 
           stdio: 'pipe',
           timeout: 150_000,
         });
-        const provisioned = execSync(`"${join(prefix, 'bin', 'pnpm')}" --version`, { encoding: 'utf8' }).trim();
+        // npm's global layout differs per platform: `<prefix>/bin/pnpm` on macOS/Linux,
+        // `<prefix>\pnpm.cmd` directly in the prefix on Windows (measured on a runner by
+        // nuxt-extensions: no `bin` directory exists there). Accept either, but exactly one — the
+        // test must run the pnpm it just installed, never one found on PATH.
+        const launchers = [join(prefix, 'bin', 'pnpm'), join(prefix, 'pnpm.cmd')].filter((path) => existsSync(path));
+        expect(launchers).toHaveLength(1);
+        const provisioned = execSync(`"${launchers[0]}" --version`, { encoding: 'utf8' }).trim();
         expect(provisioned).toBe(pinnedVersion);
       } finally {
         rmSync(prefix, { force: true, recursive: true });
       }
-    },
-    180_000,
-  );
-});
+    }, 180_000);
+  },
+);

@@ -29,7 +29,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // Every case spawns a real Node process. vitest's 5s default held in isolation but
@@ -789,5 +789,91 @@ describe('check-overrides — a rate limit is a quota problem, not a security fi
     expect(r.out).toMatch(/ignoring CHECK_OVERRIDES_ADVISORY_API/);
     expect(r.out).toMatch(/only a loopback address/);
     expect(r.status, `a rejected override must not fail the run, got:\n${r.out}`).toBe(0);
+  });
+});
+
+describe('check-overrides — a clean LIVE audit is probed, not assumed', () => {
+  // The one path `--audit-file` cannot reach: a live `pnpm audit` that comes back clean, after
+  // which the guard asks npm's bulk endpoint whether "0 advisories" meant "nothing found" or
+  // "could not ask". A fake `pnpm` on PATH supplies the clean report, and a loopback server
+  // stands in for the endpoint, so the case stays offline and deterministic.
+  async function runLiveClean(status: number) {
+    const dir = mkdtempSync(join(tmpdir(), 'overrides-guard-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    copyFileSync(GUARD, join(dir, 'scripts', 'check-overrides.mjs'));
+    writeFileSync(
+      join(dir, 'package.json'),
+      `${JSON.stringify({ name: 's', pnpm: { overrides: { 'fast-uri': '3.1.3' } } }, null, 2)}\n`,
+    );
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    const clean = JSON.stringify({
+      advisories: {},
+      metadata: { vulnerabilities: { critical: 0, high: 0, info: 0, low: 0, moderate: 0 } },
+    });
+    writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s' '${clean}'\n`, { mode: 0o755 });
+    writeFileSync(join(bin, 'pnpm.cmd'), `@echo ${clean}\r\n`);
+
+    const { createServer } = await import('node:http');
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as { port: number };
+    // Windows spells it `Path`; adding a second `PATH` key would leave which one wins undefined.
+    const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+    try {
+      // ASYNC: the stub answers the child from THIS process's event loop (see runAsync()).
+      const child = spawn(process.execPath, [join(dir, 'scripts', 'check-overrides.mjs')], {
+        env: {
+          ...process.env,
+          CHECK_OVERRIDES_ADVISORY_API: `http://127.0.0.1:${port}`,
+          CI: '',
+          [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}`,
+        },
+      });
+      let out = '';
+      let spawnError: Error | undefined;
+      child.on('error', (err) => (spawnError = err));
+      child.stdout.on('data', (c) => (out += c));
+      child.stderr.on('data', (c) => (out += c));
+      const exit = await new Promise<null | number>((resolve) => child.on('close', resolve));
+      assertReachedAVerdict(out, spawnError);
+      return { exit, out, requests };
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  /**
+   * @regression   11.41.4 — the clean-tree probe runs at top level and read NPM_ADVISORY_BULK
+   *   while that const was still declared further down the script. The ReferenceError landed
+   *   in the probe's catch, so every live run with a clean audit reported "npm's advisory
+   *   service is unreachable" and verified none of the declared overrides — with the service
+   *   answering 200. CI passes `--audit-file` and skips the probe, so only local runs lost it.
+   * @seen-failing Point the probe at a binding that does not exist yet, which is what the
+   *   temporal dead zone did — registered as mutation `overrides-probe-reads-undeclared-bulk-url`
+   *   in tests/regression-mutations.json.
+   */
+  it('reports the overrides as checked when the advisory service answers', async () => {
+    const r = await runLiveClean(200);
+    expect(r.requests, 'the probe must actually ask the bulk endpoint').toContain(
+      'POST /-/npm/v1/security/advisories/bulk',
+    );
+    expect(r.out, `a reachable service must not be reported as down, got:\n${r.out}`).not.toMatch(/unreachable/);
+    expect(r.out).toMatch(/ok — 1 override\(s\) checked against 0 advisory\/advisories/);
+    expect(r.exit).toBe(0);
+  });
+
+  it('still says "could not ask" when the service really is down (the paired control)', async () => {
+    const r = await runLiveClean(503);
+    expect(r.out, `a 503 must be reported as an outage, got:\n${r.out}`).toMatch(/unreachable/);
+    expect(r.out).toMatch(/COULD NOT ASK/);
+    expect(r.exit, 'an outage must not fail the chain').toBe(0);
   });
 });

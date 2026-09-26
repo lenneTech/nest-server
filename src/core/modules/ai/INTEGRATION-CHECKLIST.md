@@ -209,8 +209,14 @@ The response body carries the stable `#LTNS_0901` code, never the raw error.
 
 ```typescript
 import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
-await mountAiMcpOAuth(app, { baseUrl: process.env.BASE_URL });
+await mountAiMcpOAuth(app);
 ```
+
+**WHY no `baseUrl` argument:** the issuer is every URL in the discovery metadata, and MCP clients
+follow them. The helper takes it from the server's `baseUrl` (`NSC__BASE_URL` when deployed) and
+fails the boot in a deployed environment that has none, rather than advertising `localhost` —
+which sends clients to the user's own machine. Pass `{ baseUrl }` only for an issuer that must
+differ from the server's `baseUrl`; never add a `localhost` fallback of your own.
 
 Override `CoreAiMcpOAuthService.authorizeConsent()` with your login/consent UI (the only
 browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are built in.
@@ -231,12 +237,13 @@ browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are bui
 
 ## Common Mistakes
 
-| Mistake                                       | Symptom                                                       | Fix                                                       |
-| --------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
-| No `ai` config block                          | Module not loaded, `aiPrompt` missing from schema             | Add an `ai` block (presence implies enabled)              |
-| No encryption secret in prod                  | **App refuses to boot** (throws); dev/local only warns        | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)              |
-| Encryption secret changed after keys stored   | Boot logs "key(s) could not be decrypted"; those prompts fail | Re-enter the API key for the listed connections           |
-| Tool returns `.lean()`/aggregate data         | `@Restricted` fields leak into the LLM context                | Route through `CrudService` with `context.serviceOptions` |
-| Tool not registered                           | Tool never offered to the LLM                                 | Declare it as a provider in a module (extends `AiTool`)   |
-| Overridden resolver method missing decorators | Method absent from GraphQL schema                             | Re-declare `@Mutation`/`@Query`/`@Roles` in the override  |
-| Storing a real API key in `config.env.ts`     | Secret committed to the repo                                  | Use `apiKeyEnv` or the runtime connection CRUD            |
+| Mistake                                          | Symptom                                                                                | Fix                                                                |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| No `ai` config block                             | Module not loaded, `aiPrompt` missing from schema                                      | Add an `ai` block (presence implies enabled)                       |
+| No encryption secret in prod                     | **App refuses to boot** (throws); dev/local only warns                                 | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)                       |
+| Encryption secret changed after keys stored      | Boot logs "key(s) could not be decrypted"; those prompts fail                          | Re-enter the API key for the listed connections                    |
+| Tool returns `.lean()`/aggregate data            | `@Restricted` fields leak into the LLM context                                         | Route through `CrudService` with `context.serviceOptions`          |
+| Tool not registered                              | Tool never offered to the LLM                                                          | Declare it as a provider in a module (extends `AiTool`)            |
+| Overridden resolver method missing decorators    | Method absent from GraphQL schema                                                      | Re-declare `@Mutation`/`@Query`/`@Roles` in the override           |
+| Storing a real API key in `config.env.ts`        | Secret committed to the repo                                                           | Use `apiKeyEnv` or the runtime connection CRUD                     |
+| `localhost` fallback for the MCP OAuth `baseUrl` | MCP client fails to register with `ECONNREFUSED`; discovery metadata names `localhost` | Call `mountAiMcpOAuth(app)` without `baseUrl`, set `NSC__BASE_URL` |

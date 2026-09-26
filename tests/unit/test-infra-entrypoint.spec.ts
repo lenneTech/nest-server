@@ -20,11 +20,30 @@
  *
  * Needs no Docker: a stub `docker` that always fails is put on PATH, which also
  * lets the test assert that the import never invoked it at all.
+ *
+ * On Windows the stub cannot be a shell script: test-infra.mjs spawns `docker`
+ * WITHOUT a shell, and that lookup only resolves `.com`/`.exe` — a `docker.cmd`
+ * would be skipped and the runner's real Docker found instead (which is what the
+ * Windows CI job did until this was fixed). So there the stub is a copy of
+ * node.exe named `docker.exe`, and the stub logic reaches it via
+ * `NODE_OPTIONS=--require`. Every case that expects the stub asserts it was
+ * called, so a stub that stops taking effect turns the suite red instead of
+ * silently testing the machine's Docker.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // `__dirname`, not `import.meta.url`: tsconfig.tests.json compiles these specs as
@@ -36,6 +55,9 @@ const SCRIPT = join(ROOT, 'scripts', 'test-infra.mjs');
 let sandbox: string;
 let dockerLog: string;
 let harness: string;
+let stubPreload: string;
+
+const IS_WINDOWS = process.platform === 'win32';
 
 /**
  * Environment with a `docker` that always fails and records every invocation.
@@ -45,7 +67,17 @@ let harness: string;
  * reproduce and the test would pass vacuously.
  */
 function envWithFakeDocker(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${join(sandbox, 'bin')}:${process.env.PATH}` };
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  // Windows spells it `Path`, and a plain object copy of process.env is case-sensitive: setting
+  // `PATH` next to it would hand the child two entries. Reuse whichever key is there.
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+  env[pathKey] = `${join(sandbox, 'bin')}${delimiter}${env[pathKey] ?? ''}`;
+  if (IS_WINDOWS) {
+    // Forward slashes: NODE_OPTIONS treats `\` inside double quotes as an escape, so a native
+    // `C:\Users\…` arrives as `C:Users…` and EVERY node process of the test dies on the preload
+    // (measured on the Windows runner). Windows accepts `/` in paths.
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --require "${stubPreload.replaceAll('\\', '/')}"`.trim();
+  }
   delete env.LT_TEST_INFRA;
   return env;
 }
@@ -59,17 +91,35 @@ beforeAll(() => {
   const bin = join(sandbox, 'bin');
   dockerLog = join(sandbox, 'docker-calls.log');
   mkdirSync(bin, { recursive: true });
-  const stub = join(bin, 'docker');
-  writeFileSync(stub, `#!/bin/sh\necho "$@" >> "${dockerLog}"\necho "docker stub: daemon not running" >&2\nexit 1\n`);
-  chmodSync(stub, 0o755);
+  if (IS_WINDOWS) {
+    // A node.exe named docker.exe runs this preload first. The preload is loaded into EVERY node
+    // process of the test (NODE_OPTIONS is inherited), so it acts only in the one named docker.
+    // Node has already resolved the subcommand (`info`) to an absolute script path by then, so the
+    // log keeps its basename.
+    copyFileSync(process.execPath, join(bin, 'docker.exe'));
+    stubPreload = join(sandbox, 'docker-stub.cjs');
+    writeFileSync(
+      stubPreload,
+      `if (require('node:path').basename(process.execPath).toLowerCase() === 'docker.exe') {\n` +
+        `  require('node:fs').appendFileSync(${JSON.stringify(dockerLog)}, [require('node:path').basename(process.argv[1] ?? ''), ...process.argv.slice(2)].join(' ') + '\\n');\n` +
+        `  process.stderr.write('docker stub: daemon not running\\n');\n` +
+        `  process.exit(1);\n` +
+        `}\n`,
+    );
+  } else {
+    const stub = join(bin, 'docker');
+    writeFileSync(stub, `#!/bin/sh\necho "$@" >> "${dockerLog}"\necho "docker stub: daemon not running" >&2\nexit 1\n`);
+    chmodSync(stub, 0o755);
+  }
 
   // Imports the script exactly the way tests/global-setup.ts does, then reports
   // whether the import mutated process.exitCode.
   harness = join(sandbox, 'harness.mjs');
   writeFileSync(
     harness,
-    `const mod = await import(${JSON.stringify(SCRIPT)});\n`
-      + `console.log('exitCode=' + String(process.exitCode) + ' up=' + typeof mod.up + ' down=' + typeof mod.down);\n`,
+    // A file URL, not the path: ESM `import()` rejects a bare `C:\…` path as an unknown scheme.
+    `const mod = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});\n` +
+      `console.log('exitCode=' + String(process.exitCode) + ' up=' + typeof mod.up + ' down=' + typeof mod.down);\n`,
   );
 });
 
@@ -122,5 +172,7 @@ describe('scripts/test-infra.mjs: CLI entry point still dispatches', () => {
     });
     expect(result.status).toBe(1);
     expect(result.stderr + result.stdout).toContain('Docker is not available');
+    // Proves the stub answered, not a real Docker that happened to fail.
+    expect(dockerInvocations()).toContain('info');
   });
 });

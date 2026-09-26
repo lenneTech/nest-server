@@ -425,6 +425,103 @@ if (fileFlag !== -1) {
 
 const advisories = Object.values(report.advisories ?? {});
 
+// Declared ABOVE the clean-tree probe below, which runs at top level and reads
+// NPM_ADVISORY_BULK. Declared after it, the probe hit the const's temporal dead zone,
+// the ReferenceError landed in the probe's catch, and a clean audit was reported as
+// "npm's advisory service is unreachable" — the guard verified nothing on exactly the
+// runs where there was nothing to find.
+
+/**
+ * Base URL for the Advisory API — overridable, but ONLY to a loopback address.
+ *
+ * The rate-limit branch below is the one piece of logic here that cannot be reached through
+ * `--advisory-file`, because that flag exists precisely to bypass `fetch`. Without a seam it
+ * would be untestable, and untested branches in a security guard are what this whole script
+ * is about: a rule only ever asserted in its passing state is indistinguishable from one that
+ * is never evaluated.
+ *
+ * The loopback restriction is what makes the seam safe to ship. A plain env var would be a
+ * redirect switch for a security check — anything that sets the environment could point the
+ * suppression lookup at a server that answers "no fix exists" forever. Refusing every
+ * non-loopback value means the override is usable from a test and inert everywhere else,
+ * including CI. A rejected value is announced rather than silently ignored, so a typo does
+ * not look like it worked.
+ */
+const ADVISORY_API_BASE = (() => {
+  const override = process.env.CHECK_OVERRIDES_ADVISORY_API;
+  if (!override) {
+    return 'https://api.github.com';
+  }
+  try {
+    const url = new URL(override);
+    if (['127.0.0.1', '::1', '[::1]', 'localhost'].includes(url.hostname)) {
+      return url.origin;
+    }
+  } catch {
+    /* not a URL — falls through to the warning below */
+  }
+  console.warn(
+    `${TAG} WARN — ignoring CHECK_OVERRIDES_ADVISORY_API="${override}": only a loopback address\n` +
+      '      (127.0.0.1, ::1, localhost) is honoured. Using the real Advisory API.',
+  );
+  return 'https://api.github.com';
+})();
+
+/**
+ * npm's bulk advisory endpoint, used only to tell "clean tree" apart from "service down".
+ *
+ * Routed through the SAME loopback override as the GitHub lookups. It was hardcoded at first,
+ * which made the ambiguity branch below unreachable from a test — the seam existed two hundred
+ * lines away and this call ignored it. Found by nest-server-5f, who measured that
+ * CHECK_OVERRIDES_ADVISORY_API=http://127.0.0.1:1 still hit the real service here. Same shape
+ * as the rate-limit branch we found the same way: plausible, necessary, and never once executed.
+ *
+ * The DEFAULT was wrong for a second reason, found later the same day: it named npmjs.org while
+ * pnpm audits against the CONFIGURED registry. Behind a private registry or a proxy that produces
+ * the false-green this probe exists to remove, one layer down — the real registry is unreachable,
+ * npmjs.org answers, and the ambiguity resolves to "clean".
+ *
+ * The two helpers below are DUPLICATED from `check.mjs` on purpose, not by oversight. This guard is
+ * copied ALONE into a temp directory by `tests/unit/check-overrides.guard.spec.ts` and run there —
+ * that isolation is what proves it is standalone, and importing a sibling breaks it (tried; 40 cases
+ * went red with ERR_MODULE_NOT_FOUND, caught only because `assertReachedAVerdict()` refuses to let a
+ * crash read as a verdict). Drift is prevented instead by
+ * `tests/unit/shared-registry-resolution.spec.ts`, which asserts the marked block is byte-identical
+ * in both files — a check, not a hope.
+ */
+// >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
+function configuredRegistry() {
+  try {
+    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
+    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
+    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
+    // concatenates them unescaped. Every token here is a literal, so we write the line
+    // out and there is nothing to escape.
+    return execFileSync('pnpm config get registry', {
+      encoding: 'utf8',
+      shell: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function advisoryBulkUrl(registry) {
+  const fallback = 'https://registry.npmjs.org/';
+  let base = typeof registry === 'string' ? registry.trim() : '';
+  if (!/^https?:\/\//i.test(base)) {
+    base = fallback;
+  }
+  return `${base.replace(/\/+$/, '')}/-/npm/v1/security/advisories/bulk`;
+}
+// <<< SHARED-WITH-CHECK-MJS
+
+const NPM_ADVISORY_BULK =
+  ADVISORY_API_BASE === 'https://api.github.com'
+    ? advisoryBulkUrl(configuredRegistry())
+    : `${ADVISORY_API_BASE}/-/npm/v1/security/advisories/bulk`;
+
 // ---------------------------------------------------------------------------
 // A clean tree and a dead advisory service look IDENTICAL in pnpm's output
 // ---------------------------------------------------------------------------
@@ -562,97 +659,6 @@ for (const advisory of advisories) {
 const obsoleteSuppressions = [];
 /** Set when the Advisory API refused a lookup because the quota was exhausted. */
 let advisoryRateLimited = false;
-
-/**
- * Base URL for the Advisory API — overridable, but ONLY to a loopback address.
- *
- * The rate-limit branch below is the one piece of logic here that cannot be reached through
- * `--advisory-file`, because that flag exists precisely to bypass `fetch`. Without a seam it
- * would be untestable, and untested branches in a security guard are what this whole script
- * is about: a rule only ever asserted in its passing state is indistinguishable from one that
- * is never evaluated.
- *
- * The loopback restriction is what makes the seam safe to ship. A plain env var would be a
- * redirect switch for a security check — anything that sets the environment could point the
- * suppression lookup at a server that answers "no fix exists" forever. Refusing every
- * non-loopback value means the override is usable from a test and inert everywhere else,
- * including CI. A rejected value is announced rather than silently ignored, so a typo does
- * not look like it worked.
- */
-const ADVISORY_API_BASE = (() => {
-  const override = process.env.CHECK_OVERRIDES_ADVISORY_API;
-  if (!override) {
-    return 'https://api.github.com';
-  }
-  try {
-    const url = new URL(override);
-    if (['127.0.0.1', '::1', '[::1]', 'localhost'].includes(url.hostname)) {
-      return url.origin;
-    }
-  } catch {
-    /* not a URL — falls through to the warning below */
-  }
-  console.warn(
-    `${TAG} WARN — ignoring CHECK_OVERRIDES_ADVISORY_API="${override}": only a loopback address\n` +
-      '      (127.0.0.1, ::1, localhost) is honoured. Using the real Advisory API.',
-  );
-  return 'https://api.github.com';
-})();
-
-/**
- * npm's bulk advisory endpoint, used only to tell "clean tree" apart from "service down".
- *
- * Routed through the SAME loopback override as the GitHub lookups. It was hardcoded at first,
- * which made the ambiguity branch below unreachable from a test — the seam existed two hundred
- * lines away and this call ignored it. Found by nest-server-5f, who measured that
- * CHECK_OVERRIDES_ADVISORY_API=http://127.0.0.1:1 still hit the real service here. Same shape
- * as the rate-limit branch we found the same way: plausible, necessary, and never once executed.
- *
- * The DEFAULT was wrong for a second reason, found later the same day: it named npmjs.org while
- * pnpm audits against the CONFIGURED registry. Behind a private registry or a proxy that produces
- * the false-green this probe exists to remove, one layer down — the real registry is unreachable,
- * npmjs.org answers, and the ambiguity resolves to "clean".
- *
- * The two helpers below are DUPLICATED from `check.mjs` on purpose, not by oversight. This guard is
- * copied ALONE into a temp directory by `tests/unit/check-overrides.guard.spec.ts` and run there —
- * that isolation is what proves it is standalone, and importing a sibling breaks it (tried; 40 cases
- * went red with ERR_MODULE_NOT_FOUND, caught only because `assertReachedAVerdict()` refuses to let a
- * crash read as a verdict). Drift is prevented instead by
- * `tests/unit/shared-registry-resolution.spec.ts`, which asserts the marked block is byte-identical
- * in both files — a check, not a hope.
- */
-// >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
-function configuredRegistry() {
-  try {
-    // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
-    // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
-    // shell. Node then deprecates passing args ALONGSIDE it (DEP0190), because it just
-    // concatenates them unescaped. Every token here is a literal, so we write the line
-    // out and there is nothing to escape.
-    return execFileSync('pnpm config get registry', {
-      encoding: 'utf8',
-      shell: true,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
-}
-
-function advisoryBulkUrl(registry) {
-  const fallback = 'https://registry.npmjs.org/';
-  let base = typeof registry === 'string' ? registry.trim() : '';
-  if (!/^https?:\/\//i.test(base)) {
-    base = fallback;
-  }
-  return `${base.replace(/\/+$/, '')}/-/npm/v1/security/advisories/bulk`;
-}
-// <<< SHARED-WITH-CHECK-MJS
-
-const NPM_ADVISORY_BULK =
-  ADVISORY_API_BASE === 'https://api.github.com'
-    ? advisoryBulkUrl(configuredRegistry())
-    : `${ADVISORY_API_BASE}/-/npm/v1/security/advisories/bulk`;
 
 const uncheckedSuppressions = [];
 

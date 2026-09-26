@@ -14,11 +14,13 @@ import { resolveGuardRequest } from '../../../common/helpers/execution-context-r
 import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
+import { ApiTokenKind } from '../../api-token/core-api-token.constants';
+import { enforceApiTokenRoute } from '../../api-token/core-api-token.helpers';
 import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
 import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
 import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
 import { ErrorCode } from '../../error-code';
-import { isMultiTenancyActive, isSystemRole, mergeRolesMetadata } from '../../tenant/core-tenant.helpers';
+import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../../tenant/core-tenant.helpers';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
 import { ExpiredTokenException } from '../exceptions/expired-token.exception';
 import { InvalidTokenException } from '../exceptions/invalid-token.exception';
@@ -143,6 +145,25 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     // authenticating can never grant access and a 401 ("authenticate and retry") would be a lie.
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
       throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+    }
+
+    // API tokens are decided BEFORE the public-route shortcut below: a token is denied on every route
+    // that does not declare @ApiTokenScopes(), public ones included (see core-api-token.helpers).
+    // A tenant token is fully decided there. A user token was authenticated by CoreApiTokenMiddleware,
+    // so Passport — which only knows JWTs — must not see it: its user goes straight to the role checks.
+    const apiTokenKind = enforceApiTokenRoute({
+      controllerClass: context.getClass(),
+      handler: context.getHandler(),
+      request: this.getRequest(context),
+    });
+    if (apiTokenKind === ApiTokenKind.TENANT) {
+      return true;
+    }
+    if (apiTokenKind === ApiTokenKind.USER) {
+      if (roles.some((value) => !!value) && !roles.includes(RoleEnum.S_EVERYONE)) {
+        this.handleRequest(null, this.getRequest(context).user, null, context);
+      }
+      return true;
     }
 
     // If no roles required, or S_EVERYONE is set, allow access without authentication
@@ -323,7 +344,7 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
       // When multiTenancy active: pass through ALL non-system roles to CoreTenantGuard.
       // CoreTenantGuard handles hierarchy (level) and non-hierarchy (exact) checks
       // against membership.role (tenant) or user.roles (no tenant).
-      if (user && isMultiTenancyActive() && roles.some((r) => !isSystemRole(r))) {
+      if (user && delegatesRolesToTenantGuard() && roles.some((r) => !isSystemRole(r))) {
         return user;
       }
 
