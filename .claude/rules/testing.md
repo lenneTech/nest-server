@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 72 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 73 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -285,7 +285,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
 for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 121 mutations — past the threshold this paragraph has carried since the gate was written,
+at 122 mutations — past the threshold this paragraph has carried since the gate was written,
 now reached exactly. The full run is approaching half an hour. **The re-evaluation is due now**: the
 next person to add a mutation should decide whether selective re-running has become worth its
 failure mode (a stale PASS for a test that has since gone vacuous), not bump this number again.
@@ -329,7 +329,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 49 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 121 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 122 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -644,6 +644,18 @@ relative path. The starter does neither: it subclasses the shipped `Core*` class
 `files`/`exports` mistake that drops something from the tarball, a signature change only a
 **subclass** notices, a `devDependency` used at runtime by framework code, and behaviour that
 differs under the starter's configuration.
+
+**The copy is updated the way a consumer updates, not merely re-pointed (11.41.4).** Before the
+checks, `alignConsumerPins()` applies the starter's own `pnpm run update` rule
+(`extras/sync-packages.mjs`) to the tarball's manifest: a pin the starter already declares in the
+SAME section is raised to the framework's version when that is newer — never lowered, added or moved
+across sections. Without it the gate tested a state no documented path produces, and refused 11.41.4
+although the tarball was sound: the starter still pinned `@nestjs/common` 11.2.1 against the
+tarball's 11.2.6, `@nestjs/schedule` was installed twice and `CronJobs extends CoreCronJobs` stopped
+type-checking. Every release that raises a shared exact pin would hit the same wall, because the
+starter is bumped only AFTER the npm publish. The gate prints each raised pin — those are the pins
+every consumer has to raise too, so the migration guide must list them. Pinned by
+`tests/unit/check-consumer-align.spec.ts` (mutation `consumer-gate-skips-pin-alignment`).
 
 Wired into `.github/workflows/publish.yml` before the publish step, with `--fast`. Deliberately not
 on every push (~5 minutes), and deliberately not the starter's full `check` in CI: that also runs
