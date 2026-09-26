@@ -126,6 +126,18 @@ export * from './core/common/types/string-or-object-id.type';
 export * from './core/common/types/wrapper.type';
 
 // =====================================================================================================================
+// Core - Modules - API tokens
+// =====================================================================================================================
+
+export * from './core/modules/api-token/core-api-token.constants';
+export * from './core/modules/api-token/core-api-token.decorators';
+export * from './core/modules/api-token/core-api-token.helpers';
+export * from './core/modules/api-token/core-api-token.middleware';
+export * from './core/modules/api-token/core-api-token.model';
+export * from './core/modules/api-token/core-api-token.module';
+export * from './core/modules/api-token/core-api-token.service';
+
+// =====================================================================================================================
 // Core - Modules - Auth
 // =====================================================================================================================
 

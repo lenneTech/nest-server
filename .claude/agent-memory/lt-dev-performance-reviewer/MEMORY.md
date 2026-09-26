@@ -3,6 +3,7 @@
 ## Project
 - [AI Module Performance Profile](ai-module-perf.md) — per-prompt DB query budget + memory characteristics of src/core/modules/ai; what to re-check vs what's already correct.
 - [Hub Module Performance Profile](hub-module-perf.md) — admin cockpit: verified zero-cost gating + single-poller model; the 5 low-severity findings to re-check as it evolves.
+- [API-Token Module Performance Profile](api-token-module-perf.md) — per-request cost with feature off/on (ns-level), token-request DB budget, bounded Map/rate-limit structures.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
 
 ## Request Path
@@ -15,6 +16,7 @@
 - [ConfigService.get cost](config-service-get-cost.md) — measured 152 ns/call (rfdc factory rebuilt every call); `getFastButReadOnly` is the 79 ns option. Only matters inside loops.
 - [GridFS verify + stream costs](gridfs-verify-and-stream-costs.md) — COUNT_SCAN is index-only but O(chunks); connect/close ~43 ms/file; `pipe()` leaks the source on client abort; `process.exit()` truncates piped stdout at 64 KB.
 - [Response.clone + EJS costs](response-clone-and-ejs-costs.md) — measured: async-identity ~42 ns, `clone().json()` ~10 us small / 2.7 ms at 512 KB, cached EJS render ~3 us.
+- [Redaction regex costs](redaction-regex-costs.md) — redactSensitiveText is O(n²) on crafted input (JWT rule 23 ms @6 KB); per-caller caps; mailbox copy mode redacts before truncating.
 - [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: npx 239ms vs .bin 41ms, worktree add ~190ms; the cited 1.87x predates CHECK_LOW_RESOURCE=1 and needs re-measuring.
 
 ## Memory & Process

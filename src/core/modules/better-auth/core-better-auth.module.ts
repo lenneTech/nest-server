@@ -34,6 +34,7 @@ import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.ser
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
 import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
+import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry';
 import { getInFlightResetPassword } from './core-better-auth-password-reset.registry';
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
@@ -826,6 +827,33 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * @internal
    */
   /**
+   * Revoke the user's API tokens after an IAM password reset — only when the reset also ends the
+   * user's sessions (`betterAuth.emailAndPassword.revokeSessionsOnPasswordReset`). A no-op without
+   * `apiTokens`. Never fails the reset: the credential is already written, so a failure is reported,
+   * not thrown. `protected` so a project can decide differently.
+   */
+  protected static async revokeApiTokensAfterPasswordReset(
+    user: { email?: string; id?: string } | undefined,
+  ): Promise<void> {
+    const revokeSessions =
+      this.configServiceInstance?.getFastButReadOnly('betterAuth.emailAndPassword.revokeSessionsOnPasswordReset') ===
+      true;
+    if (!revokeSessions || (!user?.email && !user?.id)) {
+      return;
+    }
+    try {
+      const revoked = await revokeApiTokensOfUser({ email: user.email, iamId: user.id });
+      if (revoked) {
+        this.logger.log(`Revoked ${revoked} API token(s) after the password reset of ${maskEmail(user.email ?? '')}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not revoke the API tokens after a password reset: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * `protected` rather than `private`: the callbacks it returns include `onPasswordReset`, which
    * decides what mirroring a reset into the legacy store means for a deployment. A project with a
    * different answer (a different store, an extra audit record, skipping it entirely) must be able
@@ -860,6 +888,11 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         }
       },
       onPasswordReset: async ({ user }) => {
+        // A reset that ends the user's sessions ends their API tokens too — a user token is a session
+        // in all but lifetime, and left alive it keeps the credential the reset was meant to retire
+        // working. Before the legacy mirror below, which returns early on IAM-only deployments.
+        await this.revokeApiTokensAfterPasswordReset(user);
+
         // Mirror the new password into the legacy bcrypt store, so a deployment running
         // Legacy Auth next to IAM does not keep the OLD password valid on the legacy path
         // after a reset — including a reset performed BECAUSE the old one leaked.

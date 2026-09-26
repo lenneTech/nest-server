@@ -13,6 +13,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { CrudService } from '../../common/services/crud.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { EmailService } from '../../common/services/email.service';
+import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry';
 import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
 import { CoreUserModel } from './core-user.model';
 import { CoreUserCreateInput } from './inputs/core-user-create.input';
@@ -360,6 +361,19 @@ export abstract class CoreUserService<
               `Failed to sync password reset to IAM for ${maskEmail(dbObject.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
             );
           }
+        }
+
+        // The legacy reset ends every legacy session above (refreshTokens), so it ends the user's
+        // API tokens too — left alive, they keep the credential the reset was meant to retire
+        // working. A no-op without `apiTokens`; never fails the reset.
+        try {
+          await revokeApiTokensOfUser({ email: dbObject.email, userId: dbObject.id });
+        } catch (error) {
+          this.userServiceLogger.error(
+            `Could not revoke the API tokens after the password reset of ${maskEmail(dbObject.email)}: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
+          );
         }
 
         return updatedUser;

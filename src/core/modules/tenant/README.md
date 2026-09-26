@@ -357,6 +357,23 @@ betterAuth: {
 When `skipTenantCheck: false`, IAM endpoints will require a valid `X-Tenant-Id` header
 and the user must be a member of that tenant for protected endpoints.
 
+## API Tokens
+
+`apiTokens` (see `src/core/modules/api-token/README.md`) adds bearer tokens that respect every rule in
+this module:
+
+- A **TENANT token** belongs to one tenant, is managed by members holding `apiTokens.manageRole`, and
+  acts with the LOWEST role of `roleHierarchy` inside that tenant only — an `X-Tenant-Id` naming another
+  tenant is refused, and `@SkipTenantCheck()` does not unbind it. The boot refuses a hierarchy in which
+  that lowest role would reach the manage role.
+- A **USER token** acts as its user through the ordinary membership checks of `CoreTenantGuard`, with
+  global roles removed (no admin bypass), optionally restricted to one tenant and capped by
+  `maxTenantRole`.
+
+Both are denied on routes without `@ApiTokenScopes()`. **Call `CoreApiTokenService.deleteAllForTenant()`
+when you delete a tenant — nothing does it for you**: the core has no tenant model to notice the
+deletion, and a tenant token does not depend on any member, so it keeps authenticating until then.
+
 ## Related
 
 - [Integration Checklist](./INTEGRATION-CHECKLIST.md)

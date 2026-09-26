@@ -90,6 +90,17 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'When this replica last wrote lastUsedAt for a token, so a busy token costs one write per '
+      + 'minute instead of one per request. Genuinely divergent across replicas and harmless: '
+      + 'each replica throttles only its own writes, so N replicas write at most N times a minute '
+      + 'and lastUsedAt stays accurate to that minute. It is an audit hint, never an '
+      + 'authorization input, and the map is capped (cleared at 5000 entries).',
+    classification: 'bounded',
+    file: 'modules/api-token/core-api-token.service.ts',
+    name: 'lastUsedWrites',
+  },
+  {
+    because:
       'Compiled EJS templates keyed by resolved absolute path. Template files ship with the '
       + 'image and do not change at runtime, so every replica compiles the identical function '
       + 'from the identical file. Nothing user-specific is retained — the data is passed per '

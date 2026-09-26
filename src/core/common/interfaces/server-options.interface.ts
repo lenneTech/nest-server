@@ -1474,6 +1474,86 @@ export interface IMultiTenancy {
 }
 
 /**
+ * Configuration of API tokens (`apiTokens`).
+ *
+ * Two kinds share one model and one policy:
+ * - USER tokens act as their user with the user's CURRENT rights (never global roles), optionally
+ *   narrowed to scopes, one tenant and a maximum tenant role. Work with and without multi-tenancy.
+ * - TENANT tokens belong to a tenant, are managed by its administrators and act with the lowest tenant
+ *   role inside that tenant only. Available while multi-tenancy is active.
+ *
+ * Both are denied on every route that does not declare `@ApiTokenScopes(...)`.
+ *
+ * @since 11.41.4
+ */
+export interface IApiTokens {
+  /**
+   * Pre-configure without enabling.
+   * @default true (when the object is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Pass-phrase for the AES-256-GCM encryption of each token's signing key (used for signed
+   * assertions). Falls back to the `SECRETS_ENCRYPTION_KEY` environment variable. REQUIRED in
+   * `production` / `staging` — the boot fails without it; elsewhere an insecure development default
+   * is used with a warning. Rotating it invalidates the signing keys of all existing tokens.
+   */
+  encryptionKey?: string;
+
+  /**
+   * Tenant role required to create, list, change, revoke and delete TENANT tokens. Hierarchy roles
+   * compare by level, so higher roles qualify too. Must be a declared tenant role that the lowest
+   * hierarchy role (the role a tenant token acts with) does not reach. Platform admins qualify while
+   * `multiTenancy.adminBypass` is on.
+   * @default the highest role of `multiTenancy.roleHierarchy`
+   */
+  manageRole?: string;
+
+  /**
+   * Maximum lifetime of a signed assertion, measured from the moment it is presented. A longer-lived
+   * assertion is refused (401). An invalid value falls back to the default — never to "unbounded".
+   * @default 900 (15 minutes)
+   */
+  maxAssertionLifetimeSeconds?: number;
+
+  /**
+   * Recognisable token prefix: 2-16 characters, lowercase letters and digits, starting with a letter.
+   * Tokens read `<prefix>_<publicId>_<secret>`, assertions `<prefix>s_<payload>.<signature>`.
+   * @default 'ltt'
+   */
+  prefix?: string;
+
+  /**
+   * Per-token request limit (fixed window, shared across replicas when `redis` is configured).
+   * An exceeded limit answers 429 with `Retry-After`. `false` switches it off.
+   * @default { max: 600, windowSeconds: 60 }
+   */
+  rateLimit?: boolean | { enabled?: boolean; max?: number; windowSeconds?: number };
+
+  /**
+   * Vocabulary of scopes a token may carry (e.g. `['upload', 'read', 'export']`). Creating or updating
+   * a token with any other scope fails with 400; with an empty vocabulary no token can be created.
+   * A user token created without scopes receives the whole vocabulary.
+   * Scopes: 1-64 characters of letters, digits, `:`, `.`, `_`, `-`.
+   * @default []
+   */
+  scopes?: string[];
+
+  /**
+   * Allow tenant tokens. Only takes effect while multi-tenancy is active.
+   * @default true
+   */
+  tenantTokens?: boolean;
+
+  /**
+   * Allow user tokens.
+   * @default true
+   */
+  userTokens?: boolean;
+}
+
+/**
  * Cookie configuration for authentication handling.
  *
  * Follows the Boolean Shorthand Pattern:
@@ -2019,6 +2099,20 @@ export interface IServerOptions {
    * ```
    */
   appUrl?: string;
+
+  /**
+   * API tokens: bearer credentials for machine clients and embedded pages that cannot carry a session
+   * cookie. USER tokens act as their user (without global roles); TENANT tokens belong to a tenant
+   * (multi-tenancy only). Both are denied on every route that does not declare `@ApiTokenScopes(...)`,
+   * and both respect tenant boundaries whenever multi-tenancy is active.
+   *
+   * Boolean shorthand: `true` / `{}` enable with defaults, `{ enabled: false }` pre-configures,
+   * absent = off (no behaviour change). See `src/core/modules/api-token/README.md`.
+   *
+   * @default undefined (disabled)
+   * @since 11.41.4
+   */
+  apiTokens?: boolean | IApiTokens;
 
   /**
    * Authentication system configuration
@@ -4322,6 +4416,22 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
  * @since 11.22.0
  */
 export interface ICoreModuleOverrides {
+  /**
+   * Override API token collaborators with project-specific subclasses (`apiTokens` config).
+   *
+   * - `model` must extend `CoreApiTokenModel` (e.g. to bind a token to project data)
+   * - `service` must extend `CoreApiTokenService`
+   *
+   * @example
+   * ```typescript
+   * { apiToken: { model: ApiToken, service: ApiTokenService } }
+   * ```
+   */
+  apiToken?: {
+    model?: Type<any>;
+    service?: Type<any>;
+  };
+
   /**
    * Override AI module collaborators with project-specific subclasses.
    *

@@ -403,10 +403,24 @@ Hierarchy roles use **level comparison** (higher includes lower). Normal roles u
 
 Both work in `@Roles()` (method-level) and `@Restricted()` (field-level) via unified `checkRoleAccess()`.
 
+## Delegation needs a REGISTERED tenant guard (11.41.4)
+
+The role guards hand non-system roles to `CoreTenantGuard` because that guard resolves them against
+the membership. They used to decide from configuration alone (`isMultiTenancyActive()`), so with
+`multiTenancy` configured but no tenant guard registered, `@Roles(RoleEnum.ADMIN)` admitted every
+authenticated caller: the role went to a guard that never ran. They now ask
+`delegatesRolesToTenantGuard()`, which also requires `hasActiveTenantGuard()`
+(`core-tenant-guard.registry.ts`, filled by `CoreTenantModule` and by `CoreTenantGuard` itself) and
+otherwise lets the role guard check `user.roles` — fail-closed, warned once. Pinned by
+`tests/unit/tenant-guard-delegation.spec.ts` (mutation `role-guards-delegate-without-tenant-guard`).
+
+**Configured is not registered.** When you add a guard that delegates to another one, ask whether
+the other one RUNS, not whether it is configured.
+
 ## Role Check Implementation
 
 The role system is evaluated in:
-- `RolesGuard` / `BetterAuthRolesGuard` - Checks method-level `@Roles()` decorators (passes through non-system roles to `CoreTenantGuard` when multiTenancy active)
+- `RolesGuard` / `BetterAuthRolesGuard` - Checks method-level `@Roles()` decorators (passes through non-system roles to `CoreTenantGuard` when multiTenancy is active AND a tenant guard is registered — see below)
 - `CoreTenantGuard` - Validates tenant membership and checks hierarchy/normal roles
 - `CheckResponseInterceptor` - Filters fields based on `@Restricted()` decorators
 - `CheckSecurityInterceptor` - Processes `securityCheck()` methods

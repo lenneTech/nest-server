@@ -171,6 +171,13 @@ export function redactSensitiveText(text: string): string {
         /(\/(?:request-password-reset|reset-password|forget-password|forgot-password|set-password|change-email|magic-?link|verify|reset|confirm|activate|invite)\/)([A-Za-z0-9._~-]{16,})/gi,
         (_m, prefix, token) => `${prefix}${maskToken(token)}`,
       )
+      // tenant API tokens (`<prefix>_<24 hex>_<64 hex>`) and their signed assertions
+      // (`<prefix>s_<payload>.<43-char HMAC>`) anywhere in the line — they are long-lived bearer
+      // credentials, and a line that quotes one outside an Authorization header would pass the rule below
+      .replace(/\b[a-z][a-z0-9]{1,15}_[0-9a-f]{24}_[0-9a-f]{64}\b/g, (match) => maskToken(match))
+      .replace(/\b[a-z][a-z0-9]{1,15}s_[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g, (match) =>
+        maskToken(match),
+      )
       // authorization: Bearer xyz / Authorization=xyz
       .replace(
         /(authorization["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"',;]+)/gi,

@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, and how to test load-bearing vs inert honestly
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-09-26
 metadata:
   type: project
 ---
@@ -17,52 +17,47 @@ INERT, and that classification is part of the contract — an entry whose status
 but whose comment still claims the old status is worse than no comment, because the next
 maintainer trusts it.
 
-## A range-floored key does NOT make an entry downgrade-proof (corrected 2026-08-22)
-
-An earlier version of this memory — and the workspace file's own hono note — claimed a
-**range-floored** key (one that stops below its target, e.g. `'hono@>=4.0.0 <4.12.34':
-'4.12.34'`) "can only lift a vulnerable version up, never drag a newer patch down; safe to
-keep forever". **That is false.**
+## A range-floored key does NOT make an entry downgrade-proof
 
 An override key is matched against the **requested range a parent declares**, not against
-the version that would resolve. The MCP SDK declares `hono: ^4.11.4`, which *intersects*
-`<4.12.34`, so the floored key matched and replaced the whole spec — pinning hono at
-4.12.34 while a clean resolve gave 4.13.3. The 2026-08-22 run found three entries doing
-this: `axios` (1.18.1 vs 1.19.0), `ip-address` (10.3.1 vs 10.5.0), `hono`.
+the version that would resolve. A key like `'hono@>=4.0.0 <4.12.34'` still fires on the
+SDK's `^4.11.4` and pins the whole spec to the target. Flooring the key bounds the blast
+radius (no major drag); only a target at the latest release in the major prevents a
+hold-back. Every run: compare each target to `npm view <pkg> time --json` (newest in major
+that clears the 1440-min hold-back).
 
-Flooring the key still matters — it bounds the blast radius, so the entry cannot drag a
-future major across. But the only thing that prevents a hold-back is **keeping the target
-at the latest release in the major**.
+**Exception — do NOT widen a key onto an upstream EXACT pin.** js-yaml 5.x: `@nestjs/swagger`
+exact-pins 5.3.0; key `<5.2.2` does not touch it. Raising the key to `<5.4.2` would override
+swagger's own pin for no advisory. Left alone deliberately (2026-09-26).
 
-**How to apply:** every run, check each target against `npm view <pkg> versions` and raise
-the target *and* the key upper bound together. A green `pnpm audit` will NOT reveal this —
-the pinned version is patched, just stale.
+## Testing load-bearing vs inert: two FRESH resolves
 
-## Testing load-bearing vs inert: use two FRESH resolves
+In a scratch dir, copy `package.json` + `pnpm-workspace.yaml` twice (one with the
+`overrides:` block stripped), `pnpm install --lockfile-only --ignore-scripts` each, diff the
+resolved versions, and bulk-audit BOTH lockfiles. Diffing against the committed lockfile
+proves nothing. Lockfile keys: `  pkg@1.2.3:`, scoped ones quoted.
 
-Comparing against the committed lockfile is worthless — it already carries the pinned
-versions, so overrides look inert and unrelated fresh-resolve drift looks load-bearing
-(this produced a wrong answer for `ws`, `axios`, `ip-address` and `hono` on the first
-attempt 2026-08-22). Instead, in a scratch dir, copy `package.json` +
-`pnpm-workspace.yaml` twice — once with the `overrides:` block, once with it stripped —
-run `pnpm install --lockfile-only --ignore-scripts` in each, and diff the resolved
-versions. Takes seconds.
+## `check:overrides` UNUSED means "package absent from the lockfile"
 
-Lockfile keys are `  pkg@1.2.3:` (no leading slash) and scoped ones are quoted
-(`  '@hono/node-server@2.0.11':`) — a grep that misses the quotes reports a scoped package
-as absent.
+So an entry whose package is still in the tree (e.g. multer, pulled directly) can never be
+reported UNUSED even when the entry itself fires on nothing. Under the coordinator's rule
+"remove only if UNUSED + no lockfile change", such an entry gets RAISED in lockstep instead.
 
-## Status 2026-08-22 (15 entries, was 16)
+## Status 2026-09-26 (18 entries, none removed)
 
-LOAD-BEARING: `brace-expansion` (2.x returns without it), `minimatch` (9.0.9 returns),
-`hono`, `axios`, `ip-address`.
-INERT but kept as floored insurance: `ws`, `js-yaml` x2, `fast-uri`, `nanoid`, `postcss`,
-`undici`, `body-parser`.
+Without the block, a fresh resolve has **zero** advisories (1069 versions) — no entry is
+security-load-bearing in this repo after the 11.41.4 direct bumps. minimatch is the only
+entry that still changes the tree (keeps 9.0.9 + brace-expansion 2.x out; both patched now).
+Seven downgrade locks found and raised: axios 1.20.0, browserslist 4.29.1, brace-expansion
+1.1.21 / 5.0.12 (2.x → 2.1.7 for consistency), fast-uri 3.1.8, hono 4.13.9, ip-address
+10.7.2, undici 7.30.0. Also raised: nanoid 3.3.19, postcss 8.5.28, multer 2.4.0 (lockstep with
+direct; inert since `@nestjs/platform-express@11.2.6` exact-pins 2.4.0, but mirrored for
+consumers in `docs/security-overrides.md`). Unchanged: qs, ws, js-yaml x2, minimatch,
+body-parser. After the raise, WITH == WITHOUT for every overridden package except the
+minimatch design.
 
-**REMOVED `@hono/node-server@<2.0.10` → its own documented removal condition was met:**
-SDK 1.30.0 now declares `^1.19.9 || ^2.0.5` (it used to declare `^1.19.9` alone), and a
-fresh resolve without the override picks 2.1.1 — above the 2.0.10 that fixes
-GHSA-9mqv-5hh9-4cgg. Audit stayed clean after removal. The old comment's "regresses to
-1.19.14" was stale.
+Shipped doc drift left for the author (outside a maintenance run's edit scope):
+`docs/security-overrides.md` still says swagger pins js-yaml 5.2.1 (now 5.3.0) and
+platform-express pins multer 2.2.0 "in every 11.2.x" (11.2.6 pins 2.4.0).
 
-Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]]
+Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

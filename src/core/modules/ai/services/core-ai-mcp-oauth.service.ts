@@ -5,6 +5,7 @@ import { Connection } from 'mongoose';
 
 import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper';
 import { ConfigService } from '../../../common/services/config.service';
+import { getApiTokenContext } from '../../api-token/core-api-token.helpers';
 
 /**
  * Stored OAuth client (dynamically registered).
@@ -309,7 +310,18 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   buildOAuthProvider(accessTtlSeconds = 3600): Record<string, any> {
     return {
-      authorize: (client: any, params: any, res: any) => this.authorizeConsent(client, params, res),
+      authorize: async (client: any, params: any, res: any) => {
+        // An API token (or its signed assertion) must never approve an OAuth consent. The consent mints
+        // an MCP access token with the FULL rights of its user, which would lift a scope-limited user
+        // token out of every restriction it carries — and a tenant token has no user to consent for at
+        // all. This route is an Express router outside the Nest guards, so the deny-by-default of
+        // @ApiTokenScopes() does not reach it; the check sits here rather than in authorizeConsent()
+        // so an override of that method cannot drop it.
+        if (getApiTokenContext(res?.req?.user)) {
+          throw new Error('access_denied: an API token cannot authorize an OAuth client');
+        }
+        return this.authorizeConsent(client, params, res);
+      },
       challengeForAuthorizationCode: async (_client: any, authorizationCode: string) => {
         const stored = await this.getAuthorizationCode(authorizationCode);
         return stored?.codeChallenge ?? '';

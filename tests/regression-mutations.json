@@ -1407,6 +1407,73 @@
         "tests/unit/check-kill-tree-plan.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "role-guards-delegate-without-tenant-guard",
+      "defect": "11.41.x — RolesGuard and BetterAuthRolesGuard handed every non-system role to CoreTenantGuard as soon as `multiTenancy` was CONFIGURED, without asking whether a tenant guard was REGISTERED. With configuration and registration out of step, `@Roles(RoleEnum.ADMIN)` admitted every authenticated caller, because the guard meant to check the role never ran.",
+      "file": "src/core/modules/tenant/core-tenant.helpers.ts",
+      "find": "  if (hasActiveTenantGuard()) {\n    return true;\n  }",
+      "replace": "  if (hasActiveTenantGuard() || true) {\n    return true;\n  }",
+      "specs": [
+        "tests/unit/tenant-guard-delegation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-token-passes-object-level-system-roles",
+      "defect": "11.41.4 (pre-release) — assertTenantApiTokenRouteAccess() filtered S_SELF / S_CREATOR out as system roles and then found nothing left to check, so a TENANT token passed a released `@Roles(S_SELF)` route for ANY target id. The role guard's own S_SELF comparison never ran, because a tenant token is fully decided before it.",
+      "file": "src/core/modules/api-token/core-api-token.helpers.ts",
+      "find": "    if (roles.length && !checkable.length) {\n      throw denied();\n    }",
+      "replace": "    if (roles.length && !checkable.length && false) {\n      throw denied();\n    }",
+      "specs": [
+        "tests/unit/api-token.helpers.spec.ts",
+        "tests/unit/api-token-guard-invariants.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "api-token-service-accepts-token-callers",
+      "defect": "11.41.4 (pre-release) — CoreApiTokenService.assertPerson() is the only thing that keeps a token-authenticated caller out of token management once a project releases a management route with @ApiTokenScopes(). Without it a scope-limited, tenant-restricted, role-capped user token mints an unrestricted token of its user and manages the tenant's tokens with the uncapped membership role.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "    if (getApiTokenContext(currentUser)) {\n      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);\n    }",
+      "replace": "    if (getApiTokenContext(currentUser) && false) {\n      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);\n    }",
+      "specs": [
+        "tests/api-token.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "api-token-update-rebinds-tenant",
+      "defect": "11.41.4 (pre-release) — PROTECTED_FIELDS is the only thing between a management input and a token's stored `tenant`: the reference controller forwards `@Body() body: any` and the field is not immutable. Without `tenant` in the set, a tenant admin moves one of their tokens into a tenant they do not belong to with a single PATCH.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "  'signingKeyEncrypted',\n  'tenant',\n",
+      "replace": "  'signingKeyEncrypted',\n",
+      "specs": [
+        "tests/api-token.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "api-token-dotted-key-bypasses-projection",
+      "defect": "11.41.4 (pre-release) — projectFields() compared the whole key with the protected / handled sets, while Mongoose casts a dotted key as a path: `scopes.0` wrote the scope list around its vocabulary validation and `tenant.x` addressed a protected field.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "          !PROTECTED_FIELDS.has(segments[0]) &&\n          !handled.has(segments[0]) &&",
+      "replace": "          !PROTECTED_FIELDS.has(key) &&\n          !handled.has(key) &&",
+      "specs": [
+        "tests/api-token.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "overrides-probe-reads-undeclared-bulk-url",
+      "defect": "11.41.4 — the clean-tree probe in check-overrides.mjs runs at top level and read NPM_ADVISORY_BULK while that const was declared further down, i.e. in its temporal dead zone. The ReferenceError landed in the probe's catch, so every live run with a clean audit reported \"npm's advisory service is unreachable\" and verified none of the declared overrides. The mutation reproduces the same throwing reference at the same site.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const res = await fetch(`${NPM_ADVISORY_BULK}`, {",
+      "replace": "    const res = await fetch(`${NPM_ADVISORY_BULK_NOT_YET_DECLARED}`, {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

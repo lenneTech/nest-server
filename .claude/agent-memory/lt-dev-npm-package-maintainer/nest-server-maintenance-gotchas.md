@@ -42,12 +42,9 @@ verified 2026-08-19 and taken. Note `pnpm run check` runs `format` in AUTO-FIX m
 drifting formatter silently rewrites `src/` — always evaluate a formatter bump with
 `format:check` BEFORE running the gate.
 
-## `@vitest/ui` is the only unreferenced package
+## depcheck false positives
 
-Scanned all 92 deps/devDeps 2026-08-19: everything resolves to a real use except
-`@vitest/ui` (no script passes `--ui`, no config imports it). Left in place as a
-developer convenience, not removed.
-
+`@vitest/ui` was the only unreferenced package on 2026-08-19; it is no longer a devDependency.
 Frequent depcheck false positives here — all genuinely required, do not remove:
 `@as-integrations/express5` (runtime `loadPackage` by `@nestjs/apollo`, optional peer +
 `autoInstallPeers: false`), `@swc/cli` (needed by `nest build -b swc`, i.e. by
@@ -67,7 +64,13 @@ install output to a file is not enough if a LATER command in the same compound p
 `grep -m1`, or redirect and read the file in a separate call. Confirm the work landed by
 checking the artifact (lockfile mtime, `package.json` contents) before diagnosing a hang.
 
-## oxlint 1.79.0 warns on an INTENTIONAL zero-width space
+## oxfmt 0.70.0 / oxlint 1.85.0 (2026-09-26)
+
+Both evaluated read-only from a scratch `npm i` before bumping: oxfmt 0.70 `--check src/
+scripts/` clean on 441 files, oxlint 1.85 0 diagnostics / 639 files / 113 rules (same as
+1.79). The ZWSP warning below no longer appears.
+
+## oxlint 1.79.0 warns on an INTENTIONAL zero-width space (historical)
 
 `tests/unit/toolchain-contract.spec.ts:16` embeds U+200B in `scripts/**<ZWSP>/*.ts` inside
 a JSDoc block, so the `*/` does not terminate the comment early. oxlint 1.79.0's
@@ -78,5 +81,37 @@ a JSDoc block, so the `*/` does not terminate the comment early. oxlint 1.79.0's
 byte-identical). Removing it would break the comment and the file.
 
 **How to apply:** leave it. Do not "fix" it, and do not modify the test to silence it.
+
+## `check:overrides` said "advisory service unreachable" on every CLEAN tree (found 2026-09-26, FIXED in 11.41.4)
+
+`scripts/check-overrides.mjs` reads `NPM_ADVISORY_BULK` in its top-level probe (~line 459)
+but declares that `const` ~200 lines LATER (~line 652). Top-level ESM runs in order, so the
+read throws `ReferenceError: Cannot access 'NPM_ADVISORY_BULK' before initialization`, the
+bare `catch` turns it into `advisoryServiceDown = true`, and the guard prints the "COULD NOT
+ASK" warning and exits 0 without verifying anything — every time the audit is empty. No
+fetch is ever sent (proven with a `--import` fetch spy + an instrumented scratch copy).
+
+**Status:** fixed in 11.41.4 — both consts now sit above the probe, pinned by the "clean LIVE
+audit" cases in `tests/unit/check-overrides.guard.spec.ts` (mutation
+`overrides-probe-reads-undeclared-bulk-url`).
+
+**How to apply:** if "COULD NOT ASK" appears again while `curl` to the bulk endpoint answers 200,
+suspect a new top-level ordering bug before an npm outage. A real verdict is always available with
+`pnpm audit --json > a.json && node scripts/check-overrides.mjs --audit-file a.json` (the probe is
+skipped in file mode). A maintenance run still may not edit `scripts/` — report instead.
+
+## `pnpm install` can hang AFTER "Done" even without a pipe (2026-09-26)
+
+Output showed `Done in 3s`, lockfile + node_modules written, but the process sat at 0% CPU
+with no children for 10+ minutes. Killing it is safe; confirm with
+`pnpm install --frozen-lockfile` afterwards. Use `timeout 300 pnpm install` for installs.
+
+## Direct deps that mirror an upstream EXACT pin must stay in lockstep
+
+`graphql-ws` (direct, for the exported test helper) must equal what `@nestjs/graphql`
+exact-pins (6.2.1 in 13.4.5); bumping it alone puts two copies into every consumer tree.
+Same shape: `ws` (8.21.3), `multer` (platform-express pin). After any bump, list direct deps
+whose lockfile carries a second version, and dedupe stale copies with a targeted
+`pnpm update --depth Infinity <pkg>` (jose, @aws-sdk/client-s3, @types/node needed it).
 
 Related: [[nest-server-override-status]], [[deferred-major-updates]]

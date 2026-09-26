@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 69 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 72 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -285,7 +285,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
 model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
 for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 115 mutations — past the threshold this paragraph has carried since the gate was written,
+at 121 mutations — past the threshold this paragraph has carried since the gate was written,
 now reached exactly. The full run is approaching half an hour. **The re-evaluation is due now**: the
 next person to add a mutation should decide whether selective re-running has become worth its
 failure mode (a stale PASS for a test that has since gone vacuous), not bump this number again.
@@ -327,9 +327,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 46 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 49 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 115 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 121 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

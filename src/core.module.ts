@@ -59,6 +59,7 @@ import { CoreHubModule } from './core/modules/hub/core-hub.module';
 import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
 import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
+import { CoreApiTokenModule } from './core/modules/api-token/core-api-token.module';
 import { CoreTenantModule } from './core/modules/tenant/core-tenant.module';
 
 /**
@@ -577,6 +578,17 @@ export class CoreModule implements NestModule {
       }
 
       imports.push(CoreTenantModule.forRoot({ modelName: membershipModelName }));
+    }
+
+    // Add CoreApiTokenModule when apiTokens is configured (boolean shorthand, presence implies enabled).
+    // Independent of multiTenancy: user tokens work without it; tenant tokens and tenant restrictions
+    // switch on by themselves when CoreTenantModule is registered as well.
+    const apiTokensConfig = config.apiTokens;
+    if (
+      apiTokensConfig === true ||
+      (typeof apiTokensConfig === 'object' && apiTokensConfig !== null && apiTokensConfig.enabled !== false)
+    ) {
+      imports.push(CoreApiTokenModule.forRoot({ ...overrides?.apiToken }));
     }
 
     // Set exports

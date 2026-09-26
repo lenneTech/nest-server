@@ -112,6 +112,7 @@ JWT-based authentication for existing projects:
 | **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
 | **Tenant Guard** | `CoreTenantGuard` validates tenant membership; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
 | **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
+| **API Tokens** | `apiTokens` config (opt-in): USER tokens act as their user without global roles; TENANT tokens (multi-tenancy only) act with the lowest tenant role in their own tenant. `CoreApiTokenMiddleware` authenticates `Authorization: Bearer` / `x-api-key`; every guard denies a token unless the route declares `@ApiTokenScopes()`. Signed short-lived assertions for embedded pages. See `src/core/modules/api-token/README.md` |
 
 ### Data & CRUD
 
@@ -153,7 +154,8 @@ JWT-based authentication for existing projects:
 | `@ResponseModel(Model)` | REST response type hint for auto-conversion |
 | `@Translatable()` | Multi-language field metadata |
 | `@CommonError(code)` | Error code registration |
-| `@SkipTenantCheck()` | Opt out of CoreTenantGuard validation on a method |
+| `@SkipTenantCheck()` | Opt out of CoreTenantGuard validation on a method (not for tenant-restricted API tokens — they stay bound) |
+| `@ApiTokenScopes(...scopes)` | Open a route/class to API tokens holding one of the scopes; tokens are denied everywhere else |
 
 ### File Handling
 
@@ -335,10 +337,17 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Accept-Language for translations                  |
   |                                                         |
   |  2. CoreBetterAuthMiddleware                            |
+  |     - Skips API-token credentials entirely              |
   |     - Strategy 1: Auth header (JWT/Session)             |
   |     - Strategy 2: JWT cookie                            |
   |     - Strategy 3: Session cookie                        |
   |     - Sets req.user                                     |
+  |                                                         |
+  |  2c. CoreApiTokenMiddleware  [if apiTokens enabled]     |
+  |     - Bearer / x-api-key with the token prefix only     |
+  |     - Invalid token or assertion -> 401 on every route  |
+  |     - Per-token rate limit -> 429 + Retry-After         |
+  |     - Sets req.user (tenant principal / token's user)   |
   |                                                         |
   |  3. graphqlUploadExpress()  [GraphQL only]              |
   |     - Handles multipart file uploads                    |
@@ -348,6 +357,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |                      GUARDS                             |
   |                                                         |
   |  4. RolesGuard / BetterAuthRolesGuard                   |
+  |     - API token: @ApiTokenScopes() required, else 403   |
+  |       (checked BEFORE the public-route shortcut)        |
   |     - Reads @Roles() metadata                           |
   |     - Validates JWT / session token                     |
   |     - Checks real roles (ADMIN)                         |
@@ -355,6 +366,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Throws 401 (Unauthorized) or 403 (Forbidden)     |
   |                                                         |
   |  4b. CoreTenantGuard  [if multiTenancy enabled]          |
+  |     - Tenant API token: bound to its tenant, lowest role|
+  |     - User API token: tenant restriction + role cap     |
   |     - Reads X-Tenant-Id header                          |
   |     - Validates membership via hierarchy roles (level comparison)  |
   |     - Non-admin + header + no membership = always 403   |
@@ -640,6 +653,22 @@ makes every project on that host unreachable over http for up to a year, with no
 Behind a TLS-terminating proxy the inward connection is plain http, which makes `trustProxy`
 load-bearing for this header too.
 
+#### 2c. CoreApiTokenMiddleware
+
+Registered by `CoreApiTokenModule` (auto-imported by `CoreModule` when `apiTokens` is configured).
+Claims only credentials carrying the configured prefix — `Authorization: Bearer <prefix>_…` /
+`<prefix>s_…`, or the same value in `x-api-key` — so sessions, JWTs and legacy tokens pass untouched;
+`CoreBetterAuthMiddleware` in turn skips prefixed credentials, including its cookie fallback, so a
+session cookie riding along can never turn a token request into a session request.
+
+- A token resolves to a TENANT principal (no global roles, bound to its tenant) or to the owning USER,
+  loaded from the `users` collection with global roles removed. Both carry a token context
+  (`getApiTokenContext(user)`), recognised by a module-private symbol — never by a data field.
+- A prefixed credential that does not authenticate (unknown, revoked, expired, tampered, bad
+  signature, deleted owner, two different credentials in the two headers) answers **401 on every
+  route**, public ones included — unlike an invalid session, which degrades to anonymous.
+- A per-token fixed-window rate limit (`RateLimitStore`, Redis-shared when configured) answers 429.
+
 #### 3. graphqlUploadExpress
 
 Only for GraphQL routes. Handles multipart file upload requests according to the [GraphQL multipart request specification](https://github.com/jaydenseric/graphql-multipart-request-spec).
@@ -693,6 +722,25 @@ Two consequences worth knowing when you own a public endpoint:
   `tests/public-endpoint-identity.e2e-spec.ts`.
 
 **Important:** `@Roles()` already handles JWT authentication internally. Do NOT add `@UseGuards(AuthGuard(JWT))` — it is redundant.
+
+#### API tokens (`@ApiTokenScopes`)
+
+All three guards call ONE function, `enforceApiTokenRoute()` (`core-api-token.helpers.ts`), before
+their public-route shortcut, so the policy holds whichever guard runs first or alone:
+
+1. A token is refused (403) on every route that does not declare `@ApiTokenScopes()` — public ones
+   included — and on a route whose scopes it does not hold (method-level replaces class-level).
+2. A **TENANT** token is then decided completely: `S_NO_ONE` refuses; `S_EVERYONE` / `S_USER` /
+   `S_VERIFIED` count as satisfied; other roles resolve against the LOWEST tenant role, global roles
+   never; a route guarded only by `S_SELF` / `S_CREATOR` refuses (a tenant token is nobody's self);
+   an `X-Tenant-Id` naming another tenant refuses. The request gets `tenantId` / `tenantRole`
+   like a membership.
+3. A **USER** token continues through the ordinary checks as its user (global roles removed, so no
+   admin bypass). `CoreTenantGuard` adds its restrictions: a token restricted to one tenant is bound
+   to it (a foreign header refuses, `@SkipTenantCheck()` does not unbind it), and `maxTenantRole`
+   caps the membership role wherever it is used — including the no-header `tenantIds` resolution.
+4. A request that carries a token credential but reaches a guard without a token context (the
+   middleware did not run) is refused with 401 rather than treated as anonymous.
 
 #### System Roles (S_ prefix)
 
