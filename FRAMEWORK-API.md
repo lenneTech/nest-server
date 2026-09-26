@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-09-23 (v11.41.4)
+> Auto-generated from source code as of 2026-09-26 (v11.41.4)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()

@@ -36,6 +36,18 @@
  * The starter is COPIED, never used in place: the run rewrites `package.json`, installs, builds and
  * runs migrations. Doing that in a developer's working tree would be destructive.
  *
+ * The copy is UPDATED the way a consumer updates, not just re-pointed. A starter-based project
+ * moves to a new framework version with `pnpm run update` (the starter's extras/sync-packages.mjs),
+ * which raises every pin the framework declares in the same section to the framework's version.
+ * Re-pointing only the framework dependency tested a state no documented path produces — and one
+ * that fails for EVERY release raising a shared exact pin: the starter kept `@nestjs/common` 11.2.1
+ * while the tarball brought 11.2.6, `@nestjs/schedule` was installed twice, and `CronJobs extends
+ * CoreCronJobs` stopped type-checking. That blocked 11.41.4 although the tarball was sound. The
+ * gate cannot run sync-packages itself (it reads the npm registry, which does not have this version
+ * yet), so `alignConsumerPins()` applies the same rule to the tarball's manifest and PRINTS every pin
+ * it raised: those are exactly the pins a consumer has to raise too, and the migration guide must
+ * say so.
+ *
  * Usage:
  *   pnpm run check:consumer
  *   pnpm run check:consumer -- --fast
@@ -53,6 +65,51 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGE_NAME = '@lenne.tech/nest-server';
+
+/** `[major, minor, patch]` for an exact `x.y.z`, else undefined — ranges, tags and prereleases never compare. */
+function parseExactVersion(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(value ?? '').trim());
+  return match ? match.slice(1).map(Number) : undefined;
+}
+
+/** Positive when `a` is newer than `b`; 0 when equal or when either is not an exact version. */
+function compareExactVersions(a, b) {
+  const left = parseExactVersion(a);
+  const right = parseExactVersion(b);
+  if (!left || !right) {
+    return 0;
+  }
+  for (let i = 0; i < 3; i++) {
+    if (left[i] !== right[i]) {
+      return left[i] - right[i];
+    }
+  }
+  return 0;
+}
+
+/**
+ * Raise the consumer's pins the way its own `pnpm run update` does (the starter's
+ * extras/sync-packages.mjs): for `dependencies` and `devDependencies` alike, a package the consumer
+ * ALREADY declares in the SAME section is raised to the framework's version when that is newer.
+ * Never lowered, never added, never moved across sections, never touched when either side is not an
+ * exact version. Mutates `consumer` and returns what it raised.
+ */
+function alignConsumerPins(consumer, framework) {
+  const raised = [];
+  for (const section of ['dependencies', 'devDependencies']) {
+    for (const [name, version] of Object.entries(framework?.[section] ?? {})) {
+      const current = consumer?.[section]?.[name];
+      if (name === PACKAGE_NAME || current === undefined) {
+        continue;
+      }
+      if (compareExactVersions(version, current) > 0) {
+        consumer[section][name] = version;
+        raised.push({ from: current, name, section, to: version });
+      }
+    }
+  }
+  return raised;
+}
 
 /** Never copied into the throwaway workspace: rebuilt, irrelevant, or enormous. */
 const SKIP_ENTRIES = new Set(['.git', '.idea', 'coverage', 'dist', 'node_modules', 'public', 'tmp']);
@@ -146,8 +203,20 @@ function main() {
       fail(`${basename(STARTER)} does not depend on ${PACKAGE_NAME} — is this really a consumer project?`);
     }
     manifest.dependencies[PACKAGE_NAME] = `file:${tarballPath}`;
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     process.stdout.write(`  ${previous} -> file:${tarball}\n`);
+
+    // 3b. Update the rest of the consumer the way `pnpm run update` would (see the header). The
+    //     packed manifest IS this repo's package.json — `pnpm pack` does not rewrite versions.
+    const raised = alignConsumerPins(manifest, JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')));
+    if (raised.length) {
+      process.stdout.write(
+        `  raised ${raised.length} consumer pin(s) the way \`pnpm run update\` does — every consumer has to raise them too:\n`,
+      );
+      for (const { from, name, section, to } of raised) {
+        process.stdout.write(`    ${section} ${name} ${from} -> ${to}\n`);
+      }
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     // `--no-frozen-lockfile` because the manifest was just rewritten; the copy's lockfile is
     // regenerated here so the consumer's own `check` (which installs frozen) still passes.
@@ -192,4 +261,4 @@ if (INVOKED_AS_SCRIPT) {
   main();
 }
 
-export { SKIP_ENTRIES, STARTER };
+export { alignConsumerPins, SKIP_ENTRIES, STARTER };

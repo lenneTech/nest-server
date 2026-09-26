@@ -1474,6 +1474,17 @@
         "tests/unit/check-overrides.guard.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-skips-pin-alignment",
+      "defect": "11.41.4 — the consumer gate only re-pointed the framework dependency at the tarball and kept every other starter pin, i.e. a state no documented update path produces. A release raising a shared exact pin (@nestjs/common 11.2.1 -> 11.2.6) installed @nestjs/schedule twice, `CronJobs extends CoreCronJobs` stopped type-checking, and a sound tarball was refused.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "      if (compareExactVersions(version, current) > 0) {",
+      "replace": "      if (compareExactVersions(version, current) < 0) {",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
