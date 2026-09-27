@@ -213,12 +213,13 @@ describe('unportablePrograms / SHELL_SYNTAX — the rules themselves', () => {
 
 describe('package.json scripts call no program cmd.exe lacks', () => {
   it('does not call a program that cmd.exe lacks or runs as something else', () => {
-    // Listed rather than silently skipped. `bash scripts/check-server-start.sh` gets a Node
-    // replacement shared across the repos that carry it; `docs` (`open`) and `test:cleanup` (POSIX
-    // `find`) are developer conveniences outside the build and the test run.
+    // Listed rather than silently skipped. The check chains are no longer on this list:
+    // `bash scripts/check-server-start.sh` became `node scripts/check-server-start.mjs`, the file
+    // the other repos share. `docs` (`open`) and `test:cleanup` (POSIX `find`) are developer
+    // conveniences outside the build and the test run.
     expectOnlyKnown(
       entries.filter(([, command]) => unportablePrograms(command).length > 0).map(([name]) => name),
-      ['check:fix', 'check:naf', 'check:raw', 'docs', 'test:cleanup'],
+      ['docs', 'test:cleanup'],
       'not available under cmd.exe',
     );
   });

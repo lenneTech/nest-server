@@ -3,3 +3,4 @@ dist
 *.d.ts
 **/migrate/templates/**
 tests/migrations/
+tests/fixtures/
