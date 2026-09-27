@@ -9,3 +9,4 @@
 - [Dependency shape + couplings](nest-server-dependency-shape.md) — why packages sit in deps vs devDeps; mongodb+mongoose; lockstep exact pins.
 - [Maintenance gotchas](nest-server-maintenance-gotchas.md) — check:overrides TDZ bug (fixed 11.41.4), hung pnpm install, nest exec bit, oxfmt/oxlint evaluation, depcheck false positives.
 - [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — stale lock entries after override edits, targeted `pnpm update --depth Infinity`, `check --no-fix`.
+- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages vs bare lockstep overrides (multer downgrade), exact-pin keys, jose/semver stale copies, safe gate.
