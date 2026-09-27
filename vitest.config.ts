@@ -56,6 +56,7 @@ export default defineConfig({
     // Same setup as the e2e runner: restricts the Nest Logger to error/fatal and filters the
     // intentional @UnifiedField deprecation warnings. Without it the unit run drowns in expected
     // DEBUG/WARN output that the e2e run suppresses.
-    setupFiles: ['tests/setup.ts'],
+    // The signal guard: a unit test may only signal processes it spawned (see its header).
+    setupFiles: ['tests/setup.ts', 'tests/unit/support/signal-guard.setup.ts'],
   },
 });

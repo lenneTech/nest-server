@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
  * so it can never show that the process actually terminates — and a handler that logs a signal
  * but leaves the process running is the exact failure this whole helper exists to prevent.
  *
- * `scripts/check-server-start.sh` does not close the gap either: its cleanup sends SIGTERM and
+ * `scripts/check-server-start.mjs` does not close the gap either: its `stop()` sends SIGTERM and
  * escalates to SIGKILL after ~2 s WITHOUT failing, so a hung SIGTERM passes that gate silently.
  *
  * Costs one `tsx` child (~1 s), needs no MongoDB, and stays in the unit runner.
