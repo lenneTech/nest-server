@@ -16,32 +16,46 @@
 #     and first-run is handled by the SystemSetup module.
 #   - No CLI in the image? Skip.
 #
-# A migration that RUNS AND FAILS *is* a failure, and this entrypoint aborts on it.
-# This deliberately differs from nest-server-starter, which degrades it to a warning and starts
-# anyway. Rationale: serving against a half-applied schema is how silent data corruption happens,
-# and the container runtime restarts and retries regardless. Availability-first deployments can
-# opt out with MIGRATE_FAILURE_POLICY=warn.
+# A migration that RUNS AND FAILS *is* a failure, and this entrypoint aborts on it — as does
+# nest-server-starter's since DEV-2728. Rationale: serving against a half-applied schema is how
+# silent data corruption happens, and the container runtime restarts and retries regardless.
+# Opt out per deploy with MIGRATIONS_ALLOW_FAILURE=true (or the long form
+# MIGRATE_FAILURE_POLICY=warn, which wins when both are set).
+#
+# A recorded migration whose FILE IS GONE is not a failure: migrations that ran everywhere are
+# often pruned, and the migrate CLI only warns about them (unless NSC__MIGRATE__STRICT=true).
+# That is why no --strict is passed below.
 #
 # Test seams (default to the real values in the container):
 #   APP_DIST                compiled output (/app/projects/api/dist in a monorepo, /app/dist standalone)
 #   MIGRATE_BIN             path to the npm-mode migrate CLI (overridden in unit tests)
 #   SERVER_CMD              command used to start the server (overridden in unit tests)
-#   MIGRATE_FAILURE_POLICY  `abort` (default) or `warn`
+#   MIGRATE_FAILURE_POLICY  `abort` (default) or `warn`; anything else behaves like `abort`
+#   MIGRATIONS_ALLOW_FAILURE  `true` = short form of MIGRATE_FAILURE_POLICY=warn
 set -e
 
 DIST="${APP_DIST:-/app/dist}"
 MIGRATE_BIN="${MIGRATE_BIN:-/app/node_modules/.bin/migrate}"
 VENDOR_MIGRATE="$DIST/bin/migrate.js"
-MIGRATE_FAILURE_POLICY="${MIGRATE_FAILURE_POLICY:-abort}"
+if [ -z "$MIGRATE_FAILURE_POLICY" ]; then
+  case "$MIGRATIONS_ALLOW_FAILURE" in
+    true) MIGRATE_FAILURE_POLICY=warn ;;
+    '' | false) MIGRATE_FAILURE_POLICY=abort ;;
+    *)
+      echo "[entrypoint] WARNING: unknown MIGRATIONS_ALLOW_FAILURE '$MIGRATIONS_ALLOW_FAILURE' (expected 'true') — using 'abort'."
+      MIGRATE_FAILURE_POLICY=abort
+      ;;
+  esac
+fi
 
 run_migrations() {
   if "$@" up --store "$DIST/migrations-utils/migrate.js" --migrations-dir "$DIST/migrations"; then
     echo "[entrypoint] Migrations applied."
   elif [ "$MIGRATE_FAILURE_POLICY" = "warn" ]; then
-    echo "[entrypoint] WARNING: migration step failed — continuing to start server (MIGRATE_FAILURE_POLICY=warn)."
+    echo "[entrypoint] WARNING: migration step failed — continuing to start server (failures allowed for this deploy)."
   else
     echo "[entrypoint] ERROR: migration step failed — refusing to start against a possibly half-applied schema."
-    echo "[entrypoint] Set MIGRATE_FAILURE_POLICY=warn to start anyway."
+    echo "[entrypoint] Fix the migration, or set MIGRATIONS_ALLOW_FAILURE=true for this deploy to start anyway."
     exit 1
   fi
 }

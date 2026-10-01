@@ -37,19 +37,25 @@ export type BetterAuthFieldType = 'boolean' | 'date' | 'json' | 'number' | 'numb
  * particularly useful in CI / e2e tests: `{ jsonTransport: true }` serializes
  * outgoing mail to a JSON string and returns a valid response without any
  * network I/O — no SMTP server, no credentials, no flakiness.
+ *
+ * The `X.default` members are the transport INSTANCE types. nodemailer >= 10 ships its own
+ * declarations, where each `nodemailer/lib/<transport>` module is `export default class` plus a
+ * module-level `Options` alias, so `import type * as X` yields a module namespace — the class is
+ * `X.default`. (`@types/nodemailer` used `export =` with a merged namespace, where `X` itself
+ * was the class.)
  */
 export type MailTransportOptions =
-  | JSONTransport
+  | JSONTransport.default
   | JSONTransport.Options
-  | SendmailTransport
+  | SendmailTransport.default
   | SendmailTransport.Options
-  | SESTransport
+  | SESTransport.default
   | SESTransport.Options
-  | SMTPPool
+  | SMTPPool.default
   | SMTPPool.Options
-  | SMTPTransport
+  | SMTPTransport.default
   | SMTPTransport.Options
-  | StreamTransport
+  | StreamTransport.default
   | StreamTransport.Options
   | string;
 

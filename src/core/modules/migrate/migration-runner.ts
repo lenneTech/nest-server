@@ -297,8 +297,17 @@ export class MigrationRunner {
 
   /**
    * Rollback the last migration (down)
+   *
+   * Serialized through the same lock as `up()`. A rollback is typically run while a deploy
+   * is failing, i.e. exactly while replicas restart and each boots into `migrate up`; outside
+   * the lock the two would read and rewrite the migration state concurrently, and one of them
+   * would save a state that no longer matches the database.
    */
   async down(): Promise<void> {
+    await withMigrationLock(this.options.stateStore, () => this.runDown());
+  }
+
+  protected async runDown(): Promise<void> {
     const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
 
     const state = await this.options.stateStore.loadAsync();

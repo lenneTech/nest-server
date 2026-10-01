@@ -25,7 +25,7 @@
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -578,7 +578,21 @@ async function runAudit(auditCmd) {
 const RUNNING = new Set();
 
 /**
- * How to kill a process tree on this platform.
+ * Whether a number may become a kill target at all.
+ *
+ * A spawn that failed leaves `child.pid` undefined. On POSIX that only made `pgrep` and
+ * `process.kill` throw, but on Windows it became `taskkill /PID undefined /T /F` — a kill
+ * command built from a word that is not a pid. And the small numbers are not processes you
+ * own: POSIX pid 1 is init/launchd, and 0 and -1 are the group and the kill(2) broadcast to
+ * every process of the user (the shape that rebooted a Mac on 2026-09-23). Windows reserves
+ * 0 (System Idle) and 4 (System). Nothing a check step spawns can have any of these pids.
+ */
+export function isKillablePid(pid, platform = process.platform) {
+  return Number.isInteger(pid) && pid > (platform === 'win32' ? 4 : 1);
+}
+
+/**
+ * How to kill a process tree on this platform, or null when `pid` must not be touched.
  *
  * Windows has neither `pgrep` nor signals: `process.kill(pid, 'SIGTERM')` there ends the one
  * process and orphans its children, and `taskkill /T` alone was measured to leave the tree
@@ -593,45 +607,83 @@ const RUNNING = new Set();
  * Split out as a pure function so both branches can be tested from either platform.
  */
 export function killTreePlan(pid, signal, platform = process.platform) {
+  if (!isKillablePid(pid, platform)) return null;
   return platform === 'win32' ? { args: ['/PID', String(pid), '/T', '/F'], command: 'taskkill' } : { signal };
 }
 
-// Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
-// fork workers). Killing only the direct child orphans the tree — exactly the
-// zombie workers a deadlock leaves behind. Children are collected via pgrep
-// and killed leaves-first.
-function killTree(child, signal = 'SIGTERM') {
-  const plan = killTreePlan(child.pid, signal);
+/**
+ * Kill `pid` and its whole process tree, with every effect injected.
+ *
+ * Injecting the platform alone is not enough: the effects would still run for real, against
+ * this machine, with whatever pid the test chose. So all four are required and nothing
+ * defaults — a test cannot reach a real `taskkill`, `pgrep` or `process.kill` by leaving one
+ * out. `killTree` below is the only caller that passes the real ones.
+ *
+ * - `run(command, args)` executes the Windows plan.
+ * - `childrenOf(pid)` returns the direct children of `pid` (POSIX).
+ * - `signal(pid, sig)` delivers `sig` to `pid` (POSIX).
+ *
+ * POSIX order is leaves first, so a parent cannot respawn a child that was just killed, and
+ * each pid is signalled at most once. Pids a lookup returns pass the same check as the root —
+ * a stray 1 in `pgrep` output must not become a signal to init.
+ */
+export function killTreeWith(pid, sig, { childrenOf, platform, run, signal }) {
+  for (const [name, fn] of Object.entries({ childrenOf, run, signal })) {
+    if (typeof fn !== 'function') throw new TypeError(`killTreeWith: \`${name}\` must be injected`);
+  }
+  if (typeof platform !== 'string') throw new TypeError('killTreeWith: `platform` must be injected');
+  const plan = killTreePlan(pid, sig, platform);
+  if (!plan) return;
   if (plan.command) {
     try {
-      execFileSync(plan.command, plan.args, { stdio: 'ignore' });
+      run(plan.command, plan.args);
     } catch {
       /* already gone, or taskkill refused — nothing further to try */
     }
     return;
   }
-  const pids = [];
-  const collect = (pid) => {
-    pids.push(pid);
-    let out = '';
+  const seen = new Set();
+  const order = [];
+  const collect = (p) => {
+    if (seen.has(p) || !isKillablePid(p, platform)) return;
+    seen.add(p);
+    let children = [];
     try {
-      out = execSync(`pgrep -P ${pid}`, { stdio: ['ignore', 'pipe', 'ignore'] })
-        .toString()
-        .trim();
+      children = childrenOf(p);
     } catch {
       /* no children */
     }
-    if (out) for (const p of out.split('\n')) collect(Number(p));
+    for (const c of children) collect(c);
+    order.push(p);
   };
-  collect(child.pid);
-  // Children before parents, without mutating `pids` — the caller still reads it afterwards.
-  for (const pid of pids.toReversed()) {
+  collect(pid);
+  for (const p of order) {
     try {
-      process.kill(pid, signal);
+      signal(p, plan.signal);
     } catch {
       /* already gone */
     }
   }
+}
+
+/** Direct children of `pid` via `pgrep -P`; empty when there are none (pgrep exits 1). */
+function pgrepChildren(pid) {
+  const out = execFileSync('pgrep', ['-P', String(pid)], { stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString()
+    .trim();
+  return out ? out.split('\n').map(Number) : [];
+}
+
+// Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
+// fork workers). Killing only the direct child orphans the tree — exactly the
+// zombie workers a deadlock leaves behind.
+function killTree(child, signal = 'SIGTERM') {
+  killTreeWith(child.pid, signal, {
+    childrenOf: pgrepChildren,
+    platform: process.platform,
+    run: (command, args) => execFileSync(command, args, { stdio: 'ignore' }),
+    signal: (pid, sig) => process.kill(pid, sig),
+  });
 }
 
 // idleTimeoutMs > 0 arms the no-output watchdog for this child; 0 (the default)

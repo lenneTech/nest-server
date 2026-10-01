@@ -1398,11 +1398,68 @@
     },
     {
       "id": "check-kill-tree-falls-through-to-pgrep",
-      "defect": "11.41.3 — the Windows plan is only useful if killTree() stops after running it. Falling through to the `pgrep` / `process.kill` path after taskkill reintroduces the POSIX-only code on Windows.",
+      "defect": "11.41.3 — the Windows plan is only useful if the tree kill stops after running it. Falling through to the `pgrep` / `process.kill` path after taskkill reintroduces the POSIX-only code on Windows. (The dispatch moved from killTree() into killTreeWith() with the f45cb2c port.)",
       "file": "scripts/check.mjs",
-      "after": "function killTree(",
+      "after": "export function killTreeWith(",
       "find": "      /* already gone, or taskkill refused — nothing further to try */\n    }\n    return;\n",
       "replace": "      /* already gone, or taskkill refused — nothing further to try */\n    }\n",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-pid-gate-open",
+      "defect": "unreleased (after 11.41.4) — a failed spawn leaves child.pid undefined, which became `taskkill /PID undefined /T /F` on Windows; 0, 1 and -1 on POSIX are the group, init and the kill(2) broadcast. isKillablePid() refuses them; this mutation opens the gate for every value.",
+      "file": "scripts/check.mjs",
+      "find": "  return Number.isInteger(pid) && pid > (platform === 'win32' ? 4 : 1);",
+      "replace": "  return true;",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-children-ungated",
+      "defect": "unreleased (after 11.41.4) — pids returned by `pgrep` must pass the same gate as the root: a stray 1 or -1 in the lookup would otherwise become a signal to init or the broadcast to every process of the user.",
+      "file": "scripts/check.mjs",
+      "find": "    if (seen.has(p) || !isKillablePid(p, platform)) return;",
+      "replace": "    if (seen.has(p)) return;",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-effects-optional",
+      "defect": "unreleased (after 11.41.4) — killTreeWith() requires every effect so a test cannot reach real `taskkill`, `pgrep` or `process.kill` by leaving one out (the shape of the 2026-09-23 reboot). This mutation drops the check for the three function effects.",
+      "file": "scripts/check.mjs",
+      "find": "    if (typeof fn !== 'function') throw new TypeError(`killTreeWith: \\`${name}\\` must be injected`);",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-real-platform-dropped",
+      "defect": "unreleased (after 11.41.4) — killTree() is the one caller that hands killTreeWith() the REAL effects. A hard-coded platform there (`'linux'`) passes every recorder test yet brings the 11.41.3 Windows defect back: pgrep + process.kill instead of taskkill, the vitest tree orphaned.",
+      "file": "scripts/check.mjs",
+      "after": "function killTree(",
+      "find": "    platform: process.platform,",
+      "replace": "    platform: 'linux',",
+      "specs": [
+        "tests/unit/check-kill-tree-plan.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-kill-tree-real-signal-dropped",
+      "defect": "unreleased (after 11.41.4) — a no-op `signal` effect in killTree() leaves the watchdog killing nothing: capture() only settles on the child's `close`, so a wedged step hangs `pnpm run check` forever — the hang the idle watchdog exists to end.",
+      "file": "scripts/check.mjs",
+      "after": "function killTree(",
+      "find": "    signal: (pid, sig) => process.kill(pid, sig),",
+      "replace": "    signal: () => {},",
       "specs": [
         "tests/unit/check-kill-tree-plan.spec.ts"
       ],
@@ -1483,6 +1540,17 @@
       "replace": "      if (compareExactVersions(version, current) < 0) {",
       "specs": [
         "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-down-outside-lock",
+      "defect": "DEV-2728 — MigrationRunner.down() ran outside the migration lock while up() held it. A rollback is typically run while a deploy is failing, i.e. while replicas restart and each boots into `migrate up`; both read and rewrote the migration state concurrently.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "    await withMigrationLock(this.options.stateStore, () => this.runDown());",
+      "replace": "    await this.runDown();",
+      "specs": [
+        "tests/unit/migration-runner-lock.spec.ts"
       ],
       "driverSpecific": false
     }
