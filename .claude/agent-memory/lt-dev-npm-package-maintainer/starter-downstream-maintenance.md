@@ -1,6 +1,6 @@
 ---
 name: starter-downstream-maintenance
-description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages vs bare lockstep overrides, exact-pin keys, stale lock copies, safe final gate with foreign WIP)
+description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages AND check:consumer ignore overrides, bare lockstep overrides, exact-pin keys, stale lock copies, safe final gate with foreign WIP)
 metadata:
   type: project
 ---
@@ -29,6 +29,16 @@ version next to the framework's new one), `semver` 7.x. Dedupe with a targeted
 `pnpm update --depth Infinity <pkg>`; never swap in a fresh lockfile (~300 lines of unrelated
 transitive drift). A leftover `@vitest/ui` entry keeps `fflate` in the starter lock although a
 fresh resolve has neither — harmless, leave it.
+
+**4b. `check:consumer` has the same blind spot as sync-packages (verified 2026-10-01, 11.41.5).**
+Its `alignConsumerPins()` raises only `package.json` pins the starter already declares; the copy
+keeps the starter's `pnpm-workspace.yaml` verbatim. So with the starter's bare
+`nodemailer: 9.1.1` override, `pnpm run check:consumer -- --fast` passed while the copy RAN
+nodemailer 9.1.1 and js-yaml 5.3.0 — green, and silent about the framework's nodemailer 10.
+**How to apply:** run it with `--keep` and read the installed versions of every lockstep package
+out of the kept copy; to prove the TARGET state, run it again with
+`--starter=<scratch copy of the starter with the follow-up overrides applied>` (that run: 10.0.13
++ js-yaml 5.4.2, unit 252 / e2e 119 green, starter audit 0). Neither touches the real starter.
 
 **5. Final gate with other sessions' uncommitted files in the tree:** `pnpm run check` auto-fixes
 format+lint. Safe only after `format:check` and `lint` are proven clean; snapshot `shasum` of the

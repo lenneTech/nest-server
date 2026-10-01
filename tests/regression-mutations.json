@@ -1542,6 +1542,17 @@
         "tests/unit/check-consumer-align.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "migration-down-outside-lock",
+      "defect": "DEV-2728 — MigrationRunner.down() ran outside the migration lock while up() held it. A rollback is typically run while a deploy is failing, i.e. while replicas restart and each boots into `migrate up`; both read and rewrote the migration state concurrently.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "    await withMigrationLock(this.options.stateStore, () => this.runDown());",
+      "replace": "    await this.runDown();",
+      "specs": [
+        "tests/unit/migration-runner-lock.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

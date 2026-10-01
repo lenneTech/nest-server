@@ -240,9 +240,12 @@ How the lock works, regardless of which entry point uses it:
 
 This ensures that in a cluster with multiple nodes, migrations run on only one machine at a time.
 
-**Active by default for `migrate up`.** Stores built by `createMigrationStore()` use the
-lock collection `migrations_lock` unless another name is given, and `MigrationRunner.up()`
-(the CLI's `up` command) acquires that lock around the whole run. This matters because the
+**Active by default for `migrate up` and `migrate down`.** Stores built by `createMigrationStore()` use the
+lock collection `migrations_lock` unless another name is given, and `MigrationRunner.up()` / `.down()`
+(the CLI's `up` / `down` commands) acquire that lock around the whole run. `down` joined later (DEV-2728): a
+rollback is typically run while a deploy is failing, i.e. while replicas restart and each boots into
+`migrate up` — outside the lock the two rewrote the migration state concurrently. `migrate list` only
+reads and stays unlocked. This matters because the
 container entrypoint runs migrations on **every** boot: without the lock, N replicas
 starting together each read the same empty state and apply the same pending migration N
 times. A replica that waited re-reads the state inside the lock and finds nothing pending.
@@ -530,10 +533,15 @@ Enable it via any of:
 | `NSC__MIGRATE__STRICT=1\|true\|yes` env var  | CLI **and** programmatic runners (resolved in the `MigrationRunner` constructor) |
 | `new MigrationRunner({ strict: true, ... })` | programmatic                                                                     |
 
-**Recommended for production images:** set `NSC__MIGRATE__STRICT=true` in the container
-environment. In an immutable image, a recorded-but-missing migration file can only mean a
-broken build (empty/miscopied `migrations/` directory) or a state-store mismatch (wrong
-database) — both are conditions where refusing to boot is correct.
+**Off by default, on only when a project explicitly wants it.** Deleting migration files that
+ran everywhere is a normal practice — a new instance never needs them, and git history restores
+them if ever needed — and under strict mode every such deletion would refuse the boot. Turn it on
+for images that must carry the FULL migration history. Where the history is complete by
+design, a recorded-but-missing file can only mean a broken build (empty/miscopied
+`migrations/` directory) or a state-store mismatch (wrong database), and refusing to boot is
+correct. This is independent of the entrypoint's failure policy: a migration that RAN AND
+FAILED aborts the container start by default (`MIGRATIONS_ALLOW_FAILURE=true` opts out per
+deploy), whatever `strict` says.
 
 ### Programmatic usage (MigrationRunner)
 

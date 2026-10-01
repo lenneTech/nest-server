@@ -98,6 +98,19 @@ peerDependencyRules:
 #   resolve picks. All targets were raised to the newest release in their major that clears the
 #   1440-minute hold-back; nanoid, postcss and multer were raised to their latest for the same
 #   reason. js-yaml 5.x was deliberately left alone - see its entry.
+#   2026-10-01 re-verified with two fresh resolves (11.41.5 maintenance run). js-yaml 5.x is
+#   LOAD-BEARING again: GHSA-r3ph-w7gj-g6xm (published 2026-09-29) covers the 5.3.0 that
+#   @nestjs/swagger 11.4.7 exact-pins, and without this block 5.3.0 returns and the audit reports
+#   it. minimatch still changes the tree (9.0.9 + brace-expansion 2.1.7 return without it, both
+#   patched). Every other entry resolves identically with and without the block, i.e. no
+#   downgrade lock is left after raising the two found this time: browserslist (4.29.1 -> 4.29.3)
+#   and hono (4.13.9 -> 4.13.11). nodemailer has NO entry here, deliberately: it is a direct
+#   dependency, and its 2026-09 advisories (GHSA-v53p-9fqp-m79j + GHSA-prgh-xp8r-p3m5 high, three
+#   moderate) are fixed only in 10.x, with no 9.x backport. An override must not cross a major, so
+#   the fix is the direct bump 9.1.1 -> 10.0.13 in package.json (11.41.5). Consumers that carry a
+#   LOCKSTEP nodemailer override (nest-server-starter: bare `nodemailer: 9.1.1`) must raise it to
+#   10.0.13 together with the framework - a bare key would otherwise drag this direct dependency
+#   back to 9.1.1 in their tree.
 #
 # DOWNGRADE-LOCK is the failure mode to hunt for here, and the 2026-08-22 run found three of them
 # (axios, ip-address, hono). A key is matched against the REQUESTED RANGE, not the resolved
@@ -161,8 +174,11 @@ overrides:
   # caret range that intersects `<4.28.7`, so the entry fires and pins the whole spec to the target
   # (see the header note on downgrade-locks). Target raised 4.28.8 -> 4.29.1 on 2026-09-26 - a clean
   # resolve picks 4.29.1, so 4.28.8 had become a hold-back.
+  # Target raised 4.29.1 -> 4.29.3 on 2026-10-01 for the same reason (4.29.3, published 2026-09-29,
+  # is the newest 4.x past the hold-back). Key left at the fix line, as before - it fires on
+  # webpack's caret request either way.
   # Remove once webpack requests >=4.28.7 itself.
-  'browserslist@<4.28.7': '4.29.1'
+  'browserslist@<4.28.7': '4.29.3'
   'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Target raised 1.18.1 -> 1.19.0 on 2026-08-22, and the key upper bound with it. NOT cosmetic: an
@@ -229,7 +245,16 @@ overrides:
   # Raising the key to `<5.4.2` would make it FIRE on that exact pin and override @nestjs/swagger's
   # own choice - a minor bump over an upstream pin, for no advisory. The entry's only parent has
   # always exact-pinned, so there is no caret request here for a stale target to hold back.
-  'js-yaml@>=5.0.0 <5.2.2': '5.2.2'
+  # 2026-10-01: NOW raised, key and target together, because the advisory the paragraph above
+  # said was missing has arrived: GHSA-r3ph-w7gj-g6xm (moderate, published 2026-09-29) -
+  # `maxTotalMergeKeys` does not bound CPU use for empty merge sources - covers >=5.0.0 <=5.4.0,
+  # patched >=5.4.1, and therefore covers the 5.3.0 that @nestjs/swagger 11.4.7 exact-pins.
+  # 11.4.7 is the newest @nestjs/swagger 11.x, so no in-major bump reaches the fix; this entry
+  # deliberately FIRES on that exact pin now. Target 5.4.2 = newest 5.x (2026-09-13), a minor
+  # step inside the major. RUNTIME: @nestjs/swagger is a `dependency`, so consumers carry 5.3.0
+  # until they mirror this entry - see docs/security-overrides.md.
+  # Remove once @nestjs/swagger pins >=5.4.1 itself.
+  'js-yaml@>=5.0.0 <5.4.2': '5.4.2'
   # Security: fast-uri - SIX advisories now, all four newest patched >=3.1.6 (raised 2026-09-02)
   #   GHSA-v2hh-gcrm-f6hx  host confusion via failed IDN canonicalization        (>=3.1.3)
   #   (unnamed)            literal backslash authority delimiter                 (>=3.1.4)
@@ -296,7 +321,9 @@ overrides:
   # >=4.13.5, so 4.13.3 was pinned below its own advisories. 4.13.7 is the latest 4.x.
   # Target raised 4.13.7 -> 4.13.9 on 2026-09-26, key upper bound with it: a clean resolve picks
   # 4.13.9 (no new advisory; pure hold-back).
-  'hono@>=4.0.0 <4.13.9': '4.13.9'
+  # Target raised 4.13.9 -> 4.13.11 on 2026-10-01, key upper bound with it: same hold-back again.
+  # 4.13.12 (2026-09-30) was still inside the 1440-minute window, so 4.13.11 is the newest it allows.
+  'hono@>=4.0.0 <4.13.11': '4.13.11'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'

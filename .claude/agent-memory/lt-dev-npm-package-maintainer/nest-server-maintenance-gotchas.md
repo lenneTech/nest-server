@@ -106,6 +106,53 @@ Output showed `Done in 3s`, lockfile + node_modules written, but the process sat
 with no children for 10+ minutes. Killing it is safe; confirm with
 `pnpm install --frozen-lockfile` afterwards. Use `timeout 300 pnpm install` for installs.
 
+## After a machine reboot the agent shell loses fnm + Homebrew (2026-10-01)
+
+PATH shrinks to `/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin`: `timeout` is gone (exit 127,
+"command not found: timeout") and node/pnpm come from `/usr/local/bin`. Same versions there
+today (node 24.12.0, pnpm 11.13.1), but do not rely on it. Prefix commands with
+`export PATH="$HOME/.local/share/fnm/node-versions/<node-version>/installation/bin:/opt/homebrew/bin:$PATH"`.
+The reboot also WIPES the session scratchpad under `/private/tmp` — record checksums of
+candidate files in the transcript, not only in scratch, so a resumed run can verify state.
+
+## The agent shell is zsh: `for s in "a b" ...; do $s; done` does NOT word-split
+
+`$s` runs as ONE command name ("command not found: pnpm install --frozen-lockfile", exit 127).
+Put multi-step chains into a `#!/usr/bin/env bash` script with `bash -c "$s"` per step.
+
+## `pnpm run check` cannot validate anything past an unfixable advisory
+
+`scripts/check.mjs` runs the audit as step 0 and returns `fail()` on a blocking audit before
+any other step starts. When an advisory cannot be fixed inside the run's constraints (2026-10-01:
+nodemailer 9.1.1, fixed only in 10.x), run the `check:raw` chain minus `pnpm audit` step by step
+to prove the rest is green, and report the audit separately. An `ignoreGhsas` suppression is no
+way out: `check:overrides` fails it with FIX AVAILABLE as soon as any range has a patch.
+
+## An e2e "hang" at 0% CPU after a reboot: VS Code squats loopback ports (2026-10-01)
+
+supertest starts the app with `listen(0)`, which binds the IPv6 WILDCARD `::`, then sends to
+`127.0.0.1:<port>`. macOS will hand out a port that another process holds on `127.0.0.1` ONLY
+(VS Code "Code Helper" processes hold ~12 such ports in 49152-65535 after a restart), and the more
+specific IPv4 bind wins: every request lands in VS Code, nothing answers, and the file grinds
+through 60 s timeouts x 3 attempts per test. Looks exactly like a dependency-induced deadlock —
+it cost this run two hours of suspecting nodemailer 10. Port 49515 was hit in two consecutive
+runs. Diagnose: `lsof -nP -iTCP:<port> -sTCP:LISTEN` shows TWO listeners (app on `*:port`,
+foreign process on `127.0.0.1:port`). Inside a stuck worker, SIGUSR1 + a CDP `Runtime.evaluate`
+of `globalThis.__vitest_worker__.current` names the file/test, and `process._getActiveHandles()`
+shows client sockets to the app with bytesWritten > 0 and bytesRead 0.
+Workaround with no repo change: reserve every `127.0.0.1`-only ephemeral port on `::` with a tiny
+`net.createServer().listen({ host: '::', port })` process for the duration of the run.
+Real fix (framework, not a maintenance-run edit): let the test helper listen on `127.0.0.1`
+explicitly before handing the server to supertest.
+
+## `graceful-shutdown` "leaves the event loop as empty" flakes under extreme load
+
+Failed 3/3 retries with `TCPSocketWrap: 6 -> 7` while the machine sat at load average ~120
+(another project's nuxt build + tsc); passed 4/4 isolated minutes later and in the full run
+on a quiet machine. A load artefact, not a dependency regression — rerun it in isolation
+before suspecting the bumped Redis/S3 client. (That run was BEFORE the reboot, so the
+port-squat above is not the explanation there.)
+
 ## Direct deps that mirror an upstream EXACT pin must stay in lockstep
 
 `graphql-ws` (direct, for the exported test helper) must equal what `@nestjs/graphql`
