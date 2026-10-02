@@ -9,4 +9,4 @@
 - [Dependency shape + couplings](nest-server-dependency-shape.md) — why packages sit in deps vs devDeps; mongodb+mongoose; lockstep exact pins.
 - [Maintenance gotchas](nest-server-maintenance-gotchas.md) — VS Code port-squat e2e hang, reboot PATH, audit blocks check, nest exec bit, hung install.
 - [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — stale lock entries after override edits, targeted `pnpm update --depth Infinity`, `check --no-fix`.
-- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages AND check:consumer ignore overrides (bare nodemailer pin), stale copies, safe gate.
+- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages + check:consumer ignore overrides (bare nodemailer pin), stale copies, sticky optional peer, dedupe, safe gate.

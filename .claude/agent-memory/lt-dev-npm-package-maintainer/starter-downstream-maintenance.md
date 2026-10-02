@@ -1,6 +1,6 @@
 ---
 name: starter-downstream-maintenance
-description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages AND check:consumer ignore overrides, bare lockstep overrides, exact-pin keys, stale lock copies, safe final gate with foreign WIP)
+description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages AND check:consumer ignore overrides, bare lockstep overrides, exact-pin keys, stale lock copies, sticky optional peers, pnpm dedupe, safe final gate with foreign WIP)
 metadata:
   type: project
 ---
@@ -39,6 +39,24 @@ nodemailer 9.1.1 and js-yaml 5.3.0 — green, and silent about the framework's n
 out of the kept copy; to prove the TARGET state, run it again with
 `--starter=<scratch copy of the starter with the follow-up overrides applied>` (that run: 10.0.13
 + js-yaml 5.4.2, unit 252 / e2e 119 green, starter audit 0). Neither touches the real starter.
+
+**4c. A resolved OPTIONAL PEER never leaves the lockfile on its own (found 2026-10-01, 11.41.5).**
+`@nestjs/websockets@11.1.28` sat in the starter lock from 2026-07-16 as the resolved optional
+peer of `@nestjs/core` — absent from a fresh resolve AND from nest-server's own lock, one NestJS
+minor behind the family, and LOADED at runtime (`NestApplication` optionalRequires its
+`SocketModule`). `pnpm update --depth Infinity @nestjs/core` and `pnpm dedupe` both keep it.
+**How to apply:** compare the repo lock with a fresh `--lockfile-only` resolve by package NAME
+(not version — version drift is normal); a name only the repo has is a sticky optional peer.
+Drop it net-zero in scratch: add `'<pkg>': '-'` to `overrides`, `--lockfile-only`, restore the
+workspace file byte-identical, `--lockfile-only` again, copy the lock back, `pnpm install
+--frozen-lockfile`. Side effect: ~95 lines of `(supports-color@5.5.0)` optional-peer annotation
+churn in snapshot keys, no version change. **Why it matters beyond the starter:** `check:consumer`
+copies the starter's `pnpm-lock.yaml` (SKIP_ENTRIES excludes only .git/node_modules/dist/…) and
+installs `--no-frozen-lockfile`, so the framework's consumer gate inherited the stale peer too.
+Generated projects do NOT (the lt CLI deletes the template's lockfile).
+`pnpm dedupe` on its own is cheap here: it collapsed exactly four in-major duplicates
+(`@xhmikosr/decompress-tar` 9.0.1, `fs-extra` 11.3.4, `tinyglobby` 0.2.15, `type-is` 2.0.1)
+with zero other drift — try it in scratch every run.
 
 **5. Final gate with other sessions' uncommitted files in the tree:** `pnpm run check` auto-fixes
 format+lint. Safe only after `format:check` and `lint` are proven clean; snapshot `shasum` of the
