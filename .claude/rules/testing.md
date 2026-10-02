@@ -680,6 +680,22 @@ copy: its models' `securityCheck()` **records its own invocation** (`checkedFor`
 narrowing fields, so "the response looks redacted" — which a `@Restricted` rule, `prepareOutput` or
 a typo in the fixture would produce too — becomes "the hook ran, with this user, on this object".
 
+## Mail: one real SMTP round trip
+
+Every other mail test runs on `jsonTransport`, so the mail library could change its wire behaviour and
+every suite would stay green. That stopped being acceptable when 11.41.5 moved nodemailer across a
+major (9 → 10, a TypeScript rewrite) with no test that had ever sent a message through a real
+handshake. `tests/unit/email-smtp-roundtrip.spec.ts` closes that: an in-process `smtp-server`
+(devDependency, no Docker, hence the unit runner) on 127.0.0.1 with STARTTLS and AUTH-over-TLS-only,
+and `EmailService.sendMail()` against it — delivered, upgraded, authenticated, attachment intact,
+paired with refusals (wrong password; `requireTLS` against a server that cannot do STARTTLS).
+
+One trap worth knowing before you extend it: `smtp-server`'s `hideSTARTTLS` only removes the
+capability from the EHLO reply — the command still works, and nodemailer with `requireTLS` issues it
+anyway and upgrades. So `hideSTARTTLS` simulates a STRIPPED capability line (and the spec asserts the
+upgrade there), while a server that genuinely cannot encrypt needs `disabledCommands: ['STARTTLS']`.
+A refusal test written against `hideSTARTTLS` fails for the right reason: the mail went out encrypted.
+
 ## Structural invariants over `src/`
 
 Some properties cannot be observed by running the code, only by reading it — and a runtime guard
