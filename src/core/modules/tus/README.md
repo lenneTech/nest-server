@@ -392,6 +392,15 @@ for them.
 | Header naming a tenant the caller belongs to         | the finished file gets `metadata.tenantId` |
 | Header naming a tenant the caller does NOT belong to | **403**, nothing is stored                 |
 
+**The header has to come from the TUS client itself.** Projects usually add `X-Tenant-Id` in an
+interceptor of their generated API client, and `tus-js-client` does not go through that client. Without
+an explicit header the upload is accepted, stays tenant-less and bypasses tenant filtering and any
+per-tenant quota, with no error anywhere. Pass it to the upload, e.g. with nuxt-extensions:
+
+```typescript
+const { addFiles } = useLtTusUpload({ headers: { 'X-Tenant-Id': currentTenantId } });
+```
+
 The tenant is recorded under `TUS_TENANT_METADATA_KEY` (`ltTenantId`), next to the owner under
 `TUS_OWNER_METADATA_KEY`. Both keys are framework-owned and always overwritten, so a client cannot
 put either of them into its own `Upload-Metadata`. `metadata.tenantId` on the finished file is what
