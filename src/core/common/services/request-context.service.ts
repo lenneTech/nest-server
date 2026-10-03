@@ -20,6 +20,15 @@ export interface IRequestContext {
   /** When true, indicates admin bypass is active (admin without header sees all data) */
   isAdminBypass?: boolean;
   /**
+   * Set by `RequestContextMiddleware` (HTTP) and the GraphQL WebSocket context builder: this context
+   * belongs to a CLIENT operation, signed in or not. Absent for work the server does on its own —
+   * cron jobs, migrations, seeds, a `runWithBypass…()` outside a request.
+   *
+   * It is what tells an anonymous request apart from system work: both have no current user, and a
+   * check that exempts system work must not exempt the anonymous caller of a public route with it.
+   */
+  fromRequest?: boolean;
+  /**
    * Tracks the nesting depth of process() calls.
    * 0 = outermost call (full pipeline), > 0 = nested call (reduced pipeline).
    * Used to skip redundant populate, output mapping, and output rights checks

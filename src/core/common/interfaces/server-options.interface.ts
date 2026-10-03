@@ -10,6 +10,7 @@ import type { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-ind
 import type { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type.js';
 import compression from 'compression';
 import { CollationOptions } from 'mongodb';
+import type { Connection } from 'mongoose';
 import type * as JSONTransport from 'nodemailer/lib/json-transport';
 import type * as SendmailTransport from 'nodemailer/lib/sendmail-transport';
 import type * as SESTransport from 'nodemailer/lib/ses-transport';
@@ -1477,6 +1478,43 @@ export interface IMultiTenancy {
    * @since 11.21.1
    */
   cacheTtlMs?: number;
+
+  /**
+   * Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
+   *
+   * The tenant guard validates a membership and nothing else, so without this a tenant a project
+   * switched off keeps working for every member, every API token and every request without a tenant
+   * header. Asked after the membership check, on every path that establishes a tenant:
+   *
+   * - header paths (tenant roles, `S_USER` / `S_VERIFIED` with a header): **403**
+   * - tenant API tokens: **403**
+   * - public (`S_EVERYONE`) routes: not blocked, but no tenant context is set
+   * - no header: the tenant is dropped from the user's tenant list, so its data stays out of reach
+   * - GraphQL over WebSocket: no tenant is resolved for a NEW subscription; one already open keeps
+   *   its tenant until the client reconnects (as it does after a removed membership)
+   *
+   * A platform administrator under `adminBypass` still reaches the tenant — somebody has to be able to
+   * look into it and switch it back on.
+   *
+   * Return `false` for an inactive tenant; any other value (including `undefined`) counts as active.
+   * `context.connection` is the main database connection, for a lookup in the project's own tenant
+   * collection. Answers are cached for {@link cacheTtlMs}; after switching a tenant on or off, call
+   * `CoreTenantGuard.invalidateTenant(tenantId)` (broadcast to every replica when Redis is
+   * configured). A function cannot arrive through `NSC__*` / `NEST_SERVER_CONFIG` — set it in
+   * `config.env.ts`.
+   *
+   * @example
+   * ```typescript
+   * multiTenancy: {
+   *   isTenantActive: async (tenantId, { connection }) =>
+   *     (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
+   * }
+   * ```
+   *
+   * @default undefined (every tenant is active)
+   * @since 11.42.0
+   */
+  isTenantActive?: (tenantId: string, context: { connection: Connection }) => boolean | Promise<boolean>;
 }
 
 /**
@@ -2855,6 +2893,22 @@ export interface IServerOptions {
    * Configuration for security pipes and interceptors
    */
   security?: {
+    /**
+     * Whether the outbound URL guard (`outboundFetch`, `assertOutboundUrlAllowed`,
+     * `createOutboundDispatcher`) may reach INTERNAL addresses — loopback, private networks,
+     * link-local incl. the cloud metadata service.
+     *
+     * The guard is for URLs a USER entered (webhooks, export targets); configured targets do not use
+     * it. Unset, internal targets are allowed in the `local`, `e2e` and `ci` environments and
+     * refused everywhere else. `true` / `false` decide it explicitly
+     * (`NSC__SECURITY__ALLOW_PRIVATE_OUTBOUND_TARGETS`). To free a single internal host, pass
+     * `allowedHosts` to the call instead of opening all of them.
+     *
+     * @default undefined (allowed only in local, e2e and ci — not in `test`, a deployed stage in starter-based projects)
+     * @since 11.42.0
+     */
+    allowPrivateOutboundTargets?: boolean;
+
     /**
      * Check restrictions for output (models and output objects)
      * See @lenne.tech/nest-server/src/core/common/interceptors/check-response.interceptor.ts

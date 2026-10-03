@@ -172,6 +172,9 @@ importers:
       ts-morph:
         specifier: 28.0.0
         version: 28.0.0
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
       ws:
         specifier: 8.21.3
         version: 8.21.3

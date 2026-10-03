@@ -211,15 +211,87 @@ It also suppresses tenant membership validation for `S_USER`/`S_VERIFIED` system
 System admins (`RoleEnum.ADMIN`) bypass the membership check by default.
 Disable with `multiTenancy: { adminBypass: false }`.
 
+`adminBypass: false` promises that a platform administrator has no way into a tenant. Since 11.42.0
+two paths that went around that promise follow it too:
+
+- **Credentials:** `CoreUserService.update()` refuses a change of another account's e-mail address or
+  password (403) — for any caller, including the account's creator and other administrators. Exempt:
+  the account itself, profile fields, an unchanged address sent along, and system work without a
+  current user (invitation, password reset). Administrator TARGETS are deliberately not exempt: an
+  administrator may write `roles`, so promote-then-change would open every account. Override
+  `assertCredentialChangeAllowed()` to adjust.
+- **AI tools** (chat and MCP): no ADMIN bypass in the tool registry; tenant-role tools need a
+  membership role like anyone's.
+
+### Deactivated Tenants (`isTenantActive`, since 11.42.0)
+
+The guard validates a membership and nothing else, so a tenant a project switched off keeps working —
+for members, API tokens and the header-less tenant list — unless the project tells the guard:
+
+```typescript
+// config.env.ts
+multiTenancy: {
+  isTenantActive: async (tenantId, { connection }) =>
+    (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
+}
+```
+
+| Path                                                           | Deactivated tenant                                                                                                           |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Header + tenant role, or `S_USER` / `S_VERIFIED` with a header | **403** `Tenant is inactive`                                                                                                 |
+| Tenant API token                                               | **403**                                                                                                                      |
+| `S_EVERYONE` with a header                                     | not blocked, but no tenant context is set                                                                                    |
+| No header                                                      | dropped from the user's tenant list — its data stays out of reach                                                            |
+| GraphQL over WebSocket                                         | no tenant resolved for a new subscription — an open one keeps its tenant until it reconnects (as after a removed membership) |
+| Admin under `adminBypass`                                      | still allowed — somebody has to be able to switch it back on                                                                 |
+
+The hook is asked **after** the membership check, so a non-member learns nothing about a tenant's
+state. Return `false` for inactive; anything else counts as active. Answers are cached for
+`cacheTtlMs`; call `tenantGuard.invalidateTenant(tenantId)` right after switching a tenant on or off
+(broadcast to every replica with Redis). A function cannot come through `NSC__*` — set it in
+`config.env.ts`. A custom guard can override the protected `isTenantActive(tenantId)` instead.
+
+### Service-Level Role Checks (`assertTenantRole`, since 11.42.0)
+
+`@Roles()` protects a controller or resolver method — the route, not the operation. MCP tools, AI tools,
+queue processors and other services call the service directly and never pass that route. Enforce a
+tenant role in the service itself to close every entry point at once:
+
+```typescript
+import { assertTenantRole, DefaultHR } from '@lenne.tech/nest-server';
+
+async updateAiModels(input: AiModelsInput, serviceOptions?: ServiceOptions) {
+  assertTenantRole(DefaultHR.OWNER, 'Only owners may change the AI models');
+  // …
+}
+```
+
+Decided like the guard decides `@Roles()` on the header path: `adminBypass` passes, a global role
+answers from `user.roles`, a tenant role from the request's membership role (by hierarchy; without
+tenant context it fails). Several roles are alternatives. `hasTenantRole(...roles)` answers the same
+question as a boolean.
+
+| Caller                                                                                     | Result  |
+| ------------------------------------------------------------------------------------------ | ------- |
+| Signed in, role held                                                                       | passes  |
+| Signed in, role not held                                                                   | **403** |
+| Anonymous client request (public route)                                                    | **401** |
+| System work — no request context, or one no client request created (cron, migration, seed) | passes  |
+
+The last two rows are told apart by `RequestContext.fromRequest`, which `RequestContextMiddleware` and
+the GraphQL WebSocket context set. Treating "no current user" alone as system work would wave the
+anonymous caller of a public route through.
+
 ### Filtering Without Header
 
-| User State                     | Filter Applied                                                      |
-| ------------------------------ | ------------------------------------------------------------------- |
-| Not authenticated, no context  | Safety Net: `ForbiddenException` on tenantId-schemas                |
-| Authenticated, no memberships  | Safety Net: `ForbiddenException` on tenantId-schemas                |
-| Authenticated, has memberships | `{ tenantId: { $in: [user's tenant IDs] } }`                        |
-| Authenticated + hierarchy role | `{ tenantId: { $in: [qualified tenant IDs] } }` (filtered by level) |
-| Admin without header           | No filter (sees all data via `isAdminBypass`)                       |
+| User State                                            | Filter Applied                                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Not authenticated, no context                         | Safety Net: `ForbiddenException` on tenantId-schemas                |
+| Authenticated, no memberships                         | Safety Net: `ForbiddenException` on tenantId-schemas                |
+| Authenticated, has memberships                        | `{ tenantId: { $in: [user's tenant IDs] } }`                        |
+| Authenticated + hierarchy role                        | `{ tenantId: { $in: [qualified tenant IDs] } }` (filtered by level) |
+| Admin without header                                  | No filter (sees all data via `isAdminBypass`)                       |
+| Tenant deactivated (`isTenantActive` returns `false`) | Dropped from the user's tenant IDs (11.42.0+)                       |
 
 ## Extending via Module Inheritance
 
@@ -290,7 +362,7 @@ Both are **instance** methods on the singleton `CoreTenantGuard` — inject it a
 Mechanism, for anyone extending the guard (`core-tenant.guard.ts`):
 
 - The channel is namespaced with the framework's Redis key prefix, so two applications sharing one Redis instance do not clear each other's caches. Two **stages** of the same application do, unless you set `redis.keyPrefix` or `redis.db`.
-- The message is `{ scope: 'user', userId }` or `{ scope: 'all' }`, JSON-encoded.
+- The message is `{ scope: 'user', userId }`, `{ scope: 'tenant', tenantId }` (from `invalidateTenant()`, 11.42.0+) or `{ scope: 'all' }`, JSON-encoded.
 - Subscription uses the shared subscriber connection from `CoreRedisService.getSubscriber()`; the listener is held in a field and detached on destroy, because that connection is shared.
 - **A received broadcast clears locally and does NOT re-publish** (`applyInvalidation()` → `clearUser()` / `clearAll()`, the no-broadcast variants). Re-publishing would bounce the message around the cluster forever.
 - **Publishing is fire-and-forget and failures are debug-level only.** A missed broadcast is not an error: it merely leaves the other replicas' caches stale until their TTL — exactly the no-Redis behaviour. Nothing about a request path depends on the broadcast succeeding.

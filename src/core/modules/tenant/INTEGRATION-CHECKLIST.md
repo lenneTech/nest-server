@@ -161,6 +161,20 @@ betterAuth: {
 
 See [Tenant README — BetterAuth Integration](./README.md#betterauth-iam-integration) for details.
 
+### 11. Deactivated Tenants and Service-Level Roles (since 11.42.0)
+
+- **Can a tenant be switched off in your project?** Set `multiTenancy.isTenantActive` in
+  `config.env.ts` and call `tenantGuard.invalidateTenant(tenantId)` after switching. WHY: the guard
+  checks the membership only; without the hook a deactivated tenant keeps working for its members,
+  its API tokens and every request without a tenant header.
+- **Does a service enforce a tenant role that a controller also demands?** Call
+  `assertTenantRole(...)` in the service. WHY: MCP and AI tools call the service directly and never
+  pass the controller's `@Roles()`.
+- **Running with `adminBypass: false`?** Platform administrators can no longer set a tenant account's
+  e-mail address or password through `updateUser`; support goes through the password-reset flow.
+
+See the module README: "Deactivated Tenants" and "Service-Level Role Checks".
+
 ## Verification Checklist
 
 - [ ] `pnpm run build` succeeds

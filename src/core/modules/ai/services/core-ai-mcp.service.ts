@@ -76,17 +76,23 @@ export class CoreAiMcpService {
   /**
    * Create a low-level MCP server bound to a user. Uses the JSON-schema tool
    * definitions directly (no zod conversion needed). The SDK is imported lazily.
+   *
+   * Pass a GETTER rather than a user object: an MCP session stays open for hours, and every
+   * `tools/list` / `tools/call` must use the user's CURRENT rights — a role revoked after
+   * `initialize` must not survive in the session. `CoreAiMcpController` passes a getter it refreshes
+   * on every request (11.42.0+). A plain object is still accepted and is then fixed for the session.
    */
-  async createServer(user: AiToolUser): Promise<any> {
+  async createServer(user: AiToolUser | (() => AiToolUser)): Promise<any> {
+    const currentUser = (): AiToolUser => (typeof user === 'function' ? user() : user);
     const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
     const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
 
     // Loosely typed to decouple from the SDK's strict request/result types.
     const server: any = new Server({ name: 'lt-nest-server-ai', version: '1.0.0' }, { capabilities: { tools: {} } });
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: this.mcpListTools(user) }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: this.mcpListTools(currentUser()) }));
     server.setRequestHandler(CallToolRequestSchema, async (request: any) =>
-      this.mcpCallTool(user, request.params.name, request.params.arguments ?? {}),
+      this.mcpCallTool(currentUser(), request.params.name, request.params.arguments ?? {}),
     );
 
     return server;

@@ -295,6 +295,15 @@ const INVENTORY: StateEntry[] = [
     name: 'tenantIdsCache',
   },
   {
+    because:
+      'Answers of multiTenancy.isTenantActive, TTL-bounded like the caches above. invalidateTenant() '
+      + 'BROADCASTS to every replica with `redis` configured, so a deactivated tenant is refused '
+      + 'fleet-wide at once; without it each replica follows within cacheTtlMs.',
+    classification: 'shared',
+    file: 'modules/tenant/core-tenant.guard.ts',
+    name: 'tenantActiveCache',
+  },
+  {
     because: 'Eviction timer for the caches above. unref\'d, and cleared in onModuleDestroy.',
     classification: 'local',
     file: 'modules/tenant/core-tenant.guard.ts',

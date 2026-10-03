@@ -5,6 +5,7 @@ import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
 import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
 import { resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
 import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
@@ -673,6 +674,8 @@ export abstract class CoreUserService<
     const oldUser = (await this.mainDbModel.findById(id).lean().exec()) as null | TUser;
     const oldEmail = oldUser?.email;
 
+    this.assertCredentialChangeAllowed(oldUser, input, serviceOptions);
+
     // Capture the submitted password for the IAM sync before super.update()
     // hashes it in place.
     //
@@ -736,6 +739,56 @@ export abstract class CoreUserService<
     }
 
     return updatedUser;
+  }
+
+  /**
+   * Refuses a change of another account's e-mail address or password where the configuration promises
+   * tenant isolation from platform administrators.
+   *
+   * With multi-tenancy active and `adminBypass: false`, a platform administrator deliberately has no
+   * way into a tenant's data. Setting a tenant user's address or password is a way around that: change
+   * the address, request a reset, sign in as that person. The same holds for whoever created the
+   * account, because `S_CREATOR` may update it and the e-mail field is open to everyone who may.
+   *
+   * Untouched by design:
+   * - the account changing its own credentials,
+   * - profile fields, and an e-mail address sent along unchanged,
+   * - work without a signed-in user (invitation, password reset), which is the system's own,
+   * - every configuration other than multi-tenancy with `adminBypass: false`.
+   *
+   * `force` does not lift it: the rule is about WHO acts, and system work is defined by the absence of
+   * a current user. Protected so a project can widen or narrow it.
+   */
+  protected assertCredentialChangeAllowed(
+    target: null | TUser,
+    input: TUserInput,
+    serviceOptions?: ServiceOptions,
+  ): void {
+    const multiTenancy = ConfigService.configFastButReadOnly?.multiTenancy;
+    if (!multiTenancy || multiTenancy.enabled === false || multiTenancy.adminBypass !== false) {
+      return;
+    }
+    const currentUser = serviceOptions?.currentUser;
+    if (!currentUser?.id || !target) {
+      return;
+    }
+    // No exemption for administrator TARGETS: an administrator may write `roles`, so "promote the
+    // tenant account to ADMIN, then change its address" would open every account in two requests.
+    const targetId = String((target as any)._id ?? (target as any).id);
+    if (String(currentUser.id) === targetId) {
+      return;
+    }
+
+    const submitted = input as { email?: unknown; password?: unknown };
+    const normalize = (value: unknown) => (typeof value === 'string' ? value.trim().toLowerCase() : value);
+    const changesEmail = submitted?.email !== undefined && normalize(submitted.email) !== normalize(target.email);
+    const changesPassword = submitted?.password !== undefined;
+    if (changesEmail || changesPassword) {
+      throw accessDeniedException(
+        currentUser,
+        'The e-mail address and password of a tenant account can only be changed by the account itself',
+      );
+    }
   }
 
   /**

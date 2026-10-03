@@ -1640,6 +1640,105 @@
         "tests/tus-ownership.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tenant-credential-change-unguarded",
+      "defect": "11.42.0 — with multiTenancy.adminBypass: false a platform administrator, or the account's creator, could still take over a tenant account by setting its e-mail address or password.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "    if (changesEmail || changesPassword) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/tenant-credential-isolation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-role-assert-inert",
+      "defect": "11.42.0 — a tenant role enforced only by @Roles() on a controller was bypassed by every entry point that calls the service directly (MCP tools, AI tools).",
+      "file": "src/core/modules/tenant/core-tenant-role.helper.ts",
+      "find": "  if (!hasTenantRole(...list)) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/unit/tenant-role-assert.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-role-anonymous-as-system",
+      "defect": "11.42.0 — reading 'no current user' as system work would let an anonymous request through a public route pass a service-level tenant role check.",
+      "file": "src/core/modules/tenant/core-tenant-role.helper.ts",
+      "find": "  if (!context?.currentUser && !context?.fromRequest) {",
+      "replace": "  if (!context?.currentUser) {",
+      "specs": [
+        "tests/unit/tenant-role-assert.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-tool-roles-ignore-tenant",
+      "defect": "11.42.0 — under multi-tenancy the AI tool registry (MCP and chat) answered tenant roles from the global user.roles instead of the membership role of the request's tenant.",
+      "file": "src/core/modules/ai/tools/ai-tool.registry.ts",
+      "find": "    if (!multiTenancy) {",
+      "replace": "    if (true) {",
+      "specs": [
+        "tests/unit/ai-tool-registry-tenant.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-active-hook-ignored",
+      "defect": "11.42.0 — a deactivated tenant kept working: the tenant guard checked the membership only, for members, tenant API tokens and the header-less tenant list alike.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "    const hook = ConfigService.configFastButReadOnly?.multiTenancy?.isTenantActive;",
+      "replace": "    const hook = undefined as unknown;",
+      "specs": [
+        "tests/tenant-active.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "outbound-url-blocklist-empty",
+      "defect": "11.42.0 — no framework helper refused internal targets for user-entered URLs; the blocklist is what keeps loopback, private networks and the metadata service out of reach.",
+      "file": "src/core/common/helpers/outbound-url.helper.ts",
+      "find": "  const family = isIP(plain);",
+      "replace": "  const family = 0 as number;",
+      "specs": [
+        "tests/unit/outbound-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-credential-admin-target-exempt",
+      "defect": "11.42.0 (review) — exempting ADMIN targets let an administrator promote a tenant account to ADMIN and then change its credentials.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "    if (String(currentUser.id) === targetId) {",
+      "replace": "    if (String(currentUser.id) === targetId || (target as any).roles?.includes('admin')) {",
+      "specs": [
+        "tests/tenant-credential-isolation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "outbound-url-test-stage-local",
+      "defect": "11.42.0 (review) — 'test' counted as a local environment although it is a deployed stage in starter-based projects, which switched the SSRF guard off there.",
+      "file": "src/core/common/helpers/outbound-url.helper.ts",
+      "find": "const LOCAL_ENVIRONMENTS = new Set(['ci', 'e2e', 'local']);",
+      "replace": "const LOCAL_ENVIRONMENTS = new Set(['ci', 'e2e', 'local', 'test']);",
+      "specs": [
+        "tests/unit/outbound-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-session-user-stale",
+      "defect": "11.42.0 (review) — an MCP session kept the role snapshot from its first request for its whole life, so a revoked role kept working over MCP.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    // Same owner (checked above), possibly different rights than at `initialize`.",
+      "replace": "    if (false)",
+      "specs": [
+        "tests/unit/ai-mcp-current-user.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

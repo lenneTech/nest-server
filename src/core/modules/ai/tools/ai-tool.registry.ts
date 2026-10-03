@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { RoleEnum } from '../../../common/enums/role.enum';
+import { ConfigService } from '../../../common/services/config.service';
+import { RequestContext } from '../../../common/services/request-context.service';
+import {
+  checkRoleAccess,
+  isMultiTenancyActive,
+  resolveGlobalAndTenantRoles,
+  tenantSatisfiableRoles,
+} from '../../tenant/core-tenant.helpers';
 import { IAiTool } from '../interfaces/ai-tool.interface';
 
 /**
@@ -75,6 +83,13 @@ export class AiToolRegistry {
 
   /**
    * Whether a user satisfies a tool's role requirements.
+   *
+   * The answer is what an AI client — the MCP server or the chat's agent loop — may do on the user's
+   * behalf, so it must not exceed what the user may do through the API. Under multi-tenancy each role
+   * is therefore resolved like `CoreTenantGuard` resolves a `@Roles()`: a global role against
+   * `user.roles`, a tenant role against the membership role of the current request's tenant (by
+   * hierarchy), and the ADMIN bypass only where `multiTenancy.adminBypass` grants it. Without
+   * multi-tenancy, roles are compared with `user.roles` as they always were.
    */
   userCanAccess(tool: IAiTool, user: AiToolUser | null | undefined): boolean {
     const roles = tool.roles ?? [];
@@ -94,8 +109,11 @@ export class AiToolRegistry {
       return false;
     }
 
-    // Admin bypass.
-    if (user.roles?.includes(RoleEnum.ADMIN)) {
+    const multiTenancy = isMultiTenancyActive();
+
+    // Admin bypass — unless multi-tenancy withholds it (adminBypass: false).
+    const adminBypass = !multiTenancy || ConfigService.configFastButReadOnly?.multiTenancy?.adminBypass !== false;
+    if (adminBypass && user.roles?.includes(RoleEnum.ADMIN)) {
       return true;
     }
 
@@ -119,6 +137,18 @@ export class AiToolRegistry {
       RoleEnum.S_VERIFIED,
     ];
     const requiredRealRoles = roles.filter((r) => !systemRoles.includes(r));
-    return requiredRealRoles.some((r) => user.roles?.includes(r));
+    if (!multiTenancy) {
+      return requiredRealRoles.some((r) => user.roles?.includes(r));
+    }
+
+    // Multi-tenancy: each role answered by the source entitled to answer it.
+    const { global } = resolveGlobalAndTenantRoles(requiredRealRoles);
+    if (global.some((r) => user.roles?.includes(r))) {
+      return true;
+    }
+    // In a tenant, only the membership role counts; outside one, user.roles — as in the guard.
+    // The length guard matters: checkRoleAccess() answers TRUE for an empty required list.
+    const tenantRoles = tenantSatisfiableRoles(requiredRealRoles);
+    return tenantRoles.length > 0 && checkRoleAccess(tenantRoles, user.roles, RequestContext.get()?.tenantRole);
   }
 }

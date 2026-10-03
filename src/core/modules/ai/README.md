@@ -600,6 +600,31 @@ ai: {
 
 - tokens, limits, reset) is available via the `aiUsage` query / `GET /ai/usage`.
 
+## Tool access is the user's access
+
+An AI client — the chat's agent loop or an MCP client — acts **on behalf of the signed-in user and
+never beyond that user's rights**. Three things make that hold, and a project's tools must not undo
+them:
+
+- **Visibility and execution** are decided by `AiToolRegistry.userCanAccess()`, evaluated per request —
+  over MCP with the user as of THAT request, not as of the session's `initialize` (11.42.0+), so a
+  revoked role stops working without a reconnect.
+  Under multi-tenancy (11.42.0+) it resolves a tool's `roles` like `CoreTenantGuard` resolves
+  `@Roles()`: a global role (`RoleEnum.ADMIN`, `multiTenancy.globalOnlyRoles`) against `user.roles`, a
+  tenant role against the **membership role in the request's tenant** (by hierarchy), and the ADMIN
+  bypass only where `multiTenancy.adminBypass` grants it. Before, every role was compared with the
+  global `user.roles` — a tool requiring the tenant role `owner` was offered to nobody who held it as
+  a membership, and to anyone holding a global role of that name.
+- **Data** is scoped by the request context: a tool runs inside the HTTP request (chat or `/ai/mcp`),
+  so `mongooseTenantPlugin` filters by the tenant the guard validated. Without a tenant header there
+  is no tenant scope on these routes and tenant-scoped reads are refused (403) — an AI client is
+  never broader than its user, at worst narrower.
+- **Service-level rules** apply on every entry point when the service enforces them itself —
+  `assertTenantRole()` (see the tenant module README) — instead of relying on a controller's
+  `@Roles()`, which a tool calling the service never passes through.
+
+Without multi-tenancy, tool roles are compared with `user.roles` exactly as before.
+
 ## MCP server (`ai.mcp: true`)
 
 The `AiToolRegistry` also feeds a real **MCP server** at `POST/GET/DELETE /ai/mcp`
