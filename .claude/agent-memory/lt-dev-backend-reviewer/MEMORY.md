@@ -10,3 +10,4 @@
 - [Brevo SDK v3→v6](project_brevo-sdk-v6.md) — awaited shape identical (dropping `.body` is correct); real breaks are removed symbols, new BrevoError type, and new default retries.
 - [Review tree is shared and mutable](review-tree-is-shared-and-mutable.md) — parallel reviewers share the checkout and check-mutations leaves applied source residue; never git stash, revert suspect files individually.
 - [API-token module (11.41.4)](project_api-token-module.md) — deny-by-default lives in enforceApiTokenRoute() in 3 guards; tenant tokens pass S_SELF/S_CREATOR-only routes (latent).
+- [S3 streaming uploads (11.41.7)](project_s3-streaming-uploads.md) — lib-storage failure destroys its source (reproduced, don't re-flag); known length >5 GiB still goes to a single PUT.

@@ -28,7 +28,8 @@ allowBuilds:
 # three sentences honestly, fix the dependency instead.
 # ----------------------------------------------------------------------------------
 auditConfig:
-  # Empty on purpose — see below before adding anything here.
+  # Two entries since 2026-10-03, both for advisories with NO patched version anywhere — read the
+  # history below before adding a third.
   #
   # This list held GHSA-mh99-v99m-4gvg (brace-expansion DoS, HIGH) from 2026-07-28
   # until 2026-09-03, with a careful justification: at the time the newest 1.x was
@@ -51,7 +52,26 @@ auditConfig:
   # nothing said so; it only surfaced when a guard re-checked the GHSA against the
   # GitHub Advisory API. Before adding an entry here, make sure something will tell
   # you when it stops being true.
-  ignoreGhsas: []
+  #
+  # That something exists now: `pnpm run check:overrides` (part of `check`, and of CI) re-checks
+  # every GHSA below against the GitHub Advisory API on each run and FAILS with "FIX AVAILABLE" the
+  # moment a patched version is published. When it does, remove the entry; if the lockfile does not
+  # move on its own, add a range-floored override instead.
+  #
+  # Neither entry reaches a consumer: this file is never read outside this repository.
+  ignoreGhsas:
+    # http-cache-semantics <= 4.2.0, HIGH: max-stale handling can serve one user's cached response
+    # to another. Dev tooling only: @swc/cli (also via @nestjs/cli) > @xhmikosr/bin-wrapper >
+    # @xhmikosr/downloader > got > cacheable-request > http-cache-semantics — the HTTP cache of a
+    # build CLI's binary downloader, with no server and no second user. Verified 2026-10-03: newest
+    # release is 4.2.0, the advisory names no first patched version.
+    - GHSA-ch52-4w7c-c8xp
+    # braces <= 3.0.3, HIGH: stack exhaustion through deeply nested patterns. Dev tooling only:
+    # nodemon (also via npm-watch) > chokidar@3 > braces. The patterns come from this repository's
+    # own watch configuration, never from input. chokidar@4 no longer uses braces but also dropped
+    # the glob support nodemon relies on, so the path cannot be lifted. Verified 2026-10-03: newest
+    # release is 3.0.3, no first patched version.
+    - GHSA-vfj7-8cjw-p6xm
 
 peerDependencyRules:
   allowedVersions:
@@ -285,8 +305,10 @@ overrides:
   # ip-address two minors behind the 10.5.0 a clean resolve gives - see the axios entry above for
   # why a floored key is not enough on its own.
   # Target raised 10.5.0 -> 10.7.2 on 2026-09-26, key upper bound with it: same hold-back again.
+  # Target raised 10.7.2 -> 10.7.3 on 2026-10-03 (11.41.7 maintenance run), key with it: 10.7.3
+  # (published 2026-10-01) is the newest 10.x past the hold-back, so 10.7.2 had become a lock.
   # Remove once express-rate-limit requests >=10.3.1.
-  'ip-address@<10.7.2': '10.7.2'
+  'ip-address@<10.7.3': '10.7.3'
   # Security: TWO advisories on the 3.x line — predictable output with a non-integer size
   # (patched >=3.3.17) and, since 2026-08, custom generators looping indefinitely when size
   # is zero (high, patched >=3.3.18). The target is the LATER of the two; a 3.3.17 target
@@ -323,7 +345,9 @@ overrides:
   # 4.13.9 (no new advisory; pure hold-back).
   # Target raised 4.13.9 -> 4.13.11 on 2026-10-01, key upper bound with it: same hold-back again.
   # 4.13.12 (2026-09-30) was still inside the 1440-minute window, so 4.13.11 is the newest it allows.
-  'hono@>=4.0.0 <4.13.11': '4.13.11'
+  # Target raised 4.13.11 -> 4.13.12 on 2026-10-03 (11.41.7 maintenance run), key with it: 4.13.12
+  # has cleared the hold-back and is the newest 4.x (no new advisory; pure hold-back).
+  'hono@>=4.0.0 <4.13.12': '4.13.12'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'

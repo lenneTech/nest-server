@@ -329,6 +329,14 @@ has a patched version for **any** affected range. That makes `ignoreGhsas` nearl
 advisory that is fixed *somewhere* but unfixable on *your* path — which is the honest outcome, since
 that case is an override problem, not a suppression problem.
 
+**Current entries (since 2026-10-03):** `GHSA-ch52-4w7c-c8xp` (http-cache-semantics, via the
+`@swc/cli` binary downloader) and `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch). Both are
+dev-tooling-only paths of advisories with no patched release at all; the justification sits next to
+each entry in `pnpm-workspace.yaml`. **Do not copy them into nest-server-starter without thinking
+it through:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into every
+generated project, so an entry there hides the advisory in every customer workspace — including
+production paths this repository does not have.
+
 ### Safe Override Workflow
 
 When adding an override to fix a vulnerability:

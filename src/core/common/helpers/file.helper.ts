@@ -272,6 +272,10 @@ export function multerFileToUpload(file: {
     encoding: '7bit',
     filename: file.originalname || randomBytes(16).toString('hex'),
     mimetype: file.mimetype || 'application/octet-stream',
+    // No `size`, although the buffer's length is exact: with a size, S3 receives one streamed
+    // PutObject, and the SDK does not retry a stream body after a transient error (503 SlowDown, a
+    // dropped socket). Without it the multipart path sends Buffer slices of this very buffer — no
+    // copy — which the SDK does retry.
   };
 }
 

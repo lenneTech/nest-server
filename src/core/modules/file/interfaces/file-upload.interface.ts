@@ -15,6 +15,24 @@ export interface FileUploadSource {
   encoding?: string;
   filename: string;
   mimetype: string;
+
+  /**
+   * EXACT size of the file in bytes, when the caller knows it — otherwise leave it out.
+   *
+   * Only the S3 driver reads it: with a size the object goes up as one streamed request (as a
+   * multipart upload above 5 GiB, which AWS S3 refuses in one request), without one it goes up as a
+   * multipart upload (`@aws-sdk/lib-storage`, an optional peer — without it the
+   * file is read into memory). Omitting it is not a fallback: a GraphQL or streamed REST upload never
+   * knows its length, and that is the common case.
+   *
+   * A WRONG size breaks the upload instead of slowing it down. So never pass the `Content-Length` of a
+   * multipart/form-data request: it counts the whole envelope (boundaries, part headers, other
+   * fields) and is always larger than the file. Pass it only when it is the file's own length — a
+   * TUS upload's `upload.size`, a `stat()` of a file on disk. For data already in memory leave it
+   * out: the SDK retries the Buffer parts of a multipart upload after a transient S3 error, but not
+   * one streamed request. Anything but a positive integer is treated as unknown.
+   */
+  size?: number;
 }
 
 /**

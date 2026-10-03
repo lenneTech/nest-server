@@ -45,17 +45,42 @@ file: {
 
 Three equivalent options. They differ only in where the bytes end up:
 
-| Driver         | Bytes                     | Survives a restart       | Shared between replicas | Needs                              |
-| -------------- | ------------------------- | ------------------------ | ----------------------- | ---------------------------------- |
-| `'s3'`         | S3-compatible bucket      | yes                      | **yes**                 | `s3` config + `@aws-sdk/client-s3` |
-| `'gridfs'`     | MongoDB GridFS            | yes                      | yes                     | nothing beyond the database        |
-| `'filesystem'` | local disk (`storageDir`) | only on a mounted volume | **no**                  | nothing                            |
+| Driver         | Bytes                     | Survives a restart       | Shared between replicas | Needs                                                                    |
+| -------------- | ------------------------- | ------------------------ | ----------------------- | ------------------------------------------------------------------------ |
+| `'s3'`         | S3-compatible bucket      | yes                      | **yes**                 | `s3` config + `@aws-sdk/client-s3` (+ `@aws-sdk/lib-storage`, see below) |
+| `'gridfs'`     | MongoDB GridFS            | yes                      | yes                     | nothing beyond the database                                              |
+| `'filesystem'` | local disk (`storageDir`) | only on a mounted volume | **no**                  | nothing                                                                  |
 
 **Metadata always lives in the database**, whichever driver holds the bytes. Filename, content type,
 length and the custom `metadata` a per-file rule reads have to be queryable — `findFileInfo()` filters
 and pages over them, `checkRights()` reads them per request. A directory listing answers none of
 that, and sidecar files would reinvent an index the database already is. So `'filesystem'` moves the
 bytes off the database, not the bookkeeping.
+
+### How an upload reaches S3
+
+No upload is read into memory on its way to S3. Which request carries it depends on whether its
+length is known:
+
+| Length                                                            | Request                                                                             | Memory                   |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------ |
+| known, up to 5 GiB — `size` on the upload, a TUS upload, a buffer | one streamed `PutObject`                                                            | constant                 |
+| known, above 5 GiB                                                | multipart upload via `@aws-sdk/lib-storage` (AWS S3 refuses larger single requests) | at most four parts       |
+| unknown — every GraphQL and streamed REST upload                  | multipart upload via `@aws-sdk/lib-storage`                                         | at most four 5 MiB parts |
+| unknown, and `@aws-sdk/lib-storage` not installed                 | one `PutObject` of the whole file, read into memory first                           | **the file's size**      |
+
+Install the optional peer next to `@aws-sdk/client-s3` (`pnpm add @aws-sdk/lib-storage`, same
+version). Without it uploads still work, but a large one of unknown length costs its own size in
+memory — a multi-GB file then gets the container OOM-killed — and a known length above 5 GiB goes up
+as one request, which AWS S3 refuses (MinIO and RustFS accept it). The boot log says so once when
+the package is missing.
+
+Pass `size` on a `FileUploadSource` only when it is the file's EXACT length — a `stat()` of a file on
+disk. Never pass the `Content-Length` of a multipart/form-data request: it counts the whole envelope
+and is always larger than the file, and a wrong length breaks the upload. Leaving `size` out costs
+nothing but the multipart round trips, and for data already in memory it is the better choice: the
+SDK retries the Buffer parts of a multipart upload after a transient S3 error, but not one streamed
+request.
 
 ### Choosing the driver
 

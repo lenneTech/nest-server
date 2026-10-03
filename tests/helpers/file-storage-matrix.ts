@@ -133,6 +133,21 @@ export const PARITY_CASES: readonly ParityCase[] = [
     layer: 'service',
     title: 'round-trips custom metadata into BOTH raw lookups (by id and by name)',
   },
+  // The two ways a stream can arrive, as EQUALS: most uploads (GraphQL, streamed REST) never know
+  // their length, so "unknown" is the common case, not a fallback for the known one. Large enough
+  // for several multipart parts on S3, where the unknown-length path uploads in parts.
+  {
+    drivers: PARITY_DRIVERS,
+    id: 'service.unknownLengthStreamRoundTrip',
+    layer: 'service',
+    title: 'stores a large stream of UNKNOWN length completely, and records its real size',
+  },
+  {
+    drivers: PARITY_DRIVERS,
+    id: 'service.knownSizeStreamRoundTrip',
+    layer: 'service',
+    title: 'stores a large stream whose exact size the caller passes, and records that size',
+  },
   {
     drivers: PARITY_DRIVERS,
     id: 'service.deleteById',

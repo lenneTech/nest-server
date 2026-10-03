@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-01
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-03
 metadata:
   type: project
 ---
@@ -74,8 +74,23 @@ lockfile was just stale (downloader requests `^11.1.1`). `pnpm update --depth In
 stale 9.0.1 copy. The starter has a key `'@xhmikosr/decompress@>=11.0.0 <11.1.3': 11.1.4`,
 which fires on the caret request and already delivers 11.1.4.
 
-Shipped doc drift left for the author (outside a maintenance run's edit scope):
-`docs/security-overrides.md` still says swagger pins js-yaml 5.2.1 (now 5.3.0) and
-platform-express pins multer 2.2.0 "in every 11.2.x" (11.2.6 pins 2.4.0).
+## Status 2026-10-03 (11.41.7 run, 18 entries, none removed)
+
+Raised (key + target together, pure hold-backs, no new advisory): ip-address 10.7.2 -> 10.7.3,
+hono 4.13.11 -> 4.13.12 — hono for the THIRD run in a row, so treat it as a standing item.
+`ws` trailed 8.22.0 but stayed at 8.21.3: lockstep with the direct `ws` and `@nestjs/graphql`
+13.4.5's exact pin, and two fresh resolves showed ws identical with and without the block (no
+caret parent exists), so it holds nothing back. WITH vs WITHOUT now differs ONLY in js-yaml 5.x
+(5.3.0 returns) and the minimatch design (9.0.9 + brace-expansion 2.1.7 return) — same as
+2026-10-01. `auditConfig.ignoreGhsas` gained two entries in the 11.41.7 release work
+(GHSA-ch52-4w7c-c8xp http-cache-semantics, GHSA-vfj7-8cjw-p6xm braces; no patched release
+anywhere); `check:overrides` confirmed 2/2 still unfixed. A quick way to find hold-backs: parse
+the `overrides:` block, and for each target list the newest same-major version older than
+1440 min from `npm view <pkg> time --json` (script took ~20 s for 18 entries).
+
+Shipped doc drift: the 2026-10-01 items (swagger js-yaml pin, platform-express multer pin) were
+fixed in 11.41.6. `docs/security-overrides.md` line ~21 names "11.2.6, the version this framework
+declares" — stale after the 11.41.7 bump to 11.2.7 (which still pins multer 2.4.0). Reported to the
+author; check that line whenever `@nestjs/platform-express` moves.
 
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

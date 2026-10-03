@@ -31,7 +31,7 @@ import {
   FilesystemFileHelper,
   FilesystemFileInfo,
 } from './filesystem-file.helper';
-import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo, streamToBuffer } from './s3-file.helper';
+import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo } from './s3-file.helper';
 
 /**
  * Type for checking input
@@ -160,7 +160,7 @@ export abstract class CoreFileService {
     if (!(await this.checkRights(file, { ...serviceOptions, checkInputType: 'file' }))) {
       return null;
     }
-    const { createReadStream, filename, mimetype } = await file;
+    const { createReadStream, filename, mimetype, size } = await file;
     const readStream = createReadStream();
     // Resolved ONCE for all three driver branches: under an `'owner'` / `'tenant'` preset this adds
     // the very fields the preset decides on, so an upload through this service is authorizable
@@ -176,11 +176,20 @@ export abstract class CoreFileService {
       return this.prepareOutput(fsFileInfo as unknown as CoreFileInfo, serviceOptions);
     }
     if (this.storageDriver === 's3') {
-      // Only buffer when the size is unknown: a GraphQL upload stream carries no length, and the
-      // S3 SDK needs one. Callers that know it (TUS) pass `body` + `contentLength` instead and
-      // stream straight through — see S3FileHelper.writeFile.
+      // The stream is handed to S3 as it is, never read into memory here. With a `size` the object
+      // goes up as one streamed PutObject; without one, `CoreS3Service.putObject()` uses a multipart
+      // upload, which needs no total up front (and only buffers when its optional peer dependency
+      // is missing). Reading the stream into a Buffer at this point — what this branch used to do
+      // for every upload — materialised the whole file in one process: a multi-GB upload then
+      // threw "Array buffer allocation failed" or got the container OOM-killed at 100 % progress,
+      // taking every other in-flight request with it.
+      //
+      // A GraphQL or streamed REST upload carries no trustworthy length (a multipart request's
+      // `Content-Length` counts the whole envelope), so the unknown-length case is the common one,
+      // not a fallback.
       const s3FileInfo = await S3FileHelper.writeFile(this.options.s3Service, this.s3Files, {
-        buffer: await streamToBuffer(readStream),
+        body: readStream,
+        contentLength: size, // validated in writeFile(): anything but a positive integer counts as unknown
         contentType: mimetype,
         filename,
         ...(metadata ? { metadata } : {}),

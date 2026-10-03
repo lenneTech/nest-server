@@ -7,3 +7,4 @@
 - [Check Gate Coverage Blind Spots](check-gate-coverage-blind-spots.md) — what `check` structurally CANNOT catch: `scripts/*.ts` is outside every gate, check-server-start.sh can't detect a hung SIGTERM, dogfooding `toContain` specs pass on commented-out code.
 - [Migrate Module Test Coverage](migrate-module-test-coverage.md) — 2026-07 review: down() paths and CLI parseArgs untested; testability facts that make closing them cheap.
 - [API Token Module Test Coverage](api-token-module-test-coverage.md) — PROTECTED_FIELDS (sole update barrier) untested; "tokens never manage tokens" test satisfied by the guard, not the service; all stacks run cacheTtlMs:0.
+- [S3 RustFS Multipart Facts](s3-rustfs-multipart-facts.md) — RustFS lists pending multipart uploads without Prefix (abort assertions are real); lib-storage abort deterministic; empty stream OK.

@@ -74,6 +74,16 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
    */
   protected presigner?: typeof import('@aws-sdk/s3-request-presigner');
 
+  /**
+   * Lazy-imported `@aws-sdk/lib-storage`, used to upload a stream whose length is unknown.
+   *
+   * Three states, and the third is the point: `undefined` means "not tried yet", a module means
+   * "available", and `null` means "tried and absent". Without the `null` the import would be
+   * retried on every single upload, and since the absence is permanent that is a resolver miss per
+   * request plus a repeated warning in the log.
+   */
+  protected multipartUploader?: null | typeof import('@aws-sdk/lib-storage');
+
   constructor(protected readonly configService: ConfigService) {
     const raw = this.configService.getFastButReadOnly<IS3Config | undefined>('s3');
     if (!raw || raw.enabled === false) {
@@ -189,6 +199,10 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
     });
 
+    // Resolved at boot rather than on the first upload, so a missing optional peer is reported
+    // where operators look — the startup log — instead of during the first large upload.
+    await this.loadMultipartUploader();
+
     await this.verifyBuckets();
   }
 
@@ -263,10 +277,26 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
   /**
    * Upload an object to the main bucket.
    *
-   * A stream needs its length: without `Content-Length` the SDK switches to aws-chunked
-   * encoding and then fails on a missing `x-amz-decoded-content-length`, so a stream of
-   * unknown size is read into memory first. Pass `contentLength` whenever the size is
-   * known — that streams the body straight through instead of buffering it.
+   * A `PutObject` needs the body's length: without `Content-Length` the SDK switches to
+   * aws-chunked encoding and then fails on a missing `x-amz-decoded-content-length`. So pass
+   * `contentLength` whenever the size is known — that streams the body straight through as a
+   * single request.
+   *
+   * A stream of UNKNOWN length goes through a multipart upload instead (`@aws-sdk/lib-storage`),
+   * which is what that package exists for: it reads the stream in parts and needs no total up
+   * front. It used to be read into memory instead, which made the memory cost of an upload equal
+   * to its size — a multi-GB object then either threw "Array buffer allocation failed" or got the
+   * container OOM-killed at 100 % progress, taking every other in-flight request with it. That is
+   * not a hypothetical shape: any streamed HTTP upload has it, because a multipart request's
+   * `Content-Length` covers the whole envelope and therefore cannot be used as the object length.
+   *
+   * A KNOWN length above {@link CoreS3Service.MAX_SINGLE_PUT_BYTES} goes through the multipart
+   * upload as well: AWS S3 refuses a single PutObject that large with `EntityTooLarge`, which for a
+   * finished TUS upload means after the client has sent every byte.
+   *
+   * Without the optional peer dependency both cases behave exactly as before: an unknown length is
+   * read into memory, a known one goes up as one PutObject whatever its size (MinIO and RustFS
+   * accept that; AWS S3 does not above 5 GiB).
    */
   async putObject(
     key: string,
@@ -278,6 +308,15 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
 
     let payload: Buffer | Readable | string = body;
     let length = contentLength;
+    // Multipart for a stream of UNKNOWN length — nothing else carries it without buffering — and for
+    // one whose known length exceeds what S3 accepts in a single request.
+    if (this.isStream(body) && (length === undefined || length > CoreS3Service.MAX_SINGLE_PUT_BYTES)) {
+      const uploader = await this.loadMultipartUploader();
+      if (uploader) {
+        await this.putObjectMultipart(uploader, key, body, contentType, length);
+        return;
+      }
+    }
     if (this.isStream(body) && length === undefined) {
       payload = await this.collect(body);
       length = payload.length;
@@ -316,6 +355,69 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       return;
     }
     await send();
+  }
+
+  /**
+   * The multipart uploader, or `undefined` when the optional peer dependency is absent.
+   *
+   * Absence is NOT an error here, unlike the missing `@aws-sdk/client-s3` in `onModuleInit`:
+   * multipart is an optimisation of a path that already works by buffering, so a project that
+   * never installs it keeps the previous behaviour instead of failing to boot. The cost of that
+   * choice is memory, which is why the caller's doc states it.
+   */
+  protected async loadMultipartUploader(): Promise<typeof import('@aws-sdk/lib-storage') | undefined> {
+    if (this.multipartUploader !== undefined) {
+      return this.multipartUploader ?? undefined;
+    }
+    try {
+      this.multipartUploader = await import('@aws-sdk/lib-storage');
+    } catch {
+      // `null`, not `undefined`: the field doubles as the "already tried" marker, and a failed
+      // import must not be retried on every upload.
+      this.multipartUploader = null;
+      this.logger.warn(
+        'Streaming an S3 upload of unknown length falls back to buffering it in memory because the ' +
+          'optional peer dependency "@aws-sdk/lib-storage" is not installed. Run: pnpm add @aws-sdk/lib-storage',
+      );
+    }
+    return this.multipartUploader ?? undefined;
+  }
+
+  /**
+   * Upload a stream of unknown length as a multipart upload.
+   *
+   * Memory stays bounded by the uploader's defaults — parts of 5 MiB, at most four in flight —
+   * whatever the object's size. A stream that ends within the first part is sent as one ordinary
+   * PutObject by `Upload` itself, so a small file costs no multipart round trips.
+   *
+   * No `guardBodyStream` here, and that is deliberate: the guard exists because the SDK pipes a
+   * `PutObject` body into its request without listening for the source's `error`, so a failed
+   * source surfaces as a successful upload of a truncated object. `Upload` does listen — a source
+   * error rejects `done()` and the already-uploaded parts are aborted — so wrapping it would add a
+   * second error path without adding a guarantee.
+   */
+  protected async putObjectMultipart(
+    uploader: typeof import('@aws-sdk/lib-storage'),
+    key: string,
+    body: Readable,
+    contentType?: string,
+    contentLength?: number,
+  ): Promise<void> {
+    const { client, config } = this.requireInit();
+    const upload = new uploader.Upload({
+      client,
+      params: {
+        Body: body,
+        Bucket: config.bucket,
+        // A known total lets `Upload` size its parts (`ceil(total / 10 000)`, at least 5 MiB) so the
+        // 10 000-part limit holds, and refuse a stream that yields a different NUMBER of parts than
+        // that total implies (it checks the part count, not the byte count). Not sent per part.
+        ...(contentLength === undefined ? {} : { ContentLength: contentLength }),
+        ...(contentType ? { ContentType: contentType } : {}),
+        Key: key,
+      },
+    });
+    await upload.done();
   }
 
   /**
@@ -398,6 +500,12 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
   static readonly MAX_COPY_OBJECT_BYTES = 5 * 1024 * 1024 * 1024;
 
   /**
+   * Largest object a single `PutObject` can carry (AWS S3 hard limit). {@link CoreS3Service.putObject}
+   * sends a known length above it as a multipart upload instead.
+   */
+  static readonly MAX_SINGLE_PUT_BYTES = 5 * 1024 * 1024 * 1024;
+
+  /**
    * Build the `CopySource` value for {@link CoreS3Service.copyObject}
    */
   protected copySource(bucket: string, key: string): string {
@@ -453,13 +561,23 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
    * Whether an object exists in the main bucket
    */
   async objectExists(key: string): Promise<boolean> {
+    return (await this.statObject(key)) !== null;
+  }
+
+  /**
+   * Size and content type of an object in the main bucket, or `null` when it does not exist.
+   *
+   * One HEAD request. This is how the length of an object uploaded WITHOUT a known length is
+   * learned afterwards: the stored object is the authority on its own size.
+   */
+  async statObject(key: string): Promise<null | { contentLength?: number; contentType?: string }> {
     const { client, config, sdk } = this.requireInit();
     try {
-      await client.send(new sdk.HeadObjectCommand({ Bucket: config.bucket, Key: key }));
-      return true;
+      const result = await client.send(new sdk.HeadObjectCommand({ Bucket: config.bucket, Key: key }));
+      return { contentLength: result.ContentLength, contentType: result.ContentType };
     } catch (error: any) {
       if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
-        return false;
+        return null;
       }
       throw error;
     }

@@ -1553,6 +1553,29 @@
         "tests/unit/migration-runner-lock.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-unknown-session-not-404",
+      "defect": "11.41.6 and earlier — a POST carrying a session id this process does not know fell through to building a FRESH transport and delegating the request to it. That looked like a silent recovery and was not one: after a restart the client's next request is a `tools/call` or `tools/list`, never an `initialize`, so the new transport's own `validateSession()` answered `400 Bad Request: Server not initialized`. A 400 is a status no MCP client recovers from (the spec has it re-initialize on 404), so every connected client stayed dead after every deploy until somebody reconnected by hand — the transport map is process memory, so a restart invalidates every session id in the wild. Found in a consumer project running an older copy of this controller.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "after": "      const owner = await this.foreignSessionOwner(sessionId, user.id);",
+      "find": "      if (!this.isInitializeRequest(req.body)) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/unit/ai-mcp-session-recovery.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-foreign-replica-404-instead-of-409",
+      "defect": "Guards the ORDER of the two checks in the POST path, which is what keeps the 404 from swallowing the multi-replica case. With a shared Redis registry, a session that lives on ANOTHER replica of the same user must keep answering 409 naming that replica — the live transport cannot be moved, so routing is the only fix and the client needs to know. Drop the registry branch (or place the unknown-session 404 ahead of it) and that session reads as \"unknown\" instead: the client throws away a session that is alive and routable, and the operator loses the only hint that sticky sessions are missing.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "      const owner = await this.foreignSessionOwner(sessionId, user.id);",
+      "replace": "      const owner = await this.foreignSessionOwner(sessionId, `never-matches-${user.id}`);",
+      "specs": [
+        "tests/unit/ai-mcp-session-recovery.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

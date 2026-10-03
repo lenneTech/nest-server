@@ -21,7 +21,9 @@
  * consumer's `checkRights()` reads) has no route in front of it, and the 11.33.1 defect lived in
  * exactly such a method.
  */
+import { createHash } from 'crypto';
 import mongoose, { Connection } from 'mongoose';
+import { Readable } from 'stream';
 import { afterAll, beforeAll, describe, expect } from 'vitest';
 
 import envConfig from '../src/config.env';
@@ -59,6 +61,31 @@ async function readStream(stream: NodeJS.ReadableStream): Promise<string> {
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString();
+}
+
+/**
+ * 12 MiB plus a remainder: on S3 the unknown-length path uploads this as three 5 MiB-ish parts with
+ * a final part that is not full — the shapes a part-boundary bug would get wrong. Patterned rather
+ * than zero-filled, so a misplaced or repeated part changes the hash.
+ */
+const LARGE_FILE = (() => {
+  const buffer = Buffer.alloc(12 * 1024 * 1024 + 4321);
+  for (let i = 0; i < buffer.length; i++) {
+    buffer[i] = (i * 31 + 7) % 251;
+  }
+  return buffer;
+})();
+const LARGE_FILE_SHA = createHash('sha256').update(LARGE_FILE).digest('hex');
+
+/** The large file as a stream of 64 KiB chunks — what an upload looks like, length unannounced. */
+function largeFileStream(): Readable {
+  return Readable.from(
+    (function* () {
+      for (let offset = 0; offset < LARGE_FILE.length; offset += 64 * 1024) {
+        yield LARGE_FILE.subarray(offset, offset + 64 * 1024);
+      }
+    })(),
+  );
 }
 
 function filterArgs(partial: Partial<FilterArgs>): FilterArgs {
@@ -163,6 +190,34 @@ describe('File storage parity — service contract (e2e)', () => {
         const resolved = await service.resolveFile(info.id);
         expect(resolved?.store).toBe(driver);
         expect(resolved?.info.filename).toBe(filename);
+      });
+
+      parityIt('service.unknownLengthStreamRoundTrip', driver, async () => {
+        const filename = name('unknown-length');
+        const info = await service.createFile({
+          createReadStream: largeFileStream,
+          filename,
+          mimetype: 'application/octet-stream',
+        });
+
+        // The recorded size is what was stored — on S3 nobody could have known it up front.
+        expect(info.length).toBe(LARGE_FILE.length);
+        expect((await service.getFileInfo(info.id)).length).toBe(LARGE_FILE.length);
+        expect(createHash('sha256').update(await service.getBuffer(info.id)).digest('hex')).toBe(LARGE_FILE_SHA);
+      });
+
+      parityIt('service.knownSizeStreamRoundTrip', driver, async () => {
+        const filename = name('known-size');
+        const info = await service.createFile({
+          createReadStream: largeFileStream,
+          filename,
+          mimetype: 'application/octet-stream',
+          size: LARGE_FILE.length,
+        });
+
+        expect(info.length).toBe(LARGE_FILE.length);
+        expect((await service.getFileInfo(info.id)).length).toBe(LARGE_FILE.length);
+        expect(createHash('sha256').update(await service.getBuffer(info.id)).digest('hex')).toBe(LARGE_FILE_SHA);
       });
 
       parityIt('service.readByNameRoundTrip', driver, async () => {

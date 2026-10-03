@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 79 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 81 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -282,13 +282,16 @@ will happily skip — the precise failure this tool exists to catch. It falls ba
 when the registry, a vitest config or a setup file changed, since those can move any verdict.
 
 **Why the gate does not cache per-mutation verdicts instead.** It runs ONCE PER RELEASE, not per
-commit, so selective re-running would save ~10 minutes a release. The price is a cache that has to
-model each spec's full dependency closure correctly, and getting that wrong produces a stale PASS
-for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 128 mutations — past the threshold this paragraph has carried since the gate was written,
-now reached exactly. The full run is approaching half an hour. **The re-evaluation is due now**: the
-next person to add a mutation should decide whether selective re-running has become worth its
-failure mode (a stale PASS for a test that has since gone vacuous), not bump this number again.
+commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
+has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
+PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
+at 130 mutations.
+
+**Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
+11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
+the count was never the cost: re-evaluate once the "Regression evidence" job in `publish.yml`
+exceeds **30 minutes** (`gh run view <id> --json jobs` shows start and end). Below that line,
+adding a mutation needs no decision.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -329,7 +332,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 49 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 128 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 130 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

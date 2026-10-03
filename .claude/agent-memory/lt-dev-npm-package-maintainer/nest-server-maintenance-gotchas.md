@@ -17,8 +17,10 @@ with `sh: .../.bin/nest: Permission denied` (exit 126).
 the `@nestjs/cli` version does not help, and `pnpm rebuild` does not restore the bit.
 
 **How to apply:** on exit 126 from any `nest` invocation, run
-`chmod +x node_modules/@nestjs/cli/bin/nest.js` and re-run. Recurred 2026-08-19. Do not
-diagnose it as a dependency incompatibility.
+`chmod +x node_modules/@nestjs/cli/bin/nest.js` and re-run. Recurred 2026-08-19 and 2026-10-03.
+Do not diagnose it as a dependency incompatibility. On 2026-10-03 the launcher's mtime PREDATED
+the run's first install (an earlier install in the release work had re-linked it), and it cost
+one full gate cycle — check `ls -l node_modules/@nestjs/cli/bin/nest.js` BEFORE the first gate.
 
 ## Piped `pnpm install` output looks hung when it is not
 
@@ -160,5 +162,27 @@ exact-pins (6.2.1 in 13.4.5); bumping it alone puts two copies into every consum
 Same shape: `ws` (8.21.3), `multer` (platform-express pin). After any bump, list direct deps
 whose lockfile carries a second version, and dedupe stale copies with a targeted
 `pnpm update --depth Infinity <pkg>` (jose, @aws-sdk/client-s3, @types/node needed it).
+
+## `husky` is a dead devDependency (found 2026-10-03, reported, not removed)
+
+The `prepare: husky install` script was removed on 2024-10-06 (commit 7da6f77), `core.hooksPath`
+is unset, so `.husky/pre-commit` / `pre-push` never run. It is the one genuinely unused package
+in the manifest (everything else on the depcheck list is a false positive, see above). Removing it
+is a repo decision (drop husky + `.husky/`, or re-wire hooks), not a version change — report it
+when the run's scope is "versions only".
+
+## `pnpm dedupe` in nest-server: try it in scratch, it is cheap (2026-10-03)
+
+`pnpm dedupe --lockfile-only --ignore-scripts` in a scratch copy (package.json + workspace +
+lockfile) collapsed nine in-major duplicates (@graphql-tools/merge|schema|utils, @noble/hashes,
+fs-extra, picomatch, semver, tinyglobby, type-is) with ZERO other version movement — each onto the
+version a fresh resolve picks anyway. Copy the lockfile back, then `pnpm install --frozen-lockfile`.
+Check who held each old copy first: `@apollo/server`'s graphql-tools chain is on the runtime path.
+
+## The VS Code port squat is still there after a normal start (2026-10-03)
+
+Six `Code Helper` listeners on `127.0.0.1` in 49152-65535 without any reboot. Reserving them
+pre-emptively on `::` (tiny `net.createServer().listen({host:'::',port})` script, run as a managed
+background task, killed after the gate) costs nothing — do it before every full gate.
 
 Related: [[nest-server-override-status]], [[deferred-major-updates]]
