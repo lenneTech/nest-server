@@ -80,7 +80,7 @@ export class GridFSHelper {
    * process down. That is reachable from ordinary traffic — a client that aborts a
    * GraphQL upload mid-body errors the capacitor stream — and it was
    * driver-conditional: the same abort is a rejected promise under the S3 driver
-   * (`streamToBuffer` throws) and under the filesystem driver (`pipeline()`
+   * (the multipart upload rejects) and under the filesystem driver (`pipeline()`
    * forwards both ends), and a process crash under GridFS, the pre-11.33 default.
    * The migration helper's `uploadFileToGridFS()` already carried this handler; the
    * one on the request path did not.

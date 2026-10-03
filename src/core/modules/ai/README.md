@@ -621,6 +621,14 @@ the server log; the response carries only a stable `#LTNS_0901` code.
   framework's existing auth) — the MCP session is bound to that user, and
   `tools/list` / `tools/call` are filtered to and executed with their permissions.
 - Unauthenticated requests get `401` with a `WWW-Authenticate` header.
+- A session id the server does not know — which every restart produces, because the
+  transport map is process memory — gets **`404`**, and so does another user's id. 404
+  is the status the MCP spec has a client react to by sending a fresh `initialize`, so
+  clients recover from a deploy on their own rather than sitting dead until someone
+  reconnects by hand. A request with **no** session id and no `initialize` body still
+  gets `400`: there is nothing to recover, and a 404 would start a reconnect loop.
+- Answering a foreign id `404` rather than `403` is deliberate — a 403 would confirm
+  that the id exists, and the id travels in a response header and through client logs.
 
 ### Multi-replica / sticky sessions
 

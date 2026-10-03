@@ -121,6 +121,27 @@ export class CoreAiMcpController implements OnModuleDestroy {
         this.foreignSession(res, owner);
         return;
       }
+
+      // A session id the client still holds that no replica knows — the state every restart
+      // produces, because the transport map is process memory. 404 is the only status a client
+      // reacts to by starting a fresh session itself (the spec requires it to), and it is what the
+      // SDK's own server returns for a mismatched id.
+      //
+      // Falling through to a new transport instead, as this did until now, looked like a silent
+      // recovery and was not one: after a restart the client's next request is a `tools/call` or
+      // `tools/list`, never an `initialize`, so the fresh transport's `validateSession()` answered
+      // `400 Bad Request: Server not initialized` — the same dead session, one layer down, and a
+      // 400 is a status no client recovers from. Found in a consumer project whose own older copy
+      // of this controller had the identical defect: after every deploy, every connected client
+      // stayed dead until somebody reconnected by hand.
+      //
+      // An `initialize` carrying a stale id still gets a new session rather than a 404: a client
+      // that keeps sending the old id would otherwise loop. No SDK client does that — it skips
+      // `initialize` entirely once its transport has an id — but the case costs one check.
+      if (!this.isInitializeRequest(req.body)) {
+        res.status(404).json({ error: 'Unknown or expired MCP session' });
+        return;
+      }
     }
 
     if (!entry) {
@@ -214,6 +235,18 @@ export class CoreAiMcpController implements OnModuleDestroy {
     }
 
     return null;
+  }
+
+  /**
+   * Whether the body is an `initialize` — the one request that legitimately starts a session.
+   *
+   * A batch counts when any member is an initialize, matching how the SDK transport reads it.
+   */
+  protected isInitializeRequest(body: any): boolean {
+    if (Array.isArray(body)) {
+      return body.some((message: any) => message?.method === 'initialize');
+    }
+    return body?.method === 'initialize';
   }
 
   /**

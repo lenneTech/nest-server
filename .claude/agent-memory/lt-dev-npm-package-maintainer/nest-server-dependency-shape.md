@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-# nest-server dependency shape and couplings (verified 2026-09-26)
+# nest-server dependency shape and couplings (verified 2026-09-26, AWS note 2026-10-03)
 
 **Shape is a contract.** The lt CLI's `src/config/vendor-runtime-deps.json` mirrors which
 section each package lives in, so a maintenance run never moves packages between
@@ -22,6 +22,9 @@ Why some surprising entries are RUNTIME `dependencies`:
 
 Why some are devDependencies AND peers: `better-auth` family (consumer owns the version),
 `ioredis`, `bullmq`, `@aws-sdk/*`, `@tus/s3-store` (optional peers; devDep copy for tests).
+`@aws-sdk/lib-storage` joined in 11.41.7 (streamed S3 multipart uploads). **The three AWS
+packages (client-s3, lib-storage, s3-request-presigner) move as ONE version** — lib-storage
+peer-requires `client-s3 ^<its own version>`; their peer ranges (`>=3.1045.0 <4`) stay as they are.
 
 **Coupling — mongodb + mongoose move together.** mongoose declares `mongodb` with a tilde
 range (`9.9.3` → `~7.5`, `9.10.2` → `~7.6`); a direct `mongodb` outside it splits the tree

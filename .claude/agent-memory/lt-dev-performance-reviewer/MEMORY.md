@@ -15,6 +15,7 @@
 ## Micro-costs (measured, reusable)
 - [ConfigService.get cost](config-service-get-cost.md) — measured 152 ns/call (rfdc factory rebuilt every call); `getFastButReadOnly` is the 79 ns option. Only matters inside loops.
 - [GridFS verify + stream costs](gridfs-verify-and-stream-costs.md) — COUNT_SCAN is index-only but O(chunks); connect/close ~43 ms/file; `pipe()` leaks the source on client abort; `process.exit()` truncates piped stdout at 64 KB.
+- [S3 upload path costs](s3-upload-paths-costs.md) — measured: lib-storage read-ahead ~20 MiB flat; SDK never retries stream bodies; known-length PUT capped at 5 GiB on AWS.
 - [Response.clone + EJS costs](response-clone-and-ejs-costs.md) — measured: async-identity ~42 ns, `clone().json()` ~10 us small / 2.7 ms at 512 KB, cached EJS render ~3 us.
 - [Redaction regex costs](redaction-regex-costs.md) — redactSensitiveText is O(n²) on crafted input (JWT rule 23 ms @6 KB); per-caller caps; mailbox copy mode redacts before truncating.
 - [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: npx 239ms vs .bin 41ms, worktree add ~190ms; the cited 1.87x predates CHECK_LOW_RESOURCE=1 and needs re-measuring.

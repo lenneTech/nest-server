@@ -25,8 +25,13 @@ const ROOT = join(__dirname, '../..');
 /**
  * Packages whose advisories are currently suppressed, and must stay dev-only.
  *
- * Empty since 2026-09-03, and the entry that used to be here is worth keeping in
- * view — it shows what this spec does NOT cover.
+ * Two entries since 2026-10-03, both advisories with NO patched release at all, both
+ * reached only through dev tooling (see the comments in `pnpm-workspace.yaml`). The
+ * patterns match ANY version on purpose: with no fixed release, every version in the
+ * production tree is a vulnerable one, so any appearance there voids the justification.
+ *
+ * The entry that was here before (empty from 2026-09-03 until then) is worth keeping
+ * in view — it shows what this spec does NOT cover.
  *
  * GHSA-mh99-v99m-4gvg (brace-expansion, unbounded expansion → OOM) was suppressed
  * on 2026-07-28 with a justification that was accurate in every detail: the newest
@@ -58,7 +63,12 @@ const ROOT = join(__dirname, '../..');
  * An entry added below should still carry a date to re-verify by — the guard tells you
  * when upstream moves, not when your own reasoning stopped applying.
  */
-const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [];
+const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [
+  // via @swc/cli > @xhmikosr/bin-wrapper > @xhmikosr/downloader > got > cacheable-request
+  { ghsa: 'GHSA-ch52-4w7c-c8xp', pkg: 'http-cache-semantics', vulnerableInProd: /http-cache-semantics@/ },
+  // via nodemon (and npm-watch) > chokidar@3
+  { ghsa: 'GHSA-vfj7-8cjw-p6xm', pkg: 'braces', vulnerableInProd: /braces@/ },
+];
 
 describe('audit suppressions stay within their justification', () => {
   const workspace = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');

@@ -31,6 +31,20 @@ export const S3_FILES_COLLECTION = 's3-files';
 export type S3FileInfo = FileMetadataInfo;
 
 /**
+ * Whether an upload size can be handed to S3 as the object's `Content-Length`.
+ *
+ * Only a positive safe integer qualifies. Anything else — `undefined`, `0`, a negative number,
+ * `NaN`, a fraction — is treated as "length unknown" and goes through the multipart path, which
+ * needs no total. The direction matters: a WRONG length is not a slower upload but a broken one,
+ * whereas an unknown length only costs the multipart round trips. `0` is included in "unknown" because it is
+ * what an unset numeric field defaults to far more often than it is a real empty file — and an
+ * empty file stores correctly through the multipart path too.
+ */
+export function isKnownUploadSize(size: unknown): size is number {
+  return typeof size === 'number' && Number.isSafeInteger(size) && size > 0;
+}
+
+/**
  * Read a stream completely into a buffer
  */
 export async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -70,21 +84,22 @@ export class S3FileHelper {
     const _id = new Types.ObjectId();
     const key = _id.toHexString();
 
-    // A stream with a known length streams straight through. Reading it into a Buffer first —
-    // which every caller used to do — materialises the WHOLE file in one process: a 4 GB
-    // resumable upload (well inside the 50 GB default cap) then either throws
-    // "Array buffer allocation failed" or gets the container OOM-killed at 100% progress,
-    // taking every other in-flight request with it.
+    // A stream is never read into a Buffer here. Doing so — which every caller used to do —
+    // materialises the WHOLE file in one process: a 4 GB resumable upload (well inside the 50 GB
+    // default cap) then either throws "Array buffer allocation failed" or gets the container
+    // OOM-killed at 100% progress, taking every other in-flight request with it. With a known
+    // length the stream goes up as one PutObject; without one, `putObject()` uploads it in parts.
     const body = options.body ?? options.buffer;
     if (!body) {
       throw new Error('S3FileHelper.writeFile needs either a body stream or a buffer');
     }
-    await s3Service.putObject(key, body, options.contentType, options.contentLength ?? options.buffer?.length);
+    const contentLength = isKnownUploadSize(options.contentLength) ? options.contentLength : options.buffer?.length;
+    await s3Service.putObject(key, body, options.contentType, contentLength);
 
     return S3FileHelper.recordFile(s3Service, collection, _id, {
       contentType: options.contentType,
       filename: options.filename,
-      length: options.contentLength ?? options.buffer?.length,
+      length: contentLength,
       metadata: options.metadata,
     });
   }
@@ -134,7 +149,11 @@ export class S3FileHelper {
     _id: Types.ObjectId,
     options: { contentType?: string; filename: string; length?: number; metadata?: Record<string, any> },
   ): Promise<S3FileInfo> {
-    if (!(await s3Service.objectExists(_id.toHexString()))) {
+    // One HEAD answers both questions: whether the bytes arrived, and — for a stream whose length
+    // nobody knew up front — how many there are. The stored object is the authority on its size;
+    // a length guessed by the caller (a multipart request's `Content-Length`, say) is not.
+    const stat = await s3Service.statObject(_id.toHexString());
+    if (!stat) {
       throw new Error('File uploaded but not found in S3');
     }
 
@@ -147,7 +166,7 @@ export class S3FileHelper {
       _id,
       contentType: options.contentType,
       filename: options.filename,
-      length: options.length,
+      length: options.length ?? stat.contentLength,
       metadata: options.metadata,
       // Records WHERE the bytes went, so a reader never has to probe all three
       // stores to find out. Legacy documents lack it and are handled by probing.

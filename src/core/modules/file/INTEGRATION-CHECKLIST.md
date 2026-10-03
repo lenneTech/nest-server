@@ -88,6 +88,31 @@ If some files are genuinely public and others are not, do not solve it with a ro
 record a visibility flag in the metadata and branch in `checkRights()`, or expose a separate public
 route for exactly the public files and leave the core routes gated.
 
+### 6. Switching to the S3 driver — in this order
+
+Each step fails on its own if skipped, and only the first one fails loudly:
+
+1. **Forward the services to `super()`.** `FileService` must call
+   `super(connection, 'fs', { configService, s3Service })`, as the reference implementation does. With
+   `super(connection)` the S3 store counts as unavailable and `file.storage: 's3'` fails the boot
+   with "that storage is not available".
+2. **Install the S3 packages as `dependencies`, not `devDependencies`:** `@aws-sdk/client-s3` and
+   `@aws-sdk/lib-storage` (same version), plus `@aws-sdk/s3-request-presigner` for
+   `s3.presignedDownloads`. A production image installed with `--prod` otherwise boots without them.
+   Vendor mode has them installed already (the vendored core references their types) — check which
+   section they are in.
+3. **Count stored files across all three metadata collections.** `fs.files` is GridFS only; the
+   filesystem driver records in `filesystem-files` and S3 in `s3-files`. Project code that
+   aggregates sizes or counts directly — a quota, a statistic — must cover all three, or it reads 0
+   after the switch and the quota never refuses anything. `findFileInfo()` already merges every
+   store.
+4. **Then switch the driver** — `file.storage: 's3'`, or leave it unset and let `s3.bucket` derive
+   it. Files written before stay readable: reads consult every store.
+
+An `s3` block with a `bucket` turns `CoreS3Service` on whatever `file.storage` says (TUS, where enabled, stages
+uploads in S3 as soon as it is on), so it needs `@aws-sdk/client-s3` at boot. To prepare the block
+without activating it, set `enabled: false`.
+
 ## Pick your project class first — the whole model is one dial with five settings
 
 `file.access` is the per-file rule as a DECLARATION instead of code. Until 11.35.0 the framework shipped
@@ -201,14 +226,17 @@ personal or medical, a per-file rule is not optional.
 
 ## Common Mistakes
 
-| Mistake                                            | Symptom                                  | Fix                                                                                                                    |
-| -------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Overriding `getFileById` to add Swagger decorators | `file.downloadRoles` silently ignored    | Don't override; document at class level                                                                                |
-| Overriding without re-declaring `@Get(...)`        | Route 404s for everyone, no error logged | Don't override                                                                                                         |
-| `downloadRoles: []`                                | Warning logged, default applied          | Use a non-empty array; `[]` would read as "no roles required" and open the route                                       |
-| Expecting `metadata` back from `getFileInfo()`     | `undefined`                              | Use `getRawFileInfo()` inside `checkRights()`                                                                          |
-| `downloadRoles: ['member']` with multiTenancy      | Works from code, fails from `<img>`      | Both file classes carry `@SkipTenantCheck()`; roles resolve against `user.roles`. Use `checkRights()` for tenant rules |
-| Signed-in user can upload via TUS but not download | 403 on their own file                    | `tus.roles` and `file.downloadRoles` are separate. Add an owner to the metadata and authorize per file                 |
-| Rule narrows only `'id'` / `'filename'`            | `findFileInfo()` returns every file      | Refuse `'filterArgs'`; force a per-user filter server-side with `{ force: true }`                                      |
-| Treating the file id as unguessable                | Enumerable inventory                     | Ids share a per-process random part and an incrementing counter — authorize every read, do not rely on the id          |
-| Approving the caller's `filterArgs` as "narrowed"  | Bypass via a different filter shape      | `filterArgs` is client-controlled. Override the filter; never approve it                                               |
+| Mistake                                                        | Symptom                                     | Fix                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Overriding `getFileById` to add Swagger decorators             | `file.downloadRoles` silently ignored       | Don't override; document at class level                                                                                |
+| Overriding without re-declaring `@Get(...)`                    | Route 404s for everyone, no error logged    | Don't override                                                                                                         |
+| `downloadRoles: []`                                            | Warning logged, default applied             | Use a non-empty array; `[]` would read as "no roles required" and open the route                                       |
+| Expecting `metadata` back from `getFileInfo()`                 | `undefined`                                 | Use `getRawFileInfo()` inside `checkRights()`                                                                          |
+| `downloadRoles: ['member']` with multiTenancy                  | Works from code, fails from `<img>`         | Both file classes carry `@SkipTenantCheck()`; roles resolve against `user.roles`. Use `checkRights()` for tenant rules |
+| Signed-in user can upload via TUS but not download             | 403 on their own file                       | `tus.roles` and `file.downloadRoles` are separate. Add an owner to the metadata and authorize per file                 |
+| Rule narrows only `'id'` / `'filename'`                        | `findFileInfo()` returns every file         | Refuse `'filterArgs'`; force a per-user filter server-side with `{ force: true }`                                      |
+| Treating the file id as unguessable                            | Enumerable inventory                        | Ids share a per-process random part and an incrementing counter — authorize every read, do not rely on the id          |
+| Approving the caller's `filterArgs` as "narrowed"              | Bypass via a different filter shape         | `filterArgs` is client-controlled. Override the filter; never approve it                                               |
+| `super(connection)` in `FileService` with `file.storage: 's3'` | Boot fails: "that storage is not available" | Forward `{ configService, s3Service }` — step 6                                                                        |
+| S3 packages in `devDependencies`                               | Production image cannot load S3             | Move them to `dependencies` — step 6                                                                                   |
+| A quota aggregating only `fs.files`                            | Reads 0 on the S3 / filesystem driver       | Aggregate `fs.files`, `filesystem-files` and `s3-files` — step 6                                                       |

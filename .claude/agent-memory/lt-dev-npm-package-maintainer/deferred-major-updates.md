@@ -1,11 +1,11 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why (NestJS 12, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, pnpm 12, better-auth lock-step); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, pnpm, better-auth lock-step, ws/graphql-ws lockstep, mongodb 7.7); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
 
-# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-01, 11.41.5 maintenance run)
+# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-03, 11.41.7 maintenance run)
 
 ## nodemailer 10 was TAKEN in 11.41.5 — a security exception to "no runtime major in a patch"
 
@@ -23,9 +23,8 @@ declarations via `typesVersions` (`lib/*` -> `dist/cjs/*/index.d.ts`), which nod
 resolution honours and which SHADOW `@types/nodemailer`. Each transport is now
 `export default class` + module-level `Options` alias instead of `export =` + merged
 namespace, so `import type * as X` makes `| X` (the instance type) a namespace error;
-`| X.default` fixes it (`MailTransportOptions`). `@types/nodemailer` 8.0.2 is KEPT (orchestrator
-rule: keep unless it conflicts) — `tsc --explainFiles` loads none of its files any more, so it
-is dead weight and a removal candidate for a minor. The starter's BARE `nodemailer: 9.1.1`
+`| X.default` fixes it (`MailTransportOptions`). `@types/nodemailer` was dead weight after that and
+was DROPPED in 11.41.6. The starter's BARE `nodemailer: 9.1.1`
 override must move to 10.0.13 with it (see [[starter-downstream-maintenance]]).
 
 Each of these is a real, available update that was deliberately left in place. Deferred,
@@ -39,22 +38,25 @@ than riding along in an unrelated release. The package MAJOR mirrors NestJS, so 
 **How to apply:** when a run reports these as "outstanding", do not treat it as an
 oversight. Only take one if the run's explicit purpose is that migration.
 
-| Package | Current | Available | Reason deferred |
+| Package | Current | Available (2026-10-03) | Reason deferred |
 |---|---|---|---|
-| `@nestjs/*` family (common/core/platform-express/testing 11.2.6, apollo/graphql 13.4.5, swagger 11.4.7, jwt, mongoose, passport, schedule, terminus, cli, schematics) | 11.x line | 12.x (core 12.1.1, 12.1.2 in cooldown 2026-10-01) | NestJS major = package major. Only in-major bumps (11.2.x) are taken. |
-| `vitest` + `@vitest/coverage-v8` | 4.1.11 | 5.0.2 (5.0.3 in cooldown 2026-10-01) | Dev-only, but: `clearMocks` default flips to `true`, pool/worker IDs start at 1, `describe.sequential` removed. `scripts/check.mjs` AND `scripts/check-mutations.mjs` parse vitest's summary line; the latter runs only on the publish path, so `check` going green does not prove it. Take in its own change and run `check:mutations` too. |
+| `@nestjs/*` family (common/core/platform-express/testing 11.2.7, apollo/graphql 13.4.5, swagger 11.4.7, jwt 11.0.2, mongoose 11.0.4, passport 11.0.5, schedule 6.1.3, terminus 11.1.1, cli 11.0.24, schematics 11.1.0) | 11.x line | 12.x (core 12.1.2; apollo/graphql 14.0.3; schedule jumps 6 -> 12.0.2 to align with NestJS 12) | NestJS major = package major. Only in-major bumps (11.2.x) are taken. Every other @nestjs package is already the newest of its NestJS-11 line. |
+| `vitest` + `@vitest/coverage-v8` | 4.1.11 | 5.0.3 | Dev-only, but: `clearMocks` default flips to `true`, pool/worker IDs start at 1, `describe.sequential` removed. `scripts/check.mjs` AND `scripts/check-mutations.mjs` parse vitest's summary line; the latter runs only on the publish path, so `check` going green does not prove it. Take in its own change and run `check:mutations` too. |
 | `graphql` | 16.14.2 | 17.0.2 | Ecosystem-wide major (consumer-visible dependency). `@nestjs/graphql@13.4.5` peers `^16.11.0 \|\| ^17.0.0`. |
-| `graphql-upload` | 15.0.2 | 18.0.0 | Exports moved `.js` → `.mjs`: touches `src/core.module.ts` (`graphql-upload/graphqlUploadExpress.js`), `src/core/modules/file/core-file.resolver.ts` + `src/server/modules/file/file.resolver.ts` (`graphql-upload/GraphQLUpload.js`), `src/types/graphql-upload.d.ts`. |
-| `dotenv` | 17.4.2 | 18.0.4 | Runtime dependency major. |
-| `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.3.0 | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (newest 13.x). Bumping alone puts a second copy into every consumer tree. |
-| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.3 still declares `~7.6`; 7.6.0 is the only 7.6.x. Move only with a mongoose that declares `~7.7`. |
+| `graphql-upload` | 15.0.2 | 18.0.0 (18.0.1 in cooldown) | Exports moved `.js` -> `.mjs`: touches `src/core.module.ts` (`graphql-upload/graphqlUploadExpress.js`), `src/core/modules/file/core-file.resolver.ts` + `src/server/modules/file/file.resolver.ts` (`graphql-upload/GraphQLUpload.js`), `src/types/graphql-upload.d.ts`. |
+| `dotenv` | 17.4.2 | 18.0.5 | Runtime dependency major. |
+| `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.3.0 | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (still the newest 13.x on 2026-10-03). Bumping alone puts a second copy into every consumer tree. The `ws` override target stays with them (two fresh resolves: identical with/without, so it holds nothing back). |
+| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.3 declares `~7.6`; 9.10.4 (2026-10-03 01:41 UTC, in cooldown during the run) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. |
 | `typescript` | 5.9.3 | 7.0.2 | Skips "6". Ecosystem readiness across NestJS + ts-morph + oxlint unproven. |
-| `pnpm` (`packageManager`) | 11.13.1 | 11.28.2 / 12.8.1 | **Never bump from a maintenance run.** Single source of truth with its own contract test (`tests/unit/pnpm-pin-contract.spec.ts`). Bump via `pnpm self-update` deliberately. |
-| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.1 (peer `>=1.7.1 <1.8.0`) | 1.7.6 (1.7.7 in cooldown, 2026-10-01) | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters. Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
+| `pnpm` (`packageManager`) | 11.13.1 | 11.28.3 / 12.8.1 | **Never bump from a maintenance run.** Single source of truth with its own contract test (`tests/unit/pnpm-pin-contract.spec.ts`). Bump via `pnpm self-update` deliberately. |
+| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.1 (peer `>=1.7.1 <1.8.0`) | 1.7.7 | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
 
 Taken since the previous version of this note (no longer deferred): better-auth 1.7 migration,
 `@getbrevo/brevo` 6.x, `ts-morph` 28, `@compodoc/compodoc` 2.0.0, `ejs` 6, `@types/node` 26,
 `unplugin-swc` 2.0.0 (only breaking change: dropped Node 18; taken 2026-09-26), `nodemailer` 10.0.13
-(security exception, 11.41.5 — see the section at the top).
+(security exception, 11.41.5 — see the section at the top). 11.41.7 run (2026-10-03): @nestjs
+common/core/platform-express/testing 11.2.6 -> 11.2.7, AWS SDK trio (client-s3, lib-storage,
+s3-request-presigner) 3.1143.0 -> 3.1145.0 as ONE version (3.1146.0 was in cooldown), @swc/core,
+@types/node, bullmq, vite patches. No code change needed for any of them.
 
 Related: [[nest-server-override-status]], [[nest-server-maintenance-gotchas]]

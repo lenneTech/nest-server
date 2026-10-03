@@ -3,7 +3,8 @@ import mongoose, { Connection } from 'mongoose';
 import { tmpdir } from 'os';
 import * as path from 'path';
 import { Readable } from 'stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ListMultipartUploadsCommand } from '@aws-sdk/client-s3';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import envConfig from '../src/config.env';
 import { GridFSHelper } from '../src/core/common/helpers/gridfs.helper';
@@ -113,13 +114,18 @@ describe('Upload with a failing source stream (e2e)', () => {
 });
 
 /**
- * The same question for the S3 driver's own streaming path.
+ * The same question for the S3 driver's own streaming paths.
  *
- * `CoreFileService.createFile()` buffers a GraphQL/multer upload before it reaches S3, so the crash
- * above cannot happen there. The tus finalization path does NOT buffer — it hands the staged read
- * stream plus a known `contentLength` straight to `CoreS3Service.putObject()`, which is exactly the
- * shape the AWS SDK pipes into its HTTP request without listening on the source. A staged read that
- * drops mid-migration therefore ended the process, the same way GridFS did.
+ * Nothing on the S3 path buffers an upload any more, so both ways a stream reaches S3 are covered:
+ *
+ * - KNOWN length (tus finalization, `size` on `createFile()`): the stream goes straight into one
+ *   PutObject — exactly the shape the AWS SDK pipes into its HTTP request without listening on the
+ *   source. A staged read that dropped mid-migration therefore ended the process, the same way
+ *   GridFS did.
+ * - UNKNOWN length (every GraphQL and streamed REST upload): a multipart upload via
+ *   `@aws-sdk/lib-storage`, which does listen on the source. What has to hold there is that a
+ *   failure surfaces with its real cause AND aborts the parts already uploaded — S3 keeps (and
+ *   bills) the parts of an incomplete multipart upload until something aborts it.
  *
  * @regression   11.33.1 — CoreS3Service.putObject() handed a known-length body stream straight to
  *   the AWS SDK, which does not listen on the SOURCE, so a failing body was an uncaught exception.
@@ -204,6 +210,48 @@ describe('S3 upload with a failing source stream (e2e)', () => {
     ).rejects.toThrow('dropped mid-transfer');
 
     expect(await collection.countDocuments({ filename })).toBe(0);
+  }, 60_000);
+
+  it('rejects with the REAL cause when an UNKNOWN-length stream drops after the first part — and leaves no parts behind', async () => {
+    const filename = `${marker}-multipart-mid.bin`;
+    let sent = 0;
+    // More than one 5 MiB part, so the multipart upload has really been created when it fails.
+    const midFail = new Readable({
+      read() {
+        if (sent < 6 * 1024 * 1024) {
+          sent += 256 * 1024;
+          this.push(Buffer.alloc(256 * 1024, 'y'));
+        } else {
+          this.destroy(new Error('dropped mid-multipart'));
+        }
+      },
+    });
+
+    await expect(S3FileHelper.writeFile(s3Service, collection, { body: midFail, filename })).rejects.toThrow(
+      'dropped mid-multipart',
+    );
+
+    expect(await collection.countDocuments({ filename })).toBe(0);
+    const pending = await s3Service.getClient().send(new ListMultipartUploadsCommand({ Bucket: bucket }));
+    expect(pending.Uploads ?? [], 'the parts of the failed upload must have been aborted').toHaveLength(0);
+  }, 60_000);
+
+  it('still uploads a healthy UNKNOWN-length stream — in parts, with the size S3 stored', async () => {
+    // The paired control for the case above, and the proof that the real `@aws-sdk/lib-storage`
+    // path runs against a real store: the spy shows the multipart branch was taken.
+    const filename = `${marker}-multipart-healthy.bin`;
+    const multipart = vi.spyOn(s3Service as any, 'putObjectMultipart');
+    const size = 6 * 1024 * 1024 + 1;
+
+    const info = await S3FileHelper.writeFile(s3Service, collection, {
+      body: Readable.from([Buffer.alloc(size - 1, 'z'), Buffer.from('!')]),
+      filename,
+    });
+
+    expect(multipart).toHaveBeenCalledTimes(1);
+    expect(info.length).toBe(size);
+    expect((await s3Service.statObject(info._id.toHexString()))?.contentLength).toBe(size);
+    multipart.mockRestore();
   }, 60_000);
 
   it('still uploads a healthy known-length stream', async () => {
