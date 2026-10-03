@@ -494,7 +494,12 @@ See: `.claude/rules/module-inheritance.md` for the full pattern.
 
 ## Client-Side Configuration
 
-Clients must be configured to use the correct base path and hash passwords:
+Clients must be configured to use the correct base path and hash passwords.
+
+> **Nuxt projects on `@lenne.tech/nuxt-extensions`** get all of this preconfigured: `useLtAuthClient()`
+> is the Better-Auth client (base path, password hashing, plugins), and `useLtAuth()` holds the auth
+> state plus the JWT-safe passkey helpers used below. The hand-written client that follows is for
+> clients outside that stack.
 
 ```typescript
 // auth-client.ts (e.g., for Nuxt/Vue)
@@ -622,14 +627,14 @@ async function useBackupCode(code: string) {
 
 Handle passkey authentication with session validation fallback.
 
-**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `authenticateWithPasskey()` function from the composable instead of `authClient.signIn.passkey()` directly. This is because JWT mode requires sending a `challengeId` to the server for challenge verification.
+**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `authenticateWithPasskey()` function from `useLtAuth()` instead of `authClient.signIn.passkey()` directly. This is because JWT mode requires sending a `challengeId` to the server for challenge verification.
 
 **Note on Passkey Login Response (v11.13.0+):** The server enriches the passkey verify-authentication response with user data. Better Auth's passkey plugin only returns `{ session }`, but the server fetches the user from the database and adds it to the response. The composable handles both scenarios (user in response vs. fallback to get-session).
 
 ```typescript
 // login.vue - Passkey login (JWT-compatible)
-// Use authenticateWithPasskey from useBetterAuth composable
-const { authenticateWithPasskey, setUser, validateSession } = useBetterAuth();
+// authenticateWithPasskey from useLtAuth() (@lenne.tech/nuxt-extensions)
+const { authenticateWithPasskey, setUser, validateSession } = useLtAuth();
 
 async function onPasskeyLogin() {
   try {
@@ -677,11 +682,13 @@ In JWT mode (`cookies: false`), the server stores WebAuthn challenges in the dat
 
 Register a new passkey for an authenticated user.
 
-**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `registerPasskey()` function from the composable. This ensures the `challengeId` is correctly sent to the server.
+**IMPORTANT:** For JWT mode (`cookies: false`), you MUST use the `registerPasskey()` function from `useLtAuth()`. This ensures the `challengeId` is correctly sent to the server.
 
 ```typescript
 // settings.vue - Register new passkey (JWT-compatible)
-const { registerPasskey, listPasskeys, deletePasskey } = useBetterAuth();
+// registerPasskey from useLtAuth(); listing and deleting go through the Better-Auth client
+const { registerPasskey } = useLtAuth();
+const authClient = useLtAuthClient();
 
 async function onRegisterPasskey() {
   try {
@@ -707,16 +714,16 @@ async function onRegisterPasskey() {
 
 // List user's passkeys (works in both modes)
 async function loadPasskeys() {
-  const result = await listPasskeys();
-  if (result.success) {
-    passkeys.value = result.passkeys || [];
+  const { data, error } = await authClient.passkey.listUserPasskeys();
+  if (!error) {
+    passkeys.value = data ?? [];
   }
 }
 
 // Delete a passkey (works in both modes)
 async function onDeletePasskey(passkeyId: string) {
-  const result = await deletePasskey(passkeyId);
-  if (result.success) {
+  const { error } = await authClient.passkey.deletePasskey({ id: passkeyId });
+  if (!error) {
     await loadPasskeys();
   }
 }
