@@ -39,3 +39,15 @@ export const TUS_CONFIG = 'TUS_CONFIG';
  * `tests/unit/import-cycle-invariants.spec.ts` enforces exactly that placement.
  */
 export const TUS_OWNER_METADATA_KEY = 'ltOwnerId';
+
+/**
+ * Metadata key recording the VALIDATED tenant a tus upload was created in, in the upload's own
+ * (staged) metadata. On completion it becomes the finished file's `metadata.tenantId` — the field the
+ * file module's `'tenant'` access preset decides on.
+ *
+ * Framework-owned and ALWAYS overwritten in `onUploadCreate`, exactly like
+ * {@link TUS_OWNER_METADATA_KEY}: the client's `Upload-Metadata` header must never be able to place
+ * a file in a tenant. It is set only while multi-tenancy is active and the caller's tenant header
+ * resolves to a tenant they are an active member of; otherwise it is `null`.
+ */
+export const TUS_TENANT_METADATA_KEY = 'ltTenantId';

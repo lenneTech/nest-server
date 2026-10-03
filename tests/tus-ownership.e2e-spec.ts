@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import envConfig from '../src/config.env';
 import { IServerOptions } from '../src/core/common/interfaces/server-options.interface';
 import { ConfigService } from '../src/core/common/services/config.service';
+import { setTenantContextResolver } from '../src/core/common/services/core-tenant-context.registry';
 import { CoreFileService } from '../src/core/modules/file/core-file.service';
 import { CoreTusService } from '../src/core/modules/tus/core-tus.service';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
@@ -111,8 +112,9 @@ describe('TUS upload ownership (e2e)', () => {
     const created = await tusRequest({
       headers: {
         'Upload-Length': String(length),
-        'Upload-Metadata': `filename ${Buffer.from(filename).toString('base64')},`
-          + `filetype ${Buffer.from('text/plain').toString('base64')}`,
+        'Upload-Metadata':
+          `filename ${Buffer.from(filename).toString('base64')},` +
+          `filetype ${Buffer.from('text/plain').toString('base64')}`,
       },
       method: 'POST',
       path: '/tus',
@@ -126,10 +128,9 @@ describe('TUS upload ownership (e2e)', () => {
     previousConfig = { ...(envConfig as Partial<IServerOptions>) };
     fixtureDir = await createFixtureDir(testId);
 
-    ConfigService.setConfig(
-      { ...(previousConfig as any), file: { storage: 'gridfs' } } as IServerOptions,
-      { reInit: true },
-    );
+    ConfigService.setConfig({ ...(previousConfig as any), file: { storage: 'gridfs' } } as IServerOptions, {
+      reInit: true,
+    });
     configService = new ConfigService(ConfigService.configFastButReadOnly as any, { warn: false });
 
     connection = (await mongoose.createConnection(process.env.MONGODB_URI).asPromise()) as any;
@@ -147,10 +148,10 @@ describe('TUS upload ownership (e2e)', () => {
       }
       void tusService.getServer().handle(req, res);
     });
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     closeServer = async () => {
-      await new Promise<void>(resolve => server.close(() => resolve()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       await tusService.onModuleDestroy();
     };
   }, 120_000);
@@ -260,5 +261,143 @@ describe('TUS upload ownership (e2e)', () => {
       path: `/tus/${uploadId}`,
     });
     expect(patched.statusCode).toBe(204);
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // The tenant of an upload (11.41.9) — only with multi-tenancy active
+  // ---------------------------------------------------------------------------------------------
+
+  const TENANT_A = 'tenant-a';
+
+  /** Create, append and finish an upload; returns the creation status and the finished file's raw metadata. */
+  const uploadWith = async (options: { extraMetadata?: string; tenantHeader?: string; user: string }) => {
+    const filename = `${testId}-tenant-${Math.random().toString(36).slice(2, 8)}.txt`;
+    const payload = Buffer.from('tenant bytes');
+    const created = await tusRequest({
+      headers: {
+        'Upload-Length': String(payload.length),
+        'Upload-Metadata':
+          `filename ${Buffer.from(filename).toString('base64')},` +
+          `filetype ${Buffer.from('text/plain').toString('base64')}` +
+          (options.extraMetadata ? `,${options.extraMetadata}` : ''),
+        ...(options.tenantHeader ? { 'x-tenant-id': options.tenantHeader } : {}),
+      },
+      method: 'POST',
+      path: '/tus',
+      user: options.user,
+    });
+    if (created.statusCode !== 201) {
+      return { metadata: undefined, status: created.statusCode };
+    }
+    const uploadId = (created.headers.location as string).split('/').pop() as string;
+    const patched = await tusRequest({
+      body: payload,
+      headers: { 'Content-Type': 'application/offset+octet-stream', 'Upload-Offset': '0' },
+      method: 'PATCH',
+      path: `/tus/${uploadId}`,
+      user: options.user,
+    });
+    expect(patched.statusCode, 'tus completion').toBe(204);
+    const info = await fileService.getFileInfoByName(filename);
+    return { metadata: (await fileService.rawById(info.id))?.metadata, status: created.statusCode };
+  };
+
+  /** Runs `body` with multi-tenancy active and a resolver that knows ALICE as a member of TENANT_A only. */
+  const withTenancy = async (body: () => Promise<void>) => {
+    const before = ConfigService.configFastButReadOnly;
+    ConfigService.setConfig({ ...(before as any), multiTenancy: {} } as IServerOptions, { reInit: true });
+    setTenantContextResolver({
+      resolve: async (user, header) =>
+        user?.id === ALICE && header === TENANT_A ? { tenantId: TENANT_A, tenantRole: 'member' } : {},
+    });
+    try {
+      await body();
+    } finally {
+      setTenantContextResolver(undefined);
+      ConfigService.setConfig(before as IServerOptions, { reInit: true });
+    }
+  };
+
+  /** `ltTenantId` smuggled in through the client-controlled Upload-Metadata header. */
+  const SPOOFED_TENANT = `ltTenantId ${Buffer.from('tenant-victim').toString('base64')}`;
+
+  /**
+   * THESIS: with multi-tenancy active, a tus-uploaded file records the tenant it was uploaded into —
+   * validated against an active membership — so the file module's 'tenant' access preset and every
+   * tenant-scoped quota can see it.
+   *
+   * @regression   11.41.9 — tus uploads carried no tenant at all, so in a multi-tenant project every
+   *   tus-uploaded file sat outside tenant scoping and outside any per-tenant quota.
+   * @seen-failing Delete the `tenantId` entry from the `fileMetadata` object in `onUploadComplete()`
+   *   in src/core/modules/tus/core-tus.service.ts — registered as mutation
+   *   `tus-tenant-not-carried-to-file` in tests/regression-mutations.json.
+   */
+  it('records the validated tenant on the finished file when multi-tenancy is active', async () => {
+    await withTenancy(async () => {
+      const { metadata, status } = await uploadWith({ tenantHeader: TENANT_A, user: ALICE });
+      expect(status).toBe(201);
+      expect(metadata?.tenantId).toBe(TENANT_A);
+      expect(String(metadata?.ownerId)).toBe(ALICE);
+    });
+  });
+
+  /**
+   * THESIS: the tenant header is never taken on trust. The tus routes carry @SkipTenantCheck(), so
+   * nothing upstream validated it — a header naming a tenant the caller is not a member of refuses the
+   * upload instead of placing a file in somebody else's tenant.
+   *
+   * @regression   11.41.9 — a tenant taken from an unvalidated header lets any authenticated caller
+   *   write files into a foreign tenant.
+   * @seen-failing Accept an unresolved tenant in `resolveUploadTenantId()` in
+   *   src/core/modules/tus/core-tus.service.ts — registered as mutation
+   *   `tus-tenant-header-unvalidated` in tests/regression-mutations.json.
+   */
+  it('refuses an upload into a tenant the caller is not a member of', async () => {
+    await withTenancy(async () => {
+      const { status } = await uploadWith({ tenantHeader: TENANT_A, user: BOB });
+      expect(status).toBe(403);
+    });
+  });
+
+  /**
+   * THESIS: the tenant key is framework-owned. A client that names a tenant through its own
+   * Upload-Metadata gets none — with or without multi-tenancy.
+   *
+   * @regression   11.41.9 — merging instead of overwriting `ltTenantId` lets a client place its file
+   *   in any tenant through the Upload-Metadata header.
+   * @seen-failing Drop the `ltTenantId` overwrite from `onUploadCreate()` in
+   *   src/core/modules/tus/core-tus.service.ts — registered as mutation
+   *   `tus-tenant-taken-from-client` in tests/regression-mutations.json.
+   */
+  it('ignores a tenant the client smuggles into Upload-Metadata', async () => {
+    await withTenancy(async () => {
+      const { metadata } = await uploadWith({ extraMetadata: SPOOFED_TENANT, user: ALICE });
+      expect(metadata?.tenantId).toBeUndefined();
+    });
+    const { metadata } = await uploadWith({ extraMetadata: SPOOFED_TENANT, user: ALICE });
+    expect(metadata?.tenantId).toBeUndefined();
+  });
+
+  /**
+   * THESIS: tenant handling stays OPTIONAL — without multi-tenancy nothing about an upload changes,
+   * even when a tenant header and a registered resolver are present.
+   */
+  it('changes nothing without multi-tenancy, header or not', async () => {
+    setTenantContextResolver({ resolve: async () => ({ tenantId: TENANT_A }) });
+    try {
+      const { metadata, status } = await uploadWith({ tenantHeader: TENANT_A, user: BOB });
+      expect(status).toBe(201);
+      expect(metadata?.tenantId).toBeUndefined();
+    } finally {
+      setTenantContextResolver(undefined);
+    }
+  });
+
+  it('paired control: without a tenant header an upload stays tenant-less even with multi-tenancy', async () => {
+    await withTenancy(async () => {
+      const { metadata, status } = await uploadWith({ user: ALICE });
+      expect(status).toBe(201);
+      expect(metadata?.tenantId).toBeUndefined();
+    });
   });
 });

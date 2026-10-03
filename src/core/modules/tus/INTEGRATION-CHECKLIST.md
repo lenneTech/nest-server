@@ -15,7 +15,7 @@
 | Use TUS with defaults (signed-in users may upload) | No - works automatically                             |
 | **Allow anonymous uploads** (public form)          | **Yes - Step 0** (the default no longer allows this) |
 | Restrict uploads to specific roles                 | Yes - Step 0                                         |
-| Custom upload handling (notifications, etc.)       | Yes - Step 2                                         |
+| Custom upload handling (quota, notifications, ...) | Yes - Step 2                                         |
 | Hard-code a policy that config must NOT change     | Yes - Step 1                                         |
 | Disable TUS completely                             | No - just use `TusModule.forRoot({ config: false })` |
 
@@ -134,25 +134,47 @@ export class ServerModule {}
 **Create:** `src/server/modules/tus/tus.service.ts`
 
 ```typescript
-import { Injectable } from '@nestjs/common';
 import { CoreTusService } from '@lenne.tech/nest-server';
 import { Upload } from '@tus/server';
 
-@Injectable()
 export class TusService extends CoreTusService {
-  protected override async onUploadComplete(upload: Upload): Promise<void> {
-    // Call parent to handle GridFS migration
-    await super.onUploadComplete(upload);
+  // Before the first byte: the declared Upload-Length is known, nothing is stored yet.
+  protected override async onUploadCreate(req: any, upload: Upload) {
+    const quota = this.options?.moduleRef?.get(QuotaService, { strict: false });
+    if (!(await quota?.hasRoomFor(req, upload.size))) {
+      const error = new Error('Storage quota exceeded');
+      (error as any).status_code = 413;
+      throw error;
+    }
+    return super.onUploadCreate(req, upload); // records owner + tenant, enforces allowedTypes
+  }
 
-    // Add custom logic
-    const metadata = upload.metadata;
-    console.log(`Upload complete: ${metadata.filename}`);
-    // await this.notificationService.sendUploadComplete(...);
+  // After the last byte.
+  protected override async onUploadComplete(upload: Upload): Promise<void> {
+    await super.onUploadComplete(upload); // migrates the file into the configured storage
+    // custom logic
   }
 }
 ```
 
-**Note:** To use a custom service, you'll need to create a custom TusModule that provides your service instead of CoreTusService.
+**Register it** (11.41.9+):
+
+```typescript
+// server.module.ts
+TusModule.forRoot({ controller: TusController, service: TusService });
+```
+
+**WHY no constructor dependencies?** The module constructs the service itself, with exactly
+`(connection, options)`. A constructor of your own would receive the wrong arguments. Resolve
+project providers at call time via `this.options?.moduleRef` instead.
+
+**WHY always return `super.onUploadCreate()`?** It writes the framework-owned owner and tenant keys
+and checks `allowedTypes`. An override that skips it produces owner-less uploads — reachable by
+every caller allowed to use TUS — and accepts every file type.
+
+**Multi-tenancy:** with `multiTenancy` configured, the core validates the tenant header against the
+caller's memberships and stores `metadata.tenantId` on the finished file; a non-member gets 403.
+Without `multiTenancy` nothing changes. Nothing to do in the project either way.
 
 ---
 
@@ -216,6 +238,9 @@ TusModule.forRoot({ config: false });
 | Gating `OPTIONS` in a custom controller            | Every browser upload fails before the first byte          | Leave `handleTusOptions*` on `@Roles(RoleEnum.S_EVERYONE)` — the preflight sends no credentials |
 | Expecting a subclass `@Roles()` to win over config | Roles look ignored                                        | `applyRoles()` overwrites them — Step 1 table                                                   |
 | Forgot to register custom controller               | Custom handler logic never runs (core controller is used) | Add `controller: TusController` to `forRoot()`                                                  |
+| Forgot to register custom service                  | `onUploadCreate` / `onUploadComplete` overrides never run | Add `service: TusService` to `forRoot()` (11.41.9+) — Step 2                                    |
+| Constructor dependencies on the service subclass   | `undefined` dependencies, or a crash at boot              | Resolve them at call time via `this.options?.moduleRef` — Step 2                                |
+| Override of `onUploadCreate` without `super`       | Uploads have no owner or tenant; `allowedTypes` ignored   | `return super.onUploadCreate(req, upload)` — Step 2                                             |
 | Upload succeeds but the file cannot be downloaded  | `403` on `GET /files/id/:id`                              | `file.downloadRoles` defaults to `[ADMIN]` — widen it, or authorize per file in `checkRights()` |
 | Using wrong endpoint path                          | 404 on upload                                             | Ensure client uses same path as config                                                          |
 
