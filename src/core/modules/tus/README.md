@@ -309,29 +309,93 @@ TusModule.forRoot({
 });
 ```
 
+### Custom Service (11.41.9+)
+
+Register a subclass of `CoreTusService` through `TusModule.forRoot({ service })`. Before 11.41.9
+both provider factories constructed `CoreTusService` directly, so a subclass could not be plugged in
+at all.
+
+```typescript
+// server.module.ts
+TusModule.forRoot({ controller: TusController, service: TusService });
+```
+
+The module constructs the service itself, with exactly `(connection, options)` — keep that
+constructor signature, and do not declare constructor dependencies of your own. Reach project
+providers at call time through `this.options?.moduleRef` instead:
+
+```typescript
+const quota = this.options?.moduleRef?.get(QuotaService, { strict: false });
+```
+
+### Validate an Upload Before It Starts
+
+`onUploadCreate(req, upload)` runs once per upload, after the client declared `Upload-Length` and
+before a single byte is written — the only point at which a quota can refuse an upload without the
+store having grown first. Throw an `Error` carrying `status_code` to refuse:
+
+```typescript
+import { CoreTusService } from '@lenne.tech/nest-server';
+import { Upload } from '@tus/server';
+
+export class TusService extends CoreTusService {
+  protected override async onUploadCreate(req: any, upload: Upload) {
+    const quota = this.options?.moduleRef?.get(QuotaService, { strict: false });
+    if (!(await quota?.hasRoomFor(req, upload.size))) {
+      const error = new Error('Storage quota exceeded');
+      (error as any).status_code = 413;
+      throw error;
+    }
+    return super.onUploadCreate(req, upload);
+  }
+}
+```
+
+Always return `super.onUploadCreate()`: it records the owner and the tenant and enforces
+`allowedTypes`. Skipping it leaves the upload owner-less (reachable by every caller who may use TUS)
+and lets any file type through.
+
 ### Custom Upload Handler
 
 Override `onUploadComplete` to customize what happens after upload:
 
 ```typescript
 // src/server/modules/tus/tus.service.ts
-import { Injectable } from '@nestjs/common';
 import { CoreTusService } from '@lenne.tech/nest-server';
 import { Upload } from '@tus/server';
 
-@Injectable()
 export class TusService extends CoreTusService {
   protected override async onUploadComplete(upload: Upload): Promise<void> {
-    // Call parent to migrate to GridFS
+    // Call parent to migrate to the configured file storage
     await super.onUploadComplete(upload);
 
     // Custom logic after upload
-    const metadata = upload.metadata;
-    await this.notificationService.sendUploadComplete(metadata.filename);
-    await this.analyticsService.trackUpload(upload.id, upload.size);
+    const notifications = this.options?.moduleRef?.get(NotificationService, { strict: false });
+    await notifications?.sendUploadComplete(upload.metadata?.filename);
   }
 }
 ```
+
+### Tenant Scoping (11.41.9+)
+
+**Only with `multiTenancy` configured.** Without it nothing changes: no header is read, no field is
+written.
+
+With multi-tenancy active, an upload carrying the tenant header (`multiTenancy.headerName`, default
+`x-tenant-id`) is validated against the caller's active memberships — the same check GraphQL
+subscriptions use. The TUS routes carry `@SkipTenantCheck()`, so the tenant guard does not do this
+for them.
+
+| Request                                              | Result                                     |
+| ---------------------------------------------------- | ------------------------------------------ |
+| No tenant header                                     | upload stays tenant-less, as before        |
+| Header naming a tenant the caller belongs to         | the finished file gets `metadata.tenantId` |
+| Header naming a tenant the caller does NOT belong to | **403**, nothing is stored                 |
+
+The tenant is recorded under `TUS_TENANT_METADATA_KEY` (`ltTenantId`), next to the owner under
+`TUS_OWNER_METADATA_KEY`. Both keys are framework-owned and always overwritten, so a client cannot
+put either of them into its own `Upload-Metadata`. `metadata.tenantId` on the finished file is what
+the file module's `'tenant'` access preset and any per-file `checkRights()` rule read.
 
 ---
 
@@ -380,14 +444,15 @@ query {
 
 The following metadata is stored with each GridFS file:
 
-| Field              | Source                                |
-| ------------------ | ------------------------------------- |
-| `filename`         | From TUS `Upload-Metadata` header     |
-| `contentType`      | From TUS `filetype` metadata          |
-| `tusUploadId`      | Original TUS upload ID                |
-| `originalMetadata` | All TUS metadata                      |
-| `ownerId`          | The authenticated uploader (11.35.0+) |
-| `uploadedAt`       | Completion timestamp                  |
+| Field              | Source                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `filename`         | From TUS `Upload-Metadata` header                                                                       |
+| `contentType`      | From TUS `filetype` metadata                                                                            |
+| `tusUploadId`      | Original TUS upload ID                                                                                  |
+| `originalMetadata` | All TUS metadata                                                                                        |
+| `ownerId`          | The authenticated uploader (11.35.0+)                                                                   |
+| `tenantId`         | The validated tenant, only with `multiTenancy` (11.41.9+) — see [Tenant Scoping](#tenant-scoping-11419) |
+| `uploadedAt`       | Completion timestamp                                                                                    |
 
 ### Upload ownership (11.35.0+)
 

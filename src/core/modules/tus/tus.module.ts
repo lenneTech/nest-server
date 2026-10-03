@@ -1,4 +1,5 @@
 import { DynamicModule, Global, Logger, Module, OnModuleInit, Type } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 
@@ -54,6 +55,32 @@ export interface TusModuleOptions {
    * ```
    */
   controller?: Type<CoreTusController>;
+
+  /**
+   * Custom service class to use instead of CoreTusService.
+   * The class must extend CoreTusService and keep its constructor signature
+   * `(connection, options?)`: the module constructs it with exactly those arguments, so it cannot
+   * declare constructor dependencies of its own. Project providers are reached at call time through
+   * `this.options?.moduleRef`.
+   *
+   * The seam for project-specific upload rules — e.g. override `onUploadCreate()` to enforce a quota
+   * from the declared `Upload-Length` before a single byte is written, or `onUploadComplete()` to
+   * post-process the finished file.
+   *
+   * @example
+   * ```typescript
+   * export class TusService extends CoreTusService {
+   *   protected override async onUploadCreate(req: any, upload: Upload) {
+   *     const quota = this.options?.moduleRef?.get(QuotaService, { strict: false });
+   *     await quota?.assertRoomFor(req, upload.size); // throw an Error with status_code 413 to refuse
+   *     return super.onUploadCreate(req, upload);
+   *   }
+   * }
+   *
+   * TusModule.forRoot({ service: TusService })
+   * ```
+   */
+  service?: Type<CoreTusService>;
 }
 
 /**
@@ -98,6 +125,7 @@ export class TusModule implements OnModuleInit {
   private static tusEnabled = false;
   private static currentConfig: ITusConfig | null = null;
   private static customController: null | Type<CoreTusController> = null;
+  private static customService: null | Type<CoreTusService> = null;
 
   constructor(private readonly tusService?: CoreTusService) {}
 
@@ -157,15 +185,17 @@ export class TusModule implements OnModuleInit {
    * @returns Dynamic module configuration
    */
   static forRoot(options: TusModuleOptions = {}): DynamicModule {
-    const { config: rawConfig, controller } = options;
+    const { config: rawConfig, controller, service } = options;
 
     // Normalize config: undefined/true → enabled with defaults, false → disabled
     const config = normalizeTusConfig(rawConfig);
 
     // Store config for service configuration
     this.currentConfig = config;
-    // Store custom controller if provided
+    // Store custom controller and service if provided
     this.customController = controller || null;
+    this.customService = service || null;
+    const ServiceClass = this.customService || CoreTusService;
 
     // If TUS is disabled, return minimal module
     if (config === null) {
@@ -183,9 +213,9 @@ export class TusModule implements OnModuleInit {
             inject: [getConnectionToken()],
             provide: CoreTusService,
             useFactory: (connection: Connection) => {
-              const service = new CoreTusService(connection);
-              service.configure(false);
-              return service;
+              const tusService = new ServiceClass(connection);
+              tusService.configure(false);
+              return tusService;
             },
           },
         ],
@@ -230,6 +260,7 @@ export class TusModule implements OnModuleInit {
             ConfigService,
             { optional: true, token: CoreS3Service },
             { optional: true, token: CoreRedisService },
+            ModuleRef,
           ],
           provide: CoreTusService,
           useFactory: async (
@@ -238,14 +269,15 @@ export class TusModule implements OnModuleInit {
             configService: ConfigService,
             s3Service?: CoreS3Service,
             redisService?: CoreRedisService,
+            moduleRef?: ModuleRef,
           ) => {
-            const service = new CoreTusService(connection, { configService, redisService, s3Service });
-            service.configure(tusConfig);
+            const tusService = new ServiceClass(connection, { configService, moduleRef, redisService, s3Service });
+            tusService.configure(tusConfig);
             // NestJS DOES call onModuleInit on a factory-provided instance — its hook iterates
             // every non-alias provider, however it was constructed. Calling it here as well ran
             // init TWICE per boot: two TUS servers, two S3 stores, and two hourly expiration
             // intervals of which onModuleDestroy clears only the second.
-            return service;
+            return tusService;
           },
         },
       ],
@@ -260,5 +292,6 @@ export class TusModule implements OnModuleInit {
     this.tusEnabled = false;
     this.currentConfig = null;
     this.customController = null;
+    this.customService = null;
   }
 }

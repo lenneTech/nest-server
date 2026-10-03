@@ -1596,6 +1596,50 @@
         "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tus-service-option-ignored",
+      "defect": "11.41.9 — TusModule hard-coded `new CoreTusService(...)` in both factories, so a project could not register a subclass and hook into upload creation or completion.",
+      "file": "src/core/modules/tus/tus.module.ts",
+      "find": "    const ServiceClass = this.customService || CoreTusService;",
+      "replace": "    const ServiceClass = CoreTusService;",
+      "specs": [
+        "tests/unit/tus-module-service-seam.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-tenant-not-carried-to-file",
+      "defect": "11.41.9 — tus uploads carried no tenant, so in a multi-tenant project every tus-uploaded file sat outside tenant scoping and per-tenant quotas.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "        ...(metadata[TUS_TENANT_METADATA_KEY] ? { tenantId: metadata[TUS_TENANT_METADATA_KEY] } : {}),",
+      "replace": "",
+      "specs": [
+        "tests/tus-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-tenant-header-unvalidated",
+      "defect": "11.41.9 — a tenant taken from the unvalidated header (the tus routes carry @SkipTenantCheck) lets any authenticated caller write files into a foreign tenant.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "    if (!resolved?.tenantId) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/tus-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-tenant-taken-from-client",
+      "defect": "11.41.9 — merging instead of overwriting `ltTenantId` lets a client place its file in any tenant through the Upload-Metadata header.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "      [TUS_TENANT_METADATA_KEY]: (await this.resolveUploadTenantId(req)) ?? null,",
+      "replace": "",
+      "specs": [
+        "tests/tus-ownership.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

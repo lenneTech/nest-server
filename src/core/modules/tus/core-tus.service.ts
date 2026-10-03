@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { FileStore } from '@tus/file-store';
 import { Server, Upload } from '@tus/server';
 import * as fs from 'fs';
@@ -11,6 +12,7 @@ import { ITusConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
+import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { resolveFileStorage } from '../file/file-storage.helper';
 import {
   DEFAULT_FILESYSTEM_DIR,
@@ -18,7 +20,7 @@ import {
   FilesystemFileHelper,
 } from '../file/filesystem-file.helper';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
-import { TUS_OWNER_METADATA_KEY } from './tus.constants';
+import { TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants';
 import { TusRedisLocker } from './tus-redis-locker';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
@@ -36,6 +38,14 @@ import {
  */
 export interface CoreTusServiceOptions {
   configService?: ConfigService;
+
+  /**
+   * How a subclass reaches project providers. `TusModule` constructs the service itself, with
+   * exactly `(connection, options)`, so a subclass cannot declare constructor dependencies of its
+   * own — resolve them at call time instead:
+   * `this.options?.moduleRef?.get(QuotaService, { strict: false })`.
+   */
+  moduleRef?: ModuleRef;
 
   /** Central Redis; when present, upload locks are shared across replicas */
   redisService?: CoreRedisService;
@@ -187,6 +197,10 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         // ADMIN, so a project following the documented pattern ended up with undownloadable files.
         // Written from the SERVER-recorded owner, never from the client's own metadata.
         ...(metadata[TUS_OWNER_METADATA_KEY] ? { ownerId: metadata[TUS_OWNER_METADATA_KEY] } : {}),
+        // The tenant the upload was created in — validated against an active membership in
+        // onUploadCreate(), never taken from the client. Present only with multi-tenancy active; it
+        // is what the file module's `'tenant'` access preset decides on.
+        ...(metadata[TUS_TENANT_METADATA_KEY] ? { tenantId: metadata[TUS_TENANT_METADATA_KEY] } : {}),
         tusUploadId: upload.id,
         uploadedAt: new Date(),
       };
@@ -580,6 +594,115 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
+   * Runs when a client CREATES an upload — the one point where the declared `Upload-Length` is known
+   * and no byte has been written yet. Returning `{ metadata }` is what PERSISTS it: the tus server
+   * writes the returned value onto the upload (returning `{}` would keep the client's metadata
+   * verbatim). Throw an error carrying `status_code` to refuse the upload.
+   *
+   * Records two framework-owned keys, both OVERWRITTEN rather than merged, because the client's
+   * `Upload-Metadata` header must never be able to set them:
+   * - {@link TUS_OWNER_METADATA_KEY} — the authenticated creator (see `assertUploadOwnership()`).
+   * - {@link TUS_TENANT_METADATA_KEY} — the validated tenant, only while multi-tenancy is active
+   *   (see `resolveUploadTenantId()`); `null` otherwise.
+   *
+   * Override to add project rules — a quota, a per-tenant type policy — and call `super` to keep the
+   * owner, the tenant and `allowedTypes`. Register the subclass via `TusModule.forRoot({ service })`.
+   */
+  protected async onUploadCreate(req: any, upload: Upload): Promise<{ metadata: Record<string, null | string> }> {
+    // Record the creator and the tenant FIRST, so the checks below and later requests have something
+    // to compare against.
+    const metadata: Record<string, null | string> = {
+      ...upload.metadata,
+      [TUS_OWNER_METADATA_KEY]: this.readRequestUserId(req) ?? null,
+      [TUS_TENANT_METADATA_KEY]: (await this.resolveUploadTenantId(req)) ?? null,
+    };
+
+    // Validate file type if allowedTypes is configured
+    if (this.config.allowedTypes && this.config.allowedTypes.length > 0) {
+      const filetype = this.parseMetadata(upload.metadata).filetype;
+
+      if (!this.validateFileType(filetype)) {
+        const allowedList = this.config.allowedTypes.join(', ');
+        this.logger.warn(
+          `Upload rejected: file type '${filetype || 'unknown'}' not allowed. Allowed types: ${allowedList}`,
+        );
+
+        // Throw error to reject the upload
+        // @tus/server v2 expects throwing an error with status_code
+        const error = new Error(`File type '${filetype || 'unknown'}' is not allowed. Allowed types: ${allowedList}`);
+        (error as any).status_code = 415; // Unsupported Media Type
+        throw error;
+      }
+    }
+
+    return { metadata };
+  }
+
+  /**
+   * The VALIDATED tenant a new upload belongs to, or `undefined`.
+   *
+   * Only while multi-tenancy is active AND the tenant guard is registered — without it nothing can
+   * validate a tenant, and a project without multi-tenancy sees no change at all. The tus routes
+   * carry `@SkipTenantCheck()`, so the guard did NOT validate the request's tenant header; this asks
+   * the same membership logic directly (`core-tenant-context.registry.ts`, the path GraphQL
+   * subscriptions use).
+   *
+   * - No tenant header: `undefined` — the upload stays tenant-less, as before.
+   * - A header naming a tenant the caller is an active member of (or any tenant, for an admin under
+   *   `adminBypass`): that tenant.
+   * - A header naming a tenant the caller is NOT a member of: the upload is REFUSED with 403. Taking
+   *   the header verbatim would let anybody place a file in somebody else's tenant, and silently
+   *   dropping it would store the file somewhere the caller did not ask for.
+   *
+   * Override to derive the tenant from somewhere else (a subdomain, an API key).
+   */
+  protected async resolveUploadTenantId(req: any): Promise<string | undefined> {
+    const multiTenancy = ConfigService.configFastButReadOnly?.multiTenancy;
+    const resolver = getTenantContextResolver();
+    if (!multiTenancy || multiTenancy.enabled === false || !resolver) {
+      return undefined;
+    }
+
+    const headerName = (multiTenancy.headerName ?? 'x-tenant-id').toLowerCase();
+    const header = this.readRequestHeader(req, headerName)?.trim();
+    if (!header) {
+      return undefined;
+    }
+
+    const resolved = await resolver.resolve(this.readRequestUser(req), header);
+    if (!resolved?.tenantId) {
+      const error = new Error('Not a member of the requested tenant');
+      (error as any).status_code = 403;
+      throw error;
+    }
+    return resolved.tenantId;
+  }
+
+  /**
+   * The authenticated caller with roles, read the same way as {@link readRequestUserId} — the roles
+   * decide the admin bypass of the tenant resolution.
+   */
+  protected readRequestUser(req: any): undefined | { id: string; roles?: string[] } {
+    const id = this.readRequestUserId(req);
+    if (!id) {
+      return undefined;
+    }
+    const user = req?.user ?? req?.runtime?.node?.req?.user ?? req?.context?.user;
+    return { id, roles: Array.isArray(user?.roles) ? user.roles : undefined };
+  }
+
+  /**
+   * A request header, from either request shape `@tus/server` v2 hands its hooks: the WHATWG
+   * `ServerRequest` (a `Headers` object) or the original Node request behind `runtime.node.req`.
+   */
+  protected readRequestHeader(req: any, name: string): string | undefined {
+    const fromHeaders = typeof req?.headers?.get === 'function' ? req.headers.get(name) : req?.headers?.[name];
+    const value = fromHeaders ?? req?.runtime?.node?.req?.headers?.[name];
+    const single = Array.isArray(value) ? value[0] : value;
+    return typeof single === 'string' && single.length > 0 ? single : undefined;
+  }
+
+  /**
    * Create the TUS server instance with configured extensions
    */
   private async createTusServer(uploadDir: string): Promise<Server> {
@@ -604,35 +727,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       // protocol is built around a per-upload URL. Appending is the sharp end — bytes PATCHed into
       // somebody else's upload are migrated into the file store under THEIR filename.
       onIncomingRequest: async (req, uploadId) => this.assertUploadOwnership(req, uploadId),
-      onUploadCreate: async (req, upload) => {
-        // Record the creator FIRST, so the ownership check below has something to compare against.
-        // Overwrites rather than merges: see TUS_OWNER_METADATA_KEY.
-        const metadata = { ...upload.metadata, [TUS_OWNER_METADATA_KEY]: this.readRequestUserId(req) ?? null };
-
-        // Validate file type if allowedTypes is configured
-        if (this.config.allowedTypes && this.config.allowedTypes.length > 0) {
-          const filetype = this.parseMetadata(upload.metadata).filetype;
-
-          if (!this.validateFileType(filetype)) {
-            const allowedList = this.config.allowedTypes.join(', ');
-            this.logger.warn(
-              `Upload rejected: file type '${filetype || 'unknown'}' not allowed. Allowed types: ${allowedList}`,
-            );
-
-            // Throw error to reject the upload
-            // @tus/server v2 expects throwing an error with status_code
-            const error = new Error(
-              `File type '${filetype || 'unknown'}' is not allowed. Allowed types: ${allowedList}`,
-            );
-            (error as any).status_code = 415; // Unsupported Media Type
-            throw error;
-          }
-        }
-
-        // Returning the metadata is what PERSISTS the owner — the tus server writes the returned
-        // value onto the upload. Returning `{}` here would keep the client's own metadata verbatim.
-        return { metadata };
-      },
+      onUploadCreate: async (req, upload) => this.onUploadCreate(req, upload),
       onUploadFinish: async (_req, upload) => {
         try {
           await this.onUploadComplete(upload);
