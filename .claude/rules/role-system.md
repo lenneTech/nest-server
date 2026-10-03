@@ -417,6 +417,37 @@ otherwise lets the role guard check `user.roles` — fail-closed, warned once. P
 **Configured is not registered.** When you add a guard that delegates to another one, ask whether
 the other one RUNS, not whether it is configured.
 
+## Every entry point, not just the route (11.42.0)
+
+A `@Roles()` decides who may call a ROUTE. An operation is also reached from MCP tools, AI tools,
+queue processors and other services, and on those paths the route's roles are checked by nobody.
+Three mechanisms keep those paths inside the user's rights:
+
+| Path | Mechanism |
+|------|-----------|
+| A service that must demand a tenant role whatever calls it | `assertTenantRole(roles, message?)` / `hasTenantRole(...roles)` (`core-tenant-role.helper.ts`) — decided like the guard's header path |
+| AI tools (chat and `/ai/mcp`) | `AiToolRegistry.userCanAccess()` resolves tool roles like the guard under multi-tenancy (global vs membership role, `adminBypass` honoured), with the user as of the CURRENT request — an MCP session refreshes it on every request |
+| Data | `mongooseTenantPlugin` via `RequestContext` — tools run inside the HTTP request, so the validated tenant scopes them |
+
+**System work vs. an anonymous request.** Both have no current user. `assertTenantRole()` exempts
+system work (cron, migration, seed) and refuses the anonymous caller of a public route with 401 — told
+apart by `RequestContext.fromRequest`, which `RequestContextMiddleware` and the GraphQL WebSocket
+context set. Do not reduce that to "no current user = system": that is exactly the hole the marker
+closes (mutation `tenant-role-anonymous-as-system`).
+
+**Credentials under `adminBypass: false`.** `CoreUserService.update()` refuses a change of another
+account's e-mail address or password (`assertCredentialChangeAllowed()`) — administrator targets
+included, because an administrator may write `roles` and could otherwise promote first and change
+second (mutation `tenant-credential-admin-target-exempt`). Without it, a platform administrator — or
+the account's creator, since `S_CREATOR` may update and `email` is open to every updater — takes the
+account over with an address change and a reset, which is precisely the access `adminBypass: false`
+withholds.
+
+**Deactivated tenants.** `multiTenancy.isTenantActive` is asked after the membership on every path that
+establishes a tenant (see `.claude/rules/configurable-features.md`, Multi-Tenancy row). A GraphQL
+subscription that is already open keeps its tenant until the client reconnects — a known limit it
+shares with a removed membership.
+
 ## Role Check Implementation
 
 The role system is evaluated in:

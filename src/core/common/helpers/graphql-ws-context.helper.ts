@@ -93,7 +93,7 @@ export async function buildWsRequestContext(contextValue: any): Promise<IRequest
   }
 
   const user = readUser(contextValue);
-  const context: IRequestContext = { currentUser: user };
+  const context: IRequestContext = { currentUser: user, fromRequest: true };
 
   // Language: same source as the HTTP path, when the transport carried it.
   const acceptLanguage =

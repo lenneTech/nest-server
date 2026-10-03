@@ -107,10 +107,10 @@ JWT-based authentication for existing projects:
 | **Response Filter Interceptor** | Enforces `@Restricted()` field-level access |
 | **Translation Interceptor** | Applies `_translations` based on `Accept-Language` |
 | **Secret Fields Removal** | Configurable fallback removal of password, tokens, etc. |
-| **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks |
+| **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks. `fromRequest` (11.42.0) marks a context created for a CLIENT operation (HTTP middleware, GraphQL WebSocket), so service-level checks such as `assertTenantRole()` tell an anonymous request apart from system work |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
 | **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
-| **Tenant Guard** | `CoreTenantGuard` validates tenant membership; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
+| **Tenant Guard** | `CoreTenantGuard` validates tenant membership — and, with `multiTenancy.isTenantActive` (11.42.0), that the tenant is not deactivated; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
 | **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
 | **API Tokens** | `apiTokens` config (opt-in): USER tokens act as their user without global roles; TENANT tokens (multi-tenancy only) act with the lowest tenant role in their own tenant. `CoreApiTokenMiddleware` authenticates `Authorization: Bearer` / `x-api-key`; every guard denies a token unless the route declares `@ApiTokenScopes()`. Signed short-lived assertions for embedded pages. See `src/core/modules/api-token/README.md` |
 
@@ -373,6 +373,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Non-admin + header + no membership = always 403   |
   |     - Checks configurable roleHierarchy levels          |
   |     - Admin bypass: sets isAdminBypass (sees all data)  |
+  |     - multiTenancy.isTenantActive (11.42.0): deactivated |
+  |       tenant = 403 / dropped from tenantIds (not admin) |
   |     - Sets tenantId in RequestContext                    |
   |     - @SkipTenantCheck() opts out of tenant validation  |
   |     - BetterAuth auto-skip: IAM handlers skip tenant    |

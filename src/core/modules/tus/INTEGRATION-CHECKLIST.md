@@ -174,7 +174,9 @@ every caller allowed to use TUS — and accepts every file type.
 
 **Multi-tenancy:** with `multiTenancy` configured, the core validates the tenant header against the
 caller's memberships and stores `metadata.tenantId` on the finished file; a non-member gets 403.
-Without `multiTenancy` nothing changes. Nothing to do in the project either way.
+Without `multiTenancy` nothing changes. On the server nothing to do. On the client, send the tenant header with the TUS upload itself
+(`useLtTusUpload({ headers })`): a header added by the project's API-client interceptor does not reach
+`tus-js-client`, and without it the upload silently stays tenant-less.
 
 ---
 

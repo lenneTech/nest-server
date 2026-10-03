@@ -323,8 +323,10 @@ overrides:
   # 2026-09-26: vite 8.3.1 requests ^8.5.28, so the removal condition is met and the entry is inert;
   # kept as insurance. Target raised 8.5.23 -> 8.5.28 (latest 8.x), key with it.
   'postcss@<8.5.28': '8.5.28'
-  # Security: undici request smuggling / header handling (moderate, patched >=7.29.0) - dev only,
-  # transitive via @compodoc/compodoc>cheerio>undici. Remove once cheerio requests >=7.29.0.
+  # Security: undici request smuggling / header handling (moderate, patched >=7.29.0). Since 11.42.0
+  # undici is also a direct RUNTIME dependency (outbound-url.helper), pinned at 7.30.0 in package.json;
+  # this entry only holds the transitive @compodoc/compodoc>cheerio>undici path at the patched line.
+  # Remove once cheerio requests >=7.29.0.
   # Target raised 7.29.0 -> 7.30.0 on 2026-09-26, key with it: a clean resolve picks 7.30.0, so the
   # entry had become a hold-back. 7.30.0 was published 2026-09-25 07:15 UTC, i.e. it had only just
   # cleared the 1440-minute hold-back when this was written.

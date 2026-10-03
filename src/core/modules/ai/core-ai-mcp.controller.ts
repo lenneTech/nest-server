@@ -11,6 +11,7 @@ import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { ErrorCode } from '../error-code/error-codes';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
+import { AiToolUser } from './tools/ai-tool.registry';
 
 /**
  * MCP Streamable-HTTP endpoint at `/ai/mcp`.
@@ -49,6 +50,18 @@ import { CoreAiMcpService } from './services/core-ai-mcp.service';
  * ids would learn both that a session id is valid and the internal hostname/PID holding it,
  * where the same probe against the local map deliberately answers 404.
  */
+/**
+ * One MCP session: its transport, its owner, and the owner AS OF THE LATEST REQUEST. `user` is
+ * refreshed on every request so the server — which reads it through a getter — always acts with the
+ * user's current rights rather than those from `initialize`.
+ */
+interface McpSessionEntry {
+  lastUsed: number;
+  ownerId: string;
+  transport: any;
+  user: AiToolUser;
+}
+
 @ApiExcludeController()
 @Controller('ai/mcp')
 @Roles(RoleEnum.S_EVERYONE)
@@ -65,7 +78,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
    * anyone holding another user's session id drives that user's server — the id travels in a
    * response header, through proxies and client logs.
    */
-  private readonly transports = new Map<string, { lastUsed: number; ownerId: string; transport: any }>();
+  private readonly transports = new Map<string, McpSessionEntry>();
 
   /**
    * Cap on concurrent MCP sessions held by ONE user.
@@ -160,7 +173,10 @@ export class CoreAiMcpController implements OnModuleDestroy {
       }
       const { randomUUID } = await import('node:crypto');
       const transport: any = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-      const server = await this.mcpService.createServer(user);
+      // The server reads the user through a getter on every request; `user` below is refreshed by
+      // each request of the session, so a role revoked mid-session takes effect at once.
+      const created: McpSessionEntry = { lastUsed: Date.now(), ownerId: user.id, transport, user };
+      const server = await this.mcpService.createServer(() => created.user);
       await server.connect(transport);
       // The MCP SDK transport exposes `onclose` as a callback property (not a DOM
       // EventTarget), so addEventListener does not apply here.
@@ -171,10 +187,12 @@ export class CoreAiMcpController implements OnModuleDestroy {
           this.releaseSession(transport.sessionId);
         }
       };
-      entry = { lastUsed: Date.now(), ownerId: user.id, transport };
+      entry = created;
     }
 
     entry.lastUsed = Date.now();
+    // Same owner (checked above), possibly different rights than at `initialize`.
+    entry.user = user;
     await entry.transport.handleRequest(req, res, req.body);
 
     // The sessionId is assigned during handleRequest (initialize); register after.
@@ -280,6 +298,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
       return;
     }
     entry.lastUsed = Date.now();
+    entry.user = user;
     this.registerSession(sessionId as string, user.id);
     await entry.transport.handleRequest(req, res, (req as any).body);
   }

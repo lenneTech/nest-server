@@ -227,6 +227,12 @@ spelling), **`@Restricted` also applies to nested embedded subdocuments** whose 
 that a WebSocket operation had none, so `mongooseTenantPlugin` read it as "system operation, no filter"
 and a tenant-scoped read on that path returned every tenant's rows.
 
+Since 11.42.0 an operation is protected on **every entry point**, not just its route: `assertTenantRole()`
+in services (MCP/AI tools call services directly), tenant-aware tool roles in the AI registry, a
+`multiTenancy.isTenantActive` hook for deactivated tenants, and no credential changes across the tenant
+boundary under `adminBypass: false`. User-entered URLs (webhooks, export targets) go through
+`outboundFetch()` (SSRF guard) — configured targets do not.
+
 See `.claude/rules/role-system.md` for complete documentation.
 
 ### Versioning

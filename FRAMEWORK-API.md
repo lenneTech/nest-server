@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-03 (v11.41.9)
+> Auto-generated from source code as of 2026-10-03 (v11.42.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -46,7 +46,7 @@
   - `port?`: `number | undefined` — Port number of the server
   - `redis?`: `boolean | IRedisConfig | undefined` (default: `undefined (disabled)`) — Optional central Redis connection used by all distributed features
   - `s3?`: `IS3Config | undefined` (default: `undefined (disabled)`) — Optional central S3-compatible object storage (AWS S3, MinIO, ...).
-  - `security?`: `{ checkResponseInterceptor?: boolean | { checkObjectItself?: boolean; debug?:...` — Configuration for security pipes and interceptors
+  - `security?`: `{ allowPrivateOutboundTargets?: boolean; checkResponseInterceptor?: boolean |...` — Configuration for security pipes and interceptors
   - `sha256?`: `boolean | undefined` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
   - `shutdownDelayMs?`: `number | undefined` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; } | undefined` — Configuration for useStaticAssets
@@ -81,6 +81,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `strictMembershipRoles?`: `boolean | undefined` (default: `false`) — Refuse membership roles that are not declared anywhere (deny by default).
   - `additionalMembershipRoles?`: `string[] | undefined` (default: `[]`) — Membership roles that are valid but carry no hierarchy level (exact-match roles).
   - `cacheTtlMs?`: `number | undefined` (default: `30000 (30 seconds)`) — TTL in milliseconds for the tenant guard's in-memory membership cache.
+  - `isTenantActive?`: `((tenantId: string, context: { connection: Connection; }) => boolean | Promis...` (default: `undefined (every tenant is active)`) — Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
 
 ### IErrorCode
 

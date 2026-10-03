@@ -61,7 +61,8 @@ interface CachedTenantIds {
  * Cache invalidation message broadcast between replicas via Redis pub/sub
  */
 interface TenantCacheInvalidation {
-  scope: 'all' | 'user';
+  scope: 'all' | 'tenant' | 'user';
+  tenantId?: string;
   userId?: string;
 }
 
@@ -148,6 +149,9 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    */
   private readonly tenantIdsCache = new Map<string, CachedTenantIds>();
 
+  /** Answers of `multiTenancy.isTenantActive`, keyed by tenant id (same TTL as the other caches). */
+  private readonly tenantActiveCache = new Map<string, { active: boolean; expiresAt: number }>();
+
   /** Cache TTL in milliseconds. Configurable via multiTenancy.cacheTtlMs (default: 30s, 0 = disabled) */
   private cacheTtlMs: number = 30_000;
   /** Maximum cache entries before eviction */
@@ -223,7 +227,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
     if (trimmed) {
       const membership = await this.findMembershipCached(user.id, trimmed);
-      if (!membership) {
+      if (!membership || !(await this.isTenantActive(trimmed))) {
         return {};
       }
       return { tenantId: trimmed, tenantRole: membership.role as string };
@@ -288,6 +292,17 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     }
     this.membershipCache.clear();
     this.tenantIdsCache.clear();
+    this.tenantActiveCache.clear();
+  }
+
+  /**
+   * Forget the cached `multiTenancy.isTenantActive` answer for a tenant.
+   * Call this right after switching a tenant on or off — otherwise the previous answer holds for up to
+   * `cacheTtlMs`. Broadcast to every replica when Redis is enabled.
+   */
+  invalidateTenant(tenantId: string): void {
+    this.tenantActiveCache.delete(tenantId);
+    this.publishInvalidation({ scope: 'tenant', tenantId });
   }
 
   /**
@@ -349,6 +364,10 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       request,
     });
     if (apiTokenKind === ApiTokenKind.TENANT) {
+      // The token is bound to its tenant (set on the request by the helper); a deactivated one ends it.
+      if (request.tenantId) {
+        await this.assertTenantActive(request.tenantId);
+      }
       return true;
     }
     // A user token restricted to one tenant is bound to it like a header naming it — the helper has
@@ -397,7 +416,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       // Never block access — S_EVERYONE endpoints are always public.
       if (headerTenantId && request.user?.id) {
         const membership = await this.findMembershipCached(request.user.id, headerTenantId);
-        if (membership) {
+        if (membership && (await this.isTenantActive(headerTenantId))) {
           request.tenantId = headerTenantId;
           request.tenantRole = capApiTokenTenantRole(request.user, membership.role as string) ?? undefined;
         }
@@ -520,6 +539,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       if (!membership) {
         throw new ForbiddenException('Not a member of this tenant');
       }
+      await this.assertTenantActive(headerTenantId);
 
       // A user token with maxTenantRole acts with the lower of its cap and the membership role; `null`
       // (a role the hierarchy cannot compare with the cap) satisfies no tenant role at all.
@@ -620,7 +640,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       const now = Date.now();
       const cached = this.tenantIdsCache.get(cacheKey);
       if (cached && now < cached.expiresAt) {
-        request.tenantIds = cached.ids;
+        request.tenantIds = await this.filterActiveTenants(cached.ids);
         return;
       }
     }
@@ -648,7 +668,8 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       ids = memberships.map((m) => m.tenant as string);
     }
 
-    request.tenantIds = ids;
+    // The cache keeps the membership answer; activity is filtered per request through its own cache.
+    request.tenantIds = await this.filterActiveTenants(ids);
 
     // Store in process-level cache when enabled
     if (ttl > 0) {
@@ -689,6 +710,8 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       this.clearAll();
     } else if (parsed?.scope === 'user' && parsed.userId) {
       this.clearUser(parsed.userId);
+    } else if (parsed?.scope === 'tenant' && parsed.tenantId) {
+      this.tenantActiveCache.delete(parsed.tenantId);
     }
   }
 
@@ -698,6 +721,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   protected clearAll(): void {
     this.membershipCache.clear();
     this.tenantIdsCache.clear();
+    this.tenantActiveCache.clear();
   }
 
   /**
@@ -814,6 +838,54 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         this.tenantIdsCache.delete(key);
       }
     }
+    for (const [key, entry] of this.tenantActiveCache.entries()) {
+      if (now >= entry.expiresAt) {
+        this.tenantActiveCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Whether a tenant may be used at all — `multiTenancy.isTenantActive`, cached for `cacheTtlMs`.
+   *
+   * Always true without the hook. Asked only AFTER the membership check, so a non-member learns
+   * nothing about a tenant's state. Protected so a custom guard can answer it differently.
+   */
+  protected async isTenantActive(tenantId: string): Promise<boolean> {
+    const hook = ConfigService.configFastButReadOnly?.multiTenancy?.isTenantActive;
+    if (typeof hook !== 'function') {
+      return true;
+    }
+    const ttl = this.cacheTtlMs;
+    const now = Date.now();
+    if (ttl > 0) {
+      const cached = this.tenantActiveCache.get(tenantId);
+      if (cached && now < cached.expiresAt) {
+        return cached.active;
+      }
+    }
+    const active = (await hook(tenantId, { connection: this.memberModel.db })) !== false;
+    if (ttl > 0) {
+      this.evictIfOverCapacity(this.tenantActiveCache);
+      this.tenantActiveCache.set(tenantId, { active, expiresAt: now + ttl });
+    }
+    return active;
+  }
+
+  /** 403 for a deactivated tenant. */
+  private async assertTenantActive(tenantId: string): Promise<void> {
+    if (!(await this.isTenantActive(tenantId))) {
+      throw new ForbiddenException('Tenant is inactive');
+    }
+  }
+
+  /** The tenant list without deactivated tenants — unchanged (and free) without the hook. */
+  private async filterActiveTenants(ids: string[]): Promise<string[]> {
+    if (typeof ConfigService.configFastButReadOnly?.multiTenancy?.isTenantActive !== 'function') {
+      return ids;
+    }
+    const active = await Promise.all(ids.map((id) => this.isTenantActive(id)));
+    return ids.filter((_id, index) => active[index]);
   }
 
   /**
@@ -847,6 +919,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     if (!membership) {
       throw new ForbiddenException('Not a member of this tenant');
     }
+    await this.assertTenantActive(headerTenantId);
     request.tenantId = headerTenantId;
     request.tenantRole = capApiTokenTenantRole(user, membership.role as string) ?? undefined;
     return true;
