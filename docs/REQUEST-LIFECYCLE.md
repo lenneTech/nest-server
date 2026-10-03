@@ -33,20 +33,20 @@ This document explains the complete lifecycle of a request through `@lenne.tech/
 
 The `CoreModule` is a dynamic module that bootstraps the entire framework:
 
-| Feature                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **GraphQL Integration**      | Apollo Server with auto-schema generation (disable via `graphQl: false`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **MongoDB Integration**      | Mongoose ODM with automatic connection management                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Dual API Support**         | GraphQL and REST in the same application                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Security Pipeline**        | 4 global interceptors, global validation pipe, middleware stack                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Mongoose Plugins**         | Auto-registration of ID, password, audit, and role guard plugins                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **GraphQL Subscriptions**    | WebSocket support with JWT/session authentication (cluster-wide when `redis` is configured — see the Subscriptions row under GraphQL Features)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Feature | Description |
+|---------|-------------|
+| **GraphQL Integration** | Apollo Server with auto-schema generation (disable via `graphQl: false`) |
+| **MongoDB Integration** | Mongoose ODM with automatic connection management |
+| **Dual API Support** | GraphQL and REST in the same application |
+| **Security Pipeline** | 4 global interceptors, global validation pipe, middleware stack |
+| **Mongoose Plugins** | Auto-registration of ID, password, audit, and role guard plugins |
+| **GraphQL Subscriptions** | WebSocket support with JWT/session authentication (cluster-wide when `redis` is configured — see the Subscriptions row under GraphQL Features) |
 | **Central Redis (optional)** | `CoreRedisService` — globally provided **and exported** by `CoreModule`, always present but **inert unless `redis` is configured** ("presence implies enabled"). Injected with `@Optional()`; every consumer keeps a process-local fallback. One service serves all features: shared client (`getClient()`), one cached subscriber (`getSubscriber()` — a subscribing client cannot run commands), dedicated connections (`createClient(label)`); all tracked and quit on shutdown. Keys are namespaced by the framework per key via `key(...)`, **not** through ioredis's own `keyPrefix` (that would collide with BullMQ's prefix). Requires the OPTIONAL peer `ioredis` — configured but missing **fails the boot**. Switches on: exact cross-replica rate limits, cron deduplication, `CoreRedisPubSub` as `PUB_SUB`, tenant-cache invalidation broadcast, Hub collector mirroring, MCP session registry |
-| **Central S3 (optional)**    | `CoreS3Service` — globally provided **and exported** by `CoreModule`, inert unless `s3` is configured _and_ names a `bucket` (a bucket-less block is ignored with a warning). Backs `file.storage: 's3'` and TUS staging (`tus.s3Staging`). Requires the OPTIONAL peers `@aws-sdk/client-s3` (+ `@aws-sdk/s3-request-presigner` for `presignedDownloads`) — configured but missing **fails the boot**. `@aws-sdk/lib-storage` (optional) uploads streams of unknown length in parts; without it they are buffered in memory, with one boot warning                                                                                                                                                                                                                                                                                                                                                           |
-| **Configuration System**     | `config.env.ts` with ENV variables, `NEST_SERVER_CONFIG` JSON, `NSC__*` prefixes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **Cookie Handling**          | Enabled by default (`cookies: true`), configurable via `ICookiesConfig` with `exposeTokenInBody` option                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Unified CORS**             | Single `cors` config propagates to GraphQL, REST, and BetterAuth layers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Dual Auth Modes**          | IAM-Only (BetterAuth) or Legacy+IAM for migration periods                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Central S3 (optional)** | `CoreS3Service` — globally provided **and exported** by `CoreModule`, inert unless `s3` is configured *and* names a `bucket` (a bucket-less block is ignored with a warning). Backs `file.storage: 's3'` and TUS staging (`tus.s3Staging`). Requires the OPTIONAL peers `@aws-sdk/client-s3` (+ `@aws-sdk/s3-request-presigner` for `presignedDownloads`) — configured but missing **fails the boot**. `@aws-sdk/lib-storage` (optional) uploads streams of unknown length in parts; without it they are buffered in memory, with one boot warning |
+| **Configuration System** | `config.env.ts` with ENV variables, `NEST_SERVER_CONFIG` JSON, `NSC__*` prefixes |
+| **Cookie Handling** | Enabled by default (`cookies: true`), configurable via `ICookiesConfig` with `exposeTokenInBody` option |
+| **Unified CORS** | Single `cors` config propagates to GraphQL, REST, and BetterAuth layers |
+| **Dual Auth Modes** | IAM-Only (BetterAuth) or Legacy+IAM for migration periods |
 
 ### Authentication & Authorization
 
@@ -54,207 +54,207 @@ The `CoreModule` is a dynamic module that bootstraps the entire framework:
 
 Modern OAuth-compatible authentication with plugin architecture:
 
-| Feature                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Session Management**          | Secure session-based auth with automatic token rotation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **JWT Tokens**                  | Stateless API authentication (plugin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **2FA / TOTP**                  | Two-factor authentication (plugin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **Passkey / WebAuthn**          | Passwordless authentication (plugin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Social Login**                | OAuth providers: Google, GitHub, Apple, Discord, etc. (plugin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **Email Verification**          | Configurable email verification flow                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Sign-Up Validation**          | Custom validation hooks for registration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Rate Limiting**               | Per-endpoint rate limits (`betterAuth.rateLimit`, configurable). Counters live behind a `RateLimitStore`: `RedisRateLimitStore` when `redis` is configured, so `max` is enforced **exactly across replicas** instead of `max × replicas`; otherwise the process-local `InMemoryRateLimitStore` as before. `check()` / `reset()` / `clear()` are **async** since 11.33.0. On a Redis outage it degrades to the in-memory counter and logs once per transition — never a 500, never "allowed". Counters are keyed on `request.ip`, which Express derives from `X-Forwarded-For` only as far as `trust proxy` allows — set `trustProxy` (§ServerOptions) behind a reverse proxy or every client resolves to the proxy and shares ONE bucket; unset with a limiter enabled logs a boot warning |
-| **Cross-Subdomain Cookies**     | Automatic cookie domain configuration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Organization / Multi-Tenant** | Teams and organization management (plugin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **3 Registration Patterns**     | Zero-config, overrides parameter, or manual (`autoRegister: false`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Feature | Description |
+|---------|-------------|
+| **Session Management** | Secure session-based auth with automatic token rotation |
+| **JWT Tokens** | Stateless API authentication (plugin) |
+| **2FA / TOTP** | Two-factor authentication (plugin) |
+| **Passkey / WebAuthn** | Passwordless authentication (plugin) |
+| **Social Login** | OAuth providers: Google, GitHub, Apple, Discord, etc. (plugin) |
+| **Email Verification** | Configurable email verification flow |
+| **Sign-Up Validation** | Custom validation hooks for registration |
+| **Rate Limiting** | Per-endpoint rate limits (`betterAuth.rateLimit`, configurable). Counters live behind a `RateLimitStore`: `RedisRateLimitStore` when `redis` is configured, so `max` is enforced **exactly across replicas** instead of `max × replicas`; otherwise the process-local `InMemoryRateLimitStore` as before. `check()` / `reset()` / `clear()` are **async** since 11.33.0. On a Redis outage it degrades to the in-memory counter and logs once per transition — never a 500, never "allowed". Counters are keyed on `request.ip`, which Express derives from `X-Forwarded-For` only as far as `trust proxy` allows — set `trustProxy` (§ServerOptions) behind a reverse proxy or every client resolves to the proxy and shares ONE bucket; unset with a limiter enabled logs a boot warning |
+| **Cross-Subdomain Cookies** | Automatic cookie domain configuration |
+| **Organization / Multi-Tenant** | Teams and organization management (plugin) |
+| **3 Registration Patterns** | Zero-config, overrides parameter, or manual (`autoRegister: false`) |
 
 #### Legacy Auth Module (backward compatible)
 
 JWT-based authentication for existing projects:
 
-| Feature                        | Description                                                                                                                                                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **JWT Authentication**         | Bearer token auth with Passport strategies                                                                                                                                                                                                  |
-| **Refresh Tokens**             | Automatic token renewal                                                                                                                                                                                                                     |
-| **Sign In / Sign Up / Logout** | GraphQL mutations + REST endpoints                                                                                                                                                                                                          |
-| **Rate Limiting**              | Configurable per-endpoint rate limits (`auth.rateLimit`). Same `RateLimitStore` selection, async signatures and Redis-outage degradation as the BetterAuth row above (namespace `legacy-auth`)                                              |
-| **Legacy Endpoint Controls**   | Legacy endpoints are OFF unless `auth.legacyEndpoints.enabled: true` (default flipped in 11.38.0 — it was an opt-out, it is now an opt-in). `CoreLegacyAuthDeprecationInitializer` reports the state and the IAM migration progress at boot |
-| **Migration Tracking**         | `betterAuthMigrationStatus` query for monitoring                                                                                                                                                                                            |
+| Feature | Description |
+|---------|-------------|
+| **JWT Authentication** | Bearer token auth with Passport strategies |
+| **Refresh Tokens** | Automatic token renewal |
+| **Sign In / Sign Up / Logout** | GraphQL mutations + REST endpoints |
+| **Rate Limiting** | Configurable per-endpoint rate limits (`auth.rateLimit`). Same `RateLimitStore` selection, async signatures and Redis-outage degradation as the BetterAuth row above (namespace `legacy-auth`) |
+| **Legacy Endpoint Controls** | Legacy endpoints are OFF unless `auth.legacyEndpoints.enabled: true` (default flipped in 11.38.0 — it was an opt-out, it is now an opt-in). `CoreLegacyAuthDeprecationInitializer` reports the state and the IAM migration progress at boot |
+| **Migration Tracking** | `betterAuthMigrationStatus` query for monitoring |
 
 #### Role System
 
-| Feature                      | Description                                                                                                                                                                  |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Real Roles**               | `ADMIN` (stored in `user.roles`)                                                                                                                                             |
-| **System Roles**             | `S_USER`, `S_VERIFIED`, `S_CREATOR`, `S_SELF`, `S_EVERYONE`, `S_NO_ONE` (runtime-only, never stored)                                                                         |
-| **Hierarchy Roles**          | Configurable via `multiTenancy.roleHierarchy` (default: `member`, `manager`, `owner`). Level comparison: higher includes lower. Use `DefaultHR` or `createHierarchyRoles()`. |
-| **Method-Level Auth**        | `@Roles()` decorator on resolvers/controllers                                                                                                                                |
-| **Field-Level Auth**         | `@Restricted()` decorator on model properties                                                                                                                                |
-| **Membership Checks**        | `@Restricted({ memberOf: 'teamMembers' })`                                                                                                                                   |
-| **Input/Output Restriction** | `@Restricted({ processType: ProcessType.INPUT })`                                                                                                                            |
+| Feature | Description |
+|---------|-------------|
+| **Real Roles** | `ADMIN` (stored in `user.roles`) |
+| **System Roles** | `S_USER`, `S_VERIFIED`, `S_CREATOR`, `S_SELF`, `S_EVERYONE`, `S_NO_ONE` (runtime-only, never stored) |
+| **Hierarchy Roles** | Configurable via `multiTenancy.roleHierarchy` (default: `member`, `manager`, `owner`). Level comparison: higher includes lower. Use `DefaultHR` or `createHierarchyRoles()`. |
+| **Method-Level Auth** | `@Roles()` decorator on resolvers/controllers |
+| **Field-Level Auth** | `@Restricted()` decorator on model properties |
+| **Membership Checks** | `@Restricted({ memberOf: 'teamMembers' })` |
+| **Input/Output Restriction** | `@Restricted({ processType: ProcessType.INPUT })` |
 
 ### Security Features
 
-| Feature                         | Description                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input Whitelisting**          | `MapAndValidatePipe` strips/rejects unknown properties                                                                                                                                                                                                                                                                                                                                                                        |
-| **Input Validation**            | `class-validator` integration via `@UnifiedField()`                                                                                                                                                                                                                                                                                                                                                                           |
-| **Password Hashing Plugin**     | Automatic BCrypt hashing on all Mongoose write operations                                                                                                                                                                                                                                                                                                                                                                     |
-| **Role Guard Plugin**           | Prevents unauthorized role escalation at database level                                                                                                                                                                                                                                                                                                                                                                       |
-| **Audit Fields Plugin**         | Automatic `createdBy`/`updatedBy` tracking                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Response Model Interceptor**  | Auto-converts plain objects to CoreModel instances                                                                                                                                                                                                                                                                                                                                                                            |
-| **Security Check Interceptor**  | Calls `securityCheck()` + removes secret fields                                                                                                                                                                                                                                                                                                                                                                               |
-| **Response Filter Interceptor** | Enforces `@Restricted()` field-level access                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Translation Interceptor**     | Applies `_translations` based on `Accept-Language`                                                                                                                                                                                                                                                                                                                                                                            |
-| **Secret Fields Removal**       | Configurable fallback removal of password, tokens, etc.                                                                                                                                                                                                                                                                                                                                                                       |
-| **RequestContext**              | `AsyncLocalStorage`-based context for current user in Mongoose hooks. `fromRequest` (11.42.0) marks a context created for a CLIENT operation (HTTP middleware, GraphQL WebSocket), so service-level checks such as `assertTenantRole()` tell an anonymous request apart from system work                                                                                                                                      |
-| **Query Complexity**            | GraphQL query complexity analysis to prevent DoS                                                                                                                                                                                                                                                                                                                                                                              |
-| **Tenant Isolation**            | Header-based multi-tenant isolation with membership validation (opt-in)                                                                                                                                                                                                                                                                                                                                                       |
-| **Tenant Guard**                | `CoreTenantGuard` validates tenant membership — and, with `multiTenancy.isTenantActive` (11.42.0), that the tenant is not deactivated; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`)                                                          |
-| **Tenant Plugin Safety Net**    | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context                                                                                                                                                                                                                                                                                                                |
-| **API Tokens**                  | `apiTokens` config (opt-in): USER tokens act as their user without global roles; TENANT tokens (multi-tenancy only) act with the lowest tenant role in their own tenant. `CoreApiTokenMiddleware` authenticates `Authorization: Bearer` / `x-api-key`; every guard denies a token unless the route declares `@ApiTokenScopes()`. Signed short-lived assertions for embedded pages. See `src/core/modules/api-token/README.md` |
+| Feature | Description |
+|---------|-------------|
+| **Input Whitelisting** | `MapAndValidatePipe` strips/rejects unknown properties |
+| **Input Validation** | `class-validator` integration via `@UnifiedField()` |
+| **Password Hashing Plugin** | Automatic BCrypt hashing on all Mongoose write operations |
+| **Role Guard Plugin** | Prevents unauthorized role escalation at database level |
+| **Audit Fields Plugin** | Automatic `createdBy`/`updatedBy` tracking |
+| **Response Model Interceptor** | Auto-converts plain objects to CoreModel instances |
+| **Security Check Interceptor** | Calls `securityCheck()` + removes secret fields |
+| **Response Filter Interceptor** | Enforces `@Restricted()` field-level access |
+| **Translation Interceptor** | Applies `_translations` based on `Accept-Language` |
+| **Secret Fields Removal** | Configurable fallback removal of password, tokens, etc. |
+| **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks. `fromRequest` (11.42.0) marks a context created for a CLIENT operation (HTTP middleware, GraphQL WebSocket), so service-level checks such as `assertTenantRole()` tell an anonymous request apart from system work |
+| **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
+| **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
+| **Tenant Guard** | `CoreTenantGuard` validates tenant membership — and, with `multiTenancy.isTenantActive` (11.42.0), that the tenant is not deactivated; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
+| **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
+| **API Tokens** | `apiTokens` config (opt-in): USER tokens act as their user without global roles; TENANT tokens (multi-tenancy only) act with the lowest tenant role in their own tenant. `CoreApiTokenMiddleware` authenticates `Authorization: Bearer` / `x-api-key`; every guard denies a token unless the route declares `@ApiTokenScopes()`. Signed short-lived assertions for embedded pages. See `src/core/modules/api-token/README.md` |
 
 ### Data & CRUD
 
-| Feature             | Description                                                                       |
-| ------------------- | --------------------------------------------------------------------------------- |
-| **CrudService**     | Abstract CRUD with `process()` pipeline (input/output security)                   |
-| **Filtering**       | `FilterArgs` with comparison operators (`eq`, `ne`, `gt`, `in`, `contains`, etc.) |
-| **Pagination**      | `PaginationArgs` with `limit`/`offset`, returns `PaginationInfo`                  |
-| **Sorting**         | `SortInput` with `ASC`/`DESC`                                                     |
-| **Population**      | `@GraphQLPopulate()` for automatic relation loading                               |
-| **Field Selection** | GraphQL field selection drives Mongoose population                                |
-| **Aggregation**     | Pipeline support via CrudService                                                  |
-| **Bulk Operations** | Batch create/update/delete                                                        |
-| **Force Mode**      | `force: true` bypasses all security checks                                        |
-| **Raw Mode**        | `raw: true` skips prepareInput/prepareOutput                                      |
+| Feature | Description |
+|---------|-------------|
+| **CrudService** | Abstract CRUD with `process()` pipeline (input/output security) |
+| **Filtering** | `FilterArgs` with comparison operators (`eq`, `ne`, `gt`, `in`, `contains`, etc.) |
+| **Pagination** | `PaginationArgs` with `limit`/`offset`, returns `PaginationInfo` |
+| **Sorting** | `SortInput` with `ASC`/`DESC` |
+| **Population** | `@GraphQLPopulate()` for automatic relation loading |
+| **Field Selection** | GraphQL field selection drives Mongoose population |
+| **Aggregation** | Pipeline support via CrudService |
+| **Bulk Operations** | Batch create/update/delete |
+| **Force Mode** | `force: true` bypasses all security checks |
+| **Raw Mode** | `raw: true` skips prepareInput/prepareOutput |
 
 ### Models & Inputs
 
-| Feature                  | Description                                                             |
-| ------------------------ | ----------------------------------------------------------------------- |
-| **CoreModel**            | Base class with `map()`, `securityCheck()`, `hasRole()`                 |
-| **CorePersistenceModel** | Adds `id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`           |
-| **CoreInput**            | Base input type for validation                                          |
-| **@UnifiedField()**      | Combines `@Field()`, `@ApiProperty()`, `@IsOptional()` in one decorator |
-| **Nested Validation**    | Recursive object/array validation via `nestedTypeRegistry`              |
-| **Exclude/Include**      | `@UnifiedField({ exclude: true/false })` for inheritance control        |
+| Feature | Description |
+|---------|-------------|
+| **CoreModel** | Base class with `map()`, `securityCheck()`, `hasRole()` |
+| **CorePersistenceModel** | Adds `id`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy` |
+| **CoreInput** | Base input type for validation |
+| **@UnifiedField()** | Combines `@Field()`, `@ApiProperty()`, `@IsOptional()` in one decorator |
+| **Nested Validation** | Recursive object/array validation via `nestedTypeRegistry` |
+| **Exclude/Include** | `@UnifiedField({ exclude: true/false })` for inheritance control |
 
 ### Custom Decorators
 
-| Decorator                    | Purpose                                                                                                    |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `@Roles(...roles)`           | Method-level authorization (includes JWT auth)                                                             |
-| `@Restricted(...roles)`      | Field-level access control                                                                                 |
-| `@CurrentUser()`             | Inject authenticated user (REST + GraphQL)                                                                 |
-| `@UnifiedField(options)`     | Combined schema, validation, and API metadata                                                              |
-| `@GraphQLPopulate(config)`   | Mongoose populate configuration                                                                            |
-| `@GraphQLServiceOptions()`   | Service options injection (GraphQL)                                                                        |
-| `@RestServiceOptions()`      | Service options injection (REST)                                                                           |
-| `@ResponseModel(Model)`      | REST response type hint for auto-conversion                                                                |
-| `@Translatable()`            | Multi-language field metadata                                                                              |
-| `@CommonError(code)`         | Error code registration                                                                                    |
-| `@SkipTenantCheck()`         | Opt out of CoreTenantGuard validation on a method (not for tenant-restricted API tokens — they stay bound) |
-| `@ApiTokenScopes(...scopes)` | Open a route/class to API tokens holding one of the scopes; tokens are denied everywhere else              |
+| Decorator | Purpose |
+|-----------|---------|
+| `@Roles(...roles)` | Method-level authorization (includes JWT auth) |
+| `@Restricted(...roles)` | Field-level access control |
+| `@CurrentUser()` | Inject authenticated user (REST + GraphQL) |
+| `@UnifiedField(options)` | Combined schema, validation, and API metadata |
+| `@GraphQLPopulate(config)` | Mongoose populate configuration |
+| `@GraphQLServiceOptions()` | Service options injection (GraphQL) |
+| `@RestServiceOptions()` | Service options injection (REST) |
+| `@ResponseModel(Model)` | REST response type hint for auto-conversion |
+| `@Translatable()` | Multi-language field metadata |
+| `@CommonError(code)` | Error code registration |
+| `@SkipTenantCheck()` | Opt out of CoreTenantGuard validation on a method (not for tenant-restricted API tokens — they stay bound) |
+| `@ApiTokenScopes(...scopes)` | Open a route/class to API tokens holding one of the scopes; tokens are denied everywhere else |
 
 ### File Handling
 
-| Feature                 | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **File Module**         | Upload/download with MongoDB GridFS storage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **REST Endpoints**      | `GET /files/id/:id`, `GET /files/:filename` (core, gated by `file.downloadRoles`, default ADMIN); `POST /files/upload`, `DELETE /files/:id` (project-specific)                                                                                                                                                                                                                                                                                                                                                                                      |
-| **GraphQL Endpoints**   | `getFileInfo` (`file.downloadRoles`), `uploadFile` / `uploadFiles` (`file.uploadRoles`), `deleteFile` (`file.deleteRoles`) — all default ADMIN                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Feature | Description |
+|---------|-------------|
+| **File Module** | Upload/download with MongoDB GridFS storage |
+| **REST Endpoints** | `GET /files/id/:id`, `GET /files/:filename` (core, gated by `file.downloadRoles`, default ADMIN); `POST /files/upload`, `DELETE /files/:id` (project-specific) |
+| **GraphQL Endpoints** | `getFileInfo` (`file.downloadRoles`), `uploadFile` / `uploadFiles` (`file.uploadRoles`), `deleteFile` (`file.deleteRoles`) — all default ADMIN |
 | **File access control** | Roles are the coarse filter; per-file rules go in `CoreFileService.checkRights()` using metadata written at upload time. Cover BOTH the `id` and the `filename` branch — the filename route authorizes on the by-name lookup alone when presigned S3 downloads are on, and `deleteFileByName()` always does. Working reference: `src/server/modules/file/file.service.ts` (with `file.downloadRoles: [S_USER]` in `src/config.env.ts`, so the rule is actually reached). Both file classes carry `@SkipTenantCheck()` — GridFS is not tenant-scoped |
-| **TUS Module**          | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight. Records owner and, with `multiTenancy` only, the validated tenant at upload creation; a custom service plugs in via `TusModule.forRoot({ service })`                                                                                                                                                                                                                             |
-| **GridFS Migration**    | Completed TUS uploads auto-migrate to GridFS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| **CORS Support**        | Automatic CORS headers for browser uploads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight. Records owner and, with `multiTenancy` only, the validated tenant at upload creation; a custom service plugs in via `TusModule.forRoot({ service })` |
+| **GridFS Migration** | Completed TUS uploads auto-migrate to GridFS |
+| **CORS Support** | Automatic CORS headers for browser uploads |
 
 ### AI Assistant Module
 
-| Feature               | Description                                                                                                                                                                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **AI Module**         | Prompt orchestrator (auto + plan mode), DB-backed LLM connections, tool registry                                                                                                                                                                            |
-| **REST Endpoints**    | `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
-| **GraphQL Endpoints** | `aiPrompt`, `aiAvailableConnections`, `aiSetUserConnection`, connection/preference/conversation/interaction/budget queries + mutations, `aiUsage`                                                                                                           |
-| **MCP Server**        | Streamable HTTP at `POST/GET/DELETE /ai/mcp` (Bearer auth); optional OAuth 2.1 router mounted in `main.ts` via `mountAiMcpOAuth(app)` (`/.well-known/*`, `/authorize`, `/token`, `/register`)                                                               |
-| **Permission Model**  | `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`)                                                                   |
+| Feature | Description |
+|---------|-------------|
+| **AI Module** | Prompt orchestrator (auto + plan mode), DB-backed LLM connections, tool registry |
+| **REST Endpoints** | `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
+| **GraphQL Endpoints** | `aiPrompt`, `aiAvailableConnections`, `aiSetUserConnection`, connection/preference/conversation/interaction/budget queries + mutations, `aiUsage` |
+| **MCP Server** | Streamable HTTP at `POST/GET/DELETE /ai/mcp` (Bearer auth); optional OAuth 2.1 router mounted in `main.ts` via `mountAiMcpOAuth(app)` (`/.well-known/*`, `/authorize`, `/token`, `/register`) |
+| **Permission Model** | `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`) |
 
 ### Email & Templates
 
-| Feature                  | Description                                                           |
-| ------------------------ | --------------------------------------------------------------------- |
-| **EmailService**         | Multi-provider email sending                                          |
-| **Mailjet / Brevo**      | API-based email providers                                             |
-| **SMTP**                 | Standard SMTP email sending                                           |
-| **TemplateService**      | EJS template rendering for emails                                     |
-| **Template Inheritance** | Project templates override nest-server fallbacks                      |
-| **Multi-Language**       | Locale-aware template resolution (`template-de.ejs` → `template.ejs`) |
+| Feature | Description |
+|---------|-------------|
+| **EmailService** | Multi-provider email sending |
+| **Mailjet / Brevo** | API-based email providers |
+| **SMTP** | Standard SMTP email sending |
+| **TemplateService** | EJS template rendering for emails |
+| **Template Inheritance** | Project templates override nest-server fallbacks |
+| **Multi-Language** | Locale-aware template resolution (`template-de.ejs` → `template.ejs`) |
 
 ### Database & Migration
 
-| Feature                     | Description                                              |
-| --------------------------- | -------------------------------------------------------- |
-| **Mongoose Plugins**        | ID handling, password hashing, audit fields, role guard  |
-| **Migration Module**        | MongoDB migration state management with cluster locking  |
-| **Synchronized Migrations** | `synchronizedMigration()` with distributed locks         |
-| **Migration CLI**           | TypeScript-based migration scripts with `getDb()` helper |
-| **GridFS Helper**           | Direct GridFS file access and migration utilities        |
+| Feature | Description |
+|---------|-------------|
+| **Mongoose Plugins** | ID handling, password hashing, audit fields, role guard |
+| **Migration Module** | MongoDB migration state management with cluster locking |
+| **Synchronized Migrations** | `synchronizedMigration()` with distributed locks |
+| **Migration CLI** | TypeScript-based migration scripts with `getDb()` helper |
+| **GridFS Helper** | Direct GridFS file access and migration utilities |
 
 ### GraphQL Features
 
-| Feature                          | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Apollo Server**                | Full GraphQL server with schema-first or code-first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Custom Scalars**               | `Date`, `DateTime` (timestamp), `JSON`, `Any`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Subscriptions**                | WebSocket support via `graphql-ws` with auth. The `PUB_SUB` provider is built from a factory: `CoreRedisPubSub` when `redis` is configured (delivery is then cluster-wide), the in-memory `PubSub` otherwise (delivery only to clients connected to the publishing replica). **Constraint once Redis is in play: every published payload must be JSON-serializable** — it crosses the wire as JSON, so `Date`, class instances, `Map`/`Set` and `undefined` do not survive the round trip. An in-process `PubSub` never had this constraint, so a payload that worked on one replica can silently lose fields on a cluster. Publish plain objects and ISO strings                                                                                                                                                                                                                                                                                                                                                                |
+| Feature | Description |
+|---------|-------------|
+| **Apollo Server** | Full GraphQL server with schema-first or code-first |
+| **Custom Scalars** | `Date`, `DateTime` (timestamp), `JSON`, `Any` |
+| **Subscriptions** | WebSocket support via `graphql-ws` with auth. The `PUB_SUB` provider is built from a factory: `CoreRedisPubSub` when `redis` is configured (delivery is then cluster-wide), the in-memory `PubSub` otherwise (delivery only to clients connected to the publishing replica). **Constraint once Redis is in play: every published payload must be JSON-serializable** — it crosses the wire as JSON, so `Date`, class instances, `Map`/`Set` and `undefined` do not survive the round trip. An in-process `PubSub` never had this constraint, so a payload that worked on one replica can silently lose fields on a cluster. Publish plain objects and ISO strings |
 | **Subscription request context** | Since 11.35.0 `CoreModule` installs a context-aware `execute` / `subscribe` pair (inside `subscriptions`, where `ApolloDriver` forwards it) on all three GraphQL driver builders, so every WebSocket operation runs inside a `RequestContext`. Before that a WS operation had **none** — no Express middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a subscription context — and `mongooseTenantPlugin` reads "no context" as "system operation, no filter", so a tenant-scoped read while delivering a subscription message returned EVERY tenant's rows. The tenant comes from the handshake's tenant header **validated against an active membership**, else from the subscriber's memberships; an unresolvable tenant leaves the safety net to refuse the read. The async iterator is wrapped too, not only the subscribe call: graphql-js runs `resolve` / `filter` / field resolvers inside its `next()`. See `.claude/rules/role-system.md` → "Tenant context on non-HTTP transports" |
-| **Complexity Analysis**          | Query cost calculation to prevent DoS attacks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Enum Registration**            | `registerEnum()` helper for GraphQL enum types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Upload Support**               | `graphqlUploadExpress()` for multipart file uploads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
+| **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
+| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
 
 ### Development & Operations
 
-| Feature                    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Health Check Module**    | `GET /health` + GraphQL `healthCheck` query                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Error Code Module**      | Centralized error registry with unique IDs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Permissions Report**     | Interactive HTML dashboard, JSON, and Markdown reports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **Hub (Operator Cockpit)** | Build-free ADMIN-gated dashboard at `/hub` (config-gated per environment). Adds an optional HTTP trace middleware (registered by `CoreHubModule.configure()` only when traces are enabled), a chaining `Logger.overrideLogger()` delegate for the log buffer, an optional `EmailService` capture hook (`HUB_EMAIL_CAPTURE` token) for the mailbox, and — when the query profiler is enabled — opts the MongoDB driver into `monitorCommands` from `core.module.ts`. See `src/core/modules/hub/README.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Process Diagnostics**    | Opt-in process-level exit diagnostics (`installProcessDiagnostics()` + `handleFatalBootstrapError`, `src/core/common/helpers/process-diagnostics.helper.ts`). Wired into `main.ts` — **NOT** into `CoreModule.forRoot()`, because it must run before `NestFactory.create()` and installs a `process.exit(1)` path that must never arm inside `Test.createTestingModule()`. Logs unhandled rejections without crashing (configurable), uncaught exceptions before the exit, non-zero exit codes, and labels SIGTERM/SIGINT/SIGHUP/SIGQUIT as external terminations. Pair with `installGracefulShutdown(server)` — **not** with `server.enableShutdownHooks()`, see the Graceful Shutdown row below                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Graceful Shutdown**      | `installGracefulShutdown(app)` (`src/core/common/helpers/graceful-shutdown.helper.ts`), wired in `main.ts`. It **REPLACES** `server.enableShutdownHooks()` and must not be used alongside it: with `shutdownDelayMs` set, Nest would register its own listener for the same signals and close the app in parallel with the wait, so the delay silently never happens. At `shutdownDelayMs: 0` (the default) the helper simply _is_ `enableShutdownHooks()`, so the single call is correct either way. With a delay it waits **inside the SIGTERM/SIGINT handler, before `close()` is entered** — a NestJS lifecycle hook cannot do this, because `close()` runs `onModuleDestroy` → `beforeApplicationShutdown` → dispose → `onApplicationShutdown`, i.e. a delay in a hook would wait with every module already torn down while the socket still accepts. A second signal cancels the pending wait and closes immediately. Warns above 10 000 ms, capped at 60 000 ms — keep it below the orchestrator grace period (Compose 10 s, Kubernetes 30 s) and below `installProcessDiagnostics()`'s 30 s force-exit |
-| **System Setup Module**    | Initial admin creation for fresh deployments                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Cron Jobs**              | `CoreCronJobsService` with timezone/UTC offset support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **Model Documentation**    | Auto-generated model docs via `ModelDocService`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **SCIM Support**           | SCIM filtering and query parsing utilities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Feature | Description |
+|---------|-------------|
+| **Health Check Module** | `GET /health` + GraphQL `healthCheck` query |
+| **Error Code Module** | Centralized error registry with unique IDs |
+| **Permissions Report** | Interactive HTML dashboard, JSON, and Markdown reports |
+| **Hub (Operator Cockpit)** | Build-free ADMIN-gated dashboard at `/hub` (config-gated per environment). Adds an optional HTTP trace middleware (registered by `CoreHubModule.configure()` only when traces are enabled), a chaining `Logger.overrideLogger()` delegate for the log buffer, an optional `EmailService` capture hook (`HUB_EMAIL_CAPTURE` token) for the mailbox, and — when the query profiler is enabled — opts the MongoDB driver into `monitorCommands` from `core.module.ts`. See `src/core/modules/hub/README.md`. |
+| **Process Diagnostics** | Opt-in process-level exit diagnostics (`installProcessDiagnostics()` + `handleFatalBootstrapError`, `src/core/common/helpers/process-diagnostics.helper.ts`). Wired into `main.ts` — **NOT** into `CoreModule.forRoot()`, because it must run before `NestFactory.create()` and installs a `process.exit(1)` path that must never arm inside `Test.createTestingModule()`. Logs unhandled rejections without crashing (configurable), uncaught exceptions before the exit, non-zero exit codes, and labels SIGTERM/SIGINT/SIGHUP/SIGQUIT as external terminations. Pair with `installGracefulShutdown(server)` — **not** with `server.enableShutdownHooks()`, see the Graceful Shutdown row below |
+| **Graceful Shutdown** | `installGracefulShutdown(app)` (`src/core/common/helpers/graceful-shutdown.helper.ts`), wired in `main.ts`. It **REPLACES** `server.enableShutdownHooks()` and must not be used alongside it: with `shutdownDelayMs` set, Nest would register its own listener for the same signals and close the app in parallel with the wait, so the delay silently never happens. At `shutdownDelayMs: 0` (the default) the helper simply *is* `enableShutdownHooks()`, so the single call is correct either way. With a delay it waits **inside the SIGTERM/SIGINT handler, before `close()` is entered** — a NestJS lifecycle hook cannot do this, because `close()` runs `onModuleDestroy` → `beforeApplicationShutdown` → dispose → `onApplicationShutdown`, i.e. a delay in a hook would wait with every module already torn down while the socket still accepts. A second signal cancels the pending wait and closes immediately. Warns above 10 000 ms, capped at 60 000 ms — keep it below the orchestrator grace period (Compose 10 s, Kubernetes 30 s) and below `installProcessDiagnostics()`'s 30 s force-exit |
+| **System Setup Module** | Initial admin creation for fresh deployments |
+| **Cron Jobs** | `CoreCronJobsService` with timezone/UTC offset support |
+| **Model Documentation** | Auto-generated model docs via `ModelDocService` |
+| **SCIM Support** | SCIM filtering and query parsing utilities |
 
 ### Testing Utilities
 
-| Feature              | Description                                        |
-| -------------------- | -------------------------------------------------- |
-| **TestHelper**       | API testing helper for GraphQL and REST            |
-| **Cookie Support**   | Session and JWT token testing                      |
-| **Dynamic Ports**    | `httpServer.listen(0)` for parallel test execution |
-| **Database Cleanup** | Test data management in `afterAll` hooks           |
+| Feature | Description |
+|---------|-------------|
+| **TestHelper** | API testing helper for GraphQL and REST |
+| **Cookie Support** | Session and JWT token testing |
+| **Dynamic Ports** | `httpServer.listen(0)` for parallel test execution |
+| **Database Cleanup** | Test data management in `afterAll` hooks |
 
 ### Configuration Patterns
 
-| Pattern                      | Use Case                | Example                                   |
-| ---------------------------- | ----------------------- | ----------------------------------------- |
-| **Presence Implies Enabled** | Object config = enabled | `rateLimit: {}` enables with defaults     |
-| **Boolean Shorthand**        | Simple toggle           | `jwt: true` or `jwt: { expiresIn: '1h' }` |
-| **Explicit Disable**         | Pre-configured but off  | `{ enabled: false, max: 10 }`             |
-| **Backward Compatible**      | Undefined = disabled    | No config = feature off                   |
+| Pattern | Use Case | Example |
+|---------|----------|---------|
+| **Presence Implies Enabled** | Object config = enabled | `rateLimit: {}` enables with defaults |
+| **Boolean Shorthand** | Simple toggle | `jwt: true` or `jwt: { expiresIn: '1h' }` |
+| **Explicit Disable** | Pre-configured but off | `{ enabled: false, max: 10 }` |
+| **Backward Compatible** | Undefined = disabled | No config = feature off |
 
 ### Key TypeScript Utilities
 
-| Type                         | Purpose                                                |
-| ---------------------------- | ------------------------------------------------------ |
-| `IServerOptions`             | Complete framework configuration interface             |
-| `IServiceOptions`            | Service method options (`force`, `raw`, `currentUser`) |
-| `PlainObject` / `PlainInput` | Type-safe plain object types                           |
-| `ID` / `IDs`                 | MongoDB ObjectId or string types                       |
-| `MaybePromise<T>`            | Sync or async return type                              |
-| `RequireOnlyOne<T>`          | Require exactly one property                           |
+| Type | Purpose |
+|------|---------|
+| `IServerOptions` | Complete framework configuration interface |
+| `IServiceOptions` | Service method options (`force`, `raw`, `currentUser`) |
+| `PlainObject` / `PlainInput` | Type-safe plain object types |
+| `ID` / `IDs` | MongoDB ObjectId or string types |
+| `MaybePromise<T>` | Sync or async return type |
+| `RequireOnlyOne<T>` | Require exactly one property |
 
 ---
 
@@ -486,8 +486,8 @@ down — strictly worse than not waiting at all.
 listener for the same signals and enters `close()` in parallel with the wait. Nothing errors; the
 delay simply never happens.
 
-| Knob              | Default                | Notes                                                                                                                                                                                                                                                                                                                                                |
-| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knob | Default | Notes |
+|------|---------|-------|
 | `shutdownDelayMs` | `0` (no delay, no log) | Warns above `10000`, capped at `60000`. Keep it below the orchestrator grace period (Compose `stop_grace_period` 10 s, Kubernetes `terminationGracePeriodSeconds` 30 s) **and** below `installProcessDiagnostics()`'s 30 s force-exit — exceed any and the process is SIGKILLed mid-wait with no hook running. Non-numeric/negative behaves like `0` |
 
 ---
@@ -522,12 +522,12 @@ if (!isCorsDisabled(envConfig.cors)) {
 }
 ```
 
-| Config                            | REST (Express)                      | GraphQL (Apollo)        | BetterAuth                                     |
-| --------------------------------- | ----------------------------------- | ----------------------- | ---------------------------------------------- |
-| `cors: { allowAll: true }`        | `origin: true`                      | `origin: true`          | `trustedOrigins: [appUrl] (+ passkey origins)` |
-| `cors: { allowedOrigins: [...] }` | `origin: [merged list]`             | `origin: [merged list]` | `trustedOrigins: [merged list]`                |
-| `cors: { enabled: false }`        | No CORS headers                     | No CORS headers         | `trustedOrigins: []`                           |
-| `cors: { deriveAppUrl: false }`   | `appUrl` not derived from `baseUrl` | same                    | same                                           |
+| Config | REST (Express) | GraphQL (Apollo) | BetterAuth |
+|--------|----------------|-------------------|------------|
+| `cors: { allowAll: true }` | `origin: true` | `origin: true` | `trustedOrigins: [appUrl] (+ passkey origins)` |
+| `cors: { allowedOrigins: [...] }` | `origin: [merged list]` | `origin: [merged list]` | `trustedOrigins: [merged list]` |
+| `cors: { enabled: false }` | No CORS headers | No CORS headers | `trustedOrigins: []` |
+| `cors: { deriveAppUrl: false }` | `appUrl` not derived from `baseUrl` | same | same |
 
 > **BetterAuth has no "allow all origins" mode (since v11.27.6).** `cors.allowAll` mirrors the request origin for REST/GraphQL, but BetterAuth's origin check is a security control with no meaningful "allow everything" setting. So `allowAll` yields the known-good origins (`appUrl` + any passkey origins), NOT `undefined` — returning nothing there would leave BetterAuth trusting only its own `baseURL` and silently answer `403 INVALID_ORIGIN` for a separately hosted frontend on `two-factor/enable`, passkey registration, etc. For the same reason `trustedOrigins: []` (the `enabled: false` row) does **not** switch the origin check off: BetterAuth always trusts its own `baseURL`, so `[]` and `undefined` behave identically. To accept arbitrary origins for auth, set `betterAuth.trustedOrigins` explicitly.
 
@@ -538,15 +538,15 @@ if (!isCorsDisabled(envConfig.cors)) {
 3. `env: 'local' | 'ci' | 'e2e'` with any other localhost `baseUrl` → `appUrl` defaults to `http://localhost:3001`
 4. otherwise derived from `baseUrl` by stripping a leading `api.` label (`https://api.example.com` → `https://example.com`), unless `cors.deriveAppUrl: false`
 
-**Port split vs. host split (step 2 vs. 3, since v11.27.6).** The localhost defaults encode a _port split_: one host, API on `:3000`, app on `:3001`. `lt dev up` instead serves a _host split_ behind Caddy — API on `https://api.<slug>.localhost`, app on `https://<slug>.localhost`. The two are told apart by what the `api.` label strips to, never by the port:
+**Port split vs. host split (step 2 vs. 3, since v11.27.6).** The localhost defaults encode a *port split*: one host, API on `:3000`, app on `:3001`. `lt dev up` instead serves a *host split* behind Caddy — API on `https://api.<slug>.localhost`, app on `https://<slug>.localhost`. The two are told apart by what the `api.` label strips to, never by the port:
 
-| `baseUrl` (`env: 'local'`)       | Split                                             | Resolved `appUrl`            |
-| -------------------------------- | ------------------------------------------------- | ---------------------------- |
-| `https://api.crm.localhost`      | host                                              | `https://crm.localhost`      |
-| `https://api.crm.localhost:8443` | host                                              | `https://crm.localhost:8443` |
-| `https://api.localhost`          | port (strips to the bare host the API answers on) | `http://localhost:3001`      |
-| `http://api.localhost:3000`      | port                                              | `http://localhost:3001`      |
-| `http://localhost:3000`          | port (no `api.` label)                            | `http://localhost:3001`      |
+| `baseUrl` (`env: 'local'`) | Split | Resolved `appUrl` |
+|---------------------------|-------|-------------------|
+| `https://api.crm.localhost` | host | `https://crm.localhost` |
+| `https://api.crm.localhost:8443` | host | `https://crm.localhost:8443` |
+| `https://api.localhost` | port (strips to the bare host the API answers on) | `http://localhost:3001` |
+| `http://api.localhost:3000` | port | `http://localhost:3001` |
+| `http://localhost:3000` | port (no `api.` label) | `http://localhost:3001` |
 
 > **Security:** steps 2 and 4 grant the derived origin credentialed CORS. If the apex domain is not trusted (e.g. a third-party-hosted marketing site whose XSS surface you do not control), set `cors.deriveAppUrl: false` and list the frontend origin explicitly via `appUrl` or `cors.allowedOrigins`. The derivation never yields a bare TLD (`https://api.dev` stays unchanged) and never emits the opaque `null` origin. With `cors.deriveAppUrl: false`, a host-split localhost `baseUrl` falls back to the `http://localhost:3001` default.
 
@@ -587,11 +587,11 @@ use(req: Request, _res: Response, next: NextFunction) {
 
 Authenticates the request using three strategies in priority order:
 
-| Priority | Strategy             | Source                      | Token Type           |
-| -------- | -------------------- | --------------------------- | -------------------- |
-| 1        | Authorization header | `Bearer <token>`            | JWT or Session token |
-| 2        | JWT cookie           | `better-auth.jwt_token`     | JWT token            |
-| 3        | Session cookie       | `better-auth.session_token` | Session token        |
+| Priority | Strategy | Source | Token Type |
+|----------|----------|--------|------------|
+| 1 | Authorization header | `Bearer <token>` | JWT or Session token |
+| 2 | JWT cookie | `better-auth.jwt_token` | JWT token |
+| 3 | Session cookie | `better-auth.session_token` | Session token |
 
 If authentication succeeds, `req.user` is set with the authenticated user (including `hasRole()` method).
 
@@ -614,10 +614,10 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > inside an `AsyncLocalStorage` context carrying that value.
 >
 > Both halves are load-bearing. Without the rewrite, a client posting a plaintext password would
-> have `scrypt(plaintext)` stored while every sign-in — which _is_ normalized, in
+> have `scrypt(plaintext)` stored while every sign-in — which *is* normalized, in
 > `CoreBetterAuthController` — checks `scrypt(sha256(...))`: the account is locked out with the
 > password its owner just chose. Without the context, `emailAndPassword.onPasswordReset` knows
-> _which_ user was reset but not to _what_, and cannot mirror the new password into the legacy
+> *which* user was reset but not to *what*, and cannot mirror the new password into the legacy
 > bcrypt store — leaving the old password valid on the legacy path after a reset.
 >
 > A project subclassing the middleware must know this: the body it forwards is no longer
@@ -754,19 +754,19 @@ Example: `@Roles(RoleEnum.S_USER, DefaultHR.OWNER)` — any authenticated user p
 
 When `X-Tenant-Id` header is present and a system role grants access, membership is still validated to set tenant context (`tenantId`, `tenantRole`). A non-member gets 403 even with `S_USER` or `S_VERIFIED` satisfied.
 
-| System Role                       | Check Logic                                                                                                            | Use Case                                                       |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `S_EVERYONE`                      | Always true — access granted unconditionally; the caller is still identified when a valid token is present (see above) | Public endpoints                                               |
-| `S_NO_ONE`                        | Always false                                                                                                           | Permanently locked                                             |
-| `S_USER`                          | `currentUser` exists                                                                                                   | Any authenticated user                                         |
-| `S_VERIFIED`                      | `user.verified \|\| user.verifiedAt \|\| user.emailVerified`                                                           | Email-verified users                                           |
-| `S_CREATOR`                       | `object.createdBy === user.id`                                                                                         | Creator of the resource (object-level, checked by interceptor) |
-| `S_SELF`                          | `object.id === user.id`                                                                                                | User accessing own data (object-level, checked by interceptor) |
-| `DefaultHR.MEMBER` (`'member'`)   | Active membership in current tenant (level >= 1)                                                                       | Tenant member access                                           |
-| `DefaultHR.MANAGER` (`'manager'`) | At least manager-level role (level >= 2)                                                                               | Tenant manager access                                          |
-| `DefaultHR.OWNER` (`'owner'`)     | Highest role level (level >= 3)                                                                                        | Tenant owner access                                            |
-| Custom hierarchy roles            | Configurable via `createHierarchyRoles()`                                                                              | Level comparison                                               |
-| Normal (non-hierarchy) roles      | Exact match against membership.role or user.roles                                                                      | No level compensation                                          |
+| System Role | Check Logic | Use Case |
+|-------------|-------------|----------|
+| `S_EVERYONE` | Always true — access granted unconditionally; the caller is still identified when a valid token is present (see above) | Public endpoints |
+| `S_NO_ONE` | Always false | Permanently locked |
+| `S_USER` | `currentUser` exists | Any authenticated user |
+| `S_VERIFIED` | `user.verified \|\| user.verifiedAt \|\| user.emailVerified` | Email-verified users |
+| `S_CREATOR` | `object.createdBy === user.id` | Creator of the resource (object-level, checked by interceptor) |
+| `S_SELF` | `object.id === user.id` | User accessing own data (object-level, checked by interceptor) |
+| `DefaultHR.MEMBER` (`'member'`) | Active membership in current tenant (level >= 1) | Tenant member access |
+| `DefaultHR.MANAGER` (`'manager'`) | At least manager-level role (level >= 2) | Tenant manager access |
+| `DefaultHR.OWNER` (`'owner'`) | Highest role level (level >= 3) | Tenant owner access |
+| Custom hierarchy roles | Configurable via `createHierarchyRoles()` | Level comparison |
+| Normal (non-hierarchy) roles | Exact match against membership.role or user.roles | No level compensation |
 
 > **NestJS docs:** [Guards](https://docs.nestjs.com/guards), [Authorization](https://docs.nestjs.com/security/authorization)
 
@@ -782,11 +782,11 @@ Plain Object --> Transform to Class Instance --> Whitelist Check --> Validation 
 
 Properties **without** `@UnifiedField()` are subject to the whitelist policy:
 
-| Mode                | Config Value | Behavior                                     |
-| ------------------- | ------------ | -------------------------------------------- |
-| **Strip** (default) | `'strip'`    | Unknown properties silently removed          |
-| **Error**           | `'error'`    | Throws `400 Bad Request` with property names |
-| **Disabled**        | `false`      | All properties accepted                      |
+| Mode | Config Value | Behavior |
+|------|-------------|----------|
+| **Strip** (default) | `'strip'` | Unknown properties silently removed |
+| **Error** | `'error'` | Throws `400 Bad Request` with property names |
+| **Disabled** | `false` | All properties accepted |
 
 ```typescript
 // config.env.ts
@@ -809,7 +809,7 @@ export class CreateUserInput extends CoreInput {
   @UnifiedField({ isOptional: true, description: 'Display name' })
   displayName?: string = undefined;
 
-  @UnifiedField({ exclude: true }) // Hidden from schema, rejected at runtime
+  @UnifiedField({ exclude: true })  // Hidden from schema, rejected at runtime
   internalFlag?: boolean = undefined;
 }
 ```
@@ -1140,11 +1140,11 @@ The `process()` method in `ModuleService` is the **primary** way to handle CRUD 
 One policy across **all five** permission layers — the role guards, the tenant guard, `check()` /
 `checkRights`, `checkRestricted()` (object and field level), and a model's `securityCheck()`:
 
-| Situation                                        | Status                                          | Thrown by                                  |
-| ------------------------------------------------ | ----------------------------------------------- | ------------------------------------------ |
-| Requester is **not authenticated**               | **401** `ErrorCode.UNAUTHORIZED`                | guards, `accessDeniedException(undefined)` |
-| Requester **is authenticated** but lacks a right | **403** `ErrorCode.ACCESS_DENIED`               | guards, `accessDeniedException(user)`      |
-| Resource is locked via `S_NO_ONE`                | **403**, always — even for anonymous requesters | guards, `check()`                          |
+| Situation | Status | Thrown by |
+|-----------|--------|-----------|
+| Requester is **not authenticated** | **401** `ErrorCode.UNAUTHORIZED` | guards, `accessDeniedException(undefined)` |
+| Requester **is authenticated** but lacks a right | **403** `ErrorCode.ACCESS_DENIED` | guards, `accessDeniedException(user)` |
+| Resource is locked via `S_NO_ONE` | **403**, always — even for anonymous requesters | guards, `check()` |
 
 `S_NO_ONE` is 403 for everyone because authenticating can never unlock it; a 401 would tell the
 client to retry after logging in, which is a lie.
@@ -1174,17 +1174,16 @@ See `src/core/common/exceptions/access-denied.exception.ts` and
 
 When `process()` is called from within another `process()` call (service cascades like A.create → B.create → C.create), steps 4–6 are **conditionally skipped** on inner calls to avoid redundant work:
 
-| Step                             | Depth 0 (outermost) | Depth > 0 (nested)                             |
-| -------------------------------- | ------------------- | ---------------------------------------------- |
-| 1. prepareInput                  | Runs                | Runs                                           |
-| 2. checkRights (INPUT)           | Runs                | Runs                                           |
-| 3. serviceFunc                   | Runs                | Runs                                           |
-| 4. processFieldSelection         | Runs                | **Skipped** (unless `populate` explicitly set) |
-| 5. prepareOutput (model mapping) | Runs                | **Skipped** (secret removal still active)      |
-| 6. checkRights (OUTPUT)          | Runs                | **Skipped**                                    |
+| Step | Depth 0 (outermost) | Depth > 0 (nested) |
+|------|---------------------|---------------------|
+| 1. prepareInput | Runs | Runs |
+| 2. checkRights (INPUT) | Runs | Runs |
+| 3. serviceFunc | Runs | Runs |
+| 4. processFieldSelection | Runs | **Skipped** (unless `populate` explicitly set) |
+| 5. prepareOutput (model mapping) | Runs | **Skipped** (secret removal still active) |
+| 6. checkRights (OUTPUT) | Runs | **Skipped** |
 
 **Security is maintained** because:
-
 1. Input authorization (step 2) always runs at every depth
 2. Output authorization (step 6) runs at the outermost call
 3. `CheckSecurityInterceptor` (Safety Net) runs on the final HTTP response
@@ -1195,14 +1194,14 @@ See [process() Performance Optimization](process-performance-optimization.md) fo
 
 ### Key Options
 
-| Option              | Type    | Default      | Effect                                                                       |
-| ------------------- | ------- | ------------ | ---------------------------------------------------------------------------- |
-| `force`             | boolean | `false`      | Disables checkRights, checkRoles, removeSecrets, bypasses role guard plugin  |
-| `raw`               | boolean | `false`      | Disables prepareInput and prepareOutput entirely                             |
-| `checkRights`       | boolean | `true`       | Enable/disable authorization checks                                          |
-| `populate`          | object  | -            | Field selection for population (overrides nested skip)                       |
-| `currentUser`       | object  | from request | Override the current user                                                    |
-| `debugProcessInput` | boolean | `false`      | Config flag: log when prepareInput changes the input type (performance cost) |
+| Option | Type | Default | Effect |
+|--------|------|---------|--------|
+| `force` | boolean | `false` | Disables checkRights, checkRoles, removeSecrets, bypasses role guard plugin |
+| `raw` | boolean | `false` | Disables prepareInput and prepareOutput entirely |
+| `checkRights` | boolean | `true` | Enable/disable authorization checks |
+| `populate` | object | - | Field selection for population (overrides nested skip) |
+| `currentUser` | object | from request | Override the current user |
+| `debugProcessInput` | boolean | `false` | Config flag: log when prepareInput changes the input type (performance cost) |
 
 ### Alternative: processResult()
 
@@ -1275,11 +1274,11 @@ The Safety Net ensures security even when developers bypass `CrudService.process
 
 ### When is process() vs Safety Net used?
 
-| Approach                         | Input Security         | Output Security              | Population | Custom Logic                |
-| -------------------------------- | ---------------------- | ---------------------------- | ---------- | --------------------------- |
-| `process()`                      | prepareInput + plugins | prepareOutput + interceptors | Yes        | checkRights, serviceOptions |
-| Direct query + `return`          | Plugins only           | Interceptors only            | No         | None                        |
-| Direct query + `processResult()` | Plugins only           | prepareOutput + interceptors | Yes        | Custom prepareOutput        |
+| Approach | Input Security | Output Security | Population | Custom Logic |
+|----------|---------------|----------------|------------|--------------|
+| `process()` | prepareInput + plugins | prepareOutput + interceptors | Yes | checkRights, serviceOptions |
+| Direct query + `return` | Plugins only | Interceptors only | No | None |
+| Direct query + `processResult()` | Plugins only | prepareOutput + interceptors | Yes | Custom prepareOutput |
 
 **Recommendation:** Use `process()` for full CRUD operations. Use direct queries + Safety Net for simple read-only queries, aggregations, or performance-critical paths.
 
@@ -1374,10 +1373,10 @@ decorator model above does not reach them. GridFS is reached through the native 
 through its own SDK, which means `mongooseTenantPlugin` never runs on a file store — and that is why
 `CoreFileController` and `CoreFileResolver` carry `@SkipTenantCheck()`.
 
-| Layer                                                | What it answers                          | Where                                                                                                                              |
-| ---------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `file.downloadRoles` / `uploadRoles` / `deleteRoles` | "may this caller reach the route at all" | applied onto the base-class members at boot by `applyFileRoles()`, read by the role guards                                         |
-| `CoreFileService.checkRights()`                      | "…but only THIS file"                    | the service, once per operation, with `checkInputType` naming the path (`'id'`, `'filename'`, `'filterArgs'`, `'file'`, `'files'`) |
+| Layer | What it answers | Where |
+|-------|-----------------|-------|
+| `file.downloadRoles` / `uploadRoles` / `deleteRoles` | "may this caller reach the route at all" | applied onto the base-class members at boot by `applyFileRoles()`, read by the role guards |
+| `CoreFileService.checkRights()` | "…but only THIS file" | the service, once per operation, with `checkInputType` naming the path (`'id'`, `'filename'`, `'filterArgs'`, `'file'`, `'files'`) |
 
 **The first layer cannot express the second.** The role names resolve against `user.roles` — a global
 attribute — never against `membership.role`, so no configuration can say "only their own tenant's
@@ -1506,7 +1505,6 @@ export class User extends CorePersistenceModel {
 ```
 
 **When securityCheck runs:**
-
 1. `CheckSecurityInterceptor` calls it on every response object
 2. `CrudService.process()` runs it via `prepareOutput()` (before the interceptor)
 3. Safety Net: `ResponseModelInterceptor` converts to model first → then `CheckSecurityInterceptor` calls securityCheck
@@ -1535,17 +1533,17 @@ export class UserService extends CoreUserService<User> {
 
 ## REST vs GraphQL Differences
 
-| Aspect                       | REST                                         | GraphQL                               |
-| ---------------------------- | -------------------------------------------- | ------------------------------------- |
-| **Entry point**              | `@Controller()` class                        | `@Resolver()` class                   |
-| **Method decorators**        | `@Get()`, `@Post()`, `@Patch()`, `@Delete()` | `@Query()`, `@Mutation()`             |
-| **Input**                    | `@Body()`, `@Param()`, `@Query()`            | `@Args()`                             |
-| **User injection**           | `@CurrentUser()` (same)                      | `@CurrentUser()` (same)               |
-| **Response type resolution** | `@ResponseModel()` or `@ApiOkResponse()`     | Automatic from `@Query(() => Type)`   |
-| **Context extraction**       | `context.switchToHttp().getRequest()`        | `GqlExecutionContext.create(context)` |
-| **Field selection**          | Not available (all fields returned)          | GraphQL field selection → population  |
-| **File uploads**             | Standard multipart                           | `graphqlUploadExpress()` middleware   |
-| **Subscriptions**            | Not supported                                | WebSocket via `graphql-ws`            |
+| Aspect | REST | GraphQL |
+|--------|------|---------|
+| **Entry point** | `@Controller()` class | `@Resolver()` class |
+| **Method decorators** | `@Get()`, `@Post()`, `@Patch()`, `@Delete()` | `@Query()`, `@Mutation()` |
+| **Input** | `@Body()`, `@Param()`, `@Query()` | `@Args()` |
+| **User injection** | `@CurrentUser()` (same) | `@CurrentUser()` (same) |
+| **Response type resolution** | `@ResponseModel()` or `@ApiOkResponse()` | Automatic from `@Query(() => Type)` |
+| **Context extraction** | `context.switchToHttp().getRequest()` | `GqlExecutionContext.create(context)` |
+| **Field selection** | Not available (all fields returned) | GraphQL field selection → population |
+| **File uploads** | Standard multipart | `graphqlUploadExpress()` middleware |
+| **Subscriptions** | Not supported | WebSocket via `graphql-ws` |
 
 ### Guard Context Detection
 
@@ -1567,22 +1565,22 @@ All security features are configured in `config.env.ts` under the `security` key
 
 ### Cookies & CORS (since v11.25.0)
 
-| Config Path                 | Type                        | Default               | Description                                   |
-| --------------------------- | --------------------------- | --------------------- | --------------------------------------------- |
-| `cookies`                   | `boolean \| ICookiesConfig` | `true`                | Enable cookie-parser and session cookies      |
-| `cookies.exposeTokenInBody` | `boolean`                   | `false`               | Keep token in response body alongside cookies |
-| `cors`                      | `boolean \| ICorsConfig`    | `undefined` (enabled) | Unified CORS across GraphQL, REST, BetterAuth |
-| `cors.allowAll`             | `boolean`                   | `false`               | Allow all origins (mirrors request origin)    |
-| `cors.allowedOrigins`       | `string[]`                  | `[]`                  | Additional origins beyond appUrl/baseUrl      |
-| `cors.enabled`              | `boolean`                   | `true`                | Enable/disable CORS on all layers             |
+| Config Path | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `cookies` | `boolean \| ICookiesConfig` | `true` | Enable cookie-parser and session cookies |
+| `cookies.exposeTokenInBody` | `boolean` | `false` | Keep token in response body alongside cookies |
+| `cors` | `boolean \| ICorsConfig` | `undefined` (enabled) | Unified CORS across GraphQL, REST, BetterAuth |
+| `cors.allowAll` | `boolean` | `false` | Allow all origins (mirrors request origin) |
+| `cors.allowedOrigins` | `string[]` | `[]` | Additional origins beyond appUrl/baseUrl |
+| `cors.enabled` | `boolean` | `true` | Enable/disable CORS on all layers |
 
 **Cookie modes:**
 
-| Mode                  | Config                                 | Token in body | Cookie set | JWT via header |
-| --------------------- | -------------------------------------- | :-----------: | :--------: | :------------: |
-| Cookie-only (default) | `cookies: true`                        |      No       |    Yes     |  Yes (always)  |
-| JWT-only              | `cookies: false`                       |      Yes      |     No     |      Yes       |
-| Hybrid                | `cookies: { exposeTokenInBody: true }` |      Yes      |    Yes     |      Yes       |
+| Mode | Config | Token in body | Cookie set | JWT via header |
+|------|--------|:---:|:---:|:---:|
+| Cookie-only (default) | `cookies: true` | No | Yes | Yes (always) |
+| JWT-only | `cookies: false` | Yes | No | Yes |
+| Hybrid | `cookies: { exposeTokenInBody: true }` | Yes | Yes | Yes |
 
 > **In hybrid mode the body token and the cookie are DIFFERENT values.** With the JWT plugin active,
 > the body carries a JWT while the cookie keeps the opaque Better-Auth session token — Better-Auth
@@ -1594,30 +1592,30 @@ All security features are configured in `config.env.ts` under the `security` key
 
 ### Guardian Gates
 
-| Config Path                                        | Type                          | Default   | Description                        |
-| -------------------------------------------------- | ----------------------------- | --------- | ---------------------------------- |
-| `security.checkResponseInterceptor`                | `boolean \| object`           | `true`    | Enable @Restricted field filtering |
-| `security.checkSecurityInterceptor`                | `boolean \| object`           | `true`    | Enable securityCheck() calls       |
-| `security.mapAndValidatePipe`                      | `boolean \| object`           | `true`    | Enable input validation            |
-| `security.mapAndValidatePipe.nonWhitelistedFields` | `'strip' \| 'error' \| false` | `'strip'` | Whitelist behavior                 |
+| Config Path | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `security.checkResponseInterceptor` | `boolean \| object` | `true` | Enable @Restricted field filtering |
+| `security.checkSecurityInterceptor` | `boolean \| object` | `true` | Enable securityCheck() calls |
+| `security.mapAndValidatePipe` | `boolean \| object` | `true` | Enable input validation |
+| `security.mapAndValidatePipe.nonWhitelistedFields` | `'strip' \| 'error' \| false` | `'strip'` | Whitelist behavior |
 
 ### Safety Net — Mongoose Plugins
 
-| Config Path                          | Type                          | Default                | Description                                       |
-| ------------------------------------ | ----------------------------- | ---------------------- | ------------------------------------------------- |
-| `security.mongoosePasswordPlugin`    | `boolean \| { skipPatterns }` | `true`                 | Auto password hashing                             |
-| `security.mongooseRoleGuardPlugin`   | `boolean \| { allowedRoles }` | `true`                 | Role escalation prevention                        |
-| `security.mongooseAuditFieldsPlugin` | `boolean`                     | `true`                 | Auto createdBy/updatedBy                          |
-| `multiTenancy`                       | `IMultiTenancy`               | `undefined` (disabled) | Tenant-based data isolation (header + membership) |
+| Config Path | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `security.mongoosePasswordPlugin` | `boolean \| { skipPatterns }` | `true` | Auto password hashing |
+| `security.mongooseRoleGuardPlugin` | `boolean \| { allowedRoles }` | `true` | Role escalation prevention |
+| `security.mongooseAuditFieldsPlugin` | `boolean` | `true` | Auto createdBy/updatedBy |
+| `multiTenancy` | `IMultiTenancy` | `undefined` (disabled) | Tenant-based data isolation (header + membership) |
 
 ### Safety Net — Response Interceptors
 
-| Config Path                                            | Type                   | Default             | Description                      |
-| ------------------------------------------------------ | ---------------------- | ------------------- | -------------------------------- |
-| `security.responseModelInterceptor`                    | `boolean \| { debug }` | `true`              | Plain → Model auto-conversion    |
-| `security.translateResponseInterceptor`                | `boolean`              | `true`              | Auto translation application     |
-| `security.secretFields`                                | `string[]`             | `['password', ...]` | Global secret field removal list |
-| `security.checkSecurityInterceptor.removeSecretFields` | `boolean`              | `true`              | Fallback secret removal          |
+| Config Path | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `security.responseModelInterceptor` | `boolean \| { debug }` | `true` | Plain → Model auto-conversion |
+| `security.translateResponseInterceptor` | `boolean` | `true` | Auto translation application |
+| `security.secretFields` | `string[]` | `['password', ...]` | Global secret field removal list |
+| `security.checkSecurityInterceptor.removeSecretFields` | `boolean` | `true` | Fallback secret removal |
 
 ### Role Guard Bypass
 
@@ -1658,20 +1656,20 @@ multiTenancy: {
 
 ## NestJS Documentation Links
 
-| Topic                  | URL                                                  |
-| ---------------------- | ---------------------------------------------------- |
-| **Request Lifecycle**  | https://docs.nestjs.com/faq/request-lifecycle        |
-| **Middleware**         | https://docs.nestjs.com/middleware                   |
-| **Guards**             | https://docs.nestjs.com/guards                       |
-| **Interceptors**       | https://docs.nestjs.com/interceptors                 |
-| **Pipes**              | https://docs.nestjs.com/pipes                        |
-| **Custom Decorators**  | https://docs.nestjs.com/custom-decorators            |
-| **Validation**         | https://docs.nestjs.com/techniques/validation        |
-| **Authentication**     | https://docs.nestjs.com/security/authentication      |
-| **Authorization**      | https://docs.nestjs.com/security/authorization       |
-| **MongoDB / Mongoose** | https://docs.nestjs.com/techniques/mongodb           |
-| **GraphQL**            | https://docs.nestjs.com/graphql/quick-start          |
-| **GraphQL Resolvers**  | https://docs.nestjs.com/graphql/resolvers            |
-| **REST Controllers**   | https://docs.nestjs.com/controllers                  |
-| **OpenAPI / Swagger**  | https://docs.nestjs.com/openapi/introduction         |
-| **Dynamic Modules**    | https://docs.nestjs.com/fundamentals/dynamic-modules |
+| Topic | URL |
+|-------|-----|
+| **Request Lifecycle** | https://docs.nestjs.com/faq/request-lifecycle |
+| **Middleware** | https://docs.nestjs.com/middleware |
+| **Guards** | https://docs.nestjs.com/guards |
+| **Interceptors** | https://docs.nestjs.com/interceptors |
+| **Pipes** | https://docs.nestjs.com/pipes |
+| **Custom Decorators** | https://docs.nestjs.com/custom-decorators |
+| **Validation** | https://docs.nestjs.com/techniques/validation |
+| **Authentication** | https://docs.nestjs.com/security/authentication |
+| **Authorization** | https://docs.nestjs.com/security/authorization |
+| **MongoDB / Mongoose** | https://docs.nestjs.com/techniques/mongodb |
+| **GraphQL** | https://docs.nestjs.com/graphql/quick-start |
+| **GraphQL Resolvers** | https://docs.nestjs.com/graphql/resolvers |
+| **REST Controllers** | https://docs.nestjs.com/controllers |
+| **OpenAPI / Swagger** | https://docs.nestjs.com/openapi/introduction |
+| **Dynamic Modules** | https://docs.nestjs.com/fundamentals/dynamic-modules |

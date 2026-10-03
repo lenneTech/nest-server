@@ -12,30 +12,30 @@ Actual roles stored in `user.roles` array in the database:
 
 System roles are used for **runtime checks only** and must **NEVER** be stored in `user.roles`:
 
-| Role         | Purpose                    | Check Logic                                                  |
-| ------------ | -------------------------- | ------------------------------------------------------------ |
-| `S_USER`     | User is logged in          | `currentUser` exists                                         |
-| `S_VERIFIED` | User is verified           | `user.verified \|\| user.verifiedAt \|\| user.emailVerified` |
-| `S_CREATOR`  | User created the object    | `object.createdBy === user.id`                               |
-| `S_SELF`     | User is accessing own data | `object.id === user.id`                                      |
-| `S_EVERYONE` | Public access              | Always true                                                  |
-| `S_NO_ONE`   | Locked access              | Always false                                                 |
+| Role | Purpose | Check Logic |
+|------|---------|-------------|
+| `S_USER` | User is logged in | `currentUser` exists |
+| `S_VERIFIED` | User is verified | `user.verified \|\| user.verifiedAt \|\| user.emailVerified` |
+| `S_CREATOR` | User created the object | `object.createdBy === user.id` |
+| `S_SELF` | User is accessing own data | `object.id === user.id` |
+| `S_EVERYONE` | Public access | Always true |
+| `S_NO_ONE` | Locked access | Always false |
 
 ### Since 11.35.0 this is ENFORCED, not just a convention
 
 `hasRole()` is a plain string intersection, so a stored `'s_self'` satisfies **every** `S_SELF`
-check — for the core user module that includes `updateUser` / `deleteUser` on _arbitrary_ users
+check — for the core user module that includes `updateUser` / `deleteUser` on *arbitrary* users
 (mail/password change → account takeover) — while the account shows no privileged role at all.
 The rule was documented for years and nothing enforced it. Three layers now do:
 
-| Layer                           | Covers                                                                                                              | On violation                     | Configurable                                            |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------- |
-| `CoreUserInput.roles` validator | the input/DTO path (REST + GraphQL, create + update)                                                                | 400                              | no, but a subclass override **replaces** it (see below) |
-| `CoreUserService.setRoles()`    | the canonical role-assignment API (writes via `findByIdAndUpdate`)                                                  | throws, before the DB round-trip | no                                                      |
-| `mongooseSystemRolePlugin`      | **every** Mongoose write — incl. `force: true`, `runWithBypassRoleGuard()`, direct `Model` calls, seeds, migrations | throws                           | **no**                                                  |
+| Layer | Covers | On violation | Configurable |
+|-------|--------|--------------|--------------|
+| `CoreUserInput.roles` validator | the input/DTO path (REST + GraphQL, create + update) | 400 | no, but a subclass override **replaces** it (see below) |
+| `CoreUserService.setRoles()` | the canonical role-assignment API (writes via `findByIdAndUpdate`) | throws, before the DB round-trip | no |
+| `mongooseSystemRolePlugin` | **every** Mongoose write — incl. `force: true`, `runWithBypassRoleGuard()`, direct `Model` calls, seeds, migrations | throws | **no** |
 
-Do not confuse the third with `mongooseRoleGuardPlugin`: that one answers _who may change roles_
-(configurable, bypassable, **strips** the change); this one answers _which values may exist at all_
+Do not confuse the third with `mongooseRoleGuardPlugin`: that one answers *who may change roles*
+(configurable, bypassable, **strips** the change); this one answers *which values may exist at all*
 (unconditional, **throws**). Being ADMIN or holding a bypass is authority over the change, never
 permission to write a value that is invalid by construction.
 
@@ -55,15 +55,11 @@ rejection is fixable by renaming while a false acceptance is a silent authorizat
 Use the shared predicates rather than re-implementing the rule:
 
 ```typescript
-import {
-  isSystemRole,
-  looksLikeSystemRole,
-  SYSTEM_ROLE_PREFIX,
-  SYSTEM_ROLE_REJECT_PATTERN,
-} from '@lenne.tech/nest-server';
+import { isSystemRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX, SYSTEM_ROLE_REJECT_PATTERN }
+  from '@lenne.tech/nest-server';
 
-isSystemRole('S_SELF'); // false — exact + case-sensitive: the RUNTIME rule the guards use
-looksLikeSystemRole('S_SELF'); // true  — trimmed + case-insensitive: the STORAGE rule
+isSystemRole('S_SELF')        // false — exact + case-sensitive: the RUNTIME rule the guards use
+looksLikeSystemRole('S_SELF') // true  — trimmed + case-insensitive: the STORAGE rule
 ```
 
 They differ on purpose. The guards compare role strings exactly, so `'S_SELF'` never granted
@@ -85,10 +81,10 @@ Roles arrive from three sources with very different trust levels, and at runtime
 plain strings — `RoleEnum.ADMIN` **is** `'admin'`. TypeScript enums exist only at compile time, so
 they provide no protection here. The danger is a shared namespace compared with `===`:
 
-| Source                 | Example       | Assigned by                                                             |
-| ---------------------- | ------------- | ----------------------------------------------------------------------- |
-| Framework role         | `admin`       | the platform                                                            |
-| System role            | `s_self`      | nobody — these are runtime questions, not roles                         |
+| Source | Example | Assigned by |
+|--------|---------|-------------|
+| Framework role | `admin` | the platform |
+| System role | `s_self` | nobody — these are runtime questions, not roles |
 | Tenant membership role | `tenantAdmin` | the **customer**, as free text (`addMember` takes any non-empty string) |
 
 Two escalation paths existed until 11.35.0, both of them reachable by whoever may manage
@@ -106,11 +102,11 @@ members — typically a tenant owner, i.e. a customer:
 Each required role is resolved against the source that is entitled to answer it
 (`resolveGlobalAndTenantRoles`, OR semantics across the two halves):
 
-| Required                                                | Resolved against                                                                   |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `RoleEnum.ADMIN` (and every `GLOBAL_ONLY_ROLES` member) | `user.roles` — **never** `membership.role`                                         |
-| a tenant/project role (`tenantAdmin`, `auditor`, …)     | `membership.role` in tenant context, `user.roles` otherwise                        |
-| a system role (`S_SELF`, `S_CREATOR`, …)                | its dedicated check (ownership, verification, session) — never a string comparison |
+| Required | Resolved against |
+|----------|------------------|
+| `RoleEnum.ADMIN` (and every `GLOBAL_ONLY_ROLES` member) | `user.roles` — **never** `membership.role` |
+| a tenant/project role (`tenantAdmin`, `auditor`, …) | `membership.role` in tenant context, `user.roles` otherwise |
+| a system role (`S_SELF`, `S_CREATOR`, …) | its dedicated check (ownership, verification, session) — never a string comparison |
 
 This is what makes the fix durable: it depends on no name list, so an already-stored membership
 named `admin` is inert rather than dangerous — no data migration needed.
@@ -161,19 +157,19 @@ scope in the string instead (`t:owner`) would put it in a value whoever creates 
 mistype, and would add a normalization step inside the authorization path — the last place that
 should grow moving parts.
 
-| Registry answer     | Meaning                     | Resolved against                                                        |
-| ------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| `RoleScope.GLOBAL`  | platform authority          | `user.roles`                                                            |
-| `RoleScope.TENANT`  | authority within one tenant | `membership.role`                                                       |
-| `RoleScope.SYSTEM`  | runtime-context check       | its dedicated check                                                     |
-| `RoleScope.UNKNOWN` | declared nowhere            | `user.roles`; **never** a membership role under `strictMembershipRoles` |
+| Registry answer | Meaning | Resolved against |
+|-----------------|---------|------------------|
+| `RoleScope.GLOBAL` | platform authority | `user.roles` |
+| `RoleScope.TENANT` | authority within one tenant | `membership.role` |
+| `RoleScope.SYSTEM` | runtime-context check | its dedicated check |
+| `RoleScope.UNKNOWN` | declared nowhere | `user.roles`; **never** a membership role under `strictMembershipRoles` |
 
 ### Boot-time coherence check
 
 `CoreTenantModule.forRoot()` calls `assertRoleVocabularyIsCoherent()` and **fails the boot** on:
 
 1. a tenant role named after a framework role (`roleHierarchy: { admin: 3 }`),
-2. a role declared in `globalOnlyRoles` _and_ as a tenant role — it would need two sources of truth,
+2. a role declared in `globalOnlyRoles` *and* as a tenant role — it would need two sources of truth,
 3. a system role declared in `globalOnlyRoles`.
 
 Failing the boot is the intended severity: each of these describes a configuration whose access
@@ -206,7 +202,7 @@ payload:
 PATCH /users/<victim-id>   { "id": "<attacker-id>", "iban": "DE...attacker" }
 ```
 
-On the **output** path there is no attacker-controlled input: the object being checked _is_ the
+On the **output** path there is no attacker-controlled input: the object being checked *is* the
 persisted record (and a list is checked per item), so it is the correct comparison target there.
 
 Both `check()` (`input.helper.ts`) and `checkRestricted()` (`restricted.decorator.ts`) implement this.
@@ -236,7 +232,7 @@ email?: string;
 email?: string;
 ```
 
-**Upgrade note:** before v11.28.x, `S_SELF`/`S_CREATOR` on an _input_ field never actually fired —
+**Upgrade note:** before v11.28.x, `S_SELF`/`S_CREATOR` on an *input* field never actually fired —
 the check read the claim off the DTO, and `MapAndValidatePipe` strips `id`/`createdBy` from payloads
 (they are not `@UnifiedField`s). Such fields were therefore effectively **admin-only-or-denied**.
 Now that the check reads the persisted object, they start working — and a field that looked
@@ -260,29 +256,29 @@ every level, and for every item of a declared array.
 @ObjectType()
 class Insurance {
   @UnifiedField({ roles: RoleEnum.ADMIN, type: () => String })
-  policyNumber?: string; // enforced from 11.35.0, returned in full before
+  policyNumber?: string;                      // enforced from 11.35.0, returned in full before
 }
 
 @ObjectType()
 class Patient extends CorePersistenceModel {
-  @UnifiedField({ type: () => Insurance }) // ← the `type` is what makes the nesting enforceable
+  @UnifiedField({ type: () => Insurance })    // ← the `type` is what makes the nesting enforceable
   insurance?: Insurance;
 
   @UnifiedField({ isArray: true, type: () => Insurance })
-  insurances?: Insurance[]; // every item, not just the first
+  insurances?: Insurance[];                   // every item, not just the first
 
   @UnifiedField({ isAny: true })
-  extra?: any; // NOT reached — nothing declares what this holds
+  extra?: any;                                // NOT reached — nothing declares what this holds
 }
 ```
 
-| Situation                                                           | Enforced?                                                                           |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Top-level property                                                  | yes, always                                                                         |
-| Nested value that IS an instance of its class                       | yes, always                                                                         |
-| Nested plain object / array with `@UnifiedField({ type: () => X })` | **yes, since 11.35.0**                                                              |
-| Nested value with no declared type (`isAny`, bare `@Field`)         | **no** — see below                                                                  |
-| Class-level `@Restricted` on a nested type                          | contents stripped, empty container remains (the `checkObjectItself: false` default) |
+| Situation | Enforced? |
+|-----------|-----------|
+| Top-level property | yes, always |
+| Nested value that IS an instance of its class | yes, always |
+| Nested plain object / array with `@UnifiedField({ type: () => X })` | **yes, since 11.35.0** |
+| Nested value with no declared type (`isAny`, bare `@Field`) | **no** — see below |
+| Class-level `@Restricted` on a nested type | contents stripped, empty container remains (the `checkObjectItself: false` default) |
 
 ### The opt-out flag is a MARKER now, not a property (11.35.0)
 
@@ -298,7 +294,7 @@ data. A plain truthy value is no longer honoured — the object is CHECKED — a
 
 **An undeclared nested type stays unchecked on purpose.** Such a value is just as legitimately
 free-form JSON, a `Map` or a scalar; failing closed there would strip vastly more than it protects. The
-rule is therefore: _if a nested field must be protected, declare its type._
+rule is therefore: *if a nested field must be protected, declare its type.*
 
 **Upgrade note:** nested `@Restricted` fields start working. A response loses a nested restricted
 field for callers who may not see it (correct), and an INPUT carrying one now throws 403 where it was
@@ -311,11 +307,11 @@ Every tenant decision the framework makes reads `RequestContext` (AsyncLocalStor
 Express stack therefore had no context, and `mongooseTenantPlugin` reads "no context" as "system
 operation, no filter". That is right for a cron job and wrong for a WebSocket.
 
-| Transport                               | Context                                           | Notes                                                          |
-| --------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------- |
-| HTTP (REST + GraphQL)                   | `RequestContextMiddleware`                        | `CoreTenantGuard` writes the validated tenant onto the request |
-| GraphQL over WebSocket                  | **`execute`/`subscribe` wrappers, since 11.35.0** | `CoreModule` installs them on all three driver builders        |
-| Cron jobs, migrations, queue processors | none, by design                                   | genuinely system-internal                                      |
+| Transport | Context | Notes |
+|-----------|---------|-------|
+| HTTP (REST + GraphQL) | `RequestContextMiddleware` | `CoreTenantGuard` writes the validated tenant onto the request |
+| GraphQL over WebSocket | **`execute`/`subscribe` wrappers, since 11.35.0** | `CoreModule` installs them on all three driver builders |
+| Cron jobs, migrations, queue processors | none, by design | genuinely system-internal |
 
 On the WebSocket path the tenant is resolved through `CoreTenantGuard.resolveTenantContext()` (reached
 via `core-tenant-context.registry.ts`, because `src/core/common/**` must not import a provider that
@@ -343,10 +339,10 @@ A request context is only half of it. All three role guards resolved the request
 (the graphql-ws `extra` object has no `req`) while the second yields the resolver ROOT, i.e. `undefined`
 at subscribe time. What they did with nothing pulled in opposite directions:
 
-| Configuration         | `@Roles()` on a `@Subscription` before 11.35.0                                                                                                        |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration | `@Roles()` on a `@Subscription` before 11.35.0 |
+|---------------|-----------------------------------------------|
 | `multiTenancy` active | `CoreTenantGuard` hit `if (!request) return true` and GRANTED. The role guard delegates non-system roles to it, so the role was checked by **nobody** |
-| no `multiTenancy`     | the role guard found no token and refused EVERYONE — the decorator silently meant "locked"                                                            |
+| no `multiTenancy` | the role guard found no token and refused EVERYONE — the decorator silently meant "locked" |
 
 `resolveGuardRequest()` (`src/core/common/helpers/execution-context-request.helper.ts`) is now the one
 resolver all three use, and it recognises the subscription context. It requires the graphql-ws marker
@@ -427,11 +423,11 @@ A `@Roles()` decides who may call a ROUTE. An operation is also reached from MCP
 queue processors and other services, and on those paths the route's roles are checked by nobody.
 Three mechanisms keep those paths inside the user's rights:
 
-| Path                                                       | Mechanism                                                                                                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| A service that must demand a tenant role whatever calls it | `assertTenantRole(roles, message?)` / `hasTenantRole(...roles)` (`core-tenant-role.helper.ts`) — decided like the guard's header path       |
-| AI tools (chat and `/ai/mcp`)                              | `AiToolRegistry.userCanAccess()` resolves tool roles like the guard under multi-tenancy (global vs membership role, `adminBypass` honoured) |
-| Data                                                       | `mongooseTenantPlugin` via `RequestContext` — tools run inside the HTTP request, so the validated tenant scopes them                        |
+| Path | Mechanism |
+|------|-----------|
+| A service that must demand a tenant role whatever calls it | `assertTenantRole(roles, message?)` / `hasTenantRole(...roles)` (`core-tenant-role.helper.ts`) — decided like the guard's header path |
+| AI tools (chat and `/ai/mcp`) | `AiToolRegistry.userCanAccess()` resolves tool roles like the guard under multi-tenancy (global vs membership role, `adminBypass` honoured), with the user as of the CURRENT request — an MCP session refreshes it on every request |
+| Data | `mongooseTenantPlugin` via `RequestContext` — tools run inside the HTTP request, so the validated tenant scopes them |
 
 **System work vs. an anonymous request.** Both have no current user. `assertTenantRole()` exempts
 system work (cron, migration, seed) and refuses the anonymous caller of a public route with 401 — told
@@ -442,18 +438,19 @@ closes (mutation `tenant-role-anonymous-as-system`).
 **Credentials under `adminBypass: false`.** `CoreUserService.update()` refuses a change of another
 account's e-mail address or password (`assertCredentialChangeAllowed()`) — administrator targets
 included, because an administrator may write `roles` and could otherwise promote first and change
-second (mutation `tenant-credential-admin-target-exempt`). Without it, a
-platform administrator — or the account's creator, since `S_CREATOR` may update and `email` is open to
-every updater — takes the account over with an address change and a reset, which is precisely the
-access `adminBypass: false` withholds.
+second (mutation `tenant-credential-admin-target-exempt`). Without it, a platform administrator — or
+the account's creator, since `S_CREATOR` may update and `email` is open to every updater — takes the
+account over with an address change and a reset, which is precisely the access `adminBypass: false`
+withholds.
 
 **Deactivated tenants.** `multiTenancy.isTenantActive` is asked after the membership on every path that
-establishes a tenant (see `.claude/rules/configurable-features.md`, Multi-Tenancy row).
+establishes a tenant (see `.claude/rules/configurable-features.md`, Multi-Tenancy row). A GraphQL
+subscription that is already open keeps its tenant until the client reconnects — a known limit it
+shares with a removed membership.
 
 ## Role Check Implementation
 
 The role system is evaluated in:
-
 - `RolesGuard` / `BetterAuthRolesGuard` - Checks method-level `@Roles()` decorators (passes through non-system roles to `CoreTenantGuard` when multiTenancy is active AND a tenant guard is registered — see below)
 - `CoreTenantGuard` - Validates tenant membership and checks hierarchy/normal roles
 - `CheckResponseInterceptor` - Filters fields based on `@Restricted()` decorators
@@ -465,13 +462,13 @@ The role system is evaluated in:
 consequence: SPA auth layers treat 401 as "session expired" and log the user out — so a mere
 permission error returned as 401 kicks a logged-in user out of the whole app.
 
-| Situation                                        | Status                                        | Message                   |
-| ------------------------------------------------ | --------------------------------------------- | ------------------------- |
-| Requester is **not authenticated**               | **401**                                       | `ErrorCode.UNAUTHORIZED`  |
-| Requester **is authenticated** but lacks a right | **403**                                       | `ErrorCode.ACCESS_DENIED` |
-| `S_NO_ONE` (locked for everyone)                 | **403 always**, even for anonymous requesters | `ErrorCode.ACCESS_DENIED` |
+| Situation | Status | Message |
+|-----------|--------|---------|
+| Requester is **not authenticated** | **401** | `ErrorCode.UNAUTHORIZED` |
+| Requester **is authenticated** but lacks a right | **403** | `ErrorCode.ACCESS_DENIED` |
+| `S_NO_ONE` (locked for everyone) | **403 always**, even for anonymous requesters | `ErrorCode.ACCESS_DENIED` |
 
-`S_NO_ONE` is 403 even without a session because authenticating can _never_ unlock it — a 401 would
+`S_NO_ONE` is 403 even without a session because authenticating can *never* unlock it — a 401 would
 tell the client to log in and retry, which is a lie.
 
 Exception: `ErrorCode.EMAIL_VERIFICATION_REQUIRED` is a legitimate **401** (thrown at sign-in, where
@@ -516,7 +513,6 @@ async someAdminQuery(): Promise<SomeModel> { }
 ```
 
 The `@Roles()` decorator combined with `RolesGuard` automatically:
-
 1. Validates the JWT token
 2. Extracts the user from the token
 3. Checks if the user has the required role
@@ -525,10 +521,10 @@ The `@Roles()` decorator combined with `RolesGuard` automatically:
 
 `@UseGuards(AuthGuard(...))` is only needed in these specific cases:
 
-| Case                  | Example                                                | Reason                               |
-| --------------------- | ------------------------------------------------------ | ------------------------------------ |
-| **Refresh Token**     | `@UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))` | Different strategy than standard JWT |
-| **Custom Strategies** | `@UseGuards(AuthGuard(AuthGuardStrategy.CUSTOM))`      | Non-standard authentication flow     |
+| Case | Example | Reason |
+|------|---------|--------|
+| **Refresh Token** | `@UseGuards(AuthGuard(AuthGuardStrategy.JWT_REFRESH))` | Different strategy than standard JWT |
+| **Custom Strategies** | `@UseGuards(AuthGuard(AuthGuardStrategy.CUSTOM))` | Non-standard authentication flow |
 
 ```typescript
 // CORRECT: refreshToken needs JWT_REFRESH strategy (not standard JWT)
