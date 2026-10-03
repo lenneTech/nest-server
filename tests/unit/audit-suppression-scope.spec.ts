@@ -85,9 +85,13 @@ describe('audit suppressions stay within their justification', () => {
       // `--prod` walks `dependencies` only. If the vulnerable major shows up
       // here, the "dev tooling only, no consumer and no runtime reaches it"
       // argument behind the suppression no longer holds.
-      const out = execFileSync('pnpm', ['why', pkg, '--prod'], {
+      // One command STRING with `shell: true`: on Windows pnpm is a .cmd shim, which Node refuses to
+      // spawn directly since 20.12 (spawnSync pnpm ENOENT) — the same pattern as
+      // scripts/check-overrides.mjs. `pkg` is a literal from the list above, so nothing to escape.
+      const out = execFileSync(`pnpm why ${pkg} --prod`, {
         cwd: ROOT,
         encoding: 'utf8',
+        shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
