@@ -148,7 +148,9 @@ function buildWorkspace({
  * something. Applied centrally, so a rule added later inherits all three.
  */
 function assertReachedAVerdict(out: string, spawnError: Error | undefined) {
-  expect(out, `the guard crashed instead of reporting — this run verified nothing:\n${out}`).not.toMatch(/ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError|ReferenceError|TypeError/);
+  expect(out, `the guard crashed instead of reporting — this run verified nothing:\n${out}`).not.toMatch(
+    /ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError|ReferenceError|TypeError/,
+  );
   expect(spawnError, `the guard could not be spawned: ${spawnError?.message}`).toBeUndefined();
   expect(out.trim(), 'the guard produced no output at all — it cannot have reached a verdict').not.toBe('');
 }
@@ -287,9 +289,38 @@ describe('check-overrides — advisories without an override', () => {
 });
 
 describe('check-overrides — overrides for packages that left the tree', () => {
+  /**
+   * @regression   11.41.8 — the UNUSED search read the WHOLE lockfile, and pnpm echoes every
+   *   override into the lockfile's own top-level `overrides:` block. So every override was found
+   *   in its own echo and UNUSED never fired on a real lockfile; the cases below passed only
+   *   because their fixtures carried no such header.
+   * @seen-failing Search the whole lockfile again instead of the `packages:` part in
+   *   scripts/check-overrides.mjs — registered as mutation `check-overrides-unused-reads-override-echo`
+   *   in tests/regression-mutations.json.
+   */
+  it("reports one that only the lockfile's own overrides header still names", () => {
+    // A SELECTOR key (`pkg@<x`) is what makes the echo dangerous: the header line then carries
+    // `pkg@`, exactly what the "is it in the tree" search looks for. A bare key has no `@` there.
+    const r = run({
+      lock: "lockfileVersion: '9.0'\n\noverrides:\n  long-gone@<1.2.3: 1.2.3\n\npackages:\n  something-else@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+      overrides: { 'long-gone@<1.2.3': '1.2.3' },
+    });
+    expect(r.status, 'dead weight is a warning, not a failure').toBe(0);
+    expect(r.out, `the header echo must not count as "in the tree", got:\n${r.out}`).toMatch(/not in the tree/i);
+    expect(r.out).toMatch(/long-gone/);
+  });
+
+  it('paired control: stays quiet when the package IS resolved below the header', () => {
+    const r = run({
+      lock: "lockfileVersion: '9.0'\n\noverrides:\n  long-gone@<1.2.3: 1.2.3\n\npackages:\n  long-gone@1.2.3:\n    resolution: {integrity: sha512-x}\n",
+      overrides: { 'long-gone@<1.2.3': '1.2.3' },
+    });
+    expect(r.out, `long-gone IS resolved, got:\n${r.out}`).not.toMatch(/not in the tree/i);
+  });
+
   it('reports one whose package is absent from the lockfile', () => {
     const r = run({
-      lock: "packages:\n  something-else@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+      lock: 'packages:\n  something-else@1.0.0:\n    resolution: {integrity: sha512-x}\n',
       overrides: { 'long-gone': '1.2.3' },
     });
     expect(r.status, 'dead weight is a warning, not a failure').toBe(0);
@@ -302,7 +333,7 @@ describe('check-overrides — overrides for packages that left the tree', () => 
     // guard would call the override live and say nothing. The lockfile here has
     // ONLY tar-stream, so `tar` must still be reported as absent.
     const r = run({
-      lock: "packages:\n  tar-stream@3.1.7:\n    resolution: {integrity: sha512-x}\n",
+      lock: 'packages:\n  tar-stream@3.1.7:\n    resolution: {integrity: sha512-x}\n',
       overrides: { tar: '6.2.1' },
     });
     expect(r.out, `expected tar reported absent, got:\n${r.out}`).toMatch(/UNUSED|not in the tree/i);
@@ -312,7 +343,7 @@ describe('check-overrides — overrides for packages that left the tree', () => 
     // The negative control for the rule above — without it, a guard that reports
     // every override as unused would pass both tests before this one.
     const r = run({
-      lock: "packages:\n  tar@6.2.1:\n    resolution: {integrity: sha512-x}\n",
+      lock: 'packages:\n  tar@6.2.1:\n    resolution: {integrity: sha512-x}\n',
       overrides: { tar: '6.2.1' },
     });
     // The positive marker matters as much as the absent warning: this is the one
@@ -386,7 +417,7 @@ describe('check-overrides — override key shapes', () => {
     // every run is precisely the noise that trains a reader to skip the number
     // this guard exists to make them read.
     const r = run({
-      lock: "packages:\n  ws@8.21.3:\n    resolution: {integrity: sha512-x}\n",
+      lock: 'packages:\n  ws@8.21.3:\n    resolution: {integrity: sha512-x}\n',
       overrides: { 'ws@>=8.0.0 <8.21.0': '8.21.3' },
     });
     expect(r.out, `ws IS in the lockfile, got:\n${r.out}`).not.toMatch(/not in the tree/i);

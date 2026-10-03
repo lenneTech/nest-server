@@ -88,9 +88,11 @@ compatible with either downstream layout:
   runtime helper, otherwise vendor consumers miss them at install time.
   The vendoring step copies `dependencies` only — it never reads
   `peerDependencies` — so a package in either of the other two sections is
-  invisible to it. Both cases are live today: `find-file-up` (a devDep the
-  config loader imports) and `better-auth` / `@better-auth/passkey` /
-  `@better-auth/core` (required peers since 11.37.0).
+  invisible to it. The live case today is `better-auth` / `@better-auth/passkey` /
+  `@better-auth/core` (required peers since 11.37.0). `find-file-up`, the
+  other entry on that list, was never imported by framework code — only by the
+  pre-commit hook's `extras/sync-version.ts` — and left together with `husky`
+  in 11.41.8; its list entry is now inert.
   **A peer listed there must ALSO stay in `devDependencies`**: the CLI reads
   the version from the upstream devDeps, so removing it as "redundant with
   the peer range" silently leaves vendor consumers without the package, with

@@ -1,10 +1,10 @@
-import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { isEmail } from 'class-validator';
 import { Connection } from 'mongoose';
 
 import { ConfigService } from '../../common/services/config.service';
+import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-account-issuer.helper';
 import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthService } from '../better-auth/core-better-auth.service';
 import { ErrorCode } from '../error-code/error-codes';
@@ -305,18 +305,22 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
 
       // Hash password and create credential account
       const hashedPassword = await context.password.hash(normalizedPassword);
-      // better-auth >= 1.7 keys accounts by (issuer, accountId) and requires the
-      // issuer. Credential accounts have no real issuer, so better-auth derives a
-      // synthetic one — always via this helper, never a hand-written literal:
-      // the format is better-auth's to change, and a copy of it would silently
-      // stop matching the accounts better-auth writes itself.
+      // better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId) and require the issuer;
+      // credential accounts carry a synthetic one, always derived via the helper, never a
+      // hand-written literal. better-auth 1.7.3+ went back to (providerId, accountId) and knows no
+      // issuer field, so the helper answers `undefined` there and nothing is written.
+      //
+      // Cast to the adapter's OWN parameter type: against better-auth 1.7.0–1.7.2 that type requires
+      // `issuer`, and a conditional spread reads as optional — a vendored core compiled against
+      // those versions would otherwise not build.
+      const credentialIssuer = legacyCredentialAccountIssuer();
       await context.internalAdapter.linkAccount({
         accountId: iamUser.id,
-        issuer: createLocalAccountIssuer('credential'),
+        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),
         password: hashedPassword,
         providerId: 'credential',
         userId: iamUser.id,
-      });
+      } as Parameters<typeof context.internalAdapter.linkAccount>[0]);
 
       // Sync to nest-server users collection
       const syncedUser = await this.userMapper.linkOrCreateUser({

@@ -744,7 +744,13 @@ if (suppressed.length > 0) {
 const unused = [];
 const lockPath = join(ROOT, 'pnpm-lock.yaml');
 if (existsSync(lockPath)) {
-  const lock = readFileSync(lockPath, 'utf8');
+  // Only the RESOLVED part of the lockfile may answer "is it in the tree". pnpm copies every
+  // override into the lockfile's own top-level `overrides:` block, so a search of the whole file
+  // found each override in its own echo and this class could never fire on a real lockfile — only
+  // on test fixtures that lacked the header. `packages:` (v9) / the package keys (v6) start below it.
+  const raw = readFileSync(lockPath, 'utf8');
+  const packagesAt = raw.search(/^packages:\s*$/m);
+  const lock = packagesAt === -1 ? raw : raw.slice(packagesAt);
   for (const key of Object.keys(overrides)) {
     const module = targetPackage(key);
     // Lockfile entries are keyed `/name@version` (v6+) or `name@version:` (v9+).

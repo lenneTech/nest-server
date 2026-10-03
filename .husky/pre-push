@@ -1,1 +1,0 @@
-pnpm run test:e2e && pnpm run build
