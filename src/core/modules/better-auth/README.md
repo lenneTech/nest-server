@@ -1028,12 +1028,26 @@ Idempotent indices on `session`, `users`, `account` and `verification`, includin
 expires unconsumed verification and password-reset documents. Failures are logged at `warn` and do
 not block the boot: these help speed, not correctness.
 
-### 2. `backfillAccountIssuers()` — correctness (11.37.0+)
+### 2. The account issuer — correctness (depends on the INSTALLED better-auth)
 
-From better-auth 1.7 an account is keyed by `(issuer, accountId)` and the sign-in route filters on
-it verbatim. Rows written by better-auth 1.6 have no `issuer` field, so **every existing password
-user would be locked out by the upgrade**, with a bare 401 and nothing in the log to explain it.
-This step repairs those rows on the first boot after the upgrade.
+better-auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)`; 1.7.3 restored the 1.6 schema,
+`(providerId, accountId)`. The boot runs ONE of two steps, decided by what is installed
+(`core-better-auth-account-issuer.helper.ts`):
+
+- **better-auth 1.7.3+ (11.41.8+ requires it): `dropLegacyAccountIssuerIndex()`.** Databases that ran
+  1.7.0–1.7.2 (nest-server 11.37–11.41.7) carry a unique `(issuer, accountId)` index. With the field
+  no longer written it refuses a second provider with the same account ID, so the boot drops it —
+  recognised by shape, so a renamed collection or field is covered. Existing `issuer` values stay;
+  they are inert. The backfill marker is deleted, so a rollback to a better-auth that needs the
+  issuer runs the backfill again. Log line: `Dropped the unique index "…" on account(issuer,
+accountId)`. A failure is logged at `error` and the boot continues.
+- **better-auth 1.7.0–1.7.2: `backfillAccountIssuers()`, described below.** Kept for a project that
+  has not raised its better-auth pin yet.
+
+From better-auth 1.7.0 to 1.7.2 an account is keyed by `(issuer, accountId)` and the sign-in route
+filters on it verbatim. Rows written by better-auth 1.6 have no `issuer` field, so **every existing
+password user would be locked out by the upgrade**, with a bare 401 and nothing in the log to
+explain it. The backfill repairs those rows on the first boot after the upgrade.
 
 | Property         | Behaviour                                                                                                                                                                                    |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

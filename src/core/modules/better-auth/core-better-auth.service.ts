@@ -1,4 +1,3 @@
-import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Request } from 'express';
@@ -12,6 +11,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { ErrorCode } from '../error-code/error-codes';
 import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 import { BetterAuthInstance } from './better-auth.config';
+import { legacyCredentialAccountIssuer, usesLegacyAccountIssuer } from './core-better-auth-account-issuer.helper';
 import { isJwtShaped } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
@@ -21,6 +21,7 @@ import {
   BETTER_AUTH_CONFIG,
   BETTER_AUTH_COOKIE_DOMAIN,
   BETTER_AUTH_INSTANCE,
+  DEFAULT_ACCOUNT_ACCOUNT_ID_FIELD,
   DEFAULT_ACCOUNT_ISSUER_FIELD,
   DEFAULT_ACCOUNT_MODEL_NAME,
 } from './core-better-auth.constants';
@@ -113,12 +114,21 @@ export class CoreBetterAuthService implements OnModuleInit {
    *
    * Order matters: the backfill's update can use the `{ providerId: 1, userId: 1 }` index created
    * below, so indices come first.
+   *
+   * Which account step runs depends on the INSTALLED better-auth, not on this package's version:
+   * 1.7.0–1.7.2 key accounts by issuer and need the backfill; 1.7.3+ dropped the issuer and need the
+   * unique index those versions left behind removed instead. A project that has not raised its
+   * better-auth pin yet therefore keeps working exactly as before.
    */
   async onModuleInit(): Promise<void> {
     if (!this.isEnabled() || !this.connection?.db) return;
 
     await this.ensureIndices();
-    await this.backfillAccountIssuers();
+    if (usesLegacyAccountIssuer()) {
+      await this.backfillAccountIssuers();
+    } else {
+      await this.dropLegacyAccountIssuerIndex();
+    }
   }
 
   /**
@@ -195,6 +205,11 @@ export class CoreBetterAuthService implements OnModuleInit {
   protected async backfillAccountIssuers(): Promise<void> {
     if (!this.isEnabled() || !this.connection?.db) return;
 
+    // Only better-auth 1.7.0–1.7.2 key accounts by issuer. On 1.7.3+ there is nothing to backfill —
+    // and nothing to derive the value from.
+    const credentialIssuer = legacyCredentialAccountIssuer();
+    if (!credentialIssuer) return;
+
     const db = this.connection.db;
 
     // The consumer can rename both of these through `betterAuth.options.account`, which
@@ -243,7 +258,7 @@ export class CoreBetterAuthService implements OnModuleInit {
           pending.map((doc) => ({
             updateOne: {
               filter: { _id: doc._id },
-              update: { $set: { [issuerField]: createLocalAccountIssuer('credential') } },
+              update: { $set: { [issuerField]: credentialIssuer } },
             },
           })),
           { ordered: false },
@@ -302,6 +317,75 @@ export class CoreBetterAuthService implements OnModuleInit {
       this.logger.error(
         `Could not backfill the account issuer: ${error instanceof Error ? error.message : 'unknown'}. ` +
           'Existing password users may be unable to sign in until this succeeds.',
+      );
+    }
+  }
+
+  /**
+   * Drops the unique `(issuer, accountId)` index better-auth 1.7.0–1.7.2 created on the account
+   * collection, and forgets the issuer-backfill marker. Runs on better-auth 1.7.3+ only.
+   *
+   * better-auth 1.7.0 keyed accounts by `(issuer, accountId)`, and its MongoDB adapter created that
+   * index lazily. 1.7.3 restored the 1.6 schema — `(providerId, accountId)` — and no longer writes
+   * `issuer`. The index stays behind in every database that ran those versions (this framework
+   * required them from 11.37.0 to 11.41.7), and with the field gone it treats every new account as
+   * having the same, missing issuer: a user who holds the same account ID at two providers can no
+   * longer link the second one. MongoDB has no `NOT NULL`, so dropping the index is the whole
+   * cleanup — upstream's 1.7 upgrade guide, "Account identity keeps the provider key". Existing
+   * `issuer` values are inert and stay, which also keeps a rollback possible.
+   *
+   * The marker is deleted for the same rollback: back on a better-auth that needs the issuer, the
+   * backfill must run again and repair the accounts written in the meantime instead of being
+   * skipped as "already completed".
+   *
+   * The index is recognised by its SHAPE — unique, keyed exactly on the issuer and account-id fields
+   * — not by name: better-auth derives the name from the collection and field names (by default
+   * `account_issuer_accountId_uidx`), and a consumer can rename both through
+   * `betterAuth.options.account`.
+   *
+   * Idempotent and cheap: one `listIndexes` and one `deleteOne` per boot. Never fatal — a failure is
+   * logged as an error and the server still starts.
+   */
+  protected async dropLegacyAccountIssuerIndex(): Promise<void> {
+    if (!this.isEnabled() || !this.connection?.db) return;
+
+    const db = this.connection.db;
+    const accountOptions = (this.authInstance as any)?.options?.account;
+    const modelName: string = accountOptions?.modelName ?? DEFAULT_ACCOUNT_MODEL_NAME;
+    const issuerField: string = accountOptions?.fields?.issuer ?? DEFAULT_ACCOUNT_ISSUER_FIELD;
+    const accountIdField: string = accountOptions?.fields?.accountId ?? DEFAULT_ACCOUNT_ACCOUNT_ID_FIELD;
+
+    try {
+      await db.collection(BACKFILL_MARKER_COLLECTION).deleteOne({ _id: ACCOUNT_ISSUER_BACKFILL_ID as any });
+
+      const accounts = db.collection(modelName);
+      let indexes: { key?: Record<string, unknown>; name?: string; unique?: boolean }[];
+      try {
+        indexes = await accounts.indexes();
+      } catch (error) {
+        // A collection that does not exist yet has no index to drop (NamespaceNotFound).
+        if ((error as { code?: number })?.code === 26) return;
+        throw error;
+      }
+
+      const legacy = indexes.filter(
+        (index) =>
+          index.unique === true &&
+          !!index.name &&
+          Object.keys(index.key ?? {}).join(',') === `${issuerField},${accountIdField}`,
+      );
+      for (const index of legacy) {
+        await accounts.dropIndex(index.name as string);
+        this.logger.log(
+          `Dropped the unique index "${index.name}" on ${modelName}(${issuerField}, ${accountIdField}): ` +
+            'better-auth >= 1.7.3 no longer writes the issuer, and the index would refuse new accounts.',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not drop the legacy unique (${issuerField}, ${accountIdField}) index on "${modelName}": ` +
+          `${error instanceof Error ? error.message : 'unknown'}. Linking an account whose ID another ` +
+          'provider already uses will fail until it is dropped by hand.',
       );
     }
   }

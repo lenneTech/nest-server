@@ -713,37 +713,13 @@
     },
     {
       "id": "account-issuer-missing-on-migrate",
-      "defect": "11.37.0 — the legacy->IAM account migration wrote the credential account WITHOUT an `issuer`, so better-auth 1.7 could not find the row it had just created. The very sign-in that triggered the migration answered 401, and every later sign-in did too. Dropping the field restores that.",
+      "defect": "11.37.0 — the legacy->IAM migration wrote the credential account WITHOUT an issuer; better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId), so the migrated user's sign-in answered 401. Since 11.41.8 the issuer is written only while such a better-auth is installed.",
       "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
       "after": "      await accountsCollection.insertOne({",
-      "find": "        issuer: createLocalAccountIssuer('credential'),\n",
+      "find": "        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),\n",
       "replace": "",
       "specs": [
-        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
-      ],
-      "driverSpecific": false
-    },
-    {
-      "id": "account-issuer-missing-on-link-account",
-      "defect": "11.37.0 — system setup linked the initial admin's credential account WITHOUT an `issuer`, so better-auth 1.7 could not resolve it. A fresh deployment created an admin who could never sign in — the one account that must work on a new installation.",
-      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
-      "after": "      await context.internalAdapter.linkAccount({",
-      "find": "        issuer: createLocalAccountIssuer('credential'),\n",
-      "replace": "",
-      "specs": [
-        "tests/stories/system-setup.e2e-spec.ts"
-      ],
-      "driverSpecific": false
-    },
-    {
-      "id": "account-issuer-backfill-writes-nothing",
-      "defect": "11.37.0 — the boot-time backfill is what lets a credential account written by better-auth 1.6 sign in after the upgrade. Narrowing its filter so it matches no row leaves every legacy account without an `issuer`, and better-auth 1.7 cannot resolve them: the user gets a bare 401. This mutation targets the backfill's WRITE, not its wiring — the e2e suite calls the method directly, so it can only observe the former.",
-      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
-      "after": "      const pending = await accounts",
-      "find": "        .find({ [issuerField]: { $exists: false }, providerId: 'credential' }, { projection: { _id: 1 } })",
-      "replace": "        .find({ [issuerField]: { $exists: false }, providerId: '__never_matches__' }, { projection: { _id: 1 } })",
-      "specs": [
-        "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
+        "tests/unit/better-auth-account-issuer-writes.spec.ts"
       ],
       "driverSpecific": false
     },
@@ -1574,6 +1550,50 @@
       "replace": "      const owner = await this.foreignSessionOwner(sessionId, `never-matches-${user.id}`);",
       "specs": [
         "tests/unit/ai-mcp-session-recovery.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-overrides-unused-reads-override-echo",
+      "defect": "11.41.8 — the UNUSED search in scripts/check-overrides.mjs read the WHOLE lockfile, where pnpm echoes every override into its own top-level `overrides:` block, so UNUSED never fired on a real lockfile.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const lock = packagesAt === -1 ? raw : raw.slice(packagesAt);",
+      "replace": "  const lock = raw;",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-issuer-index-drop-skipped",
+      "defect": "11.41.8 — on better-auth 1.7.3+ the unique (issuer, accountId) index left behind by 1.7.0–1.7.2 refuses a second account whose ID another provider already uses; the boot must drop it.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "        await accounts.dropIndex(index.name as string);",
+      "replace": "        void index;",
+      "specs": [
+        "tests/unit/better-auth-legacy-issuer-index.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "issuer-backfill-marker-kept",
+      "defect": "11.41.8 — on better-auth 1.7.3+ the issuer-backfill marker must be forgotten, or a rollback to a better-auth that needs the issuer skips the backfill and locks out every account written in the meantime.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      await db.collection(BACKFILL_MARKER_COLLECTION).deleteOne({ _id: ACCOUNT_ISSUER_BACKFILL_ID as any });",
+      "replace": "      void db;",
+      "specs": [
+        "tests/unit/better-auth-legacy-issuer-index.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-issuer-index-never-dropped",
+      "defect": "11.41.8 — the left-over unique (issuer, accountId) index refuses legitimate accounts on better-auth 1.7.3+, shown against a real database.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "          Object.keys(index.key ?? {}).join(',') === `${issuerField},${accountIdField}`,",
+      "replace": "          Object.keys(index.key ?? {}).join(',') === '__never__',",
+      "specs": [
+        "tests/stories/better-auth-issuer-upgrade.e2e-spec.ts"
       ],
       "driverSpecific": false
     }

@@ -41,8 +41,7 @@ jobs:
         uses: actions/checkout@v7
 
       # Only *.cmd / *.bat may be CRLF. docker-entrypoint.sh and the Dockerfile are copied
-      # into Linux images from the working tree, and the .husky hooks run under sh — with
-      # CRLF none of them work.
+      # into Linux images from the working tree — with CRLF neither works.
       - name: Verify LF line endings
         shell: bash
         run: |

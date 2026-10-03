@@ -62,4 +62,31 @@ with zero other drift — try it in scratch every run.
 format+lint. Safe only after `format:check` and `lint` are proven clean; snapshot `shasum` of the
 foreign files before and diff after. `spectaql:sync` rewrites `spectaql.yml` version — expected.
 
+**6. `@vitest/ui` was the starter's sticky optional peer — DROPPED 2026-10-03 (11.41.7 run).**
+Item 4's "harmless, leave it" is superseded: same mechanism as 4c, and it was the only reason
+`fflate` + `flatted` were in the lock (neither vitest config uses the UI or the html reporter).
+Dropped net-zero (`'@vitest/ui': '-'` trick) — exactly 3 packages left, zero version movement.
+The `fflate@<0.8.3` override is KEPT as a pre-emptive floor with a dated comment; it is now inert.
+If `@vitest/ui` reappears in the starter lock, someone ran `vitest --ui` — fine, the floor catches it.
+
+**7. `check:overrides` can never report UNUSED on a real lockfile (found 2026-10-03, both repos).**
+`scripts/check-overrides.mjs` tests `(^|[/'"\s])<pkg>@` against the whole lockfile — but pnpm echoes
+EVERY override into the lockfile's own top-level `overrides:` header (`  fflate@<0.8.3: 0.8.3`), so
+the regex always matches its own echo. The guard spec's fixtures (`check-overrides.guard.spec.ts`
+"overrides for packages that left the tree") use synthetic locks WITHOUT that header, so they pass.
+Proven with fflate: absent from `packages:`/`snapshots:`, guard said "ok". Fix belongs in nest-server
+first (scan only the `packages:` section), then port. Reported, not edited — maintenance runs do not
+touch `scripts/`. **How to apply:** never read a quiet guard as "every override is live"; use
+`lockdiff` on `packages:` keys (or `pnpm why`) instead.
+
+**8. Starter state 2026-10-03 (11.41.7):** every direct dep is the newest mature release of its
+major or framework-constrained (mongodb 7.7 blocked by mongoose `~7.6`; mongoose 9.10.4 / supertest
+7.3.1 in cooldown AND framework-pinned lower; better-auth trio 1.7.7 held by lock-step).
+Deferred majors (same reasons as [[deferred-major-updates]]): NestJS 12 family incl. @nestjs/cli 12,
+@nestjs/schematics 12, @nestjs/mongoose 12, @nestjs/swagger 12, @nestjs/schedule 12, @nestjs/graphql
+14; vitest + @vitest/coverage-v8 5; typescript 7; dotenv 18; graphql-upload 18. Overrides: hono,
+ip-address and vite were downgrade locks (vite is a starter-only entry — track it against
+nest-server's own `vite` devDependency). `pnpm dedupe` found nothing. Remaining in-major pairs
+(@angular-devkit 19.2.24/27, rxjs 7.8.1/7.8.2, picomatch 4.0.4/4.0.7, …) are upstream exact pins.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

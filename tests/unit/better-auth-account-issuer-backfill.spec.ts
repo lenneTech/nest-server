@@ -2,6 +2,12 @@
  * Unit Tests: the `account.issuer` backfill that keeps an upgrade to better-auth 1.7 from
  * locking every existing password user out.
  *
+ * THE LINE THESE TESTS SIMULATE. Only better-auth 1.7.0–1.7.2 key accounts by issuer; 1.7.3
+ * restored the 1.6 schema, and this repository installs 1.7.7. The backfill still runs for a project
+ * that has not raised its better-auth pin yet, so the helper that detects the line is mocked to
+ * report the legacy issuer here. The 1.7.3+ boot path is
+ * tests/unit/better-auth-legacy-issuer-index.spec.ts.
+ *
  * WHY THIS EXISTS.
  * Up to better-auth 1.6 a credential account was identified by `providerId` + `userId`. From
  * 1.7 an account is keyed by (issuer, accountId), and the sign-in route filters on it verbatim:
@@ -38,6 +44,12 @@
  *   `account-issuer-backfill-missing` in tests/regression-mutations.json.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// better-auth 1.7.0–1.7.2: accounts keyed by issuer, `createLocalAccountIssuer('credential')`.
+vi.mock('../../src/core/modules/better-auth/core-better-auth-account-issuer.helper', () => ({
+  legacyCredentialAccountIssuer: () => 'local:credential',
+  usesLegacyAccountIssuer: () => true,
+}));
 
 import {
   ACCOUNT_ISSUER_BACKFILL_ID,

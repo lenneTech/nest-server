@@ -73,27 +73,36 @@ export const BETTER_AUTH_CONFIG = 'BETTER_AUTH_CONFIG';
 export const BETTER_AUTH_COOKIE_DOMAIN = 'BETTER_AUTH_COOKIE_DOMAIN';
 
 /**
- * better-auth's default name for the account collection, and for the `issuer` field inside it.
+ * better-auth's default names for the account collection and for fields inside it.
  *
- * Both are overridable by a consumer through `betterAuth.options.account.modelName` /
- * `.fields.issuer`, which `better-auth.config.ts` spreads onto the resolved config verbatim. Any
- * framework code touching that collection directly MUST resolve the real names from the running
- * instance and fall back to these — a hardcoded name silently addresses a collection better-auth
- * does not use, which on the issuer backfill means every password user stays locked out while the
- * operation reports success by saying nothing.
+ * All are overridable by a consumer through `betterAuth.options.account.modelName` / `.fields.*`,
+ * which `better-auth.config.ts` spreads onto the resolved config verbatim. Any framework code
+ * touching that collection directly MUST resolve the real names from the running instance and fall
+ * back to these — a hardcoded name silently addresses a collection or an index better-auth does not
+ * use, and the operation then reports success by saying nothing.
+ *
+ * `issuer` is only used by better-auth 1.7.0–1.7.2; 1.7.3 restored the 1.6 schema (accounts keyed by
+ * `(providerId, accountId)` again). Its name is still needed on both lines: for the backfill while a
+ * project runs 1.7.0–1.7.2, and afterwards to recognise the unique index those versions left behind —
+ * see `CoreBetterAuthService.dropLegacyAccountIssuerIndex()`.
  */
 export const DEFAULT_ACCOUNT_MODEL_NAME = 'account';
 export const DEFAULT_ACCOUNT_ISSUER_FIELD = 'issuer';
+export const DEFAULT_ACCOUNT_ACCOUNT_ID_FIELD = 'accountId';
 
 /**
  * Collection holding one-shot completion markers for boot-time data migrations, and the marker id
- * of the `account.issuer` backfill (better-auth 1.7).
+ * of the `account.issuer` backfill.
+ *
+ * The backfill only runs while the installed better-auth still keys accounts by issuer (1.7.0–1.7.2,
+ * see `core-better-auth-account-issuer.helper.ts`). On 1.7.3+ the boot DELETES this marker instead:
+ * should the project roll back to a better-auth that needs the issuer, the backfill then runs again
+ * and repairs the accounts written in the meantime, rather than being skipped by a stale marker.
  *
  * The marker exists for cost, not for correctness: the backfill is idempotent and safe to repeat,
  * but its filters (`$exists: false`, `$ne`) cannot use an index, so without a marker every boot of
- * every replica pays a full pass over the account collection — forever, and inside the `await` that
- * precedes `app.listen()`. Versioned in the id so a future backfill of the same field can run
- * again without clearing this one.
+ * every replica pays a full pass over the account collection. Versioned in the id so a future
+ * backfill of the same field can run again without clearing this one.
  */
 export const BACKFILL_MARKER_COLLECTION = 'better-auth-backfills';
 export const ACCOUNT_ISSUER_BACKFILL_ID = 'account-issuer-backfill-v1';

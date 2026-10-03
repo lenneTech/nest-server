@@ -9,4 +9,4 @@
 - [Dependency shape + couplings](nest-server-dependency-shape.md) — deps vs devDeps; mongodb+mongoose; AWS trio one version; lockstep exact pins.
 - [Maintenance gotchas](nest-server-maintenance-gotchas.md) — check nest exec bit + reserve VS Code ports BEFORE the gate; dead husky; scratch dedupe; hung install.
 - [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — stale lock entries after override edits, targeted `pnpm update --depth Infinity`, `check --no-fix`.
-- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages + check:consumer ignore overrides (bare nodemailer pin), stale copies, sticky optional peer, dedupe, safe gate.
+- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages + check:consumer ignore overrides, stale copies, sticky optional peers (@vitest/ui dropped 2026-10-03), check:overrides UNUSED is unreachable, starter deferred majors.

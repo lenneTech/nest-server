@@ -1,4 +1,3 @@
-import { createLocalAccountIssuer } from '@better-auth/core/db';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
@@ -19,6 +18,7 @@ const scryptPromise = (password: string, salt: string, keylen: number, options: 
 
 import { RoleEnum } from '../../common/enums/role.enum';
 import { maskEmail } from '../../common/helpers/logging.helper';
+import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper';
 
 /**
  * Interface for Better-Auth session user
@@ -531,16 +531,16 @@ export class CoreBetterAuthUserMapper {
       // Store account matching Better-Auth's format:
       // - userId: ObjectId referencing users._id
       // - accountId: string version of users._id
-      // - issuer: from better-auth >= 1.7 accounts are keyed by (issuer,
-      //   accountId), and credential accounts carry a synthetic issuer. Writing
-      //   the row without it produces an account better-auth cannot find, so the
-      //   migrated user gets a 401 on the very sign-in that triggered the
-      //   migration. Always derive it from the helper, never hand-write it.
+      // - issuer: ONLY while the installed better-auth is 1.7.0–1.7.2, which key accounts by
+      //   (issuer, accountId) — a row without it is not found, and the migrated user gets a 401 on
+      //   the very sign-in that triggered the migration. 1.7.3+ went back to (providerId,
+      //   accountId) and writes no issuer. Always derived from the helper, never hand-written.
+      const credentialIssuer = legacyCredentialAccountIssuer();
       await accountsCollection.insertOne({
         accountId: userIdHex,
         createdAt: now,
         id: this.generateId(),
-        issuer: createLocalAccountIssuer('credential'),
+        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),
         password: passwordHash,
         providerId: 'credential',
         updatedAt: now,

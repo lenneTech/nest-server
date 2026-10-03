@@ -1,6 +1,0 @@
-{
-  "*.{ts,js}": [
-    "oxfmt --write",
-    "oxlint --fix --ignore-path .oxlintignore"
-  ]
-}

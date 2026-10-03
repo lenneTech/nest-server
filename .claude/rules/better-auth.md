@@ -425,11 +425,23 @@ Both are needed. `processCookies()` returns early once a session token is presen
 `processAuthResult()` — and every unit test of it — is **unreachable** from the path the fix
 repairs. Only the second row observes the defect the way a browser would.
 
-## 8. Do NOT add `issuer` to this package's own `account` reads
+## 8. `issuer` follows the INSTALLED better-auth — and is never added to a READ
 
-From better-auth 1.7 an account is keyed by `(issuer, accountId)`, and `CoreBetterAuthService`
-backfills the field on boot for rows written by 1.6. It is tempting to make this package's own
-reads of the `account` collection match — they filter on `providerId` alone:
+better-auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)`; 1.7.3 restored the 1.6 schema,
+`(providerId, accountId)`, and removed both the field and `createLocalAccountIssuer`. This package
+supports both lines (its peer range starts at 1.7.7, but a project that has not raised its pin must
+keep signing users in), and ONE helper decides which is installed:
+`core-better-auth-account-issuer.helper.ts` (`legacyCredentialAccountIssuer()` /
+`usesLegacyAccountIssuer()`), which probes `@better-auth/core/db` at call time. Never import
+`createLocalAccountIssuer` directly: it does not even compile against 1.7.3+.
+
+| | better-auth 1.7.0–1.7.2 | better-auth 1.7.3+ |
+|---|---|---|
+| This package's account WRITES (`migrateAccountToIam()`, system setup's `linkAccount`) | set `issuer`, derived via the helper | write no `issuer` |
+| Boot (`CoreBetterAuthService.onModuleInit`) | `backfillAccountIssuers()` for rows written by 1.6 | `dropLegacyAccountIssuerIndex()`: drops the unique `(issuer, accountId)` index 1.7.0–1.7.2 left behind (it would refuse a second provider with the same account ID), and forgets the backfill marker so a rollback backfills again |
+
+**Reads never filter on `issuer`** — on either line. This package's own reads of the `account`
+collection filter on `providerId` alone:
 
 | Method | File |
 |---|---|
@@ -437,24 +449,16 @@ reads of the `account` collection match — they filter on `providerId` alone:
 | `migrateAccountToIam()` (the fast-path existence check) | `core-better-auth-user.mapper.ts` |
 | `getMigrationStatus()` | `core-better-auth-user.mapper.ts` |
 
-**Adding `issuer` to those filters looks like consistency and is a regression.** They must keep
-working on rows the backfill has not reached:
+Adding `issuer` there looks like consistency and is a regression: on 1.7.0–1.7.2 the reads must keep
+working on rows the (deliberately non-fatal) backfill has not reached — `getMigrationStatus()` would
+report zero migrated users, `syncPasswordChangeToIam()` would stop finding its account — and on
+1.7.3+ new rows carry no issuer at all.
 
-- `getMigrationStatus()` would report **zero** migrated users on a database that has not been
-  backfilled yet — the exact moment an operator consults it.
-- `syncPasswordChangeToIam()` would stop finding the account it is meant to update, silently
-  desynchronising the password it was called to sync.
-
-This matters most when the backfill has **failed**: it is deliberately non-fatal, so the server
-boots and these reads are the only thing still working on un-backfilled rows. A "unified" filter
-breaks precisely in the situation it would be needed.
-
-Only better-auth's own sign-in path requires the issuer, and that code is better-auth's, not ours.
-**Writes are the opposite rule** — every write to the collection MUST set the issuer, derived via
-`createLocalAccountIssuer(...)` and never hand-written.
-
-Covered by mutations `account-issuer-backfill-missing`, `account-issuer-missing-on-migrate` and
-`account-issuer-missing-on-link-account` in `tests/regression-mutations.json`.
+Covered by mutations `account-issuer-backfill-missing` (boot, legacy line),
+`account-issuer-missing-on-migrate` (write, legacy line), `legacy-issuer-index-drop-skipped`,
+`issuer-backfill-marker-kept` and `legacy-issuer-index-never-dropped` (boot, 1.7.3+) in
+`tests/regression-mutations.json`. The legacy line is reached through a mocked helper — this
+repository installs 1.7.3+.
 
 ## Summary
 
@@ -467,4 +471,4 @@ Covered by mutations `account-issuer-backfill-missing`, `account-issuer-missing-
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
-| `account` reads | Filter on `providerId` alone; never add `issuer` to a READ. Every WRITE must set it (§8) |
+| `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
