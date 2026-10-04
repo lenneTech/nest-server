@@ -3607,6 +3607,23 @@ export interface ITusConfig {
   allowedHeaders?: string[];
 
   /**
+   * Origins the tus handler may answer a cross-origin request with (`Access-Control-Allow-Origin`).
+   *
+   * Unset, they come from the API's own CORS configuration — `buildCorsConfig()`, the function REST,
+   * GraphQL and Better-Auth share (`appUrl`, `baseUrl`, `cors.allowedOrigins`, `cors.allowAll`).
+   * Without credentialed CORS configured (cookies off, or no origin resolvable) the tus server keeps
+   * its own default, `*`.
+   *
+   * The wildcard is what broke browser uploads with cookie authentication and separate app/API
+   * origins before 11.42.1: a credentialed response with `Access-Control-Allow-Origin: *` is refused
+   * by every browser, although the server answered 201.
+   *
+   * @default undefined (derived from the API CORS configuration)
+   * @since 11.42.1
+   */
+  allowedOrigins?: string[];
+
+  /**
    * Allowed MIME types for uploads.
    * If undefined, all types are allowed.
    * @default undefined (all types allowed)

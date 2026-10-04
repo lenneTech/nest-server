@@ -121,6 +121,11 @@ candidate files in the transcript, not only in scratch, so a resumed run can ver
 
 `$s` runs as ONE command name ("command not found: pnpm install --frozen-lockfile", exit 127).
 Put multi-step chains into a `#!/usr/bin/env bash` script with `bash -c "$s"` per step.
+Same family (2026-10-04): `grep -r --include=*.ts ...` dies with `no matches found: --include=*.ts`
+(zsh NOMATCH expands the unquoted glob), and backticks inside `-e "..."` patterns break with
+`bad math expression`. For repo-wide usage scans write a small Node script that walks the tree and
+regex-matches `from '<pkg>'` / `import('<pkg>')` / `require('<pkg>')` / `createRequire(...)('<pkg>')`
+— it also catches lazy imports, which matter here (MCP SDK, AWS SDK, ioredis are all lazy).
 
 ## `pnpm run check` cannot validate anything past an unfixable advisory
 
@@ -178,6 +183,15 @@ lockfile) collapsed nine in-major duplicates (@graphql-tools/merge|schema|utils,
 fs-extra, picomatch, semver, tinyglobby, type-is) with ZERO other version movement — each onto the
 version a fresh resolve picks anyway. Copy the lockfile back, then `pnpm install --frozen-lockfile`.
 Check who held each old copy first: `@apollo/server`'s graphql-tools chain is on the runtime path.
+
+## supertest 7.3.1 (taken 2026-10-04) may make the port reservation unnecessary
+
+Its only change: "bind ephemeral server to the loopback address it connects to" — i.e. exactly the
+"real fix" named in the port-squat section above, done upstream. The 2026-10-04 gate still ran WITH
+the `::` reservation (not worth a second full gate to test), so this is unverified. Next run: check
+`lsof` for squatters, run the gate WITHOUT reserving, and if e2e stays fast, drop the reservation step.
+Note it only covers requests where supertest starts the server itself; specs that `listen(0,
+'127.0.0.1')` explicitly were never affected.
 
 ## The VS Code port squat is still there after a normal start (2026-10-03)
 

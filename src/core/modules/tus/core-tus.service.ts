@@ -9,6 +9,7 @@ import { Readable } from 'stream';
 
 import { GridFSHelper } from '../../common/helpers/gridfs.helper';
 import { ITusConfig } from '../../common/interfaces/server-options.interface';
+import { buildCorsConfig } from '../../common/helpers/cookies.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreS3Service } from '../../common/services/core-s3.service';
@@ -639,6 +640,46 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
+   * The origins the tus handler may answer a cross-origin request with — or `undefined` to keep the
+   * tus server's own default (`*`).
+   *
+   * The tus handler writes its responses itself, past the API's CORS layer, and without
+   * `allowedOrigins` @tus/server sets `Access-Control-Allow-Origin: *`. On a credentialed request —
+   * cookie authentication with separate app and API origins — every browser refuses that, so no
+   * browser upload could succeed although the server answered 201. Preflights and 401s were fine
+   * (Nest answers those), which is why nothing noticed: only an AUTHENTICATED request reaches it.
+   *
+   * Taken from `tus.allowedOrigins` when set, else from `buildCorsConfig()` — the same decision REST,
+   * GraphQL and Better-Auth make. Without credentialed CORS configured the previous default stays.
+   */
+  protected resolveCorsOrigins(): ((origin: string) => boolean) | undefined {
+    const toOrigin = (value: string): string => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return value;
+      }
+    };
+    const fromList = (list: string[]) => {
+      const allowed = new Set(list.filter((entry) => typeof entry === 'string').map(toOrigin));
+      return (origin: string) => allowed.has(toOrigin(origin));
+    };
+
+    if (Array.isArray(this.config.allowedOrigins) && this.config.allowedOrigins.length) {
+      return fromList(this.config.allowedOrigins);
+    }
+    const options = this.options?.configService?.configFastButReadOnly ?? ConfigService.configFastButReadOnly ?? {};
+    const cors = buildCorsConfig(options);
+    if (cors.credentials !== true) {
+      return undefined;
+    }
+    if (cors.origin === true) {
+      return () => true;
+    }
+    return Array.isArray(cors.origin) ? fromList(cors.origin as string[]) : undefined;
+  }
+
+  /**
    * The VALIDATED tenant a new upload belongs to, or `undefined`.
    *
    * Only while multi-tenancy is active AND the tenant guard is registered — without it nothing can
@@ -716,8 +757,12 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
     // correct for the single-replica deployment that configuration describes.
     const locker = this.createLocker();
 
+    const cors = this.resolveCorsOrigins();
     const server = new Server({
       allowedHeaders: this.config.allowedHeaders || DEFAULT_TUS_ALLOWED_HEADERS,
+      // Without these, @tus/server answers every request with `Access-Control-Allow-Origin: *`,
+      // which a browser refuses on a credentialed (cookie) request — see resolveCorsOrigins().
+      ...(cors ? { allowedCredentials: true, allowedOrigins: cors } : {}),
       datastore,
       ...(locker ? { locker } : {}),
       maxSize: this.config.maxSize,

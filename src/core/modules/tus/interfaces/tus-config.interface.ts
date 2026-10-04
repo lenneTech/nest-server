@@ -31,13 +31,16 @@ export const DEFAULT_TUS_ALLOWED_HEADERS: string[] = [];
  * Default TUS configuration
  */
 export const DEFAULT_TUS_CONFIG: Required<
-  Omit<ITusConfig, 'allowedTypes' | 'creation' | 'expiration'> & {
+  Omit<ITusConfig, 'allowedOrigins' | 'allowedTypes' | 'creation' | 'expiration'> & {
+    allowedOrigins: undefined;
     allowedTypes: undefined;
     creation: boolean;
     expiration: ITusExpirationConfig;
   }
 > = {
   allowedHeaders: DEFAULT_TUS_ALLOWED_HEADERS,
+  // Derived from the API CORS configuration (CoreTusService.resolveCorsOrigins())
+  allowedOrigins: undefined,
   allowedTypes: undefined,
   checksum: true,
   concatenation: true,

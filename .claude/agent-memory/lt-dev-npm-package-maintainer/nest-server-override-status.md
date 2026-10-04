@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-03
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-04
 metadata:
   type: project
 ---
@@ -88,9 +88,18 @@ anywhere); `check:overrides` confirmed 2/2 still unfixed. A quick way to find ho
 the `overrides:` block, and for each target list the newest same-major version older than
 1440 min from `npm view <pkg> time --json` (script took ~20 s for 18 entries).
 
+## Status 2026-10-04 (11.42.1 run, 18 entries, none changed)
+
+First run with NO raise: every target was already the newest mature release of its major (hono
+included — published nothing new in the window). Only `ws` trails (8.21.3 vs 8.22.0), the documented
+lockstep case; `@nestjs/graphql` 13.4.5 is still the newest 13.x and still exact-pins ws 8.21.3 +
+graphql-ws 6.2.1. Two fresh resolves: WITH vs WITHOUT differs ONLY in js-yaml 5.x and the minimatch
+design, unchanged from 2026-10-01. `check:overrides`: 2/2 suppressions still have no fix. The
+override-target check (script parsing the `overrides:` block + `npm view <pkg> time --json`) takes
+~20 s and is the fastest way to know whether a raise is due at all.
+
 Shipped doc drift: the 2026-10-01 items (swagger js-yaml pin, platform-express multer pin) were
-fixed in 11.41.6. `docs/security-overrides.md` line ~21 names "11.2.6, the version this framework
-declares" — stale after the 11.41.7 bump to 11.2.7 (which still pins multer 2.4.0). Reported to the
-author; check that line whenever `@nestjs/platform-express` moves.
+fixed in 11.41.6. `docs/security-overrides.md` line ~21 now reads "11.2.6 ... pins `2.4.0`, and so
+does 11.2.7, declared since 11.41.7" (fixed). Check that line whenever `@nestjs/platform-express` moves.
 
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

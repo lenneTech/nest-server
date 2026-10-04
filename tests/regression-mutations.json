@@ -1739,6 +1739,17 @@
         "tests/unit/ai-mcp-current-user.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tus-cors-wildcard",
+      "defect": "11.42.1 — the tus handler answered a credentialed cross-origin request with Access-Control-Allow-Origin: *, which every browser refuses, so no browser upload with cookie authentication and split origins could succeed.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "    if (cors.credentials !== true) {",
+      "replace": "    if (true) {",
+      "specs": [
+        "tests/tus-cors.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

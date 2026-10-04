@@ -107,6 +107,17 @@ The TUS server automatically handles CORS headers for browser-based clients:
 - `Upload-Offset`
 - `Upload-Metadata`
 
+**`Access-Control-Allow-Origin` follows the API's CORS configuration (11.42.1+).** The tus handler
+writes its responses itself, and without `allowedOrigins` `@tus/server` answers `*`. With cookie
+authentication and separate app and API origins the request is credentialed, and every browser
+refuses `*` there — uploads failed in the browser although the server answered 201. The origins now
+come from `buildCorsConfig()` (`appUrl`, `baseUrl`, `cors.allowedOrigins`, `cors.allowAll`), the same
+decision REST, GraphQL and Better-Auth make; `tus.allowedOrigins` overrides. Without credentialed CORS
+(cookies off, or no origin resolvable) the tus default `*` stays.
+
+The preflight (`OPTIONS`) is answered by Nest's CORS layer and was never affected — test an
+**authenticated** request with an `Origin` header when checking this.
+
 ---
 
 ## Configuration
