@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
+import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 
@@ -754,6 +755,48 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
 }
 
 /**
+ * Ends the GraphQL WebSocket connections that rode on a session the moment the session is deleted —
+ * a sign-out, a revoked session, a password reset with `revokeSessionsOnPasswordReset`, a deleted user.
+ *
+ * Without it such a connection stays open until `graphQl.subscriptionRevalidationMs` (30 s by
+ * default) catches it on its next event. Better-Auth's `onPasswordReset` cannot do this job: all
+ * three reset routes call it BEFORE they delete the sessions, so a re-check from there would still
+ * find them valid.
+ *
+ * A plugin rather than `databaseHooks` in the options, because Better-Auth collects a plugin's
+ * `init().options.databaseHooks` as a SEPARATE source: a project's own `options.databaseHooks`
+ * neither replaces this one nor is replaced by it — unlike everything spread from `options`.
+ *
+ * It only asks for a re-check of the user's connections. The re-check resolves each connection's
+ * own token again, so a connection on a DIFFERENT, still-valid session of the same user stays open.
+ * It never throws: a failure here must not fail the sign-out.
+ */
+export function wsSessionRevocationPlugin(): BetterAuthPlugin {
+  return {
+    id: 'lt-ws-session-revocation',
+    init: () => ({
+      options: {
+        databaseHooks: {
+          session: {
+            delete: {
+              after: async (session: { userId?: unknown }) => {
+                try {
+                  if (session?.userId) {
+                    revalidateWsConnectionsOf({ iamId: String(session.userId) });
+                  }
+                } catch {
+                  // Never fail the deletion over a re-check; the revalidation interval still applies.
+                }
+              },
+            },
+          },
+        },
+      },
+    }),
+  } as BetterAuthPlugin;
+}
+
+/**
  * Formats a package name to a human-readable display name.
  * Converts kebab-case and snake_case to Title Case.
  *
@@ -873,7 +916,9 @@ function buildPlugins(
   options: { passkeyNormalization: PasskeyNormalizationResult; serverEnv?: string },
 ): BetterAuthPlugin[] {
   const { passkeyNormalization, serverEnv } = options;
-  const plugins: BetterAuthPlugin[] = [];
+  // Always first and always on: it changes nothing about authentication itself, it only ends the
+  // WebSocket connections that rode on a session once the session is gone.
+  const plugins: BetterAuthPlugin[] = [wsSessionRevocationPlugin()];
 
   // JWT Plugin for API client compatibility
   // JWT is enabled by default unless explicitly disabled (jwt: false or jwt: { enabled: false })

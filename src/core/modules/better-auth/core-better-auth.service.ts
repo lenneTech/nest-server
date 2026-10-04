@@ -804,9 +804,17 @@ export class CoreBetterAuthService implements OnModuleInit {
     }
 
     try {
-      // Create headers with the session token
+      // Better-Auth's signOut finds the session through its SIGNED session cookie. An `Authorization`
+      // header is read only by its `bearer` plugin, which the framework does not install — so until
+      // 11.42.3 this call deleted nothing: the caller got `true`, the controller cleared the cookies,
+      // and the session stayed valid server-side, authenticating the same token until it expired.
+      // The header stays for projects that added the bearer plugin themselves.
       const headers = new Headers();
       headers.set('Authorization', `Bearer ${sessionToken}`);
+      const secret = this.config?.secret;
+      if (secret) {
+        headers.set('cookie', `${this.getSessionCookieName()}=${signCookieValueIfNeeded(sessionToken, secret, true)}`);
+      }
 
       // Call Better-Auth's signOut endpoint
       await api.signOut({ headers });

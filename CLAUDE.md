@@ -233,6 +233,11 @@ in services (MCP/AI tools call services directly), tenant-aware tool roles in th
 boundary under `adminBypass: false`. User-entered URLs (webhooks, export targets) go through
 `outboundFetch()` (SSRF guard) — configured targets do not.
 
+Since 11.42.3 an **open GraphQL WebSocket** is re-checked, not trusted for its lifetime: at once on an
+invalidation (tenant guard, role change, password reset, sign-out), otherwise every
+`graphQl.subscriptionRevalidationMs` (30 s); changed rights close it with 4403 and the client
+reconnects. A custom `onConnect` must call `registerWsConnection()` to keep that.
+
 See `.claude/rules/role-system.md` for complete documentation.
 
 ### Versioning

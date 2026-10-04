@@ -205,7 +205,7 @@
       "defect": "11.35.0 — GraphQL operations arriving over a WebSocket ran with NO RequestContext at all (no Express middleware runs on an upgrade, and CoreTenantGuard finds no `req` on a subscription context). mongooseTenantPlugin reads 'no context' as 'system operation, no filter', so a tenant-scoped read while delivering a subscription message returned EVERY tenant's rows and the plugin's safety net could not notice.",
       "file": "src/core/common/helpers/graphql-ws-context.helper.ts",
       "after": "export function createRequestContextAwareSubscribe(subscribe: ExecuteFn): ExecuteFn {",
-      "find": "    const result = await RequestContext.run(context, () => subscribe(args));\n    return isAsyncIterable(result) ? withRequestContextAsyncIterator(result as AsyncIterator<any>, context) : result;",
+      "find": "    const result = await RequestContext.run(context, () => subscribe(args));\n    return isAsyncIterable(result)\n      ? withRequestContextAsyncIterator(result as AsyncIterator<any>, context, connection)\n      : result;",
       "replace": "    return subscribe(args);",
       "specs": [
         "tests/tenant-context-surfaces.e2e-spec.ts"
@@ -1759,6 +1759,105 @@
       "replace": "    if (true) {",
       "specs": [
         "tests/tus-compression.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ws-connection-never-revalidated",
+      "defect": "11.42.3 — an open GraphQL WebSocket was authorized once at the handshake; a removed membership, a deactivated tenant, a withdrawn role or a revoked session kept receiving events and running operations until the client reconnected.",
+      "file": "src/core/common/helpers/graphql-ws-connection.helper.ts",
+      "find": "  if (!connection.stale && (interval === false || Date.now() - connection.validatedAt < interval)) {",
+      "replace": "  if (true) {",
+      "specs": [
+        "tests/subscription-revalidation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ws-onconnect-not-registered",
+      "defect": "11.42.3 — the re-check exists only for a REGISTERED connection; an onConnect that stops registering drops its auth mode and transport back to 'authorized once, forever'.",
+      "file": "src/core.module.ts",
+      "find": "                      registerWsConnection({\n                        carrier: extra,\n                        reauthenticate: () => CoreModule.authenticateLegacyWsToken(authService, authToken),\n                        socket: extra.socket,\n                        user,\n                      });\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/graphql-ws-context-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-ws-handshake-getsession-only",
+      "defect": "11.42.3 — the IAM WebSocket handshake asked getSession() with an authorization header, which Better-Auth reads only with its bearer plugin (not installed), so every valid bearer token was refused as 'Invalid or expired session'.",
+      "file": "src/core.module.ts",
+      "find": "    const stored = await betterAuthService.getSessionByToken(authToken);",
+      "replace": "    const stored: any = null;",
+      "specs": [
+        "tests/subscription-session-iam.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-revoke-session-header-only",
+      "defect": "11.42.3 — revokeSession() passed the session token to Better-Auth's signOut only as an authorization header, which Better-Auth ignores without its bearer plugin: IAM sign-out answered success, cleared the cookies and left the session valid server-side until it expired.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      if (secret) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/subscription-session-iam.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "set-roles-skips-ws-revalidation",
+      "defect": "11.42.3 — a role change through CoreUserService.setRoles() did not reach the user's open WebSockets, which kept the old roles until the client reconnected.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "        revalidateWsConnectionsOf({ userId: String(userId) });",
+      "replace": "",
+      "specs": [
+        "tests/subscription-session-legacy.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-skips-ws-revalidation",
+      "defect": "11.42.3 — CoreTenantGuard.invalidateUser() cleared the membership caches for new requests and left the user's open WebSockets on the membership they were opened with.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "    revalidateWsConnectionsOf({ userId });",
+      "replace": "",
+      "specs": [
+        "tests/subscription-revalidation.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ws-session-revocation-plugin-missing",
+      "defect": "11.42.3 — signing out deleted the session but left a WebSocket opened with it running until its next re-check; Better-Auth's onPasswordReset cannot cover this, it runs before the sessions are deleted.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "  const plugins: BetterAuthPlugin[] = [wsSessionRevocationPlugin()];",
+      "replace": "  const plugins: BetterAuthPlugin[] = [];",
+      "specs": [
+        "tests/subscription-session-iam.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-ws-jwt-unverified",
+      "defect": "11.42.3 — the legacy WebSocket handshake read the token with decodeJwt(), checking neither signature nor expiry: an expired token, or a copy re-signed with any key, opened sockets for as long as its tokenId matched the device. HTTP refused both through passport-jwt.",
+      "file": "src/core.module.ts",
+      "find": "      payload = await authService.verifyJwt(authToken);",
+      "replace": "      payload = authService.decodeJwt(authToken);",
+      "specs": [
+        "tests/subscription-session-legacy.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-verify-jwt-ignores-expiry",
+      "defect": "11.42.3 — CoreAuthService.verifyJwt() replaced the WebSocket handshake's unverified decode; a verify that ignores expiry would let an expired legacy access token open sockets again.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "      return (await this.jwtService.verifyAsync(token, { secret })) as JwtPayload;",
+      "replace": "      return (await this.jwtService.verifyAsync(token, { ignoreExpiration: true, secret })) as JwtPayload;",
+      "specs": [
+        "tests/unit/legacy-jwt-verify.spec.ts"
       ],
       "driverSpecific": false
     }

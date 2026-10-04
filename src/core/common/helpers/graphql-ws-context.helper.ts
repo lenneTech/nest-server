@@ -5,9 +5,15 @@
 // `graphql-upload` and `lodash` for the same reason.
 import graphql = require('graphql');
 
-import { getTenantContextResolver } from '../services/core-tenant-context.registry';
-import { ConfigService } from '../services/config.service';
+import { getTenantContextResolver, ResolvedTenantContext } from '../services/core-tenant-context.registry';
 import { IRequestContext, RequestContext } from '../services/request-context.service';
+import {
+  ensureWsConnectionCurrent,
+  getWsConnection,
+  noteWsConnectionTenant,
+  readWsTenantHeader,
+  WsConnection,
+} from './graphql-ws-connection.helper';
 
 /**
  * A `RequestContext` for GraphQL operations that arrive over a WEBSOCKET.
@@ -39,6 +45,12 @@ import { IRequestContext, RequestContext } from '../services/request-context.ser
  * only around the `subscribe()` call therefore covers the initial subscribe and nothing else: the
  * store is gone by the time the first message is delivered. Wrapping `next()` (and `return`/`throw`)
  * is what puts every delivered message inside the context.
+ *
+ * AND THE CONTEXT IS RE-CHECKED (11.42.3). A context built here is a snapshot of the connection's
+ * rights. For a connection registered with `registerWsConnection()` — every connection `CoreModule`'s
+ * own `onConnect` accepts — each operation and each delivered event first asks
+ * `ensureWsConnectionCurrent()` whether that snapshot still holds, and a connection whose rights
+ * changed is closed instead of served. See `graphql-ws-connection.helper.ts`.
  */
 
 /** Minimal shape of what graphql-js `execute`/`subscribe` receive. */
@@ -58,21 +70,12 @@ type ExecuteFn = (args: GraphQlArgs) => any;
  * and the raw upgrade request is the fallback for a project with a custom `onConnect` that forwards
  * neither. Header names are matched case-insensitively — `connectionParams` are client-supplied JSON
  * and arrive with whatever casing the client used, unlike Node's lower-cased HTTP headers.
+ *
+ * Lives in `graphql-ws-connection.helper.ts`, because a connection's re-check has to resolve the
+ * tenant from exactly the same header this does.
  */
 function readTenantHeader(contextValue: any): string | undefined {
-  const headerName = (ConfigService.configFastButReadOnly?.multiTenancy?.headerName ?? 'x-tenant-id').toLowerCase();
-  const sources = [contextValue?.headers, contextValue?.connectionParams, contextValue?.request?.headers];
-  for (const source of sources) {
-    if (!source || typeof source !== 'object') {
-      continue;
-    }
-    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
-      if (key.toLowerCase() === headerName && typeof value === 'string' && value) {
-        return value;
-      }
-    }
-  }
-  return undefined;
+  return readWsTenantHeader(contextValue);
 }
 
 /** The user the connection authenticated as, as `CoreModule`'s `onConnect` recorded it. */
@@ -109,10 +112,20 @@ export async function buildWsRequestContext(contextValue: any): Promise<IRequest
     // A failure here must NOT be answered with an unscoped context — that is the leak this file
     // exists to close. Leaving the tenant fields unset makes the plugin's safety net refuse
     // tenant-scoped reads, which is the safe direction.
+    let resolved: ResolvedTenantContext = {};
     try {
-      Object.assign(context, await resolver.resolve(user, readTenantHeader(contextValue)));
+      resolved = (await resolver.resolve(user, readTenantHeader(contextValue))) ?? {};
+      Object.assign(context, resolved);
     } catch {
       // Intentionally swallowed: see above. Non-tenant operations keep working.
+    }
+
+    // The first operation fixes the connection's tenant scope; a later one that resolves a different
+    // scope closes the connection, because subscriptions already running on it still carry the old
+    // one (see noteWsConnectionTenant()).
+    const connection = getWsConnection(contextValue);
+    if (connection) {
+      noteWsConnectionTenant(connection, resolved);
     }
   }
 
@@ -120,17 +133,62 @@ export async function buildWsRequestContext(contextValue: any): Promise<IRequest
 }
 
 /**
+ * What an operation on a connection whose authorization no longer holds receives instead of being
+ * executed. The socket is closed at the same moment, so a client normally sees the close first; this
+ * matters for a connection without a socket to close.
+ */
+function refusedResult(): { errors: InstanceType<typeof graphql.GraphQLError>[] } {
+  return {
+    errors: [
+      new graphql.GraphQLError('The authorization of this connection changed — reconnect.', {
+        extensions: { code: 'FORBIDDEN' },
+      }),
+    ],
+  };
+}
+
+/**
+ * Re-check a registered connection before an operation runs on it. `true` for an unregistered
+ * connection — a project's own `onConnect` that does not register keeps the previous behaviour.
+ */
+async function connectionStillAuthorized(contextValue: any): Promise<boolean> {
+  const connection = getWsConnection(contextValue);
+  return connection ? ensureWsConnectionCurrent(connection) : true;
+}
+
+/**
  * Run an AsyncIterator's pulls inside `context`.
  *
  * `next()` is where graphql-js executes the per-event selection set, so this is what carries the
  * context into every delivered message rather than only into the initial subscribe.
+ *
+ * With a `connection`, every executed event is held back until `ensureWsConnectionCurrent()` confirms
+ * the connection's rights still hold. One that no longer holds is DROPPED and the stream ends — the
+ * event was computed under the old context, so delivering it would hand out exactly what was revoked.
+ * The check comes after the execution because the event only exists once graphql-js produced it; a
+ * check at pull time would be hours early for a quiet subscription.
  */
 export function withRequestContextAsyncIterator<T>(
   iterator: AsyncIterator<T> & { [Symbol.asyncIterator]?: () => AsyncIterator<T> },
   context: IRequestContext,
+  connection?: WsConnection,
 ): AsyncIterableIterator<T> {
+  const next = (...args: [] | [undefined]) => RequestContext.run(context, () => iterator.next(...(args as [])));
   const wrapped: AsyncIterableIterator<T> = {
-    next: (...args: [] | [undefined]) => RequestContext.run(context, () => iterator.next(...(args as []))),
+    next: connection
+      ? async (...args: [] | [undefined]) => {
+          const result = await next(...args);
+          if (result.done || (await ensureWsConnectionCurrent(connection))) {
+            return result;
+          }
+          try {
+            await RequestContext.run(context, () => iterator.return?.());
+          } catch {
+            // The source is being torn down anyway; nothing to report.
+          }
+          return { done: true, value: undefined } as IteratorResult<T>;
+        }
+      : next,
     [Symbol.asyncIterator]() {
       return wrapped;
     },
@@ -156,9 +214,15 @@ function isAsyncIterable(value: any): boolean {
  */
 export function createRequestContextAwareExecute(execute: ExecuteFn): ExecuteFn {
   return async (args: GraphQlArgs) => {
+    if (!(await connectionStillAuthorized(args?.contextValue))) {
+      return refusedResult();
+    }
     const context = await buildWsRequestContext(args?.contextValue);
     if (!context) {
       return execute(args);
+    }
+    if (getWsConnection(args?.contextValue)?.terminated) {
+      return refusedResult();
     }
     return RequestContext.run(context, () => execute(args));
   };
@@ -167,12 +231,21 @@ export function createRequestContextAwareExecute(execute: ExecuteFn): ExecuteFn 
 /** Wrap graphql-js `subscribe` so both the subscribe AND every delivered message run in a context. */
 export function createRequestContextAwareSubscribe(subscribe: ExecuteFn): ExecuteFn {
   return async (args: GraphQlArgs) => {
+    if (!(await connectionStillAuthorized(args?.contextValue))) {
+      return refusedResult();
+    }
     const context = await buildWsRequestContext(args?.contextValue);
     if (!context) {
       return subscribe(args);
     }
+    const connection = getWsConnection(args?.contextValue);
+    if (connection?.terminated) {
+      return refusedResult();
+    }
     const result = await RequestContext.run(context, () => subscribe(args));
-    return isAsyncIterable(result) ? withRequestContextAsyncIterator(result as AsyncIterator<any>, context) : result;
+    return isAsyncIterable(result)
+      ? withRequestContextAsyncIterator(result as AsyncIterator<any>, context, connection)
+      : result;
   };
 }
 

@@ -60,6 +60,38 @@ describe('WebSocket request-context wiring in CoreModule', () => {
     }
   });
 
+  /**
+   * @regression   11.42.3 — an accepted WebSocket was authorized once and never again, so revoked
+   *   access kept receiving events. The re-check only exists for a REGISTERED connection; a handler
+   *   that stops registering silently drops its transport back to "checked once".
+   * @seen-failing Delete the `registerWsConnection({ … })` call from the legacy builder's graphql-ws
+   *   `onConnect` in src/core.module.ts — registered as mutation `ws-onconnect-not-registered` in
+   *   tests/regression-mutations.json.
+   */
+  it('registers every accepted connection for re-checking — in every builder, on both transports', () => {
+    // Every `onConnect` (graphql-ws and subscriptions-transport-ws, per builder) must register what it
+    // accepted, with a way to re-run its own authentication. A handler that does not is "authorized
+    // once, forever" again — on exactly one auth mode and one transport, with every other test green.
+    const handlers = source.split('onConnect: async').slice(1);
+    expect(handlers, 'onConnect handlers in core.module.ts').toHaveLength(builderCount * 2);
+    for (const handler of handlers) {
+      const body = handler.slice(0, handler.indexOf('throw new UnauthorizedException(\'Missing authentication token\')'));
+      expect(body, 'onConnect registers the connection').toContain('registerWsConnection({');
+      expect(body, 'with a re-authentication').toMatch(/reauthenticate: \(\) =>\s*CoreModule\.authenticate(Iam|Legacy)WsToken\(/);
+    }
+  });
+
+  it('registers graphql-ws connections with their socket, and transport-ws connections with theirs', () => {
+    const blocks = source.split('subscriptions: {').slice(1);
+    for (const block of blocks) {
+      const graphqlWs = block.slice(block.indexOf("'graphql-ws'"), block.indexOf("'subscriptions-transport-ws'"));
+      const transportWs = block.slice(block.indexOf("'subscriptions-transport-ws'"));
+      expect(graphqlWs).toContain('socket: extra.socket');
+      expect(transportWs).toContain('onConnect: async (connectionParams, webSocket)');
+      expect(transportWs).toContain('socket: webSocket');
+    }
+  });
+
   it('does NOT import graphql through an ESM specifier in core.module.ts', () => {
     // graphql refuses a schema "from another module or realm", and an ESM import can resolve to a
     // second copy of the module. The helper resolves it via `require` for exactly that reason, so

@@ -236,14 +236,14 @@ multiTenancy: {
 }
 ```
 
-| Path                                                           | Deactivated tenant                                                                                                           |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Header + tenant role, or `S_USER` / `S_VERIFIED` with a header | **403** `Tenant is inactive`                                                                                                 |
-| Tenant API token                                               | **403**                                                                                                                      |
-| `S_EVERYONE` with a header                                     | not blocked, but no tenant context is set                                                                                    |
-| No header                                                      | dropped from the user's tenant list — its data stays out of reach                                                            |
-| GraphQL over WebSocket                                         | no tenant resolved for a new subscription — an open one keeps its tenant until it reconnects (as after a removed membership) |
-| Admin under `adminBypass`                                      | still allowed — somebody has to be able to switch it back on                                                                 |
+| Path                                                           | Deactivated tenant                                                                                                                                                                         |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Header + tenant role, or `S_USER` / `S_VERIFIED` with a header | **403** `Tenant is inactive`                                                                                                                                                               |
+| Tenant API token                                               | **403**                                                                                                                                                                                    |
+| `S_EVERYONE` with a header                                     | not blocked, but no tenant context is set                                                                                                                                                  |
+| No header                                                      | dropped from the user's tenant list — its data stays out of reach                                                                                                                          |
+| GraphQL over WebSocket                                         | no tenant resolved for a new subscription; an open one is closed (4403) on `invalidateTenant()`, or at its next event once `graphQl.subscriptionRevalidationMs` has passed (since 11.42.3) |
+| Admin under `adminBypass`                                      | still allowed — somebody has to be able to switch it back on                                                                                                                               |
 
 The hook is asked **after** the membership check, so a non-member learns nothing about a tenant's
 state. Return `false` for inactive; anything else counts as active. Answers are cached for
