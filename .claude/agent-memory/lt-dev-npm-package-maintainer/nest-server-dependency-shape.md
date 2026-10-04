@@ -28,7 +28,7 @@ peer-requires `client-s3 ^<its own version>`; their peer ranges (`>=3.1045.0 <4`
 
 **Coupling — mongodb + mongoose move together.** mongoose declares `mongodb` with a tilde
 range (`9.9.3` → `~7.5`, `9.10.2` → `~7.6`); a direct `mongodb` outside it splits the tree
-(ObjectId `instanceof` failures). Current: mongoose 9.10.2 + mongodb 7.6.0.
+(ObjectId `instanceof` failures). Current (2026-10-04): mongoose 9.10.4 (`~7.6`) + mongodb 7.6.0.
 
 **Lockstep with upstream exact pins** (see [[nest-server-maintenance-gotchas]]):
 `graphql-ws` = `@nestjs/graphql`'s pin (6.2.1), `ws` = its pin (8.21.3), `multer` = the

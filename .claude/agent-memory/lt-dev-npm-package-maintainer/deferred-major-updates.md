@@ -1,11 +1,11 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, pnpm, better-auth lock-step, ws/graphql-ws lockstep, mongodb 7.7); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, undici 8, pnpm, better-auth lock-step, ws/graphql-ws lockstep, mongodb 7.7); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
 
-# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-03, 11.41.7 maintenance run)
+# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-04, 11.42.1 maintenance run)
 
 ## nodemailer 10 was TAKEN in 11.41.5 — a security exception to "no runtime major in a patch"
 
@@ -45,11 +45,12 @@ oversight. Only take one if the run's explicit purpose is that migration.
 | `graphql` | 16.14.2 | 17.0.2 | Ecosystem-wide major (consumer-visible dependency). `@nestjs/graphql@13.4.5` peers `^16.11.0 \|\| ^17.0.0`. |
 | `graphql-upload` | 15.0.2 | 18.0.0 (18.0.1 in cooldown) | Exports moved `.js` -> `.mjs`: touches `src/core.module.ts` (`graphql-upload/graphqlUploadExpress.js`), `src/core/modules/file/core-file.resolver.ts` + `src/server/modules/file/file.resolver.ts` (`graphql-upload/GraphQLUpload.js`), `src/types/graphql-upload.d.ts`. |
 | `dotenv` | 17.4.2 | 18.0.5 | Runtime dependency major. |
+| `undici` | 7.30.0 | 8.11.2 | Runtime dependency major (direct since 11.42.0 for `outboundFetch()`; its agent must match the undici the helper's own `fetch` comes from). Also the override target `undici@>=7.0.0 <7.30.0` stays in 7.x. |
 | `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.3.0 | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (still the newest 13.x on 2026-10-03). Bumping alone puts a second copy into every consumer tree. The `ws` override target stays with them (two fresh resolves: identical with/without, so it holds nothing back). |
-| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.3 declares `~7.6`; 9.10.4 (2026-10-03 01:41 UTC, in cooldown during the run) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. |
+| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.4 (taken 2026-10-04) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. There is no 7.6.x patch beyond 7.6.0 (only nightlies). |
 | `typescript` | 5.9.3 | 7.0.2 | Skips "6". Ecosystem readiness across NestJS + ts-morph + oxlint unproven. |
 | `pnpm` (`packageManager`) | 11.13.1 | 11.28.3 / 12.8.1 | **Never bump from a maintenance run.** Single source of truth with its own contract test (`tests/unit/pnpm-pin-contract.spec.ts`). Bump via `pnpm self-update` deliberately. |
-| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.1 (peer `>=1.7.1 <1.8.0`) | 1.7.7 | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
+| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.7 (peer `>=1.7.7 <1.8.0`) | 1.7.7 is `latest` (2026-10-04); no 1.8 yet | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
 
 Taken since the previous version of this note (no longer deferred): better-auth 1.7 migration,
 `@getbrevo/brevo` 6.x, `ts-morph` 28, `@compodoc/compodoc` 2.0.0, `ejs` 6, `@types/node` 26,
@@ -58,5 +59,10 @@ Taken since the previous version of this note (no longer deferred): better-auth 
 common/core/platform-express/testing 11.2.6 -> 11.2.7, AWS SDK trio (client-s3, lib-storage,
 s3-request-presigner) 3.1143.0 -> 3.1145.0 as ONE version (3.1146.0 was in cooldown), @swc/core,
 @types/node, bullmq, vite patches. No code change needed for any of them.
+11.42.1 run (2026-10-04): `@modelcontextprotocol/sdk` 1.31.0 -> 1.32.0 (client transports now follow
+redirects same-origin only — the framework never builds a client transport, so only consumers who
+do are affected), mongoose 9.10.3 -> 9.10.4, supertest 7.3.0 -> 7.3.1, AWS trio 3.1145.0 -> 3.1146.0.
+No code change. In cooldown at run time: nodemailer 10.0.14 (mature 2026-10-04 13:45 UTC),
+smtp-server 3.19.17 (2026-10-04 20:02 UTC) — take them next run.
 
 Related: [[nest-server-override-status]], [[nest-server-maintenance-gotchas]]

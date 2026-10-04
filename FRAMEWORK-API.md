@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-03 (v11.42.0)
+> Auto-generated from source code as of 2026-10-04 (v11.42.1)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -194,6 +194,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 ### ITusConfig
 
   - `allowedHeaders?`: `string[] | undefined` (default: `[] (no additional headers needed)`) — Additional allowed HTTP headers for TUS requests (beyond
+  - `allowedOrigins?`: `string[] | undefined` (default: `undefined (derived from the API CORS configuration)`) — Origins the tus handler may answer a cross-origin request with (`Access-Control-Allow-Origin`).
   - `allowedTypes?`: `string[] | undefined` (default: `undefined (all types allowed)`) — Allowed MIME types for uploads.
   - `checksum?`: `boolean | undefined` (default: `true`) — Checksum extension configuration.
   - `concatenation?`: `boolean | undefined` (default: `true`) — Concatenation extension configuration.
