@@ -40,6 +40,7 @@ export * from './core/common/helpers/execution-context-request.helper';
 export * from './core/common/helpers/file.helper';
 export * from './core/common/helpers/filter.helper';
 export * from './core/common/helpers/graphql.helper';
+export * from './core/common/helpers/graphql-ws-connection.helper';
 export * from './core/common/helpers/graphql-ws-context.helper';
 export * from './core/common/helpers/interceptor.helper';
 export * from './core/common/helpers/gridfs.helper';

@@ -1490,8 +1490,9 @@ export interface IMultiTenancy {
    * - tenant API tokens: **403**
    * - public (`S_EVERYONE`) routes: not blocked, but no tenant context is set
    * - no header: the tenant is dropped from the user's tenant list, so its data stays out of reach
-   * - GraphQL over WebSocket: no tenant is resolved for a NEW subscription; one already open keeps
-   *   its tenant until the client reconnects (as it does after a removed membership)
+   * - GraphQL over WebSocket: no tenant is resolved for a NEW subscription; one already open is
+   *   closed (4403) once `invalidateTenant()` is called, or at its next event after
+   *   `graphQl.subscriptionRevalidationMs` without it (since 11.42.3)
    *
    * A platform administrator under `adminBypass` still reaches the tenant — somebody has to be able to
    * look into it and switch it back on.
@@ -2567,6 +2568,35 @@ export interface IServerOptions {
          * Module options (forRootAsync)
          */
         options?: GqlModuleAsyncOptions;
+
+        /**
+         * How long an open GraphQL WebSocket connection may go without re-checking its authorization,
+         * in milliseconds.
+         *
+         * A WebSocket is authorized at the handshake. Before 11.42.3 that was also the last check: a
+         * removed membership, a deactivated tenant, a withdrawn role or a revoked session took effect
+         * on every new request and on none of the sockets already open. Now a connection is re-checked
+         * at once when an invalidation names it (`CoreTenantGuard.invalidateUser()` /
+         * `invalidateTenant()` / `invalidateAll()`, a role change through `CoreUserService`, a
+         * password reset), and before an event is delivered or an operation runs once its last check
+         * is older than this value — the bound for a change nobody invalidated, such as a sign-out or a
+         * membership edited directly in the database. A connection whose rights changed is closed with
+         * 4403, which the graphql-ws client retries: it reconnects and continues with the current
+         * rights, or is refused at the handshake.
+         *
+         * - `undefined` → 30000
+         * - `0` → re-check on every operation and every event (one session lookup each)
+         * - `false` → no time-based re-check; invalidations still apply
+         * - anything else that is not a non-negative number → 30000, never "off"
+         *
+         * Applies to connections registered by `CoreModule`'s own `onConnect`. A project that replaces
+         * `onConnect` through `graphQl.driver.subscriptions` registers its connections with
+         * `registerWsConnection()` to keep this.
+         *
+         * @default 30000
+         * @since 11.42.3
+         */
+        subscriptionRevalidationMs?: false | number;
       };
 
   /**

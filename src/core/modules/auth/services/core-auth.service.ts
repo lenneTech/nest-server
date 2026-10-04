@@ -69,9 +69,46 @@ export class CoreAuthService {
 
   /**
    * Decode JWT
+   *
+   * Reads the payload WITHOUT checking signature or expiry — never decide access on its result.
+   * Use `verifyJwt()` for that.
    */
   decodeJwt(token: string): JwtPayload {
     return this.jwtService.decode(token) as JwtPayload;
+  }
+
+  /**
+   * Verify an access token's signature and expiry and answer its payload, or `null` when it does not
+   * verify.
+   *
+   * The same check passport-jwt applies on the HTTP path (`JwtStrategy`), for transports that have no
+   * passport in front of them — today the GraphQL WebSocket. The key is resolved in passport's order:
+   * `jwt.secretOrKeyProvider` when configured, else `jwt.secretOrPrivateKey || jwt.secret`. Until
+   * 11.42.3 the WebSocket handshake used `decodeJwt()`, so an expired token, or a copy re-signed with
+   * any key, was accepted there as long as its `tokenId` still matched the device.
+   *
+   * @since 11.42.3
+   */
+  async verifyJwt(token: string): Promise<JwtPayload | null> {
+    if (!token || typeof token !== 'string') {
+      return null;
+    }
+    try {
+      const provider = this.configService.getFastButReadOnly('jwt.secretOrKeyProvider');
+      const secret =
+        typeof provider === 'function'
+          ? await new Promise<string>((resolve, reject) =>
+              provider({}, token, (error: unknown, key: string) => (error ? reject(error) : resolve(key))),
+            )
+          : this.configService.getFastButReadOnly('jwt.secretOrPrivateKey') ||
+            this.configService.getFastButReadOnly('jwt.secret');
+      if (!secret) {
+        return null;
+      }
+      return (await this.jwtService.verifyAsync(token, { secret })) as JwtPayload;
+    } catch {
+      return null;
+    }
   }
 
   /**

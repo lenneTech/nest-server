@@ -444,9 +444,37 @@ account over with an address change and a reset, which is precisely the access `
 withholds.
 
 **Deactivated tenants.** `multiTenancy.isTenantActive` is asked after the membership on every path that
-establishes a tenant (see `.claude/rules/configurable-features.md`, Multi-Tenancy row). A GraphQL
-subscription that is already open keeps its tenant until the client reconnects — a known limit it
-shares with a removed membership.
+establishes a tenant (see `.claude/rules/configurable-features.md`, Multi-Tenancy row).
+
+**Open WebSockets (11.42.3).** A WebSocket is authorized at the handshake, and until 11.42.3 that was
+the only check: a removed membership, a deactivated tenant, a withdrawn role or a revoked session took
+effect on every new request and on none of the sockets already open. Now every connection
+`CoreModule`'s `onConnect` accepts is registered (`registerWsConnection()`,
+`common/helpers/graphql-ws-connection.helper.ts`) with the rights it was authorized with, and is
+checked again
+
+| Trigger | When |
+|---------|------|
+| `CoreTenantGuard.invalidateUser()` / `invalidateTenant()` / `invalidateAll()` (also when received from another replica), `CoreUserService.setRoles()`, an `update()` touching `roles` / `verified` / `emailVerified`, the legacy password reset | at once |
+| Better-Auth deleting a session (sign-out, revoked session, reset with `revokeSessionsOnPasswordReset`) — through `wsSessionRevocationPlugin()`, a plugin so a project's own `options.databaseHooks` cannot displace it | at once |
+| anything nobody invalidated (a membership edited in the database, an expired session) | before the next event or operation once the last check is older than `graphQl.subscriptionRevalidationMs` (30 s) |
+
+A connection whose rights CHANGED — in either direction — is closed with **4403**, which the
+graphql-ws client retries: it reconnects and resubscribes with its current rights, or is refused at the
+handshake. It is closed rather than patched because a subscription may have picked its topic or filter
+from the tenant at subscribe time. An event is checked after graphql-js executed it and before it is
+sent, so a dropped event's reads happened but none of it reaches the client. Pinned by
+`tests/subscription-revalidation.e2e-spec.ts` (mechanism), `tests/subscription-session-iam.e2e-spec.ts`
+and `tests/subscription-session-legacy.e2e-spec.ts` (assembled stack).
+
+The check re-runs the HANDSHAKE'S authentication, which on the legacy builder means
+`CoreAuthService.verifyJwt()` — signature and expiry, in passport-jwt's key order — before
+`validateUser()`'s device binding. The handshake used `decodeJwt()` until 11.42.3, so an expired or
+re-signed legacy token opened sockets that HTTP refused (mutation `legacy-ws-jwt-unverified`). A legacy
+socket therefore ends with its token: at expiry or at the next token refresh.
+
+**A guard that asks "is this request allowed?" once is not enough for a connection that outlives the
+answer.** When you add a long-lived channel (SSE, a WebSocket of your own), register it the same way.
 
 ## Role Check Implementation
 

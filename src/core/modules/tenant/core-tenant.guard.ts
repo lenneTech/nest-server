@@ -16,6 +16,11 @@ import { Model } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum';
 import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
+import {
+  revalidateAllWsConnections,
+  revalidateWsConnectionsForTenant,
+  revalidateWsConnectionsOf,
+} from '../../common/helpers/graphql-ws-connection.helper';
 import { ConfigService } from '../../common/services/config.service';
 import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { CoreRedisService } from '../../common/services/core-redis.service';
@@ -208,6 +213,9 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     if (!config || config.enabled === false) {
       return {};
     }
+    // The WebSocket path reaches this without passing canActivate(), so it has to pick up a changed
+    // `cacheTtlMs` itself — otherwise an API whose traffic is all WebSocket keeps the 30 s default.
+    this.syncConfig(config);
 
     const trimmed =
       headerTenantId && typeof headerTenantId === 'string' && headerTenantId.length <= 128
@@ -301,7 +309,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    * `cacheTtlMs`. Broadcast to every replica when Redis is enabled.
    */
   invalidateTenant(tenantId: string): void {
-    this.tenantActiveCache.delete(tenantId);
+    this.clearTenant(tenantId);
     this.publishInvalidation({ scope: 'tenant', tenantId });
   }
 
@@ -339,16 +347,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       return true;
     }
 
-    // Detect config changes (e.g., roleHierarchy modified in tests) and flush caches
-    if (this.lastSeenConfig !== config) {
-      this.lastSeenConfig = config;
-      // Default 30s in production, 0 (disabled) in test environments to avoid stale data between test cases
-      const isTestEnv =
-        process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'e2e';
-      this.cacheTtlMs = config.cacheTtlMs ?? (isTestEnv ? 0 : 30_000);
-      // Local-only flush: every replica detects the config change itself, no broadcast needed
-      this.clearAll();
-    }
+    this.syncConfig(config);
 
     const request = this.getRequest(context);
     if (!request) {
@@ -711,7 +710,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     } else if (parsed?.scope === 'user' && parsed.userId) {
       this.clearUser(parsed.userId);
     } else if (parsed?.scope === 'tenant' && parsed.tenantId) {
-      this.tenantActiveCache.delete(parsed.tenantId);
+      this.clearTenant(parsed.tenantId);
     }
   }
 
@@ -722,6 +721,17 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     this.membershipCache.clear();
     this.tenantIdsCache.clear();
     this.tenantActiveCache.clear();
+    // Open WebSocket connections were authorized against what was just thrown away.
+    revalidateAllWsConnections();
+  }
+
+  /**
+   * Forget a tenant's cached `isTenantActive` answer locally (no broadcast), and re-check the open
+   * WebSocket connections scoped to it.
+   */
+  protected clearTenant(tenantId: string): void {
+    this.tenantActiveCache.delete(tenantId);
+    revalidateWsConnectionsForTenant(tenantId);
   }
 
   /**
@@ -738,6 +748,25 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         this.tenantIdsCache.delete(key);
       }
     }
+    // A membership change reaches the user's OPEN WebSocket connections too, not just new requests.
+    // After the caches above, so the re-check reads the membership as it is now.
+    revalidateWsConnectionsOf({ userId });
+  }
+
+  /**
+   * Pick up a changed `multiTenancy` config: the cache TTL, and a flush of everything cached under
+   * the old one. Local-only — every replica detects the change itself, no broadcast needed.
+   */
+  private syncConfig(config: object & { cacheTtlMs?: number }): void {
+    if (this.lastSeenConfig === config) {
+      return;
+    }
+    this.lastSeenConfig = config;
+    // Default 30s in production, 0 (disabled) in test environments to avoid stale data between test cases
+    const isTestEnv =
+      process.env.VITEST === 'true' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'e2e';
+    this.cacheTtlMs = config.cacheTtlMs ?? (isTestEnv ? 0 : 30_000);
+    this.clearAll();
   }
 
   /**

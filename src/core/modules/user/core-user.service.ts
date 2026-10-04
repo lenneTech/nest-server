@@ -7,6 +7,7 @@ import { Document, Model } from 'mongoose';
 import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
 import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
 import { resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
+import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
 import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface';
@@ -377,6 +378,10 @@ export abstract class CoreUserService<
           );
         }
 
+        // The same holds for the user's open GraphQL WebSockets: their re-check finds the device's
+        // refresh token gone and closes them, instead of letting them run until the next interval.
+        revalidateWsConnectionsOf({ email: dbObject.email, userId: dbObject.id });
+
         return updatedUser;
       },
       { dbObject, serviceOptions },
@@ -648,6 +653,10 @@ export abstract class CoreUserService<
           this.options.betterAuthUserMapper.invalidateUserCache((user as any).iamId);
         }
 
+        // ... including on the user's OPEN GraphQL WebSockets, which were authorized with the old
+        // roles. After the cache above, so the re-check reads the new ones.
+        revalidateWsConnectionsOf({ userId: String(userId) });
+
         return user;
       },
       { serviceOptions },
@@ -730,12 +739,16 @@ export abstract class CoreUserService<
     }
 
     // Invalidate BetterAuth user cache when roles or verified status may have changed
-    if (this.options?.betterAuthUserMapper && (oldUser as any)?.iamId) {
-      const rolesChanged = 'roles' in (input as any);
-      const verifiedChanged = 'verified' in (input as any) || 'emailVerified' in (input as any);
-      if (rolesChanged || verifiedChanged) {
-        this.options.betterAuthUserMapper.invalidateUserCache((oldUser as any).iamId);
-      }
+    const rightsMayHaveChanged =
+      !!input &&
+      typeof input === 'object' &&
+      ('roles' in (input as any) || 'verified' in (input as any) || 'emailVerified' in (input as any));
+    if (rightsMayHaveChanged && this.options?.betterAuthUserMapper && (oldUser as any)?.iamId) {
+      this.options.betterAuthUserMapper.invalidateUserCache((oldUser as any).iamId);
+    }
+    // ... and re-check the user's OPEN GraphQL WebSockets, which were authorized with the old values.
+    if (rightsMayHaveChanged) {
+      revalidateWsConnectionsOf({ userId: String(id) });
     }
 
     return updatedUser;

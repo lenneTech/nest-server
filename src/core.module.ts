@@ -1,5 +1,13 @@
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
-import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, UnauthorizedException } from '@nestjs/common';
+import {
+  DynamicModule,
+  Global,
+  Logger,
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -8,6 +16,7 @@ import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
 import { merge } from './core/common/helpers/config.helper';
+import { registerWsConnection } from './core/common/helpers/graphql-ws-connection.helper';
 import {
   buildRequestContextAwareExecute,
   buildRequestContextAwareSubscribe,
@@ -48,6 +57,7 @@ import { MailjetService } from './core/common/services/mailjet.service';
 import { ModelDocService } from './core/common/services/model-doc.service';
 import { TemplateService } from './core/common/services/template.service';
 import { CoreAiModule } from './core/modules/ai/core-ai.module';
+import { isLegacyJwt } from './core/modules/better-auth/core-better-auth-token.helper';
 import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better-auth-user.mapper';
 import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
@@ -665,23 +675,22 @@ export class CoreModule implements NestModule {
                       connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
 
                     if (authToken) {
-                      // Validate via BetterAuth session
-                      const { session, user: sessionUser } = await betterAuthService.getSession({
-                        headers: { authorization: `Bearer ${authToken}` },
-                      });
-
-                      if (!session || !sessionUser) {
-                        throw new UnauthorizedException('Invalid or expired session');
-                      }
-
-                      // Map to full user with roles
-                      const user = await userMapper.mapSessionUser(sessionUser);
+                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
+                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
                       if (!user) {
-                        throw new UnauthorizedException('User not found');
+                        throw new UnauthorizedException('Invalid or expired session');
                       }
 
                       extra.user = user;
                       extra.headers = connectionParams ?? headers;
+                      // Re-checked for the life of the socket — see graphql-ws-connection.helper.ts.
+                      registerWsConnection({
+                        carrier: extra,
+                        reauthenticate: () =>
+                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
+                        socket: extra.socket,
+                        user,
+                      });
                       return extra;
                     }
 
@@ -690,29 +699,30 @@ export class CoreModule implements NestModule {
                 },
               },
               'subscriptions-transport-ws': {
-                onConnect: async (connectionParams) => {
+                onConnect: async (connectionParams, webSocket) => {
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
                     const authToken: string = connectionParams?.Authorization?.split(' ')[1];
 
                     if (authToken) {
-                      // Validate via BetterAuth session
-                      const { session, user: sessionUser } = await betterAuthService.getSession({
-                        headers: { authorization: `Bearer ${authToken}` },
-                      });
-
-                      if (!session || !sessionUser) {
+                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
+                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
+                      if (!user) {
                         throw new UnauthorizedException('Invalid or expired session');
                       }
 
-                      // Map to full user with roles
-                      const user = await userMapper.mapSessionUser(sessionUser);
-                      if (!user) {
-                        throw new UnauthorizedException('User not found');
-                      }
-
-                      return { headers: connectionParams, user };
+                      // subscriptions-transport-ws hands each operation a copy of this object; the
+                      // registration survives that copy — see graphql-ws-connection.helper.ts.
+                      const connectionContext = { headers: connectionParams, user };
+                      registerWsConnection({
+                        carrier: connectionContext,
+                        reauthenticate: () =>
+                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
+                        socket: webSocket,
+                        user,
+                      });
+                      return connectionContext;
                     }
 
                     throw new UnauthorizedException('Missing authentication token');
@@ -781,21 +791,22 @@ export class CoreModule implements NestModule {
                       connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
 
                     if (authToken) {
-                      const { session, user: sessionUser } = await betterAuthService.getSession({
-                        headers: { authorization: `Bearer ${authToken}` },
-                      });
-
-                      if (!session || !sessionUser) {
-                        throw new UnauthorizedException('Invalid or expired session');
-                      }
-
-                      const user = await userMapper.mapSessionUser(sessionUser);
+                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
+                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
                       if (!user) {
-                        throw new UnauthorizedException('User not found');
+                        throw new UnauthorizedException('Invalid or expired session');
                       }
 
                       extra.user = user;
                       extra.headers = connectionParams ?? headers;
+                      // Re-checked for the life of the socket — see graphql-ws-connection.helper.ts.
+                      registerWsConnection({
+                        carrier: extra,
+                        reauthenticate: () =>
+                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
+                        socket: extra.socket,
+                        user,
+                      });
                       return extra;
                     }
 
@@ -804,7 +815,7 @@ export class CoreModule implements NestModule {
                 },
               },
               'subscriptions-transport-ws': {
-                onConnect: async (connectionParams) => {
+                onConnect: async (connectionParams, webSocket) => {
                   const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
 
                   if (enableAuth) {
@@ -818,20 +829,23 @@ export class CoreModule implements NestModule {
                     const authToken: string = connectionParams?.Authorization?.split(' ')[1];
 
                     if (authToken) {
-                      const { session, user: sessionUser } = await betterAuthService.getSession({
-                        headers: { authorization: `Bearer ${authToken}` },
-                      });
-
-                      if (!session || !sessionUser) {
+                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
+                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
+                      if (!user) {
                         throw new UnauthorizedException('Invalid or expired session');
                       }
 
-                      const user = await userMapper.mapSessionUser(sessionUser);
-                      if (!user) {
-                        throw new UnauthorizedException('User not found');
-                      }
-
-                      return { headers: connectionParams, user };
+                      // subscriptions-transport-ws hands each operation a copy of this object; the
+                      // registration survives that copy — see graphql-ws-connection.helper.ts.
+                      const connectionContext = { headers: connectionParams, user };
+                      registerWsConnection({
+                        carrier: connectionContext,
+                        reauthenticate: () =>
+                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
+                        socket: webSocket,
+                        user,
+                      });
+                      return connectionContext;
                     }
 
                     throw new UnauthorizedException('Missing authentication token');
@@ -900,14 +914,20 @@ export class CoreModule implements NestModule {
                       connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];
                     if (authToken) {
                       // verify authToken/getJwtPayLoad
-                      const payload = authService.decodeJwt(authToken);
-                      const user = await authService.validateUser(payload);
+                      const user = await CoreModule.authenticateLegacyWsToken(authService, authToken);
                       if (!user) {
                         throw new UnauthorizedException('No user found for token');
                       }
                       // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
                       extra.user = user;
                       extra.headers = connectionParams ?? headers;
+                      // Re-checked for the life of the socket — see graphql-ws-connection.helper.ts.
+                      registerWsConnection({
+                        carrier: extra,
+                        reauthenticate: () => CoreModule.authenticateLegacyWsToken(authService, authToken),
+                        socket: extra.socket,
+                        user,
+                      });
                       return extra;
                     }
 
@@ -916,20 +936,28 @@ export class CoreModule implements NestModule {
                 },
               },
               'subscriptions-transport-ws': {
-                onConnect: async (connectionParams) => {
+                onConnect: async (connectionParams, webSocket) => {
                   if (enableSubscriptionAuth) {
                     // get authToken from authorization header
                     const authToken: string = connectionParams?.Authorization?.split(' ')[1];
 
                     if (authToken) {
                       // verify authToken/getJwtPayLoad
-                      const payload = authService.decodeJwt(authToken);
-                      const user = await authService.validateUser(payload);
+                      const user = await CoreModule.authenticateLegacyWsToken(authService, authToken);
                       if (!user) {
                         throw new UnauthorizedException('No user found for token');
                       }
                       // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
-                      return { headers: connectionParams, user };
+                      // subscriptions-transport-ws hands each operation a copy of this object; the
+                      // registration survives that copy — see graphql-ws-connection.helper.ts.
+                      const connectionContext = { headers: connectionParams, user };
+                      registerWsConnection({
+                        carrier: connectionContext,
+                        reauthenticate: () => CoreModule.authenticateLegacyWsToken(authService, authToken),
+                        socket: webSocket,
+                        user,
+                      });
+                      return connectionContext;
                     }
 
                     throw new UnauthorizedException('Missing authentication token');
@@ -942,6 +970,89 @@ export class CoreModule implements NestModule {
         ),
     };
   }
+
+  /**
+   * Resolve the bearer token of an IAM WebSocket handshake to a user — and re-resolve it for a
+   * connection that is already open (the `reauthenticate` of `registerWsConnection()`). Answers
+   * `null` when the token does not authenticate (any more).
+   *
+   * Mirrors Strategy 1 of `CoreBetterAuthMiddleware` — a Better-Auth JWT first, then the session
+   * store — because that is what an HTTP request carrying the same header gets. Until 11.42.3 the
+   * handshake asked `getSession()` with an `authorization` header, which Better-Auth reads only
+   * with its `bearer` plugin, and the framework does not install that plugin: every IAM handshake
+   * with a bearer token was refused as "Invalid or expired session". `getSession()` stays as the
+   * last resort, so a project that added the bearer plugin itself resolves exactly as before.
+   *
+   * A JWT is checked statelessly (signature, expiry), as on HTTP: signing out ends the session
+   * behind it, not the JWT, which lapses on its own (`betterAuth.jwt.expiresIn`, 15 min by default).
+   */
+  private static async authenticateIamWsToken(
+    betterAuthService: Pick<
+      CoreBetterAuthService,
+      'getSession' | 'getSessionByToken' | 'isJwtEnabled' | 'verifyJwtToken'
+    >,
+    userMapper: Pick<CoreBetterAuthUserMapper, 'mapSessionUser'>,
+    authToken: string,
+  ): Promise<any> {
+    if (!authToken) {
+      return null;
+    }
+    if (authToken.split('.').length === 3 && !isLegacyJwt(authToken) && betterAuthService.isJwtEnabled()) {
+      const payload = await betterAuthService.verifyJwtToken(authToken);
+      if (payload?.sub) {
+        return userMapper.mapSessionUser({
+          email: payload.email || '',
+          emailVerified: payload.emailVerified,
+          id: payload.sub,
+          name: payload.name,
+        });
+      }
+    }
+    const stored = await betterAuthService.getSessionByToken(authToken);
+    if (stored?.session && stored?.user) {
+      return userMapper.mapSessionUser(stored.user);
+    }
+    const { session, user: sessionUser } = await betterAuthService.getSession({
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+    return session && sessionUser ? userMapper.mapSessionUser(sessionUser) : null;
+  }
+
+  /**
+   * The legacy counterpart of `authenticateIamWsToken()`: the token's signature and expiry are verified
+   * exactly as passport-jwt does on HTTP (`CoreAuthService.verifyJwt()`), then `validateUser()` ties it
+   * to its device's live refresh token, so a logout, a password reset or a token refresh ends it.
+   *
+   * Until 11.42.3 this read the token with `decodeJwt()`, which checks neither signature nor expiry:
+   * an expired token — or a copy re-signed with any key — opened sockets for as long as its `tokenId`
+   * matched the device. A token that is not a JWT at all decoded to `null`, which `validateUser()` then
+   * dereferenced: the handshake closed with 4500 and the TypeError as its reason.
+   *
+   * An AuthService that does not extend `CoreAuthService` may lack `verifyJwt()`. It keeps the
+   * unverified read rather than losing its WebSockets on upgrade, and is warned about once.
+   */
+  private static async authenticateLegacyWsToken(authService: any, authToken: string): Promise<any> {
+    if (!authToken) {
+      return null;
+    }
+    let payload: any;
+    if (typeof authService?.verifyJwt === 'function') {
+      payload = await authService.verifyJwt(authToken);
+    } else {
+      if (!CoreModule.unverifiedLegacyWsTokenWarned) {
+        CoreModule.unverifiedLegacyWsTokenWarned = true;
+        new Logger('CoreModule').warn(
+          'The AuthService passed to CoreModule.forRoot() has no verifyJwt(): legacy WebSocket tokens are ' +
+            'read WITHOUT checking signature or expiry. Extend CoreAuthService to close that.',
+        );
+      }
+      payload = authService.decodeJwt(authToken);
+    }
+    return payload ? authService.validateUser(payload) : null;
+  }
+
+  /** Whether the "no verifyJwt()" warning was already logged in this process. */
+  private static unverifiedLegacyWsTokenWarned = false;
 
   /**
    * @deprecated Use `isCookiesEnabled` from `core/common/helpers/cookies.helper` instead.
