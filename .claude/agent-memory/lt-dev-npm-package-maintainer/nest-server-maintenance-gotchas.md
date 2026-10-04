@@ -127,6 +127,13 @@ Same family (2026-10-04): `grep -r --include=*.ts ...` dies with `no matches fou
 regex-matches `from '<pkg>'` / `import('<pkg>')` / `require('<pkg>')` / `createRequire(...)('<pkg>')`
 — it also catches lazy imports, which matter here (MCP SDK, AWS SDK, ioredis are all lazy).
 
+## Waiting for a foreign test run: `pgrep -f vitest` matches ITS OWN wait loop (2026-10-04)
+
+The loop's shell command line contains the word, so `until ! pgrep -f vitest` never ends. Use a
+self-excluding pattern: `pgrep -f "[v]itest\.mjs"` (the regex matches `vitest.mjs`, the literal
+`[v]itest` in the loop's own command line does not). A foreground `until ...; do sleep 10; done`
+with a bounded iteration count works as the wait (no Monitor tool needed).
+
 ## `pnpm run check` cannot validate anything past an unfixable advisory
 
 `scripts/check.mjs` runs the audit as step 0 and returns `fail()` on a blocking audit before

@@ -7,6 +7,6 @@
 - [Deferred major updates](deferred-major-updates.md) — state 2026-10-04: NestJS 12, vitest 5, graphql 17, TS 7, undici 8, pnpm, better-auth, ws/mongodb lockstep: why each waits.
 - [Override status](nest-server-override-status.md) — per-entry state 2026-10-04 (first run with no raise; ws = lockstep), two-fresh-resolve method.
 - [Dependency shape + couplings](nest-server-dependency-shape.md) — deps vs devDeps; mongodb+mongoose; AWS trio one version; lockstep exact pins.
-- [Maintenance gotchas](nest-server-maintenance-gotchas.md) — nest exec bit + VS Code port squat (supertest 7.3.1 may fix it, verify) BEFORE the gate; zsh glob traps; scratch dedupe; hung install.
+- [Maintenance gotchas](nest-server-maintenance-gotchas.md) — nest exec bit + VS Code port squat BEFORE the gate; zsh glob traps; `pgrep` self-match; scratch dedupe; hung install.
 - [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — stale lock entries after override edits, targeted `pnpm update --depth Infinity`, `check --no-fix`.
-- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages + check:consumer ignore overrides, stale copies, sticky optional peers (@vitest/ui dropped 2026-10-03), check:overrides UNUSED is unreachable, starter deferred majors.
+- [Starter downstream step](starter-downstream-maintenance.md) — sync-packages misses section-mismatched pins (supertest, mongodb), overrides, sticky optional peers; state 2026-10-04 (11.42.1).
