@@ -1750,6 +1750,17 @@
         "tests/tus-cors.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tus-end-callback-unnormalized",
+      "defect": "11.42.2 — with compression registered as the starter does it (filter: () => true, threshold: 0), every finished TUS upload hung without an answer because compression's res.end(chunk, encoding) took srvx's res.end(callback) for a chunk; the file was already stored.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "    if (!res || typeof res.end !== 'function' || res[END_CALLBACK_NORMALIZED]) {",
+      "replace": "    if (true) {",
+      "specs": [
+        "tests/tus-compression.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

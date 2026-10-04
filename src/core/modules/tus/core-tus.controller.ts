@@ -105,7 +105,9 @@ export class CoreTusController {
     try {
       await server.handle(req, res);
     } catch (error) {
-      this.logger.error(`TUS request error: ${error.message}`);
+      // The stack, not just the message: a TypeError from a middleware's patched `res.end` reads
+      // like a tus failure without it, and that cost a project several rounds of diagnosis (11.42.2).
+      this.logger.error(`TUS request error: ${error.message}`, error?.stack);
       if (!res.headersSent) {
         res.status(500).json({ message: 'Upload error' });
       }
@@ -131,7 +133,7 @@ export class CoreTusController {
     try {
       await server.handle(req, res);
     } catch (error) {
-      this.logger.error(`TUS request error for upload ${req.params.id}: ${error.message}`);
+      this.logger.error(`TUS request error for upload ${req.params.id}: ${error.message}`, error?.stack);
       if (!res.headersSent) {
         res.status(500).json({ message: 'Upload error' });
       }

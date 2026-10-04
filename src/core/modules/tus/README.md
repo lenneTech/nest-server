@@ -526,6 +526,21 @@ from elsewhere (an API key, a signed form token), or to let a support role resum
 2. Verify MongoDB connection is established
 3. Check server logs for initialization errors
 
+### Upload is stored but the client never sees success (fixed in 11.42.2)
+
+**Symptom:** the file appears in the file store (`Upload … migrated to …` in the log), but the final
+`PATCH` never answers (the request hangs: the headers are already sent, so no error response can
+follow), `tus-js-client` never fires `onSuccess`, and the log shows
+`ERR_INVALID_ARG_TYPE … Received function`.
+
+**Cause:** `@tus/server` finishes its responses with `res.end(callback)`, and the `compression`
+middleware patches `res.end(chunk, encoding)` and reads the callback as a chunk. The starter registers
+`compression` with `filter: () => true` and `threshold: 0`, so it also handles the bodyless 204.
+
+**Solution:** update to 11.42.2 — `CoreTusService` normalises `res.end(callback)` before the tus
+server writes (`normalizeEndCallback()`), for the core controller and any project controller that
+calls `getServer().handle()`. No change to `main.ts` is needed.
+
 ### Upload stalls or fails to resume
 
 **Cause:** Upload expired or server restarted
