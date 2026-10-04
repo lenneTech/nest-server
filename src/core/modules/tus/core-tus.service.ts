@@ -54,6 +54,9 @@ export interface CoreTusServiceOptions {
   s3Service?: CoreS3Service;
 }
 
+/** Marks a response whose `end()` was already normalised (see `normalizeEndCallback()`). */
+const END_CALLBACK_NORMALIZED = Symbol('tusEndCallbackNormalized');
+
 /**
  * Core TUS Service
  *
@@ -794,7 +797,64 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       respectForwardedHeaders: true,
     });
 
+    // Every caller of getServer().handle() — the core controller and any project controller — gets
+    // the response normalised before @tus/server writes to it. See normalizeEndCallback().
+    const handle = server.handle.bind(server);
+    server.handle = (req, res) => {
+      this.normalizeEndCallback(res);
+      return handle(req, res);
+    };
+
     return server;
+  }
+
+  /**
+   * Makes `res.end(callback)` safe for middlewares that patch `res.end` with the old two-argument form.
+   *
+   * @tus/server finishes its responses through srvx with `res.end(callback)` — a documented Node
+   * signature. `compression` (and any middleware written like it) patches `res.end(chunk, encoding)`
+   * and treats the first argument as a chunk unconditionally, so the callback reaches
+   * `Buffer.byteLength()` and throws `ERR_INVALID_ARG_TYPE ... Received function`. The starter
+   * registers `compression` with `filter: () => true, threshold: 0`, which removes the checks that
+   * would otherwise skip a bodyless 204, so every finished upload failed AFTER the file had been
+   * stored: the client never saw a 2xx and retried an upload that was already complete.
+   *
+   * The wrapper moves a function argument into the callback slot and runs it on `finish`, which is
+   * what Node itself does with it — or on `close`, so a connection dropped after `end()` resolves srvx
+   * too. A response destroyed before `end()` stays unresolved, exactly as with plain Node.
+   * Idempotent per response. Protected so a project can widen it.
+   */
+  protected normalizeEndCallback(res: any): void {
+    if (!res || typeof res.end !== 'function' || res[END_CALLBACK_NORMALIZED]) {
+      return;
+    }
+    const end = res.end;
+    res.end = function normalizedEnd(this: any, chunk?: unknown, encoding?: unknown, callback?: unknown) {
+      if (typeof chunk === 'function') {
+        callback = chunk;
+        chunk = undefined;
+        encoding = undefined;
+      } else if (typeof encoding === 'function') {
+        callback = encoding;
+        encoding = undefined;
+      }
+      if (typeof callback === 'function') {
+        let called = false;
+        const done = () => {
+          if (!called) {
+            called = true;
+            (callback as () => void)();
+          }
+        };
+        this.once('finish', done);
+        this.once('close', done);
+      }
+      if (chunk === undefined) {
+        return end.call(this);
+      }
+      return encoding === undefined ? end.call(this, chunk) : end.call(this, chunk, encoding);
+    };
+    res[END_CALLBACK_NORMALIZED] = true;
   }
 
   /**

@@ -1,13 +1,13 @@
 ---
 name: project-gridfs-and-express-response-facts
-description: Verified library behaviors that keep biting the file-download and migrate-GridFS paths — GridFS stores ZERO chunks for a 0-byte file, Express res.json() never overrides an already-set Content-Type, stream.pipe() does not destroy the source on client abort, and process.exit() truncates piped stdout.
+description: Verified library behaviors that keep biting the file-download and migrate-GridFS paths — GridFS stores ZERO chunks for a 0-byte file, Express res.json() never overrides an already-set Content-Type, stream.pipe() does not destroy the source on client abort, process.exit() truncates piped stdout, and res.end(cb) never calls cb once the socket died before end().
 metadata:
   type: project
 ---
 
-# Four verified behaviors behind the file/GridFS/CLI paths
+# Five verified behaviors behind the file/GridFS/CLI paths
 
-All four were confirmed empirically on 2026-07-30 (Express 5.2.1, mongodb driver in-tree,
+Items 1-4 were confirmed empirically on 2026-07-30 (Express 5.2.1, mongodb driver in-tree,
 Node 24.12) while reviewing `core-file.controller.ts` + `migration.helper.ts`. They are library
 facts, not project code, so they stay true across refactors — and each one has already produced a
 real defect here.
@@ -33,6 +33,16 @@ real defect here.
    reached the pipe, 4.87 MB still in `process.stdout.writableLength`, and the final
    "completed successfully" line was lost. Node's stdout is async on a pipe, which is exactly what
    Docker/CI/`| tee` give you. Relevant wherever a CLI's output IS the audit record (migrate).
+
+5. **`res.end(callback)` never calls the callback when the client disconnected BEFORE `end()`.**
+   Native Node: `_writeRaw` returns early on a destroyed socket, so `finish` never fires, and the
+   `close` event has already been emitted. Probed 2026-10-04 (Node 24, compression 1.8): native, and
+   the 11.42.2 `CoreTusService.normalizeEndCallback()` wrapper, both -> 0 calls; abort AFTER end -> 1
+   call. srvx's `endNodeResponse()` (`new Promise(r => res.end(r))`) therefore stays pending on that
+   race — an unreachable, GC-collectible island, not a leak, and upstream behaviour. Separately,
+   `compression`'s patched `res.end(chunk, encoding)` treats a function first argument as a chunk
+   and throws `ERR_INVALID_ARG_TYPE` — the 11.42.2 defect. A JSDoc saying listening on `close`
+   means "a dropped connection cannot leave srvx waiting" is only true for a drop AFTER end().
 
 **How to apply:** when a change adds chunk-count verification, an error path on a streaming
 response, a `pipe()` to a response, or an explicit `process.exit()`, check it against the matching
