@@ -1510,12 +1510,46 @@
     },
     {
       "id": "probe-registry-ignores-environment",
-      "defect": "The clean-tree probe resolves the registry by asking pnpm and nothing else. `pnpm config get registry` does NOT report `npm_config_registry`, which pnpm nonetheless honours for the audit itself — so behind a private registry or a proxy set that way, the audit talks to one service and the probe asks npmjs.org. npmjs.org answers, the ambiguity resolves to \"clean\", and the green tick is back: the same false all-clear a hardcoded host produces, one layer further in, inside the safeguard against false all-clears.",
+      "defect": "The clean-tree probe resolves the registry by asking pnpm and nothing else. Reading the environment first is what makes the probe follow the registry the audit used when the environment names one (pnpm 11: `pnpm_config_registry`), independent of how a pnpm shim forwards it; dropping the branch leaves the probe on whatever `pnpm config get registry` happens to report.",
       "file": "scripts/check-overrides.mjs",
-      "find": "  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;\n  if (typeof fromEnv === 'string' && fromEnv.trim()) {\n    return fromEnv.trim();\n  }\n",
+      "find": "  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;\n  if (typeof fromEnv === 'string' && fromEnv.trim()) {\n    return fromEnv.trim();\n  }\n",
       "replace": "",
       "specs": [
+        "tests/unit/check-overrides.guard.spec.ts",
+        "tests/unit/shared-registry-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "probe-reads-npm-config-registry",
+      "defect": "11.42.6 — the environment branch read `npm_config_registry`, from a measurement on an older pnpm. pnpm 11 IGNORES that variable for `pnpm audit` and `pnpm config get registry` (measured with 11.13.1), so with it set the probe asked a host the audit never talked to and could turn an unreachable audit registry into a green \"clean\".",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;\n",
+      "replace": "  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;\n",
+      "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "guard-audit-error-reads-as-clean",
+      "defect": "11.42.6 — pnpm 11 answers an audit it could not run with valid JSON (`{\"error\": {\"message\": \"fetch failed\"}}`) and no `advisories`. The guard parsed it as a report, `report.advisories ?? {}` made it \"0 advisories\", the clean-tree probe was skipped because `advisories` was undefined, and the run printed \"ok — N override(s) checked … none is failing\" with exit 0, from a captured `--audit-file` in CI as well as live.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "if (report.error || typeof report.advisories !== 'object' || report.advisories === null) {",
+      "replace": "if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "probe-call-site-hardcoded",
+      "defect": "11.42.6 — the shared registry block is pinned byte-identical, but the probe's CALL SITE in check.mjs sits outside it. Restoring the hardcoded npmjs bulk URL in `advisoryServiceReachable()` left the block correct and unused, and the whole unit suite green: behind a private registry the probe asks npmjs.org again and reports a silent outage as clean.",
+      "file": "scripts/check.mjs",
+      "find": "    const response = await fetch(advisoryBulkUrl(registry), {",
+      "replace": "    const response = await fetch('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', {",
+      "specs": [
+        "tests/unit/shared-registry-resolution.spec.ts"
       ],
       "driverSpecific": false
     },

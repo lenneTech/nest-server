@@ -487,6 +487,31 @@ if (fileFlag !== -1) {
   }
 }
 
+// pnpm 11 answers an audit it could not RUN with valid JSON: `{"error": {"code": "pnpm",
+// "message": "fetch failed"}}` and no `advisories` key (measured 2026-10-06, registry
+// unreachable). That passed every check above, and `report.advisories ?? {}` below turned it
+// into "0 advisories, none failing": an "ok" line for a run that verified nothing, under CI too.
+// It is the same situation as a report that could not be obtained at all, so it takes the same
+// exits. A captured file holding an error FAILS, because that is the CI path and a skip there is
+// a silent pass. A live run warns and leaves the chain alone, as above.
+if (report.error || typeof report.advisories !== 'object' || report.advisories === null) {
+  const reason = String(report.error?.message ?? 'the report has no advisories section').split('\n')[0];
+  if (fileFlag !== -1) {
+    console.error(
+      `${TAG} FAIL — the audit report at ${source} records a failed audit, not a result (${reason}).\n` +
+        `  ${overrideCount} override(s) are declared and NONE of them could be verified.`,
+    );
+    process.exit(1);
+  }
+  console.warn(
+    `${TAG} WARN — could not obtain an audit report (${reason}).\n` +
+      `  ${overrideCount} override(s) are declared and NONE of them were verified.\n` +
+      `  Re-run with network access, or pass a captured report:\n` +
+      `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json`,
+  );
+  process.exit(0);
+}
+
 // ---------------------------------------------------------------------------
 // Cross-reference: which advisories land on a package we already override?
 // ---------------------------------------------------------------------------
@@ -559,19 +584,18 @@ const ADVISORY_API_BASE = (() => {
  */
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
-  // The ENVIRONMENT first, and this order is load-bearing. pnpm honours `npm_config_registry`
-  // for the audit itself, but `pnpm config get registry` does NOT report it — measured
-  // 2026-09-04 in lt-monorepo, which carried this half of the fix while both copies here did
-  // not:
+  // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
+  // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.13.1:
   //
-  //   npm_config_registry=http://127.0.0.1:9/ pnpm audit                uses 127.0.0.1:9, fails
-  //   npm_config_registry=http://127.0.0.1:9/ pnpm config get registry  https://registry.npmjs.org/
+  //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
+  //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
   //
-  // Asking pnpm alone therefore points the probe at npmjs.org while the audit talked to
-  // somewhere else — npmjs.org answers, the run concludes "no outage", and the green tick is
-  // back. That is the SAME false all-clear a hardcoded host produces, one layer further in, so
-  // resolving the registry without reading the environment only looks like it closed it.
-  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;
+  // An earlier version read `npm_config_registry` first, from a measurement taken on an older
+  // pnpm. Under pnpm 11 that sends the probe to a registry the audit never talked to. The pnpm
+  // spawn below would report `pnpm_config_registry` as well; reading it here saves the spawn
+  // and keeps the answer independent of how a pnpm shim forwards the environment.
+  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;
   if (typeof fromEnv === 'string' && fromEnv.trim()) {
     return fromEnv.trim();
   }
