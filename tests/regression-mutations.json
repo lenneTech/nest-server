@@ -1535,8 +1535,19 @@
       "id": "guard-audit-error-reads-as-clean",
       "defect": "11.42.6 — pnpm 11 answers an audit it could not run with valid JSON (`{\"error\": {\"message\": \"fetch failed\"}}`) and no `advisories`. The guard parsed it as a report, `report.advisories ?? {}` made it \"0 advisories\", the clean-tree probe was skipped because `advisories` was undefined, and the run printed \"ok — N override(s) checked … none is failing\" with exit 0, from a captured `--audit-file` in CI as well as live.",
       "file": "scripts/check-overrides.mjs",
-      "find": "if (report.error || typeof report.advisories !== 'object' || report.advisories === null) {",
+      "find": "if (!auditUnavailable && (report.error || typeof report.advisories !== 'object' || report.advisories === null)) {",
       "replace": "if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "guard-unavailable-audit-skips-suppressions",
+      "defect": "11.42.6 — the first fix for a failed pnpm 11 audit exited where it detected one. The suppression checks run later and ask the GitHub Advisory API, not the audit, so a suppressed advisory that had gained a fix (FIX AVAILABLE, exit 1 before) passed with exit 0 for as long as the audit failed — and `pnpm audit` hides suppressed advisories completely, so nothing else reported it. In the starter and lt-monorepo CI, whose audit steps treat pnpm 11 errors as non-blocking, that was a green run.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  auditUnavailable = true;\n  report = { advisories: {} };\n}",
+      "replace": "  process.exit(0);\n}",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],
@@ -1945,6 +1956,17 @@
       "file": "src/core/common/services/core-body-parser.initializer.ts",
       "find": "    const limit = parseBodyLimit(value);",
       "replace": "    const limit = value as number;",
+      "specs": [
+        "tests/unit/body-parser.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "body-parser-path-scoped-collision-silent",
+      "defect": "11.42.6 — NestJS registers its global body parser only if no layer with the parser's function name exists yet, and a path-scoped `json()` registered in main.ts before init is one. A project that followed the 11.42.4 guide and dropped `useBodyParser()` from main.ts lost JSON parsing outside that path (a sign-in failed with \"Missing input\"), and nothing logged why.",
+      "file": "src/core/common/services/core-body-parser.initializer.ts",
+      "find": "    if (shadowed && this.isBodyParserEnabled()) {",
+      "replace": "    if (false) {",
       "specs": [
         "tests/unit/body-parser.spec.ts"
       ],

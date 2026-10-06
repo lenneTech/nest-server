@@ -1119,8 +1119,10 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
   async function runLiveClean(
     status: number,
     opts: {
+      advisoryData?: Record<string, unknown>;
       auditExit?: number;
       auditReport?: string;
+      ignoreGhsas?: string[];
       registry?: string;
       registryEnv?: 'npm_config_registry' | 'pnpm_config_registry';
       useApiOverride?: boolean;
@@ -1130,10 +1132,18 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
     dirs.push(dir);
     mkdirSync(join(dir, 'scripts'), { recursive: true });
     copyFileSync(GUARD, join(dir, 'scripts', 'check-overrides.mjs'));
-    writeFileSync(
-      join(dir, 'package.json'),
-      `${JSON.stringify({ name: 's', pnpm: { overrides: { 'fast-uri': '3.1.3' } } }, null, 2)}\n`,
-    );
+    const pnpmBlock: Record<string, unknown> = { overrides: { 'fast-uri': '3.1.3' } };
+    if (opts.ignoreGhsas) {
+      pnpmBlock.auditConfig = { ignoreGhsas: opts.ignoreGhsas };
+    }
+    writeFileSync(join(dir, 'package.json'), `${JSON.stringify({ name: 's', pnpm: pnpmBlock }, null, 2)}\n`);
+    // Suppressions are verified against the GitHub Advisory API; a file keeps that offline.
+    const guardArgs = [join(dir, 'scripts', 'check-overrides.mjs')];
+    if (opts.advisoryData) {
+      const advisoryPath = join(dir, 'advisories.json');
+      writeFileSync(advisoryPath, `${JSON.stringify(opts.advisoryData)}\n`);
+      guardArgs.push('--advisory-file', advisoryPath);
+    }
     const bin = join(dir, 'bin');
     mkdirSync(bin);
     const clean =
@@ -1176,7 +1186,7 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
       // `useApiOverride: false` steers the probe through the registry environment variable
       // instead (`registryEnv`, default `pnpm_config_registry`), which is the lever a real
       // private registry or proxy pulls.
-      const child = spawn(process.execPath, [join(dir, 'scripts', 'check-overrides.mjs')], {
+      const child = spawn(process.execPath, guardArgs, {
         env: {
           ...process.env,
           ...(opts.useApiOverride === false
@@ -1284,5 +1294,40 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
     expect(r.out).toMatch(/could not obtain an audit report \(fetch failed\)/);
     expect(r.out).toMatch(/NONE of them were verified/);
     expect(r.exit, 'a live run without a report must not fail the chain').toBe(0);
+  });
+
+  /**
+   * @regression   11.42.6 — the first fix for a failed audit EXITED where it detected one, and the
+   *   suppression checks run later. They ask the GitHub Advisory API, not the audit, so they had
+   *   nothing to lose by running — but with the early exit a suppressed advisory that had gained a
+   *   fix (FIX AVAILABLE, exit 1 before) passed with exit 0 for as long as the audit failed, and
+   *   `pnpm audit` hides suppressed advisories completely, so nothing else reported it.
+   * @seen-failing Put the early exit back in the failed-audit block — registered as mutation
+   *   `guard-unavailable-audit-skips-suppressions` in tests/regression-mutations.json.
+   */
+  it('still checks the suppressions when the audit failed', async () => {
+    const GHSA = 'GHSA-aaaa-bbbb-cccc';
+    const failed = JSON.stringify({ error: { code: 'pnpm', message: 'fetch failed' } });
+    const fixed = await runLiveClean(200, {
+      advisoryData: { [GHSA]: { first_patched_version: '2.1.0', withdrawn: false } },
+      auditExit: 1,
+      auditReport: failed,
+      ignoreGhsas: [GHSA],
+    });
+    expect(fixed.out, `a fixed suppressed advisory must still be reported, got:\n${fixed.out}`).toMatch(
+      /FIX AVAILABLE/,
+    );
+    expect(fixed.exit).toBe(1);
+
+    // The paired control: an unfixed suppression passes, and the run says which half it verified.
+    const unfixed = await runLiveClean(200, {
+      advisoryData: { [GHSA]: { first_patched_version: null, withdrawn: false } },
+      auditExit: 1,
+      auditReport: failed,
+      ignoreGhsas: [GHSA],
+    });
+    expect(unfixed.out).not.toMatch(/ok — /);
+    expect(unfixed.out).toMatch(/override\(s\) were NOT verified; 1\/1 suppression\(s\) verified/);
+    expect(unfixed.exit).toBe(0);
   });
 });

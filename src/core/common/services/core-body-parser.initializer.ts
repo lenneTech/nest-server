@@ -90,11 +90,8 @@ export class CoreBodyParserInitializer implements OnModuleInit {
       const limit = this.resolveLimit(type, config?.[type]?.limit);
       const layers = stack.filter((layer) => this.isGlobalParserLayer(layer, type));
 
-      if (limit !== undefined && !layers.length) {
-        this.logger.warn(
-          `bodyParser.${type}.limit is configured, but no global ${type} body parser is registered ` +
-            '(was the app created with `bodyParser: false`?) — the limit has no effect.',
-        );
+      if (!layers.length) {
+        this.warnMissingGlobalParser(type, stack, limit);
         continue;
       }
 
@@ -145,6 +142,18 @@ export class CoreBodyParserInitializer implements OnModuleInit {
    */
   protected isGlobalParserLayer(layer: ExpressLayer | undefined, type: CoreBodyParserType): boolean {
     return layer?.slash === true && typeof layer.handle === 'function' && layer.handle.name === PARSER_NAMES[type];
+  }
+
+  /**
+   * Whether the application was created without `bodyParser: false`.
+   *
+   * Read from the same container options as `rawBody`. Under `Test.createTestingModule()` those
+   * options never reach the container, so the answer there is always "enabled".
+   */
+  protected isBodyParserEnabled(): boolean {
+    const container = (this.moduleRef as unknown as { container?: { contextOptions?: { bodyParser?: boolean } } })
+      ?.container;
+    return container?.contextOptions?.bodyParser !== false;
   }
 
   /**
@@ -208,6 +217,39 @@ export class CoreBodyParserInitializer implements OnModuleInit {
     return new PayloadTooLargeException(
       `${ErrorCode.REQUEST_BODY_TOO_LARGE} [${sizeText}limit ${details.limit} bytes]`,
     );
+  }
+
+  /**
+   * Explain why there is no global parser of this type, when there should be one.
+   *
+   * NestJS registers its own parsers inside `app.init()` only if no layer with the parser's function
+   * name exists yet (`ExpressAdapter.isMiddlewareApplied()` compares the NAME and nothing else). A
+   * path-scoped `server.use('/upload', json({ limit }))` in `main.ts` therefore counts as "applied",
+   * NestJS skips its global parser, and every request outside that path reaches its handler with an
+   * empty body — a sign-in fails with a validation error, and nothing says why. Restoring the parser
+   * from here is not safe: NestJS would have placed it after everything `main.ts` registered, and that
+   * position is no longer knowable during module init (a raw-body webhook or a proxy registered after
+   * the path-scoped parser must keep seeing the unread stream). So this reports, with the remedy.
+   */
+  protected warnMissingGlobalParser(type: CoreBodyParserType, stack: ExpressLayer[], limit: number | undefined): void {
+    const name = PARSER_NAMES[type];
+    const shadowed = stack.some((layer) => layer?.slash !== true && layer?.handle?.name === name);
+    if (shadowed && this.isBodyParserEnabled()) {
+      this.logger.warn(
+        `No global ${type} body parser is registered: NestJS skips its own when a layer named \`${name}\` ` +
+          `already exists, and a path-scoped \`${type}()\` parser registered before \`app.init()\` counts as one. ` +
+          `Every request outside that path reaches its handler with an EMPTY body. Register the global parser ` +
+          `in main.ts as well — \`server.useBodyParser('${type}')\` — a configured \`bodyParser.${type}.limit\` ` +
+          'is applied to it.',
+      );
+      return;
+    }
+    if (limit !== undefined) {
+      this.logger.warn(
+        `bodyParser.${type}.limit is configured, but no global ${type} body parser is registered ` +
+          '(was the app created with `bodyParser: false`?) — the limit has no effect.',
+      );
+    }
   }
 
   /**

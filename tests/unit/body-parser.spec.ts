@@ -255,15 +255,55 @@ describe('CoreBodyParserInitializer', () => {
       // `server.use('/upload', json({ limit }))` is how a project gives ONE path its own limit; it
       // sits in front of the global parser and must keep both its limit and its own 413.
       // NestJS logs that untranslated 413 as an error with a stack trace — expected here.
+      // The global parser is registered explicitly as well: without it NestJS registers none at all
+      // (see the next case), and a body that was never parsed also answers 201.
       captureLogs('error');
-      app = await createApp({ bodyParser: { json: { limit: '2mb' } } }, (nestApp) =>
-        nestApp.use('/scoped', json({ limit: '1kb' })),
-      );
+      app = await createApp({ bodyParser: { json: { limit: '2mb' } } }, (nestApp) => {
+        nestApp.use('/scoped', json({ limit: '1kb' }));
+        nestApp.useBodyParser('json');
+      });
 
       const scoped = await postJson(app, jsonOfSize(2 * 1024), '/scoped/echo');
       expect(scoped.status).toBe(413);
       expect(scoped.body.message).toBe('request entity too large');
-      expect((await postJson(app, jsonOfSize(150 * 1024))).status).toBe(201);
+      const global = await postJson(app, jsonOfSize(150 * 1024));
+      expect(global.status).toBe(201);
+      expect(global.body.keys, 'the global parser must have PARSED the body, not merely let it through').toEqual([
+        'data',
+      ]);
+    });
+
+    /**
+     * @regression   11.42.6 — NestJS registers its global parser only if no layer named
+     *   `jsonParser` exists yet, and a path-scoped `json()` registered in main.ts before init is
+     *   one. A project following the 11.42.4 guide (drop `useBodyParser()` from main.ts) lost JSON
+     *   parsing everywhere outside that path — a sign-in failed with "Missing input" — and nothing
+     *   logged why. The case above used to set up exactly that and asserted only the status.
+     * @seen-failing Silence the shadowed-parser warning in `warnMissingGlobalParser()` — registered
+     *   as mutation `body-parser-path-scoped-collision-silent` in tests/regression-mutations.json.
+     */
+    it('warns when a path-scoped parser made NestJS skip its global one', async () => {
+      const warnings = captureLogs('warn');
+      captureLogs('error');
+      app = await createApp({}, (nestApp) => nestApp.use('/scoped', json({ limit: '1kb' })));
+
+      // The failure the warning explains: outside the scoped path nothing parses the body.
+      const unparsed = await postJson(app, jsonOfSize(1024));
+      expect(unparsed.body.keys).toEqual([]);
+      const warning = warnings.find((message) => message.includes('No global json body parser is registered'));
+      expect(warning, `expected the collision to be reported, got:\n${warnings.join('\n')}`).toBeDefined();
+      expect(warning).toContain("server.useBodyParser('json')");
+    });
+
+    it('does not warn when the global parser exists next to a path-scoped one', async () => {
+      const warnings = captureLogs('warn');
+      captureLogs('error');
+      app = await createApp({}, (nestApp) => {
+        nestApp.use('/scoped', json({ limit: '1kb' }));
+        nestApp.useBodyParser('json');
+      });
+
+      expect(warnings.filter((message) => message.includes('No global json body parser'))).toEqual([]);
     });
 
     /**

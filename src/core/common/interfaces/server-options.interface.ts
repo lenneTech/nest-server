@@ -2335,6 +2335,11 @@ export interface IServerOptions {
    * (`server.use('/upload', json({ limit }))`) is left alone, and stays the way to give ONE path a
    * different limit, since the parser runs before routing and GraphQL shares a single path anyway.
    *
+   * Keep `server.useBodyParser('json')` in `main.ts` next to such a path-scoped parser. NestJS
+   * registers its own global parser only if no layer with the same function name exists yet, so a
+   * path-scoped `json()` registered before `app.init()` makes it skip the global one, and requests
+   * outside that path arrive with an empty body. The initializer warns at boot when it finds that.
+   *
    * One caveat: under the testing module the options passed to `createNestApplication()` are not
    * visible to providers, so a test app created with `{ rawBody: true }` gets no `req.rawBody` from
    * a CONFIGURED parser. Applications created with `NestFactory.create()` are not affected.
