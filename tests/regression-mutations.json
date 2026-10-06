@@ -1509,6 +1509,17 @@
       "driverSpecific": false
     },
     {
+      "id": "probe-registry-ignores-environment",
+      "defect": "The clean-tree probe resolves the registry by asking pnpm and nothing else. `pnpm config get registry` does NOT report `npm_config_registry`, which pnpm nonetheless honours for the audit itself — so behind a private registry or a proxy set that way, the audit talks to one service and the probe asks npmjs.org. npmjs.org answers, the ambiguity resolves to \"clean\", and the green tick is back: the same false all-clear a hardcoded host produces, one layer further in, inside the safeguard against false all-clears.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;\n  if (typeof fromEnv === 'string' && fromEnv.trim()) {\n    return fromEnv.trim();\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "consumer-gate-skips-pin-alignment",
       "defect": "11.41.4 — the consumer gate only re-pointed the framework dependency at the tarball and kept every other starter pin, i.e. a state no documented update path produces. A release raising a shared exact pin (@nestjs/common 11.2.1 -> 11.2.6) installed @nestjs/schedule twice, `CronJobs extends CoreCronJobs` stopped type-checking, and a sound tarball was refused.",
       "file": "scripts/check-consumer.mjs",

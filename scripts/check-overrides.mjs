@@ -559,6 +559,22 @@ const ADVISORY_API_BASE = (() => {
  */
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
+  // The ENVIRONMENT first, and this order is load-bearing. pnpm honours `npm_config_registry`
+  // for the audit itself, but `pnpm config get registry` does NOT report it — measured
+  // 2026-09-04 in lt-monorepo, which carried this half of the fix while both copies here did
+  // not:
+  //
+  //   npm_config_registry=http://127.0.0.1:9/ pnpm audit                uses 127.0.0.1:9, fails
+  //   npm_config_registry=http://127.0.0.1:9/ pnpm config get registry  https://registry.npmjs.org/
+  //
+  // Asking pnpm alone therefore points the probe at npmjs.org while the audit talked to
+  // somewhere else — npmjs.org answers, the run concludes "no outage", and the green tick is
+  // back. That is the SAME false all-clear a hardcoded host produces, one layer further in, so
+  // resolving the registry without reading the environment only looks like it closed it.
+  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
   try {
     // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
     // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the

@@ -1089,7 +1089,7 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
   // which the guard asks npm's bulk endpoint whether "0 advisories" meant "nothing found" or
   // "could not ask". A fake `pnpm` on PATH supplies the clean report, and a loopback server
   // stands in for the endpoint, so the case stays offline and deterministic.
-  async function runLiveClean(status: number) {
+  async function runLiveClean(status: number, opts: { registry?: string; useApiOverride?: boolean } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'overrides-guard-'));
     dirs.push(dir);
     mkdirSync(join(dir, 'scripts'), { recursive: true });
@@ -1104,8 +1104,20 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
       advisories: {},
       metadata: { vulnerabilities: { critical: 0, high: 0, info: 0, low: 0, moderate: 0 } },
     });
-    writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s' '${clean}'\n`, { mode: 0o755 });
-    writeFileSync(join(bin, 'pnpm.cmd'), `@echo ${clean}\r\n`);
+    // The stand-in answers BOTH sub-commands the guard uses. What it reports for
+    // `config get registry` is the lever of the registry-resolution case below: pointing it at
+    // a dead port means a guard that asks pnpm instead of reading the environment reaches
+    // nothing, so "the stub was called" becomes a real discriminator rather than a formality.
+    const pnpmRegistry = opts.registry ?? 'https://registry.npmjs.org/';
+    writeFileSync(
+      join(bin, 'pnpm'),
+      `#!/bin/sh\ncase "$*" in\n  *'config get registry'*) printf '%s\\n' '${pnpmRegistry}' ;;\n  *) printf '%s' '${clean}' ;;\nesac\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      join(bin, 'pnpm.cmd'),
+      `@echo off\r\nif "%*"=="config get registry" (echo ${pnpmRegistry}) else (echo ${clean})\r\n`,
+    );
 
     const { createServer } = await import('node:http');
     const requests: string[] = [];
@@ -1120,10 +1132,16 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
     const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
     try {
       // ASYNC: the stub answers the child from THIS process's event loop (see runAsync()).
+      // CHECK_OVERRIDES_ADVISORY_API routes the bulk URL directly and therefore BYPASSES the
+      // registry resolution. The default keeps that (it is what the two outage cases need);
+      // `useApiOverride: false` steers the probe through `npm_config_registry` instead, which is
+      // the lever a real private registry or proxy pulls.
       const child = spawn(process.execPath, [join(dir, 'scripts', 'check-overrides.mjs')], {
         env: {
           ...process.env,
-          CHECK_OVERRIDES_ADVISORY_API: `http://127.0.0.1:${port}`,
+          ...(opts.useApiOverride === false
+            ? { npm_config_registry: `http://127.0.0.1:${port}/` }
+            : { CHECK_OVERRIDES_ADVISORY_API: `http://127.0.0.1:${port}` }),
           CI: '',
           [pathKey]: `${bin}${delimiter}${process.env[pathKey] ?? ''}`,
         },
@@ -1167,5 +1185,27 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
     expect(r.out, `a 503 must be reported as an outage, got:\n${r.out}`).toMatch(/unreachable/);
     expect(r.out).toMatch(/COULD NOT ASK/);
     expect(r.exit, 'an outage must not fail the chain').toBe(0);
+  });
+
+  /**
+   * @regression   11.42.6 — `configuredRegistry()` asked pnpm and nothing else, in BOTH copies of
+   *   the shared block, while the comment above the probe claimed it used the EFFECTIVE value.
+   *   pnpm does not report `npm_config_registry` from `pnpm config get registry`, so behind a
+   *   private registry or a proxy set that way the probe asked npmjs.org — the same false
+   *   all-clear a hardcoded host produces, one layer in. lt-monorepo carried this half of the fix
+   *   in `scripts/lib/audit-report.mjs` since 2026-09-04; found by comparing the two.
+   * @seen-failing Drop the environment branch from `configuredRegistry()` — registered as mutation
+   *   `probe-registry-ignores-environment` in tests/regression-mutations.json.
+   */
+  it('asks the registry pnpm AUDITS against, which is not always the one pnpm reports', async () => {
+    // The environment names the stub while the fake pnpm reports a DEAD port, which is what
+    // makes the assertion sharp: only a guard that reads the environment first reaches the stub
+    // at all, and one that trusts pnpm's answer reaches nothing and reports an outage.
+    const r = await runLiveClean(200, { registry: 'http://127.0.0.1:1/', useApiOverride: false });
+    expect(r.requests, `the audited registry was never asked, got:\n${r.out}`).toContain(
+      'POST /-/npm/v1/security/advisories/bulk',
+    );
+    expect(r.out, `the probe reached the registry, so this is no outage, got:\n${r.out}`).not.toMatch(/unreachable/);
+    expect(r.exit).toBe(0);
   });
 });

@@ -266,7 +266,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 103 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 104 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -285,7 +285,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 166 mutations.
+at 167 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -332,7 +332,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 63 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 166 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 167 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

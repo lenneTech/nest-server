@@ -53,6 +53,18 @@ describe('shared registry resolution stays in sync', () => {
     expect(block).toContain('/-/npm/v1/security/advisories/bulk');
   });
 
+  it('reads the ENVIRONMENT before asking pnpm', () => {
+    // Asking pnpm is not the same as resolving the registry. `pnpm config get registry` does not
+    // report `npm_config_registry`, which pnpm nonetheless honours for the audit — so a block
+    // that only calls pnpm sends the probe to npmjs.org while the audit went somewhere else, and
+    // identity between two copies that both do that proves nothing. Both copies lacked this for
+    // three releases while the comment above the probe claimed the effective value was used.
+    const block = blockOf('scripts/check.mjs');
+    expect(block).toMatch(/npm_config_registry/);
+    // Order matters as much as presence: the environment branch has to come BEFORE the call.
+    expect(block.indexOf('npm_config_registry')).toBeLessThan(block.indexOf("execFileSync('pnpm config get registry'"));
+  });
+
   it('keeps npmjs.org as a FALLBACK only, never as the primary answer', () => {
     // `pnpm config get registry` can return an empty string or fail outright, and a probe that
     // throws would report every clean repo as an outage — worse than the bug being fixed.
