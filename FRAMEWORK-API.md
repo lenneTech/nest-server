@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-04 (v11.42.3)
+> Auto-generated from source code as of 2026-10-04 (v11.42.4)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -19,6 +19,7 @@
   - `automaticObjectIdFiltering?`: `boolean | undefined` — Automatically detect ObjectIds in string values in FilterQueries
   - `baseUrl?`: `string | undefined` — Base URL of the API server.
   - `betterAuth?`: `boolean | IBetterAuth | undefined` (default: `undefined (enabled with defaults)`) — Configuration for better-auth authentication framework.
+  - `bodyParser?`: `IBodyParserConfig | undefined` — Size limits for request bodies.
   - `brevo?`: `{ apiKey: string; exclude?: RegExp; maxRetries?: number; sender: { email: str...` — Configuration for Brevo
   - `compression?`: `boolean | compression.CompressionOptions | undefined` — Whether to use the compression middleware package to enable gzip compression.
   - `cookies?`: `boolean | ICookiesConfig | undefined` (default: `true`) — Cookie configuration for authentication handling.

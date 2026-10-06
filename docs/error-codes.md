@@ -262,6 +262,22 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 
 ---
 
+### LTNS_0304: requestBodyTooLarge
+
+**Message:** Request body too large
+
+**Description:** Answered with HTTP 413 when a JSON or URL-encoded request body exceeds the body parser's limit. The parser runs before authentication and routing, so the whole request is rejected. The message carries the size and the limit in brackets, e.g. `#LTNS_0304: Request body too large [137270 bytes, limit 102400 bytes]` (the size is missing when the client sent no `Content-Length`). The server logs a warning with the route and the config key.
+
+**Solution:** Send a smaller body (split the operation, or upload large content through the file endpoints). If payloads of this size are legitimate for the route, raise the limit via `bodyParser.json.limit` / `bodyParser.urlencoded.limit` in the server options.
+
+**Parameters:** none (the size details are part of the developer message, not of the translation)
+
+**Translations:**
+- DE: Die gesendeten Daten sind zu groß und wurden nicht verarbeitet.
+- EN: The submitted data is too large and was not processed.
+
+---
+
 ## Resource Errors (LTNS_0400-LTNS_0499)
 
 ### LTNS_0400: resourceNotFound

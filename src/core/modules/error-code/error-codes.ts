@@ -435,6 +435,15 @@ export const LtnsErrors = {
     },
   },
 
+  REQUEST_BODY_TOO_LARGE: {
+    code: 'LTNS_0304',
+    message: 'Request body too large',
+    translations: {
+      de: 'Die gesendeten Daten sind zu groß und wurden nicht verarbeitet.',
+      en: 'The submitted data is too large and was not processed.',
+    },
+  },
+
   // =====================================================
   // Resource Errors (LTNS_0400-LTNS_0499)
   // =====================================================

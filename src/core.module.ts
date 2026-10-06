@@ -48,6 +48,7 @@ import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-gua
 import { mongooseSystemRolePlugin } from './core/common/plugins/mongoose-system-role.plugin';
 import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
 import { ConfigService } from './core/common/services/config.service';
+import { CoreBodyParserInitializer } from './core/common/services/core-body-parser.initializer';
 import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
 import { CoreRedisService } from './core/common/services/core-redis.service';
 import { CoreS3Service } from './core/common/services/core-s3.service';
@@ -324,6 +325,9 @@ export class CoreModule implements NestModule {
       },
 
       // Core Services
+      // Applies `bodyParser` limits and answers a body-parser 413 with an error code. Swaps the
+      // parser layers NestJS registered in place, during module init — see the initializer.
+      CoreBodyParserInitializer,
       CoreCronJobsInitializer,
       // Audits the file endpoints the project actually REGISTERED. applyFileRoles() above can only
       // reach the base-class members; a subclass that re-declares one keeps its own @Roles() and the

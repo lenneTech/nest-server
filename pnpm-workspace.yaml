@@ -142,6 +142,21 @@ peerDependencyRules:
 # .claude/rules/package-management.md for the incident that rule exists to prevent.
 # pnpm 11 `pnpm audit` is the safety net for regressions.
 overrides:
+  # Security: @graphql-tools/utils — prototype pollution in mergeDeep (GHSA-7mx3-vvmw-hjmv, high,
+  #   patched >=12.0.1) (added 2026-10-06)
+  # RUNTIME: mergeDeep runs while the GraphQL schema is assembled (@nestjs/graphql, @apollo/server >
+  # @graphql-tools/schema / merge), so it is on the boot path of every app with GraphQL enabled.
+  # LOAD-BEARING, and no in-major bump reaches it: @nestjs/graphql 13.4.5 — the newest 13.x —
+  # EXACT-pins `"@graphql-tools/utils": "12.0.0"`; only 14.x moves the pin, and crossing a major of
+  # @nestjs/graphql to fix a transitive advisory is the shape the "stay within the major" rule forbids.
+  # Target is the fix line 12.0.1, DELIBERATELY not the newest 12.0.3: 12.0.2 moved to
+  # `@whatwg-node/promise-helpers` ^2.0.0, whose engines field demands Node >=22.15.0, while this
+  # repo declares `engines.node: ">= 22.12"`. A security lift must not quietly raise the Node floor.
+  # Known cost: @graphql-tools/schema and /merge request `^12.0.0`, which INTERSECTS this key, so the
+  # entry holds them at 12.0.1 too (the axios / browserslist hold-back trap below) — accepted, as it
+  # withholds only non-security patches. Re-target when engines.node reaches 22.15.
+  # Remove once @nestjs/graphql pins >=12.0.1 in the major this repo uses.
+  '@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'
   # Security: qs — two MODERATE advisories, patched >=6.16.0 (added 2026-09-02)
   #   array-limit bypass via bracket-key comma parsing, and a DoS via attacker-controlled isBuffer
   # RUNTIME: qs is how Express parses query strings, so it is on the request path of every route.
@@ -349,7 +364,9 @@ overrides:
   # 4.13.12 (2026-09-30) was still inside the 1440-minute window, so 4.13.11 is the newest it allows.
   # Target raised 4.13.11 -> 4.13.12 on 2026-10-03 (11.41.7 maintenance run), key with it: 4.13.12
   # has cleared the hold-back and is the newest 4.x (no new advisory; pure hold-back).
-  'hono@>=4.0.0 <4.13.12': '4.13.12'
+  # Target raised 4.13.12 -> 4.13.13 on 2026-10-06 (11.42.4 maintenance run), key with it: 4.13.13
+  # (published 2026-10-04) is the newest 4.x past the hold-back (no new advisory; pure hold-back).
+  'hono@>=4.0.0 <4.13.13': '4.13.13'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   'body-parser@>=2.0.0 <2.3.0': '2.3.0'
