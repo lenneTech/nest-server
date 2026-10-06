@@ -22,10 +22,12 @@
 - [project-redact-misses-reset-password-urls.md](project-redact-misses-reset-password-urls.md) — **FIXED 11.36.1**; kept for the probe + the "a redaction rule only knows the URL shapes it was told about" lesson
 - [project-betterauth-ratelimit-not-presence-implies-enabled.md](project-betterauth-ratelimit-not-presence-implies-enabled.md) — **FIXED 11.36.1**; kept for the two-layer lesson (configure() AND the middleware mount) + the probe
 - [project-api-token-module-security-model.md](project-api-token-module-security-model.md) — API tokens: enforceApiTokenRoute per kind; tenant token passed S_SELF/S_CREATOR-only routes; what was verified sound
+- [project-swagger-helper-security-model.md](project-swagger-helper-security-model.md) — setupSwagger (11.42.7) is doc-only; token view can't widen exposure; metadata-array aliasing hazard to re-check
 
 ## Review Methodology
 
 - [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — unusableFixConsumers (landed 11.42.5): backport, second parent, importers edge, second consumer version must all RE-TEST
+- [project-check-overrides-pnpm11-outage-shapes.md](project-check-overrides-pnpm11-outage-shapes.md) — pnpm 11 audit-failure shapes + registry env facts; false "ok" (926b691) and skipped suppression checks (40073c2) both FIXED; re-run recipe
 - [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; THREE exact-pin leaks (ws, js-yaml, @graphql-tools/utils@12.0.0); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
 
 - [project-e2e-node-env-trap.md](project-e2e-node-env-trap.md) — e2e without NODE_ENV=e2e fabricates 5 bogus BetterAuth "Invalid credentials" failures; reproduces on base branch too, so a control-diff won't catch it
@@ -34,4 +36,6 @@
 - [project-check-mutations-tooling-risks.md](project-check-mutations-tooling-risks.md) — **all 3 risks FIXED 11.36.3**; keeps the git option-injection probe + the one residual ordering window
 - [project-exception-wire-format.md](project-exception-wire-format.md) — HttpExceptionLogFilter sends `{...exception}` (class `name` is client-visible); `extends HttpException` breaks instanceof vs native Forbidden/Unauthorized
 - [Primitive @Body/@Args args skip validation](project-primitive-body-args-bypass-validation.md) — metatype String ⇒ MapAndValidatePipe returns objects untouched; live $ne-injection in resetPassword + createPasswordResetToken
-- [Cross-repo: CLI patch hoist + public scanner](reference-cross-repo-hoist-and-public-scanner.md) — relocatePatches source-side symlink caveat (below bar); scanner --print superset, CI has no denylist
+- [Cross-repo: CLI patch hoist + public scanner](reference-cross-repo-hoist-and-public-scanner.md) — relocatePatches source-side symlink caveat (below bar); scanner --print superset, CI has no denylist; `--all` skips untracked files
+- [lt-dev permissions.json = global auto-allow](reference-lt-dev-permissions-json-global-allow.md) — `lt claude plugins` writes every pattern into ~/.claude/settings.json; the existing broad entries are an owner decision (2026-10-06), do not report
+- [Windows .cmd spawn quoting](reference-windows-cmd-spawn-quoting.md) — simulate win32 spawnargs on macOS; cmd vs CRT parser; trailing-backslash class; cmd-shim quirks

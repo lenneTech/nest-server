@@ -332,12 +332,19 @@ overrides:
   # Remove once postcss requests >=3.3.17.
   # 2026-09-26: postcss 8.5.28 already requests ^3.3.18, so the removal condition is met and the
   # entry is inert; kept as insurance. Target raised 3.3.18 -> 3.3.19 (latest 3.x), key with it.
-  'nanoid@>=3.0.0 <3.3.19': '3.3.19'
+  # Target raised 3.3.19 -> 3.3.20 on 2026-10-06 (11.42.7 maintenance run), key with it. The entry
+  # was NOT inert before that raise: postcss 8.5.28 requests ^3.3.18, which INTERSECTS `<3.3.19`, so
+  # it fired and held nanoid at 3.3.19 once 3.3.20 (2026-10-05, types-only fix for the
+  # `nanoid/async` export) had cleared the hold-back - the downgrade-lock shape from the header.
+  'nanoid@>=3.0.0 <3.3.20': '3.3.20'
   # Security: postcss parsing DoS (moderate, patched >=8.5.23) - dev only, transitive via
   # better-auth>vitest>vite>postcss. Remove once vite requests >=8.5.23.
   # 2026-09-26: vite 8.3.1 requests ^8.5.28, so the removal condition is met and the entry is inert;
   # kept as insurance. Target raised 8.5.23 -> 8.5.28 (latest 8.x), key with it.
-  'postcss@<8.5.28': '8.5.28'
+  # Target raised 8.5.28 -> 8.5.29 on 2026-10-06 (11.42.7 maintenance run), key with it: 8.5.29
+  # (2026-10-05) is the newest 8.x past the hold-back. vite 8.3.2 requests ^8.5.28, which the new
+  # key now intersects, so the entry fires again and pins 8.5.29 - the newest, i.e. no hold-back.
+  'postcss@<8.5.29': '8.5.29'
   # Security: undici request smuggling / header handling (moderate, patched >=7.29.0). Since 11.42.0
   # undici is also a direct RUNTIME dependency (outbound-url.helper), pinned at 7.30.0 in package.json;
   # this entry only holds the transitive @compodoc/compodoc>cheerio>undici path at the patched line.

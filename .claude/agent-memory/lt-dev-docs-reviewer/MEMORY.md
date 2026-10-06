@@ -23,3 +23,6 @@
 - [Starter config.env.ts has two bases](starter-config-env-two-bases.md) — localConfig (local/e2e/ci) vs deployedConfig share nothing; an example in one never reaches the other pipeline
 - [TurboOps source for plugin claims](turboops-source-for-plugin-claims.md) — ~/code/lenneTech/turbo; date a tool via `git tag --contains`, dev package.json version is stale
 - [Vendor-mode test helper path](vendor-mode-test-helper-path.md) — vendoring moves src/test to src/core/test; path probes for src/test/test.helper.ts miss every vendor project
+- [Internal project names in templates](internal-project-names-in-templates.md) — offers / lt-crm / TurboOps are lenne.Tech-internal; not customer names in template-shipped files
+- [pnpm 11 registry env + old-script replay](pnpm11-registry-env-and-old-script-replay.md) — 11.13.1 ignores npm_config_registry, honours pnpm_config_registry; replay a pre-fix ROOT-relative script via a symlinked scratch root
+- [Override+patch exit conditions](paired-override-patch-exit-conditions.md) — patch and override expire separately; recipe to reproduce pnpm ENOENT / ERR_PNPM_UNUSED_PATCH

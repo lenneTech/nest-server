@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { exec } from 'child_process';
 import compression = require('compression');
 import cookieParser = require('cookie-parser');
@@ -11,6 +10,7 @@ import { buildCorsConfig, isCookiesEnabled, isCorsDisabled } from './core/common
 import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
 import { installGracefulShutdown } from './core/common/helpers/graceful-shutdown.helper';
 import { handleFatalBootstrapError, installProcessDiagnostics } from './core/common/helpers/process-diagnostics.helper';
+import { setupSwagger } from './core/common/helpers/swagger.helper';
 import { CorePersistenceModel } from './core/common/models/core-persistence.model';
 import { CoreAuthModel } from './core/modules/auth/core-auth.model';
 import { CoreUserModel } from './core/modules/user/core-user.model';
@@ -96,21 +96,15 @@ async function bootstrap() {
     // to avoid open CORS with credentials). Callers should configure appUrl/baseUrl/allowedOrigins.
   }
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('Nest Server API')
-    .setDescription('API lenne.Tech Nest Server')
-    .setVersion('1.0.0')
-    .addBearerAuth()
-    .build();
-  const documentFactory = () =>
-    SwaggerModule.createDocument(server, config, {
-      autoTagControllers: true,
-      deepScanRoutes: true,
+  // Swagger documentation: security, API-token scopes and the tenant header are read from the same
+  // decorators the guards read (see setupSwagger), so "Authorize" applies to every route.
+  setupSwagger(server, {
+    description: 'API lenne.Tech Nest Server',
+    documentOptions: {
       extraModels: [CoreUserModel, CoreAuthModel, Auth, User, PersistenceModel, CorePersistenceModel, FilterArgs],
-    });
-  SwaggerModule.setup('swagger', server, documentFactory, {
-    jsonDocumentUrl: '/api-docs-json',
+    },
+    title: 'Nest Server API',
+    version: '1.0.0',
   });
 
   // Drain the event loop on SIGTERM/SIGINT so the process actually exits.

@@ -125,4 +125,17 @@ pass `'127.0.0.1'`; with seven VS Code squatters present the gate ran green with
   0.72.0 (11:05 UTC — follow the framework's devDeps); mongoose 9.11.0 + mongodb 7.7.0 only with the
   framework. Gate: 420 tests / 29 files, `check` 52 s.
 
+**12. A framework mongoose/mongodb move BREAKS check:consumer via the section mismatch (2026-10-06).**
+Framework mongoose 9.10.4 -> 9.11.0 (`mongodb ~7.7`) + mongodb 7.6.0 -> 7.7.0: `check` green (5071),
+but `check:consumer --fast` 74/119 red, 401s plus `[Better Auth] MongoAdapterError: Invalid id value`
+(`serializeID`). Cause: `alignConsumerPins()` raised the starter mongoose (same section) but not its
+`mongodb` DEVdependency, so `@better-auth/mongo-adapter` resolved mongodb 7.6.0 / bson 7.2.0 while
+mongoose and nest-server ran 7.7.0 / bson 7.3.3: ObjectId identity split. Proven both ways: raising mongodb
+to 7.7.0 in the kept copy turned user-rest 9/9 green; reverting the pair turned the gate 119/119.
+**How to apply:** whenever a framework runtime dep moves that the starter ALSO declares (any section), run
+`pnpm run check:consumer -- --fast --keep` inside the maintenance run. Plain `check` cannot see this,
+and the publish workflow would block on it. The mongo pair needs the starter raised in the SAME release.
+**13. smtp-server 3.19.17 exact-pins nodemailer 10.0.14** (dev-only). With the framework on 10.0.15 the
+lock carries a nested second copy under smtp-server: harmless (test-only), no override (no advisory).
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

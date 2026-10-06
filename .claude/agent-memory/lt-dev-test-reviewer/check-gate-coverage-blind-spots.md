@@ -39,3 +39,13 @@ Also check WHERE such a spec lives: under `src/core/**` it violates the vendor-m
 rule (it reaches `src/main.ts` / `nodemon.json` via `process.cwd()`, neither of which exists in
 vendored form) — those describes belong in `tests/unit/`. See [[e2e-isolation-model]] for the
 runner-routing counterpart.
+Sibling shape, proven 2026-10-06 (wave 2b): `shared-registry-resolution.spec.ts` asserts
+`block.indexOf('npm_config_registry') < block.indexOf("execFileSync(...")` on a marked block whose
+explanatory COMMENT names `npm_config_registry` first, so it stays green with the env branch deleted
+or moved after the pnpm call. Also: a byte-identity check over a marked block says nothing about the
+CALL SITE outside it (`fetch(advisoryBulkUrl(...))` reverted to a hardcoded URL kept all specs green
+in starter AND nest-server). Probe both when a spec guards "shared helper" text.
+Closed in 926b691 (verified wave 2c): `codeOf()` strips `//` lines and the call site is pinned; the
+order case now goes red with the env branch dropped, moved after pnpm, or renamed in BOTH copies
+(identity stays green, so that is the probe that matters). It does NOT strip `/* */` or trailing
+comments — fine for real regressions, note it if a future spec relies on it adversarially.

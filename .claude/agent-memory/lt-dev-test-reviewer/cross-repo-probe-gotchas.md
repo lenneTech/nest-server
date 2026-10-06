@@ -24,4 +24,9 @@ without `LANG=C.UTF-8`. Homebrew `gawk` via a PATH shim covers the third dialect
 only works if the scanner consumes no stdin. Verify with
 `printf 'refs…\n' | (bash scan.sh --all >/dev/null; cat)` — the ref line must survive.
 
+**zsh does not word-split `$VAR`.** `SPECS="a.spec.ts b.spec.ts"; vitest run $SPECS` passes ONE
+argument, vitest finds no file and exits 1 — which an ad-hoc mutation runner reads as "went red".
+Use arrays or literal paths, and require a failing TEST NAME in the output, never just exit != 0
+(the same rule `check:mutations` enforces with a parsed failure count).
+
 Related: [[scratch-copy-mutation-check]].
