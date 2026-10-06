@@ -96,16 +96,33 @@ uuid 14.0.1 (floors) — unchanged since 11.41.5. `pnpm dedupe`: nothing. No sti
 29 files, 1m50s total. The starter's own `.claude/agent-memory/.../MEMORY.md` is stale since
 session 13 (11.41.5); starter notes have lived HERE since the 11.41.7 run.
 
-**11. After framework 11.42.4 (2026-10-06):** starter override `'hono@>=4.0.0 <4.13.12': 4.13.12` is a
-hold-back again -> raise key + target to 4.13.13. Its `'nodemailer@<10.0.13': 10.0.13` key does NOT
-intersect the framework's exact `10.0.14`, so it cannot drag it down — no change needed (nodemailer is
-not a starter direct dep). The starter carries NO `@graphql-tools/utils` entry yet; the 11.42.4
-migration guide §3 tells consumers to add it.
+**10. Port reservation is no longer needed in the starter (verified 2026-10-06).** Both specs that
+used to `listen(0)` on the wildcard (`tests/modules/tus.e2e-spec.ts`, `file-graphql.e2e-spec.ts`) now
+pass `'127.0.0.1'`; with seven VS Code squatters present the gate ran green without reserving.
 
-**10. supertest 7.3.1 binds 127.0.0.1 itself — but two starter specs still listen on the wildcard.**
-`tests/modules/tus.e2e-spec.ts` and `tests/modules/file-graphql.e2e-spec.ts` call `server.listen(0)`
-without a host, so the VS Code loopback port squat (see [[nest-server-maintenance-gotchas]]) can still
-hit them. Keep reserving squatted ports on `::` before the gate until those specs pass `'127.0.0.1'`
-(a test-code fix for the starter, not a maintenance-run edit — reported 2026-10-04).
+**11. Starter run for framework 11.42.4 (2026-10-06) — what was non-obvious:**
+- **Re-resolve a stale CHILD by updating its PARENT.** `pnpm update --depth Infinity source-map-js`
+  left `postcss@8.5.28 > source-map-js 1.2.1` in the lock (both 1.2.1 and 1.2.2 present, audit high
+  GHSA-68fv-2mgg-jv7q). `pnpm update --depth Infinity postcss` (scratch, `--lockfile-only`) moved
+  exactly that edge and dropped 1.2.1 — 12-line diff, nothing else. No override needed: a fresh resolve
+  lands on 1.2.2, and nest-server has no entry either.
+- **Judge "unrelated movement" against HEAD, not the dirty tree.** The orchestrator's earlier targeted
+  updates had flipped `@swc/cli`'s optional chokidar peer 4.0.3 -> 5.0.0 and shuffled
+  `(supports-color@5.5.0)` annotations; they then rejected `pnpm dedupe` because it "moved chokidar
+  5.0.0 -> 4.0.3". Against HEAD (and a fresh resolve, and the `peerDependencyRules` comment) 4.0.3 IS
+  the original: dedupe gave 83 vs 105 changed lines and zero chokidar lines, with no version change.
+  Diff every candidate lockfile against `git show HEAD:pnpm-lock.yaml` by package name+version.
+- **nodemailer override raised to the lockstep 10.0.14** (key `<10.0.14`) — supersedes the earlier
+  "no change needed" note: the entry's own comment requires target == framework's declared version,
+  and a `^10` requester would otherwise get a second 10.0.13 copy. Tree unchanged by it.
+- **http-cache-semantics 4.3.0 (2026-10-04) escapes GHSA-ch52-4w7c-c8xp's `<= 4.2.0` range WITHOUT
+  fixing it** (max-stale code unchanged; maintainer disputes the report, issue #56; advisory-database
+  #10139 open). Do not "close" the advisory by bumping to it. A fresh resolve takes 4.3.0, so the
+  suppression is inert in generated projects; this lock stays on 4.2.0. Watch for the advisory being
+  withdrawn — then `check:overrides` fails the suppression and it goes.
+- Pending next run (cooldown on 2026-10-06): postcss 8.5.29 (mature 09:28 UTC, requests
+  source-map-js ^1.2.2), nanoid 3.3.20 (09:44 UTC), js-yaml 5.4.3 (22:13 UTC); oxlint 1.87.0 / oxfmt
+  0.72.0 (11:05 UTC — follow the framework's devDeps); mongoose 9.11.0 + mongodb 7.7.0 only with the
+  framework. Gate: 420 tests / 29 files, `check` 52 s.
 
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

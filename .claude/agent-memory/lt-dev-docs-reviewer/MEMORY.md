@@ -15,8 +15,11 @@
 - [Mutation-count drift in tooling prose](number-drift-in-tooling-prose.md) — testing.md AND the check-mutations.mjs header quote registry counts; the new guard test covers only 2 of ~8
 - [Legacy-auth / password-sync stale claims](legacy-auth-and-password-sync-stale-claims.md) — two surfaces that asserted the OPPOSITE of the code (inverted LEGACY_AUTH_ENABLED default; "IAM→legacy sync impossible"); fixed in 11.38.0, re-check on every auth/password diff
 - [config.env.ts is consumer-owned](config-env-is-consumer-owned.md) — a fix landing in src/config.env.ts is NOT delivered by `pnpm update`; a guide claiming "it now just works" is inaccurate
-- [Audit suppressions have no rule-doc home](audit-suppression-has-no-rule-doc-home.md) — RESOLVED 2026-09-03 (rule section + check:overrides pointer added); kept because one script enforces the policy and the rule file goes stale silently when it changes
+- [Audit suppressions have no rule-doc home](audit-suppression-has-no-rule-doc-home.md) — RESOLVED 2026-09-03; kept because one script enforces it. 2026-10-06: unusableFixConsumers grammar + pnpm-tolerance verified
 - [Tenant API tokens outlive their tenant](api-token-tenant-token-lifetime.md) — no tenant-existence check; only deleteAllForTenant ends them; "access ends when owner disappears" is USER-only
 - [Executable doc recipes](executable-doc-recipes.md) — dotnet 8 SDK at ~/.dotnet/dotnet runs README C# snippets; no pwsh on this machine
 - [Override recipes vs consumer lockfiles](override-recipe-vs-consumer-lockfiles.md) — check a guide's override key against REAL consumer lockfiles (turbo etc.) + a scratchpad `pnpm audit`; older lines escape it
 - [Optional-peer vendor delivery](optional-peer-vendor-delivery.md) — new lazy-imported peers reach vendor projects via the CLI closure scan + the guide, NOT vendor-runtime-deps.json
+- [Starter config.env.ts has two bases](starter-config-env-two-bases.md) — localConfig (local/e2e/ci) vs deployedConfig share nothing; an example in one never reaches the other pipeline
+- [TurboOps source for plugin claims](turboops-source-for-plugin-claims.md) — ~/code/lenneTech/turbo; date a tool via `git tag --contains`, dev package.json version is stale
+- [Vendor-mode test helper path](vendor-mode-test-helper-path.md) — vendoring moves src/test to src/core/test; path probes for src/test/test.helper.ts miss every vendor project

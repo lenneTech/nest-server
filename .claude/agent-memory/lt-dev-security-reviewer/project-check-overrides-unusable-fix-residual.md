@@ -1,12 +1,16 @@
 ---
 name: project-check-overrides-unusable-fix-residual
-description: Acceptance checklist for `auditConfig.unusableFixConsumers` in check-overrides — first attempt (2026-10-06) was REVERTED before landing because a backport fix or a second parent stayed green; re-run the demo when it returns
+description: `auditConfig.unusableFixConsumers` in check-overrides (landed 11.42.5 after two review rounds) — the expiry checks and the repro cases that must keep failing; re-run them when the guard changes
 metadata:
   type: project
 ---
 
-**Status:** NOT in the code. The first attempt was reverted by its author on 2026-10-06 after this review,
-before landing; a second attempt is planned. Treat everything below as the acceptance checklist for it.
+**Status:** landed in nest-server 11.42.5 (2026-10-06) after two review rounds. Round 1 (first attempt,
+reverted): backport and second parent stayed green. Round 2 found `dependentsOf()` reading only
+`snapshots:` (a direct dependency in `importers:` stayed green) and parents compared by name only
+(a second consumer version rode along). Both fixed; repro cases A–J in the review scratchpad all
+fail/pass as expected (A,B,C,D,D2,H,I,J → exit 1; E,F,G → 0), six `unusable-fix-*` mutations registered.
+Below: the first attempt's description, kept as the checklist for any future change to this guard.
 
 The reverted attempt gave `scripts/check-overrides.mjs` an `auditConfig.unusableFixConsumers: { GHSA: '<consumer>@<version>' }`
 (2026-10-06, written by the lt-crm session for three `simple-git` advisories reachable only via

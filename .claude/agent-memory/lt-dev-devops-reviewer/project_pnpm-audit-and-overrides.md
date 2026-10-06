@@ -1,6 +1,6 @@
 ---
 name: project-pnpm-audit-and-overrides
-description: Non-obvious pnpm 11 mechanics behind pnpm-workspace.yaml in this repo — built-in 24h minimumReleaseAge, what `pnpm audit --fix` auto-writes, and how check.mjs mis-renders ignored advisories
+description: Non-obvious pnpm 11 mechanics behind pnpm-workspace.yaml — built-in 24h minimumReleaseAge (enforced even on frozen installs), what `pnpm audit --fix` auto-writes, check.mjs mis-rendering ignored advisories, unknown auditConfig keys tolerated
 metadata:
   type: project
 ---
@@ -36,6 +36,20 @@ or a silent suppression.
    from the exit code — so after any `ignoreGhsas` entry, `pnpm run check` prints a **green check
    next to a live-looking "1 high"**. Not a gate failure; a reporting mismatch. `check.mjs` has no
    notion of pnpm's `ignoredVulnerabilities`.
+
+5. **A `--frozen-lockfile` install DOES enforce `minimumReleaseAge`** (verified 2026-10-06): it fails
+   with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` when a locked version is too fresh. So "lockfile is
+   consistent" is NOT enough to say a Docker build passes. How to prove it: run a real frozen install
+   on a scratch copy (package.json + lock + workspace + .npmrc), then repeat with the
+   `'@lenne.tech/nest-server'` exclude renamed. The second run must fail, naming only the
+   just-published framework version. If it does, the gate is live and the first run's pass means
+   something.
+
+6. **pnpm 11 accepts unknown keys under `auditConfig`.** For example, `unusableFixConsumers`, which
+   `scripts/check-overrides.mjs` reads (since 11.42.5), passes both a frozen install and
+   `pnpm audit` (verified 2026-10-06). `check-overrides.mjs` sends `GITHUB_TOKEN`/`GH_TOKEN` when one
+   is set. `build.yml` and `publish.yml` pass `secrets.GITHUB_TOKEN` to their dedicated
+   check-overrides step.
 
 **Export-shape trap for `minimatch` overrides** (re-usable evidence, empirically tested):
 majors **5, 6, 7, 8 are callable CJS** (`module.exports = minimatch`; 6-8 via `dist/cjs/index-cjs.js`,

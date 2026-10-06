@@ -13,3 +13,4 @@
 - [S3 streaming uploads (11.41.7)](project_s3-streaming-uploads.md) — lib-storage failure destroys its source (reproduced, don't re-flag); known length >5 GiB still goes to a single PUT.
 - [TUS res.end(cb) normalization (11.42.2)](project_tus-end-callback.md) — measured native vs wrapped end(cb) edge cases; destroyed-before-end hang is pre-existing, do not re-flag.
 - [Body-parser initializer (11.42.4)](project_body-parser-initializer.md) — layer swap verified (options, slash flag, rawBody caveat); also Better-Auth signing-secret source.
+- [check-overrides unusableFixConsumers](project_check-overrides-unusable-fix.md) — 2nd-consumer check ignores importers (High, 2026-10-06); v9 lists peers under dependencies (fail-closed).
