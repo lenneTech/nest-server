@@ -25,7 +25,8 @@
 
 ## Review Methodology
 
-- [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; TWO exact-pin leaks (ws@8.20.1, js-yaml@5.2.1); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
+- [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — checklist for a future unusableFixConsumers (first attempt reverted 2026-10-06): backport fix / second parent must fail
+- [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; THREE exact-pin leaks (ws, js-yaml, @graphql-tools/utils@12.0.0); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
 
 - [project-e2e-node-env-trap.md](project-e2e-node-env-trap.md) — e2e without NODE_ENV=e2e fabricates 5 bogus BetterAuth "Invalid credentials" failures; reproduces on base branch too, so a control-diff won't catch it
 - [project-betterauth-native-cookie-forwarding.md](project-betterauth-native-cookie-forwarding.md) — BetterAuth native-handler paths forward Set-Cookie verbatim, bypass the cookie helper's Secure flag; useSecureCookies:false (11.27.6) drops Secure on 2FA/social/magic-link session cookies

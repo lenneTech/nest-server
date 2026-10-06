@@ -96,6 +96,12 @@ uuid 14.0.1 (floors) — unchanged since 11.41.5. `pnpm dedupe`: nothing. No sti
 29 files, 1m50s total. The starter's own `.claude/agent-memory/.../MEMORY.md` is stale since
 session 13 (11.41.5); starter notes have lived HERE since the 11.41.7 run.
 
+**11. After framework 11.42.4 (2026-10-06):** starter override `'hono@>=4.0.0 <4.13.12': 4.13.12` is a
+hold-back again -> raise key + target to 4.13.13. Its `'nodemailer@<10.0.13': 10.0.13` key does NOT
+intersect the framework's exact `10.0.14`, so it cannot drag it down — no change needed (nodemailer is
+not a starter direct dep). The starter carries NO `@graphql-tools/utils` entry yet; the 11.42.4
+migration guide §3 tells consumers to add it.
+
 **10. supertest 7.3.1 binds 127.0.0.1 itself — but two starter specs still listen on the wildcard.**
 `tests/modules/tus.e2e-spec.ts` and `tests/modules/file-graphql.e2e-spec.ts` call `server.listen(0)`
 without a host, so the VS Code loopback port squat (see [[nest-server-maintenance-gotchas]]) can still
