@@ -427,6 +427,15 @@ function targetPackage(key) {
 const fileFlag = process.argv.indexOf('--audit-file');
 let report = null;
 let source = '';
+// Set when no usable audit report exists. The OVERRIDE verdict is then impossible, but the
+// suppression checks below ask the GitHub Advisory API, not the audit, so they still run: an
+// early exit here skipped them, and a suppressed advisory gaining a fix went unreported for as
+// long as the audit failed (wave 2c review). The run ends with a WARN instead of the ok line.
+let auditUnavailable = false;
+const suppressionNote =
+  suppressed.length > 0
+    ? `\n  The ${suppressed.length} suppression(s) are still checked: they do not depend on the audit.`
+    : '';
 
 if (fileFlag !== -1) {
   const path = process.argv[fileFlag + 1];
@@ -480,11 +489,40 @@ if (fileFlag !== -1) {
         `${TAG} WARN — could not obtain an audit report (${(err?.message ?? 'unknown error').split('\n')[0]}).\n` +
           `  ${overrideCount} override(s) are declared and NONE of them were verified.\n` +
           `  Re-run with network access, or pass a captured report:\n` +
-          `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json`,
+          `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json` +
+          suppressionNote,
       );
-      process.exit(0);
+      auditUnavailable = true;
+      report = { advisories: {} };
     }
   }
+}
+
+// pnpm 11 answers an audit it could not RUN with valid JSON: `{"error": {"code": "pnpm",
+// "message": "fetch failed"}}` and no `advisories` key (measured 2026-10-06, registry
+// unreachable). That passed every check above, and `report.advisories ?? {}` below turned it
+// into "0 advisories, none failing": an "ok" line for a run that verified nothing, under CI too.
+// It is the same situation as a report that could not be obtained at all, so it takes the same
+// handling. A captured file holding an error FAILS, because that is the CI path and a skip there
+// is a silent pass. A live run warns and continues with the suppression checks, as above.
+if (!auditUnavailable && (report.error || typeof report.advisories !== 'object' || report.advisories === null)) {
+  const reason = String(report.error?.message ?? 'the report has no advisories section').split('\n')[0];
+  if (fileFlag !== -1) {
+    console.error(
+      `${TAG} FAIL — the audit report at ${source} records a failed audit, not a result (${reason}).\n` +
+        `  ${overrideCount} override(s) are declared and NONE of them could be verified.`,
+    );
+    process.exit(1);
+  }
+  console.warn(
+    `${TAG} WARN — could not obtain an audit report (${reason}).\n` +
+      `  ${overrideCount} override(s) are declared and NONE of them were verified.\n` +
+      `  Re-run with network access, or pass a captured report:\n` +
+      `    pnpm audit --json > audit.json && node scripts/check-overrides.mjs --audit-file audit.json` +
+      suppressionNote,
+  );
+  auditUnavailable = true;
+  report = { advisories: {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +597,21 @@ const ADVISORY_API_BASE = (() => {
  */
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
+  // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
+  // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.13.1:
+  //
+  //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
+  //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
+  //
+  // An earlier version read `npm_config_registry` first, from a measurement taken on an older
+  // pnpm. Under pnpm 11 that sends the probe to a registry the audit never talked to. The pnpm
+  // spawn below would report `pnpm_config_registry` as well; reading it here saves the spawn
+  // and keeps the answer independent of how a pnpm shim forwards the environment.
+  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
   try {
     // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
     // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
@@ -616,7 +669,7 @@ const ambiguouslyEmpty =
   Object.values(report.metadata?.vulnerabilities ?? {}).every((n) => !n);
 
 let advisoryServiceDown = false;
-if (ambiguouslyEmpty && fileFlag === -1) {
+if (ambiguouslyEmpty && fileFlag === -1 && !auditUnavailable) {
   // Only for a live audit. With --audit-file the caller supplied the report and
   // owns its provenance; probing the network there would contradict the flag's
   // whole purpose (an offline, reproducible run).
@@ -659,9 +712,10 @@ if (advisoryServiceDown) {
       `  ${overrideCount} override(s) declared.\n` +
       `  Not failing the chain — an npm outage is not a finding about this repo and no\n` +
       `  change here fixes it. Re-run when the service is back, or pass a captured report\n` +
-      `  with --audit-file, before treating any override as verified.`,
+      `  with --audit-file, before treating any override as verified.` +
+      suppressionNote,
   );
-  process.exit(0);
+  auditUnavailable = true;
 }
 
 // One entry per override key, so an override that is right for one advisory and
@@ -1262,6 +1316,17 @@ for (const entry of trackedResiduals) {
       `${entry.consumer}@${entry.version} cannot use it; re-checked every run ` +
       `(consumer version, newly published fixes, second consumer).`,
   );
+}
+
+if (auditUnavailable) {
+  // Never the ok line: the overrides were not checked. The suppression count is the part of this
+  // run that DID verify something, so it is stated rather than left to be inferred.
+  console.warn(
+    `${TAG} WARN — could not obtain an audit report, so the ${overrideCount} override(s) were NOT verified` +
+      (suppressed.length > 0 ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) verified` : '') +
+      '.',
+  );
+  process.exit(0);
 }
 
 console.log(

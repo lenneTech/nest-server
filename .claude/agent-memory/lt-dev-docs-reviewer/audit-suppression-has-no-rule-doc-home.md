@@ -29,6 +29,13 @@ was before. `CLAUDE.md`'s Living Documentation table now carries a row for this
 (`package-management.md` → "Changing the overrides set, adding or removing an
 auditConfig.ignoreGhsas suppression, or changing the check:overrides guard").
 
+**2026-10-06 (for 11.42.5):** the guard gained `auditConfig.unusableFixConsumers` (a declared
+"fix exists but consumer cannot use it" exception with three RE-TEST expiry checks), and the rule doc
+got a matching section. Verified then: pnpm 11.13.1 accepts the unknown `auditConfig` key silently
+(install + audit run clean), and the value grammar is `'<consumer>@<version> cannot use <v1>, <v2>'`
+(last `@` splits a scoped consumer). Re-verify the rule text against `parseResidual()` /
+the RE-TEST branches whenever those change.
+
 **How to apply:** on a diff touching `pnpm-workspace.yaml`, `scripts/check-overrides.mjs` or
 the audit chain, verify the rule file still describes what the guard actually does — not that
 it mentions it at all, which is now true and no longer the useful question. Related:

@@ -10,3 +10,5 @@
 - [S3 RustFS Multipart Facts](s3-rustfs-multipart-facts.md) — RustFS lists pending multipart uploads without Prefix (abort assertions are real); lib-storage abort deterministic; empty stream OK.
 - [TUS + compression end-callback facts](tus-compression-end-callback-facts.md) — only null-body (204) TUS responses hit srvx res.end(cb); needs Accept-Encoding; defect = hang not 500; mutation run ~5 min.
 - [Scratch-Copy Mutation Check](scratch-copy-mutation-check.md) — prove an unregistered pinning test goes red via rsync copy + symlinked node_modules; bare `@regression` blocks fail regression-evidence.
+- [Lockfile Graph Guard Facts](lockfile-graph-guard-facts.md) — v9 direct/workspace deps sit under importers: (not snapshots:), edge lines end at the colon; probe root + workspace importer shapes.
+- [Cross-Repo Probe Gotchas](cross-repo-probe-gotchas.md) — zsh MULTIOS leaks stdout into `2>&1 >/dev/null |` (internal data!); node:24 docker = CI mawk for shell tests; hook-stdin check.

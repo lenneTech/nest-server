@@ -569,7 +569,7 @@ Both use body-parser's default limit of **100 kB** unless `bodyParser` says othe
 bodyParser: { json: { limit: '2mb' } },
 ```
 
-`CoreBodyParserInitializer` applies it during module init by replacing the handle of the global parser layers NestJS created — in place, because NestJS registers them before any init hook runs and a parser appended later would sit behind the routes. Running during module init is what makes the limit hold under `Test.createTestingModule()`, which never runs `main.ts`. A path-scoped parser (`server.use('/upload', json({ limit }))` in `main.ts`) runs before the global one and is left untouched — that remains the way to give one path a different limit.
+`CoreBodyParserInitializer` applies it during module init by replacing the handle of the global parser layers NestJS created — in place, because NestJS registers them before any init hook runs and a parser appended later would sit behind the routes. Running during module init is what makes the limit hold under `Test.createTestingModule()`, which never runs `main.ts`. A path-scoped parser (`server.use('/upload', json({ limit }))` in `main.ts`) runs before the global one and is left untouched — that remains the way to give one path a different limit. Keep `server.useBodyParser('json')` (or `'urlencoded'`) in `main.ts` next to it: NestJS registers its global parser only when no layer with the same function name exists, so a path-scoped one registered before `app.init()` suppresses it, and every other path receives an empty body. Since 11.42.6 `CoreBodyParserInitializer` warns at boot in that case.
 
 The parser runs **before authentication and routing**. Over the limit, the whole request is refused:
 

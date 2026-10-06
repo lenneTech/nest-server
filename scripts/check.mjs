@@ -403,6 +403,21 @@ export function isAuditResultAmbiguous(parsed) {
  */
 // >>> SHARED-WITH-CHECK-MJS (kept verbatim; see the note below)
 function configuredRegistry() {
+  // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
+  // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.13.1:
+  //
+  //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
+  //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
+  //
+  // An earlier version read `npm_config_registry` first, from a measurement taken on an older
+  // pnpm. Under pnpm 11 that sends the probe to a registry the audit never talked to. The pnpm
+  // spawn below would report `pnpm_config_registry` as well; reading it here saves the spawn
+  // and keeps the answer independent of how a pnpm shim forwards the environment.
+  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
   try {
     // One command STRING, not an args array: pnpm is a .cmd/.ps1/.exe shim on Windows,
     // which Node has refused to spawn directly since 20.12 (CVE-2024-27980) — hence the
@@ -456,7 +471,8 @@ export { advisoryBulkUrl, configuredRegistry };
  * Resolving the registry is best-effort: `pnpm config get registry` can fail, and its failure must
  * never take the probe down with it — an unavailable registry setting falls back to npmjs.org,
  * which is what the probe used to do unconditionally. Use the EFFECTIVE value, not `.npmrc`:
- * a scoped registry or `npm_config_registry` in the environment overrides the file.
+ * `pnpm_config_registry` in the environment overrides the file (pnpm 11 ignores
+ * `npm_config_registry`, so the probe does too).
  *
  * Two costs, both real and both accepted deliberately (raised by nuxt-extensions-f7, who declined
  * to adopt the probe without them being stated):

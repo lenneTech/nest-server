@@ -1509,6 +1509,62 @@
       "driverSpecific": false
     },
     {
+      "id": "probe-registry-ignores-environment",
+      "defect": "The clean-tree probe resolves the registry by asking pnpm and nothing else. Reading the environment first is what makes the probe follow the registry the audit used when the environment names one (pnpm 11: `pnpm_config_registry`), independent of how a pnpm shim forwards it; dropping the branch leaves the probe on whatever `pnpm config get registry` happens to report.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;\n  if (typeof fromEnv === 'string' && fromEnv.trim()) {\n    return fromEnv.trim();\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts",
+        "tests/unit/shared-registry-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "probe-reads-npm-config-registry",
+      "defect": "11.42.6 — the environment branch read `npm_config_registry`, from a measurement on an older pnpm. pnpm 11 IGNORES that variable for `pnpm audit` and `pnpm config get registry` (measured with 11.13.1), so with it set the probe asked a host the audit never talked to and could turn an unreachable audit registry into a green \"clean\".",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const fromEnv = process.env.pnpm_config_registry ?? process.env.PNPM_CONFIG_REGISTRY;\n",
+      "replace": "  const fromEnv = process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY;\n",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "guard-audit-error-reads-as-clean",
+      "defect": "11.42.6 — pnpm 11 answers an audit it could not run with valid JSON (`{\"error\": {\"message\": \"fetch failed\"}}`) and no `advisories`. The guard parsed it as a report, `report.advisories ?? {}` made it \"0 advisories\", the clean-tree probe was skipped because `advisories` was undefined, and the run printed \"ok — N override(s) checked … none is failing\" with exit 0, from a captured `--audit-file` in CI as well as live.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "if (!auditUnavailable && (report.error || typeof report.advisories !== 'object' || report.advisories === null)) {",
+      "replace": "if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "guard-unavailable-audit-skips-suppressions",
+      "defect": "11.42.6 — the first fix for a failed pnpm 11 audit exited where it detected one. The suppression checks run later and ask the GitHub Advisory API, not the audit, so a suppressed advisory that had gained a fix (FIX AVAILABLE, exit 1 before) passed with exit 0 for as long as the audit failed — and `pnpm audit` hides suppressed advisories completely, so nothing else reported it. In the starter and lt-monorepo CI, whose audit steps treat pnpm 11 errors as non-blocking, that was a green run.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  auditUnavailable = true;\n  report = { advisories: {} };\n}",
+      "replace": "  process.exit(0);\n}",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "probe-call-site-hardcoded",
+      "defect": "11.42.6 — the shared registry block is pinned byte-identical, but the probe's CALL SITE in check.mjs sits outside it. Restoring the hardcoded npmjs bulk URL in `advisoryServiceReachable()` left the block correct and unused, and the whole unit suite green: behind a private registry the probe asks npmjs.org again and reports a silent outage as clean.",
+      "file": "scripts/check.mjs",
+      "find": "    const response = await fetch(advisoryBulkUrl(registry), {",
+      "replace": "    const response = await fetch('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', {",
+      "specs": [
+        "tests/unit/shared-registry-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "consumer-gate-skips-pin-alignment",
       "defect": "11.41.4 — the consumer gate only re-pointed the framework dependency at the tarball and kept every other starter pin, i.e. a state no documented update path produces. A release raising a shared exact pin (@nestjs/common 11.2.1 -> 11.2.6) installed @nestjs/schedule twice, `CronJobs extends CoreCronJobs` stopped type-checking, and a sound tarball was refused.",
       "file": "scripts/check-consumer.mjs",
@@ -1900,6 +1956,17 @@
       "file": "src/core/common/services/core-body-parser.initializer.ts",
       "find": "    const limit = parseBodyLimit(value);",
       "replace": "    const limit = value as number;",
+      "specs": [
+        "tests/unit/body-parser.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "body-parser-path-scoped-collision-silent",
+      "defect": "11.42.6 — NestJS registers its global body parser only if no layer with the parser's function name exists yet, and a path-scoped `json()` registered in main.ts before init is one. A project that followed the 11.42.4 guide and dropped `useBodyParser()` from main.ts lost JSON parsing outside that path (a sign-in failed with \"Missing input\"), and nothing logged why.",
+      "file": "src/core/common/services/core-body-parser.initializer.ts",
+      "find": "    if (shadowed && this.isBodyParserEnabled()) {",
+      "replace": "    if (false) {",
       "specs": [
         "tests/unit/body-parser.spec.ts"
       ],
