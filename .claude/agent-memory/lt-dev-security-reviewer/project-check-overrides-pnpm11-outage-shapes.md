@@ -17,7 +17,12 @@ Measured 2026-10-06 (waves 2b + 2c) on pnpm 11.13.1 / 11.14.0, the versions the 
 - **Wave 2b SEC-001** (envelope read as "0 advisories ... ok") is FIXED in nest-server 926b691 and
   ported; all four copies are AST-identical (compare with a TS-AST canonical walk, not `diff`:
   nuxt's copy is reformatted).
-- **Wave 2c finding:** the fix's new block `process.exit(0)`s BEFORE `advisoryStatus(suppressed)`,
+- **Wave 2c finding — FIXED in 40073c2 (11.42.6), ports re-verified 2026-10-06:** the three
+  no-usable-audit paths now set `auditUnavailable` and continue; the run ends in a WARN counting
+  verified suppressions. Re-verified with 5 fixtures (fixed suppression, NOT READ, backport residual,
+  second-consumer residual, valid residual) x 10 failure modes x 4 copies: every defect exits 1,
+  the valid residual ends WARN exit 0, never "ok". Original description of the defect:
+  the fix's new block `process.exit(0)`s BEFORE `advisoryStatus(suppressed)`,
   the `strandedKeys` (pnpm.overrides NOT READ) check and the CI-unverified rule. Pre-fix those ran
   on an envelope. Repro: suppression-only fixture + `--advisory-file` with a patched version +
   `CI=true pnpm_config_registry=http://127.0.0.1:9/` → HEAD guard exit 1 FIX AVAILABLE, 926b691
