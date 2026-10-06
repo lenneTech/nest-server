@@ -198,6 +198,156 @@ export interface TestDownloadOptions {
 }
 
 /**
+ * Options for MCP requests (`testHelper.mcp()` / `testHelper.mcpSession()`)
+ */
+export interface TestMcpOptions {
+  /**
+   * Cookie-based authentication, same three modes as {@link TestRestOptions.cookies}
+   */
+  cookies?: Record<string, string> | string;
+
+  /**
+   * Additional request headers, merged over the MCP defaults (`Accept`, `Content-Type`, `mcp-session-id`)
+   */
+  headers?: Record<string, string>;
+
+  log?: boolean;
+  logError?: boolean;
+
+  /**
+   * MCP endpoint path. Default: `/ai/mcp`, the built-in MCP server of the AI module
+   */
+  path?: string;
+
+  /**
+   * Value of the `mcp-session-id` header. Omit it for `initialize`, which opens a session.
+   */
+  sessionId?: string;
+
+  /**
+   * Expected HTTP status. Default: 200 for a request, 202 for a notification (a message without `id`)
+   */
+  statusCode?: number;
+
+  /**
+   * Bearer token: the user's normal session token or JWT, the same one `rest()` and `graphQl()` take
+   */
+  token?: string;
+}
+
+/**
+ * Options for `testHelper.mcpSession()`
+ */
+export interface TestMcpSessionOptions extends Omit<TestMcpOptions, 'sessionId' | 'statusCode'> {
+  /**
+   * `clientInfo` sent with `initialize`. Default: `{ name: 'nest-server-test-helper', version: '1.0.0' }`
+   */
+  clientInfo?: { name: string; version: string };
+
+  /**
+   * Protocol version requested in `initialize`. Default: `2025-03-26`
+   */
+  protocolVersion?: string;
+}
+
+/**
+ * One JSON-RPC message as the MCP transport returns it. For an answer that is not JSON-RPC
+ * (e.g. the JSON body of a 404 for an unknown session), the parsed body.
+ */
+export interface TestMcpMessage {
+  [key: string]: any;
+  error?: any;
+  id?: null | number | string;
+  jsonrpc?: '2.0';
+  result?: any;
+}
+
+/**
+ * Response of `testHelper.mcp()`
+ */
+export interface TestMcpResponse {
+  /**
+   * The JSON-RPC message from the SSE `data:` line or the JSON body; `null` for a notification (202, no body)
+   */
+  message: null | TestMcpMessage;
+
+  /**
+   * Full supertest response: status, headers, raw text
+   */
+  response: any;
+
+  /**
+   * `mcp-session-id` response header, set by `initialize`
+   */
+  sessionId?: string;
+}
+
+/**
+ * Result of `session.callTool()`: the MCP `CallToolResult` plus its first text content parsed as JSON
+ */
+export interface TestMcpToolResult {
+  [key: string]: any;
+  content: { [key: string]: any; text?: string; type: string }[];
+  isError?: boolean;
+
+  /**
+   * `content[0].text` parsed as JSON, or `undefined` when it is no JSON. The built-in MCP server returns a
+   * tool's own result this way (`{ data, success }`), and an error result as plain text.
+   */
+  json?: any;
+}
+
+/**
+ * MCP tool descriptor from `tools/list`
+ */
+export interface TestMcpTool {
+  [key: string]: any;
+  description?: string;
+  inputSchema?: any;
+  name: string;
+}
+
+/**
+ * An initialized MCP session, returned by `testHelper.mcpSession()`
+ */
+export interface TestMcpSession {
+  /**
+   * `tools/call`. Expects a JSON-RPC result (a refused or failing tool is a result with `isError: true`,
+   * not a protocol error) and returns it with `json` parsed from the first text content.
+   */
+  callTool(name: string, args?: Record<string, unknown>): Promise<TestMcpToolResult>;
+
+  /**
+   * Ends the session server-side (`DELETE` with the session id)
+   */
+  close(): Promise<void>;
+
+  /**
+   * Result of `initialize`: `serverInfo`, `capabilities`, `protocolVersion`
+   */
+  initializeResult: any;
+
+  /**
+   * `tools/list`. Expects a JSON-RPC result and returns its `tools`.
+   */
+  listTools(): Promise<TestMcpTool[]>;
+
+  /**
+   * Any JSON-RPC request in this session. Returns the whole message, so a test can assert a protocol `error`.
+   */
+  request(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: Pick<TestMcpOptions, 'log' | 'logError' | 'statusCode'>,
+  ): Promise<null | TestMcpMessage>;
+
+  /**
+   * `mcp-session-id` the server assigned
+   */
+  sessionId: string;
+}
+
+/**
  * Test helper
  */
 export class TestHelper {
@@ -474,6 +624,119 @@ export class TestHelper {
       return JSON.parse(response.text);
     }
     return undefined;
+  }
+
+  /**
+   * Send one JSON-RPC message to an MCP endpoint (Streamable HTTP transport, default `/ai/mcp`).
+   *
+   * The transport answers a request as an SSE stream (`event: message` + `data: {…}`) and a notification
+   * with 202 and no body. This method sets the `Accept` header both need, sends the session id when given,
+   * checks the HTTP status like `rest()` does, and parses the JSON-RPC message out of the stream, so a test
+   * reads `message.result` instead of splitting SSE lines itself.
+   *
+   * For a whole conversation (initialize, then tools), use {@link mcpSession}.
+   *
+   * @example
+   * // An MCP endpoint without a token answers 401
+   * await testHelper.mcp({ id: 1, method: 'initialize', params: {} }, { statusCode: 401 });
+   */
+  async mcp(message: Record<string, unknown>, options: TestMcpOptions = {}): Promise<TestMcpResponse> {
+    const isNotification = message.id === undefined;
+    const response = await this.rest(options.path ?? '/ai/mcp', {
+      cookies: options.cookies,
+      headers: {
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+        ...(options.sessionId ? { 'mcp-session-id': options.sessionId } : {}),
+        ...options.headers,
+      },
+      log: options.log,
+      logError: options.logError,
+      method: 'POST',
+      payload: { jsonrpc: '2.0', ...message },
+      returnResponse: true,
+      statusCode: options.statusCode ?? (isNotification ? 202 : 200),
+      token: options.token,
+    });
+    return {
+      message: TestHelper.parseMcpMessage(response),
+      response,
+      sessionId: response?.headers?.['mcp-session-id'],
+    };
+  }
+
+  /**
+   * Open an MCP session the way every MCP client does (`initialize`, then `notifications/initialized`)
+   * and return helpers for the calls a test makes: `listTools()`, `callTool()`, `request()`, `close()`.
+   *
+   * The session belongs to the user of `token` (or `cookies`): the built-in server filters `tools/list`
+   * and `tools/call` by that user's roles, so open one session per user a test compares.
+   *
+   * @example
+   * const session = await testHelper.mcpSession({ token: userToken });
+   * const names = (await session.listTools()).map(tool => tool.name);
+   * expect(names).not.toContain('delete_user');
+   *
+   * const refused = await session.callTool('delete_user', { id });
+   * expect(refused.isError).toBe(true);
+   */
+  async mcpSession(options: TestMcpSessionOptions = {}): Promise<TestMcpSession> {
+    const { clientInfo, protocolVersion, ...base } = options;
+    const path = base.path ?? '/ai/mcp';
+
+    const init = await this.mcp(
+      {
+        id: 1,
+        method: 'initialize',
+        params: {
+          capabilities: {},
+          clientInfo: clientInfo ?? { name: 'nest-server-test-helper', version: '1.0.0' },
+          protocolVersion: protocolVersion ?? '2025-03-26',
+        },
+      },
+      base,
+    );
+    expect(init.message?.error).toBeUndefined();
+    expect(init.sessionId).toBeTruthy();
+    const sessionId = init.sessionId;
+    await this.mcp({ method: 'notifications/initialized' }, { ...base, sessionId });
+
+    let nextId = 2;
+    const request: TestMcpSession['request'] = async (method, params, requestOptions = {}) => {
+      const reply = await this.mcp(
+        { id: nextId++, method, ...(params ? { params } : {}) },
+        { ...base, ...requestOptions, sessionId },
+      );
+      return reply.message;
+    };
+
+    return {
+      callTool: async (name, args = {}) => {
+        const reply = await request('tools/call', { arguments: args, name });
+        expect(reply?.error).toBeUndefined();
+        const result = reply?.result ?? { content: [] };
+        return { ...result, json: TestHelper.parseJsonOrUndefined(result.content?.[0]?.text) };
+      },
+      close: async () => {
+        await this.rest(path, {
+          cookies: base.cookies,
+          headers: { ...base.headers, 'mcp-session-id': sessionId },
+          log: base.log,
+          logError: base.logError,
+          method: 'DELETE',
+          returnResponse: true,
+          token: base.token,
+        });
+      },
+      initializeResult: init.message?.result,
+      listTools: async () => {
+        const reply = await request('tools/list');
+        expect(reply?.error).toBeUndefined();
+        return reply?.result?.tools ?? [];
+      },
+      request,
+      sessionId,
+    };
   }
 
   /**
@@ -927,6 +1190,46 @@ export class TestHelper {
       return value.substring(0, dotIndex);
     }
     return value;
+  }
+
+  /**
+   * Parse the JSON-RPC message out of an MCP response: the first `data:` line that carries a `result` or
+   * an `error` in an SSE stream (a server may send notifications before the response), or the JSON body
+   * otherwise. Returns `null` for an empty body (a notification's 202).
+   */
+  static parseMcpMessage(response: { headers?: Record<string, any>; text?: string }): null | TestMcpMessage {
+    const text = response?.text ?? '';
+    if (!text.trim()) {
+      return null;
+    }
+    const contentType = String(response?.headers?.['content-type'] ?? '');
+    if (contentType.includes('text/event-stream') || /^(event|data|id):/m.test(text)) {
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.startsWith('data:')) {
+          continue;
+        }
+        const parsed = TestHelper.parseJsonOrUndefined(line.slice(5).trim());
+        if (parsed && (parsed.result !== undefined || parsed.error !== undefined)) {
+          return parsed;
+        }
+      }
+      return null;
+    }
+    return TestHelper.parseJsonOrUndefined(text) ?? null;
+  }
+
+  /**
+   * `JSON.parse`, or `undefined` for input that is no JSON
+   */
+  static parseJsonOrUndefined(text: string | undefined): any {
+    if (typeof text !== 'string') {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

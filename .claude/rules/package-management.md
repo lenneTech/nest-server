@@ -325,9 +325,75 @@ API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`
 nobody reads is indistinguishable from a check that ran.
 
 One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
-has a patched version for **any** affected range. That makes `ignoreGhsas` nearly unusable for an
-advisory that is fixed *somewhere* but unfixable on *your* path — which is the honest outcome, since
-that case is an override problem, not a suppression problem.
+has a patched version for **any** affected range. For most findings that is the honest outcome — a
+fix exists, take it, and the case is an override problem rather than a suppression problem.
+
+#### When the fix exists and the consumer cannot use it (`unusableFixConsumers`, since 11.42.5)
+
+The exception is the case where "a fix exists" and "the fix is usable" come apart: a patched major
+removed an export its consumer imports, or the consumer pins the vulnerable range itself. Then
+`FIX AVAILABLE` is not advice but a dead end, and the only ways out used to be a permanently red
+build or a guard switched off for that entry.
+
+Measured case (lt-crm, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
+reachable only via `nuxt > @nuxt/devtools > simple-git`. simple-git 4 dropped the default export
+devtools imports, so the override made `nuxt prepare` fail outright. The newest devtools in the 3.x
+line still imports it that way, and devtools is a hard `dependencies` entry of `nuxt` — so it can be
+neither raised nor dropped. No published 3.x carries the fix.
+
+**Exhaust the ladder first** (raise the vulnerable package, raise the consumer, raise the framework,
+patch the consumer — see the `running-check-script` skill for the full rungs and the conditions on
+patching). Only then declare it, next to the `ignoreGhsas` entry:
+
+```yaml
+auditConfig:
+  ignoreGhsas:
+    - GHSA-x6jw-m9v5-85vh
+  unusableFixConsumers:
+    GHSA-x6jw-m9v5-85vh: '@nuxt/devtools@3.4.1 cannot use 4.0.1'
+```
+
+The value is the declaration's whole point: it records the consumer, the version it was assessed
+against, **and** the patched versions that were rejected. Each of those can change without anybody
+revisiting the entry, so `check:overrides` re-checks them on every run and fails with `RE-TEST` when
+any has moved:
+
+1. the declared consumer left the tree, or the assessed version is no longer in it;
+2. the advisory now offers a patched version that was never assessed — the **backport** case, where
+   a fix appears in a line the consumer *can* use while the rejected one stays unusable;
+3. anything other than `consumer@assessedVersion` pulls an affected package, so "only this one
+   consumer" no longer holds. The comparison is deliberately strict and includes the **version**: a
+   second version of the same consumer is a path nobody assessed, and comparing by name alone let
+   one ride along on the other's declaration, with the winner decided by lockfile order.
+
+The third check reads **both halves** of the lockfile. `importers:` holds what the repository itself
+declares (`.`, `projects/api`, `projects/app`), `snapshots:` the edges between third-party packages
+— and the first is the likelier production path, because a direct dependency can simply be raised.
+Reading only `snapshots:` hid exactly that case: in this repository `importers:` starts at line 28
+and `snapshots:` at 5264, so everything the project says about itself sat 5000 lines above the scan
+window, with `ignoreGhsas` keeping `pnpm audit` quiet about it too.
+
+What counts as an edge, stated precisely: `dependencies`, `devDependencies` and
+`optionalDependencies` do, the `peerDependencies` and `transitivePeerDependencies` *blocks* do not.
+That is **not** the same as "peer edges are ignored" — in a pnpm v9 snapshot a RESOLVED peer is
+written into `dependencies:` like any other edge (verified on `@nestjs/core`, whose peers
+`@nestjs/common`, `reflect-metadata` and `rxjs` all appear there), so it is counted. The check
+therefore over-counts rather than under-counts, which is the safe direction: an extra `RE-TEST` asks
+for a second look at a suppression, where a missed edge would hide a consumer nobody assessed.
+
+When a section cannot be found at all, or the advisory names no affected package, the run fails
+rather than passes. "I could not check whether a second consumer exists" must not read like "there
+is none".
+
+An accepted residual is also printed on every **green** run, because it is the one kind that can
+stop being true without anything in this repository changing. A suppression with **no** declaration
+still fails on sight — this is a narrow, self-expiring exception, not a wider gate.
+
+Pinned by `tests/unit/check-overrides.guard.spec.ts` and six registered mutations
+(`unusable-fix-*` in `tests/regression-mutations.json`), one per way the justification can expire —
+plus one for the opposite failure, a guard that rejects a declaration which is still true. That one
+matters just as much: a check that cries wolf on correct entries is a check that gets switched off,
+which is how the hole this feature closes came about in the first place.
 
 **Current entries (since 2026-10-03):** `GHSA-ch52-4w7c-c8xp` (http-cache-semantics, via the
 `@swc/cli` binary downloader) and `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch). Both are

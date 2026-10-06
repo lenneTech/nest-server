@@ -1904,6 +1904,72 @@
         "tests/unit/body-parser.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-ignores-moved-consumer",
+      "defect": "A suppression whose consumer has MOVED is reported as if a SECOND consumer had appeared — \"@nuxt/devtools@3.5.0 also pulls an affected package\" for what is the same package one version further on. The consumer-set check does catch the move on its own since it compares `name@version`, so this is a diagnosis defect rather than a hole: the reader is sent looking for a second consumer instead of re-assessing the declared one against its new version. Pinned on the MESSAGE for exactly that reason.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    if (!present.includes(assessedAt)) {\n      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);\n      continue;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-accepts-absent-consumer",
+      "defect": "The declared consumer has left the tree, so nothing pulls the vulnerable version in any more and the finding should have disappeared — but the suppression is still accepted, keeping dead config that reads like a considered risk decision.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    if (present.length === 0) {\n      note(`no ${consumer} in the tree any more, so the suppression is moot`);\n      continue;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-ignores-backport",
+      "defect": "Upstream backports the fix into a version the consumer CAN use (simple-git 3.36.2 against a CRITICAL fixed only in >=4.0.1). The consumer's own version never moves, so every other check stays quiet and the guard keeps printing that the fix is unusable — a statement that is then false.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const unassessed = info.patchedVersions.filter((v) => !rejected.includes(v));\n    if (unassessed.length > 0) {",
+      "replace": "    const unassessed = [];\n    if (unassessed.length > 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-ignores-second-consumer",
+      "defect": "A second package starts pulling the affected package, possibly one in the production closure. `ignoreGhsas` hides the advisory everywhere, so without this check the declaration keeps arguing \"only this one dev-tooling consumer\" while that is no longer true.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const others = allParents.filter((parent) => parent !== expected);\n    if (others.length > 0) {",
+      "replace": "    const others = [];\n    if (others.length > 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-skips-workspace-importer",
+      "defect": "The one-consumer claim is verified only against `snapshots:`, so a dependency the PROJECT ITSELF declares — in the root importer or in a workspace package like projects/api — is invisible. That is the shape in which the declaration is least defensible: a direct dependency can simply be raised, so the advisory was closable all along while the suppression kept arguing that nothing but one dev-tooling package pulls it.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    { edge: 6, header: /^importers:\\s*$/m, key: 2, section: 4, workspace: true },\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-first-consumer-version-wins",
+      "defect": "\"Is the assessed consumer version still in the tree?\" is answered from the FIRST match in the lockfile, so the verdict depends on the order pnpm happened to list two coexisting versions in. A correct declaration is then rejected as \"moved\" because an unrelated second version of the same consumer — one that pulls nothing — is listed first, and a guard that cries wolf on correct entries is a guard that gets switched off.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  return [...new Set([...found].map((m) => m[1]))];",
+      "replace": "  return [...new Set([...found].map((m) => m[1]))].slice(0, 1);",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
