@@ -12,3 +12,4 @@
 - [Scratch-Copy Mutation Check](scratch-copy-mutation-check.md) — rsync copy + symlinked node_modules (nuxt needs .nuxt/); vitest 5 json reporter litters .vitest/; bare `@regression` fails the gate.
 - [Lockfile Graph Guard Facts](lockfile-graph-guard-facts.md) — v9 direct/workspace deps sit under importers: (not snapshots:), edge lines end at the colon; probe root + workspace importer shapes.
 - [Cross-Repo Probe Gotchas](cross-repo-probe-gotchas.md) — zsh MULTIOS leak; zsh never word-splits $VAR (vitest "no files" exit 1 fakes a red mutation); node:24 docker = CI mawk; hook stdin.
+- [multiTenancy OFF Is the Default Path](multitenancy-off-is-the-default-path.md) — base repos set no multiTenancy; specs asserting only the ON fixture leave the consumer path open (swagger isPublic mutation survived).

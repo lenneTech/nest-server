@@ -112,4 +112,15 @@ standing item). `ws` still trails 8.22.0 (lockstep). Two fresh resolves after th
 WITHOUT differs only in @graphql-tools/utils (12.0.0 returns), js-yaml 5.x (5.3.0 returns) and the
 minimatch design. In cooldown on 2026-10-06, raise next run: js-yaml 5.4.3, nanoid 3.3.20, postcss 8.5.29.
 
+## Status 2026-10-06 (11.42.7 run, 19 entries)
+
+Raised (key + target together): nanoid 3.3.19 -> 3.3.20 (a REAL hold-back: postcss 8.5.28 asks
+`^3.3.18`, which intersects `<3.3.19`), postcss 8.5.28 -> 8.5.29 (was inert, the lockfile was merely
+sticky). hono had nothing new this time. Still trailing by design: @graphql-tools/utils (engines), ws
+(lockstep). Pending: js-yaml 5.4.3 (non-security bug fix, matured 2026-10-06 22:13 UTC, after this run's
+gate). Two fresh resolves: WITH vs WITHOUT unchanged (graphql-tools 12.0.0 and js-yaml 5.3.0 return and
+are audited vulnerable without the block; minimatch design). A FRESH resolve with the block lands
+http-cache-semantics on 4.3.0, which escapes the GHSA-ch52 range, so only one suppression fires there;
+the repo lock stays on 4.2.0 (two suppressions).
+
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]
