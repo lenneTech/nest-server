@@ -137,5 +137,26 @@ to 7.7.0 in the kept copy turned user-rest 9/9 green; reverting the pair turned 
 and the publish workflow would block on it. The mongo pair needs the starter raised in the SAME release.
 **13. smtp-server 3.19.17 exact-pins nodemailer 10.0.14** (dev-only). With the framework on 10.0.15 the
 lock carries a nested second copy under smtp-server: harmless (test-only), no override (no advisory).
+(Framework repo only — the starter has no smtp-server.)
+
+**14. Starter run for framework 11.42.7 (2026-10-06) — what was non-obvious:**
+- **Keep the starter's oxfmt on the FRAMEWORK's version even when it is drift-free here.** oxfmt
+  0.72.0 reformatted nothing in the starter's own `src/`/`tests/` (72 files), but generated VENDOR-mode
+  projects format the vendored `src/core/` with the template's oxfmt, and 0.72.0 is exactly the version
+  that rewrites two core READMEs (the framework's reason to skip it). Move it when the framework does.
+- **A RAISED override target moves on a plain `pnpm install`** (postcss 8.5.29, nanoid 3.3.20 landed
+  without a targeted update; lock delta = 3 header lines + the two packages, nothing else). The
+  stickiness in [[pnpm11-override-and-check-gotchas]] item 2 bites on REMOVED entries or keys that stop
+  firing, where the old version still satisfies the parent range.
+- **bson stays 7.2.0 in the starter lock** although a fresh resolve floats to 7.3.3 under mongodb 7.6.0;
+  the framework's own lock is on 7.2.0 too, single copy either way. Do not "fix" it in isolation — the
+  mongo pair moves cross-repo (item 12).
+- WITH vs WITHOUT unchanged (graphql-tools 12.0.0 + js-yaml 5.3.0 return and audit vulnerable;
+  minimatch 9 / brace-expansion 2 design; ajv 8.18 + uuid 14.0.1 floors). `pnpm dedupe`: nothing.
+  Gate: 448 tests / 30 files, `check` 1m25s. Foreign e2e runs from other lt projects come and go —
+  a short bounded `pgrep -f "[v]itest\.mjs"` wait was enough.
+- Pending next run: js-yaml 5.4.3 (mature 2026-10-06 22:13 UTC; follow the framework's entry), vite
+  8.3.3 (mature 2026-10-07 04:10 UTC; starter-only entry, track nest-server's vite devDep, 8.3.2 today),
+  oxfmt 0.72.0 (only with the framework), mongoose 9.11.0 + mongodb 7.7.0 (only with the framework).
 
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]
