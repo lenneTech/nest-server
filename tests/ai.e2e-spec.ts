@@ -453,43 +453,9 @@ describe('AI module (e2e)', () => {
   });
 
   // ===================================================================================================================
-  // MCP server (/ai/mcp): the tool registry over Streamable HTTP, end to end with real tokens
+  // MCP server (/ai/mcp): the tool registry over Streamable HTTP, end to end with real tokens.
+  // Written with testHelper.mcp() / testHelper.mcpSession(), the helpers consumer projects use for their own tools.
   // ===================================================================================================================
-
-  /**
-   * Send one JSON-RPC message to /ai/mcp. The transport answers a request as an SSE stream
-   * (`event: message` + `data: {…}`) and a notification with 202 and no body, so the reply is
-   * read from the `data:` line when there is one.
-   */
-  async function mcpPost(token: string, body: Record<string, unknown>, sessionId?: string) {
-    const req = request(app.getHttpServer())
-      .post('/ai/mcp')
-      .set('Authorization', `Bearer ${token}`)
-      .set('Accept', 'application/json, text/event-stream')
-      .set('Content-Type', 'application/json');
-    if (sessionId) {
-      req.set('mcp-session-id', sessionId);
-    }
-    const res = await req.send(body);
-    const data = (res.text || '').split('\n').find((line) => line.startsWith('data: '));
-    return { json: data ? JSON.parse(data.slice(6)) : res.body, res };
-  }
-
-  /** `initialize` plus `notifications/initialized`, as every MCP client sends them; returns the session id. */
-  async function mcpSession(token: string): Promise<string> {
-    const init = await mcpPost(token, {
-      id: 1,
-      jsonrpc: '2.0',
-      method: 'initialize',
-      params: { capabilities: {}, clientInfo: { name: 'nest-server-e2e', version: '1.0.0' }, protocolVersion: '2025-03-26' },
-    });
-    expect(init.res.status).toBe(200);
-    expect(init.json.result.serverInfo).toBeDefined();
-    const sessionId = init.res.headers['mcp-session-id'];
-    expect(sessionId).toBeTruthy();
-    await mcpPost(token, { jsonrpc: '2.0', method: 'notifications/initialized' }, sessionId);
-    return sessionId;
-  }
 
   const mcpUserTool = 'e2e_mcp_user_tool';
   const mcpAdminTool = 'e2e_mcp_admin_tool';
@@ -516,80 +482,86 @@ describe('AI module (e2e)', () => {
     });
   }
 
+  it('MCP: initialize opens a session with server info, as every client expects', async () => {
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+    expect(session.sessionId).toBeTruthy();
+    expect(session.initializeResult.serverInfo).toBeDefined();
+    expect(session.initializeResult.capabilities.tools).toBeDefined();
+  });
+
   it('MCP: tools/list shows a regular user only the tools its roles allow', async () => {
     registerMcpTools();
-    const sessionId = await mcpSession(httpRegularToken);
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
 
-    const list = await mcpPost(httpRegularToken, { id: 2, jsonrpc: '2.0', method: 'tools/list' }, sessionId);
+    const names = (await session.listTools()).map(tool => tool.name);
 
-    const names = list.json.result.tools.map((tool: { name: string }) => tool.name);
     expect(names).toContain(mcpUserTool);
     expect(names).not.toContain(mcpAdminTool);
   });
 
   it('MCP: tools/call runs a permitted tool as the calling user', async () => {
     registerMcpTools();
-    const sessionId = await mcpSession(httpRegularToken);
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
 
-    const call = await mcpPost(
-      httpRegularToken,
-      { id: 3, jsonrpc: '2.0', method: 'tools/call', params: { arguments: {}, name: mcpUserTool } },
-      sessionId,
-    );
+    const result = await session.callTool(mcpUserTool);
 
-    expect(call.json.result.isError).toBeFalsy();
-    const payload = JSON.parse(call.json.result.content[0].text);
-    expect(payload.data.scope).toBe('user');
+    expect(result.isError).toBeFalsy();
+    expect(result.json.data.scope).toBe('user');
     // The tool ran with the token's user, not with an anonymous or a system context.
-    expect(payload.data.callerId).toBeTruthy();
+    expect(result.json.data.callerId).toBeTruthy();
   });
 
   it('MCP: tools/call refuses a tool outside the caller\'s roles without running it', async () => {
     registerMcpTools();
-    const sessionId = await mcpSession(httpRegularToken);
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
 
-    const call = await mcpPost(
-      httpRegularToken,
-      { id: 4, jsonrpc: '2.0', method: 'tools/call', params: { arguments: {}, name: mcpAdminTool } },
-      sessionId,
-    );
+    const result = await session.callTool(mcpAdminTool);
 
-    expect(call.json.result.isError).toBe(true);
-    expect(call.json.result.content[0].text).toContain('not permitted');
-    expect(call.res.text).not.toContain('admin-only-payload');
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('not permitted');
+    expect(JSON.stringify(result)).not.toContain('admin-only-payload');
   });
 
   it('MCP: an admin sees and runs the admin tool', async () => {
     registerMcpTools();
-    const sessionId = await mcpSession(httpAdminToken);
+    const session = await testHelper.mcpSession({ token: httpAdminToken });
 
-    const list = await mcpPost(httpAdminToken, { id: 2, jsonrpc: '2.0', method: 'tools/list' }, sessionId);
-    expect(list.json.result.tools.map((tool: { name: string }) => tool.name)).toContain(mcpAdminTool);
-
-    const call = await mcpPost(
-      httpAdminToken,
-      { id: 3, jsonrpc: '2.0', method: 'tools/call', params: { arguments: {}, name: mcpAdminTool } },
-      sessionId,
-    );
-    expect(call.json.result.isError).toBeFalsy();
-    expect(JSON.parse(call.json.result.content[0].text).data.scope).toBe('admin-only-payload');
+    expect((await session.listTools()).map(tool => tool.name)).toContain(mcpAdminTool);
+    const result = await session.callTool(mcpAdminTool);
+    expect(result.isError).toBeFalsy();
+    expect(result.json.data.scope).toBe('admin-only-payload');
   });
 
   it('MCP: a session belongs to the user who opened it; anyone else gets 404, not its tools', async () => {
     registerMcpTools();
-    const adminSession = await mcpSession(httpAdminToken);
+    const adminSession = await testHelper.mcpSession({ token: httpAdminToken });
 
-    const foreign = await mcpPost(httpRegularToken, { id: 2, jsonrpc: '2.0', method: 'tools/list' }, adminSession);
+    const foreign = await testHelper.mcp(
+      { id: 2, method: 'tools/list' },
+      { sessionId: adminSession.sessionId, statusCode: 404, token: httpRegularToken },
+    );
 
     // 404 rather than 403: confirming that the id exists would make the endpoint an oracle for valid session ids.
-    expect(foreign.res.status).toBe(404);
-    expect(foreign.res.text).not.toContain(mcpAdminTool);
+    expect(foreign.response.text).not.toContain(mcpAdminTool);
   });
 
   it('MCP: an unknown session id on a non-initialize request gets 404, so the client starts a new session', async () => {
-    const res = await mcpPost(httpRegularToken, { id: 2, jsonrpc: '2.0', method: 'tools/list' }, 'no-such-session');
+    await testHelper.mcp(
+      { id: 2, method: 'tools/list' },
+      { sessionId: 'no-such-session', statusCode: 404, token: httpRegularToken },
+    );
+  });
 
-    expect(res.res.status).toBe(404);
+  it('MCP: close() ends the session server-side; its id answers 404 afterwards', async () => {
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+    await session.close();
+
+    await testHelper.mcp(
+      { id: 3, method: 'tools/list' },
+      { sessionId: session.sessionId, statusCode: 404, token: httpRegularToken },
+    );
   });
 
   it('enforces a per-user token limit and reports usage in the response + aiUsage', async () => {

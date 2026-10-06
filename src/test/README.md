@@ -244,3 +244,81 @@ const result = await testHelper.graphQl(
 ```
 
 See `TestGraphQLConfig` and `TestGraphQLOptions` interfaces in `test.helper.ts` for full configuration options.
+
+## MCP Testing (`testHelper.mcp()` / `testHelper.mcpSession()`)
+
+An MCP client reaches the same services as REST and GraphQL through its own door: the MCP server of the AI module
+(`/ai/mcp`, enabled with `ai.mcp` in `config.env.ts`) has its own role filter, its own sessions, and reports a refused
+or failing tool as a result with `isError: true` instead of an HTTP error. A project that enables MCP therefore tests
+its tools over MCP too, next to its API tests.
+
+The transport answers requests as an SSE stream. These helpers handle the stream, the session header and the
+handshake, so a test reads results directly.
+
+### `mcpSession(options?)`
+
+Opens a session the way every MCP client does (`initialize`, then `notifications/initialized`) for the user of `token`
+or `cookies`:
+
+```typescript
+const session = await testHelper.mcpSession({ token: userToken });
+
+// tools/list — filtered by the user's roles
+const names = (await session.listTools()).map((tool) => tool.name);
+expect(names).toContain('find_users');
+
+// tools/call — `json` is the first text content parsed as JSON (the tool's own result)
+const result = await session.callTool('find_users', { query: '@test.com' });
+expect(result.isError).toBeFalsy();
+expect(result.json.data.length).toBeGreaterThan(0);
+
+// A tool outside the user's roles is refused, not run
+const refused = await session.callTool('delete_user', { id });
+expect(refused.isError).toBe(true);
+
+// Any other JSON-RPC request; returns the whole message, protocol errors included
+const reply = await session.request('prompts/list');
+
+// End the session server-side
+await session.close();
+```
+
+| Member                               | Description                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `sessionId`                          | `mcp-session-id` the server assigned                                     |
+| `initializeResult`                   | Result of `initialize` (`serverInfo`, `capabilities`, `protocolVersion`) |
+| `listTools()`                        | `tools/list`, returns the tools array                                    |
+| `callTool(name, args?)`              | `tools/call`, returns the `CallToolResult` plus `json`                   |
+| `request(method, params?, options?)` | Any request in the session, returns the JSON-RPC message                 |
+| `close()`                            | `DELETE` with the session id                                             |
+
+### `mcp(message, options?)`
+
+Sends a single JSON-RPC message and returns `{ message, response, sessionId }`. Use it for the HTTP-level cases a
+session hides:
+
+```typescript
+// No token → 401
+await testHelper.mcp({ id: 1, method: 'initialize', params: {} }, { statusCode: 401 });
+
+// Another user's session id → 404 (not 403: confirming the id exists would be an oracle)
+await testHelper.mcp(
+  { id: 2, method: 'tools/list' },
+  { sessionId: adminSession.sessionId, statusCode: 404, token: userToken },
+);
+```
+
+### TestMcpOptions
+
+| Option             | Type                               | Default                         | Description                                     |
+| ------------------ | ---------------------------------- | ------------------------------- | ----------------------------------------------- |
+| `token`            | `string`                           | -                               | Bearer token, the same one `rest()` takes       |
+| `cookies`          | `string \| Record<string, string>` | -                               | Cookie authentication, same modes as `rest()`   |
+| `sessionId`        | `string`                           | -                               | `mcp-session-id` header (`mcp()` only)          |
+| `statusCode`       | `number`                           | `200`, `202` for a notification | Expected HTTP status (`mcp()` only)             |
+| `path`             | `string`                           | `'/ai/mcp'`                     | Endpoint, for a project with its own MCP module |
+| `headers`          | `Record<string, string>`           | -                               | Additional headers                              |
+| `log` / `logError` | `boolean`                          | `false`                         | Same as `rest()`                                |
+
+`mcpSession()` additionally takes `clientInfo` and `protocolVersion` for the `initialize` request.
+`TestHelper.parseMcpMessage(response)` is the parser behind both, for tests that send requests themselves.

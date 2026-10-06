@@ -263,6 +263,74 @@ const suppressed = [
   ]),
 ].filter((id) => typeof id === 'string' && id.startsWith('GHSA-'));
 
+/**
+ * Suppressions whose advisory DOES have a published fix that the consumer
+ * provably cannot use.
+ *
+ *   auditConfig:
+ *     unusableFixConsumers:
+ *       GHSA-x6jw-m9v5-85vh: '@nuxt/devtools@3.4.1 cannot use 4.0.1'
+ *
+ * ## Why this exists
+ *
+ * Until this block a suppression was obsolete the moment its advisory gained a
+ * patched version, and for the common case that is right: a fix landed, take it.
+ * But it read a second, opposite case as the same thing. Sometimes the fix exists
+ * and the thing that pulls the vulnerable version in cannot use it — a patched
+ * major removed an export the consumer imports, or the consumer pins the
+ * vulnerable range itself. Then "take the fix" is not advice, it is a dead end,
+ * and the only ways out were a permanently red build or switching the guard off
+ * for that entry.
+ *
+ * Measured in lt-crm 2026-10-06: three `simple-git` advisories (one CRITICAL)
+ * reachable only via `nuxt > @nuxt/devtools > simple-git`. The CRITICAL names
+ * `>=4.0.1`; simple-git 4 dropped the default export that @nuxt/devtools
+ * imports, so the override made `nuxt prepare` fail outright. The newest devtools
+ * in the 3.x line still imports it that way, and devtools is a hard dependency of
+ * `nuxt`, so it can be neither raised nor dropped.
+ *
+ * ## Why it is a declaration and not an exemption
+ *
+ * The value records the consumer, the version it was assessed against, AND the
+ * patched versions that were rejected. Each of those is a thing that can change
+ * without anybody revisiting the entry, so each is checked on every run:
+ *
+ * 1. the consumer's resolved version moved, or it left the tree;
+ * 2. the advisory now offers a patched version that was never assessed — the
+ *    BACKPORT case, where a fix appears in a line the consumer CAN use while the
+ *    rejected one stays unusable;
+ * 3. something other than the declared consumer pulls an affected package, so the
+ *    one-consumer argument no longer covers the finding.
+ *
+ * Any of the three fails the run with RE-TEST. An UNDECLARED suppression over a
+ * fixed advisory still fails on sight, exactly as before — this is a narrow,
+ * self-expiring exception, not a wider gate.
+ *
+ * The human reasoning stays in a comment above the `ignoreGhsas` entry, where a
+ * reader finds it. This block is what stops that comment outliving its truth.
+ */
+const residualDeclarations = {
+  ...pkg.pnpm?.auditConfig?.unusableFixConsumers,
+  ...pkg.auditConfig?.unusableFixConsumers,
+  ...workspaceMap(['auditConfig', 'unusableFixConsumers']),
+};
+
+/** Splits `'<consumer>@<version> cannot use <v1>, <v2>'` into its three parts. */
+function parseResidual(raw) {
+  const [left, right] = String(raw).split(/\s+cannot use\s+/);
+  // The consumer may be scoped (`@nuxt/devtools@3.4.1`), so the LAST `@` separates.
+  const at = left.lastIndexOf('@');
+  return {
+    assessedAt: at > 0 ? left.slice(at + 1).trim() : '',
+    consumer: (at > 0 ? left.slice(0, at) : left).trim(),
+    // Several, because one advisory can carry a fix per affected package line.
+    rejected: (right ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Settings that pnpm 11 no longer reads
 // ---------------------------------------------------------------------------
@@ -662,6 +730,40 @@ let advisoryRateLimited = false;
 
 const uncheckedSuppressions = [];
 
+/**
+ * Brings both advisory sources to ONE shape, so a captured fixture and the live
+ * API cannot disagree.
+ *
+ * `patchedVersions` is a LIST because an advisory carries one entry per affected
+ * package line, and those lines get fixed at different versions — the case that
+ * matters here is a BACKPORT: a fix lands in a version the consumer can actually
+ * use while the one it was assessed against stays unusable. Reading only the
+ * first non-null version, as this did before, made that invisible.
+ *
+ * `affectedPackages` is what lets the parent check know WHICH package to look for
+ * in the lockfile.
+ *
+ * Old captured fixtures carry only `first_patched_version`, so that spelling is
+ * accepted as a one-element list — a fixture must not have to be rewritten to
+ * keep meaning what it meant.
+ */
+function normaliseAdvisory(raw) {
+  if (!raw) {
+    return null;
+  }
+  const patchedVersions = Array.isArray(raw.patchedVersions)
+    ? raw.patchedVersions.filter(Boolean)
+    : raw.first_patched_version
+      ? [raw.first_patched_version]
+      : [];
+  return {
+    affectedPackages: Array.isArray(raw.affectedPackages) ? raw.affectedPackages.filter(Boolean) : [],
+    first_patched_version: patchedVersions[0] ?? null,
+    patchedVersions,
+    withdrawn: Boolean(raw.withdrawn),
+  };
+}
+
 /** Reads GHSA metadata, from a captured file when given, else from GitHub. */
 async function advisoryStatus(ids) {
   const advisoryFlag = process.argv.indexOf('--advisory-file');
@@ -672,7 +774,7 @@ async function advisoryStatus(ids) {
       console.error(`${TAG} FAIL — cannot read advisory file at ${path ?? '<missing path>'}`);
       process.exit(1);
     }
-    return new Map(ids.map((id) => [id, data[id] ?? null]));
+    return new Map(ids.map((id) => [id, normaliseAdvisory(data[id])]));
   }
 
   // Concurrent, because the failure mode is the offline one. Each lookup carries a 20s
@@ -713,10 +815,20 @@ async function advisoryStatus(ids) {
           return [id, null];
         }
         const body = await res.json();
-        // An advisory carries one entry per affected package; a fix for ANY of them
-        // means the suppression deserves a second look, so take the first non-null.
-        const patched = (body.vulnerabilities ?? []).map((v) => v.first_patched_version).find((v) => v);
-        return [id, { first_patched_version: patched ?? null, withdrawn: Boolean(body.withdrawn_at) }];
+        // EVERY patched version and EVERY affected package, not just the first.
+        // An advisory carries one entry per affected package line, and a fix for
+        // any of them means the suppression deserves a second look — including a
+        // backport into a line the consumer can use, which is invisible if only
+        // the first entry is read.
+        const vulnerabilities = body.vulnerabilities ?? [];
+        return [
+          id,
+          normaliseAdvisory({
+            affectedPackages: vulnerabilities.map((v) => v.package?.name),
+            patchedVersions: vulnerabilities.map((v) => v.first_patched_version),
+            withdrawn: Boolean(body.withdrawn_at),
+          }),
+        ];
       } catch {
         return [id, null]; // unreachable — reported as unchecked, never as "still fine"
       }
@@ -725,15 +837,245 @@ async function advisoryStatus(ids) {
   return new Map(entries);
 }
 
+/** The lockfile's resolved section, read once — these guards run before install. */
+const lockText = (() => {
+  try {
+    const raw = readFileSync(join(ROOT, 'pnpm-lock.yaml'), 'utf8');
+    return raw;
+  } catch {
+    return '';
+  }
+})();
+
+/**
+ * EVERY version of `name` the lockfile resolves, in lockfile order.
+ *
+ * Reading only the FIRST match conflated two different questions: "is the
+ * assessed version still in the tree?" and "does another version pull the
+ * affected package?". pnpm keeps several versions of one package side by side
+ * whenever their ranges are incompatible, so the first match is decided by
+ * nothing but the order the lockfile happens to list them in. That mislabelled
+ * a real finding — a declaration naming 3.5.0 against a tree holding 3.4.1 AND
+ * 3.5.0 was reported as "moved from 3.5.0 to 3.4.1", though 3.5.0 had not moved
+ * anywhere — and it could have kicked a CORRECT declaration out over a second
+ * version that pulls nothing at all.
+ *
+ * So existence and relevance are now separated: this answers the first question,
+ * and the consumer-set check answers the second from the actual edges.
+ */
+function resolvedVersions(name) {
+  if (!lockText) {
+    return [];
+  }
+  const packagesAt = lockText.search(/^packages:\s*$/m);
+  const body = packagesAt === -1 ? lockText : lockText.slice(packagesAt);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const found = body.matchAll(new RegExp(`(?:^|[/'"\\s])${escaped}@(\\d[^(:'"\\s]*)`, 'gm'));
+  return [...new Set([...found].map((m) => m[1]))];
+}
+
+/**
+ * Who pulls `name` in — from BOTH halves of the lockfile.
+ *
+ * ## Why both halves, and why that was the bug
+ *
+ * A v9 lockfile answers "who depends on X" in two separate places, and the first
+ * version of this scanned only the second:
+ *
+ * - `importers:` — the dependencies the workspace itself declares, one block per
+ *   package (`.`, `projects/api`, `projects/app`).
+ * - `snapshots:` — the edges between resolved third-party packages.
+ *
+ * Reading only `snapshots:` made the MOST likely production path invisible: a
+ * DIRECT dependency of the project. Confirmed on nest-server's own lockfile,
+ * where `importers:` starts at line 28 and `snapshots:` at 5264 — everything the
+ * project declares about itself sat 5000 lines above the scan window. Since
+ * `ignoreGhsas` also removes the advisory from `pnpm audit`, nothing else would
+ * have mentioned it either.
+ *
+ * ## The two halves do not look alike
+ *
+ * They share their indentation but not their shape:
+ *
+ *     snapshots:                     importers:
+ *       'pkg@1.0.0':        (2)        projects/app:        (2)
+ *         dependencies:     (4)          dependencies:      (4)
+ *           dep: 1.0.0      (6)            dep:             (6)
+ *                                            specifier: 1.0.0
+ *                                            version: 1.0.0
+ *
+ * The difference that matters is the LAST line: an importer's package line carries
+ * no value after the colon — specifier and version sit underneath — so an edge
+ * rule demanding whitespace after the colon matches nothing there. Hence
+ * `(\s|$)`. The levels are spelled out per half anyway, so a future lockfile
+ * format that does move them is a one-line change rather than a silent miss.
+ *
+ * ## Fail-closed
+ *
+ * Returns `scanned: false` when neither section can be found. The caller turns
+ * that into RE-TEST, because "I could not check whether a second consumer exists"
+ * must not read the same as "there is none" — the first version returned an empty
+ * list here and silently passed.
+ *
+ * ## What counts as an edge, stated honestly
+ *
+ * `dependencies`, `devDependencies` and `optionalDependencies` count;
+ * `peerDependencies` and `transitivePeerDependencies` do not. That is NOT the
+ * same as "no peer edge counts": in a v9 snapshot a RESOLVED peer is written
+ * into `dependencies:` like any other edge — verified on `@nestjs/core`, whose
+ * peers `@nestjs/common`, `reflect-metadata` and `rxjs` all appear there. So
+ * this over-counts rather than under-counts, and the error lands on the safe
+ * side: an extra RE-TEST asks for a second look at a suppression, where a missed
+ * edge would hide a consumer nobody assessed.
+ */
+function dependentsOf(name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const DEPENDENCY_SECTIONS = new Set(['dependencies', 'devDependencies', 'optionalDependencies']);
+  const halves = [
+    { edge: 6, header: /^importers:\s*$/m, key: 2, section: 4, workspace: true },
+    { edge: 6, header: /^snapshots:\s*$/m, key: 2, section: 4, workspace: false },
+  ];
+
+  const parents = new Set();
+  let scanned = false;
+
+  for (const half of halves) {
+    const at = lockText.search(half.header);
+    if (at === -1) {
+      continue;
+    }
+    scanned = true;
+    const keyRe = new RegExp(`^ {${half.key}}('[^']+'|[^\\s:][^:]*):\\s*(\\{\\})?\\s*$`);
+    const sectionRe = new RegExp(`^ {${half.section}}([a-zA-Z]+):\\s*$`);
+    // `(\s|$)` — an importer's package line ends at the colon, a snapshot's
+    // carries the version after it.
+    const edgeRe = new RegExp(`^ {${half.edge}}'?${escaped}'?:(\\s|$)`);
+    let current = null;
+    let section = null;
+
+    for (const line of lockText.slice(at).split('\n')) {
+      // A later top-level section ends this half.
+      if (/^[a-zA-Z]/.test(line) && !half.header.test(line)) {
+        if (current !== null || section !== null) {
+          break;
+        }
+        continue;
+      }
+      const key = line.match(keyRe);
+      if (key) {
+        current = key[1].replace(/^'|'$/g, '');
+        section = null;
+        continue;
+      }
+      const sub = line.match(sectionRe);
+      if (sub) {
+        section = sub[1];
+        continue;
+      }
+      if (current && section && DEPENDENCY_SECTIONS.has(section) && edgeRe.test(line)) {
+        parents.add(
+          half.workspace
+            ? // The workspace package itself, named by its path as the lockfile spells it.
+              `the workspace package '${current}'`
+            : // VERSION KEPT. Only the `(peer)(peer)` suffix is cut. Comparing by
+              // NAME alone was a second shape of the same blind spot: two versions
+              // of one consumer both pulling the vulnerable package, with only one
+              // of them assessed, passed — and which one won depended on the order
+              // the lockfile happened to list them in.
+              current.replace(/\(.*$/, ''),
+        );
+      }
+    }
+  }
+
+  return { parents: [...parents], scanned };
+}
+
+/** Suppressions accepted because the published fix is provably unusable (reported, never silent). */
+const trackedResiduals = [];
+/** Declared-unusable suppressions whose justification may have expired — each fails the run. */
+const staleResiduals = [];
+
 if (suppressed.length > 0) {
   const status = await advisoryStatus(suppressed);
   for (const id of suppressed) {
     const info = status.get(id);
     if (!info) {
       uncheckedSuppressions.push(id);
-    } else if (info.withdrawn || info.first_patched_version) {
-      obsoleteSuppressions.push({ id, ...info });
+      continue;
     }
+    // A WITHDRAWN advisory needs no suppression at all, whatever is declared about
+    // it — there is nothing left to be unfixable about.
+    if (info.withdrawn) {
+      obsoleteSuppressions.push({ id, ...info });
+      continue;
+    }
+    if (info.patchedVersions.length === 0) {
+      continue;
+    }
+    const raw = residualDeclarations[id];
+    if (!raw) {
+      obsoleteSuppressions.push({ id, ...info });
+      continue;
+    }
+    const { assessedAt, consumer, rejected } = parseResidual(raw);
+    const present = resolvedVersions(consumer);
+    const note = (reason) => staleResiduals.push({ consumer, id, reason, versions: info.patchedVersions });
+
+    if (present.length === 0) {
+      note(`no ${consumer} in the tree any more, so the suppression is moot`);
+      continue;
+    }
+    // Only the ABSENCE of the assessed version is a move. A second version
+    // sitting next to it is not news by itself — whether it matters depends on
+    // whether it pulls the affected package, which the consumer-set check below
+    // decides from the edges rather than from the package list.
+    if (!present.includes(assessedAt)) {
+      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);
+      continue;
+    }
+    // THE BACKPORT CHECK. A fix in a line the consumer CAN use leaves the
+    // consumer's version untouched, so nothing above notices it.
+    const unassessed = info.patchedVersions.filter((v) => !rejected.includes(v));
+    if (unassessed.length > 0) {
+      note(
+        `the advisory now offers ${unassessed.join(', ')}, which was never assessed (rejected: ${rejected.join(', ') || 'nothing recorded'})`,
+      );
+      continue;
+    }
+    // THE CONSUMER-SET CHECK. `ignoreGhsas` hides the finding everywhere, so any
+    // new way the vulnerable package enters the tree would otherwise be silent.
+    //
+    // The invariant is deliberately strict: EVERY parent of an affected package
+    // must be exactly the declared consumer AT THE ASSESSED VERSION. Anything
+    // else — a different package, a workspace package depending on it directly,
+    // or the SAME consumer at another version — is a path nobody assessed, and
+    // the declaration's entire argument is "only this one". Comparing by name
+    // alone let `@nuxt/devtools@3.5.0` ride along on a declaration written for
+    // 3.4.1, with the winner decided by the order the lockfile listed them in.
+    const expected = `${consumer}@${assessedAt}`;
+    const scans = info.affectedPackages.map((affected) => ({ affected, ...dependentsOf(affected) }));
+    if (info.affectedPackages.length === 0 || scans.some((scan) => !scan.scanned)) {
+      // Fail-closed. "I could not check" must never read like "there is nothing
+      // to find" — an empty answer used to pass here in silence.
+      note(
+        `the lockfile could not be read for ${info.affectedPackages.join(', ') || 'the affected package'}, so the one-consumer claim is unverifiable`,
+      );
+      continue;
+    }
+    const allParents = [...new Set(scans.flatMap((scan) => scan.parents))];
+    if (allParents.length === 0) {
+      note(`nothing pulls ${info.affectedPackages.join(', ')} any more, so the suppression is moot`);
+      continue;
+    }
+    const others = allParents.filter((parent) => parent !== expected);
+    if (others.length > 0) {
+      note(
+        `${others.join(', ')} also pull${others.length === 1 ? 's' : ''} an affected package, so "only ${expected}" no longer holds`,
+      );
+      continue;
+    }
+    trackedResiduals.push({ consumer, id, rejected, version: assessedAt });
   }
 }
 
@@ -834,6 +1176,7 @@ if (
   ciUnverified ||
   strandedKeys.length > 0 ||
   obsoleteSuppressions.length > 0 ||
+  staleResiduals.length > 0 ||
   tooLow.length > 0 ||
   notMatching.length > 0
 ) {
@@ -852,7 +1195,23 @@ if (
     console.error(
       `  ✗ FIX AVAILABLE ${entry.id} — ${why}.\n` +
         `      The suppression in auditConfig.ignoreGhsas is obsolete: take the fix\n` +
-        `      and remove the entry. https://github.com/advisories/${entry.id}\n`,
+        `      and remove the entry. https://github.com/advisories/${entry.id}\n` +
+        (entry.withdrawn
+          ? ''
+          : `      If the fix exists but the consumer provably cannot use it, exhaust the\n` +
+            `      ladder first (raise the consumer, raise the framework, patch it) and only\n` +
+            `      then declare it, which makes the exception expire by itself:\n` +
+            `        auditConfig.unusableFixConsumers.${entry.id}: ` +
+            `'<consumer>@<version> cannot use ${entry.first_patched_version}'\n`),
+    );
+  }
+  for (const entry of staleResiduals) {
+    console.error(
+      `  ✗ RE-TEST      ${entry.id} — declared as an unusable fix, but ${entry.reason}.\n` +
+        `      The reason for the suppression may be gone. Re-test whether ` +
+        `${entry.versions.join(' / ')} works now;\n` +
+        `      take the fix if it does, otherwise update the declaration in\n` +
+        `      auditConfig.unusableFixConsumers. https://github.com/advisories/${entry.id}\n`,
     );
   }
   for (const entry of tooLow) {
@@ -876,6 +1235,9 @@ if (
   if (obsoleteSuppressions.length > 0) {
     parts.push(`${obsoleteSuppressions.length} obsolete suppression(s)`);
   }
+  if (staleResiduals.length > 0) {
+    parts.push(`${staleResiduals.length} suppression(s) needing a re-test`);
+  }
   if (ciUnverified) {
     parts.push(`${uncheckedSuppressions.length} unverified suppression(s) under CI`);
   }
@@ -889,10 +1251,24 @@ const covered = advisories.filter((a) =>
 
 const verifiedSuppressions = suppressed.length - uncheckedSuppressions.length;
 
+// Named on the GREEN path, deliberately. A residual accepted because the fix is
+// unusable is the one kind that can stop being true without anything in this repo
+// changing — upstream only has to adapt. Printing it every run is what keeps it
+// from settling into the background; a silent pass would look identical to
+// "no fix exists".
+for (const entry of trackedResiduals) {
+  console.log(
+    `${TAG} residual ${entry.id} — ${entry.rejected.join(' / ')} exists but ` +
+      `${entry.consumer}@${entry.version} cannot use it; re-checked every run ` +
+      `(consumer version, newly published fixes, second consumer).`,
+  );
+}
+
 console.log(
   `${TAG} ok — ${overrideCount} override(s) checked against ${advisories.length} advisory/advisories ` +
     `from ${source}; ${covered} of them land on an overridden package and none is failing` +
     (suppressed.length > 0
-      ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) confirmed to still have no fix`
+      ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) verified` +
+        (trackedResiduals.length > 0 ? ` (${trackedResiduals.length} as unusable-fix residual)` : '')
       : ''),
 );

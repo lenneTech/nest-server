@@ -443,7 +443,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     expect(r.out).not.toMatch(/FIX AVAILABLE/);
     // Must still say it looked — otherwise this is indistinguishable from a run
     // that never checked the suppression at all.
-    expect(r.out).toMatch(/1\/1 suppression\(s\) confirmed to still have no fix/);
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified/);
   });
 
   it('FIRES once upstream publishes a patched version', () => {
@@ -454,6 +454,267 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
     expect(r.out).toMatch(/FIX AVAILABLE/);
     expect(r.out).toMatch(/2\.1\.0/);
+  });
+
+  /**
+   * The THIRD shape, and the one the two above used to swallow.
+   *
+   * "A fix exists" and "the fix is usable" are different facts. A patched major
+   * can remove an export its consumer imports, or the consumer can pin the
+   * vulnerable range itself — and then FIX AVAILABLE is not advice, it is a dead
+   * end that leaves a real, unfixable finding with nowhere to go but a red build
+   * forever, or the guard switched off for that entry.
+   *
+   * Measured case (lt-crm, 2026-10-06): three `simple-git` advisories, one
+   * CRITICAL requiring >=4.0.1, reachable only through
+   * `nuxt > @nuxt/devtools > simple-git`. simple-git 4 dropped the default export
+   * @nuxt/devtools imports, so the override made `nuxt prepare` fail outright; the
+   * newest devtools in the 3.x line still imports it that way, and devtools is a
+   * hard dependency of nuxt, so it can be neither raised nor dropped.
+   *
+   * The declaration records the consumer, the version it was assessed against,
+   * AND the rejected patched versions — because each of those can change without
+   * anybody revisiting the entry. Three checks, one per way the reason can
+   * evaporate, each pinned by its own case below and its own mutation.
+   *
+   * @regression   11.42.5 — the guard read "a fix exists" and "the fix is usable"
+   *   as one fact, so an unfixable finding had nowhere to go but a permanently red
+   *   build or a switched-off guard. The first version of this feature then went
+   *   too far the other way: it watched only the declared consumer's VERSION, so a
+   *   backport into a line that consumer could use, or a second package pulling
+   *   the same vulnerable version, left the suppression accepted and the printed
+   *   "cannot use it" false. Found in review before release.
+   * @seen-failing   six mutations in scripts/check-overrides.mjs, each applied
+   *   alone, run, reverted — registered in tests/regression-mutations.json as
+   *   `unusable-fix-ignores-moved-consumer`, `unusable-fix-accepts-absent-consumer`,
+   *   `unusable-fix-ignores-backport`, `unusable-fix-ignores-second-consumer`,
+   *   `unusable-fix-skips-workspace-importer` and
+   *   `unusable-fix-first-consumer-version-wins`. None of them touches the happy
+   *   path, which is the point: a guard whose expiry is gone still passes its own
+   *   success case. The last one is the exception that proves it from the other
+   *   side — it breaks ONLY the happy path, by rejecting a declaration that is
+   *   still true, and a guard that does that gets switched off.
+   */
+  const DEVTOOLS_LOCK = (version: string, extra = '') =>
+    `lockfileVersion: '9.0'\n\npackages:\n  '@nuxt/devtools@${version}':\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n${extra}\nsnapshots:\n\n  '@nuxt/devtools@${version}':\n    dependencies:\n      simple-git: 3.36.0\n${extra ? `\n  new-parent@1.0.0:\n    dependencies:\n      simple-git: 3.36.0\n` : ''}`;
+  const DECLARE = (value: string) =>
+    `auditConfig:\n  unusableFixConsumers:\n    ${GHSA}: '${value}'\n`;
+  const FIXED = { affectedPackages: ['simple-git'], patchedVersions: ['4.0.1'], withdrawn: false };
+
+  it('accepts a fixed advisory whose fix the declared consumer provably cannot use', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/FIX AVAILABLE/);
+    expect(r.out).not.toMatch(/RE-TEST/);
+    // Named on the green path, every run — a residual that can stop being true
+    // without anything here changing must not be able to settle into silence.
+    expect(r.out, `the residual must be reported, got:\n${r.out}`).toMatch(/residual/i);
+    expect(r.out).toMatch(/@nuxt\/devtools@3\.4\.1/);
+  });
+
+  it('FIRES when the declared consumer has moved, and says MOVED', () => {
+    // Two checks can fire here, and which one speaks matters. Since the
+    // consumer-set check started comparing `name@version` rather than just the
+    // name, it catches a moved consumer by itself — so this case is no longer
+    // about WHETHER the guard fires. It is about the sentence it prints: "moved
+    // from 3.4.1 to 3.5.0" tells the reader to re-assess against 3.5.0, while
+    // "3.5.0 also pulls an affected package" describes the same package as if a
+    // second consumer had appeared, and sends them looking for one.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.5.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `both versions belong in the message, got:\n${r.out}`).toMatch(
+      /moved from 3\.4\.1 to 3\.5\.0/,
+    );
+  });
+
+  it('FIRES when the declared consumer left the tree entirely', () => {
+    // Then the suppression is moot rather than justified: nothing pulls the
+    // vulnerable version in any more, so the finding should have disappeared.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: "lockfileVersion: '9.0'\n\npackages:\n  something-else@1.0.0:\n    resolution: {integrity: sha512-x}\n",
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out).toMatch(/moot/);
+  });
+
+  it('FIRES on a BACKPORT — a fix in a line the consumer could use', () => {
+    // The case that made the first version of this feature unsafe. Upstream
+    // backports the fix into 3.36.2, which @nuxt/devtools CAN take; the consumer's
+    // own version never moves, so every other check stays quiet and the residual
+    // message would keep claiming the fix is unusable.
+    const r = run({
+      advisoryData: {
+        [GHSA]: { affectedPackages: ['simple-git'], patchedVersions: ['4.0.1', '3.36.2'], withdrawn: false },
+      },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the unassessed version must be named, got:\n${r.out}`).toMatch(/3\.36\.2/);
+  });
+
+  it('FIRES when a SECOND consumer pulls the affected package', () => {
+    // `ignoreGhsas` hides the finding everywhere, so a new parent — possibly one
+    // in the production closure — would otherwise be silent while the declaration
+    // still argues "only this one dev-tooling consumer".
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1', "  new-parent@1.0.0:\n    resolution: {integrity: sha512-x}\n"),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the new parent must be named, got:\n${r.out}`).toMatch(/new-parent/);
+  });
+
+  /**
+   * A lockfile in which a WORKSPACE package depends on the affected package
+   * directly. `importers:` holds the repo's OWN dependencies and sits BEFORE
+   * `packages:`, so a scan that starts at `snapshots:` misses exactly this shape —
+   * and it is the shape in which the declaration is least defensible, because a
+   * dependency the project declares itself is one the project can raise itself.
+   */
+  const WORKSPACE_LOCK = (importer: string) =>
+    `lockfileVersion: '9.0'\n\nimporters:\n\n  ${importer}:\n    dependencies:\n      simple-git:\n        specifier: 3.36.0\n        version: 3.36.0\n\npackages:\n\n  '@nuxt/devtools@3.4.1':\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n\nsnapshots:\n\n  '@nuxt/devtools@3.4.1':\n    dependencies:\n      simple-git: 3.36.0\n`;
+
+  it('FIRES when the PROJECT ITSELF depends on the affected package', () => {
+    // The root importer. Nothing in the snapshot graph says the repo took a
+    // direct dependency on simple-git, so the declaration's "only @nuxt/devtools
+    // has it" survived untouched while the package sat in the project's own
+    // package.json — where a plain version bump would have closed the advisory.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: WORKSPACE_LOCK('.'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the importer must be named, got:\n${r.out}`).toMatch(/workspace package '\.'/);
+  });
+
+  it('FIRES when a WORKSPACE PACKAGE depends on the affected package', () => {
+    // Same blind spot one level down, and the common one in this monorepo: the
+    // dependency belongs to projects/api rather than to the root.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: WORKSPACE_LOCK('projects/api'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the importer path must be named, got:\n${r.out}`).toMatch(/projects\/api/);
+  });
+
+  it('FIRES when the declared consumer does not pull the affected package at all', () => {
+    // A declaration naming the WRONG consumer. Every version-shaped check passes
+    // — typescript@5.9.3 is in the tree at the assessed version and no fix was
+    // left unassessed — so only comparing the declaration against the actual
+    // edges catches it. Until that comparison existed, a plausible-looking but
+    // unrelated consumer name silenced the advisory indefinitely.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1').replace(
+        "  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n",
+        "  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  typescript@5.9.3:\n    resolution: {integrity: sha512-x}\n",
+      ),
+      workspaceYaml: DECLARE('typescript@5.9.3 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the real parent must be named, got:\n${r.out}`).toMatch(/@nuxt\/devtools@3\.4\.1/);
+  });
+
+  /**
+   * Two versions of ONE consumer, listed newest first. pnpm keeps versions side
+   * by side whenever their ranges are incompatible, so this is ordinary — and
+   * reading only the FIRST match for "which version is in the tree?" made the
+   * verdict depend on that order. The two cases below are the same fixture read
+   * from both ends: one must pass, one must fire, and neither may be decided by
+   * the listing order.
+   */
+  const TWO_VERSIONS = (pullers: string[]) =>
+    `lockfileVersion: '9.0'\n\npackages:\n\n  '@nuxt/devtools@3.9.0':\n    resolution: {integrity: sha512-x}\n  '@nuxt/devtools@3.4.1':\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n\nsnapshots:\n\n${pullers.map((v) => `  '@nuxt/devtools@${v}':\n    dependencies:\n      simple-git: 3.36.0\n`).join('\n')}`;
+
+  it('accepts the declaration when the consumer\'s OTHER version pulls nothing', () => {
+    // 3.9.0 exists but does not touch simple-git, so the declaration about 3.4.1
+    // is still exactly true. Taking the first match called this "moved from 3.4.1
+    // to 3.9.0" and demanded a re-assessment of a correct entry — a guard that
+    // cries wolf gets switched off, which is how the hole this feature closes
+    // came about in the first place.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_VERSIONS(['3.4.1']),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+    expect(r.out).toMatch(/residual/i);
+  });
+
+  it('FIRES on the unassessed version even when it is listed LAST', () => {
+    // Both versions pull simple-git and the declaration covers 3.9.0, so 3.4.1 is
+    // an unassessed path. The finding must name THAT, not report a move: 3.9.0 is
+    // right where the declaration says it is.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_VERSIONS(['3.9.0', '3.4.1']),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.9.0 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/RE-TEST/);
+    expect(r.out, `the unassessed version must be named, got:\n${r.out}`).toMatch(/3\.4\.1 also pulls/);
+    expect(r.out, `3.9.0 has not moved, got:\n${r.out}`).not.toMatch(/moved from/);
+  });
+
+  it('still FIRES for a fixed advisory with no declaration at all', () => {
+    // The gate must not have widened: the declaration is the only way in, and
+    // forgetting it is indistinguishable from not having considered the fix.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/FIX AVAILABLE/);
+    // And it must point at the declaration rather than only at "take the fix",
+    // which is the advice that does not apply in this shape.
+    expect(r.out).toMatch(/unusableFixConsumers/);
+  });
+
+  it('IGNORES a declaration for a WITHDRAWN advisory', () => {
+    // A withdrawn advisory needs no suppression at all, so "the fix is unusable"
+    // is not a reason to keep one — there is nothing left to be unfixable about.
+    const r = run({
+      advisoryData: { [GHSA]: { patchedVersions: [], withdrawn: true } },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/WITHDRAWN/);
   });
 
   it('FIRES when the advisory was withdrawn', () => {
@@ -710,7 +971,7 @@ describe('check-overrides — an unverified suppression is a skip, and CI must n
       ignoreGhsas: [GHSA_CI],
     });
     expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
-    expect(r.out).toMatch(/1\/1 suppression\(s\) confirmed/);
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified/);
   });
 });
 
