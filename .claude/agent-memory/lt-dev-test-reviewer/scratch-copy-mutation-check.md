@@ -16,6 +16,10 @@ What worked (2026-10-06, generated-secret story):
 - E2E single file: `LT_TEST_INFRA=0 NODE_ENV=e2e npx vitest run --config vitest-e2e.config.ts <file>`
   (call vitest directly, see [[single-e2e-file-run-gotcha]]). ~2 s per run; the failing run left no
   stray run DB behind. Delete the copy afterwards.
+- nuxt-base-template copy also needs the generated `.nuxt/` (setup.ts transform reads
+  `.nuxt/tsconfig.json`), ~1.6 MB. lt-monorepo needs only `scripts/` + `package.json` (node --test).
+- vitest 5 `--reporter=json` WRITES `.vitest/json/output.json` into the repo it runs in — an
+  untracked artifact in a "do not edit" tree. Use `--reporter=verbose` + grep, or delete it after.
 
 **Why:** a green test looks the same whether it checks something or nothing; the copy gives the
 "show me it red" evidence the repo rule demands without colliding with the author's live tree.

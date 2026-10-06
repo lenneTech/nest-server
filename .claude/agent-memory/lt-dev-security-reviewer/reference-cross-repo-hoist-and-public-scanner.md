@@ -19,4 +19,5 @@ Reviewed from this repo on 2026-10-06. Nothing reached the bar. These are the fa
 - `--print` output is a SUPERSET of the file's patterns. Lines after `# <<< generated` are dropped by `--print`, but `--check` (private pre-commit) refuses such a file.
 - Derived names are ERE-escaped (`escapeEre`). An invalid `DENY_RE` would silently disable check 7, because grep's errors go to `2>/dev/null`. Only hand-written lines can cause that.
 - CI never has the denylist: there is no private checkout and no token. Check 7 reports only `file:line`, never the pattern, so nothing private reaches CI logs. Fork PRs run on `pull_request`, never `pull_request_target`.
+- `--all` is `git ls-files`, so it skips UNTRACKED files. When you review an uncommitted working tree, pass the new files explicitly (`scan-secrets.sh <file>…`). A clean `--all` says nothing about them (verified 2026-10-06).
 - Pre-existing gap, not introduced by the change: `--range` uses the NET diff `A..B`, and checks 1-7 read the WORKTREE. A name added in one commit and removed in the next commit of the same push reaches public history unseen.

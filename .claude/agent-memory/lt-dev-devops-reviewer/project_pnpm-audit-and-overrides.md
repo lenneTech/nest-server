@@ -44,6 +44,12 @@ or a silent suppression.
    `'@lenne.tech/nest-server'` exclude renamed. The second run must fail, naming only the
    just-published framework version. If it does, the gate is live and the first run's pass means
    something.
+   **Trap: pnpm caches the verdict.** A scratch install can print `✓ Lockfile passes supply-chain
+   policies (verified 16m ago)` and skip the age check entirely. The cache lives in
+   `~/Library/Caches/pnpm/lockfile-verified.jsonl`, keyed on the lockfile, so a fresh scratch
+   directory does not avoid it. Pass `--config.cache-dir=<fresh dir>` to both runs. The log must say
+   `Verifying lockfile against supply-chain policies (N entries)...`, not "verified Xm ago". A Docker
+   build is always uncached, so it is the honest proof (verified 2026-10-06).
 
 6. **pnpm 11 accepts unknown keys under `auditConfig`.** For example, `unusableFixConsumers`, which
    `scripts/check-overrides.mjs` reads (since 11.42.5), passes both a frozen install and
