@@ -1,11 +1,16 @@
 ---
 name: reference-lt-dev-permissions-json-global-allow
-description: How lt-dev's permissions.json reaches users (silent global auto-allow via `lt claude plugins`), and why a new broad pattern there rarely widens the effective boundary (node:* / curl:* already present)
+description: How lt-dev's permissions.json reaches users (silent global auto-allow via `lt claude plugins`); the existing broad entries are an owner decision (2026-10-06), not a finding
 metadata:
   type: reference
 ---
 
 Verified 2026-10-06 while reviewing `/lt-dev:briefing` (claude-code working tree).
+
+**Decided 2026-10-06 by the repo owner (Kai): the existing global entries are INTENDED** —
+`gh api:*`, `gh pr:*`, `glab mr:*`, `glab ci:*`, `node:*`, `curl:*` stay auto-allowed. Do not report
+them (or their write capabilities: merges, pipeline cancel/delete, API writes) as a finding. A NEW
+entry is still reviewed on its own merits (`glab api:*` was removed from the briefing diff anyway).
 
 **Consumer:** `cli/src/commands/claude/plugins.ts` → `setupPermissions()` in `cli/src/lib/plugin-utils.ts`.
 Every `pattern` in `plugins/lt-dev/permissions.json` is appended to `~/.claude/settings.json`

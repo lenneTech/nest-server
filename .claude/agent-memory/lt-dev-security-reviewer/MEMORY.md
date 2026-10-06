@@ -36,4 +36,5 @@
 - [project-exception-wire-format.md](project-exception-wire-format.md) — HttpExceptionLogFilter sends `{...exception}` (class `name` is client-visible); `extends HttpException` breaks instanceof vs native Forbidden/Unauthorized
 - [Primitive @Body/@Args args skip validation](project-primitive-body-args-bypass-validation.md) — metatype String ⇒ MapAndValidatePipe returns objects untouched; live $ne-injection in resetPassword + createPasswordResetToken
 - [Cross-repo: CLI patch hoist + public scanner](reference-cross-repo-hoist-and-public-scanner.md) — relocatePatches source-side symlink caveat (below bar); scanner --print superset, CI has no denylist; `--all` skips untracked files
-- [lt-dev permissions.json = global auto-allow](reference-lt-dev-permissions-json-global-allow.md) — `lt claude plugins` writes every pattern into ~/.claude/settings.json; node:*/curl:* already there, so a new broad entry rarely widens
+- [lt-dev permissions.json = global auto-allow](reference-lt-dev-permissions-json-global-allow.md) — `lt claude plugins` writes every pattern into ~/.claude/settings.json; the existing broad entries are an owner decision (2026-10-06), do not report
+- [Windows .cmd spawn quoting](reference-windows-cmd-spawn-quoting.md) — simulate win32 spawnargs on macOS; cmd vs CRT parser; trailing-backslash class; cmd-shim quirks
