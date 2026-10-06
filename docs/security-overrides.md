@@ -11,14 +11,22 @@ A green `pnpm audit` inside the framework repo says nothing about your tree.
 
 ## What this concretely means for you
 
-The framework pulls in three transitive packages that its `@nestjs/*` dependencies used to
-**exact-pin** to a vulnerable version:
+The framework pulls in four transitive packages that its `@nestjs/*` dependencies exact-pin, or
+used to **exact-pin**, to a vulnerable version:
 
 | Package | Advisory | Why it cannot resolve forward on its own |
 |---------|----------|------------------------------------------|
 | `ws` | [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p) — high: memory-exhaustion DoS + uninitialized memory disclosure. Patched `>=8.21.0` | Older `@nestjs/graphql` releases declare `"ws": "8.20.1"` — an **exact pin**, not a caret. 13.4.5, the version this framework declares, pins `8.21.3` |
 | `js-yaml` | [GHSA-pm4m-ph32-ghv5](https://github.com/advisories/GHSA-pm4m-ph32-ghv5) — high: exponential parsing time in flow collections (DoS), patched `>=5.2.2`; [GHSA-r3ph-w7gj-g6xm](https://github.com/advisories/GHSA-r3ph-w7gj-g6xm) — moderate: `maxTotalMergeKeys` does not bound CPU use for empty merge sources, covers `<=5.4.0`, patched `>=5.4.1` (published 2026-09-29) | `@nestjs/swagger` declares js-yaml as an **exact pin**, the same shape as the `ws` case: older releases `5.2.1`, 11.4.7 — the version this framework declares, and the newest 11.x — `5.3.0`. No swagger update reaches the fix, so **this entry is load-bearing again** |
+| `@graphql-tools/utils` | [GHSA-7mx3-vvmw-hjmv](https://github.com/advisories/GHSA-7mx3-vvmw-hjmv) — high: prototype pollution in `mergeDeep`, which runs while the GraphQL schema is assembled. Covers `<=12.0.0`, patched `>=12.0.1` (added 2026-10-06) | `@nestjs/graphql` 13.4.5 — the version this framework declares, and the newest 13.x — declares `"@graphql-tools/utils": "12.0.0"`, an **exact pin**. Only `@nestjs/graphql` 14.x moves it, so **this entry is load-bearing**. `@apollo/server` reaches it too, through `@graphql-tools/schema` / `merge` — and in a lockfile that still holds schema 10.0.x (resolved before 2026-08-12), as **utils 11.x**: vulnerable too, with no 11.x fix, and outside the override key. Lift it with `pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge`; the current releases request utils `^12.0.3`, which needs Node >=22.15 |
 | `multer` | [GHSA-wc9g-mqfw-jrwm](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm), [GHSA-535w-7cp7-47q4](https://github.com/advisories/GHSA-535w-7cp7-47q4), [GHSA-qfvm-cv95-jqjf](https://github.com/advisories/GHSA-qfvm-cv95-jqjf) — high: DoS via crafted multipart input; [GHSA-qvfw-j98x-7q72](https://github.com/advisories/GHSA-qvfw-j98x-7q72) — low: file size limit bypass. Patched `>=2.3.0` | `@nestjs/platform-express` up to 11.2.5 declares `"multer": "2.2.0"` — an **exact pin**. A direct `multer` dependency does not move it: you get both copies, and FileInterceptor uses the vulnerable one. 11.2.6, which this framework declared from 11.41.4, pins `2.4.0`, and so does 11.2.7, declared since 11.41.7 |
+
+**Status since 11.42.4:** `@graphql-tools/utils` joins `js-yaml` as load-bearing — no `@nestjs/graphql`
+13.x resolves past the exact pin. The 11.42.4 release also covers `proxy-addr` (GHSA-jqcg-44mw-7w3h,
+critical: IP spoofing through an IPv4-mapped IPv6 address in a trusted subnet — it is what
+`trustProxy` hands to Express). That one needs **no override**: `express` requests `^2.0.7` and the
+fix `2.0.8` is in range, but an existing lockfile keeps `2.0.7` until you refresh it:
+`pnpm update --depth Infinity proxy-addr`.
 
 **Status since 11.41.5:** `ws` and `multer` resolve to a patched version on their own with the
 `@nestjs/*` versions this framework declares; their entries below are insurance for a project whose
@@ -54,6 +62,14 @@ overrides:
   # Keep the target in LOCKSTEP with the multer version @lenne.tech/nest-server declares (2.4.0 since 11.41.4).
   # Inert on @nestjs/platform-express 11.2.6+, which pins 2.4.0 itself.
   'multer@>=2.0.0 <2.4.0': '2.4.0'
+
+  # @nestjs/graphql 13.4.5 exact-pins @graphql-tools/utils@12.0.0 — GHSA-7mx3-vvmw-hjmv (high, patched >=12.0.1).
+  # Target 12.0.1 rather than the newest 12.x: 12.0.2+ requires Node >=22.15 via @whatwg-node/promise-helpers@2.
+  # If your engines floor is already >=22.15, prefer the newest 12.x, so the caret requesters are not held back.
+  # Does NOT reach a utils 11.x pulled in by an older @graphql-tools/schema 10.0.x — refresh that one instead:
+  #   pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge   (current releases need Node >=22.15)
+  # Remove once @nestjs/graphql pins >=12.0.1 in the major you use.
+  '@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'
 ```
 
 ### Retired: `@hono/node-server` (removed 2026-08-22, nest-server 11.36.1)

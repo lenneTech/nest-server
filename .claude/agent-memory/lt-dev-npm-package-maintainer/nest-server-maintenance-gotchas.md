@@ -191,7 +191,13 @@ fs-extra, picomatch, semver, tinyglobby, type-is) with ZERO other version moveme
 version a fresh resolve picks anyway. Copy the lockfile back, then `pnpm install --frozen-lockfile`.
 Check who held each old copy first: `@apollo/server`'s graphql-tools chain is on the runtime path.
 
-## supertest 7.3.1 (taken 2026-10-04) may make the port reservation unnecessary
+## supertest 7.3.1 (taken 2026-10-04) made the port reservation unnecessary — VERIFIED 2026-10-06
+
+2026-10-06 (11.42.4 run): seven `Code Helper` listeners on `127.0.0.1` 49152-65535, gate run WITHOUT
+any reservation: e2e green, whole `check` 2m26s (4981 tests). Skip the reservation step now; bring it
+back only if an e2e file grinds at 0% CPU again (then diagnose with the lsof recipe above).
+
+Original note (2026-10-04):
 
 Its only change: "bind ephemeral server to the loopback address it connects to" — i.e. exactly the
 "real fix" named in the port-squat section above, done upstream. The 2026-10-04 gate still ran WITH

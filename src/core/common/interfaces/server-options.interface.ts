@@ -1052,6 +1052,53 @@ export interface IBetterAuthUserField {
 }
 
 /**
+ * Size limits for the two body parsers NestJS registers globally (`application/json` and
+ * `application/x-www-form-urlencoded`).
+ *
+ * @see IServerOptions.bodyParser
+ * @since 11.42.4
+ */
+export interface IBodyParserConfig {
+  /**
+   * Limit for `application/json` bodies — REST and GraphQL alike, since Apollo reads the body the
+   * global parser produced.
+   *
+   * A number is bytes; a string is a size such as `'500kb'` or `'2mb'` (1024-based, units
+   * `b` / `kb` / `mb` / `gb`, case-insensitive).
+   *
+   * @default '100kb' (body-parser's own default — unset leaves the parser untouched)
+   */
+  json?: IBodyParserTypeConfig;
+
+  /**
+   * Limit for `application/x-www-form-urlencoded` bodies. Same value format as `json`.
+   *
+   * Configured separately on purpose: form posts rarely need more, and raising one limit should not
+   * silently raise the other.
+   *
+   * @default '100kb' (body-parser's own default — unset leaves the parser untouched)
+   */
+  urlencoded?: IBodyParserTypeConfig;
+}
+
+/**
+ * Settings for one body parser.
+ *
+ * @see IBodyParserConfig
+ * @since 11.42.4
+ */
+export interface IBodyParserTypeConfig {
+  /**
+   * Maximum body size: bytes as a number, or a size string such as `'2mb'`.
+   *
+   * A value that is not a positive size (`0`, negative, `NaN`, `'lots'`) is REJECTED with an error
+   * log and the parser keeps its default — it never becomes "no limit". The parser runs before
+   * authentication, so an unbounded limit would be an unbounded pre-auth allocation.
+   */
+  limit?: number | string;
+}
+
+/**
  * Interface for Error Code module configuration
  *
  * Controls how the ErrorCodeModule is registered and configured.
@@ -2263,6 +2310,48 @@ export interface IServerOptions {
    * ```
    */
   betterAuth?: boolean | IBetterAuth;
+
+  /**
+   * Size limits for request bodies.
+   *
+   * NestJS registers a JSON and a URL-encoded body parser on every application, and neither has a
+   * limit anybody chose: body-parser's default of **100 kB** applies. A request over it is answered
+   * with 413 in middleware — before authentication, before routing — so the whole request fails,
+   * every retry fails identically, and a document that grew past the limit can no longer be saved.
+   *
+   * Unset, both parsers stay exactly as NestJS registered them. Set a limit only where the data
+   * model needs it, and keep it as small as that need allows: the parser runs before
+   * authentication, and `JSON.parse` blocks the event loop for the whole body — measured on a
+   * realistic document shape, about 0.5 ms for 100 kB, 16 ms for 1 MB and 55 ms for 2 MB per
+   * request. That is why the default is not raised for everybody.
+   *
+   * Applied by `CoreModule` during module init, which replaces the global parsers NestJS registered
+   * IN PLACE — same position in the middleware chain, same options otherwise (`extended: true` for
+   * URL-encoded bodies, `req.rawBody` when the app was created with `NestFactory.create(…, {
+   * rawBody: true })`). Because this happens in `app.init()`, it holds under
+   * `Test.createTestingModule(...).createNestApplication()` too, which never runs `main.ts` — a
+   * `useBodyParser()` call in `main.ts` does not reach the e2e suite, this does. A configured value
+   * also replaces a global parser registered in `main.ts`; a path-scoped one
+   * (`server.use('/upload', json({ limit }))`) is left alone, and stays the way to give ONE path a
+   * different limit, since the parser runs before routing and GraphQL shares a single path anyway.
+   *
+   * One caveat: under the testing module the options passed to `createNestApplication()` are not
+   * visible to providers, so a test app created with `{ rawBody: true }` gets no `req.rawBody` from
+   * a CONFIGURED parser. Applications created with `NestFactory.create()` are not affected.
+   *
+   * Independent of this setting, a 413 from either parser is answered with
+   * `#LTNS_0304: Request body too large [<size>, limit <limit>]` instead of a bare
+   * "request entity too large", and logged as a warning naming the route and the config key.
+   *
+   * @since 11.42.4
+   *
+   * @example
+   * ```typescript
+   * // Documents carry HTML: allow 2 MB of JSON, keep form posts at the default
+   * bodyParser: { json: { limit: '2mb' } },
+   * ```
+   */
+  bodyParser?: IBodyParserConfig;
 
   /**
    * Configuration for Brevo

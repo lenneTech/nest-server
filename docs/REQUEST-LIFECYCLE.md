@@ -45,6 +45,7 @@ The `CoreModule` is a dynamic module that bootstraps the entire framework:
 | **Central S3 (optional)** | `CoreS3Service` — globally provided **and exported** by `CoreModule`, inert unless `s3` is configured *and* names a `bucket` (a bucket-less block is ignored with a warning). Backs `file.storage: 's3'` and TUS staging (`tus.s3Staging`). Requires the OPTIONAL peers `@aws-sdk/client-s3` (+ `@aws-sdk/s3-request-presigner` for `presignedDownloads`) — configured but missing **fails the boot**. `@aws-sdk/lib-storage` (optional) uploads streams of unknown length in parts; without it they are buffered in memory, with one boot warning |
 | **Configuration System** | `config.env.ts` with ENV variables, `NEST_SERVER_CONFIG` JSON, `NSC__*` prefixes |
 | **Cookie Handling** | Enabled by default (`cookies: true`), configurable via `ICookiesConfig` with `exposeTokenInBody` option |
+| **Body Parser Limits** | `bodyParser.json.limit` / `bodyParser.urlencoded.limit` (default 100 kB each, body-parser's own). Applied in place to the parsers NestJS registers, so they hold under `Test.createTestingModule()` too. Every 413 is answered with `#LTNS_0304` plus size and limit, and logged with the route and the config key — see [0d. Body parsers](#0d-body-parsers) |
 | **Unified CORS** | Single `cors` config propagates to GraphQL, REST, and BetterAuth layers |
 | **Dual Auth Modes** | IAM-Only (BetterAuth) or Legacy+IAM for migration periods |
 
@@ -326,6 +327,12 @@ The following diagram shows the exact order of execution from HTTP request to re
   |      - credentials: true when cookies enabled           |
   |      - Origins from appUrl/baseUrl/cors.allowedOrigins  |
   |      - Propagated to BetterAuth trustedOrigins          |
+  |                                                         |
+  |  0d. Body parsers: json + urlencoded  [always]          |
+  |      - Registered by NestJS in app.init(), limits from  |
+  |        bodyParser.*.limit (default 100 kB each)         |
+  |      - Over the limit: 413 #LTNS_0304 BEFORE auth and   |
+  |        routing, REST and GraphQL alike                  |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -550,6 +557,27 @@ if (!isCorsDisabled(envConfig.cors)) {
 | `http://localhost:3000` | port (no `api.` label) | `http://localhost:3001` |
 
 > **Security:** steps 2 and 4 grant the derived origin credentialed CORS. If the apex domain is not trusted (e.g. a third-party-hosted marketing site whose XSS surface you do not control), set `cors.deriveAppUrl: false` and list the frontend origin explicitly via `appUrl` or `cors.allowedOrigins`. The derivation never yields a bare TLD (`https://api.dev` stays unchanged) and never emits the opaque `null` origin. With `cors.deriveAppUrl: false`, a host-split localhost `baseUrl` falls back to the `http://localhost:3001` default.
+
+#### 0d. Body parsers
+
+NestJS registers two global body parsers on every Express application — `application/json` and `application/x-www-form-urlencoded` (`extended: true`) — inside `app.init()`, i.e. after everything `main.ts` registers and before the NestJS middleware chain. GraphQL has no parser of its own: Apollo reads the body the global JSON parser produced, so one limit governs REST and GraphQL.
+
+Both use body-parser's default limit of **100 kB** unless `bodyParser` says otherwise (since 11.42.4):
+
+```typescript
+// config.env.ts — documents carry HTML: allow 2 MB of JSON, keep form posts at the default
+bodyParser: { json: { limit: '2mb' } },
+```
+
+`CoreBodyParserInitializer` applies it during module init by replacing the handle of the global parser layers NestJS created — in place, because NestJS registers them before any init hook runs and a parser appended later would sit behind the routes. Running during module init is what makes the limit hold under `Test.createTestingModule()`, which never runs `main.ts`. A path-scoped parser (`server.use('/upload', json({ limit }))` in `main.ts`) runs before the global one and is left untouched — that remains the way to give one path a different limit.
+
+The parser runs **before authentication and routing**. Over the limit, the whole request is refused:
+
+```json
+{ "statusCode": 413, "message": "#LTNS_0304: Request body too large [137270 bytes, limit 102400 bytes]", "error": "Payload Too Large" }
+```
+
+and the server logs a warning with method, path (query string stripped) and the config key to raise. Other parser errors (malformed JSON → 400) pass through unchanged. The default is deliberately not raised for everybody: `JSON.parse` is synchronous, and a larger pre-auth limit is a larger pre-auth event-loop block for every route, including unauthenticated ones.
 
 ### NestJS Middleware Chain (CoreModule)
 

@@ -102,4 +102,14 @@ Shipped doc drift: the 2026-10-01 items (swagger js-yaml pin, platform-express m
 fixed in 11.41.6. `docs/security-overrides.md` line ~21 now reads "11.2.6 ... pins `2.4.0`, and so
 does 11.2.7, declared since 11.41.7" (fixed). Check that line whenever `@nestjs/platform-express` moves.
 
+## Status 2026-10-06 (11.42.4 run, 19 entries)
+
+New entry from the release work (not this run): `'@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'`,
+LOAD-BEARING (@nestjs/graphql 13.4.5 exact-pins 12.0.0, GHSA-7mx3-vvmw-hjmv). It deliberately TRAILS
+12.0.3 (Node >=22.15 via @whatwg-node/promise-helpers 2) — the target check flags it every run; that is
+expected until `engines.node` reaches 22.15. Raised: hono 4.13.12 -> 4.13.13 (FOURTH run in a row —
+standing item). `ws` still trails 8.22.0 (lockstep). Two fresh resolves after the raise: WITH vs
+WITHOUT differs only in @graphql-tools/utils (12.0.0 returns), js-yaml 5.x (5.3.0 returns) and the
+minimatch design. In cooldown on 2026-10-06, raise next run: js-yaml 5.4.3, nanoid 3.3.20, postcss 8.5.29.
+
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

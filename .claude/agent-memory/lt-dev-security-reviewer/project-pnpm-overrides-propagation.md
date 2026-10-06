@@ -27,6 +27,12 @@ bulk-advisory endpoint). Same shape as `ws`, same consequence: every consumer sh
 **pattern, not an accident** — when a new prod override appears, check `node -p "require('./node_modules/<parent>/package.json').dependencies['<pkg>']"`
 for an exact pin, because that is the class that cannot self-heal.
 
+**Third confirmed case (2026-10-06, 11.42.4 review):** `@nestjs/graphql@13.4.5` (newest 13.x) declares
+`"@graphql-tools/utils": "12.0.0"` exact — GHSA-7mx3-vvmw-hjmv (high, prototype pollution in `mergeDeep`,
+patched 12.0.1). Override `'@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'` added AND documented in
+`docs/security-overrides.md` in the same change (verified). Target deliberately 12.0.1, not 12.0.3: 12.0.2+
+needs Node >=22.15. Same release: proxy-addr 2.0.8 (GHSA-jqcg-44mw-7w3h) needs no override (express `^2.0.7`).
+
 **`docs/security-overrides.md` is the consumer-facing contract** and IS shipped (`docs/**` is in the
 npm `files` array). It currently lists only `ws` + `@hono/node-server`. **Any new override on a PROD
 path must be added there in the same change** — otherwise the framework's audit goes green while

@@ -1860,6 +1860,50 @@
         "tests/unit/legacy-jwt-verify.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "body-parser-initializer-unregistered",
+      "defect": "11.42.4 — body-parser's 100 kB default was the only limit in force and nobody had chosen it: a request over it got a bare 'request entity too large' before auth and routing, GraphQL included, with nothing logged that named a setting to change. CoreBodyParserInitializer answers with LTNS_0304 and applies bodyParser.*.limit; without its CoreModule registration no project gets either.",
+      "file": "src/core.module.ts",
+      "find": "      CoreBodyParserInitializer,\n",
+      "replace": "",
+      "specs": [
+        "tests/body-parser.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "body-parser-config-ignored",
+      "defect": "11.42.4 — a JSON body limit could only be raised in main.ts (useBodyParser), which Test.createTestingModule() never runs, so the e2e suite kept the 100 kB default whatever the project configured. A configured bodyParser.*.limit that does not reach the parser NestJS registered reproduces exactly that.",
+      "file": "src/core/common/services/core-body-parser.initializer.ts",
+      "find": "      const limit = this.resolveLimit(type, config?.[type]?.limit);",
+      "replace": "      const limit = undefined as number | undefined;",
+      "specs": [
+        "tests/unit/body-parser.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "body-parser-rawbody-dropped",
+      "defect": "11.42.4 — replacing NestJS's parser with a configured one must keep req.rawBody for an app created with rawBody: true; dropping it fails every webhook signature check once a limit is configured, with nothing at boot to say why.",
+      "file": "src/core/common/services/core-body-parser.initializer.ts",
+      "find": "    return container?.contextOptions?.rawBody === true;",
+      "replace": "    return false;",
+      "specs": [
+        "tests/unit/body-parser.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "body-parser-invalid-limit-passed-through",
+      "defect": "11.42.4 — a configured limit that is not a positive size must be refused, not handed to body-parser: a negative or zero limit rejects every body, and a word throws at boot. The parser runs before authentication, so a typo must leave the default in place rather than change the limit.",
+      "file": "src/core/common/services/core-body-parser.initializer.ts",
+      "find": "    const limit = parseBodyLimit(value);",
+      "replace": "    const limit = value as number;",
+      "specs": [
+        "tests/unit/body-parser.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

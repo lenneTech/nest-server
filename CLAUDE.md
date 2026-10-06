@@ -505,8 +505,9 @@ lt dev doctor    # Diagnose Caddy/CA/DNS/port issues
 **Active URLs for THIS project:**
 
 - API: `https://api.nest-server.localhost`
+- The `*.localhost` names are resolved by BROWSERS. Node, `curl` and other tools may not resolve them (they do not on Windows), so a script uses the loopback address: `LT_DEV_API_INTERNAL_URL` (set in the processes and in `.lt-dev/.env`), or the `→ 127.0.0.1:<port>` that `lt dev status` prints. The port differs per machine, which is why it is not written here.
 - DB: `mongodb://127.0.0.1/nest-server-local`
 
-Env vars set automatically by `lt dev up`: `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Never assume `localhost:3000` / `localhost:3001` for this project** — those are the framework defaults, not the active URLs.
+Env vars set automatically by `lt dev up`: `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Never assume `localhost:3000` / `localhost:3001` for this project** — those are the framework defaults, not the active URLs.
 
 <!-- lt-dev:url-block:end -->

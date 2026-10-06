@@ -47,10 +47,12 @@ oversight. Only take one if the run's explicit purpose is that migration.
 | `dotenv` | 17.4.2 | 18.0.5 | Runtime dependency major. |
 | `undici` | 7.30.0 | 8.11.2 | Runtime dependency major (direct since 11.42.0 for `outboundFetch()`; its agent must match the undici the helper's own `fetch` comes from). Also the override target `undici@>=7.0.0 <7.30.0` stays in 7.x. |
 | `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.3.0 | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (still the newest 13.x on 2026-10-03). Bumping alone puts a second copy into every consumer tree. The `ws` override target stays with them (two fresh resolves: identical with/without, so it holds nothing back). |
-| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.4 (taken 2026-10-04) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. There is no 7.6.x patch beyond 7.6.0 (only nightlies). |
+| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.4 (taken 2026-10-04) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. There is no 7.6.x patch beyond 7.6.0 (only nightlies). **mongoose 9.11.0 declares `~7.7`** — published 2026-10-05 16:49 UTC, in cooldown on 2026-10-06; take mongoose 9.11.0 + mongodb 7.7.0 TOGETHER next run (a minor of a runtime dep: read its changelog first). |
+| `ejs` | 6.0.1 | 7.0.1 (2026-10-04) | Runtime major. Breaking: options-in-data (Express-2 compat) REMOVED, CLI argument parser reworked, browser bundle via conditional exports. Removing options-in-data is a hardening; check how `TemplateService` calls `renderFile` before taking it, in its own change. |
+| `@graphql-tools/schema` / `merge` refresh | 10.1.0 / 9.2.3 (sticky) | 10.1.3 / 9.2.6 | NOT a major, but held by the 11.42.4 release decision: the new releases request `@graphql-tools/utils ^12.0.3` -> `@whatwg-node/promise-helpers` 2 (Node >=22.15) while `engines.node` is `>= 22.12`. `@apollo/server` requests schema `^10.0.0`, so a FRESH resolve takes them anyway; do not run `pnpm update --depth Infinity` on them until engines moves. |
 | `typescript` | 5.9.3 | 7.0.2 | Skips "6". Ecosystem readiness across NestJS + ts-morph + oxlint unproven. |
-| `pnpm` (`packageManager`) | 11.13.1 | 11.28.3 / 12.8.1 | **Never bump from a maintenance run.** Single source of truth with its own contract test (`tests/unit/pnpm-pin-contract.spec.ts`). Bump via `pnpm self-update` deliberately. |
-| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.7 (peer `>=1.7.7 <1.8.0`) | 1.7.7 is `latest` (2026-10-04); no 1.8 yet | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
+| `pnpm` (`packageManager`) | 11.13.1 | 12.9.1 (2026-10-06) | **Never bump from a maintenance run.** Single source of truth with its own contract test (`tests/unit/pnpm-pin-contract.spec.ts`). Bump via `pnpm self-update` deliberately. |
+| `better-auth` + `@better-auth/core` + `@better-auth/passkey` | 1.7.7 (peer `>=1.7.7 <1.8.0`) | 1.7.7 is still `latest` (2026-10-06); no 1.8 yet | Wire-critical, move in LOCK-STEP across nest-server, nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). Coordinator instruction: never change their peer ranges or devDep versions in a maintenance run — report only. |
 
 Taken since the previous version of this note (no longer deferred): better-auth 1.7 migration,
 `@getbrevo/brevo` 6.x, `ts-morph` 28, `@compodoc/compodoc` 2.0.0, `ejs` 6, `@types/node` 26,
@@ -64,5 +66,9 @@ redirects same-origin only — the framework never builds a client transport, so
 do are affected), mongoose 9.10.3 -> 9.10.4, supertest 7.3.0 -> 7.3.1, AWS trio 3.1145.0 -> 3.1146.0.
 No code change. In cooldown at run time: nodemailer 10.0.14 (mature 2026-10-04 13:45 UTC),
 smtp-server 3.19.17 (2026-10-04 20:02 UTC) — take them next run.
+
+11.42.4 run (2026-10-06): nodemailer 10.0.13 -> 10.0.14 (address-parser + DKIM linear-time fixes, no
+breaking change), smtp-server 3.19.16 -> 3.19.17 (devDep). No code change. In cooldown: nodemailer
+10.0.15 (mature 2026-10-06 10:10 UTC), mongoose 9.11.0 (16:49 UTC).
 
 Related: [[nest-server-override-status]], [[nest-server-maintenance-gotchas]]

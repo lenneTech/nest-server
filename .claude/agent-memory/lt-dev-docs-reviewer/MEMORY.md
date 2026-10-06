@@ -18,4 +18,5 @@
 - [Audit suppressions have no rule-doc home](audit-suppression-has-no-rule-doc-home.md) — RESOLVED 2026-09-03 (rule section + check:overrides pointer added); kept because one script enforces the policy and the rule file goes stale silently when it changes
 - [Tenant API tokens outlive their tenant](api-token-tenant-token-lifetime.md) — no tenant-existence check; only deleteAllForTenant ends them; "access ends when owner disappears" is USER-only
 - [Executable doc recipes](executable-doc-recipes.md) — dotnet 8 SDK at ~/.dotnet/dotnet runs README C# snippets; no pwsh on this machine
+- [Override recipes vs consumer lockfiles](override-recipe-vs-consumer-lockfiles.md) — check a guide's override key against REAL consumer lockfiles (turbo etc.) + a scratchpad `pnpm audit`; older lines escape it
 - [Optional-peer vendor delivery](optional-peer-vendor-delivery.md) — new lazy-imported peers reach vendor projects via the CLI closure scan + the guide, NOT vendor-runtime-deps.json

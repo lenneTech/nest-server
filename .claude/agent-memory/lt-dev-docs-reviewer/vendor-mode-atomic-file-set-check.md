@@ -13,4 +13,6 @@ Vendor-mode consumers copy `src/core/` into their tree and sync via the `lt-dev:
 - **core helpers:** `id.helper.ts` (new) + `clone.helper.ts` (new) + `db.helper.ts` + `input.helper.ts` + `restricted.decorator.ts` + `config.service.ts` — `db.helper.ts` now does `export { equalIds, … } from './id.helper'`, so taking db.helper without id.helper breaks the build. Identical hazard to the one the guide *did* warn about.
 - **filter inputs:** `filter.input.ts` + `combined-filter.input.ts` (the latter is now a re-export shim).
 
+**House practice since 11.42.x (checked 2026-10-06):** patch guides say only "Vendor-mode projects pick up the core update" and enumerate no file sets (11.42.1/.2/.3/.4), and the updater takes the whole delta. Under a strict Critical/High reporting bar, an un-enumerated set whose partial sync fails LOUDLY at tsc is not reportable on its own; reserve it for a set whose partial sync breaks SILENTLY.
+
 Two independent count/coverage errors in one guide's vendor section — treat this section as high-suspicion by default. Related: [[migration-guide-behavior-change-count-trap]], [[patch-release-migration-guide-convention]].

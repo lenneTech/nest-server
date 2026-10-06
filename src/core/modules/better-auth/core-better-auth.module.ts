@@ -227,6 +227,27 @@ function normalizeBetterAuthConfig(config: boolean | IBetterAuth | undefined): I
 }
 
 /**
+ * The secret Better-Auth actually signs with, for the NestJS layer (controller cookie helper,
+ * API middleware, CoreBetterAuthService) to sign its cookies with the same value.
+ *
+ * `createBetterAuthInstance` resolves it as `betterAuth.secret` → first fallback of at least 32
+ * characters → auto-generated. Only the instance knows the generated one; without it the cookie
+ * went out unsigned and every native Better-Auth endpoint (`/iam/token`, MCP authorize, passkey,
+ * 2FA) rejected the session with 401.
+ */
+function resolveSigningSecret(
+  authInstance: BetterAuthInstance | null,
+  config: IBetterAuth,
+  fallbackSecrets?: (string | undefined)[],
+): string | undefined {
+  return (
+    (authInstance as null | { options?: { secret?: string } })?.options?.secret ||
+    config.secret ||
+    fallbackSecrets?.find((s) => s && s.length >= 32)
+  );
+}
+
+/**
  * CoreBetterAuthModule provides integration with the better-auth authentication framework.
  *
  * This module:
@@ -698,8 +719,8 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             // Store a config copy with the resolved secret so that consumers
             // (CoreBetterAuthService, CoreBetterAuthController) can sign cookies.
             // The original config object may be frozen (from ConfigService), so we
-            // create a shallow copy with the resolved fallback secret applied.
-            const resolvedSecret = config.secret || fallbackSecrets?.find((s) => s && s.length >= 32);
+            // create a shallow copy with the resolved (fallback or generated) secret applied.
+            const resolvedSecret = resolveSigningSecret(this.authInstance, config, fallbackSecrets);
             this.currentConfig =
               resolvedSecret && resolvedSecret !== config.secret ? { ...config, secret: resolvedSecret } : config;
 
@@ -1068,8 +1089,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             this.resolvedCookieDomain = result?.cookieDomain;
 
             // Store a config copy with the resolved secret (same as first forRoot variant)
-            const fallbacks = options?.fallbackSecrets;
-            const resolvedSecret2 = config.secret || fallbacks?.find((s) => s && s.length >= 32);
+            const resolvedSecret2 = resolveSigningSecret(this.authInstance, config, options?.fallbackSecrets);
             this.currentConfig =
               resolvedSecret2 && resolvedSecret2 !== config.secret ? { ...config, secret: resolvedSecret2 } : config;
 
