@@ -170,4 +170,27 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   test-infra edits (`tests/e2e-run-slots.ts`, `global-setup.ts`, …) and was green anyway (unit 338 + 1
   skipped, e2e 119). If it goes red, check the starter's `git status` before blaming the tarball.
 
+**16. Starter run for framework 11.42.8 (2026-10-07) — what was non-obvious:**
+- **A foreign file can stop `check --no-fix` at `format`, and then lint/tests/build never run.**
+  Another session's uncommitted `tests/unit/db-lifecycle-guard.spec.ts` failed `oxfmt --check` (two
+  over-long `for (const name of [...])` literals); HEAD's copy is clean under the same oxfmt 0.71.0.
+  Proof without touching the file: copy HEAD's and the working-tree version plus `.oxfmtrc.jsonc` /
+  `.editorconfig` into scratch, `--check` both, then format the scratch copy and diff it. To still
+  verify the bumps, run the TAIL of `check:raw` from the failing step on (lint, typecheck:tests,
+  test, build, check:prod-scripts, check:server-start). It was green (unit 338 + 1 skipped / 18
+  files, e2e 119 / 12 files); only `format` was red, which goes to the orchestrator, not fixed here.
+  Note item 15's green `check:consumer --fast` never runs the starter's format step, so it could
+  not have seen this.
+- **`(supports-color@5.5.0)` annotations flip-flop between installs.** The orchestrator's lock-step
+  bump had stripped ~8 of them; the plain `pnpm install` after the override raises put them back to
+  exactly HEAD's form, and `pnpm dedupe` would strip them again with zero version change. Judge
+  against HEAD (item 11) and skip such a dedupe — it is churn, not a fix.
+- vite `<8.3.3` -> 8.3.3 and js-yaml 5.x `<5.4.3` -> 5.4.3 raised; both moved on a plain install
+  (lock delta vs HEAD = nest-server + vite + js-yaml versions only). After the raise vite is
+  IDENTICAL with and without the block — the entry no longer holds anything back. WITH vs WITHOUT
+  otherwise unchanged (graphql-tools 12.0.0, js-yaml 5.3.0, ajv 8.18, minimatch 9 + brace-expansion
+  2.1.7, uuid 14.0.1 return). `arch` vs `system-architecture` is still ordinary drift, no sticky peer.
+- Still pending in the starter: nothing of its own. mongo pair, ws/graphql-ws, @graphql-tools/utils,
+  oxfmt 0.72 — all follow the framework.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

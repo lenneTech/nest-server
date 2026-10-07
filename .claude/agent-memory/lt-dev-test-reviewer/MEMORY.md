@@ -13,3 +13,5 @@
 - [Lockfile Graph Guard Facts](lockfile-graph-guard-facts.md) — v9 direct/workspace deps sit under importers: (not snapshots:), edge lines end at the colon; probe root + workspace importer shapes.
 - [Cross-Repo Probe Gotchas](cross-repo-probe-gotchas.md) — zsh MULTIOS leak; zsh never word-splits $VAR (vitest "no files" exit 1 fakes a red mutation); node:24 docker = CI mawk; hook stdin.
 - [multiTenancy OFF Is the Default Path](multitenancy-off-is-the-default-path.md) — base repos set no multiTenancy; specs asserting only the ON fixture leave the consumer path open (swagger isPublic mutation survived).
+- [Better-Auth Middleware Path-Guard Facts](better-auth-middleware-path-guard-facts.md) — prefix guards on `originalUrl` are dot-segment bypassable (`new URL()` resolves `/./`, `../` reaches the controller catch-all); 11.42.9 replaced the guard with `SERVER_ONLY`.
+- [TUS protocol/config facts](tus-protocol-config-facts.md) — @tus/server ignores creation/termination flags; resume uses last path segment; forRoot() moves class PATH_METADATA; unit isolation is a vitest default.

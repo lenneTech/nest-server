@@ -14,6 +14,13 @@ Measured 2026-10-04 on Node 24.12.0 with Express + compression + @tus/server 2.4
 - 200 client-aborted PATCHes: every `handle()` settled, every `res` GC'd, in both modes.
 - `res.end(cb)` AFTER `res` already emitted `close`: the callback never fires — in native Node too, so the wrapper is parity, not a regression. Its comment ("a dropped connection cannot leave srvx waiting") only holds for a drop AFTER `end()`.
 
+**11.42.9 hook additions (measured 2026-10-07):** `@tus/server` 2.4.5 calls `onIncomingRequest` once
+per HEAD/GET/PATCH/DELETE/POST REQUEST (PatchHandler: before `getConfiguredMaxSize`/lock/`getUpload`),
+never per body chunk. The added `assertExtensionEnabled()` (Set build + content-type read via srvx
+`NodeRequest.headers.get`) costs ~150 ns per request; `uploadCollectionPath()` (`new URL`) ~550 ns once
+per creation. A FileStore `getUpload` (stat + JSON read) is ~120 us on the same box, so hook work
+below ~1 us per request is <1% of the PATCH fixed cost before any body bytes move.
+
 **Why:** re-reviews of tus changes should not re-derive this; flag only if the wrapper starts touching `write`/the request stream.
 
 **How to apply — bench harness traps:**
