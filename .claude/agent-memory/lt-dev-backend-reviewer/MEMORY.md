@@ -14,4 +14,5 @@
 - [TUS res.end(cb) normalization (11.42.2)](project_tus-end-callback.md) — measured native vs wrapped end(cb) edge cases; destroyed-before-end hang is pre-existing, do not re-flag.
 - [Body-parser initializer (11.42.4)](project_body-parser-initializer.md) — layer swap verified (options, slash flag, rawBody caveat); also Better-Auth signing-secret source.
 - [check-overrides unusableFixConsumers](project_check-overrides-unusable-fix.md) — 2nd-consumer check ignores importers (High, 2026-10-06); v9 lists peers under dependencies (fail-closed).
-- [setupSwagger helper (11.42.7)](project_swagger-helper.md) — guard model verified; token-view X-Tenant-Id gap and multi-path operationIds fixed before release; search ops + /iam pass-through fixed in 11.42.8.
+- [setupSwagger helper (11.42.7-9)](project_swagger-helper.md) — guard model + BA openAPI rules verified; relocation fixed in round 2; admin()/organization() routes documented public (reported).
+- [TUS path/config (11.42.9)](project_tus-path-config.md) — tus key read, applyPath + Location verified by probe; prefix-including `path` workaround now doubles (reported).

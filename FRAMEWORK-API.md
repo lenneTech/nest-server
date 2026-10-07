@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-06 (v11.42.8)
+> Auto-generated from source code as of 2026-10-07 (v11.42.9)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -204,7 +204,8 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `enabled?`: `boolean | undefined` (default: `true (enabled by default)`) — Whether tus uploads are enabled.
   - `expiration?`: `boolean | ITusExpirationConfig | undefined` (default: `{ expiresIn: '24h' }`) — Expiration extension configuration.
   - `maxSize?`: `number | undefined` (default: `50 * 1024 * 1024 * 1024 (50 GB)`) — Maximum upload size in bytes
-  - `path?`: `string | undefined` (default: `'/tus'`) — Base path for tus endpoints
+  - `path?`: `string | undefined` (default: `'/tus'`) — Base path for tus endpoints (11.42.9+):
+  - `relativeLocation?`: `boolean | undefined` (default: `false`) — Hand out upload URLs (`Location`) without scheme and host — `/tus/<id>` instead of
   - `roles?`: `string[] | undefined` (default: `['s_user']`) — Roles allowed to use the tus endpoints (create, write, read offset, terminate).
   - `s3Staging?`: `boolean | undefined` (default: `true (when S3 is usable)`) — Stage upload chunks in the configured S3 bucket (`IServerOptions.s3`,
   - `termination?`: `boolean | undefined` (default: `true`) — Termination extension configuration.

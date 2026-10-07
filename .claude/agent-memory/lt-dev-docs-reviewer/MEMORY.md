@@ -17,7 +17,7 @@
 - [config.env.ts is consumer-owned](config-env-is-consumer-owned.md) — a fix landing in src/config.env.ts is NOT delivered by `pnpm update`; a guide claiming "it now just works" is inaccurate
 - [Audit suppressions have no rule-doc home](audit-suppression-has-no-rule-doc-home.md) — RESOLVED 2026-09-03; kept because one script enforces it. 2026-10-06: unusableFixConsumers grammar + pnpm-tolerance verified
 - [Tenant API tokens outlive their tenant](api-token-tenant-token-lifetime.md) — no tenant-existence check; only deleteAllForTenant ends them; "access ends when owner disappears" is USER-only
-- [Executable doc recipes](executable-doc-recipes.md) — dotnet 8 SDK at ~/.dotnet/dotnet runs README C# snippets; no pwsh on this machine
+- [Executable doc recipes](executable-doc-recipes.md) — dotnet 8 SDK runs README C# snippets; no pwsh; run the real Better-Auth OpenAPI generator via a root .mjs
 - [Override recipes vs consumer lockfiles](override-recipe-vs-consumer-lockfiles.md) — check a guide's override key against REAL consumer lockfiles (turbo etc.) + a scratchpad `pnpm audit`; older lines escape it
 - [Optional-peer vendor delivery](optional-peer-vendor-delivery.md) — new lazy-imported peers reach vendor projects via the CLI closure scan + the guide, NOT vendor-runtime-deps.json
 - [Starter config.env.ts has two bases](starter-config-env-two-bases.md) — localConfig (local/e2e/ci) vs deployedConfig share nothing; an example in one never reaches the other pipeline
@@ -26,3 +26,4 @@
 - [Internal project names in templates](internal-project-names-in-templates.md) — offers / lt-crm / TurboOps are lenne.Tech-internal; not customer names in template-shipped files
 - [pnpm 11 registry env + old-script replay](pnpm11-registry-env-and-old-script-replay.md) — 11.13.1 ignores npm_config_registry, honours pnpm_config_registry; replay a pre-fix ROOT-relative script via a symlinked scratch root
 - [Override+patch exit conditions](paired-override-patch-exit-conditions.md) — patch and override expire separately; recipe to reproduce pnpm ENOENT / ERR_PNPM_UNUSED_PATCH
+- [Vendor local-patch collision check](vendor-local-patch-collision-check.md) — grep vendor consumers' VENDOR.md patch tables for touched core files; a clean merge can neutralize a patch silently

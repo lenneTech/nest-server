@@ -20,6 +20,7 @@ import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
 import { CoreBetterAuthModule } from '../../src/core/modules/better-auth/core-better-auth.module';
 import { ErrorCodeModule } from '../../src/core/modules/error-code/error-code.module';
+import { CoreHealthCheckModule } from '../../src/core/modules/health-check/core-health-check.module';
 
 // Mock AuthModule for testing
 const MockAuthModule = {
@@ -794,5 +795,27 @@ describe('CoreModule.forRoot() Signatures', () => {
         expect(errorCodeImport?.controllers?.[0]).not.toBe(MockErrorCodeController);
       });
     });
+  });
+});
+
+describe('CoreModule.forRoot() health check registration', () => {
+  const healthCheckImported = (config: Partial<IServerOptions>) =>
+    (CoreModule.forRoot(config).imports || []).includes(CoreHealthCheckModule);
+
+  /**
+   * @regression   11.42.9 — `healthCheck.enabled: false` was declared in IServerOptions and ignored:
+   *   any `healthCheck` object registered GET /health-check and the `healthCheck` query, so a
+   *   deployment that switched them off still served them.
+   * @seen-failing Drop the `enabled !== false` condition in CoreModule.forRoot() (src/core.module.ts) —
+   *   registered as mutation `health-check-enabled-ignored` in tests/regression-mutations.json.
+   */
+  it('leaves the endpoints out when healthCheck.enabled is false', () => {
+    expect(healthCheckImported({ ...baseConfig, healthCheck: { enabled: false } })).toBe(false);
+  });
+
+  it('registers the endpoints when the block is present, and not without it', () => {
+    expect(healthCheckImported({ ...baseConfig, healthCheck: {} })).toBe(true);
+    expect(healthCheckImported({ ...baseConfig, healthCheck: { enabled: true } })).toBe(true);
+    expect(healthCheckImported({ ...baseConfig })).toBe(false);
   });
 });

@@ -45,3 +45,35 @@ documented public (no such route exists); legacy `/auth/refresh-token` documente
 refresh token, Swagger cannot send it anyway); "allowed with scope" on ADMIN-only or manager-only
 routes that tenant tokens / role-stripped user tokens cannot pass (the line states the scope
 condition, roles apply as for sessions). Related: [[project_api-token-module]].
+
+**11.42.9 (reviewed 2026-10-07, uncommitted):** Better-Auth's own routes come from its `openAPI()`
+generator (plugin registered internally, its endpoints marked `SERVER_ONLY` by `serverOnlyPlugin()` so
+better-call never routes them — the first version's middleware/controller path check was dot-segment
+bypassable, see the security reviewer's path-deny note), availability rules in `core-better-auth-openapi.helper.ts` read the LIVE instance
+(`await auth.$context`). Verified sound against better-auth 1.7.7 dist, don't re-derive: every row of
+`unavailableBetterAuthOperations()` (incl. two-factor plugin exposing `options`, `getFields()` merging
+plugin session schemas, genericOAuth pushing into `ctx.socialProviders`), legacy `/auth/*` via
+`isLegacyEndpointEnabled`, Hub `HUB_AVAILABILITY` vs `CoreHubSourcesService`, better-call router
+refusing `/api/iam/*` (so "global prefix → BA routes unreachable" is TRUE), MCP SDK router paths.
+`verify-email` does not itself check `sendVerificationEmail` (only matters for change-email-only
+setups — dropped). Probe recipe: `scratchpad/probe.js` style (dist ServerModule, NODE_ENV=e2e) and a
+`.mjs` probe importing better-auth ESM + dist CJS with hand-applied `Reflect.decorate` for project
+controller shapes.
+
+**Reported (High, docs):** the `relocated` heuristic compares `declaredRoutePath()` (`:id`, `*path`
+raw) with the document path (`{id}`, `{path}`), so an IAM controller with ANY parametrized route — e.g.
+an override of `handlePluginRoutes` re-declaring `@All('*path')` without `@ApiExcludeEndpoint()`, the
+11.42.7-era shape the 11.42.8 guide calls cosmetic — drops all generated Better-Auth routes with a
+warning blaming a global prefix. Proven by probe. On a re-review, check it was fixed (prefix
+comparison or reading the app's global prefix/versioning instead of diffing full paths).
+
+**11.42.9 round 2 (2026-10-07):** relocation check now compares the controller BASE only — the
+param-route false positive is fixed; a prefix equal to the base (`iam`) would slip through but is not
+realistic. New `sessionGuardedOperations()` (security: [] unless a session middleware is in the
+endpoint's top-level `use`): identity vs `better-auth/api` HOLDS (better-auth 1.7.7 and
+@better-auth/passkey are ESM-only, dist CJS gets them via require(esm) = same instances; passkey imports
+from `better-auth/api`). **Reported (High):** project plugins with their own guard middleware —
+`admin()` (`adminMiddleware`, 12 routes) and `organization()` (`orgSessionMiddleware`, which nests
+`sessionMiddleware` in its own `options.use`) — are documented `security: []`; proven with a probe
+(`scratchpad/baprobe/probe2.mjs` style: dist service prototype + ESM better-auth). On re-review check
+that unknown middlewares / project-plugin endpoints keep the global requirement.

@@ -50,6 +50,7 @@ export const DEFAULT_TUS_CONFIG: Required<
   expiration: { enabled: true, expiresIn: '24h' },
   maxSize: 50 * 1024 * 1024 * 1024, // 50 GB
   path: '/tus',
+  relativeLocation: false,
   // A tus upload writes into the SAME file store that `file.downloadRoles`
   // guards — GridFS or S3, whichever `file.storage` selects — and with the
   // termination extension it can delete from it too. Requiring a session is the

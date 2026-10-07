@@ -693,6 +693,13 @@ import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
 await mountAiMcpOAuth(app);
 ```
 
+**Swagger (11.42.9):** `setupSwagger()` documents `/ai/mcp` (POST/GET/DELETE, with the bearer
+requirement the endpoint enforces itself) whenever the MCP server is registered, and — because the
+OAuth endpoints are an Express router, invisible to `@nestjs/swagger` — exactly the OAuth endpoints
+`mountAiMcpOAuth()` mounted (`/.well-known/oauth-authorization-server`,
+`/.well-known/oauth-protected-resource/ai/mcp`, `/authorize`, `/token`, `/register`; `/revoke` only for a
+provider with `revokeToken`). Without the call they are not documented, because they do not exist.
+
 The issuer — and with it every endpoint URL in the discovery metadata, which MCP clients follow —
 is the server's `baseUrl` (`NSC__BASE_URL` when deployed), resolved the same way BetterAuth and
 CORS resolve it. `local` / `ci` / `e2e` fall back to `http://localhost:3000`; any other environment

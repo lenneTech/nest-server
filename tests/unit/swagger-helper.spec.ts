@@ -1,6 +1,9 @@
 import { All, Controller, Get, Module, Post } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ApiOkResponse, ApiProperty } from '@nestjs/swagger';
+import { betterAuth } from 'better-auth';
+import { memoryAdapter } from 'better-auth/adapters/memory';
+import { openAPI, twoFactor } from 'better-auth/plugins';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -15,11 +18,13 @@ import {
 } from '../../src/core/common/helpers/swagger.helper';
 import { ApiTokenScopes } from '../../src/core/modules/api-token/core-api-token.decorators';
 import { CoreBetterAuthController } from '../../src/core/modules/better-auth/core-better-auth.controller';
+import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
 import { SkipTenantCheck } from '../../src/core/modules/tenant/core-tenant.decorators';
 
 import type { INestApplication } from '@nestjs/common';
 import type { OpenAPIObject, OperationObject } from '@nestjs/swagger';
 import type { IServerOptions } from '../../src/core/common/interfaces/server-options.interface';
+import type { IBetterAuthOpenApiDocument } from '../../src/core/modules/better-auth/core-better-auth-openapi.helper';
 
 /**
  * The helper exists so the Swagger document cannot drift from what the guards enforce. These tests
@@ -97,6 +102,17 @@ class RelayController {
 
 @Module({ controllers: [RelayController] })
 class RelayTestModule {}
+
+// A project's Better-Auth controller that overrides sign-up. An override starts without the parent's
+// metadata, so the route is re-declared.
+@Controller('iam')
+class ProjectBetterAuthController extends CoreBetterAuthController {
+  @Post('sign-up/email')
+  @Roles(RoleEnum.S_EVERYONE)
+  override async signUp(...args: Parameters<CoreBetterAuthController['signUp']>) {
+    return super.signUp(...args);
+  }
+}
 
 const fullConfig: Partial<IServerOptions> = {
   apiTokens: { scopes: ['read', 'write'] },
@@ -352,28 +368,175 @@ describe('Swagger helper', () => {
   });
 
   describe('framework routes', () => {
-    it('keeps the Better-Auth pass-through (`@All` under /iam) out of the document', async () => {
-      // Every collaborator is replaced by a stub: only the controller's routes and metadata matter here.
-      const stub = new Proxy(
-        {},
-        {
-          get: (_target, prop) =>
-            prop === 'then' || typeof prop === 'symbol' ? undefined : prop === 'getBasePath' ? () => '/iam' : () => undefined,
-        },
-      );
-      const moduleRef = await Test.createTestingModule({ controllers: [CoreBetterAuthController] })
-        .useMocker(() => stub)
+    /**
+     * The document of an app that registers only a Better-Auth controller. Every collaborator is a stub;
+     * `schema` is what `CoreBetterAuthService.getOpenApiSchema()` returns — Better-Auth's own description
+     * of the routes it serves itself.
+     */
+    async function iamDocument(
+      controller: typeof CoreBetterAuthController,
+      config: Partial<IServerOptions>,
+      schema?: IBetterAuthOpenApiDocument,
+      swaggerOptions: Partial<typeof options> & Record<string, unknown> = {},
+    ): Promise<OpenAPIObject> {
+      const stub = (overrides: Record<string, unknown> = {}) =>
+        new Proxy(
+          {},
+          {
+            get: (_target, prop) =>
+              prop === 'then' || typeof prop === 'symbol'
+                ? undefined
+                : prop in overrides
+                  ? overrides[prop as string]
+                  : prop === 'getBasePath'
+                    ? () => '/iam'
+                    : () => undefined,
+          },
+        );
+      const moduleRef = await Test.createTestingModule({
+        controllers: [controller],
+        providers: [{ provide: CoreBetterAuthService, useValue: stub({ getOpenApiSchema: () => schema }) }],
+      })
+        .useMocker(() => stub())
         .compile();
       const iamApp = moduleRef.createNestApplication();
       await iamApp.init();
       try {
-        const document = buildSwaggerDocument(iamApp, options, { betterAuth: false });
-        const paths = Object.keys(document.paths);
-        expect(paths.some((path) => path.startsWith('/iam/'))).toBe(true);
-        expect(paths).not.toContain('/iam/{path}');
+        const document = buildSwaggerDocument(iamApp, { ...options, ...swaggerOptions }, config);
+        // Guards every case below against passing because the controller registered no route at all.
+        expect(Object.keys(document.paths)).toContain('/iam/session');
+        return document;
       } finally {
         await iamApp.close();
       }
+    }
+
+    const iamPaths = async (...args: Parameters<typeof iamDocument>) => Object.keys((await iamDocument(...args)).paths);
+
+    const signUpDisabled: Partial<IServerOptions> = { betterAuth: { emailAndPassword: { disableSignUp: true } } };
+
+    /** What Better-Auth itself generates for email/password plus two-factor — the real generator output. */
+    let betterAuthSchema: IBetterAuthOpenApiDocument;
+
+    beforeAll(async () => {
+      const auth = betterAuth({
+        basePath: '/iam',
+        baseURL: 'http://localhost:3000',
+        database: memoryAdapter({}),
+        emailAndPassword: { enabled: true },
+        logger: { disabled: true },
+        plugins: [twoFactor({ issuer: 'Swagger spec' }), openAPI({ disableDefaultReference: true })],
+        secret: 'swagger-helper-spec-secret-0f3a9c27b1d84e56a7c2',
+      });
+      betterAuthSchema = (await auth.api.generateOpenAPISchema()) as unknown as IBetterAuthOpenApiDocument;
+    });
+
+    it('keeps the Better-Auth pass-through (`@All` under /iam) out of the document', async () => {
+      expect(await iamPaths(CoreBetterAuthController, { betterAuth: false })).not.toContain('/iam/{path}');
+    });
+
+    it('documents sign-up while it is enabled', async () => {
+      expect(await iamPaths(CoreBetterAuthController, {})).toContain('/iam/sign-up/email');
+      expect(
+        await iamPaths(CoreBetterAuthController, { betterAuth: { emailAndPassword: { disableSignUp: false } } }),
+      ).toContain('/iam/sign-up/email');
+    });
+
+    it('leaves sign-up out when `emailAndPassword.disableSignUp` switches it off', async () => {
+      // The route answers 400 SIGNUP_DISABLED to every caller then: documented, it could never succeed.
+      expect(await iamPaths(CoreBetterAuthController, signUpDisabled)).not.toContain('/iam/sign-up/email');
+      expect(await iamPaths(CoreBetterAuthController, signUpDisabled, betterAuthSchema)).not.toContain(
+        '/iam/sign-up/email',
+      );
+    });
+
+    it('leaves sign-up out for a project controller that overrides it, too', async () => {
+      expect(await iamPaths(ProjectBetterAuthController, signUpDisabled)).not.toContain('/iam/sign-up/email');
+      expect(await iamPaths(ProjectBetterAuthController, {})).toContain('/iam/sign-up/email');
+    });
+
+    it('documents the routes Better-Auth serves itself, under the Better-Auth controller', async () => {
+      const document = await iamDocument(CoreBetterAuthController, {}, betterAuthSchema);
+      const paths = Object.keys(document.paths);
+      for (const path of ['/iam/two-factor/enable', '/iam/change-password', '/iam/get-session', '/iam/list-sessions']) {
+        expect(paths, path).toContain(path);
+      }
+      const enable = document.paths['/iam/two-factor/enable'].post as OperationObject;
+      expect(enable.tags).toEqual((document.paths['/iam/sign-in/email'].post as OperationObject).tags);
+      expect(enable.operationId).toMatch(/^CoreBetterAuthController_betterAuth_/);
+      // Better-Auth marks every route bearer-only, public ones included: the global requirement applies.
+      expect(enable.security).toBeUndefined();
+
+      const operationIds = Object.values(document.paths).flatMap((item) =>
+        Object.values(item as Record<string, OperationObject>).map((op) => op.operationId),
+      );
+      expect(new Set(operationIds).size).toBe(operationIds.length);
+      expect(paths.some((path) => path.startsWith('/iam/open-api'))).toBe(false);
+      expect(paths).not.toContain('/iam/{path}');
+    });
+
+    it('lets an explicit controller route win over the generated one', async () => {
+      const document = await iamDocument(CoreBetterAuthController, {}, betterAuthSchema);
+      expect((document.paths['/iam/sign-in/email'].post as OperationObject).operationId).toBe(
+        'CoreBetterAuthController_signIn',
+      );
+      expect((document.paths['/iam/sign-out'].post as OperationObject).operationId).toBe(
+        'CoreBetterAuthController_signOut',
+      );
+    });
+
+    it('leaves out what the configuration switches off', async () => {
+      const resetPaths = ['/iam/request-password-reset', '/iam/reset-password', '/iam/reset-password/{token}'];
+      const withReset = await iamPaths(CoreBetterAuthController, {}, betterAuthSchema);
+      resetPaths.forEach((path) => expect(withReset, path).toContain(path));
+
+      const withoutReset = await iamPaths(
+        CoreBetterAuthController,
+        { betterAuth: { emailAndPassword: { passwordReset: false } } },
+        betterAuthSchema,
+      );
+      resetPaths.forEach((path) => expect(withoutReset, path).not.toContain(path));
+
+      const withoutEmailAndPassword = await iamPaths(
+        CoreBetterAuthController,
+        { betterAuth: { emailAndPassword: { enabled: false } } },
+        betterAuthSchema,
+      );
+      for (const path of ['/iam/sign-in/email', '/iam/sign-up/email']) {
+        expect(withoutEmailAndPassword, path).not.toContain(path);
+      }
+      // Better-Auth checks `enabled` on sign-in and sign-up only: password change keeps working.
+      expect(withoutEmailAndPassword).toContain('/iam/change-password');
+      expect(withoutEmailAndPassword).toContain('/iam/two-factor/enable');
+    });
+
+    it("adds Better-Auth's schemas under their own names, converted to OpenAPI 3.0", async () => {
+      const document = await iamDocument(CoreBetterAuthController, {}, betterAuthSchema);
+      const json = JSON.stringify(document);
+      expect(json).toContain('#/components/schemas/BetterAuthUser');
+      expect(document.components?.schemas?.BetterAuthUser).toBeDefined();
+      expect(json).not.toContain('#/components/schemas/User"');
+      expect(json).not.toMatch(/"type":\[/);
+    });
+
+    it('hands generated routes to operationTags as routes of the project controller, closed to API tokens', async () => {
+      const document = await iamDocument(
+        ProjectBetterAuthController,
+        { apiTokens: { scopes: ['read'] } },
+        betterAuthSchema,
+        { operationTags: ({ controller }) => (controller === 'ProjectBetterAuthController' ? ['Sign-in'] : undefined) },
+      );
+      for (const [path, item] of Object.entries(document.paths).filter(([key]) => key.startsWith('/iam/'))) {
+        for (const [method, op] of Object.entries(item as Record<string, OperationObject>)) {
+          expect(op.tags, `${method} ${path}`).toEqual(['Sign-in']);
+        }
+      }
+      const changePassword = document.paths['/iam/change-password'].post as OperationObject;
+      expect(changePassword.operationId).toMatch(/^ProjectBetterAuthController_betterAuth_/);
+      expect(changePassword.description).toContain('**API tokens:** not allowed on this route.');
+      expect(Object.keys(buildApiTokenSwaggerDocument(document, {}, { apiTokens: { scopes: ['read'] } }).paths)).toEqual(
+        [],
+      );
     });
   });
 });

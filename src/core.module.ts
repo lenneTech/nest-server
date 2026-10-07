@@ -446,7 +446,8 @@ export class CoreModule implements NestModule {
       );
     }
 
-    if (config.healthCheck) {
+    // Presence implies enabled; `enabled: false` keeps the configured checks without the endpoints.
+    if (config.healthCheck && config.healthCheck.enabled !== false) {
       imports.push(CoreHealthCheckModule);
     }
 

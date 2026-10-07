@@ -23,6 +23,8 @@
 - [project-betterauth-ratelimit-not-presence-implies-enabled.md](project-betterauth-ratelimit-not-presence-implies-enabled.md) — **FIXED 11.36.1**; kept for the two-layer lesson (configure() AND the middleware mount) + the probe
 - [project-api-token-module-security-model.md](project-api-token-module-security-model.md) — API tokens: enforceApiTokenRoute per kind; tenant token passed S_SELF/S_CREATOR-only routes; what was verified sound
 - [project-swagger-helper-security-model.md](project-swagger-helper-security-model.md) — setupSwagger (11.42.7) is doc-only; token view can't widen exposure; metadata-array aliasing hazard to re-check
+- [project-betterauth-path-deny-normalization.md](project-betterauth-path-deny-normalization.md) — raw-path deny checks before Better-Auth's handler bypassable via `%2e`/`../`; SERVER_ONLY fix LANDED + verified 11.42.9; probe recipe
+- [project-tus-protocol-dispatch-facts.md](project-tus-protocol-dispatch-facts.md) — tus/srvx ignore X-HTTP-Method-Override, llhttp 400s lowercase methods; Location is requester-only, not persisted
 
 ## Review Methodology
 

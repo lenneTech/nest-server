@@ -6,10 +6,13 @@ import type { DocumentBuilder, SwaggerCustomOptions, SwaggerDocumentOptions } fr
  * @since 11.42.7
  */
 export interface ISwaggerOperationInfo {
-  /** Class name of the controller that serves the operation */
+  /**
+   * Class name of the controller that serves the operation. For a route Better-Auth serves itself, the
+   * project's Better-Auth controller (`BetterAuthController` / `CoreBetterAuthController`).
+   */
   controller: string;
 
-  /** Name of the handler method */
+  /** Name of the handler method; for a route Better-Auth serves itself, Better-Auth's operation id */
   handler: string;
 
   /** True when neither the role guard nor the tenant guard requires a sign-in */

@@ -2801,7 +2801,11 @@ export interface IServerOptions {
     };
 
     /**
-     * Whether health check is enabled
+     * Whether the health check endpoints are registered. The block's presence enables them; `false`
+     * leaves them out (GET /health-check and the `healthCheck` query answer 404 / are absent) while
+     * keeping the configured checks for later. Honoured since 11.42.9 — before, any `healthCheck`
+     * object registered the endpoints, `enabled: false` included.
+     * @default true (when `healthCheck` is set)
      */
     enabled?: boolean;
   };
@@ -3455,6 +3459,10 @@ export interface IServerOptions {
    * Follows the "Enabled by Default" pattern - tus is automatically enabled
    * without any configuration. Set `tus: false` to explicitly disable.
    *
+   * Read by `TusModule.forRoot()` when it gets no `config` of its own; an explicit `config` wins.
+   * Before 11.42.9 this key was never read — `tus: false`, `allowedTypes`, `maxSize` and `roles` here
+   * did nothing.
+   *
    * Accepts:
    * - `true` or `undefined`: Enable with defaults (enabled by default)
    * - `false`: Disable TUS uploads
@@ -3756,28 +3764,29 @@ export interface ITusConfig {
 
   /**
    * Checksum extension configuration.
-   * Enables data integrity verification.
+   * Has no effect with the built-in stores (file system, S3): neither supports the extension.
    * @default true
    */
   checksum?: boolean;
 
   /**
    * Concatenation extension configuration.
-   * Allows parallel uploads that are merged.
+   * Has no effect with the built-in stores (file system, S3): neither supports the extension.
    * @default true
    */
   concatenation?: boolean;
 
   /**
    * Creation extension configuration.
-   * Allows creating new uploads via POST.
+   * Allows creating new uploads via POST. `false`: POST answers 501 and OPTIONS no longer advertises it
+   * (enforced since 11.42.9 — `@tus/server` itself ignores the flag).
    * @default true
    */
   creation?: boolean | ITusCreationConfig;
 
   /**
    * Creation With Upload extension configuration.
-   * Allows sending data in the initial POST request.
+   * Allows sending data in the initial POST request. `false`: a POST carrying data answers 501 (11.42.9+).
    * @default true
    */
   creationWithUpload?: boolean;
@@ -3802,10 +3811,29 @@ export interface ITusConfig {
   maxSize?: number;
 
   /**
-   * Base path for tus endpoints
+   * Base path for tus endpoints (11.42.9+):
+   * - a new route (`'/uploads'`): the controller is mounted there — a project controller too, as with
+   *   `roles`. Like any controller route it sits BELOW a global prefix and a URI version.
+   * - a path ending with the controller's own route (`'/api/tus'` for `tus`): the URL the route is
+   *   publicly reachable under — a global prefix, or a proxy that strips a prefix. The controller stays
+   *   and upload URLs use this path. That is how `path` had to be set before 11.42.9, and it still works.
+   * - unset: follows the controller's own route.
+   *
+   * Otherwise the URL handed to a client for a new upload is built from the path the upload was created
+   * at, so it is correct below a global prefix or a URI version without any `path`.
    * @default '/tus'
    */
   path?: string;
+
+  /**
+   * Hand out upload URLs (`Location`) without scheme and host — `/tus/<id>` instead of
+   * `https://api.example.com/tus/<id>`. For a frontend that reaches TUS through a same-origin proxy:
+   * an absolute URL names the origin the API saw, which the browser cannot reach. A project passing
+   * @tus/server's own `relativeLocation` is honoured too.
+   * @default false
+   * @since 11.42.9
+   */
+  relativeLocation?: boolean;
 
   /**
    * Roles allowed to use the tus endpoints (create, write, read offset, terminate).
@@ -3849,7 +3877,8 @@ export interface ITusConfig {
 
   /**
    * Termination extension configuration.
-   * Allows deleting uploads via DELETE.
+   * Allows deleting uploads via DELETE. `false`: DELETE answers 501 and OPTIONS no longer advertises it
+   * (enforced since 11.42.9 — before, the flag was only logged).
    * @default true
    */
   termination?: boolean;
@@ -4071,6 +4100,8 @@ interface IBetterAuthBase {
      * Disable user registration (sign-up) via BetterAuth.
      * Passed through to better-auth's native emailAndPassword.disableSignUp.
      * Custom endpoints (GraphQL + REST) also check this flag early.
+     * The Swagger document built by `setupSwagger()` then leaves out `POST /iam/sign-up/email`,
+     * which would answer `SIGNUP_DISABLED` to every caller.
      * @default false
      */
     disableSignUp?: boolean;
@@ -4091,6 +4122,8 @@ interface IBetterAuthBase {
      * Set `false` to withhold the hook, which makes that route answer `RESET_PASSWORD_DISABLED`
      * again. For deployments whose reset policy is support-mediated or SSO-primary, and which
      * therefore do not want an unauthenticated, token-minting, mail-sending endpoint at all.
+     * The Swagger document built by `setupSwagger()` then leaves out `/iam/request-password-reset`,
+     * `/iam/reset-password` and `/iam/reset-password/{token}`.
      *
      * @default true
      * @since 11.36.1
@@ -4243,7 +4276,12 @@ interface IBetterAuthBase {
 
   /**
    * Additional Better-Auth plugins to include.
-   * These will be merged with the built-in plugins (jwt, twoFactor, passkey).
+   * These will be merged with the built-in plugins (jwt, twoFactor, passkey). Their routes appear in the
+   * Swagger document built by `setupSwagger()` automatically.
+   *
+   * Better-Auth's `openAPI()` plugin is registered internally (it feeds `setupSwagger()`), with its routes
+   * kept off the router. Add `openAPI()` here only if the project wants those routes public; it then
+   * replaces the internal registration.
    * @see https://www.better-auth.com/docs/plugins
    * @example
    * ```typescript
