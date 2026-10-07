@@ -1,6 +1,6 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, undici 8, pnpm, better-auth lock-step, ws/graphql-ws lockstep, mongodb 7.7); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-07 (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, undici 8, pnpm, better-auth lock-step, ws/graphql-ws lockstep, mongodb 7.7); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
@@ -80,3 +80,14 @@ Related: [[nest-server-override-status]], [[nest-server-maintenance-gotchas]]
 inside an inline code span gets indented, plus a final newline). Whitespace only, but `check` auto-fix
 would write it into `src/` during a release run; take it in a run that may touch `src/`.
 mongoose 9.11.0 + mongodb 7.7.0 tried and reverted (see the mongodb row).
+
+11.42.8 run (2026-10-07): vite 8.3.2 -> 8.3.3 (devDep; dev-server `fs.serve` fixes, identical dependency
+manifest). No code change. **oxfmt 0.72.0 still skipped** — re-verified read-only (scratch `npm i` +
+`--check src/ scripts/`): the same two shipped READMEs, nothing else; no 0.72.1 yet. Still deferred:
+mongoose 9.11.0 + mongodb 7.7.0 (cross-repo, no 9.10.5 / 7.6.x patch exists), ws 8.22.0 / graphql-ws
+6.3.0 (@nestjs/graphql 13.4.5 is still the newest 13.x), @graphql-tools/utils 12.0.3 (engines). In
+cooldown: AWS trio 3.1147.0 (matures 2026-10-07 ~23:00 UTC) — next run, as one version. Majors seen:
+dotenv 18.0.6, graphql-upload 18.0.1 (now mature), everything else as in the table. A discovery script
+reading registry `time` per direct dep + override target (newest mature in-major, pending, majors) ran in
+~10 s and replaces `ncu`, which ignores `minimumReleaseAge`; check 0.x packages separately (a 0.x minor
+is a semver major, so an in-major filter hides oxfmt).

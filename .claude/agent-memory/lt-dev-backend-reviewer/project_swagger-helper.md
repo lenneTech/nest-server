@@ -30,8 +30,15 @@ a handler serving several paths (`@Get([...])`) gets the operationId `<method>[<
 (@nestjs/swagger `swagger-explorer.js`, `isAlias`), which `resolveHandler()` could not map — the 16
 Hub page routes stayed unenriched (documented as protected although they are `S_EVERYONE`) and logged
 one WARN each. The `[n]` suffix is now stripped before resolution, pinned by an `@Get(['archive',
-'history'])` spec case. Still unvisited by design: the `search` operation `@All()` emits, because
-`HTTP_METHODS` does not list it (Swagger UI does not render it either).
+'history'])` spec case.
+
+**11.42.8:** the `search` operation `@All()` emits was skipped too — the helper iterated a fixed
+`HTTP_METHODS` list that has no `search`. It was dropped in the 11.42.7 review as "below the bar,
+Swagger UI does not render it", which was wrong: it stays in `/api-docs-json`, and `operationTags`
+did not reach it, so a consumer's SEARCH operation landed in its own tag group. Operations are now
+read from the path item (everything except `$ref`/`summary`/`description`/`servers`/`parameters` and
+`x-*`). The Better-Auth pass-through `handlePluginRoutes` (`@All('*path')`) is `@ApiExcludeEndpoint()`
+since 11.42.8 — eight useless `/iam/{path}` operations before.
 
 Dropped as below the bar (don't re-raise without new facts): class S_EVERYONE + method S_NO_ONE
 documented public (no such route exists); legacy `/auth/refresh-token` documented public (needs the
