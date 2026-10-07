@@ -460,6 +460,29 @@ Covered by mutations `account-issuer-backfill-missing` (boot, legacy line),
 `tests/regression-mutations.json`. The legacy line is reached through a mocked helper — this
 repository installs 1.7.3+.
 
+## 9. The internal `openAPI()` plugin — never public, and the one source of the documented routes
+
+`buildPlugins()` registers Better-Auth's `openAPI({ disableDefaultReference: true })` unless the project
+put `openAPI()` into `betterAuth.plugins` itself (`projectProvidesOpenApiPlugin()`). It exists for one
+reason: Better-Auth exposes its OpenAPI generator only through that plugin (`generator` is in the type
+exports of `better-auth/plugins` but NOT in its runtime exports, verified on 1.7.7), and
+`setupSwagger()` needs it to document the routes Better-Auth serves itself.
+
+| Piece | Where | Rule |
+|---|---|---|
+| Plugin registration | `better-auth.config.ts` → `buildPlugins()` | only when the project did not register it |
+| Description | `CoreBetterAuthService.onApplicationBootstrap()` → `getOpenApiSchema()` | built once; a failure costs Swagger the generated routes, never the boot. Its own hook, because `onModuleInit()` returns early without a DB connection |
+| `/iam/open-api/*` | `serverOnlyPlugin()` in `better-auth.config.ts` | **not on the router at all** while nest-server owns the plugin: both endpoints carry `metadata.SERVER_ONLY`, which better-call skips when it builds the router, while `auth.api.generateOpenAPISchema()` still runs in-process. NEVER replace this with a path check in the middleware or controller — that is what the first version did, and it sees the request as SENT while Better-Auth matches the path after `new URL()` removed dot segments: `/iam/./open-api/…`, `/iam/%2e/open-api/…` and `/iam/sign-in/email/../../open-api/…` all served the full schema anonymously. A path deny-list over Better-Auth's routes has this shape in general |
+| What the document leaves out | `switchedOffBetterAuthPaths()` (nest-server switches) + `unavailableBetterAuthOperations()` (Better-Auth's own options, read from the LIVE instance via `$context` at bootstrap — `CoreBetterAuthService.getUnavailableOperations()`), both in `core-better-auth-openapi.helper.ts` | applied to explicit and generated routes alike. Better-Auth's generator lists every registered endpoint regardless of the options it checks per request, so each row mirrors one such check; `tests/unit/better-auth-openapi-availability.spec.ts` pins the rows AND asserts the checks still exist in better-auth's shipped source — on a better-auth upgrade that test is the place to look |
+| Security of a generated route | `CoreBetterAuthService.sessionGuardedOperations()` + `HANDLER_SESSION_PATHS` | the generator marks EVERY route bearer-only; the document instead says what Better-Auth enforces — a session middleware in the endpoint's `use` chain (matched by identity against `better-auth/api`'s exports) or one of the social-account routes that check in the handler means the global requirement, anything else `security: []`. Middlewares are matched recursively (`organization()` nests `sessionMiddleware` in its own). Routes of any plugin outside `BUILT_IN_BETTER_AUTH_PLUGIN_IDS` always keep the global requirement — `admin()` checks the session inside a middleware of its own, so its routes (`/admin/ban-user`) were documented public until the second review round caught it. No endpoint matching any middleware (two copies of better-auth) falls back to "all authenticated" with a warning: a public route documented as authenticated costs a header, the reverse sends clients without one. A new handler-checked route in a better-auth upgrade would be documented as public — the source-marker contract in `better-auth-openapi-availability.spec.ts` covers the known three |
+| What the controller handles | `CONTROLLER_HANDLED_PATHS` (same file) | the middleware and the Swagger helper read the same list — an explicit route always wins over a generated one |
+
+Pinned by `tests/better-auth-openapi.e2e-spec.ts` (404 against the assembled `ServerModule` for the
+canonical path AND six dot-segment spellings, sent raw with `http.request` because supertest and fetch
+normalise them away; mutation `openapi-plugin-routable` drops `serverOnlyPlugin()` and turns all seven
+red) and the "framework routes" cases in `tests/unit/swagger-helper.spec.ts`, which run against the
+REAL generator output rather than a fixture.
+
 ## Summary
 
 | Principle | Requirement |
@@ -472,3 +495,4 @@ repository installs 1.7.3+.
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
+| `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |

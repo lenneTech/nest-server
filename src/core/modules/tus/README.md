@@ -95,6 +95,11 @@ All endpoints are handled by the TUS protocol via `@tus/server`:
 | PATCH   | `/tus/:id` | Continue upload          |
 | DELETE  | `/tus/:id` | Terminate upload         |
 
+The two `@All()` handlers carry `@ApiMethods()` (11.42.9), so the Swagger document built by
+`setupSwagger()` lists exactly POST on `/tus` and HEAD/PATCH/DELETE on `/tus/{id}` — not the eight
+operations `@nestjs/swagger` derives from `@All()`. A project controller that re-declares the handlers
+re-declares `@ApiMethods()` with them.
+
 ### CORS Headers
 
 The TUS server automatically handles CORS headers for browser-based clients:
@@ -132,6 +137,14 @@ TusModule.forRoot({ config: false });
 tus: false;
 ```
 
+### Where the Configuration Comes From (11.42.9+)
+
+`TusModule.forRoot({ config })` wins. Without a `config`, the server configuration's `tus` key applies
+— the block in `config.env.ts` (or `NSC__TUS__*`), the same zero-config rule `BetterAuthModule.forRoot()`
+follows. **Before 11.42.9 that key was never read**: `TusModule.forRoot()` without `config` always
+enabled TUS with the defaults, so `tus: false`, `allowedTypes`, `maxSize` and `roles` in `config.env.ts`
+did nothing. Projects that set them get them applied on upgrade — check that block before you deploy.
+
 ### Custom Configuration
 
 ```typescript
@@ -164,20 +177,21 @@ TusModule.forRoot({
 
 ### Configuration Options
 
-| Option               | Type              | Default                | Description                                              |
-| -------------------- | ----------------- | ---------------------- | -------------------------------------------------------- |
-| `enabled`            | boolean           | `true`                 | Enable/disable TUS                                       |
-| `path`               | string            | `/tus`                 | Endpoint path                                            |
-| `maxSize`            | number            | 50 GB                  | Maximum file size in bytes                               |
-| `allowedTypes`       | string[]          | undefined              | Allowed MIME types (all if undefined)                    |
-| `allowedHeaders`     | string[]          | `[]`                   | Additional custom headers (TUS headers already included) |
-| `uploadDir`          | string            | `uploads/tus`          | Temporary upload directory                               |
-| `creation`           | boolean           | `true`                 | Enable creation extension                                |
-| `creationWithUpload` | boolean           | `true`                 | Enable creation-with-upload extension                    |
-| `termination`        | boolean           | `true`                 | Enable termination extension                             |
-| `expiration`         | boolean \| object | `{ expiresIn: '24h' }` | Expiration configuration                                 |
-| `checksum`           | boolean           | `true`                 | Enable checksum extension                                |
-| `concatenation`      | boolean           | `true`                 | Enable concatenation extension                           |
+| Option               | Type              | Default                | Description                                                                                                                                                                                                                 |
+| -------------------- | ----------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`            | boolean           | `true`                 | Enable/disable TUS                                                                                                                                                                                                          |
+| `path`               | string            | `/tus`                 | Endpoint path — see [Upload URLs](#upload-urls-11429). A new route (`/uploads`) mounts the controller there; a path ending with the controller's route (`/api/tus`) is the public URL and leaves the controller where it is |
+| `relativeLocation`   | boolean           | `false`                | Hand out upload URLs without scheme and host — for a frontend that reaches TUS through a same-origin proxy (11.42.9+)                                                                                                       |
+| `maxSize`            | number            | 50 GB                  | Maximum file size in bytes                                                                                                                                                                                                  |
+| `allowedTypes`       | string[]          | undefined              | Allowed MIME types (all if undefined)                                                                                                                                                                                       |
+| `allowedHeaders`     | string[]          | `[]`                   | Additional custom headers (TUS headers already included)                                                                                                                                                                    |
+| `uploadDir`          | string            | `uploads/tus`          | Temporary upload directory                                                                                                                                                                                                  |
+| `creation`           | boolean           | `true`                 | Creation extension. `false`: POST answers 501 and OPTIONS stops advertising it (enforced since 11.42.9)                                                                                                                     |
+| `creationWithUpload` | boolean           | `true`                 | Creation-with-upload extension. `false`: a POST carrying data answers 501 (11.42.9+)                                                                                                                                        |
+| `termination`        | boolean           | `true`                 | Termination extension. `false`: DELETE answers 501 and OPTIONS stops advertising it (11.42.9+; before, the flag was only logged)                                                                                            |
+| `expiration`         | boolean \| object | `{ expiresIn: '24h' }` | Expiration configuration                                                                                                                                                                                                    |
+| `checksum`           | boolean           | `true`                 | No effect: the built-in stores (file system, S3) do not support it                                                                                                                                                          |
+| `concatenation`      | boolean           | `true`                 | No effect: the built-in stores (file system, S3) do not support it                                                                                                                                                          |
 
 **Note on `allowedHeaders`:**
 
@@ -189,6 +203,28 @@ TusModule.forRoot({
 - X-Requested-With, X-Forwarded-Host, X-Forwarded-Proto, Forwarded
 
 The `allowedHeaders` option is only for **project-specific custom headers**.
+
+### Upload URLs (11.42.9+)
+
+The URL a client receives for a new upload (`Location`) is built from the path the upload was CREATED
+at: it therefore points where the controller actually listens — below a global prefix, a URI version or
+a project controller's own route alike. Before 11.42.9 it was built from `path` alone, so in each of
+those cases every HEAD / PATCH on it answered 404 and no upload could be resumed.
+
+`path` decides the rest:
+
+| `path`                                                          | Effect                                                                                                                                                                                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| unset                                                           | upload URLs follow the request, the controller keeps its route                                                                                                                                                      |
+| a new route (`'/uploads'`)                                      | the controller is mounted there — below the global prefix, like any route                                                                                                                                           |
+| ends with the controller's route (`'/api/tus'`, `'/files/tus'`) | the public URL: the controller stays, upload URLs use this path. For a global prefix, or a proxy that strips a prefix on the way in — and what `path` had to be set to before 11.42.9, so those setups keep working |
+
+A proxy that renames the route (public `/files/upload` forwarded as `/tus`) fits none of these: leave
+`path` unset and override `uploadCollectionPath(req)` in a `CoreTusService` subclass to return the
+public path. For relative upload URLs (`/tus/<id>`, a same-origin frontend proxy) set
+`relativeLocation: true`; the framework builds the URL itself, so `@tus/server`'s own option of that
+name only takes effect through this one — or when passed to the tus server directly, which is
+honoured too.
 
 ### Expiration Configuration
 

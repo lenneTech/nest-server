@@ -157,6 +157,7 @@ JWT-based authentication for existing projects:
 | `@CommonError(code)` | Error code registration |
 | `@SkipTenantCheck()` | Opt out of CoreTenantGuard validation on a method (not for tenant-restricted API tokens — they stay bound) |
 | `@ApiTokenScopes(...scopes)` | Open a route/class to API tokens holding one of the scopes; tokens are denied everywhere else |
+| `@ApiMethods(...methods)` | Swagger only (11.42.9): the HTTP methods an `@All()` handler actually serves — `setupSwagger()` documents those instead of all eight. No runtime effect |
 
 ### File Handling
 
@@ -166,7 +167,7 @@ JWT-based authentication for existing projects:
 | **REST Endpoints** | `GET /files/id/:id`, `GET /files/:filename` (core, gated by `file.downloadRoles`, default ADMIN); `POST /files/upload`, `DELETE /files/:id` (project-specific) |
 | **GraphQL Endpoints** | `getFileInfo` (`file.downloadRoles`), `uploadFile` / `uploadFiles` (`file.uploadRoles`), `deleteFile` (`file.deleteRoles`) — all default ADMIN |
 | **File access control** | Roles are the coarse filter; per-file rules go in `CoreFileService.checkRights()` using metadata written at upload time. Cover BOTH the `id` and the `filename` branch — the filename route authorizes on the by-name lookup alone when presigned S3 downloads are on, and `deleteFileByName()` always does. Working reference: `src/server/modules/file/file.service.ts` (with `file.downloadRoles: [S_USER]` in `src/config.env.ts`, so the rule is actually reached). Both file classes carry `@SkipTenantCheck()` — GridFS is not tenant-scoped |
-| **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight. Records owner and, with `multiTenancy` only, the validated tenant at upload creation; a custom service plugs in via `TusModule.forRoot({ service })` |
+| **TUS Module** | Resumable uploads via tus.io protocol (creation, termination, expiration), gated by `tus.roles` (default `S_USER`); `OPTIONS` stays public for the CORS preflight. Records owner and, with `multiTenancy` only, the validated tenant at upload creation; a custom service plugs in via `TusModule.forRoot({ service })`. Configured by `TusModule.forRoot({ config })`, else the server config's `tus` key (11.42.9+). Switched-off `creation` / `termination` answer 501 (enforced by `CoreTusService`, not `@tus/server`); upload URLs follow the path the upload was created at |
 | **GridFS Migration** | Completed TUS uploads auto-migrate to GridFS |
 | **CORS Support** | Automatic CORS headers for browser uploads |
 
@@ -635,6 +636,13 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > input rejection is the correct control here because the guard layer does not run on these
 > raw-forwarded routes. A forged `POST /iam/update-user {"roles":["admin"]}` is rejected with
 > `FIELD_NOT_ALLOWED` (HTTP 400) at the input-parse stage, before any persistence.
+
+> **Never routed: `/iam/open-api/*` (11.42.9).** nest-server registers Better-Auth's `openAPI()` plugin
+> only so `setupSwagger()` can document Better-Auth's own routes, and marks its endpoints `SERVER_ONLY`:
+> better-call leaves them out of the router, so a forwarded request answers 404 however its path is
+> spelled, while the generator still runs in-process. Deliberately not a path check in the middleware —
+> it would see the path as sent, Better-Auth the one `new URL()` produced (`/iam/./open-api/…`). Only a
+> project that registered `openAPI()` itself in `betterAuth.plugins` gets the routes.
 
 > **"Raw" has one exception since 11.38.0: the password-setting reset routes.**
 > `CoreBetterAuthApiMiddleware.normalizeResetPassword()` rewrites the password field of

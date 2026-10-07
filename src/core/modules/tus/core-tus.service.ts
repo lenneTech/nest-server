@@ -112,10 +112,10 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    * Called by TusModule.forRoot() with the resolved configuration
    */
   configure(config: boolean | ITusConfig | undefined): void {
-    const normalizedConfig = normalizeTusConfig(config);
-    if (normalizedConfig) {
-      this.config = normalizedConfig;
-    }
+    // A disabled configuration must reach onModuleInit() as disabled. Keeping the defaults here
+    // started a tus server — upload directory, hourly cleanup interval — behind a module that
+    // registers no endpoint at all.
+    this.config = normalizeTusConfig(config) ?? { ...DEFAULT_TUS_CONFIG, enabled: false };
   }
 
   async onModuleInit(): Promise<void> {
@@ -558,6 +558,72 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
+   * The tus extensions the configuration switched off. `@tus/server` consults none of these flags:
+   * the store advertises creation and termination whatever is configured, and POST / DELETE are
+   * served regardless — so before 11.42.9 `termination: false` was a line in the boot log and nothing
+   * else.
+   */
+  protected disabledExtensions(): Set<string> {
+    const disabled = new Set<string>();
+    if (this.config.creation === false) {
+      ['creation', 'creation-with-upload', 'creation-defer-length'].forEach((extension) => disabled.add(extension));
+    }
+    if (this.config.creationWithUpload === false) {
+      disabled.add('creation-with-upload');
+    }
+    if (this.config.termination === false) {
+      disabled.add('termination');
+    }
+    return disabled;
+  }
+
+  /**
+   * Refuses a request that needs an extension the configuration switched off, with the 501 `@tus/server`
+   * itself answers for an extension it does not support. Runs before the ownership check, so a
+   * refusal says nothing about whether the upload exists.
+   */
+  protected assertExtensionEnabled(req: any): void {
+    const disabled = this.disabledExtensions();
+    const method = String(req?.method ?? '').toUpperCase();
+    const contentType = this.readRequestHeader(req, 'content-type')?.toLowerCase() ?? '';
+    const needed =
+      method === 'DELETE'
+        ? 'termination'
+        : method === 'POST'
+          ? contentType.startsWith('application/offset+octet-stream')
+            ? 'creation-with-upload'
+            : 'creation'
+          : undefined;
+    if (needed && disabled.has(needed)) {
+      throw Object.assign(new Error(`The ${needed} extension is disabled`), {
+        body: `The ${needed} extension is disabled\n`,
+        status_code: 501,
+      });
+    }
+  }
+
+  /**
+   * The path a new upload's URL is built on: the one the creation request arrived at, so the URL
+   * points where the controller actually listens — under a global prefix, a URI version or a project's
+   * own route alike.
+   *
+   * Except when the configured `path` is longer and ends with it: then a reverse proxy strips a prefix
+   * on the way in (public `/files/tus`, forwarded as `/tus`), and the client must be handed the public
+   * path — which is what `path` was set to before 11.42.9 for exactly that reason. Override for a proxy
+   * that rewrites the path in any other way.
+   */
+  protected uploadCollectionPath(req: any): string {
+    const configured = (this.config.path || DEFAULT_TUS_CONFIG.path).replace(/\/+$/, '');
+    let requested: string;
+    try {
+      requested = new URL(String(req?.url ?? ''), 'http://localhost').pathname.replace(/\/+$/, '');
+    } catch {
+      return configured;
+    }
+    return configured.length > requested.length && configured.endsWith(requested) ? configured : requested;
+  }
+
+  /**
    * Validate file type against allowedTypes configuration
    *
    * This method can be overridden in extending services to customize
@@ -751,6 +817,10 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    */
   private async createTusServer(uploadDir: string): Promise<Server> {
     const datastore = (await this.createS3Store()) || new FileStore({ directory: uploadDir });
+    // The store advertises what it CAN do (OPTIONS → Tus-Extension); narrowed to what is configured.
+    datastore.extensions = datastore.extensions.filter(
+      (extension: string) => !this.disabledExtensions().has(extension),
+    );
 
     // @tus/server's default locker is in-memory, which is exclusive within ONE process only:
     // behind a load balancer two replicas each hold their own lock for the same upload id and
@@ -774,8 +844,26 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       // this: it decides who may reach the endpoint, not which upload they may touch, and the tus
       // protocol is built around a per-upload URL. Appending is the sharp end — bytes PATCHed into
       // somebody else's upload are migrated into the file store under THEIR filename.
-      onIncomingRequest: async (req, uploadId) => this.assertUploadOwnership(req, uploadId),
-      onUploadCreate: async (req, upload) => this.onUploadCreate(req, upload),
+      // The extension check sits here rather than in the overridable hooks, so a project override that
+      // forgets `super` cannot reopen what the configuration switched off.
+      onIncomingRequest: async (req, uploadId) => {
+        this.assertExtensionEnabled(req);
+        return this.assertUploadOwnership(req, uploadId);
+      },
+      onUploadCreate: async (req, upload) => {
+        this.assertExtensionEnabled(req);
+        return this.onUploadCreate(req, upload);
+      },
+      // Where the upload was CREATED, not a configured string: the controller may sit below a global
+      // prefix, a URI version or a project's own route, none of which `path` knows — and a Location
+      // pointing elsewhere breaks every resume (HEAD / PATCH answer 404).
+      // Relative when asked for: by `tus.relativeLocation`, or by @tus/server's own `relativeLocation`
+      // passed here by a project, which this generateUrl would otherwise silently override.
+      generateUrl: (req, { host, id, proto }) => {
+        const url = `${this.uploadCollectionPath(req)}/${id}`;
+        const relative = this.config.relativeLocation === true || (server as any)?.options?.relativeLocation === true;
+        return relative ? url : `${proto}://${host}${url}`;
+      },
       onUploadFinish: async (_req, upload) => {
         try {
           await this.onUploadComplete(upload);
@@ -1004,26 +1092,9 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
    * Log which features are enabled
    */
   private logEnabledFeatures(): void {
-    const features: string[] = [];
-
-    if (this.config.creation !== false) {
-      features.push('creation');
-    }
-    if (this.config.creationWithUpload !== false) {
-      features.push('creation-with-upload');
-    }
-    if (this.config.termination !== false) {
-      features.push('termination');
-    }
-    if (this.config.expiration !== false) {
-      features.push('expiration');
-    }
-    if (this.config.checksum !== false) {
-      features.push('checksum');
-    }
-    if (this.config.concatenation !== false) {
-      features.push('concatenation');
-    }
+    // What the server answers OPTIONS with, i.e. what a client can actually use — not the config flags:
+    // the stores support neither checksum nor concatenation, whatever the configuration says.
+    const features: string[] = [...((this.tusServer as any)?.datastore?.extensions ?? [])];
 
     if (features.length > 0) {
       this.logger.log(`TUS extensions: ${features.join(', ')}`);

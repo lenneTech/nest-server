@@ -1,6 +1,7 @@
 import { All, Controller, Logger, Options, Req, Res } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+import { ApiMethods } from '../../common/decorators/api-methods.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
@@ -92,6 +93,8 @@ export class CoreTusController {
    * - DELETE: Terminate upload (if termination extension enabled)
    */
   @All()
+  // The collection path creates uploads; every other method answers 404/412 there (@tus/server).
+  @ApiMethods('post')
   @Roles(RoleEnum.S_USER)
   async handleTus(@Req() req: Request, @Res() res: Response): Promise<void> {
     const server = this.tusService.getServer();
@@ -120,6 +123,9 @@ export class CoreTusController {
    * Routes like /tus/:id for HEAD, PATCH, DELETE
    */
   @All(':id')
+  // Status, resume and termination of one upload. GET answers 404 in practice (an unfinished upload
+  // fails the offset check, a finished one has left staging); PUT/SEARCH have no tus handler.
+  @ApiMethods('head', 'patch', 'delete')
   @Roles(RoleEnum.S_USER)
   async handleTusWithId(@Req() req: Request, @Res() res: Response): Promise<void> {
     const server = this.tusService.getServer();

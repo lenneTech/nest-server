@@ -311,6 +311,14 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The route a TUS controller class declared, remembered before forRoot() moves it to a configured '
+      + 'tus.path. Read from decorator metadata at boot, so every replica holds the same value.',
+    classification: 'derived',
+    file: 'modules/tus/tus.module.ts',
+    name: 'declaredPaths',
+  },
+  {
+    because:
       'Expiry sweep for incomplete uploads. Cleared in onModuleDestroy. Every replica sweeps the '
       + 'same store, and the sweep is idempotent.',
     classification: 'local',

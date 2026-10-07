@@ -1146,6 +1146,40 @@ When enabled, Better-Auth exposes the following endpoints at the configured `bas
 | `/iam/reset-password`  | POST   | Reset password with token     |
 | `/iam/verify-email`    | POST   | Verify email address          |
 
+### In the Swagger document (since 11.42.9)
+
+`setupSwagger()` documents every route this module makes reachable under the base path, as the server
+is configured:
+
+- The routes `CoreBetterAuthController` handles itself (`sign-in/email`, `sign-up/email`, `sign-out`,
+  `session`, `features`) come from the controller, as for any Nest controller.
+- The routes Better-Auth serves itself — everything the configured plugins add (two-factor, passkey,
+  sessions, password change, …) — come from Better-Auth's own OpenAPI generator
+  (`CoreBetterAuthService.getOpenApiSchema()`, prepared at bootstrap). They are documented under the
+  project's Better-Auth controller: its tags, its `operationTags`, operation ids
+  `<Controller>_betterAuth_<betterAuthOperationId>`, schemas prefixed `BetterAuth` (`BetterAuthUser`).
+- Only what can succeed is documented. `switchedOffBetterAuthPaths()` reads the nest-server switches
+  (sign-in/sign-up under `emailAndPassword.enabled: false`, `sign-up/email` under `disableSignUp`, the
+  reset routes under `passwordReset: false`); `unavailableBetterAuthOperations()` reads the LIVE
+  instance at bootstrap — so `betterAuth.options` and project plugins count — and drops e.g. POST
+  `/get-session` without `session.deferSessionRefresh`, social routes without a provider, two-factor OTP
+  routes without `otpOptions.sendOTP`. Both apply to the controller's own routes as well.
+- Security says what Better-Auth enforces, not what its generator writes (every route bearer-only): a
+  route guarded by one of Better-Auth's session middlewares — or one of the three social-account routes
+  that check the session in their handler (`HANDLER_SESSION_PATHS`) — carries the document's global
+  requirement; every other route is public (`security: []`): sign-in, password reset, get-session, the
+  two-factor verification steps of a sign-in. Routes of a plugin the module does not register itself
+  (`admin()`, `organization()`, anything in `betterAuth.plugins`) always keep the global requirement:
+  such a plugin may check the session in a middleware of its own, which cannot be recognised from outside.
+- Under a global prefix or URI versioning the middleware does not forward Better-Auth's own routes, so
+  they are not documented then (a warning says so).
+
+Better-Auth exposes its generator only through its `openAPI()` plugin, so the module registers that plugin
+itself (`disableDefaultReference: true`). Its own route, `/iam/open-api/generate-schema`, is not part of
+the API: the plugin's endpoints are marked server-only, so Better-Auth never routes them (404, however the
+path is spelled) and the module calls the generator in-process. A project that adds `openAPI()` to
+`betterAuth.plugins` itself keeps those routes — then it is the project's decision.
+
 ### JWT Token Endpoint
 
 The `/iam/token` endpoint returns a fresh JWT token for the current session. Use this when your JWT has expired but your session is still valid.

@@ -2037,6 +2037,138 @@
         "tests/unit/check-overrides.guard.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "openapi-plugin-routable",
+      "defect": "Better-Auth's openAPI() plugin, registered by nest-server only to feed setupSwagger(), stays on the HTTP router, so its schema route is public. A path check cannot close that: it sees the request as sent, while Better-Auth matches the path after new URL() removed dot segments — an anonymous GET /iam/./open-api/generate-schema returned the full Better-Auth schema on every deployment.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    plugins.push(serverOnlyPlugin(openAPI({ disableDefaultReference: true })));",
+      "replace": "    plugins.push(openAPI({ disableDefaultReference: true }));",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-relocation-full-path",
+      "defect": "Whether the Better-Auth controller was relocated (global prefix, URI versioning) is decided by comparing its full declared route path with the document path. A handler path is in Nest syntax (:id, *path) and the document path in OpenAPI syntax ({id}), so one parametrized route on a project controller reads as relocated and every route Better-Auth serves itself leaves the document.",
+      "file": "src/core/common/helpers/swagger.helper.ts",
+      "find": "      if (base && path !== base && !path.startsWith(`${base}/`)) {",
+      "replace": "      const handlerPath = declaredHandlerPath(reference.handler);\n      if (base && handlerPath !== undefined && (handlerPath === \"/\" ? base : `${base}${handlerPath}`) !== path) {",
+      "specs": [
+        "tests/unit/swagger-availability.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "health-check-enabled-ignored",
+      "defect": "`healthCheck.enabled: false` is declared in IServerOptions and ignored: any `healthCheck` object registers GET /health-check and the `healthCheck` query, so a deployment that switched the endpoints off still serves them.",
+      "file": "src/core.module.ts",
+      "find": "    if (config.healthCheck && config.healthCheck.enabled !== false) {",
+      "replace": "    if (config.healthCheck) {",
+      "specs": [
+        "tests/unit/core-module-signatures.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-server-config-ignored",
+      "defect": "TusModule.forRoot() reads only its own `config` option, so the server configuration's `tus` key is never read: `tus: false`, `allowedTypes` and `maxSize` in config.env.ts silently do nothing — upload restrictions a project believes are enforced are not.",
+      "file": "src/core/modules/tus/tus.module.ts",
+      "find": "      explicitConfig !== undefined ? explicitConfig : ConfigService.get<boolean | ITusConfig | undefined>('tus');",
+      "replace": "      explicitConfig;",
+      "specs": [
+        "tests/unit/tus-module-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-path-not-applied",
+      "defect": "A configured `tus.path` changes only the upload URL handed to clients while the controller keeps listening at its own route, so every HEAD / PATCH on that URL answers 404 and no upload can be resumed.",
+      "file": "src/core/modules/tus/tus.module.ts",
+      "find": "    this.applyPath(this.getControllerClass(), config, typeof rawConfig === 'object' ? rawConfig?.path : undefined);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/tus-module-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-location-from-config-path",
+      "defect": "An upload URL is built from `tus.path` instead of the path the upload was created at, so under a global prefix, a URI version or a project controller's own route the client is handed a URL on which every resume answers 404.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "        const url = `${this.uploadCollectionPath(req)}/${id}`;",
+      "replace": "        const url = `${this.config.path}/${id}`;",
+      "specs": [
+        "tests/tus-protocol-config.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-termination-flag-ignored",
+      "defect": "`tus.termination: false` is only logged: the store keeps advertising the extension and DELETE keeps removing uploads, because @tus/server consults no extension flag itself.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "      disabled.add('termination');\n",
+      "replace": "",
+      "specs": [
+        "tests/tus-protocol-config.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-public-routes-unlabeled",
+      "defect": "Every route Better-Auth serves itself is documented as authenticated — sign-in, password reset and get-session included — because its generator marks all of them bearer-only, so generated clients attach credentials to every public call and readers cannot tell which routes need a session.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "              operation.security = [];",
+      "replace": "              delete operation.security;",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-path-public-url-moved",
+      "defect": "Every configured `tus.path` is mounted as the controller route, including one naming the PUBLIC URL ('/api/tus' under a global prefix or behind a prefix-stripping proxy) — the only setting that let uploads resume before 11.42.9. Nest adds the prefix again and every upload answers 404 at /api/api/tus.",
+      "file": "src/core/modules/tus/tus.module.ts",
+      "find": "    const publicUrl = !!declaredRoute && configured !== declaredRoute && configured.endsWith(`/${declaredRoute}`);",
+      "replace": "    const publicUrl = false;",
+      "specs": [
+        "tests/unit/tus-module-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-proxy-public-path-ignored",
+      "defect": "The upload URL is always built from the path the server sees, so behind a proxy that strips a prefix the client is handed the internal path it cannot reach, although `path` names the public one.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "    return configured.length > requested.length && configured.endsWith(requested) ? configured : requested;",
+      "replace": "    return requested;",
+      "specs": [
+        "tests/tus-protocol-config.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-relative-location-ignored",
+      "defect": "The framework-owned `generateUrl` overrides @tus/server's `relativeLocation`, so a project relying on relative upload URLs (a same-origin frontend proxy) silently gets absolute URLs on the API origin.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "        const relative = this.config.relativeLocation === true || (server as any)?.options?.relativeLocation === true;",
+      "replace": "        const relative = false;",
+      "specs": [
+        "tests/tus-protocol-config.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-plugin-routes-public",
+      "defect": "Routes of plugins a project adds are classified by Better-Auth core's session middleware only. `admin()` checks the session in a middleware of its own, so its routes (`/admin/ban-user`, `/admin/impersonate-user`) are documented as public and generated clients call them without credentials.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      if (!byMiddleware && !HANDLER_SESSION_PATHS.includes(endpoint.path) && !foreignPaths.has(endpoint.path)) {",
+      "replace": "      if (!byMiddleware && !HANDLER_SESSION_PATHS.includes(endpoint.path)) {",
+      "specs": [
+        "tests/unit/better-auth-openapi-availability.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

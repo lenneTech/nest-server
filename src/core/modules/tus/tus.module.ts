@@ -1,4 +1,5 @@
 import { DynamicModule, Global, Logger, Module, OnModuleInit, Type } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import { ModuleRef } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
@@ -126,6 +127,8 @@ export class TusModule implements OnModuleInit {
   private static currentConfig: ITusConfig | null = null;
   private static customController: null | Type<CoreTusController> = null;
   private static customService: null | Type<CoreTusService> = null;
+  /** The route each controller class declared, before applyPath() moved it. */
+  private static declaredPaths = new WeakMap<Type<CoreTusController>, unknown>();
 
   constructor(private readonly tusService?: CoreTusService) {}
 
@@ -179,13 +182,51 @@ export class TusModule implements OnModuleInit {
   }
 
   /**
+   * Makes the controller's route and `tus.path` agree. A configured `path` mounts the controller there
+   * — config wins over a re-declared `@Controller()`, as it does for the roles; without one, `path`
+   * follows the route the controller declared. Before 11.42.9 the two were independent: the core
+   * controller always listened at `/tus` while a configured `path` only changed the URLs handed to the
+   * client, so every resume after a non-default `path` answered 404.
+   *
+   * The declared route is remembered per class, so a later forRoot() without `path` restores it.
+   */
+  private static applyPath(controller: Type<CoreTusController>, config: ITusConfig, configuredPath: unknown): void {
+    if (!this.declaredPaths.has(controller)) {
+      this.declaredPaths.set(controller, Reflect.getMetadata(PATH_METADATA, controller));
+    }
+    const trim = (value: string) => value.replace(/^\/+|\/+$/g, '');
+    const configured = typeof configuredPath === 'string' ? trim(configuredPath) : '';
+    const declared = this.declaredPaths.get(controller);
+    const declaredRoute = typeof declared === 'string' ? trim(declared) : '';
+    // A path that ENDS with the controller's own route (`api/tus` for `tus`) names the URL the route is
+    // publicly reachable under — a global prefix or a proxy in front of it. That is how `path` had to be
+    // used before 11.42.9, and those setups keep working: the controller stays, upload URLs use the
+    // path. Mounting it there would put the prefix in twice (`/api/api/tus`).
+    const publicUrl = !!declaredRoute && configured !== declaredRoute && configured.endsWith(`/${declaredRoute}`);
+    const route = configured && !publicUrl ? configured : declared;
+    Reflect.defineMetadata(PATH_METADATA, route, controller);
+    if (configured) {
+      config.path = `/${configured}`;
+    } else if (typeof route === 'string') {
+      config.path = `/${trim(route)}`;
+    }
+  }
+
+  /**
    * Creates a dynamic module for TUS uploads
    *
    * @param options - Configuration options (optional)
    * @returns Dynamic module configuration
    */
   static forRoot(options: TusModuleOptions = {}): DynamicModule {
-    const { config: rawConfig, controller, service } = options;
+    const { config: explicitConfig, controller, service } = options;
+
+    // Without an explicit `config`, the server configuration's `tus` key applies — the zero-config rule
+    // BetterAuthModule.forRoot() follows too: CoreModule.forRoot() runs first and fills ConfigService.
+    // Before 11.42.9 that key was never read, so `tus: false`, `allowedTypes` or `maxSize` in
+    // config.env.ts did nothing at all.
+    const rawConfig =
+      explicitConfig !== undefined ? explicitConfig : ConfigService.get<boolean | ITusConfig | undefined>('tus');
 
     // Normalize config: undefined/true → enabled with defaults, false → disabled
     const config = normalizeTusConfig(rawConfig);
@@ -243,6 +284,7 @@ export class TusModule implements OnModuleInit {
     // touches the members it knows), or register the controller outside
     // TusModule entirely.
     this.applyRoles(this.getControllerClass(), config.roles);
+    this.applyPath(this.getControllerClass(), config, typeof rawConfig === 'object' ? rawConfig?.path : undefined);
 
     return {
       controllers: [this.getControllerClass()],

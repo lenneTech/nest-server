@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { resolveServerUrls } from '../../../common/helpers/cookies.helper';
 import { ConfigService } from '../../../common/services/config.service';
 import { CoreAiMcpOAuthService } from '../services/core-ai-mcp-oauth.service';
+import { setMountedMcpOAuth } from './ai-mcp-oauth.registry';
 
 /**
  * Mount the MCP OAuth 2.1 router (`mcpAuthRouter`) on a NestJS application.
@@ -10,7 +11,9 @@ import { CoreAiMcpOAuthService } from '../services/core-ai-mcp-oauth.service';
  * Call this in `main.ts` AFTER `app.init()` when `ai.mcp.oauth` is enabled. It
  * lazy-imports `@modelcontextprotocol/sdk` and wires the OAuth provider built from
  * {@link CoreAiMcpOAuthService}, exposing the standard discovery + token endpoints
- * (`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke`).
+ * (`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`; `/revoke` only for a provider that
+ * implements `revokeToken`, which the built-in one does not). `setupSwagger()` documents exactly the
+ * endpoints mounted here.
  *
  * The interactive consent step requires `CoreAiMcpOAuthService.authorizeConsent`
  * to be overridden with your login/consent UI (see INTEGRATION-CHECKLIST).
@@ -46,10 +49,11 @@ export async function mountAiMcpOAuth(
   const mcpPath = options.mcpPath ?? '/ai/mcp';
 
   let router: unknown;
+  const provider = oauthService.buildOAuthProvider() as any;
   try {
     router = mcpAuthRouter({
       issuerUrl,
-      provider: oauthService.buildOAuthProvider() as any,
+      provider,
       resourceServerUrl: new URL(`${baseUrl.replace(/\/$/, '')}${mcpPath}`),
     });
   } catch (error) {
@@ -63,6 +67,12 @@ export async function mountAiMcpOAuth(
   }
 
   app.use(router);
+  // The same conditions mcpAuthRouter() uses to decide whether /register and /revoke exist.
+  setMountedMcpOAuth({
+    mcpPath,
+    registration: !!provider?.clientsStore?.registerClient,
+    revocation: !!provider?.revokeToken,
+  });
   new Logger('mountAiMcpOAuth').log(`MCP OAuth issuer: ${issuerUrl.href} (from ${source})`);
 }
 

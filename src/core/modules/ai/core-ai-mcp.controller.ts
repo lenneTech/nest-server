@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, Logger, OnModuleDestroy, Optional, Post, Req, Res } from '@nestjs/common';
-import { ApiExcludeController } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { hostname } from 'node:os';
 
@@ -62,7 +62,10 @@ interface McpSessionEntry {
   user: AiToolUser;
 }
 
-@ApiExcludeController()
+// The route guard admits everybody because the endpoint authenticates itself (session/JWT bearer, or an
+// MCP OAuth token): the bearer requirement is declared for Swagger, which setupSwagger() keeps.
+@ApiBearerAuth('bearer')
+@ApiTags('AI MCP')
 @Controller('ai/mcp')
 @Roles(RoleEnum.S_EVERYONE)
 export class CoreAiMcpController implements OnModuleDestroy {
@@ -108,6 +111,12 @@ export class CoreAiMcpController implements OnModuleDestroy {
     @Optional() protected readonly redisService?: CoreRedisService,
   ) {}
 
+  @ApiOperation({
+    description:
+      'Model Context Protocol endpoint (Streamable HTTP) for MCP clients: JSON-RPC 2.0 messages, starting with `initialize`. ' +
+      'The response carries the `mcp-session-id` header that later requests send back. Requires a bearer token (session, JWT or MCP OAuth token).',
+    summary: 'MCP request',
+  })
   @Post()
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
     const user = await this.resolveUser(req);
@@ -206,11 +215,19 @@ export class CoreAiMcpController implements OnModuleDestroy {
     }
   }
 
+  @ApiOperation({
+    description: 'Server-sent event stream of an MCP session (`mcp-session-id` header). Requires a bearer token.',
+    summary: 'MCP event stream',
+  })
   @Get()
   async handleGet(@Req() req: Request, @Res() res: Response): Promise<void> {
     await this.handleSessionRequest(req, res);
   }
 
+  @ApiOperation({
+    description: 'Ends an MCP session (`mcp-session-id` header). Requires a bearer token.',
+    summary: 'End MCP session',
+  })
   @Delete()
   async handleDelete(@Req() req: Request, @Res() res: Response): Promise<void> {
     await this.handleSessionRequest(req, res);

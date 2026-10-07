@@ -2,7 +2,7 @@ import { passkey } from '@better-auth/passkey';
 import { Logger } from '@nestjs/common';
 import { betterAuth, BetterAuthPlugin } from 'better-auth';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
-import { jwt, twoFactor } from 'better-auth/plugins';
+import { jwt, openAPI, twoFactor } from 'better-auth/plugins';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,6 +11,7 @@ import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/coo
 import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
+import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper';
 
 /**
  * Type for better-auth instance with plugins
@@ -978,6 +979,16 @@ function buildPlugins(
     plugins.push(passkey(passkeyOptions));
   }
 
+  // Better-Auth's OpenAPI generator, so setupSwagger() can document exactly the routes the configured
+  // plugins add (CoreBetterAuthService.getOpenApiSchema()). Better-Auth exposes the generator only
+  // through this plugin, and the plugin only as HTTP routes — which are not part of the API. They are
+  // kept off the router rather than refused by path: a path check sees the request as sent, while
+  // Better-Auth resolves `/iam/./open-api/…` or `/iam/x/%2e%2e/open-api/…` to the very same route.
+  // A project that registers openAPI() itself keeps its routes.
+  if (!projectProvidesOpenApiPlugin(config)) {
+    plugins.push(serverOnlyPlugin(openAPI({ disableDefaultReference: true })));
+  }
+
   // Merge custom plugins from configuration
   // This allows projects to add any Better-Auth plugin without modifying this package
   if (config.plugins?.length) {
@@ -985,6 +996,21 @@ function buildPlugins(
   }
 
   return plugins;
+}
+
+/**
+ * Keeps every endpoint of a plugin off the HTTP router. better-call skips an endpoint whose metadata
+ * carries `SERVER_ONLY` when it builds the router, whatever path a request names, while
+ * `auth.api.<endpoint>()` still calls it in-process. Better-Auth's own generator leaves such endpoints
+ * out of its schema too.
+ */
+function serverOnlyPlugin<T extends BetterAuthPlugin>(plugin: T): T {
+  for (const endpoint of Object.values(plugin.endpoints ?? {}) as { options?: { metadata?: object } }[]) {
+    if (endpoint?.options) {
+      endpoint.options.metadata = { ...endpoint.options.metadata, SERVER_ONLY: true };
+    }
+  }
+  return plugin;
 }
 
 /**

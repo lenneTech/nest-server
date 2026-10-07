@@ -6,25 +6,11 @@ import { ConfigService } from '../../common/services/config.service';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
 import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
 import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.helper';
+import { isControllerHandledPath } from './core-better-auth-openapi.helper';
 import { runWithResetPassword } from './core-better-auth-password-reset.registry';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
 import { CoreBetterAuthService } from './core-better-auth.service';
-
-/**
- * List of paths that are handled by CoreBetterAuthController
- * These should NOT be forwarded to Better Auth's native handler
- *
- * Only paths with nest-server-specific logic belong here:
- * - sign-in/email: Legacy user migration, password normalization
- * - sign-up/email: User linking to own DB, password sync
- * - sign-out: Custom cookie clearing
- * - session: Custom response format with mapped user
- *
- * All other paths (Passkey, 2FA, etc.) go directly to Better Auth's
- * native handler via this middleware for maximum compatibility.
- */
-const CONTROLLER_HANDLED_PATHS = ['/features', '/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
 
 /**
  * Native Better-Auth routes that set a NEW password from a token or OTP, with the body
@@ -227,8 +213,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
     // Get the path relative to the base path
     const relativePath = requestPath.slice(basePath.length);
 
-    // Skip paths that are handled by CoreBetterAuthController (nest-server-specific logic)
-    if (CONTROLLER_HANDLED_PATHS.some((path) => relativePath === path || relativePath.startsWith(`${path}/`))) {
+    // Skip paths that are handled by CoreBetterAuthController (nest-server-specific logic).
+    // All other paths (Passkey, 2FA, etc.) go directly to Better Auth's native handler.
+    if (isControllerHandledPath(relativePath)) {
       return next();
     }
 

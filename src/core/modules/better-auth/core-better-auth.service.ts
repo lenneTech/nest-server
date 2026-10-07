@@ -1,5 +1,19 @@
-import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
+import {
+  freshSessionMiddleware,
+  requestOnlySessionMiddleware,
+  sensitiveSessionMiddleware,
+  sessionMiddleware,
+} from 'better-auth/api';
 import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
@@ -12,6 +26,14 @@ import { ErrorCode } from '../error-code/error-codes';
 import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 import { BetterAuthInstance } from './better-auth.config';
 import { legacyCredentialAccountIssuer, usesLegacyAccountIssuer } from './core-better-auth-account-issuer.helper';
+import {
+  BUILT_IN_BETTER_AUTH_PLUGIN_IDS,
+  HANDLER_SESSION_PATHS,
+  isUnavailableOperation,
+  toOpenApiPath,
+  unavailableBetterAuthOperations,
+} from './core-better-auth-openapi.helper';
+import type { IBetterAuthOpenApiDocument, IBetterAuthRuntime } from './core-better-auth-openapi.helper';
 import { isJwtShaped } from './core-better-auth-token.helper';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
 import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
@@ -81,9 +103,11 @@ export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-aut
  * ```
  */
 @Injectable()
-export class CoreBetterAuthService implements OnModuleInit {
+export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
   private readonly config: IBetterAuth;
+  private openApiSchema: IBetterAuthOpenApiDocument | undefined;
+  private unavailableOperations: Set<string> | undefined;
   // Cached cookie prefix — frozen on first read so the value cannot drift away
   // from the Better-Auth instance (which captured it at bootstrap). Without
   // this cache a test or fork that mutates `process.env.COOKIE_PREFIX` after
@@ -128,6 +152,146 @@ export class CoreBetterAuthService implements OnModuleInit {
       await this.backfillAccountIssuers();
     } else {
       await this.dropLegacyAccountIssuerIndex();
+    }
+  }
+
+  /**
+   * Prepares the OpenAPI description of Better-Auth's own routes for `setupSwagger()`.
+   *
+   * Its own hook rather than part of `onModuleInit()`, which returns early without a database
+   * connection: the description depends on the configured plugins only. Built once here because the
+   * Swagger document factory is synchronous while Better-Auth's generator is not.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    await this.prepareOpenApiSchema();
+  }
+
+  /**
+   * The OpenAPI description of the routes Better-Auth serves itself under the base path — exactly the
+   * ones the configured plugins add (paths relative to the base path, OpenAPI 3.1). `undefined` when
+   * Better-Auth is disabled or the description could not be generated.
+   */
+  getOpenApiSchema(): IBetterAuthOpenApiDocument | undefined {
+    return this.openApiSchema;
+  }
+
+  /**
+   * Operations under the base path that the running Better-Auth options make answer an error for every
+   * caller (`unavailableBetterAuthOperations()`), read from the live instance at bootstrap — so options a
+   * project passes through `betterAuth.options` count too. `setupSwagger()` applies them to the
+   * controller's own routes as well. `undefined` before bootstrap or when Better-Auth is disabled.
+   */
+  getUnavailableOperations(): Set<string> | undefined {
+    return this.unavailableOperations;
+  }
+
+  /**
+   * Runs Better-Auth's OpenAPI generator, which it exposes through the `openAPI()` plugin
+   * `buildPlugins()` registers. A failure costs the Swagger document its generated routes, never the boot.
+   */
+  /**
+   * The operations (`<method> <openapi path>`) Better-Auth answers only with a session: a session
+   * middleware in the endpoint's `use` chain (directly or nested), a check in its handler
+   * (`HANDLER_SESSION_PATHS`), or — unknowable, so assumed — a plugin nest-server does not register
+   * itself (`BUILT_IN_BETTER_AUTH_PLUGIN_IDS`).
+   *
+   * `undefined` when no endpoint carries one of the middlewares — then the instance's middlewares are
+   * not the ones imported here (two copies of better-auth), the distinction cannot be made, and every
+   * route keeps the global requirement. A public route documented as authenticated costs a header; a
+   * session route documented as public sends clients without one.
+   */
+  protected sessionGuardedOperations(): Set<string> | undefined {
+    const middlewares = new Set<unknown>([
+      freshSessionMiddleware,
+      requestOnlySessionMiddleware,
+      sensitiveSessionMiddleware,
+      sessionMiddleware,
+    ]);
+    // A middleware guards when it IS one of them or runs one itself — `organization()` nests
+    // sessionMiddleware inside its own. Depth-bounded, so a cyclic chain cannot hang the bootstrap.
+    const guards = (middleware: unknown, depth = 0): boolean =>
+      depth < 5 &&
+      (middlewares.has(middleware) ||
+        ((middleware as { options?: { use?: unknown[] } })?.options?.use ?? []).some((inner) =>
+          guards(inner, depth + 1),
+        ));
+    // Routes of plugins nest-server does not register itself keep the global requirement: their own
+    // middleware may check the session in its body (`admin()` does), which nothing here can see.
+    const plugins = ((this.getInstance() as unknown as { options?: { plugins?: unknown[] } })?.options?.plugins ??
+      []) as { endpoints?: Record<string, { path?: unknown }>; id?: string }[];
+    const foreignPaths = new Set(
+      plugins
+        .filter((plugin) => !BUILT_IN_BETTER_AUTH_PLUGIN_IDS.includes(String(plugin?.id)))
+        .flatMap((plugin) => Object.values(plugin?.endpoints ?? {}).map((endpoint) => endpoint?.path)),
+    );
+    const endpoints = Object.values((this.getApi() ?? {}) as Record<string, unknown>) as {
+      options?: { method?: string | string[]; use?: unknown[] };
+      path?: string;
+    }[];
+    const operations = new Set<string>();
+    let middlewareSeen = false;
+    for (const endpoint of endpoints) {
+      if (typeof endpoint?.path !== 'string') continue;
+      const byMiddleware = !!endpoint.options?.use?.some((middleware) => guards(middleware));
+      middlewareSeen ||= byMiddleware;
+      if (!byMiddleware && !HANDLER_SESSION_PATHS.includes(endpoint.path) && !foreignPaths.has(endpoint.path)) {
+        continue;
+      }
+      for (const method of ([] as string[]).concat(endpoint.options?.method ?? [])) {
+        operations.add(`${method.toLowerCase()} ${toOpenApiPath(endpoint.path)}`);
+      }
+    }
+    if (!middlewareSeen) {
+      this.logger.warn(
+        "Could not tell which Better-Auth routes need a session (no endpoint uses better-auth's session " +
+          'middleware as imported here); Swagger documents all of them as authenticated',
+      );
+      return undefined;
+    }
+    return operations;
+  }
+
+  protected async prepareOpenApiSchema(): Promise<void> {
+    if (!this.isEnabled()) return;
+    const api = this.getApi() as { generateOpenAPISchema?: () => Promise<unknown> } | null;
+    if (typeof api?.generateOpenAPISchema !== 'function') return;
+    try {
+      const schema = (await api.generateOpenAPISchema()) as IBetterAuthOpenApiDocument;
+      // The generator lists every registered endpoint, including those the running options make
+      // answer an error for everybody (POST /get-session without deferSessionRefresh, social routes
+      // without a provider, OTP routes without sendOTP, …). Only what can succeed is described.
+      const context = (await (this.getInstance() as unknown as { $context?: Promise<IBetterAuthRuntime> })
+        ?.$context) as IBetterAuthRuntime | undefined;
+      const unavailable = unavailableBetterAuthOperations(context);
+      this.unavailableOperations = unavailable;
+      // The generator also marks every route bearer-only, public ones included. What a route needs is
+      // what Better-Auth enforces on it, so that replaces the generator's guess: `security: []` for a
+      // public route, none (the document's global requirement) for one that needs a session.
+      const sessionGuarded = this.sessionGuardedOperations();
+      for (const [path, item] of Object.entries(schema.paths ?? {})) {
+        for (const method of Object.keys(item)) {
+          if (isUnavailableOperation(unavailable, method, path)) {
+            delete item[method];
+            continue;
+          }
+          const operation = item[method] as { security?: unknown[] } | undefined;
+          if (operation && typeof operation === 'object') {
+            if (!sessionGuarded || sessionGuarded.has(`${method} ${path}`)) {
+              delete operation.security;
+            } else {
+              operation.security = [];
+            }
+          }
+        }
+        if (!Object.keys(item).length) {
+          delete schema.paths[path];
+        }
+      }
+      this.openApiSchema = schema;
+    } catch (error) {
+      this.logger.warn(
+        `Could not describe Better-Auth's routes for Swagger: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
     }
   }
 
