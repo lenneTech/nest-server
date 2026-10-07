@@ -159,4 +159,15 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   8.3.3 (mature 2026-10-07 04:10 UTC; starter-only entry, track nest-server's vite devDep, 8.3.2 today),
   oxfmt 0.72.0 (only with the framework), mongoose 9.11.0 + mongodb 7.7.0 (only with the framework).
 
+**15. Framework 11.42.8 run (2026-10-07) — handover for the starter step:**
+- `check:consumer --fast` raised NO pins: the framework moved only `vite` (devDep) and an override, and
+  the starter declares neither `vite` nor `js-yaml` directly. Nothing for the migration guide.
+- Starter follow-ups: its starter-only `'vite@<8.3.2': 8.3.2` is now a downgrade lock (raise key + target
+  to 8.3.3, tracking the framework's vite devDep), and `'js-yaml@>=5.0.0 <5.4.2': 5.4.2` follows the
+  framework to `<5.4.3` -> 5.4.3. oxfmt stays 0.71.0 (framework skipped 0.72.0 again); mongo pair still
+  framework-blocked; AWS trio 3.1147.0 matures 2026-10-07 ~23:00 UTC.
+- The gate copies the starter's WORKING TREE: on 2026-10-07 it carried another session's uncommitted
+  test-infra edits (`tests/e2e-run-slots.ts`, `global-setup.ts`, …) and was green anyway (unit 338 + 1
+  skipped, e2e 119). If it goes red, check the starter's `git status` before blaming the tarball.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

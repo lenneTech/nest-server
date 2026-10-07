@@ -55,9 +55,12 @@ export const SWAGGER_TENANT_HEADER_PARAMETER = 'TenantHeader';
 /** Vendor extension listing the scopes an API token needs for an operation */
 export const SWAGGER_API_TOKEN_SCOPES_EXTENSION = 'x-api-token-scopes';
 
-const HTTP_METHODS = ['delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'trace'] as const;
-
-type HttpMethod = (typeof HTTP_METHODS)[number];
+/**
+ * Fields of an OpenAPI path item that are not operations. Every other key is an operation: they are read
+ * from the path item rather than from a list of HTTP methods, because `@All()` makes @nestjs/swagger emit
+ * a `search` operation too, which no OpenAPI version lists — a fixed list left it unenriched.
+ */
+const PATH_ITEM_FIELDS = new Set(['$ref', 'description', 'parameters', 'servers', 'summary']);
 
 /** An operation with the vendor extension this helper writes */
 type EnrichedOperation = OperationObject & { [SWAGGER_API_TOKEN_SCOPES_EXTENSION]?: string[] };
@@ -243,10 +246,9 @@ export function buildApiTokenSwaggerDocument(
 
   const paths: OpenAPIObject['paths'] = {};
   for (const [path, item] of Object.entries(view.paths)) {
-    const kept: PathItemObject = {};
-    for (const method of HTTP_METHODS) {
-      const operation = item[method] as EnrichedOperation | undefined;
-      if (!operation?.[SWAGGER_API_TOKEN_SCOPES_EXTENSION]?.length) {
+    const kept: Record<string, EnrichedOperation> = {};
+    for (const [method, operation] of operationsOf(item)) {
+      if (!operation[SWAGGER_API_TOKEN_SCOPES_EXTENSION]?.length) {
         continue;
       }
       operation.security = [{ [SWAGGER_BEARER_SCHEME]: [] }];
@@ -440,25 +442,30 @@ function isRef(value: unknown): value is ReferenceObject {
 
 function forEachOperation(
   document: OpenAPIObject,
-  visit: (path: string, method: HttpMethod, operation: EnrichedOperation) => void,
+  visit: (path: string, method: string, operation: EnrichedOperation) => void,
 ): void {
   for (const [path, item] of Object.entries(document.paths ?? {})) {
-    for (const method of HTTP_METHODS) {
-      const operation = item[method];
-      if (operation) {
-        visit(path, method, operation);
-      }
+    for (const [method, operation] of operationsOf(item)) {
+      visit(path, method, operation);
     }
   }
 }
 
+/** A path-item key that is not an operation: a field OpenAPI defines there, or a vendor extension. */
+function isPathItemField(key: string): boolean {
+  return PATH_ITEM_FIELDS.has(key) || key.startsWith('x-');
+}
+
+/** The operations of a path item, keyed by their lower-case HTTP method (`get`, ..., `search`). */
+function operationsOf(item: PathItemObject): [string, EnrichedOperation][] {
+  return Object.entries(item).filter(
+    ([key, value]) => !isPathItemField(key) && typeof value === 'object' && value !== null && !Array.isArray(value),
+  ) as [string, EnrichedOperation][];
+}
+
 /** Fields of a path item that are not operations (summary, description, servers, shared parameters). */
 function pathLevelFields(item: PathItemObject): PathItemObject {
-  const fields: PathItemObject = { ...item };
-  for (const method of HTTP_METHODS) {
-    delete fields[method];
-  }
-  return fields;
+  return Object.fromEntries(Object.entries(item).filter(([key]) => isPathItemField(key))) as PathItemObject;
 }
 
 /**

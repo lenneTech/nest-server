@@ -753,6 +753,7 @@ export class CoreBetterAuthController {
    * @see README.md "Architecture: Why Custom Controllers?"
    */
   @All('*path')
+  @ApiExcludeEndpoint() // A pass-through to Better-Auth: one `/iam/{path}` per HTTP method, with nothing to document
   @Roles(RoleEnum.S_EVERYONE)
   async handlePluginRoutes(@Req() req: Request, @Res() res: Response): Promise<void> {
     return this.handleBetterAuthPlugins(req, res);

@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-04
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-07
 metadata:
   type: project
 ---
@@ -122,5 +122,18 @@ gate). Two fresh resolves: WITH vs WITHOUT unchanged (graphql-tools 12.0.0 and j
 are audited vulnerable without the block; minimatch design). A FRESH resolve with the block lands
 http-cache-semantics on 4.3.0, which escapes the GHSA-ch52 range, so only one suppression fires there;
 the repo lock stays on 4.2.0 (two suppressions).
+
+## Status 2026-10-07 (11.42.8 run, 19 entries)
+
+Raised (key + target together): js-yaml 5.x 5.4.2 -> 5.4.3 (parser bug fix, no advisory). Not a
+hold-back: `@nestjs/swagger`'s exact 5.3.0 is still the only 5.x requester, so this is purely "newest
+bug-fix line for the pin the entry replaces". `docs/security-overrides.md` still recommends `<5.4.2` ->
+5.4.2 to consumers — deliberately left: 5.4.2 clears both advisories, and the dated comment on the
+entry says so. Every other target is the newest mature release of its major; still trailing by design:
+@graphql-tools/utils (engines), ws (lockstep). Two fresh resolves: WITH vs WITHOUT unchanged
+(graphql-tools 12.0.0 + js-yaml 5.3.0 return and audit vulnerable; minimatch design). `pnpm dedupe`:
+nothing. Names only in the repo lock (`arch`, `lodash.defaults`, `lodash.isarguments`) are ordinary
+drift (`@xhmikosr/os-filter-obj` 4.1 and ioredis 5.11 dropped them), not sticky optional peers.
+`check:overrides`: 19 ok, 2/2 suppressions still unfixed upstream.
 
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

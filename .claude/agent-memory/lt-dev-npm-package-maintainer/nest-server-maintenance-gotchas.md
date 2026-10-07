@@ -212,4 +212,13 @@ Six `Code Helper` listeners on `127.0.0.1` in 49152-65535 without any reboot. Re
 pre-emptively on `::` (tiny `net.createServer().listen({host:'::',port})` script, run as a managed
 background task, killed after the gate) costs nothing — do it before every full gate.
 
+## Foreign e2e runs from other lt projects: wait them out before each gate (2026-10-07)
+
+Two separate e2e runs of another lt project appeared during one maintenance run (load 11-17). The run governor
+would only drop this repo into low-resource mode; waiting is cheaper than a contention-timeout red. A
+bounded foreground wait (`until ! pgrep -f "[v]itest\.mjs" >/dev/null || [ $i -ge 32 ]; do sleep 15; …`)
+took ~4 min each time — run it right before `check` AND again before `check:consumer`, since a new
+foreign run can start in between. Also: grepping `check:consumer` output for "build" matches the
+tarball listing (`core-ai-prompt-builder.service.*`) — those lines are `pnpm pack` contents, not a diff.
+
 Related: [[nest-server-override-status]], [[deferred-major-updates]]

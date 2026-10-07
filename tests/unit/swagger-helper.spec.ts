@@ -1,4 +1,4 @@
-import { Controller, Get, Module, Post } from '@nestjs/common';
+import { All, Controller, Get, Module, Post } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ApiOkResponse, ApiProperty } from '@nestjs/swagger';
 import request from 'supertest';
@@ -14,6 +14,7 @@ import {
   SWAGGER_TENANT_HEADER_PARAMETER,
 } from '../../src/core/common/helpers/swagger.helper';
 import { ApiTokenScopes } from '../../src/core/modules/api-token/core-api-token.decorators';
+import { CoreBetterAuthController } from '../../src/core/modules/better-auth/core-better-auth.controller';
 import { SkipTenantCheck } from '../../src/core/modules/tenant/core-tenant.decorators';
 
 import type { INestApplication } from '@nestjs/common';
@@ -82,6 +83,20 @@ class MixedController {
 
 @Module({ controllers: [ItemController, InternalController, MixedController] })
 class SwaggerTestModule {}
+
+// `@All()` is documented as one operation per HTTP method — SEARCH included, which is not one of the
+// methods an OpenAPI path item defines. Kept in its own module so the exact path and tag lists asserted
+// against SwaggerTestModule stay as they are.
+@Controller('relay')
+@Roles('member')
+@ApiTokenScopes('read')
+class RelayController {
+  @All()
+  relay(): void {}
+}
+
+@Module({ controllers: [RelayController] })
+class RelayTestModule {}
 
 const fullConfig: Partial<IServerOptions> = {
   apiTokens: { scopes: ['read', 'write'] },
@@ -292,6 +307,73 @@ describe('Swagger helper', () => {
       expect(view.body.info.title).toBe('Partner API');
 
       await request(served.getHttpServer()).get('/swagger-partner').expect(200);
+    });
+  });
+
+  describe('a handler for every HTTP method (@All)', () => {
+    let relayApp: INestApplication;
+    let document: OpenAPIObject;
+
+    beforeAll(async () => {
+      const moduleRef = await Test.createTestingModule({ imports: [RelayTestModule] }).compile();
+      relayApp = moduleRef.createNestApplication();
+      await relayApp.init();
+      document = buildSwaggerDocument(relayApp, options, fullConfig);
+    });
+
+    afterAll(async () => {
+      await relayApp?.close();
+    });
+
+    it('enriches every operation it produces, SEARCH included', () => {
+      const operations = Object.entries(document.paths['/relay'] ?? {});
+      expect(operations.map(([method]) => method)).toContain('search');
+      for (const [method, op] of operations as [string, OperationObject & Record<string, any>][]) {
+        expect(op[SWAGGER_API_TOKEN_SCOPES_EXTENSION], method).toEqual(['read']);
+        expect(op.description, method).toContain('**API tokens:** allowed with scope `read`.');
+        expect(hasTenantHeader(op), method).toBe(true);
+      }
+    });
+
+    it('retags SEARCH like every other method', () => {
+      // Not 'Relay': autoTagControllers already gives every operation that tag, so it would pass unretagged.
+      const tagged = buildSwaggerDocument(relayApp, { ...options, operationTags: () => ['Integration'] }, fullConfig);
+      for (const [method, op] of Object.entries(tagged.paths['/relay'] ?? {}) as [string, OperationObject][]) {
+        expect(op.tags, method).toEqual(['Integration']);
+      }
+    });
+
+    it('treats SEARCH as an operation in the API-token view, not as a field of the path', () => {
+      const view = buildApiTokenSwaggerDocument(document, {}, fullConfig);
+      const search = view.paths['/relay']?.['search' as 'get'] as (OperationObject & Record<string, any>) | undefined;
+      expect(search?.[SWAGGER_API_TOKEN_SCOPES_EXTENSION]).toEqual(['read']);
+      expect(search?.security).toEqual([{ bearer: [] }]);
+    });
+  });
+
+  describe('framework routes', () => {
+    it('keeps the Better-Auth pass-through (`@All` under /iam) out of the document', async () => {
+      // Every collaborator is replaced by a stub: only the controller's routes and metadata matter here.
+      const stub = new Proxy(
+        {},
+        {
+          get: (_target, prop) =>
+            prop === 'then' || typeof prop === 'symbol' ? undefined : prop === 'getBasePath' ? () => '/iam' : () => undefined,
+        },
+      );
+      const moduleRef = await Test.createTestingModule({ controllers: [CoreBetterAuthController] })
+        .useMocker(() => stub)
+        .compile();
+      const iamApp = moduleRef.createNestApplication();
+      await iamApp.init();
+      try {
+        const document = buildSwaggerDocument(iamApp, options, { betterAuth: false });
+        const paths = Object.keys(document.paths);
+        expect(paths.some((path) => path.startsWith('/iam/'))).toBe(true);
+        expect(paths).not.toContain('/iam/{path}');
+      } finally {
+        await iamApp.close();
+      }
     });
   });
 });
