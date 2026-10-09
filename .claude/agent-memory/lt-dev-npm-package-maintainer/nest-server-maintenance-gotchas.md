@@ -221,4 +221,21 @@ took ~4 min each time — run it right before `check` AND again before `check:co
 foreign run can start in between. Also: grepping `check:consumer` output for "build" matches the
 tarball listing (`core-ai-prompt-builder.service.*`) — those lines are `pnpm pack` contents, not a diff.
 
+## `ansi-colors` was referenced only by a dead Jest reporter (found 2026-10-09; REMOVED the same day)
+
+`tests/report.js` is a Jest custom reporter (`onTestResult`) from before the 11.5.0 Vitest switch; no
+vitest config loads it, and it is its only importer of `ansi-colors`. Removing the devDependency changes
+NOTHING in the tree (4.1.3 stays via two transitive parents) and leaves a dead `require`, so the real
+cleanup is deleting `tests/report.js` together with the entry — a repo decision, same as husky was.
+Decided 2026-10-09: both removed (`git rm tests/report.js`, `pnpm remove ansi-colors`). 4.1.3 stays in
+the lockfile as a transitive package; do not re-add it as a direct devDependency.
+
+## High load without any vitest: find the source before the gate (2026-10-09)
+
+Load average hit 42 with no foreign e2e run; the spike was a foreign `pnpm install` in another repo plus
+VS Code helpers. A bounded wait on `sysctl -n vm.loadavg` (1-min < 20) took ~2 min and the gate then
+ran clean (3m41s). `pnpm install` "Packages: +51 -119" after a pnpm version change is relinking, not
+resolution — diff the lock by name+version (scratch `lockdiff.mjs` parsing the `packages:` keys) before
+reading anything into it.
+
 Related: [[nest-server-override-status]], [[deferred-major-updates]]

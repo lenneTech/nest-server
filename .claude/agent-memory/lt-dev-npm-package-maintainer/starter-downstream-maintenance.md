@@ -193,4 +193,16 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
 - Still pending in the starter: nothing of its own. mongo pair, ws/graphql-ws, @graphql-tools/utils,
   oxfmt 0.72 — all follow the framework.
 
+**17. Framework post-11.42.9 run (2026-10-09) — handover for the starter step:**
+- `check:consumer --fast` raised NO pins (the framework moved nodemailer, the AWS devDep trio and a
+  transitive handlebars; the starter declares none of them directly). Green: unit 347 + 1 skipped /
+  20 files, e2e 119 / 12 files — against ANOTHER session's in-progress starter tree (pnpm 11.28.5 pin,
+  fresh-resolve lockfile, oxfmt 0.72.0), which the gate copies verbatim.
+- Starter follow-ups: `'nodemailer@<10.0.15': 10.0.15` must follow the framework to `<10.0.16` ->
+  10.0.16 (its own comment requires lockstep; harmless today because the framework's EXACT 10.0.16 is
+  outside the key). **oxfmt divergence:** that session moved the starter to oxfmt 0.72.0 while the
+  framework stays on 0.71.0 — against item 14 (vendor-mode projects format the vendored core with the
+  template's oxfmt, and 0.72.0 is exactly what rewrites the two core READMEs). Flagged to the
+  orchestrator; not changed from here.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

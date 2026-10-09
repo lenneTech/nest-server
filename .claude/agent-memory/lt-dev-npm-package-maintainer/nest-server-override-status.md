@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-07
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-09
 metadata:
   type: project
 ---
@@ -136,4 +136,21 @@ nothing. Names only in the repo lock (`arch`, `lodash.defaults`, `lodash.isargum
 drift (`@xhmikosr/os-filter-obj` 4.1 and ioredis 5.11 dropped them), not sticky optional peers.
 `check:overrides`: 19 ok, 2/2 suppressions still unfixed upstream.
 
+## Status 2026-10-09 (post-11.42.9 run, 19 entries, none changed)
+
+Second run with NO raise (hono published nothing new). Every target is the newest mature release of its
+major; still trailing by design: @graphql-tools/utils 12.0.1 (12.0.3 exists — see the engines wrinkle
+in [[deferred-major-updates]]: a fresh resolve carries 12.0.3 on the merge 9.2.6 path anyway) and ws
+8.21.3 (lockstep). Two fresh resolves: WITH vs WITHOUT unchanged (graphql-tools 12.0.0 + js-yaml 5.3.0
+return, WITHOUT audits 1 high + 1 moderate; minimatch 9.0.9 + brace-expansion 2.1.7 design). The
+baseline-red handlebars advisories needed NO override — stale lock, targeted update (same shape as
+@xhmikosr/decompress on 2026-10-01): read the requester's declared range BEFORE writing an entry.
+`pnpm dedupe`: zero version movement, only `supports-color` suffix churn — skipped.
+
+
+**Same day, after the run (repo owner decision):** `@graphql-tools/utils` re-targeted
+`'@graphql-tools/utils@>=12.0.0 <12.0.3': '12.0.3'` together with `engines.node` `>= 22.15`. It no
+longer trails by design — the newest 12.x is now the target, so the hold-back on schema / merge is
+gone (apollo path 10.1.3 / 9.2.6). From here it follows the usual rule: raise key and target with
+each new 12.x, as long as its engines stay within the floor.
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]
