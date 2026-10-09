@@ -2169,6 +2169,17 @@
         "tests/unit/better-auth-openapi-availability.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "pnpm-pin-provision-probe-reads-repo-pin",
+      "defect": "11.42.10 — the provisioning case asked the freshly installed pnpm for its version without a cwd, i.e. from the repo directory. pnpm 11 switches to the packageManager pin of the directory it runs in (managePackageManagerVersions) and reports THAT, so a pnpm@11.14.0 installed into the prefix answered 11.28.5 and the assertion compared the pin with the pin. Measured 2026-10-09 by two peer sessions (nuxt-base-starter, nuxt-extensions) and re-measured here. The case only ever ran in CI, where action-setup installs pnpm without corepack — locally under corepack the same call aborts instead — so no local run could show the gap. The mutation installs a wrong version on purpose and forces the CI gate open so it also runs outside CI (needs network); with the probe running in the prefix it must go red with Expected/Received, without it it stays green.",
+      "file": "tests/unit/pnpm-pin-contract.spec.ts",
+      "find": "describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))(\n  'pnpm pin contract: provisioning (CI / PIN_PROVISION_TEST only)',\n  () => {\n    it('derive-line yields the pinned spec and npm provisions exactly that pnpm version', () => {\n      const derived = execSync(\"node -p \\\"require('./package.json').packageManager.split('+')[0]\\\"\", {\n        cwd: ROOT,\n        encoding: 'utf8',\n      }).trim();\n      expect(derived).toBe(pinnedSpec);\n      expect(derived).toBe(`pnpm@${pinnedVersion}`);\n\n      const prefix = mkdtempSync(join(tmpdir(), 'pnpm-pin-contract-'));\n      try {\n        execSync(`npm install -g --prefix \"${prefix}\" \"${derived}\"`, {",
+      "replace": "describe.runIf(true)(\n  'pnpm pin contract: provisioning (CI / PIN_PROVISION_TEST only)',\n  () => {\n    it('derive-line yields the pinned spec and npm provisions exactly that pnpm version', () => {\n      const derived = execSync(\"node -p \\\"require('./package.json').packageManager.split('+')[0]\\\"\", {\n        cwd: ROOT,\n        encoding: 'utf8',\n      }).trim();\n      expect(derived).toBe(pinnedSpec);\n      expect(derived).toBe(`pnpm@${pinnedVersion}`);\n\n      const prefix = mkdtempSync(join(tmpdir(), 'pnpm-pin-contract-'));\n      try {\n        execSync(`npm install -g --prefix \"${prefix}\" \"pnpm@11.14.0\"`, {",
+      "specs": [
+        "tests/unit/pnpm-pin-contract.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

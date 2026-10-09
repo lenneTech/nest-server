@@ -149,14 +149,16 @@ overrides:
   # LOAD-BEARING, and no in-major bump reaches it: @nestjs/graphql 13.4.5 — the newest 13.x —
   # EXACT-pins `"@graphql-tools/utils": "12.0.0"`; only 14.x moves the pin, and crossing a major of
   # @nestjs/graphql to fix a transitive advisory is the shape the "stay within the major" rule forbids.
-  # Target is the fix line 12.0.1, DELIBERATELY not the newest 12.0.3: 12.0.2 moved to
-  # `@whatwg-node/promise-helpers` ^2.0.0, whose engines field demands Node >=22.15.0, while this
-  # repo declares `engines.node: ">= 22.12"`. A security lift must not quietly raise the Node floor.
-  # Known cost: @graphql-tools/schema and /merge request `^12.0.0`, which INTERSECTS this key, so the
-  # entry holds them at 12.0.1 too (the axios / browserslist hold-back trap below) — accepted, as it
-  # withholds only non-security patches. Re-target when engines.node reaches 22.15.
+  # Target is the newest 12.x, 12.0.3 (2026-10-09; was the fix line 12.0.1 until then). 12.0.2 moved
+  # to `@whatwg-node/promise-helpers` ^2.0.0, whose engines field demands Node >=22.15.0, so the
+  # target was held at 12.0.1 while this repo declared `engines.node: ">= 22.12"`. That floor was
+  # already fictional for consumers: `@apollo/server` > @graphql-tools/schema / merge request
+  # `^12.0.3` in every fresh resolve. `engines.node` moved to `>= 22.15` in the same change — the
+  # two belong together, never raise this target past a release whose engines exceed the floor.
+  # The key INTERSECTS the `^12.0.0` that schema / merge request (the axios / browserslist hold-back
+  # trap below): harmless only while the target is the newest 12.x, so raise it with each release.
   # Remove once @nestjs/graphql pins >=12.0.1 in the major this repo uses.
-  '@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'
+  '@graphql-tools/utils@>=12.0.0 <12.0.3': '12.0.3'
   # Security: qs — two MODERATE advisories, patched >=6.16.0 (added 2026-09-02)
   #   array-limit bypass via bracket-key comma parsing, and a DoS via attacker-controlled isBuffer
   # RUNTIME: qs is how Express parses query strings, so it is on the request path of every route.
