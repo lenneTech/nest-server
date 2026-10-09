@@ -118,6 +118,17 @@ describe('pnpm pin contract: GitHub workflows', () => {
 // Functional proof of the whole chain: derive the spec exactly like the Dockerfile does, install
 // it into a throwaway npm prefix, and check the provisioned binary reports the pinned version.
 // Needs network + ~10MB, so it is gated to CI / explicit opt-in and must not slow local hooks.
+/**
+ * @regression   11.42.10 — the provisioned binary was asked for its version from the REPO
+ *   directory. pnpm 11 switches to the `packageManager` pin of the directory it runs in
+ *   (`managePackageManagerVersions`), so it answered with the pin rather than with itself: a
+ *   pnpm@11.14.0 installed into the prefix reported 11.28.5 here. The assertion compared the pin
+ *   with the pin and could not fail. Running the probe inside the prefix (no package.json above
+ *   `os.tmpdir()`) makes it report the version npm actually installed.
+ * @seen-failing Install `pnpm@11.14.0` instead of the derived spec, with the CI gate forced open so
+ *   the case runs outside CI too — registered as mutation `pnpm-pin-provision-probe-reads-repo-pin`
+ *   in tests/regression-mutations.json.
+ */
 describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))(
   'pnpm pin contract: provisioning (CI / PIN_PROVISION_TEST only)',
   () => {
@@ -143,7 +154,9 @@ describe.runIf(Boolean(process.env.CI || process.env.PIN_PROVISION_TEST))(
         // test must run the pnpm it just installed, never one found on PATH.
         const launchers = [join(prefix, 'bin', 'pnpm'), join(prefix, 'pnpm.cmd')].filter((path) => existsSync(path));
         expect(launchers).toHaveLength(1);
-        const provisioned = execSync(`"${launchers[0]}" --version`, { encoding: 'utf8' }).trim();
+        // `cwd: prefix`, never the repo: inside a directory with a `packageManager` pin, pnpm 11
+        // switches to that pin and reports IT, so the probe would confirm any installed version.
+        const provisioned = execSync(`"${launchers[0]}" --version`, { cwd: prefix, encoding: 'utf8' }).trim();
         expect(provisioned).toBe(pinnedVersion);
       } finally {
         rmSync(prefix, { force: true, recursive: true });
