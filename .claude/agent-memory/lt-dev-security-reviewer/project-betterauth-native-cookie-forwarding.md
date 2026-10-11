@@ -42,12 +42,22 @@ dependency.
 pin, no `defaultCookieAttributes`). The fix was folded into the SAME commit before it landed. The review was
 never re-verified, so an already-remediated finding survived in memory as if open.
 
-## Real residual footgun (LOW, still open)
+## Former residual footgun — FIXED (verified 2026-10-11)
 
-`better-auth.config.ts:476-479` shallow-merges a consumer's `options.advanced` over the framework's, so a project
-setting `advanced.defaultCookieAttributes` for ANY reason (e.g. `{ partitioned: true }`) **wholesale-replaces**
-the framework's `{ secure: true }` → `secure:false` on https. Runtime-confirmed. Deep-merging that one key
-(`defaultCookieAttributes: { secure: true, ...consumer }`) would close it.
+The shallow `options.advanced` merge that let `defaultCookieAttributes: { partitioned: true }` wipe
+`secure: true` is gone: `better-auth.config.ts` now deep-merges that one key (`secure: true` as base,
+consumer keys over it, explicit `secure: false` still wins). Do not re-report.
+
+## Helper path follows Better-Auth since 11.42.12 (verified 2026-10-11)
+
+The helper path used to decide `Secure` by `isProductionLikeEnv()` alone (only production/staging), so
+https `develop`/`test` stages got the sign-in cookie WITHOUT `Secure` while native handlers set it. Now
+`secure = secureTransport === true || isProductionLikeEnv(env)`, with `secureTransport` =
+`CoreBetterAuthService.usesSecureCookies()` (reads `instance.options.advanced.useSecureCookies` /
+`defaultCookieAttributes.secure`). OR-only: can ADD Secure, never remove it. The instance is
+constructor-injected via an async factory, so it exists when the controller constructor builds its
+helper. Legacy cookies: `isProductionLikeEnv(env) || https baseUrl`. Call-site wiring pinned by
+`tests/unit/auth-cookie-secure-wiring.spec.ts`.
 
 **How to apply:** when reviewing BetterAuth cookie/`Secure`/`SameSite` changes, still check BOTH paths — but
 verify against `createCookieGetter`'s FULL object literal (through line 39), not just the `secure:` line. Before

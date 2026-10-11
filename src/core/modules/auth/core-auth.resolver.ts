@@ -174,6 +174,7 @@ export class CoreAuthResolver {
   protected processCookies(ctx: { res: ResponseType }, result: any) {
     const cookiesConfig = this.configService.getFastButReadOnly<boolean | ICookiesConfig>('cookies');
     const env = this.configService.getFastButReadOnly<string>('env');
-    return setLegacyAuthCookies(ctx.res, result, cookiesConfig, env);
+    const baseUrl = this.configService.getFastButReadOnly<string>('baseUrl');
+    return setLegacyAuthCookies(ctx.res, result, cookiesConfig, env, baseUrl);
   }
 }

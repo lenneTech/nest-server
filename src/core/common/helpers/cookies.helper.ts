@@ -51,21 +51,35 @@ export interface AuthCookieDefaultOptions {
  *
  * - `httpOnly: true` — prevents JavaScript access (XSS mitigation)
  * - `sameSite: 'lax'` — CSRF mitigation
- * - `secure: isProductionLikeEnv(env)` — HTTPS-only in production/staging
+ * - `secure` — HTTPS-only on an `https://` `baseUrl`, and always in production/staging
  *
- * Used by both Legacy Auth and BetterAuth cookie helpers for consistent security.
+ * Used by the Legacy Auth cookie helper. (The BetterAuth helper decides `secure` the same way, but
+ * reads the https half off the Better-Auth instance.)
  *
  * @param env - App-level environment from `IServerOptions.env` (e.g. `'production'`, `'staging'`, `'ci'`).
  *              Falls back to `process.env.NODE_ENV === 'production'` if absent.
+ * @param baseUrl - The server's `IServerOptions.baseUrl`. An `https://` value sets `secure` whatever
+ *              the environment is called — since 11.42.12, because the deployed `develop` / `test`
+ *              stages of a starter-based project are not production-like and got cookies without it.
  *
  * @since 11.25.0
  */
-export function getDefaultAuthCookieOptions(env?: string): AuthCookieDefaultOptions {
+export function getDefaultAuthCookieOptions(env?: string, baseUrl?: string): AuthCookieDefaultOptions {
   return {
     httpOnly: true,
     sameSite: 'lax',
-    secure: isProductionLikeEnv(env),
+    secure: isProductionLikeEnv(env) || isHttpsUrl(baseUrl),
   };
+}
+
+/**
+ * Whether a URL uses https, the transport signal for the `Secure` cookie attribute (Better-Auth
+ * derives its own the same way). Trimmed and case-insensitive; anything that is not a string is not.
+ *
+ * @since 11.42.12
+ */
+function isHttpsUrl(url: unknown): boolean {
+  return typeof url === 'string' && url.trim().toLowerCase().startsWith('https://');
 }
 
 /**
@@ -114,6 +128,7 @@ export function assertCookiesProductionSafe(
  * @param result - Auth result containing `token` and `refreshToken` (modified in place)
  * @param cookies - The `cookies` config value from IServerOptions
  * @param env - App-level env from `IServerOptions.env` (used for `secure` flag derivation)
+ * @param baseUrl - `IServerOptions.baseUrl`; an `https://` value sets `secure` too (since 11.42.12)
  * @returns The (possibly modified) result object
  *
  * @since 11.25.0
@@ -123,12 +138,13 @@ export function setLegacyAuthCookies<T extends { refreshToken?: string; token?: 
   result: T,
   cookies: boolean | ICookiesConfig | undefined,
   env?: string,
+  baseUrl?: string,
 ): T {
   if (!isCookiesEnabled(cookies)) {
     return result;
   }
 
-  const cookieOptions = getDefaultAuthCookieOptions(env);
+  const cookieOptions = getDefaultAuthCookieOptions(env, baseUrl);
 
   // If result is absent or not an object, clear any existing cookies (logout path)
   if (!result || typeof result !== 'object') {
@@ -261,11 +277,39 @@ export const LOCALHOST_URL_DEFAULTS = {
 } as const;
 
 /**
- * Environments that fall back to {@link LOCALHOST_URL_DEFAULTS} when no URLs are configured.
+ * The LOCAL environments: they run on a developer machine or in a test job, never as a deployment.
+ *
+ * They fall back to {@link LOCALHOST_URL_DEFAULTS} when no URLs are configured, and
+ * {@link isLocalEnv} reads this list for every other "local only" decision (the SSRF guard's
+ * private targets, the auth-link log). One list, so the decisions cannot drift apart.
+ *
+ * Deliberately NOT `development` or `test`: in projects built from nest-server-starter `test` is a
+ * DEPLOYED stage (often the customer's QA stage), and `develop`/`development` name a deployed dev
+ * stage as often as a laptop.
  *
  * @since 11.27.5
  */
 export const LOCALHOST_URL_ENVS: readonly string[] = ['ci', 'e2e', 'local'];
+
+/**
+ * Checks whether the given environment is local ({@link LOCALHOST_URL_ENVS}: `local`, `ci`, `e2e`),
+ * matched trimmed and case-insensitively.
+ *
+ * Not the complement of {@link isProductionLikeEnv}. That one answers "must this be hardened?" and
+ * names only the environments that obviously hold real users; everything it does not name counts
+ * as non-production, including the deployed `develop` and `test` stages of a starter-based project.
+ * Use this one when the question is the opposite — "may this run without protection?" — so that an
+ * environment nobody listed stays protected. An unknown or missing name answers `false`.
+ *
+ * @since 11.42.12
+ */
+export function isLocalEnv(env?: string): boolean {
+  return LOCALHOST_URL_ENVS.includes(
+    String(env ?? '')
+      .trim()
+      .toLowerCase(),
+  );
+}
 
 /**
  * The hostname label stripped from `baseUrl` to derive `appUrl`.

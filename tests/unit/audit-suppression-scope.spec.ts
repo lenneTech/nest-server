@@ -25,10 +25,15 @@ const ROOT = join(__dirname, '../..');
 /**
  * Packages whose advisories are currently suppressed, and must stay dev-only.
  *
- * Two entries since 2026-10-03, both advisories with NO patched release at all, both
- * reached only through dev tooling (see the comments in `pnpm-workspace.yaml`). The
- * patterns match ANY version on purpose: with no fixed release, every version in the
- * production tree is a vulnerable one, so any appearance there voids the justification.
+ * One entry since 2026-10-11, an advisory with NO patched release at all, reached only
+ * through dev tooling (see the comments in `pnpm-workspace.yaml`). The pattern matches
+ * ANY version on purpose: with no fixed release, every version in the production tree
+ * is a vulnerable one, so any appearance there voids the justification.
+ *
+ * GHSA-ch52-4w7c-c8xp (http-cache-semantics) had an entry here from 2026-10-03 until
+ * 2026-10-11. It left with its suppression, when the lockfile moved to 4.3.0 — outside
+ * the advisory's declared range, though NOT a fix (see `pnpm-workspace.yaml`). If that
+ * range is ever extended and the suppression returns, its guard returns here with it.
  *
  * The entry that was here before (empty from 2026-09-03 until then) is worth keeping
  * in view — it shows what this spec does NOT cover.
@@ -64,8 +69,6 @@ const ROOT = join(__dirname, '../..');
  * when upstream moves, not when your own reasoning stopped applying.
  */
 const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [
-  // via @swc/cli > @xhmikosr/bin-wrapper > @xhmikosr/downloader > got > cacheable-request
-  { ghsa: 'GHSA-ch52-4w7c-c8xp', pkg: 'http-cache-semantics', vulnerableInProd: /http-cache-semantics@/ },
   // via nodemon (and npm-watch) > chokidar@3
   { ghsa: 'GHSA-vfj7-8cjw-p6xm', pkg: 'braces', vulnerableInProd: /braces@/ },
 ];

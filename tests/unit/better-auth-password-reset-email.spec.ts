@@ -240,6 +240,53 @@ describe('sendPasswordResetEmail', () => {
       expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
     });
 
+    /**
+     * @regression   11.42.12 — the gate was `!isProductionLikeEnv(env)`, which names only `production`
+     *   and `staging`. The deployed `develop` and `test` stages of a starter-based project passed it
+     *   and wrote live reset links into their log pipeline (seen on a deployed develop stage), so log
+     *   access alone was enough to take over an account. `development` is in the list because it
+     *   names a deployed dev stage as often as a laptop.
+     * @seen-failing Restore the old gate in logAuthUrlForDevelopment() in
+     *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as
+     *   mutation `auth-url-log-on-deployed-stage` in tests/regression-mutations.json.
+     */
+    it.each(['develop', 'test', 'development', 'qa'])('prints nothing on the %s stage', async (env) => {
+      const { service } = createService({ env });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
+    });
+
+    it.each(['ci', 'e2e'])('prints the link in %s, like in local', async (env) => {
+      const { service } = createService({ env });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeDefined();
+    });
+
+    it('prints the link in another environment when LT_LOG_AUTH_URLS=1 opts in', async () => {
+      process.env.LT_LOG_AUTH_URLS = '1';
+      const { service } = createService({ env: 'development' });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      const line = logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'));
+      expect(line).toBeDefined();
+      expect(line).not.toContain(USER.email);
+    });
+
+    it.each(['production', 'staging'])('prints nothing in %s even when LT_LOG_AUTH_URLS=1', async (env) => {
+      // The opt-in is for laptops; it must never be the switch that reopens a deployment.
+      process.env.LT_LOG_AUTH_URLS = '1';
+      const { service } = createService({ env });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
+    });
+
     it('prints nothing when LT_LOG_AUTH_URLS=0', async () => {
       process.env.LT_LOG_AUTH_URLS = '0';
       const { service } = createService({ env: 'local' });

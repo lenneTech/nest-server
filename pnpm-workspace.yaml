@@ -28,8 +28,8 @@ allowBuilds:
 # three sentences honestly, fix the dependency instead.
 # ----------------------------------------------------------------------------------
 auditConfig:
-  # Two entries since 2026-10-03, both for advisories with NO patched version anywhere — read the
-  # history below before adding a third.
+  # One entry since 2026-10-11, for an advisory with NO patched version anywhere — read the
+  # history below before adding a second.
   #
   # This list held GHSA-mh99-v99m-4gvg (brace-expansion DoS, HIGH) from 2026-07-28
   # until 2026-09-03, with a careful justification: at the time the newest 1.x was
@@ -58,14 +58,23 @@ auditConfig:
   # moment a patched version is published. When it does, remove the entry; if the lockfile does not
   # move on its own, add a range-floored override instead.
   #
-  # Neither entry reaches a consumer: this file is never read outside this repository.
+  # No entry reaches a consumer: this file is never read outside this repository.
+  #
+  # GHSA-ch52-4w7c-c8xp (http-cache-semantics <= 4.2.0, max-stale handling) was listed here from
+  # 2026-10-03 until 2026-10-11, dev tooling only (@swc/cli > ... > got > cacheable-request). It was
+  # removed together with a lockfile lift to 4.3.0 (2026-10-04), which `cacheable-request`'s
+  # `^4.2.0` takes on any fresh resolve anyway. 4.3.0 is NOT a fix: its max-stale code is
+  # byte-identical to 4.2.0's (diffed 2026-10-11); it merely lies outside the declared range,
+  # because the advisory was written as "<= newest" and never followed the release. The maintainer
+  # disputes the report (kornelski/http-cache-semantics#56); a request to withdraw the advisory is
+  # open (advisory-database#10139), and an independent re-test posted there on 2026-10-07 reproduces
+  # the behaviour from 3.4.0 through 4.3.0 — so a range extension is a real possibility.
+  # Removed rather than kept because on 4.3.0 the entry is INERT, and an inert suppression is the
+  # worst shape: it hides nothing today and would swallow the advisory unseen the day its range is
+  # extended to 4.3.0. Without it that day turns `pnpm audit` red, which is the signal to re-argue
+  # the dev-only case and, if it still holds, restore the entry together with its guard in
+  # tests/unit/audit-suppression-scope.spec.ts.
   ignoreGhsas:
-    # http-cache-semantics <= 4.2.0, HIGH: max-stale handling can serve one user's cached response
-    # to another. Dev tooling only: @swc/cli (also via @nestjs/cli) > @xhmikosr/bin-wrapper >
-    # @xhmikosr/downloader > got > cacheable-request > http-cache-semantics — the HTTP cache of a
-    # build CLI's binary downloader, with no server and no second user. Verified 2026-10-03: newest
-    # release is 4.2.0, the advisory names no first patched version.
-    - GHSA-ch52-4w7c-c8xp
     # braces <= 3.0.3, HIGH: stack exhaustion through deeply nested patterns. Dev tooling only:
     # nodemon (also via npm-watch) > chokidar@3 > braces. The patterns come from this repository's
     # own watch configuration, never from input. chokidar@4 no longer uses braces but also dropped

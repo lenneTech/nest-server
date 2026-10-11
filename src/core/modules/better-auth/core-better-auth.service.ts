@@ -704,6 +704,30 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
   }
 
   /**
+   * Whether Better-Auth's own handlers set `Secure` on the cookies they write, read off the live
+   * instance.
+   *
+   * `createBetterAuthInstance()` pins `useSecureCookies: false` (for the cookie NAME) and restores
+   * the transport flag through `advanced.defaultCookieAttributes.secure` on an `https://` base URL;
+   * a project may override either. Reading the instance rather than re-deriving from a URL gives
+   * exactly the answer Better-Auth applies — including the base URL it actually uses, which
+   * {@link getBaseUrl} does not know when only the server's `baseUrl` is set.
+   *
+   * The framework's own cookie helper mirrors this, so a session cookie carries `Secure` no matter
+   * which path wrote it.
+   *
+   * @since 11.42.12
+   */
+  usesSecureCookies(): boolean {
+    const advanced = (
+      this.getInstance() as unknown as {
+        options?: { advanced?: { defaultCookieAttributes?: { secure?: unknown }; useSecureCookies?: unknown } };
+      } | null
+    )?.options?.advanced;
+    return advanced?.useSecureCookies === true || advanced?.defaultCookieAttributes?.secure === true;
+  }
+
+  /**
    * Gets the resolved cookie domain for cross-subdomain cookie sharing.
    *
    * Returns the domain that was resolved during Better-Auth instance creation.

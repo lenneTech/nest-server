@@ -27,7 +27,9 @@ import { getCookies } from 'better-auth/cookies';
 import { describe, expect, it } from 'vitest';
 
 import { createBetterAuthInstance } from '../../src/core/modules/better-auth/better-auth.config';
+import { createCookieHelper } from '../../src/core/modules/better-auth/core-better-auth-cookie.helper';
 import { sendWebResponse } from '../../src/core/modules/better-auth/core-better-auth-web.helper';
+import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
 
 // Minimal MongoDB `Db` stand-in. `mongodbAdapter(db)` only stores the reference;
 // nothing here is called during `createBetterAuthInstance()`.
@@ -317,5 +319,87 @@ describe('sendWebResponse: native-forwarded Set-Cookie reaches Express verbatim'
     const forwarded = res.getHeader('set-cookie') as string[];
     expect(forwarded).toContain(preExisting);
     expect(forwarded).toContain(fromBetterAuth);
+  });
+});
+
+/**
+ * One session cookie, one transport rule.
+ *
+ * The same `<prefix>.session_token` is written by two paths: Better-Auth's native handlers (2FA
+ * verify, social callback, passkey — pinned above) and the framework's `BetterAuthCookieHelper`
+ * (sign-in and sign-up through the NestJS controller, the API middleware). Until 11.42.12 the
+ * helper decided `Secure` by `isProductionLikeEnv()` alone, which names only `production` and
+ * `staging` — so on the deployed `develop` / `test` stage of a starter-based project, served over
+ * https, the very sign-in that establishes the session set its cookie WITHOUT `Secure`, while the
+ * native handlers on the same deployment set it with.
+ *
+ * Each case builds a REAL instance, asks Better-Auth what it derives, and requires the helper —
+ * wired the way the controller wires it, through `CoreBetterAuthService.usesSecureCookies()` — to
+ * agree, in an environment that is neither local nor production-like.
+ */
+describe('the framework cookie helper follows Better-Auth\'s Secure decision', () => {
+  function bothSides(config: Record<string, unknown>, serverBaseUrl?: string) {
+    const result = createBetterAuthInstance({ config: config as any, db: fakeDb, serverBaseUrl, serverEnv: 'develop' });
+    expect(result).not.toBeNull();
+    const instance = result!.instance as any;
+    const service = new CoreBetterAuthService(instance, undefined, config as any, undefined, undefined);
+    const helper = createCookieHelper('/iam', { env: 'develop', secureTransport: service.usesSecureCookies() });
+    return {
+      betterAuth: getCookies(instance.options).sessionToken.attributes.secure === true,
+      framework: helper.getDefaultCookieOptions().secure,
+    };
+  }
+
+  /**
+   * @regression   11.42.12 — on a deployed `develop` / `test` stage over https, the session cookie
+   *   the framework's helper wrote lacked `Secure`, while Better-Auth's handlers set it.
+   * @seen-failing Decide `secure` in BetterAuthCookieHelper.getDefaultCookieOptions() from
+   *   `isProductionLikeEnv()` alone again — registered as mutation
+   *   `framework-cookie-ignores-better-auth-secure` in tests/regression-mutations.json.
+   */
+  it('sets Secure on an https deployment, also when only the SERVER baseUrl says https', () => {
+    // The server-level case is the common one (betterAuth.baseUrl is rarely set), and the one
+    // `getBaseUrl()` cannot see: it reads betterAuth.baseUrl only and falls back to localhost.
+    expect(bothSides({ enabled: true, secret: VALID_SECRET }, 'https://api.dev.example.com')).toEqual({
+      betterAuth: true,
+      framework: true,
+    });
+    expect(bothSides({ baseUrl: 'https://api.dev.example.com', enabled: true, secret: VALID_SECRET })).toEqual({
+      betterAuth: true,
+      framework: true,
+    });
+  });
+
+  it('leaves Secure off on an http deployment, where a browser would drop the cookie', () => {
+    expect(bothSides({ enabled: true, secret: VALID_SECRET }, 'http://localhost:3000')).toEqual({
+      betterAuth: false,
+      framework: false,
+    });
+  });
+
+  it('honours a project\'s explicit opt-out the same way Better-Auth does', () => {
+    expect(
+      bothSides({
+        baseUrl: 'https://api.dev.example.com',
+        enabled: true,
+        options: { advanced: { defaultCookieAttributes: { secure: false } } },
+        secret: VALID_SECRET,
+      }),
+    ).toEqual({ betterAuth: false, framework: false });
+  });
+
+  it('follows a project that hands cookies to Better-Auth entirely (useSecureCookies: true)', () => {
+    expect(
+      bothSides({
+        baseUrl: 'https://api.dev.example.com',
+        enabled: true,
+        options: { advanced: { useSecureCookies: true } },
+        secret: VALID_SECRET,
+      }),
+    ).toEqual({ betterAuth: true, framework: true });
+  });
+
+  it('answers false without an instance (Better-Auth disabled) instead of throwing', () => {
+    expect(new CoreBetterAuthService(null, undefined, {} as any, undefined, undefined).usesSecureCookies()).toBe(false);
   });
 });
