@@ -51,5 +51,5 @@ reverted.
 A redaction rule is only as good as its knowledge of the URL shapes the app actually emits. When a
 new auth route is added, re-run the probe against ITS url — do not assume the family is covered.
 
-Related: [[project-hub-config-masking-gaps.md]] is the same class of defect in a DIFFERENT function
+Related: [[project-hub-config-masking-gaps]] is the same class of defect in a DIFFERENT function
 (`maskConfigDeep`) and is **not** fixed — do not assume a fix in one covers the other.

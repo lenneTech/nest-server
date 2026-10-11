@@ -26,8 +26,8 @@
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -1120,6 +1120,34 @@ async function main() {
 }
 
 // ── rendering helpers ─────────────────────────────────────────────────────────
+
+/**
+ * The "Vulnerabilities" line of the summary — the line people actually read after a run.
+ *
+ * `degraded` is tested BEFORE `counts`, and the order is the point: a silent outage (exit 0,
+ * all-zero JSON, advisory service unreachable) keeps `counts` set to exactly the shape a clean tree
+ * produces, so testing `counts` first printed "critical 0 · high 0 · …" for a run that never
+ * reached the service — the failure the whole degraded path exists to prevent, reproduced one line
+ * further down the report. Pinned by tests/unit/check-audit-summary.spec.ts.
+ */
+export function renderAuditSummary(audit) {
+  if (audit?.degraded) {
+    return C.yellow(
+      audit.degradedReason === 'hung'
+        ? 'audit HUNG and was killed (the registry never answered) — vulnerabilities NOT CHECKED'
+        : audit.degradedReason === 'unreachable'
+          ? 'audit could not run (the npm advisory service was unreachable) — vulnerabilities NOT CHECKED'
+          : audit.degradedReason === 'unreadable'
+            ? 'audit exited 0 but emitted no readable tally — vulnerabilities NOT CHECKED'
+            : 'audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT CHECKED',
+    );
+  }
+  if (audit?.counts) {
+    return renderVulnLine(audit.counts, audit.ignored);
+  }
+  return C.dim(audit ? 'counts unavailable' : '—');
+}
+
 function renderVulnLine(counts, ignored = 0) {
   const line = SEVERITIES.map((s) => {
     const n = counts[s] || 0;
@@ -1193,23 +1221,7 @@ function report(started, results) {
   }
 
   console.log(`\n${C.bold('Vulnerabilities')} ${C.dim(audit ? `(${audit.auditCmd})` : '(no audit step)')}`);
-  console.log(
-    `  ${
-      audit?.counts
-        ? renderVulnLine(audit.counts, audit.ignored)
-        : audit?.degraded
-          ? C.yellow(
-              audit.degradedReason === 'hung'
-                ? 'audit HUNG and was killed (the registry never answered) — vulnerabilities NOT CHECKED'
-                : audit.degradedReason === 'unreachable'
-                  ? 'audit could not run (the npm advisory service was unreachable) — vulnerabilities NOT CHECKED'
-                  : audit.degradedReason === 'unreadable'
-                    ? 'audit exited 0 but emitted no readable tally — vulnerabilities NOT CHECKED'
-                    : 'audit could not run (npm retired the endpoint pnpm uses) — vulnerabilities NOT CHECKED',
-            )
-          : C.dim(audit ? 'counts unavailable' : '—')
-    }`,
-  );
+  console.log(`  ${renderAuditSummary(audit)}`);
 
   console.log(`\n${C.bold('Tests')}`);
   if (unit || api) {
@@ -1230,11 +1242,38 @@ function report(started, results) {
   console.log(`\n${C.green('All checks passed.')}\n`);
 }
 
+/**
+ * Whether `entry` (the CLI's `process.argv[1]`) names `moduleFile`.
+ *
+ * Both sides go through realpathSync. Node resolves the main module's symlinks for
+ * `import.meta.url` but keeps `argv[1]` as typed, so comparing the plain paths answered "not the
+ * CLI" for every start through a symlink — on macOS any absolute path under `/tmp`, which is a link
+ * to `/private/tmp` — and the script exited 0 having checked nothing. Same helper in
+ * check-mutations.mjs and check-consumer.mjs; pinned by tests/unit/cli-entry-detection.spec.ts.
+ */
+export function isSameCliEntry(entry, moduleFile) {
+  return realpathSync(entry) === realpathSync(moduleFile);
+}
+
 // Run the pipeline only when invoked as a script. Importing this module (the metric parsers are
 // unit-tested in tests/unit/check-script-metrics.spec.ts) must not spawn a check run.
-const INVOKED_AS_SCRIPT = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+function isCliEntry() {
+  const entry = process.argv[1];
+  // No argv[1] means node was started without a script path (`node -e "…"`); `node
+  // scripts/check.mjs` always sets it, so that is safely "not the entry".
+  if (!entry) {
+    return false;
+  }
+  try {
+    return isSameCliEntry(entry, fileURLToPath(import.meta.url));
+  } catch (err) {
+    // "Cannot tell" must never be reported as "everything passed".
+    process.stderr.write(`[check] cannot resolve the CLI entry (${err?.code || err}) — refusing to report success\n`);
+    process.exit(1);
+  }
+}
 
-if (INVOKED_AS_SCRIPT) {
+if (isCliEntry()) {
   main().catch((err) => {
     console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
     process.exit(1);

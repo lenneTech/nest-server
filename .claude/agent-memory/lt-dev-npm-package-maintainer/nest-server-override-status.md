@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-09
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-11
 metadata:
   type: project
 ---
@@ -153,4 +153,14 @@ baseline-red handlebars advisories needed NO override — stale lock, targeted u
 longer trails by design — the newest 12.x is now the target, so the hold-back on schema / merge is
 gone (apollo path 10.1.3 / 9.2.6). From here it follows the usual rule: raise key and target with
 each new 12.x, as long as its engines stay within the floor.
+
+## Status 2026-10-11 (pre-11.42.11 run, 19 entries, none changed)
+
+Third run with NO raise: every target is the newest mature release of its major (hono, axios, ip-address,
+browserslist all quiet); only ws 8.21.3 trails (lockstep). Two fresh resolves: WITH vs WITHOUT differs
+exactly as on 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
+brace-expansion 2.1.7); WITHOUT audits 1 high + 1 moderate, WITH audits only the braces suppression
+(http-cache-semantics floats to 4.3.0 in a fresh resolve). `check:overrides` 19 ok, 2/2 suppressions
+still unpatched. A discovery script (session scratch, rewrite each run: registry packument `time` + 1440-min filter, same
+major / same 0.x minor, override keys parsed from the yaml) covered all 111 entries in seconds.
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

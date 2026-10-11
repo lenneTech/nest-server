@@ -1,6 +1,6 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-09 (NestJS 12 incl. @nestjs/schedule 12 + apollo/graphql 14, vitest 5, graphql 17, graphql-upload 18, typescript 7, dotenv 18, undici 8, pnpm 12, better-auth lock-step, ws/graphql-ws lockstep, mongoose 9.11 + mongodb 7.7 cross-repo, oxfmt 0.72); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-11 (NestJS 12 family, vitest 5 (pool IDs vs per-worker DB names), graphql 17, graphql-upload 18, typescript 7, dotenv 18, ejs 7, undici 8, pnpm 12, better-auth lock-step, express 5.3 + ws/graphql-ws lockstep with upstream exact pins, mongoose 9.11 + mongodb 7.7 cross-repo, oxfmt 0.72); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
@@ -108,3 +108,17 @@ override at 12.0.1 only protects THIS repo's sticky lock (schema 10.1.0 / merge 
 orchestrator as a release decision; **decided the same day: raise** (engines.node `>= 22.15`, target 12.0.3). In cooldown at run time: smtp-server 3.19.18 (08:38 UTC),
 vite 8.3.4 (12:07 UTC), AWS 3.1148.0 (18:52 UTC). Gate: `check` 5198 tests / 244 files, 3m41s;
 `check:consumer --fast` unit 347 + 1 skipped / e2e 119, no pins raised.
+
+Pre-11.42.11 run (2026-10-11): TAKEN nodemailer 10.0.16 -> 10.1.0 (minor: hardening + SMTP fixes,
+no breaking change), devDeps AWS trio 3.1149.0, @types/node 26.6.5, @types/lodash 4.17.26, bullmq
+6.3.12, smtp-server 3.19.19 (exact-pins nodemailer 10.0.16 -> nested test-only copy), vite 8.3.4. No code
+change. **New deferral: `express` 5.3.0** — NOT a cross-major problem but a LOCKSTEP pin:
+`@nestjs/platform-express` 11.2.7 (newest 11.x) exact-pins `express: 5.2.1`, so a direct bump puts two
+express copies in every consumer tree (same shape as ws/multer). Move only with a platform-express that
+pins 5.3.x. **vitest 5 reason sharpened:** `tests/setup.ts` derives per-worker DB names from
+`VITEST_POOL_ID` (`-w<id>`), which vitest 5 starts at 1, and the DB-lifecycle reporter/guard drop by that
+naming — take it only in a change that owns the test infra, never under a release payload that edits it.
+oxfmt 0.72.0 re-verified: still exactly the two shipped READMEs. In cooldown: @swc/core 1.16.17/18,
+smtp-server 3.19.20/21. Gate: `check --no-fix` 5276 tests / 248 files, 10m17s at load ~30 (steady
+desktop background, not a foreign run); `check:consumer --fast` unit 353 + 1 skipped / e2e 119, raised
+`@types/node` (devDep) only.

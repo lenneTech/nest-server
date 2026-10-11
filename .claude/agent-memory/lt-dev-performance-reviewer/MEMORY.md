@@ -25,5 +25,8 @@
 - [Better-Auth router + openAPI costs](better-auth-router-and-openapi-costs.md) — router rebuilt per /iam call (~54 us); SERVER_ONLY endpoints skip addRoute; bench by rotated minimums under load.
 - [scan-secrets + bridge normaliser costs](scan-secrets-and-bridge-normaliser-costs.md) — measured: Check 8 ~2ms/added line + ~100ms/cue line, --all ~57s baseline; oxfmt idempotence proven with real oxfmt.
 
+## Test Pipeline
+- [e2e low-resource CI trigger](e2e-low-resource-ci-trigger.md) — load signal fires on EVERY CI build (own unit step); A/B measured the 2-worker cap at +25 % e2e time, so it is skipped on github-hosted runners (not on GitLab).
+
 ## Memory & Process
 - [Heap Ceiling + Sync stderr](heap-ceiling-and-sync-stderr.md) — measured: `--max-old-space-size=4096` is a no-op on 32GB hosts; bare `node` in prod is correct (cgroup auto-sizing); `writeSync(2)` blocks forever on a stalled pipe.

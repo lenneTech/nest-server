@@ -59,6 +59,23 @@ interface SlotInfo {
 }
 
 /**
+ * Age cap for a held slot — the PID-recycling fallback.
+ *
+ * Liveness alone is not enough: once a slot file's PID has been recycled and now belongs to an
+ * unrelated long-lived process, that slot is immortal. It is counted as an active run forever and
+ * nothing unlinks it. `startedAt` was already written; it was simply never read for this.
+ *
+ * One phantom on a >=8-core machine only pins low-resource mode on, which is cheap. Two of them,
+ * or one on a <8-core machine where the cap is 1, make every later run wait out the full
+ * fail-open timeout. `tests/db-lifecycle.reporter.ts` already guards exactly this case for the
+ * run databases (`STALE_MAX_AGE_MS`, same reasoning).
+ *
+ * Six hours rather than that file's seven days: a slot is held for the length of ONE e2e run,
+ * measured in minutes. Anything still holding one after six hours is not a run.
+ */
+const STALE_SLOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
  * All currently held slots (live PIDs only). Slot files of dead processes are
  * removed as a side effect — this is the crash-recovery path.
  */
@@ -97,6 +114,18 @@ export function activeRuns(): SlotInfo[] {
         /* keep 0 */
       }
     }
+    // Age cap — see STALE_SLOT_MAX_AGE_MS. A slot older than the cap is reclaimed even though its
+    // PID answers, because that PID now belongs to something else. `startedAt === 0` means
+    // neither the file nor its mtime could be read; that is not evidence of age, so such a slot
+    // is left alone rather than reclaimed on a guess.
+    if (startedAt > 0 && Date.now() - startedAt > STALE_SLOT_MAX_AGE_MS) {
+      try {
+        unlinkSync(path);
+      } catch {
+        /* another process removed it first */
+      }
+      continue;
+    }
     active.push({ pid, startedAt });
   }
   return active;
@@ -121,8 +150,27 @@ function releaseOwnSlot(): void {
 
 function claimOwnSlot(): SlotInfo {
   const info: SlotInfo = { pid: process.pid, startedAt: Date.now() };
-  mkdirSync(slotDir(), { recursive: true });
-  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'w' });
+  // The slot directory is shared by every lt project on the machine, and on a multi-user Linux
+  // host `os.tmpdir()` is the world-writable `/tmp`. Writing with a bare `'w'` into a directory
+  // created without a mode is then a symlink-following write: anybody can pre-create
+  // `<pid>.slot` as a link, and the write truncates the target and puts this JSON into it with
+  // the running user's privileges. 32768 links cover every possible pid.
+  //
+  // Three changes close it: an explicit 0700 on the directory, removing any existing entry
+  // (which unlinks a SYMLINK rather than following it), and `flag: 'wx'`, which fails instead of
+  // following whatever reappears in between. `wx` cannot spuriously fail — the unlink above just
+  // removed our own path, and the name contains our own pid.
+  //
+  // On macOS and in a CI container none of this is reachable (`/var/folders/…/T` is 0700
+  // per-user, a job's `/tmp` is private). On Windows the modes are ignored; unlink + `wx` still
+  // apply. A directory that already exists keeps its mode — `mkdirSync` does not touch it.
+  mkdirSync(slotDir(), { mode: 0o700, recursive: true });
+  try {
+    unlinkSync(ownSlotPath());
+  } catch {
+    /* nothing there, which is the normal case */
+  }
+  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'wx', mode: 0o600 });
   return info;
 }
 
@@ -167,7 +215,21 @@ export async function acquireRunSlot(options: AcquireOptions = {}): Promise<() =
   for (;;) {
     const others = activeRuns().filter((s) => s.pid !== process.pid);
     if (others.length < maxRuns) {
-      const own = claimOwnSlot();
+      let own: SlotInfo;
+      try {
+        own = claimOwnSlot();
+      } catch (error) {
+        // Fail-open is this module's stated contract, and an unwritable slot directory is exactly
+        // where it used to break: another user owns the directory 0755 on a shared host, or the
+        // tmpdir is read-only, and the throw escapes through `global-setup.ts` — which does not
+        // wrap this call — taking the whole suite with it. The governor is a throughput measure,
+        // not a correctness one, so running ungoverned is the lesser failure.
+        log(
+          `[e2e-governor] could not claim a slot (${error instanceof Error ? error.message : 'unknown error'}) — `
+            + 'proceeding without the governor.',
+        );
+        return () => {};
+      }
       // Two waiters can pass the check simultaneously and overshoot the limit.
       // The newest claimant backs off (tie-break by pid) — bounded, since one
       // of them always keeps its slot.
@@ -193,7 +255,13 @@ export async function acquireRunSlot(options: AcquireOptions = {}): Promise<() =
         `[e2e-governor] no slot freed within ${Math.round(timeoutMs / 1000)}s — proceeding anyway (fail-open). `
           + `Active runs: ${others.map((s) => `pid ${s.pid}`).join(', ')}`,
       );
-      claimOwnSlot();
+      try {
+        claimOwnSlot();
+      } catch {
+        // Same reasoning as above: this path is already the fail-open one, so a failing claim
+        // here must not turn it back into a hard failure.
+        return () => {};
+      }
       return releaseOwnSlot;
     }
 

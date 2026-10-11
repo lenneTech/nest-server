@@ -113,10 +113,12 @@ pnpm run test:cleanup
   `MONGODB_URI` branch, the startup sweep, and the reporter's post-run collection. **The anchoring
   is the point, not decoration.** The original form matched the marker as a substring ANYWHERE, and
   `ci` hides inside soCIal / speCIal / finanCIal / priCIng / muniCIpal, `test` inside laTEST /
-  conTEST / TESTimonials. `lt dev up` exports `MONGODB_URI` at the project's DEVELOPMENT database
-  (`<slug>-local`), so a developer on a project named e.g. `pricing-portal` who started the e2e
-  suite from that shell had their working data dropped BY the guard that exists to prevent exactly
-  that. It had never had a test.
+  conTEST / TESTimonials. `lt dev up` exports `NSC__MONGOOSE__URI` at the project's DEVELOPMENT
+  database (`<slug>-local`), and a starter-derived project's global setup drops what that variable
+  names when it is set — so a developer on a project named e.g. `pricing-portal` who started the
+  e2e suite from that shell had their working data dropped BY the guard that exists to prevent
+  exactly that. It had never had a test. (This repo's own copy reads `MONGODB_URI` instead, which
+  `lt dev` never sets; here the guard protects against a hand-set or CI-provided URI.)
 
   Three things about it are load-bearing and easy to undo:
 
@@ -139,7 +141,7 @@ pnpm run test:cleanup
   Pinned by `tests/unit/db-lifecycle-guard.spec.ts` (registered mutation
   `safe-test-db-pattern-unanchored`; reverting the anchoring turns 13 cases red). **The refusal list
   in that spec IS the specification** — extend it rather than loosening the pattern.
-- Run governor (`tests/e2e-run-slots.ts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open).
+- Run governor (`tests/e2e-run-slots.ts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). On a GitHub-hosted runner (`RUNNER_ENVIRONMENT=github-hosted`) the load signal alone raises the timeouts but does NOT cap the workers: such a runner runs one job per VM, and at config time the load is the job's own `vitest:unit` from a second earlier (0.84–0.92/core on every runner build). Measured there, the cap took the e2e step from 133 s to 198 s mean (+25 % normalised for runner speed). Keyed on `RUNNER_ENVIRONMENT`, not `CI`: a shared GitLab runner sets `CI`, carries real contention (2.6–5.0/core measured in a consuming project) and keeps the cap. The cap is `maxWorkers`; the `poolOptions.forks.maxForks` it replaced was removed in Vitest 4 and silently ignored. Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open). A slot is reclaimed when its PID is dead OR it is older than six hours — liveness alone made a slot immortal once its PID was recycled. The slot directory is shared machine-wide (on a multi-user Linux host `/tmp`), so it is created 0700 and the slot file is written without following a planted symlink (unlink + `wx`, 0600). A slot that cannot be written does not abort the suite: the run proceeds ungoverned, because the governor is a throughput measure, not a correctness one. Pinned by `tests/unit/e2e-run-slots.spec.ts` (mutations `e2e-slot-*`).
 - `retry: 2` (e2e) is deliberate — with `retry: 5`, one spec file with broken app/socket state ground through 6 attempts × 30s timeout × 22 tests ≈ an hour at 0% CPU (looked like a deadlock; the check watchdog killed it). Never raise retry to paper over contention.
 - Infrastructure containers (E2E only, the **seven** specs listed under "Infrastructure containers"
   above) round-trip against a REAL Redis and/or a REAL S3-compatible store.
@@ -266,7 +268,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 116 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 125 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -285,7 +287,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 185 mutations.
+at 194 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -332,7 +334,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 69 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 185 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 194 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

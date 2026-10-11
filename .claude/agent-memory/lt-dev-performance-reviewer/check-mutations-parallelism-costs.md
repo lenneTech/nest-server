@@ -34,9 +34,11 @@ their counts dynamically and are fine.
    describes a configuration the code no longer produces — re-measure before
    quoting it, and before tuning the `Math.min(4, Math.max(2, floor(cores/3)))`
    formula off it.
-4. **`CHECK_LOW_RESOURCE_FORKS` is not set per lane.** `vitest-e2e.config.ts`
-   computes `max(2, floor(CORES/3))` from TOTAL machine cores, so on 12 cores each
-   of 4 lanes independently sizes to 4 forks = 16 forks on 12 cores. If lane
-   over-subscription is ever investigated, this is the first place to look.
+4. **`CHECK_LOW_RESOURCE_FORKS` IS set per lane now** (`max(1, floor(cores/(3*jobs)))`),
+   and since the 2026-10 switch from `poolOptions.forks.maxForks` (discarded by
+   Vitest 4) to `maxWorkers` it actually binds: 1 worker per lane at 12 cores/4 jobs
+   and at 4 vCPU/2 jobs. Wall-clock effect verified ~nil: most mutations (125 of 194 on 2026-10-11) are
+   unit-only (vitest.config.ts reads no LOW_RESOURCE knob), and only 2 of 69 e2e
+   mutations name 2 spec files (seconds of serialization each).
 
 Related: [[swc-cjs-tdz-and-ci-gap]] (the other check that only the tooling catches).

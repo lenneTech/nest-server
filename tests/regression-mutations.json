@@ -2180,6 +2180,105 @@
         "tests/unit/pnpm-pin-contract.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "e2e-low-resource-cap-pooloptions",
+      "defect": "11.42.x — Vitest 4 removed `test.poolOptions`. The e2e low-resource mode still set `poolOptions.forks.maxForks`, so the worker cap was announced on stderr and discarded: measured here and in a consuming project (8 e2e files, 12 cores), a run logging \"maxForks=2\" used 8 forks, the same run with `maxWorkers` used 2. Low-resource mode was a pure timeout extension and overlapping e2e runs kept starving each other. The type-check could not catch it (the config type collapses to `any` under `module: commonjs`), and vitest only logs a deprecation.",
+      "file": "vitest-e2e.config.ts",
+      "find": "    maxWorkers: CAP_WORKERS ? LOW_RESOURCE_FORKS : undefined,",
+      "replace": "    ...(LOW_RESOURCE ? { poolOptions: { forks: { maxForks: LOW_RESOURCE_FORKS, minForks: 1 } } } : {}),",
+      "specs": [
+        "tests/unit/vitest-e2e-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "e2e-slot-no-age-cap",
+      "defect": "11.42.x — tests/e2e-run-slots.ts reclaimed a slot by PID liveness alone. A slot whose PID had been recycled by an unrelated long-lived process was counted as an active run forever and never unlinked, so every later e2e run on the machine dropped into low-resource mode or waited out the full fail-open timeout. Ported from nest-server-starter 46b9ac2.",
+      "file": "tests/e2e-run-slots.ts",
+      "find": "    if (startedAt > 0 && Date.now() - startedAt > STALE_SLOT_MAX_AGE_MS) {",
+      "replace": "    if (startedAt > 0 && Date.now() - startedAt > Number.POSITIVE_INFINITY) {",
+      "specs": [
+        "tests/unit/e2e-run-slots.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "e2e-slot-claim-follows-symlink",
+      "defect": "11.42.x — claimOwnSlot() created the machine-wide slot directory without a mode and wrote the slot file with flag 'w'. On a multi-user Linux host os.tmpdir() is the world-writable /tmp, so a <pid>.slot symlink planted by another user made the write truncate the link target and fill it with the slot JSON, with the running user's privileges. Ported from nest-server-starter 46b9ac2.",
+      "file": "tests/e2e-run-slots.ts",
+      "find": "  mkdirSync(slotDir(), { mode: 0o700, recursive: true });\n  try {\n    unlinkSync(ownSlotPath());\n  } catch {\n    /* nothing there, which is the normal case */\n  }\n  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'wx', mode: 0o600 });",
+      "replace": "  mkdirSync(slotDir(), { recursive: true });\n  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'w' });",
+      "specs": [
+        "tests/unit/e2e-run-slots.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "e2e-slot-claim-not-fail-open",
+      "defect": "11.42.x — acquireRunSlot() is documented as fail-open, but a slot that could not be written (another user owns the directory on a shared host, a read-only tmpdir) threw out of it and, through tests/global-setup.ts, aborted the whole e2e suite. Ported from nest-server-starter 46b9ac2.",
+      "file": "tests/e2e-run-slots.ts",
+      "find": "        return () => {};\n      }\n      // Two waiters",
+      "replace": "        throw error;\n      }\n      // Two waiters",
+      "specs": [
+        "tests/unit/e2e-run-slots.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "e2e-low-resource-cap-ci-self-load",
+      "defect": "11.42.x (caught in review, before release) — once the low-resource cap took effect, it also fired on GitHub-hosted runners on the load signal alone. Such a runner runs one job per VM, so that load is the job's own vitest:unit, finished about a second before the e2e config loads (0.84-0.92/core on the runner builds of 11.42.8-11.42.10). Measured on hosted 4-vCPU runners, the cap took the e2e step from 133 s to 198 s mean wall time (+25 % normalised for runner speed) on every build and release, against a contention that does not exist.",
+      "file": "vitest-e2e.config.ts",
+      "find": "const CAP_WORKERS = LOW_RESOURCE && !(ON_GITHUB_HOSTED_RUNNER && LOAD_ONLY_TRIGGER);",
+      "replace": "const CAP_WORKERS = LOW_RESOURCE;",
+      "specs": [
+        "tests/unit/vitest-e2e-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-audit-summary-counts-before-degraded",
+      "defect": "11.42.x — the Vulnerabilities line of the check.mjs summary tested audit.counts before audit.degraded. A silent outage (exit 0, all-zero JSON, advisory service unreachable) keeps counts set to the shape a clean tree produces, so the summary printed \"critical 0 · high 0 · …\" for a run that never reached the advisory service. Ported from nest-server-starter.",
+      "file": "scripts/check.mjs",
+      "find": "  if (audit?.degraded) {\n    return C.yellow(",
+      "replace": "  if (audit?.counts) {\n    return renderVulnLine(audit.counts, audit.ignored);\n  }\n  if (audit?.degraded) {\n    return C.yellow(",
+      "specs": [
+        "tests/unit/check-audit-summary.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cli-entry-no-realpath-check",
+      "defect": "11.42.x — scripts/check.mjs started its pipeline only when resolve(process.argv[1]) equalled its own path. Node resolves the main module's symlinks for import.meta.url but keeps argv[1] as typed, so a start through a symlink (on macOS any absolute path under /tmp) compared unequal and the script exited 0 having checked nothing. Ported from nest-server-starter, whose check.mjs compares realpaths.",
+      "file": "scripts/check.mjs",
+      "find": "export function isSameCliEntry(entry, moduleFile) {\n  return realpathSync(entry) === realpathSync(moduleFile);\n}",
+      "replace": "export function isSameCliEntry(entry, moduleFile) {\n  return entry === moduleFile;\n}",
+      "specs": [
+        "tests/unit/cli-entry-detection.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cli-entry-no-realpath-check-mutations",
+      "defect": "11.42.x — scripts/check-mutations.mjs started its pipeline only when resolve(process.argv[1]) equalled its own path. Node resolves the main module's symlinks for import.meta.url but keeps argv[1] as typed, so a start through a symlink (on macOS any absolute path under /tmp) compared unequal and the script exited 0 having checked nothing. Ported from nest-server-starter, whose check.mjs compares realpaths.",
+      "file": "scripts/check-mutations.mjs",
+      "find": "export function isSameCliEntry(entry, moduleFile) {\n  return realpathSync(entry) === realpathSync(moduleFile);\n}",
+      "replace": "export function isSameCliEntry(entry, moduleFile) {\n  return entry === moduleFile;\n}",
+      "specs": [
+        "tests/unit/cli-entry-detection.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cli-entry-no-realpath-check-consumer",
+      "defect": "11.42.x — scripts/check-consumer.mjs started its pipeline only when resolve(process.argv[1]) equalled its own path. Node resolves the main module's symlinks for import.meta.url but keeps argv[1] as typed, so a start through a symlink (on macOS any absolute path under /tmp) compared unequal and the script exited 0 having checked nothing. Ported from nest-server-starter, whose check.mjs compares realpaths.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "\nfunction isSameCliEntry(entry, moduleFile) {\n  return realpathSync(entry) === realpathSync(moduleFile);\n}",
+      "replace": "\nfunction isSameCliEntry(entry, moduleFile) {\n  return entry === moduleFile;\n}",
+      "specs": [
+        "tests/unit/cli-entry-detection.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

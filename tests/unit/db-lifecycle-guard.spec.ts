@@ -23,9 +23,10 @@ import {
  * @regression   SAFE_TEST_DB_PATTERN matched its markers as a substring anywhere in the
  *   database name, so `ci` inside soCIal / speCIal / finanCIal / priCIng / muniCIpal and
  *   `test` inside laTEST / conTEST / TESTimonials made ordinary project databases look
- *   disposable. `lt dev up` exports MONGODB_URI at the project's `<slug>-local` DEVELOPMENT
- *   database, so a developer on such a project who started the e2e suite from that shell had
- *   it dropped — by the guard that exists to prevent exactly that.
+ *   disposable. `lt dev up` exports NSC__MONGOOSE__URI at the project's `<slug>-local`
+ *   DEVELOPMENT database, and a starter-derived project's global setup drops what that variable
+ *   names, so a developer on such a project who started the e2e suite from that shell had it
+ *   dropped — by the guard that exists to prevent exactly that.
  * @seen-failing Restore the unanchored `/(e2e|ci|test|acctest)/i` in
  *   tests/db-lifecycle.reporter.ts — registered as mutation
  *   `safe-test-db-pattern-unanchored` in tests/regression-mutations.json. Nine of the names
@@ -120,7 +121,9 @@ describe('SAFE_TEST_DB_PATTERN', () => {
  * SAFE_TEST_DB_PATTERN is a name heuristic, and a project slug may legitimately carry one of
  * its markers as a whole word — `ci` is the German abbreviation for Corporate Identity, `test`
  * a product noun for an exam. Those names reached the one drop site that has no second
- * condition, and `lt dev` points MONGODB_URI at exactly such a database.
+ * condition, and `lt dev` points NSC__MONGOOSE__URI at exactly such a database — the variable a
+ * starter-derived project's copy of that site reads (this repo's reads a hand-set or CI
+ * MONGODB_URI).
  */
 describe('NON_DISPOSABLE_DB_PATTERN / isDroppableTestDb', () => {
   const NOT_DROPPABLE: [label: string, name: string][] = [

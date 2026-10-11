@@ -128,11 +128,10 @@ describe('package.json scripts are portable', () => {
   });
 
   it('quotes arguments with double quotes, not single ones', () => {
-    // `test:cleanup` is the one exception, and it is listed rather than silently skipped: it shells
-    // out to POSIX `find`, which Windows does not have at all (`find.exe` there is a text search).
-    // Quoting alone would not make it run, so it needs a rewrite in Node — separate work, tracked
-    // by this list. A SECOND offender fails the suite, which is the point of naming the first.
-    const KNOWN_UNPORTABLE = ['test:cleanup'];
+    // No exceptions any more. `test:cleanup` used to be the one, shelling out to POSIX `find`; it is
+    // `node scripts/clean-test-artifacts.mjs` now (ported from nest-server-starter). The list stays,
+    // so a future exception has to be named rather than slipped in.
+    const KNOWN_UNPORTABLE: string[] = [];
     const bad = offenders(/'/).filter((name) => !KNOWN_UNPORTABLE.includes(name));
     expect(bad, `cmd.exe passes single quotes through literally: ${bad.join(', ')}`).toEqual([]);
     expect(
@@ -213,13 +212,13 @@ describe('unportablePrograms / SHELL_SYNTAX — the rules themselves', () => {
 
 describe('package.json scripts call no program cmd.exe lacks', () => {
   it('does not call a program that cmd.exe lacks or runs as something else', () => {
-    // Listed rather than silently skipped. The check chains are no longer on this list:
-    // `bash scripts/check-server-start.sh` became `node scripts/check-server-start.mjs`, the file
-    // the other repos share. `docs` (`open`) and `test:cleanup` (POSIX `find`) are developer
-    // conveniences outside the build and the test run.
+    // No known exceptions. The check chains left this list when `bash scripts/check-server-start.sh`
+    // became `node scripts/check-server-start.mjs`; `docs` (`open`) and `test:cleanup` (POSIX
+    // `find`) left it when they moved to `scripts/open.mjs` and `scripts/clean-test-artifacts.mjs`,
+    // the replacements nest-server-starter already ships.
     expectOnlyKnown(
       entries.filter(([, command]) => unportablePrograms(command).length > 0).map(([name]) => name),
-      ['docs', 'test:cleanup'],
+      [],
       'not available under cmd.exe',
     );
   });

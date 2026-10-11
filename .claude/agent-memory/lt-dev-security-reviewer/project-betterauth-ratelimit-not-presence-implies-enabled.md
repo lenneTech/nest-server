@@ -62,5 +62,5 @@ read of `CoreBetterAuthModule.configure(consumer)` — the probe cannot see that
 When a feature's enable state is decided in more than one place, a probe that exercises only one of
 them proves nothing. Ask "what else gates this?" before believing a green check.
 
-Related: [[project-rate-limit-store-asymmetry.md]] covers the STORE layer (key caps, trusted
+Related: [[project-rate-limit-store-asymmetry]] covers the STORE layer (key caps, trusted
 X-Forwarded-For) and is **not** fixed; this note is the ENABLE layer above it.

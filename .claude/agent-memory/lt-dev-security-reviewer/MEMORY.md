@@ -41,3 +41,4 @@
 - [Cross-repo: CLI patch hoist + public scanner](reference-cross-repo-hoist-and-public-scanner.md) — relocatePatches source-side symlink caveat (below bar); scanner --print superset, CI has no denylist; `--all` skips untracked files
 - [lt-dev permissions.json = global auto-allow](reference-lt-dev-permissions-json-global-allow.md) — `lt claude plugins` writes every pattern into ~/.claude/settings.json; the existing broad entries are an owner decision (2026-10-06), do not report
 - [Windows .cmd spawn quoting](reference-windows-cmd-spawn-quoting.md) — simulate win32 spawnargs on macOS; cmd vs CRT parser; trailing-backslash class; cmd-shim quirks
+- [e2e-run-slots shared /tmp model](project-e2e-run-slots-shared-tmp-model.md) — wx+unlink closes the symlink write; squatted-dir FIFO hang on the read path is pre-existing, below bar

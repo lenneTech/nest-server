@@ -11,10 +11,12 @@ export const RUN_DB_PATTERN = /-run-(\d+)-p(\d+)$/;
 /**
  * A database name MUST match this before anything here is willing to drop it.
  *
- * The safety net for a MONGODB_URI that does not point where the test setup
- * assumes: a running `lt dev` session exports it pointing at the project's
- * DEVELOPMENT database, so without this guard a test run started from that
- * shell would silently wipe the developer's data.
+ * The safety net for a database URI that does not point where the test setup
+ * assumes. Here that is a hand-set or CI-provided MONGODB_URI. In a
+ * starter-derived project it is NSC__MONGOOSE__URI, which a running `lt dev`
+ * session exports pointing at the project's DEVELOPMENT database — without this
+ * guard a test run started from that shell would silently wipe the developer's
+ * data. (`lt dev` never sets MONGODB_URI.)
  *
  * The marker must be a whole SEGMENT of the name, not a substring anywhere in
  * it. The unanchored form this replaced was far too permissive: "ci" alone
@@ -58,8 +60,10 @@ export const SAFE_TEST_DB_PATTERN = /(^|[-_])(e2e|ci|test|acctest)([-_]|$)/i;
  * are realistic — `ci` is the ordinary German abbreviation for *Corporate
  * Identity* (`ci-relaunch`, `ci-portal`), and `test` is a product noun for an
  * exam or assessment (`online-test`). `lt dev up` names the developer's database
- * `<slug>-local` and exports MONGODB_URI at it, so `ci-portal-local` reached the
- * one drop site that has NO second condition — see `tests/global-setup.ts`.
+ * `<slug>-local` and exports NSC__MONGOOSE__URI at it, which a starter-derived
+ * project's global setup drops when it is set — so `ci-portal-local` reached the
+ * one drop site that has NO second condition. Here that site reads a hand-set or
+ * CI MONGODB_URI instead — see `tests/global-setup.ts`.
  *
  * Deliberately NOT applied to the sweep paths: those already require
  * `isStaleTestDb(name, base)`, i.e. the name must belong to this project's own
