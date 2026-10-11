@@ -1,6 +1,6 @@
 ---
 name: executable-doc-recipes
-description: Which non-Node doc recipes can be executed on this machine to verify them (dotnet yes, pwsh no) and how to check them against the server helpers
+description: Which doc recipes and test claims can be executed to verify them (dotnet yes, pwsh no, Better-Auth OpenAPI, mutation replay in the scratchpad) without editing the working tree
 metadata:
   type: reference
 ---
@@ -22,6 +22,16 @@ When a README ships cross-language recipes (e.g. the API-token signed-assertion 
   setupSwagger falls back to `<method><path>` — check any doc that says "handler = Better-Auth's
   operation id" against that. Before the internal plugin existed, `/iam/open-api/*` already
   answered 404 (Better-Auth 404 -> controller catch-all -> 404), so "now answers 404" is no change.
+
+- **`@seen-failing` claims under a "do not edit files" review:** `check:mutations` edits the source,
+  so replay a mutation in the SCRATCHPAD instead: copy the target file + spec(s) keeping their relative
+  layout, `ln -s <repo>/node_modules <scratch>/node_modules` (this fixes the resolution problem above),
+  a minimal `vitest.unit.config.mjs` (`unplugin-swc` + `include: ['tests/unit/**/*.spec.ts']`), then a
+  python helper that reads the registry entry, asserts `find` occurs once and writes `replace`. Shows
+  WHICH cases go red per mutation — the per-test granularity the gate itself does not report.
+  Used 2026-10-11 for the four `e2e-slot-*` / `e2e-low-resource-cap-pooloptions` mutations (all red as tagged).
+  Same scratch dir + `tsconfig` copy also answers "does tsc catch X" probes (it accepts unknown
+  vitest config keys under this repo's `module: commonjs`).
 
 Verified 2026-09-26: the 11.41.4 C#, PowerShell-shaped and Node assertion recipes all pass
 `decodeApiTokenAssertion` + `verifyApiTokenAssertionSignature` + `checkApiTokenAssertionTiming`.

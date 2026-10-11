@@ -62,7 +62,8 @@ let releaseRunSlot: (() => void) | undefined;
 /**
  * File extensions the startup sweep removes from `tests/`.
  *
- * Kept in sync with `package.json` → `test:cleanup`. Every entry must be an
+ * Kept in sync with `scripts/clean-test-artifacts.mjs` (`pnpm run test:cleanup`) —
+ * tests/unit/dev-scripts.spec.ts fails when the two lists differ. Every entry must be an
  * extension NO tracked file under `tests/` uses — verify with
  * `git ls-files tests | grep -iE '\.(png|txt|bin)$'` before widening it, or the
  * sweep starts deleting fixtures the suite reads.
@@ -87,9 +88,13 @@ export async function setup() {
     const db = connection.db();
 
     // Never drop a database that is not recognizably a test database. This branch drops
-    // whatever MONGODB_URI points at, and that variable is not always a test DB: a running
-    // `lt dev` session exports it pointing at the project's DEVELOPMENT database, so without
-    // this guard, running the suite from that shell silently wipes the developer's data.
+    // whatever MONGODB_URI points at, and nothing guarantees that is a test DB: the variable is
+    // set by hand or by a CI service container, and a hand-set URI can name anything — the
+    // developer's `<slug>-local` included. `lt dev` does NOT set it: it exports
+    // NSC__MONGOOSE__URI, which this setup only uses as the BASE of its own per-run database
+    // below. A starter-derived project differs — its copy of this branch drops what
+    // NSC__MONGOOSE__URI names, which is how an `lt dev` shell lost its development database
+    // there.
     //
     // This is the ONE drop site with no second condition — the sweep below and the reporter's
     // collection both additionally require isStaleTestDb(), i.e. the name must belong to this

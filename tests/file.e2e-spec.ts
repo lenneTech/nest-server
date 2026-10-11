@@ -179,13 +179,15 @@ describe('File (e2e)', () => {
   /** GraphQL transports its status inside the payload; HTTP stays 200. */
   const graphQlStatusOf = (res: any): number => res?.errors?.[0]?.extensions?.originalError?.statusCode;
 
+  // The two REST refusal cases send NO attachment, on purpose. The role gate answers before the multer
+  // interceptor reads the body, so a file cannot change the answer — and sending one races it: the
+  // 401/403 arrives while the client is still writing the multipart body, and the write fails with
+  // EPIPE (observed 1 run in 14 here with retry off; nest-server-starter saw about 1 in 3 for the same
+  // shape). The case still fails if the route were open: the upload handler then answers 400
+  // "No file provided", not 401/403.
   it('refusesAnonymousUploadViaREST', async () => {
-    const local = path.join(fixtureDir, `anon-upload-${Math.random().toString(36).substring(7)}.txt`);
-    await fs.promises.writeFile(local, 'anonymous upload attempt');
-
-    // The role gate runs before the multer interceptor, so the bytes are never even parsed.
     await testHelper.rest('/files/upload', {
-      attachments: { file: local },
+      method: 'POST',
       statusCode: 401,
     });
   });
@@ -193,11 +195,8 @@ describe('File (e2e)', () => {
   it('refusesNonAdminUploadViaREST', async () => {
     // users[1] is a regular, verified user without RoleEnum.ADMIN. 403, not 401 — they ARE
     // authenticated, they just lack the right.
-    const local = path.join(fixtureDir, `nonadmin-upload-${Math.random().toString(36).substring(7)}.txt`);
-    await fs.promises.writeFile(local, 'non-admin upload attempt');
-
     await testHelper.rest('/files/upload', {
-      attachments: { file: local },
+      method: 'POST',
       statusCode: 403,
       token: users[1].token,
     });

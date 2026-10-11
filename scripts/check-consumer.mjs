@@ -58,7 +58,16 @@
  *   NEST_SERVER_STARTER_PATH   default starter location (else ../nest-server-starter)
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -255,10 +264,34 @@ function main() {
   }
 }
 
+/**
+ * Whether `entry` (the CLI's `process.argv[1]`) names `moduleFile`. realpathSync on both sides,
+ * because `import.meta.url` has its symlinks resolved and `argv[1]` does not — see
+ * isSameCliEntry() in scripts/check.mjs for what a plain comparison cost.
+ */
+function isSameCliEntry(entry, moduleFile) {
+  return realpathSync(entry) === realpathSync(moduleFile);
+}
+
 // Importable without launching a consumer run, same argv guard as the other scripts.
-const INVOKED_AS_SCRIPT = resolve(process.argv[1] ?? '') === resolve(fileURLToPath(import.meta.url));
-if (INVOKED_AS_SCRIPT) {
+function isCliEntry() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    return isSameCliEntry(entry, fileURLToPath(import.meta.url));
+  } catch (err) {
+    // "Cannot tell" must never read as "the consumer gate passed".
+    process.stderr.write(
+      `[check-consumer] cannot resolve the CLI entry (${err?.code || err}) — refusing to report success\n`,
+    );
+    process.exit(1);
+  }
+}
+
+if (isCliEntry()) {
   main();
 }
 
-export { alignConsumerPins, SKIP_ENTRIES, STARTER };
+export { alignConsumerPins, isSameCliEntry, SKIP_ENTRIES, STARTER };

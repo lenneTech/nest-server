@@ -205,4 +205,12 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   template's oxfmt, and 0.72.0 is exactly what rewrites the two core READMEs). Flagged to the
   orchestrator; not changed from here.
 
+**18. Framework pre-11.42.11 run (2026-10-11) — handover for the starter step:**
+- `check:consumer --fast` raised ONE pin: `devDependencies @types/node 26.6.4 -> 26.6.5`. The copy ran
+  nodemailer 10.1.0 (the starter key `<10.0.16` does not reach the framework's exact 10.1.0), green.
+- Starter follow-ups: `'nodemailer@<10.0.16': 10.0.16` -> `'nodemailer@<10.1.0': 10.1.0` (lockstep
+  comment); `@types/node` 26.6.5. `express` stays 5.2.1 in BOTH repos — `@nestjs/platform-express`
+  11.2.7 exact-pins it (see [[deferred-major-updates]]). A `@types/node` bump leaves a sticky 26.6.4
+  under `jest-worker` (`*`); only `pnpm dedupe` collapses it, with supports-color churn — skip.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

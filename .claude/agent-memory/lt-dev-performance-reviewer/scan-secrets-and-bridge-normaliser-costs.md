@@ -23,4 +23,4 @@ Measured 2026-10-06 (machine load avg 12-18, so absolute numbers are inflated ~1
 cli `normaliseBridgeBlock` (dev-patches.ts): proven idempotent by running the REAL oxfmt from
 `nuxt-base-starter/node_modules/.bin/oxfmt` at `{printWidth:80, singleQuote:true}` and at defaults
 over a patched config, then re-running `patchPlaywrightConfig` 3x → `patched:false` each time.
-The unit test only simulates oxfmt's output; the real-formatter run is the evidence. See [[cli_perf_calibration]].
+The unit test only simulates oxfmt's output; the real-formatter run is the evidence. See the lenneTech/cli repo's performance-reviewer note `cli_perf_calibration` (a different memory scope, so not linkable from here).

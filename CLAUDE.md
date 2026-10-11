@@ -126,7 +126,7 @@ pnpm run vitest:unit    # Unit tests only (fast, no MongoDB)
 pnpm run test:e2e       # E2E tests only
 pnpm run test:cov       # Both suites with coverage (coverage/unit + coverage/e2e)
 npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process   # Debug open handles
-pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin)
+pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin, .png) — Node, runs on Windows too
 
 # Linting & Formatting
 pnpm run lint           # oxlint check

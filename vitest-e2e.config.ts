@@ -46,6 +46,26 @@ const LOW_RESOURCE_AUTO =
   LOW_RESOURCE_RAW === undefined && (ACTIVE_E2E_RUNS > 0 || NORMALISED_LOAD >= LOAD_THRESHOLD);
 const LOW_RESOURCE = LOW_RESOURCE_FORCED_ON || LOW_RESOURCE_AUTO;
 
+// On a GitHub-hosted runner, Signal 2 measures this job, not the machine. Such a runner runs ONE
+// job per VM, and the e2e config is loaded about a second after the job's own `vitest:unit`
+// finished — whose load is still in the 1-minute average (0.84–0.92/core on the runner builds of
+// 11.42.8–11.42.10, with nothing else running). Capping on that load throttles every build and
+// release against a contention that does not exist: measured on hosted 4-vCPU runners, the forced
+// cap (2 workers) took the e2e step from 133 s to 198 s mean wall time, +25 % after normalising
+// for runner speed, and every capped run was slower than every uncapped one. So there a load-only
+// trigger keeps the raised timeouts — what CI has run with since Vitest 4 discarded the old cap —
+// and leaves the worker count alone. The deterministic triggers still cap: the explicit flag
+// (check:mutations forces it per lane to divide the machine) and an active slot.
+//
+// Keyed on `RUNNER_ENVIRONMENT === 'github-hosted'` (set by GitHub Actions on its own runners
+// only; a self-hosted one reports `self-hosted`), NOT on `CI`. The one-job-per-VM premise is what
+// makes the exception correct, and a shared runner breaks it: a GitLab runner that starts several
+// test jobs at once carries real contention (measured 2.6–5.0/core in a consuming project), sets
+// `CI` but never `RUNNER_ENVIRONMENT`, and keeps the cap.
+const ON_GITHUB_HOSTED_RUNNER = process.env.RUNNER_ENVIRONMENT === 'github-hosted';
+const LOAD_ONLY_TRIGGER = LOW_RESOURCE_AUTO && ACTIVE_E2E_RUNS === 0;
+const CAP_WORKERS = LOW_RESOURCE && !(ON_GITHUB_HOSTED_RUNNER && LOAD_ONLY_TRIGGER);
+
 const LOW_RESOURCE_FORKS = (() => {
   if (!LOW_RESOURCE) return undefined;
   const explicit = Number(process.env.CHECK_LOW_RESOURCE_FORKS);
@@ -59,7 +79,14 @@ if (LOW_RESOURCE) {
     : ACTIVE_E2E_RUNS > 0
       ? `${ACTIVE_E2E_RUNS} other e2e run(s) active on this machine`
       : `machine is busy (load ${NORMALISED_LOAD.toFixed(2)}/core >= ${LOAD_THRESHOLD})`;
-  process.stderr.write(`[e2e] low-resource mode: ${why} -> maxForks=${LOW_RESOURCE_FORKS}, timeouts raised\n`);
+  // Names the option actually set below. It said `maxForks` while the option it named had been
+  // removed from vitest — so the one line that could have revealed the dead setting instead
+  // asserted it was working. A log line that names its own option keeps that honest, including
+  // when no cap is set at all.
+  const effect = CAP_WORKERS
+    ? `maxWorkers=${LOW_RESOURCE_FORKS}, timeouts raised`
+    : 'timeouts raised, workers not capped (on a GitHub-hosted runner the load is this job\'s own previous step)';
+  process.stderr.write(`[e2e] low-resource mode: ${why} -> ${effect}\n`);
 }
 
 export default defineConfig({
@@ -121,9 +148,32 @@ export default defineConfig({
     maxConcurrency: 3,
     // Use forks instead of threads for better NestJS performance
     pool: 'forks',
-    // Cap parallel fork workers ONLY in low-resource mode (see CHECK_LOW_RESOURCE
-    // above); default = vitest's own (~CPU count) for full-speed solo runs.
-    ...(LOW_RESOURCE ? { poolOptions: { forks: { maxForks: LOW_RESOURCE_FORKS, minForks: 1 } } } : {}),
+    // Cap parallel workers ONLY in low-resource mode (see CHECK_LOW_RESOURCE above); default =
+    // vitest's own (~CPU count) for full-speed solo runs.
+    //
+    // `maxWorkers`, NOT `poolOptions.forks.maxForks`. Vitest 4 removed `poolOptions`: in 4.1.11
+    // the key occurs exactly once in `vitest/dist`, inside `logger.deprecate(...)`, and
+    // `maxForks` / `minForks` do not occur at all. So the cap was logged and discarded — measured
+    // here and in a consuming project (8 e2e files, 12 cores), a run announcing "maxForks=2" used
+    // 8 forks, while the same run with `maxWorkers` used 2. Low-resource mode was therefore a pure timeout
+    // extension: it waited twice as long before calling a timeout instead of removing the
+    // contention that caused it, which is the opposite of what the block above promises.
+    //
+    // Worth knowing WHY nothing caught it, because the next removed option will hit the same gap:
+    // this repo's `module: commonjs` cannot resolve vitest's ESM-only type imports (`vite`,
+    // `@vitest/utils/display`); `skipLibCheck` hides that, the config type collapses to `any`, and
+    // an unknown or removed option passes. The guard is tests/unit/vitest-e2e-config.spec.ts. It
+    // asserts the value this config resolves from the environment, so the `poolOptions` regression
+    // fails there (registered mutation `e2e-low-resource-cap-pooloptions`). It cannot catch Vitest
+    // dropping `maxWorkers` itself: vitest's own resolved config is `{...configDefaults, ...options}`
+    // and carries a removed option through unchanged — that is how `poolOptions` slipped by. Only
+    // counting the forks of a real run proves that vitest honours the key.
+    // `maxWorkers?: number | string`, so `undefined` is the correct "leave at the default".
+    //
+    // `minWorkers` is deliberately absent: it does not exist in 4.1.11 either.
+    //
+    // `CAP_WORKERS` rather than `LOW_RESOURCE`: see the runner note at its definition.
+    maxWorkers: CAP_WORKERS ? LOW_RESOURCE_FORKS : undefined,
     // db-lifecycle: drops this run's unique DB on success (+ collects stale
     // run DBs), keeps it for debugging on failure — see tests/db-lifecycle.reporter.ts
     reporters: ['default', './tests/db-lifecycle.reporter.ts'],

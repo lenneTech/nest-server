@@ -42,7 +42,7 @@
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
  *
- * `--no-infra` selects the 116 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 125 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 185 rather than caching per-mutation verdicts: the gate
+ * Why the release gate still runs all 194 rather than caching per-mutation verdicts: the gate
  * runs ONCE PER RELEASE, not per commit, and in CI it runs alongside the publish without blocking
  * it. The price of caching would be a cache that has to model each spec's full dependency closure
  * correctly, and the failure mode of getting that wrong is a stale PASS for a test that has since
- * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 185 mutations.
+ * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 194 mutations.
  *
  * DECIDED 2026-10-03 (repo owner): keep the full run. Measured at 128 mutations, the CI job for
  * 11.41.6 took 14 minutes. The trigger to revisit is that WALL TIME, not the mutation count —
@@ -88,7 +88,7 @@
  * path, byte-for-byte the behaviour that existed before parallelism was added.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,7 +167,7 @@ function specEnv(specs, jobs) {
   const unit = specs.every((spec) => spec.startsWith('tests/unit/'));
   return {
     ...process.env,
-    // Low-resource mode raises the e2e timeouts and caps `maxForks`. The parallel path deliberately
+    // Low-resource mode raises the e2e timeouts and caps `maxWorkers`. The parallel path deliberately
     // creates the very multi-run state `vitest-e2e.config.ts` auto-detects, so it must be ON there:
     // its own comment describes what starvation costs — requests queue past the 30s testTimeout,
     // auth comes back as spurious 401s, sockets hang up — symptoms that read like product bugs and,
@@ -180,9 +180,15 @@ function specEnv(specs, jobs) {
     // another lt project's e2e suite may be live, and forcing full speed against it reproduces the
     // spurious reds this tool exists to refuse.
     ...(jobs > 1 ? { CHECK_LOW_RESOURCE: process.env.CHECK_LOW_RESOURCE ?? '1' } : {}),
-    // Each lane starts its own e2e vitest, and that config sizes `maxForks` from the TOTAL machine
+    // Each lane starts its own e2e vitest, and that config sizes `maxWorkers` from the TOTAL machine
     // cores — so without this every lane believes it owns the machine (12 cores, 4 lanes => 4 forks
     // each = 16 forks on 12 cores). Divide the machine between the lanes instead.
+    //
+    // Until the config moved to `maxWorkers`, this value was discarded: Vitest 4 removed the
+    // `poolOptions.forks.maxForks` it was written into. It binds now — 1 worker per lane at 12 cores
+    // and 4 jobs, or on a 4-vCPU runner with 2 jobs. The wall-clock effect is close to nil: a single
+    // spec file runs in one fork anyway, and of the e2e mutations only 2 name more than one spec file.
+    // The unit mutations run through vitest.config.ts and never see this variable's effect.
     ...(jobs > 1
       ? { CHECK_LOW_RESOURCE_FORKS: String(Math.max(1, Math.floor(availableParallelism() / (3 * jobs)))) }
       : {}),
@@ -533,8 +539,8 @@ export function planJobs({
   // the lanes only fight each other.
   //
   // ⚠ Both speed-ups were measured while `specEnv` forced `CHECK_LOW_RESOURCE='0'`. It no longer
-  // does — the parallel path now enables low-resource mode and divides `maxForks` between the lanes,
-  // which is a correctness fix (see `specEnv`) that necessarily costs wall clock. Treat 1.87x as a
+  // does — the parallel path now enables low-resource mode and divides `maxWorkers` between the lanes,
+  // which is a correctness fix (see `specEnv`) with a wall-clock cost close to nil. Treat 1.87x as a
   // historical upper bound and re-measure before quoting it.
   //
   // The floor of 2 is a deliberate trade and the weakest part of this heuristic: on a 4-vCPU runner
@@ -779,8 +785,32 @@ async function main() {
   process.exit(failed.length ? 1 : 0);
 }
 
+/**
+ * Whether `entry` (the CLI's `process.argv[1]`) names `moduleFile`. realpathSync on both sides,
+ * because `import.meta.url` has its symlinks resolved and `argv[1]` does not — see
+ * isSameCliEntry() in scripts/check.mjs for what a plain comparison cost.
+ */
+export function isSameCliEntry(entry, moduleFile) {
+  return realpathSync(entry) === realpathSync(moduleFile);
+}
+
 // Importable for unit tests without running the pipeline (same guard as scripts/check.mjs).
-const INVOKED_AS_SCRIPT = resolve(process.argv[1] ?? '') === resolve(fileURLToPath(import.meta.url));
-if (INVOKED_AS_SCRIPT) {
+function isCliEntry() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    return isSameCliEntry(entry, fileURLToPath(import.meta.url));
+  } catch (err) {
+    // "Cannot tell" must never read as "every mutation confirmed".
+    process.stderr.write(
+      `[check-mutations] cannot resolve the CLI entry (${err?.code || err}) — refusing to report success\n`,
+    );
+    process.exit(1);
+  }
+}
+
+if (isCliEntry()) {
   main();
 }
