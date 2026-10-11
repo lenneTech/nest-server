@@ -3,6 +3,7 @@ import { BlockList, isIP } from 'node:net';
 import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
 
 import { ConfigService } from '../services/config.service';
+import { isLocalEnv } from './cookies.helper';
 
 /**
  * Requests to a URL a USER entered — a webhook, an export target, an ERP address.
@@ -53,12 +54,6 @@ for (const [network, prefix] of [
   blocked.addSubnet(network, prefix, 'ipv6');
 }
 
-/**
- * Environments in which internal targets are allowed unless configured otherwise. Deliberately NOT
- * `test`: in projects built from nest-server-starter that is a DEPLOYED stage.
- */
-const LOCAL_ENVIRONMENTS = new Set(['ci', 'e2e', 'local']);
-
 /** Thrown for a target that is, or resolves to, an internal address. */
 export class OutboundUrlBlockedError extends Error {
   constructor(
@@ -93,10 +88,9 @@ export function privateOutboundTargetsAllowed(): boolean {
   if (flag === false || flag === 'false') {
     return false;
   }
-  const env = String(config?.env ?? process.env.NODE_ENV ?? '')
-    .trim()
-    .toLowerCase();
-  return LOCAL_ENVIRONMENTS.has(env);
+  // Internal targets are allowed only in the local environments (`isLocalEnv`), deliberately not
+  // in `test`: in projects built from nest-server-starter that is a DEPLOYED stage.
+  return isLocalEnv(config?.env ?? process.env.NODE_ENV);
 }
 
 /** Whether an IP address is internal. A hostname (not an IP) answers false — resolve it first. */

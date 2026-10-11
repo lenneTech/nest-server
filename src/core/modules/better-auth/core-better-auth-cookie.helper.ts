@@ -81,6 +81,16 @@ export interface BetterAuthCookieHelperConfig {
    * CRITICAL: Required for Passkey/2FA to work correctly.
    */
   secret?: string;
+  /**
+   * Whether Better-Auth's own handlers set `Secure` on the cookies they write
+   * (`CoreBetterAuthService.usesSecureCookies()`). `true` makes this helper set it too, whatever the
+   * environment, so one session cookie never carries two different transport rules.
+   *
+   * @since 11.42.12 Before, `secure` followed {@link isProductionLikeEnv} alone, so on the deployed
+   *                 `develop` / `test` stages of a starter-based project the cookie this helper wrote
+   *                 lacked `Secure` while Better-Auth's handlers set it on the same https deployment.
+   */
+  secureTransport?: boolean;
 }
 
 /**
@@ -146,9 +156,11 @@ export class BetterAuthCookieHelper {
   /**
    * Gets the default cookie options for authentication cookies.
    *
-   * The `secure` flag is `true` when either `config.env` is production-like
-   * (`production` / `staging`) or `NODE_ENV === 'production'`. This covers
-   * staging deployments where only one of the two signals is set.
+   * The `secure` flag is `true` when Better-Auth's own cookies are secure (`config.secureTransport`,
+   * i.e. an `https://` base URL unless the project opted out), when `config.env` is production-like
+   * (`production` / `staging`), or when `NODE_ENV === 'production'`. The first covers every https
+   * deployment whatever its environment name; the other two keep `Secure` where real users are
+   * certain even if a project switched it off in Better-Auth.
    *
    * @returns Cookie options with httpOnly, sameSite, and secure settings
    */
@@ -156,7 +168,7 @@ export class BetterAuthCookieHelper {
     const options: AuthCookieOptions = {
       httpOnly: true,
       sameSite: 'lax',
-      secure: isProductionLikeEnv(this.config.env),
+      secure: this.config.secureTransport === true || isProductionLikeEnv(this.config.env),
     };
 
     if (this.config.domain) {
@@ -403,7 +415,13 @@ export class BetterAuthCookieHelper {
  */
 export function createCookieHelper(
   basePath: string,
-  options?: { domain?: string; env?: string; legacyCookieEnabled?: boolean; secret?: string },
+  options?: {
+    domain?: string;
+    env?: string;
+    legacyCookieEnabled?: boolean;
+    secret?: string;
+    secureTransport?: boolean;
+  },
   logger?: Logger,
 ): BetterAuthCookieHelper {
   return new BetterAuthCookieHelper({
@@ -413,5 +431,6 @@ export function createCookieHelper(
     legacyCookieEnabled: options?.legacyCookieEnabled ?? false,
     logger,
     secret: options?.secret,
+    secureTransport: options?.secureTransport,
   });
 }

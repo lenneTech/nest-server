@@ -4,7 +4,7 @@ import ejs = require('ejs');
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
+import { isLocalEnv, isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
 import { maskEmail } from '../../common/helpers/logging.helper';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
 import { BrevoService } from '../../common/services/brevo.service';
@@ -838,25 +838,35 @@ export class CoreBetterAuthEmailVerificationService {
    * Print an auth link (verification / password reset) to stdout for local development.
    *
    * The URL embeds a bearer token: the verification link confirms an address, the reset link
-   * changes a password outright. Neither may reach a deployment holding real accounts, so the gate
-   * is `isProductionLikeEnv()` — the same two-layer check `EmailService` and the cookie helpers
-   * already use. `NODE_ENV !== 'production'` alone is NOT enough: a staging deployment sets
-   * `NODE_ENV=staging` so `getEnvironmentConfig()` loads its config block, which passes that test
-   * while holding real users.
+   * changes a password outright. Neither may reach a deployment's logs, so the link is printed only
+   * in a LOCAL environment (`isLocalEnv()`: `local`, `ci`, `e2e`) — an allowlist, not "anything
+   * that is not production". Until 11.42.12 the gate was `!isProductionLikeEnv()`, which names only
+   * `production` and `staging`; the deployed `develop` and `test` stages of a starter-based project
+   * passed it and wrote live reset links into their log pipeline, where log access alone was
+   * enough to take over an account.
+   *
+   * `LT_LOG_AUTH_URLS=1` opts in for another environment that runs on a developer machine (this
+   * repository's own `development`, for one); `LT_LOG_AUTH_URLS=0` suppresses it everywhere. A
+   * production-like environment never prints, whatever the variable says: the opt-in exists for
+   * laptops, and a hard floor keeps it from being the thing that reopens a deployment.
    *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
-   * full because following it without a mail server is the whole point locally. Set
-   * `LT_LOG_AUTH_URLS=0` to suppress it even outside production.
+   * full because following it without a mail server is the whole point locally.
    *
    * `console.log` rather than the NestJS logger, deliberately and for two reasons: the logger
    * buffers, which makes interception unreliable under Vitest, and a logger call would route the
    * token into `HubLogBufferService`'s ring buffer, which is readable over HTTP by any ADMIN.
    */
   protected logAuthUrlForDevelopment(label: string, email: string, url: string): void {
-    if (process.env.LT_LOG_AUTH_URLS === '0') {
+    const optIn = process.env.LT_LOG_AUTH_URLS;
+    if (optIn === '0') {
       return;
     }
-    if (isProductionLikeEnv(this.configService?.getFastButReadOnly<string>('env'))) {
+    const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
+    if (isProductionLikeEnv(env)) {
+      return;
+    }
+    if (!isLocalEnv(env) && optIn !== '1') {
       return;
     }
     // oxlint-disable-next-line no-console

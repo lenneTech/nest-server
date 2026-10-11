@@ -39,6 +39,15 @@ describe('BetterAuthCookieHelper', () => {
       expect(options).not.toHaveProperty('domain');
     });
 
+    it('should set secure: true when Better-Auth\'s own cookies are secure (secureTransport), in any environment', () => {
+      for (const env of ['develop', 'test', 'local', undefined]) {
+        expect(new BetterAuthCookieHelper(createConfig({ env, secureTransport: true })).getDefaultCookieOptions().secure).toBe(true);
+      }
+      // createCookieHelper() forwards it — that is the factory the controller and the middleware use.
+      expect(createCookieHelper('/iam', { env: 'develop', secureTransport: true }).getDefaultCookieOptions().secure).toBe(true);
+      expect(createCookieHelper('/iam', { env: 'develop', secureTransport: false }).getDefaultCookieOptions().secure).toBe(false);
+    });
+
     it('should include domain when domain is configured', () => {
       const helper = new BetterAuthCookieHelper(createConfig({ domain: 'example.com' }));
       const options = helper.getDefaultCookieOptions();

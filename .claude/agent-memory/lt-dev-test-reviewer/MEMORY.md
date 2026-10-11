@@ -15,4 +15,5 @@
 - [multiTenancy OFF Is the Default Path](multitenancy-off-is-the-default-path.md) — base repos set no multiTenancy; specs asserting only the ON fixture leave the consumer path open (swagger isPublic mutation survived).
 - [Better-Auth Middleware Path-Guard Facts](better-auth-middleware-path-guard-facts.md) — prefix guards on `originalUrl` are dot-segment bypassable (`new URL()` resolves `/./`, `../` reaches the controller catch-all); 11.42.9 replaced the guard with `SERVER_ONLY`.
 - [TUS protocol/config facts](tus-protocol-config-facts.md) — @tus/server ignores creation/termination flags; resume uses last path segment; forRoot() moves class PATH_METADATA; unit isolation is a vitest default.
+- [Windows Unit Job Path Separators](windows-unit-job-path-separators.md) — Windows CI runs vitest:unit; structural specs comparing relative() to '/' literals fail there only. Normalise with split(sep).join('/').
 - [E2E Run Governor Test Facts](e2e-run-governor-test-facts.md) — vitest 4 `maxWorkers: undefined` safe; importing the e2e config unlinks slots (pin LT_E2E_SLOT_DIR); umask 077 hollows the 0700 test only.

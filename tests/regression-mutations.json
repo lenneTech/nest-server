@@ -1776,12 +1776,13 @@
     },
     {
       "id": "outbound-url-test-stage-local",
-      "defect": "11.42.0 (review) — 'test' counted as a local environment although it is a deployed stage in starter-based projects, which switched the SSRF guard off there.",
-      "file": "src/core/common/helpers/outbound-url.helper.ts",
-      "find": "const LOCAL_ENVIRONMENTS = new Set(['ci', 'e2e', 'local']);",
-      "replace": "const LOCAL_ENVIRONMENTS = new Set(['ci', 'e2e', 'local', 'test']);",
+      "defect": "11.42.0 (review) — 'test' counted as a local environment although it is a deployed stage in starter-based projects, which switched the SSRF guard off there. Since 11.42.12 the guard reads the one list of local environments, LOCALHOST_URL_ENVS in cookies.helper.ts (via isLocalEnv), which also gates the auth-link log — so the same mutation re-opens both.",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "export const LOCALHOST_URL_ENVS: readonly string[] = ['ci', 'e2e', 'local'];",
+      "replace": "export const LOCALHOST_URL_ENVS: readonly string[] = ['ci', 'e2e', 'local', 'test'];",
       "specs": [
-        "tests/unit/outbound-url.spec.ts"
+        "tests/unit/outbound-url.spec.ts",
+        "tests/unit/better-auth-password-reset-email.spec.ts"
       ],
       "driverSpecific": false
     },
@@ -2277,6 +2278,62 @@
       "replace": "\nfunction isSameCliEntry(entry, moduleFile) {\n  return entry === moduleFile;\n}",
       "specs": [
         "tests/unit/cli-entry-detection.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-url-log-on-deployed-stage",
+      "defect": "11.42.12 — logAuthUrlForDevelopment() printed verification and password-reset links (live bearer tokens) whenever the environment was not production-like. isProductionLikeEnv() names only `production` and `staging`, so the deployed `develop` and `test` stages of a starter-based project wrote live reset links into their log pipeline, and log access alone was enough to take over an account. Removing the local-environment allowlist restores exactly that gate.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (!isLocalEnv(env) && optIn !== '1') {\n      return;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-password-reset-email.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "framework-cookie-ignores-better-auth-secure",
+      "defect": "11.42.12 — BetterAuthCookieHelper decided `Secure` by isProductionLikeEnv() alone, which names only `production` and `staging`. On the deployed `develop` / `test` stage of a starter-based project, served over https, the session cookie written by the NestJS sign-in path lacked `Secure` while Better-Auth's native handlers set it on the same deployment.",
+      "file": "src/core/modules/better-auth/core-better-auth-cookie.helper.ts",
+      "find": "      secure: this.config.secureTransport === true || isProductionLikeEnv(this.config.env),",
+      "replace": "      secure: isProductionLikeEnv(this.config.env),",
+      "specs": [
+        "tests/unit/better-auth-secure-cookies.spec.ts",
+        "tests/unit/better-auth-cookie-helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-cookie-ignores-https-baseurl",
+      "defect": "11.42.12 — getDefaultAuthCookieOptions() decided `Secure` by isProductionLikeEnv() alone, so legacy auth cookies (bearer JWTs) went out without it on https deployments named `develop` / `test`.",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "    secure: isProductionLikeEnv(env) || isHttpsUrl(baseUrl),",
+      "replace": "    secure: isProductionLikeEnv(env),",
+      "specs": [
+        "tests/unit/cookies-cors-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-controller-drops-secure-transport",
+      "defect": "11.42.12 — the Secure fix lives in the helper, but the helper only sees what its caller passes. A controller that stops passing `secureTransport` silently restores the environment-only rule.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        secureTransport: this.betterAuthService.usesSecureCookies?.() === true,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/auth-cookie-secure-wiring.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-controller-drops-baseurl",
+      "defect": "11.42.12 — legacy cookies take `Secure` from an https `baseUrl` only if the caller passes it; a controller that drops the argument silently restores the environment-only rule.",
+      "file": "src/core/modules/auth/core-auth.controller.ts",
+      "find": "    return setLegacyAuthCookies(res, result, cookiesConfig, env, baseUrl);",
+      "replace": "    return setLegacyAuthCookies(res, result, cookiesConfig, env);",
+      "specs": [
+        "tests/unit/auth-cookie-secure-wiring.spec.ts"
       ],
       "driverSpecific": false
     }

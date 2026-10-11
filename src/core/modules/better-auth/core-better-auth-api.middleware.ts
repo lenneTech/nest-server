@@ -172,6 +172,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
           env,
           legacyCookieEnabled: false, // Middleware doesn't need legacy cookie
           secret: config?.secret, // Required for cookie signing
+          secureTransport: this.betterAuthService.usesSecureCookies?.() === true, // Same `Secure` rule as Better-Auth
         },
         this.logger,
       );

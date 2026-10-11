@@ -1505,6 +1505,7 @@ export class MyService {
 | `getBasePath()`                      | Get the base path for endpoints            |
 | `getBaseUrl()`                       | Get the base URL                           |
 | `getCookieDomain()`                  | Get resolved cross-subdomain cookie domain |
+| `usesSecureCookies()`                | Whether Better-Auth's cookies carry Secure |
 | `getSession(req)`                    | Get current session from request           |
 | `revokeSession(token)`               | Revoke a session (logout)                  |
 | `isSessionExpiringSoon(session, t?)` | Check if session is expiring soon          |

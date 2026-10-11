@@ -20,6 +20,7 @@ import {
   isCookiesEnabled,
   isCorsDisabled,
   isExposeTokenInBodyEnabled,
+  isLocalEnv,
   isProductionLikeEnv,
   resolveServerUrls,
   setLegacyAuthCookies,
@@ -759,8 +760,39 @@ describe('isProductionLikeEnv', () => {
 });
 
 // =================================================================================================
+// isLocalEnv Tests
+// =================================================================================================
+
+describe('isLocalEnv', () => {
+  it('should be true for the three local environments, trimmed and case-insensitive', () => {
+    for (const env of ['local', 'ci', 'e2e', ' LOCAL ', 'E2e']) {
+      expect(isLocalEnv(env)).toBe(true);
+    }
+  });
+
+  it('should be false for every deployed or unknown environment, and for a missing one', () => {
+    // `develop` / `test` are the deployed stages of a starter-based project; `development` names a
+    // deployed dev stage as often as a laptop. None of them is the complement of isProductionLikeEnv.
+    for (const env of ['develop', 'development', 'test', 'staging', 'production', 'qa', '', undefined]) {
+      expect(isLocalEnv(env)).toBe(false);
+    }
+  });
+});
+
+// =================================================================================================
 // getDefaultAuthCookieOptions Tests (env-aware secure flag)
 // =================================================================================================
+
+/** Minimal Express `Response` stand-in recording `res.cookie()` calls. */
+function mockLegacyRes() {
+  const cookies: Record<string, { options: unknown; value: unknown }> = {};
+  return {
+    cookie: (name: string, value: unknown, options?: unknown) => {
+      cookies[name] = { options, value };
+    },
+    cookies,
+  } as any;
+}
 
 describe('getDefaultAuthCookieOptions', () => {
   it('should set secure: true when env is production', () => {
@@ -793,6 +825,32 @@ describe('getDefaultAuthCookieOptions', () => {
     const opts = getDefaultAuthCookieOptions(undefined);
     expect(opts.httpOnly).toBe(true);
     expect(opts.sameSite).toBe('lax');
+  });
+
+  /**
+   * @regression   11.42.12 — `secure` followed `isProductionLikeEnv()` alone, so the deployed `develop`
+   *   and `test` stages of a starter-based project, served over https, got legacy auth cookies
+   *   (bearer JWTs) without `Secure`.
+   * @seen-failing Drop the `isHttpsUrl(baseUrl)` half from getDefaultAuthCookieOptions() in
+   *   src/core/common/helpers/cookies.helper.ts — registered as mutation
+   *   `legacy-cookie-ignores-https-baseurl` in tests/regression-mutations.json.
+   */
+  it('should set secure: true on an https baseUrl whatever the environment is called', () => {
+    for (const env of ['develop', 'test', 'development', undefined]) {
+      expect(getDefaultAuthCookieOptions(env, 'https://api.dev.example.com').secure, String(env)).toBe(true);
+    }
+    expect(getDefaultAuthCookieOptions('develop', ' HTTPS://api.dev.example.com ').secure).toBe(true);
+
+    const res = mockLegacyRes();
+    setLegacyAuthCookies(res, { refreshToken: 'r1', token: 't1' }, true, 'test', 'https://api.test.example.com');
+    expect(res.cookies['token'].options).toEqual({ httpOnly: true, sameSite: 'lax', secure: true });
+    expect(res.cookies['refreshToken'].options).toEqual({ httpOnly: true, sameSite: 'lax', secure: true });
+  });
+
+  it('should keep secure: false on an http or missing baseUrl outside production', () => {
+    // A browser drops a Secure cookie received over plain http, so local development must not get one.
+    expect(getDefaultAuthCookieOptions('develop', 'http://localhost:3000').secure).toBe(false);
+    expect(getDefaultAuthCookieOptions('local', undefined).secure).toBe(false);
   });
 });
 

@@ -395,13 +395,20 @@ plus one for the opposite failure, a guard that rejects a declaration which is s
 matters just as much: a check that cries wolf on correct entries is a check that gets switched off,
 which is how the hole this feature closes came about in the first place.
 
-**Current entries (since 2026-10-03):** `GHSA-ch52-4w7c-c8xp` (http-cache-semantics, via the
-`@swc/cli` binary downloader) and `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch). Both are
-dev-tooling-only paths of advisories with no patched release at all; the justification sits next to
-each entry in `pnpm-workspace.yaml`. **Do not copy them into nest-server-starter without thinking
-it through:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into every
+**Current entry (since 2026-10-11):** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch), a
+dev-tooling-only path of an advisory with no patched release at all; the justification sits next to
+the entry in `pnpm-workspace.yaml`. **Do not copy it into nest-server-starter without thinking it
+through:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into every
 generated project, so an entry there hides the advisory in every customer workspace — including
 production paths this repository does not have.
+
+**An entry whose package has left the declared range goes, even when the new version is no fix.**
+`GHSA-ch52-4w7c-c8xp` (http-cache-semantics `<= 4.2.0`) was listed from 2026-10-03 to 2026-10-11.
+4.3.0 leaves its max-stale code untouched and only escapes the range, because that range was written
+as "up to the newest release" and never followed. On 4.3.0 the suppression hid nothing and would
+have swallowed a range extension unseen; without it, an extension turns `pnpm audit` red, and that
+is the moment to re-argue the case. Do not record such a lift as the advisory being fixed. Write
+down that the version is merely outside the range, as `pnpm-workspace.yaml` does.
 
 ### Safe Override Workflow
 

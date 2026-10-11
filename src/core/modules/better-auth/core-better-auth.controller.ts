@@ -268,6 +268,10 @@ export class CoreBetterAuthController {
         env: this.configService.getFastButReadOnly<string>('env'),
         legacyCookieEnabled: legacyAuthEnabled,
         secret: betterAuthConfig?.secret,
+        // Mirror Better-Auth's own `Secure` decision, so the cookie this controller writes and the
+        // one Better-Auth's handlers write follow the same transport rule on every https deployment.
+        // Optional call: a project's test stub of the service may predate the method.
+        secureTransport: this.betterAuthService.usesSecureCookies?.() === true,
       },
       this.logger,
     );

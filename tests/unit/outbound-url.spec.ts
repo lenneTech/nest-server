@@ -81,9 +81,9 @@ describe('outbound URL guard', () => {
     /**
      * @regression   11.42.0 (found in review) — `test` counted as a local environment, but in projects
      *   built from nest-server-starter `test` is a DEPLOYED stage, where the guard was then off.
-     * @seen-failing Add 'test' back to LOCAL_ENVIRONMENTS in
-     *   src/core/common/helpers/outbound-url.helper.ts — registered as mutation
-     *   `outbound-url-test-stage-local` in tests/regression-mutations.json.
+     * @seen-failing Add 'test' to LOCALHOST_URL_ENVS in src/core/common/helpers/cookies.helper.ts
+     *   (the one list of local environments since 11.42.12, read through isLocalEnv) — registered
+     *   as mutation `outbound-url-test-stage-local` in tests/regression-mutations.json.
      */
     it('refuses them on every deployed stage, including `test`, and allows them locally, in e2e and CI', () => {
       for (const env of ['production', 'staging', 'develop', 'test']) {
