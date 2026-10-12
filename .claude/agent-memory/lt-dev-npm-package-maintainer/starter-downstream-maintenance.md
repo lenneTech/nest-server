@@ -217,4 +217,24 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   11.2.7 exact-pins it (see [[deferred-major-updates]]). A `@types/node` bump leaves a sticky 26.6.4
   under `jest-worker` (`*`); only `pnpm dedupe` collapses it, with supports-color churn — skip.
 
+**19. Starter run for framework 11.42.13 (2026-10-12) — first run with NOTHING to change.**
+- Starter devDeps that the framework also declares are now BYTE-IDENTICAL to the framework's devDeps
+  (27 shared entries, incl. @swc/core, oxfmt 0.71.0 — item 17's divergence is gone). Diff them first:
+  if identical and every shared runtime pin matches the framework manifest, the only candidates left are
+  starter-only packages and override targets, so the run is short.
+- Repo lock == fresh `--lockfile-only` resolve name+version (1011 names), `pnpm dedupe` byte-identical.
+  WITH vs WITHOUT unchanged since item 14 (graphql-tools 12.0.0 + js-yaml 5.3.0 return and audit
+  1 high + 1 moderate; ajv 8.18, minimatch 9 + brace-expansion 2.1.7, uuid 14.0.1 floors).
+- **Open repo decisions, reported, not acted on (both need a change outside package.json):**
+  (a) `ansi-colors` is imported only by `tests/report.js`, the same dead Jest `onTestResult` reporter
+  nest-server deleted on 2026-10-09 — no vitest config loads it; remove the pair together.
+  (b) `standard-version@9.5.0` (no release since 2022, not npm-deprecated) is the root of 13 of the 16
+  deprecated subdependencies `pnpm dedupe` warns about; `commit-and-tag-version` is the maintained fork.
+  Template-wide tooling change -> its own change, not a release run.
+- **pnpm 11 `pnpm why` prints the tree INVERTED** (package on top, importer at the bottom). The direct
+  root is the line just above `@lenne.tech/nest-server-starter@…`: `grep -B1 'nest-server-starter@'`.
+- Pending next run: @swc/core 1.16.17/18 (mature 2026-10-12 04:34/06:48 UTC — only with the framework),
+  ip-address 10.7.4 (19:34 UTC, raise key `<10.7.4` + target together in BOTH repos).
+  Gate: `check --no-fix` 473 tests / 33 files, 50 s.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]
