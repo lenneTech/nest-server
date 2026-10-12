@@ -373,6 +373,55 @@ export const LtnsErrors = {
     },
   },
 
+  // CoreTenantGuard refusals (LTNS_0103-LTNS_0107). Each `message` is the guard's original
+  // plain-string wording, kept verbatim: consumers match on it, and the `#CODE: ` prefix keeps a
+  // substring match working. The code is what makes the refusal translatable at all.
+
+  NOT_TENANT_MEMBER: {
+    code: 'LTNS_0103',
+    message: 'Not a member of this tenant',
+    translations: {
+      de: 'Sie sind kein Mitglied dieses Mandanten.',
+      en: 'You are not a member of this tenant.',
+    },
+  },
+
+  INSUFFICIENT_TENANT_ROLE: {
+    code: 'LTNS_0104',
+    message: 'Insufficient tenant role',
+    translations: {
+      de: 'Ihre Rolle in diesem Mandanten reicht für diese Aktion nicht aus.',
+      en: 'Your role in this tenant does not allow this action.',
+    },
+  },
+
+  INSUFFICIENT_ROLE: {
+    code: 'LTNS_0105',
+    message: 'Insufficient role',
+    translations: {
+      de: 'Ihre Rolle reicht für diese Aktion nicht aus.',
+      en: 'Your role does not allow this action.',
+    },
+  },
+
+  TENANT_INACTIVE: {
+    code: 'LTNS_0106',
+    message: 'Tenant is inactive',
+    translations: {
+      de: 'Dieser Mandant ist deaktiviert.',
+      en: 'This tenant is deactivated.',
+    },
+  },
+
+  VERIFICATION_REQUIRED: {
+    code: 'LTNS_0107',
+    message: 'Verification required',
+    translations: {
+      de: 'Für diese Aktion muss Ihr Konto verifiziert sein.',
+      en: 'Your account must be verified for this action.',
+    },
+  },
+
   // =====================================================
   // User Errors (LTNS_0200-LTNS_0299)
   // =====================================================

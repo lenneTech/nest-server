@@ -151,7 +151,7 @@ export class TusService extends CoreTusService {
 
   // After the last byte.
   protected override async onUploadComplete(upload: Upload): Promise<void> {
-    await super.onUploadComplete(upload); // migrates the file into the configured storage
+    await super.onUploadComplete(upload); // stores the file and records its ID for X-File-Id (11.42.13+)
     // custom logic
   }
 }
@@ -243,6 +243,7 @@ TusModule.forRoot({ config: false });
 | Forgot to register custom service                  | `onUploadCreate` / `onUploadComplete` overrides never run | Add `service: TusService` to `forRoot()` (11.41.9+) — Step 2                                    |
 | Constructor dependencies on the service subclass   | `undefined` dependencies, or a crash at boot              | Resolve them at call time via `this.options?.moduleRef` — Step 2                                |
 | Override of `onUploadCreate` without `super`       | Uploads have no owner or tenant; `allowedTypes` ignored   | `return super.onUploadCreate(req, upload)` — Step 2                                             |
+| Override of `onUploadComplete` without `super`     | No `X-File-Id`; links built from the TUS URL answer `404` | Call `super.onUploadComplete(upload)` with the upload received (11.42.13+) — Step 2             |
 | Upload succeeds but the file cannot be downloaded  | `403` on `GET /files/id/:id`                              | `file.downloadRoles` defaults to `[ADMIN]` — widen it, or authorize per file in `checkRights()` |
 | Using wrong endpoint path                          | 404 on upload                                             | Ensure client uses same path as config                                                          |
 

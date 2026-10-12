@@ -139,7 +139,7 @@ to 7.7.0 in the kept copy turned user-rest 9/9 green; reverting the pair turned 
 **How to apply:** whenever a framework runtime dep moves that the starter ALSO declares (any section), run
 `pnpm run check:consumer -- --fast --keep` inside the maintenance run. Plain `check` cannot see this,
 and the publish workflow would block on it. The mongo pair needs the starter raised in the SAME release.
-**13. smtp-server 3.19.17 exact-pins nodemailer 10.0.14** (dev-only). With the framework on 10.0.15 the
+**13. smtp-server 3.19.17 exact-pins nodemailer 10.0.14** (dev-only; RESOLVED 2026-10-12: smtp-server 3.19.21 pins 10.1.0 = the framework pin, single copy — re-check whenever either moves). With the framework on 10.0.15 the
 lock carries a nested second copy under smtp-server: harmless (test-only), no override (no advisory).
 (Framework repo only — the starter has no smtp-server.)
 

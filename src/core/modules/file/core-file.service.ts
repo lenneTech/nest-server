@@ -140,6 +140,21 @@ export abstract class CoreFileService {
   }
 
   /**
+   * Whether `id` is a string that cannot name a stored file at all.
+   *
+   * Every store keys files by an ObjectId, so a string that is not 24 hex characters — a TUS upload
+   * id (which clients took for the file id), a filename, a typo in a URL — names no file. It is
+   * answered exactly like an unknown id. Handed to `new ObjectId()` it threw a BSONError instead,
+   * and `GET /files/id/<tus-upload-id>` answered 500 where an unknown id gets 404.
+   *
+   * Only strings are judged: anything else keeps its previous path, so an ObjectId from a second
+   * copy of `bson` (where `instanceof` fails) is not suddenly reported as missing.
+   */
+  protected isMalformedFileId(id: unknown): boolean {
+    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));
+  }
+
+  /**
    * Find the filesystem metadata of a file by ID (null when it is stored elsewhere)
    */
   protected async findFilesystemFileById(id: string | Types.ObjectId): Promise<FilesystemFileInfo | null> {
@@ -264,6 +279,9 @@ export abstract class CoreFileService {
    * @returns the id of the copy
    */
   async duplicateById(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<string> {
+    if (this.isMalformedFileId(id)) {
+      throw new NotFoundException(`File not found with id ${id}`);
+    }
     const objectId = getObjectIds(id);
     const source = await this.getFileInfo(objectId, serviceOptions);
     if (!source) {
@@ -425,6 +443,9 @@ export abstract class CoreFileService {
    * Get info about file via file ID
    */
   async getFileInfo(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (this.isMalformedFileId(id)) {
+      return null;
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -459,6 +480,9 @@ export abstract class CoreFileService {
     serviceOptions?: FileServiceOptions,
     knownStore?: FileStorageDriver,
   ): Promise<Readable> {
+    if (this.isMalformedFileId(id)) {
+      return null;
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -515,6 +539,9 @@ export abstract class CoreFileService {
     id: string | Types.ObjectId,
     serviceOptions?: FileServiceOptions,
   ): Promise<{ info: CoreFileInfo; store: FileStorageDriver } | null> {
+    if (this.isMalformedFileId(id)) {
+      return null;
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -552,6 +579,9 @@ export abstract class CoreFileService {
    * disabled — callers then fall back to streaming the file themselves.
    */
   async getDownloadUrl(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<string | undefined> {
+    if (this.isMalformedFileId(id)) {
+      return undefined;
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return undefined;
     }
@@ -600,6 +630,9 @@ export abstract class CoreFileService {
    * Get file buffer (for small files) via file ID
    */
   async getBuffer(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<Buffer> {
+    if (this.isMalformedFileId(id)) {
+      return null;
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -652,6 +685,9 @@ export abstract class CoreFileService {
    * exact input, so a `null` here is genuinely a missing file.
    */
   async deleteFile(id: string | Types.ObjectId, serviceOptions?: FileServiceOptions): Promise<CoreFileInfo> {
+    if (this.isMalformedFileId(id)) {
+      throw new NotFoundException(`File not found with id ${id}`);
+    }
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -748,6 +784,9 @@ export abstract class CoreFileService {
    * @returns the raw document, or null when no file has that id
    */
   protected async getRawFileInfo(id: string | Types.ObjectId): Promise<null | Record<string, any>> {
+    if (this.isMalformedFileId(id)) {
+      return null;
+    }
     const fileInfo =
       (await this.findS3FileById(id)) ||
       (await this.findFilesystemFileById(id)) ||

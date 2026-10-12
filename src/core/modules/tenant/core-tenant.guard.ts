@@ -470,7 +470,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       }
       const isVerified = !!(user.verified || user.verifiedAt || user.emailVerified);
       if (!isVerified) {
-        throw new ForbiddenException('Verification required');
+        throw new ForbiddenException(ErrorCode.VERIFICATION_REQUIRED);
       }
       if (headerTenantId && !hasSkipDecorator) {
         return this.handleSystemRoleWithTenantHeader(user, headerTenantId, request, isAdmin);
@@ -536,7 +536,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       const membership = await this.findMembershipCached(user.id, headerTenantId);
 
       if (!membership) {
-        throw new ForbiddenException('Not a member of this tenant');
+        throw new ForbiddenException(ErrorCode.NOT_TENANT_MEMBER);
       }
       await this.assertTenantActive(headerTenantId);
 
@@ -567,7 +567,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
           tenantRoles.length > 0 && memberRole !== null && checkRoleAccess(tenantRoles, undefined, memberRole);
 
         if (!satisfiedGlobally && !satisfiedByTenant) {
-          throw new ForbiddenException('Insufficient tenant role');
+          throw new ForbiddenException(ErrorCode.INSUFFICIENT_TENANT_ROLE);
         }
       }
 
@@ -595,7 +595,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
       // Check role access against user.roles (hierarchy: level comparison, normal: exact match)
       if (!checkRoleAccess(checkableRoles, user.roles, undefined)) {
-        throw new ForbiddenException('Insufficient role');
+        throw new ForbiddenException(ErrorCode.INSUFFICIENT_ROLE);
       }
 
       // Resolve tenant IDs filtered by minimum required hierarchy level
@@ -904,7 +904,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   /** 403 for a deactivated tenant. */
   private async assertTenantActive(tenantId: string): Promise<void> {
     if (!(await this.isTenantActive(tenantId))) {
-      throw new ForbiddenException('Tenant is inactive');
+      throw new ForbiddenException(ErrorCode.TENANT_INACTIVE);
     }
   }
 
@@ -946,7 +946,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
     const membership = await this.findMembershipCached(user.id, headerTenantId);
     if (!membership) {
-      throw new ForbiddenException('Not a member of this tenant');
+      throw new ForbiddenException(ErrorCode.NOT_TENANT_MEMBER);
     }
     await this.assertTenantActive(headerTenantId);
     request.tenantId = headerTenantId;
@@ -965,7 +965,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
       }
       if (!isAdmin && !checkRoleAccess(checkableRoles, user.roles, undefined)) {
-        throw new ForbiddenException('Insufficient role');
+        throw new ForbiddenException(ErrorCode.INSUFFICIENT_ROLE);
       }
     }
     return true;

@@ -182,8 +182,8 @@ See the module README: "Deactivated Tenants" and "Service-Level Role Checks".
 - [ ] Request with `X-Tenant-Id` header only returns tenant data
 - [ ] Request without header + hierarchy role checks user.roles and filters tenantIds
 - [ ] Admin user can access any tenant (if adminBypass: true)
-- [ ] Non-member gets 403 "Not a member of this tenant"
-- [ ] Unauthenticated + header → 403 "Authentication required for tenant access"
+- [ ] Non-member gets 403 `#LTNS_0103: Not a member of this tenant`
+- [ ] Unauthenticated + header → 401 `#LTNS_0100` (re-authentication is the remedy, so it is not a 403)
 - [ ] Public endpoint accessing tenantId-schema without context throws 403 (Safety Net)
 - [ ] IAM endpoints work without `X-Tenant-Id` header when `skipTenantCheck: true` (default)
 

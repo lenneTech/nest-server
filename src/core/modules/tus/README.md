@@ -111,6 +111,7 @@ The TUS server automatically handles CORS headers for browser-based clients:
 - `Upload-Length`
 - `Upload-Offset`
 - `Upload-Metadata`
+- `X-File-Id` (11.42.13+) — the ID of the stored file, see [The ID of the Stored File](#the-id-of-the-stored-file-114213)
 
 **`Access-Control-Allow-Origin` follows the API's CORS configuration (11.42.1+).** The tus handler
 writes its responses itself, and without `allowedOrigins` `@tus/server` answers `*`. With cookie
@@ -265,11 +266,19 @@ const upload = new Upload(file, {
     const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
     console.log(`${percentage}%`);
   },
+  // The response that completes the upload names the stored file (11.42.13+).
+  onAfterResponse: (_req, res) => {
+    const id = res.getHeader('X-File-Id');
+    if (id) {
+      fileId = id;
+    }
+  },
   onSuccess: () => {
-    console.log('Upload complete!');
-    console.log('File URL:', upload.url);
+    // `upload.url` is the TUS upload URL — its last segment is NOT the file id.
+    console.log('Upload complete, file:', `/files/id/${fileId}`);
   },
 });
+let fileId: string | undefined;
 
 // Start or resume upload
 upload.start();
@@ -423,6 +432,10 @@ export class TusService extends CoreTusService {
 }
 ```
 
+Call `super.onUploadComplete(upload)` with the `upload` you received: it stores the file and records
+its ID for the `X-File-Id` response header (11.42.13+). An override that never calls `super` still
+completes the upload, but the client receives no `X-File-Id`.
+
 ### Tenant Scoping (11.41.9+)
 
 **Only with `multiTenancy` configured.** Without it nothing changes: no header is read, no field is
@@ -486,6 +499,31 @@ query {
 ```
 
 **Recommendation:** Use the ID-based endpoint (`/files/id/:id`) for TUS uploads as filenames may not be unique.
+
+### The ID of the Stored File (11.42.13+)
+
+The response that completes an upload — the last `PATCH`, or the `POST` of a creation-with-upload —
+carries the ID of the stored file:
+
+```
+HTTP/1.1 204 No Content
+Upload-Offset: 52428800
+X-File-Id: 6720c1f0a2b4c8e9d0f1a2b3
+Access-Control-Expose-Headers: …, X-File-Id
+```
+
+Read it from that response and use it for `/files/id/:id`. **Do not take the last segment of the
+TUS URL** (`upload.url`): that is the TUS UPLOAD id, a key of the staging store, and `/files/id/` answers
+it with 404. Until 11.42.13 the header did not exist and the TUS URL was all a client had.
+
+The header is sent on the completing request only — creation and partial `PATCH`es store nothing yet.
+It is listed in `Access-Control-Expose-Headers`, so a browser on a separate app origin can read it. The
+name is exported as `TUS_FILE_ID_HEADER`.
+
+A project override of `onUploadComplete()` keeps the header as long as it calls `super` — see
+[Custom Upload Handler](#custom-upload-handler). The hook's signature did not change. A client must
+still cope with a missing header (an older server, or an override that stores the file itself): treat
+it as "no file id known", never as a reason to fall back to the TUS URL.
 
 > **These download routes are gated.** They require `file.downloadRoles`, which defaults to
 > `[RoleEnum.ADMIN]` — while uploading here only requires `tus.roles` (default `S_USER`). So out of
@@ -634,7 +672,8 @@ calls `getServer().handle()`. No change to `main.ts` is needed.
 3. Client: PATCH /tus/:id (send chunks)
 4. Server: Returns Upload-Offset
 5. Client: Repeat PATCH until complete
-6. Server: Migrate to GridFS, cleanup temp file
+6. Server: Migrate to the configured file storage, cleanup temp file
+7. Server: Answer the completing PATCH with X-File-Id (the stored file's ID)
 ```
 
 ### File Storage
