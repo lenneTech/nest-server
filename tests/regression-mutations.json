@@ -2336,6 +2336,40 @@
         "tests/unit/auth-cookie-secure-wiring.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tus-file-id-dropped",
+      "defect": "11.42.13 — onUploadComplete() held the stored file's _id in every path and dropped it, and onUploadFinish answered {}, so a client knew only the TUS URL; its last segment is the upload id, and /files/id/<upload-id> answers 404.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "          return fileId ? { headers: { [TUS_FILE_ID_HEADER]: fileId } } : {};",
+      "replace": "          return {};",
+      "specs": [
+        "tests/tus-file-id.e2e-spec.ts",
+        "tests/tus-finalization.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tus-file-id-not-exposed",
+      "defect": "11.42.13 — a response header missing from Access-Control-Expose-Headers is invisible to a browser on a separate app origin, so X-File-Id would reach every client except the one that needs it.",
+      "file": "src/core/modules/tus/core-tus.service.ts",
+      "find": "      exposedHeaders: [TUS_FILE_ID_HEADER],\n",
+      "replace": "",
+      "specs": [
+        "tests/tus-file-id.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "malformed-file-id-500",
+      "defect": "11.42.13 — an id that is not a 24-character hex string (a TUS upload id, which clients took for the file id) reached new ObjectId() and threw a BSONError, so GET /files/id/<tus-upload-id> answered 500 instead of the 404 an unknown id gets.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "find": "    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));",
+      "replace": "    return false;",
+      "specs": [
+        "tests/file-missing-answers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

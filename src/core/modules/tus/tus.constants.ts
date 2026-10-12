@@ -51,3 +51,14 @@ export const TUS_OWNER_METADATA_KEY = 'ltOwnerId';
  * resolves to a tenant they are an active member of; otherwise it is `null`.
  */
 export const TUS_TENANT_METADATA_KEY = 'ltTenantId';
+
+/**
+ * Response header naming the ID of the stored file, sent on the request that COMPLETES a tus upload
+ * (the last PATCH, or the POST of a creation-with-upload).
+ *
+ * Without it a client knows only the TUS URL, whose last segment is the tus UPLOAD id — a key of the
+ * staging store, which `/files/id/<id>` answers with 404. The header is also listed in
+ * `Access-Control-Expose-Headers`, because a browser on a separate app origin cannot read it
+ * otherwise.
+ */
+export const TUS_FILE_ID_HEADER = 'X-File-Id';

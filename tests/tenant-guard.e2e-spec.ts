@@ -381,19 +381,26 @@ describe('CoreTenantGuard (e2e)', () => {
   });
 
   it('should deny non-member access to hierarchy-role endpoint', async () => {
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .get('/test/tenant-member')
       .set('X-Tenant-Id', TENANT_A)
       .set('X-Test-User-Id', USER_ID)
       .expect(403);
+
+    // Translatable code, original wording kept behind it (consumers match on the text).
+    expect(res.body.message).toBe(ErrorCode.NOT_TENANT_MEMBER);
+    expect(res.body.message).toContain('Not a member of this tenant');
   });
 
   it('should deny non-member even on S_USER endpoint when header is present', async () => {
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .get('/test/user-only')
       .set('X-Tenant-Id', TENANT_A)
       .set('X-Test-User-Id', USER_ID)
       .expect(403);
+
+    // The system-role path refuses with the same code as the hierarchy path.
+    expect(res.body.message).toBe(ErrorCode.NOT_TENANT_MEMBER);
   });
 
   it('should allow member to access S_USER endpoint with header', async () => {
@@ -446,11 +453,14 @@ describe('CoreTenantGuard (e2e)', () => {
   it('should deny manager-role access to owner-level endpoint', async () => {
     await tenantService.addMember(TENANT_A, USER_ID, 'manager');
 
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .get('/test/tenant-owner')
       .set('X-Tenant-Id', TENANT_A)
       .set('X-Test-User-Id', USER_ID)
       .expect(403);
+
+    expect(res.body.message).toBe(ErrorCode.INSUFFICIENT_TENANT_ROLE);
+    expect(res.body.message).toContain('Insufficient tenant role');
   });
 
   it('should allow owner-role access to owner-level endpoint', async () => {
@@ -618,6 +628,7 @@ describe('CoreTenantGuard (e2e)', () => {
       .set('X-Test-User-Roles', 'member')
       .expect(403);
 
+    expect(res.body.message).toBe(ErrorCode.INSUFFICIENT_ROLE);
     expect(res.body.message).toContain('Insufficient role');
   });
 
@@ -797,7 +808,7 @@ describe('CoreTenantGuard (e2e)', () => {
       .set('X-Test-User-Roles', 'member') // member(1) < manager(2)
       .expect(403);
 
-    expect(res.body.message).toContain('Insufficient role');
+    expect(res.body.message).toBe(ErrorCode.INSUFFICIENT_ROLE);
   });
 
   it('should check user.roles for @SkipTenantCheck + normal role (exact match)', async () => {
@@ -1237,10 +1248,13 @@ describe('CoreTenantGuard (e2e)', () => {
 
   // J8: S_VERIFIED on method → 403 for unverified user
   it('S_VERIFIED on method: unverified user gets 403', async () => {
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .get('/test/verified-only')
       .set('X-Test-User-Id', USER_ID)
       .expect(403);
+
+    expect(res.body.message).toBe(ErrorCode.VERIFICATION_REQUIRED);
+    expect(res.body.message).toContain('Verification required');
   });
 
   // J9: S_VERIFIED on method → 401 for unauthenticated user

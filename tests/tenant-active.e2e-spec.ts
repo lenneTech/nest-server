@@ -13,6 +13,7 @@ import { ConfigService } from '../src/core/common/services/config.service';
 import { IRequestContext, RequestContext } from '../src/core/common/services/request-context.service';
 import { ApiTokenScopes } from '../src/core/modules/api-token/core-api-token.decorators';
 import { createTenantApiTokenPrincipal } from '../src/core/modules/api-token/core-api-token.helpers';
+import { ErrorCode } from '../src/core/modules/error-code/error-codes';
 import { CoreTenantMemberModel } from '../src/core/modules/tenant/core-tenant-member.model';
 import { CurrentTenant } from '../src/core/modules/tenant/core-tenant.decorators';
 import { DefaultHR, TenantMemberStatus } from '../src/core/modules/tenant/core-tenant.enums';
@@ -233,11 +234,14 @@ describe('multiTenancy.isTenantActive (e2e)', () => {
 
   describe('header paths', () => {
     it('refuses a member of a deactivated tenant on a tenant-role route', async () => {
-      await get('/active/member', { 'x-tenant-id': OFF, 'x-test-user-id': USER }).expect(403);
+      const response = await get('/active/member', { 'x-tenant-id': OFF, 'x-test-user-id': USER }).expect(403);
+      expect(response.body.message).toBe(ErrorCode.TENANT_INACTIVE);
+      expect(response.body.message).toContain('Tenant is inactive');
     });
 
     it('refuses a member of a deactivated tenant on a signed-in route naming it', async () => {
-      await get('/active/signed-in', { 'x-tenant-id': OFF, 'x-test-user-id': USER }).expect(403);
+      const response = await get('/active/signed-in', { 'x-tenant-id': OFF, 'x-test-user-id': USER }).expect(403);
+      expect(response.body.message).toBe(ErrorCode.TENANT_INACTIVE);
     });
 
     it('paired control: the same member passes in an active tenant', async () => {

@@ -193,6 +193,22 @@ class UserController {
 // @Roles(DefaultHR.MANAGER) without header → 200 (user.roles manager(2) >= manager(2))
 ```
 
+### Refusal Codes
+
+Every 403 of the guard carries a translatable error code; the text behind the code is the guard's
+original wording, so a substring match on it keeps working:
+
+| Code        | Message                       | Refused because                                                                         |
+| ----------- | ----------------------------- | --------------------------------------------------------------------------------------- |
+| `LTNS_0103` | `Not a member of this tenant` | the header names a tenant the user has no active membership in                          |
+| `LTNS_0104` | `Insufficient tenant role`    | the membership role does not satisfy the required tenant role                           |
+| `LTNS_0105` | `Insufficient role`           | `user.roles` does not meet the required role (no header, or a `@SkipTenantCheck` route) |
+| `LTNS_0106` | `Tenant is inactive`          | `multiTenancy.isTenantActive` reports the header's tenant as switched off               |
+| `LTNS_0107` | `Verification required`       | an `S_VERIFIED` endpoint, and the user is not verified                                  |
+
+A project that calls tenants something else overrides the translations in its own error registry
+(`errorCode.additionalErrorRegistry`, registered after the core and therefore winning).
+
 ### Skipping Tenant Checks
 
 Use `@SkipTenantCheck()` for endpoints that intentionally work without tenant context:
@@ -238,7 +254,7 @@ multiTenancy: {
 
 | Path                                                           | Deactivated tenant                                                                                                                                                                         |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Header + tenant role, or `S_USER` / `S_VERIFIED` with a header | **403** `Tenant is inactive`                                                                                                                                                               |
+| Header + tenant role, or `S_USER` / `S_VERIFIED` with a header | **403** `#LTNS_0106: Tenant is inactive`                                                                                                                                                   |
 | Tenant API token                                               | **403**                                                                                                                                                                                    |
 | `S_EVERYONE` with a header                                     | not blocked, but no tenant context is set                                                                                                                                                  |
 | No header                                                      | dropped from the user's tenant list — its data stays out of reach                                                                                                                          |

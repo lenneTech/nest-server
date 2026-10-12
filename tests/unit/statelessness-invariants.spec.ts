@@ -327,6 +327,16 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The stored file id per finished upload, for the X-File-Id header. WeakMap keyed by the Upload '
+      + 'object @tus/server hands to onUploadFinish: onUploadComplete writes it and onUploadFinish reads '
+      + 'it within the SAME request on the SAME replica, so a second replica never needs it — the header '
+      + 'belongs to the response of the request that stored the file. Collected with that Upload object.',
+    classification: 'bounded',
+    file: 'modules/tus/core-tus.service.ts',
+    name: 'storedFileIds',
+  },
+  {
+    because:
       'Keeps THIS request\'s upload lock alive while it is being served. The lock itself lives in '
       + 'Redis and is exclusive across replicas; only the refresh timer for the request in flight '
       + 'is local, and it is cleared in unlock(). A holder that dies stops refreshing and the key '

@@ -122,3 +122,15 @@ oxfmt 0.72.0 re-verified: still exactly the two shipped READMEs. In cooldown: @s
 smtp-server 3.19.20/21. Gate: `check --no-fix` 5276 tests / 248 files, 10m17s at load ~30 (steady
 desktop background, not a foreign run); `check:consumer --fast` unit 353 + 1 skipped / e2e 119, raised
 `@types/node` (devDep) only.
+
+Pre-11.42.13 run (2026-10-12, release payload in src/ tests/ docs/ uncommitted): TAKEN only devDep
+smtp-server 3.19.19 -> 3.19.21 (RFC 5321 reply alignment, STARTTLS crash fix, XCLIENT/XFORWARD checks;
+3.19.20+ exact-pins nodemailer 10.1.0 = our direct pin, so the nested test-only 10.0.16 copy LEFT the lock).
+No code change, no override change. Still deferred, unchanged reasons: express 5.3.0 (platform-express
+11.2.7 pin), ws 8.22.0 / graphql-ws 6.3.0 (@nestjs/graphql 13.4.5 still newest 13.x), mongoose 9.11.1 +
+mongodb 7.7.0 (starter still has mongodb 7.6.0 as DEVdep, check-consumer still same-section only), oxfmt
+0.72.0 (no 0.72.1), all majors as in the table. better-auth 1.7.7 still `latest`, no 1.8 line at all.
+In cooldown: @swc/core 1.16.17/18 (mature 2026-10-12 04:34 / 06:48 UTC), ip-address 10.7.4 (override
+target, 19:34 UTC) — raise the ip-address key + target next run. Gate: `check --no-fix` 5352 tests / 251
+files, 3m19s at load ~12. `check:consumer` skipped deliberately: only a devDep the starter does not
+declare moved, so the tarball's runtime manifest was unchanged.

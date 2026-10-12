@@ -27,3 +27,4 @@
 - [pnpm 11 registry env + old-script replay](pnpm11-registry-env-and-old-script-replay.md) — 11.13.1 ignores npm_config_registry, honours pnpm_config_registry; replay a pre-fix ROOT-relative script via a symlinked scratch root
 - [Override+patch exit conditions](paired-override-patch-exit-conditions.md) — patch and override expire separately; recipe to reproduce pnpm ENOENT / ERR_PNPM_UNUSED_PATCH
 - [Vendor local-patch collision check](vendor-local-patch-collision-check.md) — grep vendor consumers' VENDOR.md patch tables for touched core files; a clean merge can neutralize a patch silently
+- [Error-code registry override semantics](error-code-registry-override-semantics.md) — additionalErrorRegistry overrides a core code per `code` (last wins); ignored when a custom errorCode service is passed

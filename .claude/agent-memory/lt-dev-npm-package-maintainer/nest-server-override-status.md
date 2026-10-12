@@ -171,3 +171,12 @@ is extended to 4.3.0. 4.3.0 is still no fix (max-stale code byte-identical, diff
 says so. If the range is extended, `pnpm audit` goes red: re-argue dev-only, then restore entry + spec
 guard together. One suppression left (braces).
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]
+
+## Status 2026-10-12 (pre-11.42.13 run, 19 entries, none changed)
+
+Fourth run with no raise. Only ws 8.21.3 trails (lockstep); ip-address 10.7.4 was still in cooldown
+(raise next run, key `<10.7.4` + target together). Two fresh resolves: WITH vs WITHOUT differs exactly as
+on 2026-10-09/11 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
+brace-expansion 2.1.7), so no hold-back anywhere. `check:overrides` 19 ok, 1/1 suppression (braces)
+still unpatched. `pnpm dedupe` would only drop the sticky `@types/node` 26.6.4 plus ~130 lines of
+supports-color churn — skipped again.

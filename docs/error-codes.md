@@ -162,6 +162,76 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 
 ---
 
+### LTNS_0103: notTenantMember
+
+**Message:** Not a member of this tenant
+
+**Description:** Thrown by the CoreTenantGuard when the `X-Tenant-Id` header names a tenant the user has no active membership in
+
+**Solution:** Send the header of a tenant the user belongs to, or add the membership
+
+**Translations:**
+- DE: Sie sind kein Mitglied dieses Mandanten.
+- EN: You are not a member of this tenant.
+
+---
+
+### LTNS_0104: insufficientTenantRole
+
+**Message:** Insufficient tenant role
+
+**Description:** Thrown by the CoreTenantGuard when the membership role in the header's tenant does not satisfy the required tenant role
+
+**Solution:** Raise the membership role or use an endpoint with a lower requirement
+
+**Translations:**
+- DE: Ihre Rolle in diesem Mandanten reicht für diese Aktion nicht aus.
+- EN: Your role in this tenant does not allow this action.
+
+---
+
+### LTNS_0105: insufficientRole
+
+**Message:** Insufficient role
+
+**Description:** Thrown by the CoreTenantGuard when `user.roles` does not meet the required role — without a tenant header, or on a `@SkipTenantCheck` route
+
+**Solution:** Grant the role, or send the tenant header so the membership role is checked
+
+**Translations:**
+- DE: Ihre Rolle reicht für diese Aktion nicht aus.
+- EN: Your role does not allow this action.
+
+---
+
+### LTNS_0106: tenantInactive
+
+**Message:** Tenant is inactive
+
+**Description:** Thrown by the CoreTenantGuard when `multiTenancy.isTenantActive` reports the header's tenant as switched off
+
+**Solution:** Reactivate the tenant, then call `invalidateTenant(tenantId)`
+
+**Translations:**
+- DE: Dieser Mandant ist deaktiviert.
+- EN: This tenant is deactivated.
+
+---
+
+### LTNS_0107: verificationRequired
+
+**Message:** Verification required
+
+**Description:** Thrown by the CoreTenantGuard on an `S_VERIFIED` endpoint for a user who is not verified
+
+**Solution:** Complete the verification of the account
+
+**Translations:**
+- DE: Für diese Aktion muss Ihr Konto verifiziert sein.
+- EN: Your account must be verified for this action.
+
+---
+
 ## User Errors (LTNS_0200-LTNS_0299)
 
 ### LTNS_0200: emailAlreadyExists

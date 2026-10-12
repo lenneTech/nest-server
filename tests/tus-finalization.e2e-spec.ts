@@ -11,6 +11,7 @@ import { CoreFileService } from '../src/core/modules/file/core-file.service';
 import { FILESYSTEM_FILES_COLLECTION } from '../src/core/modules/file/filesystem-file.helper';
 import { S3_FILES_COLLECTION } from '../src/core/modules/file/s3-file.helper';
 import { CoreTusService } from '../src/core/modules/tus/core-tus.service';
+import { TUS_FILE_ID_HEADER } from '../src/core/modules/tus/tus.constants';
 import { dropS3Buckets } from './helpers/s3-test-cleanup';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
 
@@ -91,10 +92,13 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
   const applyConfig = (file: Record<string, any>) =>
     ConfigService.setConfig({ ...(previousConfig as any), file, s3: s3Config } as IServerOptions, { reInit: true });
 
-  /** A tus service on its own HTTP server, staging in S3 */
-  const startTus = async (label: string): Promise<{ service: TestTusService; url: string }> => {
+  /** A tus service on its own HTTP server, staging in S3 unless `s3Staging: false` */
+  const startTus = async (
+    label: string,
+    tus: { s3Staging?: boolean } = {},
+  ): Promise<{ service: TestTusService; url: string }> => {
     const service = new TestTusService(connection, { configService, s3Service });
-    service.configure({ uploadDir: path.join(fixtureDir, `${label}-tus`) });
+    service.configure({ uploadDir: path.join(fixtureDir, `${label}-tus`), ...tus });
     await service.onModuleInit();
 
     const server = http.createServer((req, res) => {
@@ -136,8 +140,15 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
       req.end();
     });
 
-  /** Create + fully upload one file; returns the tus upload id (= the STAGING object key) */
-  const uploadFully = async (url: string, filename: string, payload: Buffer): Promise<string> => {
+  /**
+   * Create + fully upload one file; returns the tus upload id (= the STAGING object key) and the
+   * file id the completing PATCH answered with (`X-File-Id`, since 11.42.13).
+   */
+  const uploadFully = async (
+    url: string,
+    filename: string,
+    payload: Buffer,
+  ): Promise<{ fileId: string; uploadId: string }> => {
     const created = await tusRequest(url, {
       headers: {
         'Upload-Length': String(payload.length),
@@ -159,7 +170,7 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     // 204 means the whole finish hook succeeded — it is deliberately NOT swallowed, so a failed
     // migration surfaces here rather than as a silent data loss.
     expect(patched.statusCode, 'tus completion').toBe(204);
-    return uploadId;
+    return { fileId: patched.headers[TUS_FILE_ID_HEADER.toLowerCase()] as string, uploadId };
   };
 
   const stagedObjectExists = async (key: string): Promise<boolean> => {
@@ -221,7 +232,7 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     const filename = `${testId}-to-s3.txt`;
     const payload = Buffer.from('finished upload, copied inside s3');
 
-    const uploadId = await uploadFully(url, filename, payload);
+    const { fileId, uploadId } = await uploadFully(url, filename, payload);
 
     // The copy path, not the streaming one — "it worked" must not hide "it streamed".
     expect(service.copyDecisions).toEqual([true]);
@@ -229,6 +240,7 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     const fileService = new TestFileService(connection, configService, s3Service);
     const info = await fileService.getFileInfoByName(filename);
     expect(info, 'the finished upload must be readable through CoreFileService').toBeTruthy();
+    expect(fileId, 'the completing PATCH names the stored file').toBe(String(info.id));
     expect((await fileService.getBuffer(info.id)).toString()).toBe(payload.toString());
     expect(info.contentType).toBe('text/plain');
     expect(await s3Service.objectExists(String(info.id))).toBe(true);
@@ -245,7 +257,7 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     const filename = `${testId}-to-gridfs.txt`;
     const payload = Buffer.from('finished upload, migrated to gridfs');
 
-    const uploadId = await uploadFully(url, filename, payload);
+    const { fileId, uploadId } = await uploadFully(url, filename, payload);
 
     // No S3 on the receiving end, so the bytes genuinely have to transit this process.
     expect(service.copyDecisions).toEqual([false]);
@@ -253,6 +265,7 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     const fileService = new TestFileService(connection, configService, s3Service);
     const info = await fileService.getFileInfoByName(filename);
     expect(info).toBeTruthy();
+    expect(fileId, 'the completing PATCH names the stored file').toBe(String(info.id));
     expect((await fileService.getBuffer(info.id)).toString()).toBe(payload.toString());
     // In GridFS, and NOT in the S3 metadata store — tus must not write where the active driver isn't.
     expect(await connection.db.collection('fs.files').find({ filename }).toArray()).toHaveLength(1);
@@ -269,18 +282,40 @@ describe('TUS finalization into every file storage driver (real RustFS)', () => 
     const filename = `${testId}-to-filesystem.txt`;
     const payload = Buffer.from('finished upload, migrated to the filesystem');
 
-    const uploadId = await uploadFully(url, filename, payload);
+    const { fileId, uploadId } = await uploadFully(url, filename, payload);
 
     expect(service.copyDecisions).toEqual([false]);
 
     const fileService = new TestFileService(connection, configService, s3Service);
     const info = await fileService.getFileInfoByName(filename);
     expect(info).toBeTruthy();
+    expect(fileId, 'the completing PATCH names the stored file').toBe(String(info.id));
     expect((await fileService.getBuffer(info.id)).toString()).toBe(payload.toString());
     expect(await connection.db.collection(FILESYSTEM_FILES_COLLECTION).findOne({ filename })).toBeTruthy();
     expect(await connection.db.collection('fs.files').find({ filename }).toArray()).toHaveLength(0);
 
     expect(await stagedObjectExists(uploadId)).toBe(false);
     expect(await stagedObjectExists(`${uploadId}.info`)).toBe(false);
+  }, 120_000);
+
+  it('streams a locally staged upload into S3 and names the stored file', async () => {
+    applyConfig({ storage: 's3' });
+    // Local disk staging: no S3 on the sending end, so the copy path cannot apply and the bytes
+    // are written into the file bucket — the one finalization path the cases above do not take.
+    const { service, url } = await startTus('local-to-s3', { s3Staging: false });
+    const filename = `${testId}-local-to-s3.txt`;
+    const payload = Buffer.from('finished upload, staged locally, stored in s3');
+
+    const { fileId, uploadId } = await uploadFully(url, filename, payload);
+
+    expect(service.copyDecisions).toEqual([false]);
+    const fileService = new TestFileService(connection, configService, s3Service);
+    const info = await fileService.getFileInfoByName(filename);
+    expect(info).toBeTruthy();
+    expect(fileId, 'the completing PATCH names the stored file').toBe(String(info.id));
+    expect((await fileService.getBuffer(fileId)).toString()).toBe(payload.toString());
+    expect(await s3Service.objectExists(fileId)).toBe(true);
+    // Nothing was staged in S3 at all on this path.
+    expect(await stagedObjectExists(uploadId)).toBe(false);
   }, 120_000);
 });

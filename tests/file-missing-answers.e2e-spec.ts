@@ -43,6 +43,19 @@ class TestFileService extends CoreFileService {
   }
 }
 
+/**
+ * The per-file rule the reference implementation and the README document: read the RAW document
+ * in `checkRights()` and decide on it. That raw lookup is where a malformed id used to throw.
+ */
+class RawLookupFileService extends TestFileService {
+  protected override async checkRights(input: any, options?: any): Promise<boolean> {
+    if (options?.checkInputType !== 'id') {
+      return true;
+    }
+    return !!(await this.getRawFileInfo(input));
+  }
+}
+
 const upload = (content: string, filename: string) => ({
   createReadStream: () => Readable.from([content]),
   filename,
@@ -111,6 +124,31 @@ function describeMissing(driver: string, fileConfig: Record<string, any>, cleanU
     it('refuses to duplicate a missing file the same way by id and by name', async () => {
       await expectNotFound(service.duplicateById(unknownId));
       await expectNotFound(service.duplicateByName(unknownName, `${testId}-copy.txt`));
+    });
+
+    /**
+     * @regression   11.42.13 — an id that is not a 24-character hex string (a TUS upload id, which
+     *   clients took for the file id; a typo in a URL) reached `new ObjectId()` and threw a BSONError,
+     *   so `GET /files/id/<tus-upload-id>` answered 500 instead of the 404 an unknown id gets.
+     * @seen-failing Make `isMalformedFileId()` in src/core/modules/file/core-file.service.ts answer
+     *   `false` — registered as mutation `malformed-file-id-500` in tests/regression-mutations.json.
+     */
+    it.each([
+      ['a TUS upload id (32 hex characters)', '8aaca2eba5499c6dc21bdfaf550efbff'],
+      ['a word', 'not-an-id'],
+    ])('answers %s exactly like an unknown id, never with an error', async (_label, malformedId) => {
+      expect(await service.getFileInfo(malformedId)).toBeNull();
+      expect(await service.resolveFile(malformedId)).toBeNull();
+      expect(await service.getFileStream(malformedId)).toBeNull();
+      expect(await service.getBuffer(malformedId)).toBeNull();
+      expect(await service.getDownloadUrl(malformedId)).toBeUndefined();
+      await expectNotFound(service.deleteFile(malformedId));
+      await expectNotFound(service.duplicateById(malformedId));
+
+      // The documented per-file rule reads the raw document first — the path the 500 came from.
+      const withRule = new RawLookupFileService(connection);
+      expect(await withRule.getFileInfo(malformedId)).toBeNull();
+      expect(await withRule.resolveFile(malformedId)).toBeNull();
     });
 
     it('still deletes a file that IS there, and refuses the second attempt', async () => {

@@ -21,7 +21,7 @@ import {
   FilesystemFileHelper,
 } from '../file/filesystem-file.helper';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
-import { TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants';
+import { TUS_FILE_ID_HEADER, TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants';
 import { TusRedisLocker } from './tus-redis-locker';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
@@ -85,6 +85,17 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   private config: ITusConfig;
   private files: mongo.GridFSBucket;
   private cleanupInterval: NodeJS.Timeout | null = null;
+
+  /**
+   * The ID of the stored file per finished upload, recorded by {@link CoreTusService.onUploadComplete}
+   * and read by `onUploadFinish` for the `X-File-Id` response header.
+   *
+   * Recorded on the side rather than returned, so the hook keeps its `Promise<void>` signature: a
+   * project override in either documented shape — `await super.onUploadComplete(upload)` or
+   * `return super.onUploadComplete(upload)` — still compiles AND still yields the header. Keyed by
+   * the `Upload` object `onUploadFinish` hands to the hook, so nothing outlives the request.
+   */
+  private readonly storedFileIds = new WeakMap<Upload, string>();
 
   /** Datastore of the TUS server; set when uploads are staged in S3 */
   protected s3Store: any = null;
@@ -183,10 +194,15 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
-   * Handle upload completion - migrate to GridFS
+   * Handle upload completion - migrate the finished upload into the configured file storage
    *
    * This method can be overridden in extending services to customize
    * what happens after an upload completes.
+   *
+   * Records the ID of the stored file, which the completing response sends to the client as
+   * `X-File-Id` (`TUS_FILE_ID_HEADER`). An override must call `super.onUploadComplete(upload)` with
+   * the `upload` it received; one that does not stores nothing here and sends no header — the client
+   * then knows the TUS URL alone, whose last segment is the upload id, not the file id.
    */
   protected async onUploadComplete(upload: Upload): Promise<void> {
     try {
@@ -231,6 +247,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
           `Upload ${upload.id} copied inside S3 to ${fileInfo._id} (filename: ${filename}) — no bytes through this process`,
         );
         await this.deleteStagedUpload(upload.id);
+        this.storedFileIds.set(upload, String(fileInfo._id));
         return;
       }
 
@@ -239,15 +256,16 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         return;
       }
 
+      let fileInfo: { _id: unknown };
       if (this.fileStorageDriver === 'filesystem') {
-        const fileInfo = await FilesystemFileHelper.writeFile(
+        fileInfo = await FilesystemFileHelper.writeFile(
           this.fileStorageDir,
           this.connection.db.collection(FILESYSTEM_FILES_COLLECTION),
           { body: readStream, contentType, filename, metadata: fileMetadata },
         );
         this.logger.debug(`Upload ${upload.id} migrated to the filesystem as ${fileInfo._id} (filename: ${filename})`);
       } else if (this.s3FileStorage) {
-        const fileInfo = await S3FileHelper.writeFile(
+        fileInfo = await S3FileHelper.writeFile(
           this.options.s3Service,
           this.connection.db.collection(S3_FILES_COLLECTION),
           // Streamed with the length TUS already knows, so a multi-GB resumable upload is never
@@ -256,7 +274,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         );
         this.logger.debug(`Upload ${upload.id} migrated to S3 as ${fileInfo._id} (filename: ${filename})`);
       } else {
-        const fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
+        fileInfo = await GridFSHelper.writeFileFromStream(this.files, readStream, {
           contentType,
           filename,
           metadata: fileMetadata,
@@ -266,6 +284,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
 
       // Clean up the staged upload
       await this.deleteStagedUpload(upload.id);
+      this.storedFileIds.set(upload, String(fileInfo._id));
     } catch (error) {
       this.logger.error(`Failed to migrate upload ${upload.id}: ${error.message}`);
       throw error;
@@ -837,6 +856,9 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       // which a browser refuses on a credentialed (cookie) request — see resolveCorsOrigins().
       ...(cors ? { allowedCredentials: true, allowedOrigins: cors } : {}),
       datastore,
+      // Appended to the tus protocol headers in `Access-Control-Expose-Headers`: a browser on a
+      // separate app origin cannot read a response header that is not listed there.
+      exposedHeaders: [TUS_FILE_ID_HEADER],
       ...(locker ? { locker } : {}),
       maxSize: this.config.maxSize,
       // Every request that names an upload — HEAD (offset), PATCH (append bytes), DELETE
@@ -864,10 +886,14 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
         const relative = this.config.relativeLocation === true || (server as any)?.options?.relativeLocation === true;
         return relative ? url : `${proto}://${host}${url}`;
       },
+      // The response that completes the upload names the stored file. Without it the client knows
+      // only the TUS URL, whose last segment is the upload id — a staging key `/files/id/` answers
+      // with 404. An override of onUploadComplete() that never calls super records nothing: no header.
       onUploadFinish: async (_req, upload) => {
         try {
           await this.onUploadComplete(upload);
-          return {};
+          const fileId = this.storedFileIds.get(upload);
+          return fileId ? { headers: { [TUS_FILE_ID_HEADER]: fileId } } : {};
         } catch (error) {
           // Do NOT swallow this. `onUploadComplete` is what moves the finished upload into its
           // permanent store; returning `{}` after it failed answers the client with a 204 that
