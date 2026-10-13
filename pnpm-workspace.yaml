@@ -339,8 +339,11 @@ overrides:
   # Target raised 10.5.0 -> 10.7.2 on 2026-09-26, key upper bound with it: same hold-back again.
   # Target raised 10.7.2 -> 10.7.3 on 2026-10-03 (11.41.7 maintenance run), key with it: 10.7.3
   # (published 2026-10-01) is the newest 10.x past the hold-back, so 10.7.2 had become a lock.
+  # Target raised 10.7.3 -> 10.7.4 on 2026-10-13 (pre-11.42.14 maintenance run), key with it: 10.7.4
+  # (published 2026-10-11) is the newest 10.x past the hold-back. express-rate-limit 8.7.1, the
+  # newest, still requests `^10.2.0`, so the removal condition below is not met yet.
   # Remove once express-rate-limit requests >=10.3.1.
-  'ip-address@<10.7.3': '10.7.3'
+  'ip-address@<10.7.4': '10.7.4'
   # Security: TWO advisories on the 3.x line — predictable output with a non-integer size
   # (patched >=3.3.17) and, since 2026-08, custom generators looping indefinitely when size
   # is zero (high, patched >=3.3.18). The target is the LATER of the two; a 3.3.17 target

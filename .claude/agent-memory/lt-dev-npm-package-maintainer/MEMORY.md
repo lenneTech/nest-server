@@ -4,8 +4,8 @@
 - `pnpm run check` is the final gate; payload work in `src/`/`tests/` is never stashed or touched.
 
 ## Index (topic files)
-- [Deferred major updates](deferred-major-updates.md) — state 2026-10-12 (pre-11.42.13; only smtp-server moved): NestJS 12, vitest 5 (VITEST_POOL_ID), graphql 17, TS 7, undici 8, ejs 7, pnpm 12, better-auth, express 5.3 + ws lockstep (upstream exact pins), mongo pair cross-repo, oxfmt 0.72 touches src/.
-- [Override status](nest-server-override-status.md) — per-entry state 2026-10-12 (19 entries, fourth run with no raise; ip-address 10.7.4 due next run), two-fresh-resolve method.
+- [Deferred major updates](deferred-major-updates.md) — state 2026-10-13 (pre-11.42.14; @swc/core + ip-address moved): NestJS 12, vitest 5 (VITEST_POOL_ID), graphql 17, TS 7, undici 8, ejs 7, pnpm 12, better-auth, express 5.3 + ws lockstep (upstream exact pins), mongo pair cross-repo, oxfmt 0.72 touches src/.
+- [Override status](nest-server-override-status.md) — per-entry state 2026-10-13 (19 entries, ip-address raised to 10.7.4; utils 12.0.4 + postcss 8.5.30 due next run), two-fresh-resolve method.
 - [Dependency shape + couplings](nest-server-dependency-shape.md) — deps vs devDeps; mongodb+mongoose; AWS trio one version; lockstep exact pins.
 - [Maintenance gotchas](nest-server-maintenance-gotchas.md) — nest exec bit; zsh glob traps; `pgrep` self-match; wait out foreign e2e runs AND high load before each gate; hung install; dead Jest reporter + ansi-colors removed 2026-10-09.
 - [pnpm 11 override + check gotchas](pnpm11-override-and-check-gotchas.md) — stale lock entries after override edits, targeted `pnpm update --depth Infinity`, `check --no-fix`.

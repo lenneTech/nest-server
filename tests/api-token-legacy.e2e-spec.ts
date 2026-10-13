@@ -6,7 +6,7 @@
  * Separate from api-token.e2e-spec.ts because a legacy CoreModule cannot be booted in a process that
  * already booted an IAM-only one (static module state unrelated to tokens).
  */
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, Get, Module, UseGuards } from '@nestjs/common';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -18,6 +18,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   ApiTokenKind,
   ApiTokenScopes,
+  AuthGuard,
+  AuthGuardStrategy,
   CoreApiTokenService,
   CoreBetterAuthModule,
   CoreModule,
@@ -92,6 +94,15 @@ class ApiTokenProbeController {
   @Roles(RoleEnum.ADMIN)
   platformAdmin() {
     return { ok: true };
+  }
+
+  /** @Roles plus an explicit Passport guard — redundant, but common in projects. */
+  @ApiTokenScopes('read')
+  @Get('auth-guarded')
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+  authGuarded(@CurrentUser() user: any) {
+    return { kind: getApiTokenContext(user)?.kind ?? null, userId: user?.id ?? null };
   }
 }
 
@@ -182,6 +193,29 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
     expect(whoami).toMatchObject({ kind: ApiTokenKind.USER, roles: [], tenantId, userId });
     await helper.rest('/api-token-probe/platform-admin', { statusCode: 403, token: created.token });
     await helper.rest('/api-token-probe/unreleased', { statusCode: 403, token: created.token });
+  });
+
+  /**
+   * @regression   11.42.14 — AuthGuard(JWT) handed every request to Passport unless the user carried
+   *   `_authenticatedViaBetterAuth`, so the JWT strategy read a token's `ltt_…` bearer as a JWT and answered
+   *   401 on a route RolesGuard had admitted via @ApiTokenScopes().
+   * @seen-failing Make the API-token branch in AuthGuard.canActivate() unreachable — registered as
+   *   mutation `auth-guard-reauthenticates-api-token-e2e` in tests/regression-mutations.json.
+   */
+  it('lets a user token pass an explicit AuthGuard(JWT) on a released route', async () => {
+    const userId = (
+      await db.collection('users').insertOne({ email: `legacy-guarded-${Date.now()}@test.com`, roles: [] })
+    ).insertedId.toString();
+    const created = await app
+      .get(CoreApiTokenService)
+      .createUserToken({ name: 'legacy-guarded', scopes: ['read'] }, { id: userId, roles: [] });
+    const exportOnly = await app
+      .get(CoreApiTokenService)
+      .createUserToken({ name: 'legacy-export', scopes: ['export'] }, { id: userId, roles: [] });
+
+    const result = await helper.rest('/api-token-probe/auth-guarded', { token: created.token });
+    expect(result).toEqual({ kind: ApiTokenKind.USER, userId });
+    await helper.rest('/api-token-probe/auth-guarded', { statusCode: 403, token: exportOnly.token });
   });
 
   it('a legacy password reset revokes the user’s tokens — it ends every legacy session anyway', async () => {

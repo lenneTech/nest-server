@@ -17,4 +17,6 @@ case drives a real narrowed USER token through `service.authenticate()`):
 
 **Isolation facts that held up:** every stack uses its own `deriveTestDbUri` DB (immune to the jwks wipe, see [[e2e-isolation-model]]); `bootApiTokenIamApp` REPLACES ConfigService via `setConfig(reInit)` before forRoot merges (see [[configservice-singleton-in-tests]]); the process-wide tenant-guard counter (`core-tenant-guard.registry.ts`) is released on `app.close()`.
 
+**Route-level AuthGuard (11.42.14 review, 2026-10-13):** global APP_GUARDs run BEFORE a route's `@UseGuards(AuthGuard(...))`, so in the assembled e2e stack every 403 for a token comes from the role/tenant guards — the AuthGuard's own `enforceApiTokenRoute()` call is provable only in the standalone unit describe (`api-token-guard-invariants.spec.ts`). `RolesGuard extends AuthGuard(JWT)`, `RefreshTokenGuard extends AuthGuard('jwt-refresh')`: AuthGuard changes reach both via `super.canActivate`. Verified in a scratch copy: dropping strategy gating turns only the JWT_REFRESH case red (load-bearing, not vacuous — unregistered passport strategy would also reject, but the token branch resolves true first).
+
 **How to apply:** for any "X can never do Y" test, trace which layer produced the status code — an earlier deny-by-default layer often satisfies the assertion before the protection named in the title is reached.

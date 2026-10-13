@@ -781,6 +781,14 @@ their public-route shortcut, so the policy holds whichever guard runs first or a
 4. A request that carries a token credential but reaches a guard without a token context (the
    middleware did not run) is refused with 401 rather than treated as anonymous.
 
+A route-level `@UseGuards(AuthGuard(AuthGuardStrategy.JWT | BETTER_AUTH))` (redundant next to
+`@Roles()`, but common — nest-server-starter's `UserController` carries it on six routes) accepts the
+token `CoreApiTokenMiddleware` authenticated instead of re-verifying the `ltt_…` credential, which
+neither Passport nor `BetterAuthTokenService` knows; before 11.42.14 that re-verification answered
+401 on every released route. It calls `enforceApiTokenRoute()` itself, so it never opens a route the
+role guards would refuse, even where it runs without one. `JWT_REFRESH` and project-defined strategies
+never accept a token.
+
 #### System Roles (S_ prefix)
 
 System roles are evaluated at runtime and must **never** be stored in `user.roles`.

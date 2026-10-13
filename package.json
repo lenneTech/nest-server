@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "11.42.13",
+  "version": "11.42.14",
   "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
   "keywords": [
     "node",
@@ -192,7 +192,7 @@
     "@nestjs/schematics": "11.1.0",
     "@nestjs/testing": "11.2.7",
     "@swc/cli": "0.8.1",
-    "@swc/core": "1.16.13",
+    "@swc/core": "1.16.18",
     "@tus/s3-store": "2.0.7",
     "@types/compression": "1.8.1",
     "@types/cookie-parser": "1.4.10",

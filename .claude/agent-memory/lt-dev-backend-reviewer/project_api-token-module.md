@@ -27,6 +27,13 @@ manager can mint a tenant token for a scope meant for "own profile" routes. Beco
 moment a project or `src/server` opens an S_SELF-only route with `@ApiTokenScopes`. A route guarded
 ONLY by object-level system roles now refuses tenant tokens; an OR with a tenant role still resolves.
 
+**11.42.14 (reviewed 2026-10-13, clean):** route-level `AuthGuard(JWT | BETTER_AUTH)` is a 4th caller of
+`enforceApiTokenRoute()` — it accepts a middleware-authenticated token instead of re-verifying it.
+Verified: RolesGuard never reaches that branch (it returns before `super.canActivate` whenever a token
+context exists); JWT_REFRESH / custom strategies are excluded; `AuthGuard()` default `[jwt, jwt-refresh]`
+matches via `some()`, consistent with Passport's any-of. For USER tokens AuthGuard checks no roles —
+same as for sessions, not a token hole.
+
 **Why:** saves re-auditing the same surface; flags where a future diff would turn the gap real.
 **How to apply:** on any diff touching api-token helpers or adding `@ApiTokenScopes` to S_SELF/S_CREATOR
 routes, check the refusal is still in place (the mutation guards it). Related: [[project_401-403-denial-surface]].

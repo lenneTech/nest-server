@@ -28,3 +28,4 @@
 - [Override+patch exit conditions](paired-override-patch-exit-conditions.md) — patch and override expire separately; recipe to reproduce pnpm ENOENT / ERR_PNPM_UNUSED_PATCH
 - [Vendor local-patch collision check](vendor-local-patch-collision-check.md) — grep vendor consumers' VENDOR.md patch tables for touched core files; a clean merge can neutralize a patch silently
 - [Error-code registry override semantics](error-code-registry-override-semantics.md) — additionalErrorRegistry overrides a core code per `code` (last wins); ignored when a custom errorCode service is passed
+- [AuthGuard API-token claim scope](authguard-api-token-claim-scope.md) — 11.42.14 AuthGuard admits tokens; "never opens what role guards refuse" = route policy, not USER-token @Roles
