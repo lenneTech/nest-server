@@ -237,4 +237,24 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   ip-address 10.7.4 (19:34 UTC, raise key `<10.7.4` + target together in BOTH repos).
   Gate: `check --no-fix` 473 tests / 33 files, 50 s.
 
+**20. Starter run for framework 11.42.14 (2026-10-13, 03:52 UTC).**
+- Shared pins again byte-identical to the framework manifest (47 entries); the 4 starter-only devDeps
+  (ansi-colors, cpy-cli, semver, standard-version) newest. Only override change: ip-address `<10.7.3` ->
+  `<10.7.4`, target 10.7.4 (express-rate-limit 8.7.1 asks `^10.2.0`, so it was a lock). Plain
+  `pnpm install` moved it: 5-line lock delta. After the raise ip-address is identical WITH/WITHOUT.
+- **Repo lock had drifted from a fresh resolve within one day** (p-map 7.1.0, strtok3 10.3.5, zod 4.6.5
+  vs 7.1.1 / 10.4.0 / 4.6.6, all published 2026-10-11). Lifted with a targeted
+  `pnpm update --depth Infinity --lockfile-only --ignore-scripts p-map strtok3 zod` in scratch: 194 diff
+  lines, but ALL are `(zod@…)` peer suffixes in better-auth / MCP SDK snapshot keys. To prove that, strip
+  the `< `/`> ` prefix BEFORE normalising versions, then `sort | uniq -c | awk '$1%2==1'` — empty means
+  every line pairs up. (Keeping the prefix makes every line unpaired and looks like huge churn.)
+  Result: repo lock == fresh resolve (1011 names, 0 diffs), dedupe byte-identical.
+- WITH vs WITHOUT unchanged (graphql-tools 12.0.0 + js-yaml 5.3.0 return, WITHOUT audits 1 high + 1
+  moderate; ajv 8.18, minimatch 9 + brace-expansion 2.1.7, uuid 14.0.1). Gate `pnpm run check` green
+  first try: 473 tests / 33 files, 1m04s at load ~14.
+- Pending next run (cooldown at 03:52 UTC): `@graphql-tools/utils` 12.0.4 (mature 2026-10-13 13:09 UTC)
+  and postcss 8.5.30 (20:38 UTC) — raise key + target in BOTH repos. mongoose 9.11.x + mongodb 7.7,
+  express 5.3.0, ws 8.22.0: framework-blocked as before. ansi-colors/tests/report.js and
+  standard-version: open repo decisions (item 19), unchanged.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]
