@@ -2370,6 +2370,40 @@
         "tests/file-missing-answers.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "auth-guard-reauthenticates-api-token-unit",
+      "defect": "11.42.14 — AuthGuard.canActivate() skipped re-authentication only for `_authenticatedViaBetterAuth`, which a user authenticated by CoreApiTokenMiddleware does not carry. Passport (JWT) and BetterAuthTokenService (BETTER_AUTH) then read the `ltt_…` bearer as their own credential and answered 401 on a route the role guard had admitted via @ApiTokenScopes() — every route of a starter-based project with an explicit @UseGuards(AuthGuard(...)) stayed closed to tokens.",
+      "file": "src/core/modules/auth/guards/auth.guard.ts",
+      "find": "      if (getApiTokenContext(existingUser) && isSatisfiedByApiToken(type || this.options?.defaultStrategy)) {",
+      "replace": "      if (getApiTokenContext(existingUser) && isSatisfiedByApiToken(type || this.options?.defaultStrategy) && false) {",
+      "specs": [
+        "tests/unit/api-token-guard-invariants.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-guard-reauthenticates-api-token-e2e",
+      "defect": "11.42.14 — AuthGuard.canActivate() skipped re-authentication only for `_authenticatedViaBetterAuth`, which a user authenticated by CoreApiTokenMiddleware does not carry. Passport (JWT) and BetterAuthTokenService (BETTER_AUTH) then read the `ltt_…` bearer as their own credential and answered 401 on a route the role guard had admitted via @ApiTokenScopes() — every route of a starter-based project with an explicit @UseGuards(AuthGuard(...)) stayed closed to tokens. The e2e half: the assembled stack, with the token middleware and the role guards in front of the AuthGuard, for both strategies (BETTER_AUTH on the IAM stack, JWT on the legacy stack).",
+      "file": "src/core/modules/auth/guards/auth.guard.ts",
+      "find": "      if (getApiTokenContext(existingUser) && isSatisfiedByApiToken(type || this.options?.defaultStrategy)) {",
+      "replace": "      if (getApiTokenContext(existingUser) && isSatisfiedByApiToken(type || this.options?.defaultStrategy) && false) {",
+      "specs": [
+        "tests/api-token.e2e-spec.ts",
+        "tests/api-token-legacy.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-guard-skips-api-token-route-policy",
+      "defect": "11.42.14 (pre-release) — admitting a token in AuthGuard without deciding the route there relies on a framework role guard having run first. CoreModule registers none when neither Better-Auth nor the legacy Auth module is active, and a project may replace it with its own APP_GUARD; the AuthGuard alone would then open every unreleased route to tokens.",
+      "file": "src/core/modules/auth/guards/auth.guard.ts",
+      "find": "        enforceApiTokenRoute({ controllerClass: context.getClass(), handler: context.getHandler(), request });\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/api-token-guard-invariants.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

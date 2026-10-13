@@ -180,3 +180,12 @@ on 2026-10-09/11 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, m
 brace-expansion 2.1.7), so no hold-back anywhere. `check:overrides` 19 ok, 1/1 suppression (braces)
 still unpatched. `pnpm dedupe` would only drop the sticky `@types/node` 26.6.4 plus ~130 lines of
 supports-color churn — skipped again.
+
+## Status 2026-10-13 (pre-11.42.14 run, 19 entries)
+
+Raised: ip-address `<10.7.3` -> `<10.7.4`, target 10.7.4 (express-rate-limit 8.7.1, newest, still asks
+`^10.2.0`, so the removal condition is unmet). Only ws 8.21.3 trails (lockstep). Two fresh resolves: WITH vs
+WITHOUT unchanged since 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch
+9.0.9 + brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~150 sticky
+transitive names (express-rate-limit 8.5.2 vs 8.7.1, kysely 0.28 vs 0.29, @hono/node-server 2.0.11 vs 2.1.4)
+— ordinary stickiness, not swapped. Next run: utils 12.0.4 and postcss 8.5.30 are due (both raise key+target).

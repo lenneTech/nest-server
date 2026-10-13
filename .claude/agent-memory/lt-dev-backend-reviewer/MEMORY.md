@@ -9,7 +9,7 @@
 - [11.33.0 multi-replica file storage](project_multi-replica-file-storage.md) — `getRawFileInfoByName` skips the filesystem store, S3 reads are gated on the current driver, and guide §7 contradicts the fail-fast boot.
 - [Brevo SDK v3→v6](project_brevo-sdk-v6.md) — awaited shape identical (dropping `.body` is correct); real breaks are removed symbols, new BrevoError type, and new default retries.
 - [Review tree is shared and mutable](review-tree-is-shared-and-mutable.md) — parallel reviewers share the checkout and check-mutations leaves applied source residue; never git stash, revert suspect files individually.
-- [API-token module (11.41.4)](project_api-token-module.md) — deny-by-default lives in enforceApiTokenRoute() in 3 guards; tenant tokens pass S_SELF/S_CREATOR-only routes (latent).
+- [API-token module (11.41.4)](project_api-token-module.md) — deny-by-default in enforceApiTokenRoute(): 3 role guards + route AuthGuard (11.42.14); tenant tokens refused on S_SELF-only routes.
 - [S3 streaming uploads (11.41.7)](project_s3-streaming-uploads.md) — lib-storage failure destroys its source (reproduced, don't re-flag); known length >5 GiB still goes to a single PUT.
 - [TUS res.end(cb) normalization (11.42.2)](project_tus-end-callback.md) — measured native vs wrapped end(cb) edge cases; destroyed-before-end hang is pre-existing, do not re-flag.
 - [Body-parser initializer (11.42.4)](project_body-parser-initializer.md) — layer swap verified (options, slash flag, rawBody caveat); also Better-Auth signing-secret source.

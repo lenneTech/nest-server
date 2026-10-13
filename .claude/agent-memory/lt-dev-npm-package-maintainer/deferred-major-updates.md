@@ -134,3 +134,12 @@ In cooldown: @swc/core 1.16.17/18 (mature 2026-10-12 04:34 / 06:48 UTC), ip-addr
 target, 19:34 UTC) — raise the ip-address key + target next run. Gate: `check --no-fix` 5352 tests / 251
 files, 3m19s at load ~12. `check:consumer` skipped deliberately: only a devDep the starter does not
 declare moved, so the tarball's runtime manifest was unchanged.
+
+Pre-11.42.14 run (2026-10-13, release payload uncommitted again): TAKEN devDep @swc/core 1.16.13 -> 1.16.18
+(no 1.16.14-16 exist), override ip-address 10.7.3 -> 10.7.4. No code change. Still deferred, unchanged reasons:
+express 5.3.0 (platform-express 11.2.7 still newest 11.x), ws 8.22.0 / graphql-ws 6.3.0 (@nestjs/graphql 13.4.5
+still newest 13.x), mongoose 9.11.1 + mongodb 7.7.0 (starter still mongodb 7.6.0 as DEVdep, check-consumer still
+same-section only), oxfmt 0.72.0 (no 0.72.1), all majors. better-auth 1.7.7 still `latest`. In cooldown at 03:04
+UTC: bullmq 6.3.13 (08:54), @graphql-tools/utils 12.0.4 (override target, 13:09), AWS trio 3.1150.0 (18:41),
+mongoose 9.11.2 (19:25), postcss 8.5.30 (override target, 20:38) — next run. Gate: `check --no-fix` 5381 tests /
+251 files, 3m48s, green first try. check:consumer skipped (only a devDep moved, runtime manifest unchanged).

@@ -60,6 +60,11 @@ What an opened route means per kind:
   membership role. Losing a membership removes the token's access at once — rights are read per
   request, never copied into the token.
 
+An explicit `@UseGuards(AuthGuard(AuthGuardStrategy.BETTER_AUTH))` or `AuthGuard(AuthGuardStrategy.JWT)`
+on the route does not close it to tokens (since 11.42.14; before, it answered 401): it accepts the token
+the middleware authenticated and applies the same route policy. `AuthGuard(JWT_REFRESH)` and custom
+strategies never accept a token.
+
 `request.user`:
 
 - TENANT token: `{ id: <token id>, name, scopes, tenantId, roles: [], hasRole: () => false }`

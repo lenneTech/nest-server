@@ -18,7 +18,13 @@ Reuse this instead of re-deriving the chain on the next change to the module.
   request, ~400 ns on a 300-char JWT Bearer header (the `/^bearer\s+(\S+)\s*$/i` exec). Up to ~4 calls per
   request, so roughly 1.6 µs at worst. Do NOT flag it.
 - Guards read `getApiTokenContext(request.user)` (a symbol property) before anything else. On the
-  `request.user`-set path that is the whole cost.
+  `request.user`-set path that is the whole cost. Measured 2026-10-13 at a megamorphic site (8 user
+  shapes plus undefined/null): ~12 ns/call.
+- Since 11.42.14 `AuthGuard(JWT|BETTER_AUTH)` (`auth.guard.ts`) also short-circuits token requests
+  through `enforceApiTokenRoute()`. That removed the JWT verify and session aggregation the old path ran
+  per token request before answering 401. `RolesGuard` returns before `super.canActivate()` on tokens, so
+  the inherited branch only runs for an explicit `@UseGuards(AuthGuard(...))`. It is a third or fourth
+  in-memory `enforceApiTokenRoute` call on the same request, which costs sub-microsecond. Do NOT flag it.
 
 ## A token request
 

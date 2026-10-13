@@ -28,6 +28,7 @@ import {
   Param,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Db, MongoClient, ObjectId } from 'mongodb';
@@ -37,6 +38,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   ApiTokenKind,
   ApiTokenScopes,
+  AuthGuard,
+  AuthGuardStrategy,
   CoreApiTokenService,
   CoreBetterAuthModule,
   CoreModule,
@@ -151,6 +154,18 @@ class ApiTokenProbeController {
   @Roles(RoleEnum.ADMIN)
   platformAdmin() {
     return { ok: true };
+  }
+
+  /**
+   * The shape of nest-server-starter's UserController: @Roles plus an explicit AuthGuard. The guard is
+   * redundant next to @Roles, but projects carry it widely, so it must not close a released route to tokens.
+   */
+  @ApiTokenScopes('read')
+  @Get('auth-guarded')
+  @Roles(RoleEnum.S_USER)
+  @UseGuards(AuthGuard(AuthGuardStrategy.BETTER_AUTH))
+  authGuarded(@CurrentUser() user: any) {
+    return { kind: getApiTokenContext(user)?.kind ?? null, userId: user?.id ?? null };
   }
 }
 
@@ -556,6 +571,11 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       expect(notes.notes).toEqual(['a-1', 'a-2']);
     });
 
+    it('A3: passes an explicit AuthGuard(BETTER_AUTH) on a released route', async () => {
+      const result = await helper.rest('/api-token-probe/auth-guarded', { token: readToken });
+      expect(result).toMatchObject({ kind: ApiTokenKind.TENANT });
+    });
+
     it('A3: accepts the token in x-api-key as well (the Better-Auth API-key convention)', async () => {
       const whoami = await helper.rest('/api-token-probe/whoami', { headers: { 'x-api-key': readToken } });
       expect(whoami.tenantId).toBe(tenantA);
@@ -740,6 +760,26 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       expect(notesA.notes).toEqual(['a-1', 'a-2']);
       const notesB = await helper.rest('/api-token-probe/notes', { headers: asTenant(tenantB), token: created.token });
       expect(notesB.notes).toEqual(['b-1']);
+    });
+
+    /**
+     * @regression   11.42.14 — AuthGuard skipped re-authentication only for `_authenticatedViaBetterAuth`,
+     *   which a token user does not carry, so `@UseGuards(AuthGuard(BETTER_AUTH))` read the `ltt_…` bearer
+     *   as a session and answered 401 on a route the role guard had admitted via @ApiTokenScopes().
+     *   nest-server-starter's UserController carries that guard on six routes.
+     * @seen-failing Make the API-token branch in AuthGuard.canActivate() unreachable — registered as
+     *   mutation `auth-guard-reauthenticates-api-token-e2e` in tests/regression-mutations.json.
+     */
+    it('pass an explicit AuthGuard(BETTER_AUTH) on a released route — as their user, and only with the scope', async () => {
+      const readOnly = await createUserToken(memberA, { scopes: ['read'] });
+      const exportOnly = await createUserToken(memberA, { scopes: ['export'] });
+
+      const result = await helper.rest('/api-token-probe/auth-guarded', { token: readOnly.token });
+      expect(result).toEqual({ kind: ApiTokenKind.USER, userId: memberA.id });
+      await helper.rest('/api-token-probe/auth-guarded', { statusCode: 403, token: exportOnly.token });
+      // The session of the same user still passes the guard the ordinary way.
+      const session = await helper.rest('/api-token-probe/auth-guarded', { token: memberA.token });
+      expect(session).toEqual({ kind: null, userId: memberA.id });
     });
 
     it('never reach a tenant their user is not a member of', async () => {

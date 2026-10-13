@@ -6,6 +6,7 @@ import { defaultOptions } from '@nestjs/passport/dist/options.js';
 import { memoize } from '@nestjs/passport/dist/utils/memoize.util.js';
 import passport = require('passport');
 
+import { enforceApiTokenRoute, getApiTokenContext } from '../../api-token/core-api-token.helpers';
 import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
 import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
 import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
@@ -20,6 +21,21 @@ import { InvalidTokenException } from '../exceptions/invalid-token.exception';
 const NO_STRATEGY_ERROR =
   'In order to use "defaultStrategy", please, ensure to import PassportModule in each ' +
   "place where AuthGuard() is being used. Otherwise, passport won't work correctly.";
+
+/**
+ * Strategies that authenticate a person by an access credential. An API token authenticated by
+ * `CoreApiTokenMiddleware` satisfies them; `JWT_REFRESH` and project-defined strategies authenticate
+ * something else (a refresh token, a custom credential), so a token never stands in for those.
+ */
+const API_TOKEN_SATISFIED_STRATEGIES: ReadonlySet<string> = new Set([
+  AuthGuardStrategy.BETTER_AUTH,
+  AuthGuardStrategy.JWT,
+]);
+
+function isSatisfiedByApiToken(strategy: string | string[] | undefined): boolean {
+  const strategies = Array.isArray(strategy) ? strategy : [strategy];
+  return strategies.some((value) => !!value && API_TOKEN_SATISFIED_STRATEGIES.has(value));
+}
 
 /**
  * Interface for auth guard
@@ -60,6 +76,9 @@ const createPassportContext =
  * - First checks if user is already authenticated via middleware (_authenticatedViaBetterAuth)
  * - If not, validates the token via BetterAuthTokenService (JWT or session token)
  * - Loads the full user from MongoDB with hasRole() capability
+ *
+ * API tokens (JWT and BETTER_AUTH only): a token authenticated by CoreApiTokenMiddleware is accepted as is
+ * and the route is decided by enforceApiTokenRoute(), exactly as in the role guards.
  *
  * Can be removed when pull request is merged:
  * https://github.com/nestjs/passport/pull/66
@@ -118,11 +137,22 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
 
       const options = { ...defaultOptions, ...this.options };
       const request = this.getRequest(context);
+      const existingUser = request?.[options.property || defaultOptions.property];
+
+      // An API token was already authenticated by CoreApiTokenMiddleware. Neither Passport nor
+      // BetterAuthTokenService knows its credential, so verifying it again here refused every token with
+      // 401 — also on a route that released it via @ApiTokenScopes(). The route is decided here with the
+      // same function the role guards use (deny by default, scopes, tenant binding), so the policy holds
+      // even where this guard runs without a framework role guard in front of it.
+      if (getApiTokenContext(existingUser) && isSatisfiedByApiToken(type || this.options?.defaultStrategy)) {
+        enforceApiTokenRoute({ controllerClass: context.getClass(), handler: context.getHandler(), request });
+        request[options.property || defaultOptions.property] = this.handleRequest(null, existingUser, null, context);
+        return true;
+      }
 
       // Check if user is already authenticated via Better-Auth middleware
       // Only skip Passport for Better-Auth users (marked with _authenticatedViaBetterAuth)
       // This ensures JWT_REFRESH guard still validates refresh tokens properly
-      const existingUser = request?.[options.property || defaultOptions.property];
       if (existingUser && existingUser._authenticatedViaBetterAuth === true) {
         // User is authenticated via Better-Auth - skip Passport authentication
         // Validate through handleRequest to ensure role checks work
