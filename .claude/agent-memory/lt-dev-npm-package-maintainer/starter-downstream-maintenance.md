@@ -279,4 +279,30 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
 - Starter devDeps that stay on the framework's values: vitest/coverage 4.1.11, oxfmt 0.72.0 (both deliberately held
   in the framework, see [[deferred-major-updates]]). utils/postcss entries: already identical to the framework.
 
+**23. Starter run for framework 11.42.15 (2026-10-17) — item 22 applied, plus one new shape.**
+- undici `<7.30.1` -> 7.30.1, qs `<6.16.1` -> 6.16.1, nodemailer `<10.1.2` -> 10.1.2 (key + target each).
+  A plain `pnpm install` moved them (+1 -2 packages); `pnpm why undici` = 7.30.1 only. The mongo pair
+  arrived via `pnpm run update` alone (one mongodb 7.7.0, one bson 7.3.3) — item 12 is closed for good.
+- **A fresh resolve now carries TWO `@graphql-tools/utils` copies, and nest-server's own lock does not.**
+  @nestjs/graphql's exact 12.0.0 is lifted to 12.0.4 by the override, while @apollo/server >
+  `@graphql-tools/schema` 10.1.5 / `merge` 9.2.8 (2026-10-15) request `^12.1.0`, which the `<12.0.4`
+  key never reaches. nest-server's lock sits on the sticky schema 10.1.3 / merge 9.2.6, a single utils
+  12.0.4. Since the lt CLI drops the template lockfile, every new project gets the two-copy tree. The
+  starter took the fresh lock and the gate was green (484), which is the evidence that tree works. Next
+  run: raise the utils entry to 12.1.0 in BOTH repos (12.1.0 = minor, symbol-keyed extensions +
+  `mergeDeep` options form, no breaking change / peer / engines) and the tree collapses to one copy.
+- Repo lock drifted 41 names from a fresh resolve in four days (all upward, in-range, identical name
+  sets) -> swapped in the fresh resolve; `pnpm dedupe --check` exit 0. WITH vs WITHOUT unchanged.
+- pnpm 11.28.6 (2026-10-15) is out while all five repos pin 11.28.5 — reported, not moved from a
+  single-repo run.
+- Gate: `pnpm run check` green first try, 484 tests / 34 files, 1m12s at load ~8.
+
+**24. Framework pre-11.42.16 run (2026-10-17 evening) — handover for the starter step:**
+- devDeps the starter declares and `pnpm run update` raises on its own: vitest + @vitest/coverage-v8 4.1.11 -> 4.1.12
+  (repo-only @vitest/mocker advisories GHSA-qxg6-89mg-rqv8 / GHSA-xp26-3454-mjgp), oxfmt 0.72.0 -> 0.73.0 (run
+  `format:check` in the starter before the gate — zero drift here, unverified there).
+- Override NOT raised by any script: `'@graphql-tools/utils@>=12.0.0 <12.0.4': 12.0.4` -> `<12.1.0` -> 12.1.0. That
+  closes item 23's two-copy tree (schema 10.1.5 / merge 9.2.8 request `^12.1.0`). docs/security-overrides.md now
+  recommends `<12.1.0` -> 12.1.0 to consumers too (raised by the orchestrator in 11.42.16).
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

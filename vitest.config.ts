@@ -25,8 +25,8 @@ export default defineConfig({
     //
     // So a log written by the last test of a file can still be travelling when cleanup runs, and
     // the rejection surfaces as an unhandled error that fails the whole run. It is a RACE, not a
-    // late log: the specs involved all await correctly. vitest 4.1.11 is the newest 4.x, so there
-    // is no patch to take.
+    // late log: the specs involved all await correctly. No vitest 4.x release changes this
+    // teardown path, so there is no patch to take.
     //
     // With this flag `setupConsoleLogSpy()` is skipped entirely (vitest/dist/chunks/base.*.js),
     // so the RPC that raced does not exist. Chosen over silencing the output because the output

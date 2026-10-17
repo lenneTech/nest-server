@@ -8,13 +8,14 @@ import {
   NestModule,
   UnauthorizedException,
 } from '@nestjs/common';
-import { APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import type { Context } from 'graphql-ws';
 import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 import mongoose from 'mongoose';
 
+import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter';
 import { merge } from './core/common/helpers/config.helper';
 import { registerWsConnection } from './core/common/helpers/graphql-ws-connection.helper';
 import {
@@ -388,6 +389,17 @@ export class CoreModule implements NestModule {
       providers.push({
         provide: APP_INTERCEPTOR,
         useClass: ResponseModelInterceptor,
+      });
+    }
+
+    // MongooseCastErrorFilter: a malformed id from the request answers 404 (route parameter) or 400
+    // (query/body) instead of escaping every @Catch(HttpException) filter as a 500. A cast failure on a
+    // value the request does not contain stays a 500. Registered here rather than in main.ts so that
+    // test setups built with Test.createTestingModule() get it too.
+    if (config.security?.mongooseCastErrorFilter !== false) {
+      providers.push({
+        provide: APP_FILTER,
+        useClass: MongooseCastErrorFilter,
       });
     }
 

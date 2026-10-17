@@ -247,6 +247,11 @@ were both green on 7.30.0. The discovery script listed it as a routine patch. **
 RUNTIME dependency (and every override target) with a new patch, read its release notes
 (`gh release view vX -R owner/repo` — run under `bash -c`, zsh does not word-split `set -- $spec`). Record the
 GHSA ids in the override comment so the next run can tell when the global DB catches up.
+**Same for DEFERRED and devDependency patches (2026-10-17, pre-11.42.16):** vitest 4.1.12 had been held as a
+"mocker hardening backport, low value" and turned out to fix two repo-only `@vitest/mocker` advisories. Fastest check
+per candidate: `gh api "repos/<owner>/<repo>/security-advisories?per_page=10&sort=published&direction=desc"` (lists
+ranges + patched versions even while `/advisories/<GHSA>` still 404s). Run it for every update the run is about to
+SKIP, not only for runtime patches — a security patch overrides a deferral reason that lives in a comment.
 
 ## oxlint prints NOTHING on a clean run here (2026-10-17)
 

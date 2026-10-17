@@ -3155,6 +3155,28 @@ export interface IServerOptions {
         };
 
     /**
+     * Answer a Mongoose `CastError` caused by the client as a client error instead of a 500.
+     * See @lenne.tech/nest-server/src/core/common/filters/mongoose-cast-error.filter.ts
+     *
+     * A malformed id in a route parameter (`GET /users/not-an-id`) answers 404
+     * (`ErrorCode.RESOURCE_NOT_FOUND`), one in the query string or the body 400
+     * (`ErrorCode.INVALID_FIELD_FORMAT`); GraphQL likewise for a top-level argument and a nested input.
+     * A failed cast on a value the request does not contain (stored data, server code) stays a 500.
+     *
+     * Covers casts Mongoose performs while running a query or an update (`findById`, filters,
+     * `findByIdAndUpdate`). A malformed id in a document being created (`save()`, `create()`,
+     * `insertMany()`) is a Mongoose `ValidationError` instead and stays a 500 — validate such ids in the
+     * input (`validator: () => [IsMongoId()]`).
+     *
+     * Registered by `CoreModule` as `APP_FILTER`. `false` restores the previous behaviour, in which every
+     * `CastError` answered 500.
+     *
+     * @default true
+     * @since 11.42.16
+     */
+    mongooseCastErrorFilter?: boolean;
+
+    /**
      * Mongoose password hashing plugin - automatically hashes passwords on save/update
      * (save, findOneAndUpdate, updateOne, updateMany).
      * Prevents plaintext passwords even when CrudService.process() is bypassed.

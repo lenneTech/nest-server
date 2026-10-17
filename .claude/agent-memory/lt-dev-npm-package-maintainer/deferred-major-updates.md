@@ -1,6 +1,6 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-17 (vitest 4.1.12 held by two source comments, utils 12.1.0 + oxfmt 0.73 held as payload items, better-auth 1.7.10 lock-step; NestJS 12 family, vitest 5 (pool IDs vs per-worker DB names), graphql 17, graphql-upload 18, typescript 7, dotenv 18, ejs 7, undici 8, pnpm 12, better-auth lock-step, express 5.3 + ws/graphql-ws lockstep with upstream exact pins; mongoose 9.11 + mongodb 7.7 and oxfmt 0.72 TAKEN 2026-10-13 for 11.42.15, DEV-3616); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-17 pre-11.42.16 (vitest 4.1.12 + oxfmt 0.73 + utils 12.1.0 TAKEN, vitest on two repo-only mocker advisories; better-auth 1.7.10 lock-step, js-yaml 5.5.0 held; NestJS 12 family, vitest 5 (pool IDs vs per-worker DB names), graphql 17, graphql-upload 18, typescript 7, dotenv 18, ejs 7, undici 8, pnpm 12, better-auth lock-step, express 5.3 + ws/graphql-ws lockstep with upstream exact pins; mongoose 9.11 + mongodb 7.7 and oxfmt 0.72 TAKEN 2026-10-13 for 11.42.15, DEV-3616); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
@@ -169,3 +169,19 @@ copy), oxlint 1.88.0 (0 diagnostics / 696 files / 113 rules, same as 1.87). No c
 Still blocked, re-checked: express 5.3.0 (platform-express 11.2.7 = `legacy` tag, still pins 5.2.1), ws 8.22.0 /
 graphql-ws 6.4.1 (@nestjs/graphql 13.4.5 still newest 13.x, pins 8.21.3 / 6.2.1), all majors.
 Gate: `check --no-fix` 5392 tests / 251 files, 3m02s, green first try.
+
+Pre-11.42.16 run (2026-10-17 evening, mongoose-cast-error-filter payload uncommitted): TAKEN devDeps vitest +
+@vitest/coverage-v8 4.1.11 -> 4.1.12, oxfmt 0.72.0 -> 0.73.0 (zero drift on 456 files incl. payload). No code change.
+**The vitest hold flipped on SECURITY:** 4.1.12's "mocker hardening backport" fixes two `@vitest/mocker`
+REPOSITORY advisories published 2026-10-16 (GHSA-qxg6-89mg-rqv8 unescaped manual-mock code injection via the
+dev-server WS, all <4.1.12; GHSA-xp26-3454-mjgp Windows backslash traversal, 4.1.11 only; both medium, both 404 in
+the global DB, so audit was green). Dev-only and unreachable under `vitest run` here, but a security patch outranks
+a stale comment. The "vitest 4.1.11 is the newest 4.x" comments in `vitest.config.ts` and
+`tests/helpers/expected-log-output.ts` were reworded version-free by the orchestrator in the 11.42.16 release
+(4.1.12 does not touch the console RPC teardown, so the substance still holds). `vitest-e2e.config.ts`
+~l.154/173 "in 4.1.11 ..." are dated measurements, fine as they are.
+Still deferred: js-yaml 5.5.0 (fresh WITHOUT shows no 5.x requester besides swagger's exact 5.3.0 — no hold-back),
+express 5.3.0, ws 8.22.0 / graphql-ws 6.4.1 (no @nestjs/graphql or platform-express 11.x/13.x release), all majors,
+better-auth trio 1.7.10 (no advisory on 1.7.7; 1.8.0-beta.0/.1 out since 2026-10-15). In cooldown: @tus/server 2.4.6 +
+@tus/s3-store 2.0.8 (mature 2026-10-18 11:42 UTC), bullmq 6.3.16 (2026-10-18 03:30 UTC). Gate: `check --no-fix`
+5458 tests / 253 files, 4m40s, green first try. check:consumer skipped (only devDeps + an override moved).

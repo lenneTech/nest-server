@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-17
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-17 (pre-11.42.16)
 metadata:
   type: project
 ---
@@ -170,7 +170,6 @@ would have left an INERT suppression: hiding nothing, and swallowing the advisor
 is extended to 4.3.0. 4.3.0 is still no fix (max-stale code byte-identical, diffed); the yaml comment
 says so. If the range is extended, `pnpm audit` goes red: re-argue dev-only, then restore entry + spec
 guard together. One suppression left (braces).
-Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]
 
 ## Status 2026-10-12 (pre-11.42.13 run, 19 entries, none changed)
 
@@ -204,3 +203,16 @@ Two fresh resolves: WITH vs WITHOUT unchanged since 2026-10-09 (graphql-tools 12
 5.3.0, minimatch 9.0.9 + brace-expansion 2.1.7; WITHOUT audits 2 high + 1 moderate counting the braces suppression).
 Repo lock vs fresh WITH: 175 sticky transitive names, no advisory among them — left. `pnpm dedupe`: only the sticky
 @types/node 26.6.4 + 134 annotation lines — skipped. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.
+
+## Status 2026-10-17 evening (pre-11.42.16 run, 19 entries)
+
+Raised: `@graphql-tools/utils@>=12.0.0 <12.0.4` -> `<12.1.0`, target 12.1.0 (key + target; same deps/engines as
+12.0.4). Plus a targeted `pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge` (10.1.3 -> 10.1.5,
+9.2.6 -> 9.2.8 on the Apollo path, nothing else moved), so repo lock == fresh resolve on the GraphQL path: ONE utils
+copy, the two-copy consumer tree from starter item 23 is gone. Every other target is the newest mature release in its
+major; trailing by design: ws 8.21.3 (lockstep), js-yaml 5.4.3 vs 5.5.0 (no 5.x caret requester, no advisory). Two
+fresh resolves: WITH vs WITHOUT unchanged (utils 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
+brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~163 sticky names, no advisory —
+left. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.
+
+Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

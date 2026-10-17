@@ -18,3 +18,4 @@
 - [TUS path/config (11.42.9)](project_tus-path-config.md) — tus key read, applyPath + Location verified by probe; prefix-including `path` workaround now doubles (reported).
 - [Secure cookie + auth-link gating (11.42.12)](project_secure-cookie-auth-link-gating.md) — usesSecureCookies reads input options (verified in BA dist); consumers parsing link logs run e2e/local.
 - [Cross-section pin alignment (11.42.15)](project_cross-section-pin-alignment.md) — gate == starter rule (fuzzed); range divergence unreachable, better-auth reach in peer range; keep vendor-stub strings out.
+- [CastError filter (11.42.16)](project_cast-error-filter.md) — Nest filter contract per transport (HTTP/GQL/WS) + root-module APP_FILTER is shadowed by CoreModule's.

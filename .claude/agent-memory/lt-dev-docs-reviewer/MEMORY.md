@@ -30,3 +30,4 @@
 - [Error-code registry override semantics](error-code-registry-override-semantics.md) — additionalErrorRegistry overrides a core code per `code` (last wins); ignored when a custom errorCode service is passed
 - [AuthGuard API-token claim scope](authguard-api-token-claim-scope.md) — 11.42.14 AuthGuard admits tokens; "never opens what role guards refuse" = route policy, not USER-token @Roles
 - [Consumer mongodb pin is runtime](consumer-mongodb-pin-is-runtime.md) — "test-only" mongodb devDep is better-auth adapter's runtime peer; stale pin + old bson lock = 401 / Invalid id value
+- [CastError vs ValidationError + Nest filter facts](mongoose-cast-vs-validation-error-and-nest-filter-facts.md) — save/create yield ValidationError, not CastError; Nest 11 filter order/logging/WS facts
