@@ -29,6 +29,7 @@ export * from './core/common/enums/role.enum';
 export * from './core/common/enums/sort-order.emum';
 export * from './core/common/exceptions/access-denied.exception';
 export * from './core/common/filters/http-exception-log.filter';
+export * from './core/common/filters/mongoose-cast-error.filter';
 export * from './core/common/helpers/common.helper';
 export * from './core/common/helpers/config.helper';
 export * from './core/common/helpers/content-disposition.helper';

@@ -107,6 +107,7 @@ JWT-based authentication for existing projects:
 | **Security Check Interceptor** | Calls `securityCheck()` + removes secret fields |
 | **Response Filter Interceptor** | Enforces `@Restricted()` field-level access |
 | **Translation Interceptor** | Applies `_translations` based on `Accept-Language` |
+| **CastError Filter** | `MongooseCastErrorFilter` (`APP_FILTER`, 11.42.16): a malformed id from a route parameter answers 404, one from the query string or an update/filter body 400, instead of an unhandled 500 (a create body raises `ValidationError` and stays a 500); a cast failure on a value the request does not contain stays a 500. See "Malformed ids: 404 / 400, not 500" below |
 | **Secret Fields Removal** | Configurable fallback removal of password, tokens, etc. |
 | **RequestContext** | `AsyncLocalStorage`-based context for current user in Mongoose hooks. `fromRequest` (11.42.0) marks a context created for a CLIENT operation (HTTP middleware, GraphQL WebSocket), so service-level checks such as `assertTenantRole()` tell an anonymous request apart from system work |
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
@@ -1215,6 +1216,33 @@ throw accessDeniedException(currentUser);
 See `src/core/common/exceptions/access-denied.exception.ts` and
 `migration-guides/11.27.7-to-11.28.0.md`.
 
+### Malformed ids: 404 / 400, not 500 (v11.42.16+)
+
+A malformed id reaches Mongoose, which throws `mongoose.Error.CastError`. That is not an
+`HttpException`, so it escapes `HttpExceptionLogFilter` (`@Catch(HttpException)`), and Nest used to
+answer **500** for what is simply "this resource does not exist". `CoreModule` registers
+`MongooseCastErrorFilter` as `APP_FILTER`; it decides by where the failing value came from:
+
+| Value of the failed cast | REST | GraphQL |
+|--------------------------|------|---------|
+| a route parameter (`GET /users/not-an-id`) / a top-level argument (`getUser(id: …)`) | **404** `ErrorCode.RESOURCE_NOT_FOUND` | same |
+| the query string or the body / nested in an input object | **400** `ErrorCode.INVALID_FIELD_FORMAT [<path>]` | same |
+| not in the request — a broken stored id, a value computed by server code | **500**, Nest's own body and log line | unchanged (Nest rethrows) |
+
+The third row is deliberate: that cast failure is a data or code defect, and answering it as a client
+error would hide it from monitoring. The Mongoose message never reaches the client — it names the
+model. Opt out with `security.mongooseCastErrorFilter: false`.
+
+Mongoose throws `CastError` only while casting a **query or an update** — `findById`, filters,
+`findByIdAndUpdate` / `updateOne` (the path `CrudService.update()` takes). Two neighbours are not
+covered and stay a 500:
+
+- a malformed id in a document being **created or saved** (`save()`, `Model.create()`, `insertMany()`
+  — the path `CrudService.create()` takes) arrives as a `ValidationError` wrapping the CastError;
+  validate reference ids in the input (`validator: () => [IsMongoId()]` on the `@UnifiedField`);
+- a `BSONError` from `new Types.ObjectId(bad)` in service code carries no value to classify; validate
+  such ids in the service, as `CoreFileService.isMalformedFileId()` does.
+
 ### Depth-Based Optimization (v11.23.0+)
 
 When `process()` is called from within another `process()` call (service cascades like A.create → B.create → C.create), steps 4–6 are **conditionally skipped** on inner calls to avoid redundant work:
@@ -1643,6 +1671,7 @@ All security features are configured in `config.env.ts` under the `security` key
 | `security.checkSecurityInterceptor` | `boolean \| object` | `true` | Enable securityCheck() calls |
 | `security.mapAndValidatePipe` | `boolean \| object` | `true` | Enable input validation |
 | `security.mapAndValidatePipe.nonWhitelistedFields` | `'strip' \| 'error' \| false` | `'strip'` | Whitelist behavior |
+| `security.mongooseCastErrorFilter` | `boolean` | `true` | Malformed request ids answer 404 / 400 instead of 500 |
 
 ### Safety Net — Mongoose Plugins
 

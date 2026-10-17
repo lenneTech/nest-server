@@ -26,8 +26,8 @@ import { vi } from 'vitest';
  *    below all `await` their calls properly. Measured at roughly 1 run in 10 of the unit suite,
  *    which is enough to make `pnpm run check` unreliable while telling you nothing.
  *
- *    vitest 4.1.11 is the newest 4.x, so there is no patch to take. The only lever on this side
- *    is to not produce the output: no console write, no RPC, no race.
+ *    No vitest 4.x release changes this teardown path, so there is no patch to take. The only
+ *    lever on this side is to not produce the output: no console write, no RPC, no race.
  *
  * **Prefer asserting over discarding.** The returned array holds what was logged, so a spec can
  * turn expected noise into coverage — "the degradation is REPORTED" is behaviour worth pinning,

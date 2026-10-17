@@ -17,3 +17,4 @@
 - [TUS protocol/config facts](tus-protocol-config-facts.md) — @tus/server ignores creation/termination flags; resume uses last path segment; forRoot() moves class PATH_METADATA; unit isolation is a vitest default.
 - [Windows Unit Job Path Separators](windows-unit-job-path-separators.md) — Windows CI runs vitest:unit; structural specs comparing relative() to '/' literals fail there only. Normalise with split(sep).join('/').
 - [E2E Run Governor Test Facts](e2e-run-governor-test-facts.md) — vitest 4 `maxWorkers: undefined` safe; importing the e2e config unlinks slots (pin LT_E2E_SLOT_DIR); umask 077 hollows the 0700 test only.
+- [Nest Exception-Filter Transport Facts](nest-exception-filter-transport-facts.md) — APP_FILTER returning undefined: REST must answer itself, GraphQL hands back, ws never reached; filter order; log-after-json is deterministic.

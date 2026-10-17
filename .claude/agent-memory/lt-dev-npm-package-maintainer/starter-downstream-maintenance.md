@@ -297,4 +297,12 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   single-repo run.
 - Gate: `pnpm run check` green first try, 484 tests / 34 files, 1m12s at load ~8.
 
+**24. Framework pre-11.42.16 run (2026-10-17 evening) — handover for the starter step:**
+- devDeps the starter declares and `pnpm run update` raises on its own: vitest + @vitest/coverage-v8 4.1.11 -> 4.1.12
+  (repo-only @vitest/mocker advisories GHSA-qxg6-89mg-rqv8 / GHSA-xp26-3454-mjgp), oxfmt 0.72.0 -> 0.73.0 (run
+  `format:check` in the starter before the gate — zero drift here, unverified there).
+- Override NOT raised by any script: `'@graphql-tools/utils@>=12.0.0 <12.0.4': 12.0.4` -> `<12.1.0` -> 12.1.0. That
+  closes item 23's two-copy tree (schema 10.1.5 / merge 9.2.8 request `^12.1.0`). docs/security-overrides.md now
+  recommends `<12.1.0` -> 12.1.0 to consumers too (raised by the orchestrator in 11.42.16).
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

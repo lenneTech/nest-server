@@ -64,13 +64,14 @@ overrides:
   'multer@>=2.0.0 <2.4.0': '2.4.0'
 
   # @nestjs/graphql 13.4.5 exact-pins @graphql-tools/utils@12.0.0 — GHSA-7mx3-vvmw-hjmv (high, patched >=12.0.1).
-  # Target the newest 12.x, so the caret requesters (@graphql-tools/schema / merge) are not held back.
+  # Target the newest 12.x, so the caret requesters (@graphql-tools/schema / merge) are not held back —
+  # @graphql-tools/schema 10.1.5 requests ^12.1.0, so a lower target leaves a second copy in the tree.
   # 12.0.2+ requires Node >=22.15 via @whatwg-node/promise-helpers@2 — the floor this framework declares
   # since 11.42.10. On an older Node, take 12.0.1 instead.
   # Does NOT reach a utils 11.x pulled in by an older @graphql-tools/schema 10.0.x — refresh that one instead:
   #   pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge
   # Remove once @nestjs/graphql pins >=12.0.1 in the major you use.
-  '@graphql-tools/utils@>=12.0.0 <12.0.3': '12.0.3'
+  '@graphql-tools/utils@>=12.0.0 <12.1.0': '12.1.0'
 ```
 
 ### Retired: `@hono/node-server` (removed 2026-08-22, nest-server 11.36.1)

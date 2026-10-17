@@ -2426,6 +2426,61 @@
         "tests/unit/api-token-guard-invariants.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cast-error-filter-not-registered",
+      "defect": "11.42.16 — a malformed id in a route parameter reached Mongoose, and its CastError is not an HttpException, so it escaped HttpExceptionLogFilter and Nest answered 500 Internal server error for GET/PATCH/DELETE /users/<malformed-id> (72 routes in a consuming project) where an unknown id gets 404.",
+      "file": "src/core.module.ts",
+      "find": "    if (config.security?.mongooseCastErrorFilter !== false) {",
+      "replace": "    if (config.security?.mongooseCastErrorFilter === true) {",
+      "specs": [
+        "tests/mongoose-cast-error.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cast-error-server-value-relabelled-unit",
+      "defect": "11.42.16 (pre-release) — the refusal half of the CastError filter: a cast that fails on a value the request does not contain (a broken stored id, a value computed by server code) is a data or code defect and must stay a 500. Classifying it as client input relabels it as a 400 and hides it from monitoring.",
+      "file": "src/core/common/filters/mongoose-cast-error.filter.ts",
+      "find": "  if (containsCastValue(request.query, candidates) || containsCastValue(request.body, candidates)) {",
+      "replace": "  if (true || containsCastValue(request.query, candidates) || containsCastValue(request.body, candidates)) {",
+      "specs": [
+        "tests/unit/mongoose-cast-error-filter.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cast-error-server-value-relabelled-e2e",
+      "defect": "11.42.16 (pre-release) — the refusal half of the CastError filter: a cast that fails on a value the request does not contain (a broken stored id, a value computed by server code) is a data or code defect and must stay a 500. Classifying it as client input relabels it as a 400 and hides it from monitoring. The e2e half: the filter as CoreModule registers it, behind the real route, answers the generic 500 body and logs the error.",
+      "file": "src/core/common/filters/mongoose-cast-error.filter.ts",
+      "find": "  if (containsCastValue(request.query, candidates) || containsCastValue(request.body, candidates)) {",
+      "replace": "  if (true || containsCastValue(request.query, candidates) || containsCastValue(request.body, candidates)) {",
+      "specs": [
+        "tests/mongoose-cast-error.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cast-error-walk-array-unbounded",
+      "defect": "11.42.16 (pre-release) — containsCastValue() checked its node budget when a node was visited but queued every child unchecked, so a wide array as the last body key was expanded completely before the budget applied: { ids: ['bad'], pad: [7.4 million zeros] } blocked the event loop ~400 ms, used ~385 MB of heap, and gave up before reaching ids — a 400 answered as a 500.",
+      "file": "src/core/common/filters/mongoose-cast-error.filter.ts",
+      "find": "    return value.length > room ? undefined : value;",
+      "replace": "    return value;",
+      "specs": [
+        "tests/unit/mongoose-cast-error-filter.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cast-error-walk-object-unbounded",
+      "defect": "11.42.16 (pre-release) — the object half of cast-error-walk-array-unbounded: an object with more keys than the remaining walk budget was queued in full (1.1 million keys: ~500 ms) instead of being skipped, starving its siblings.",
+      "file": "src/core/common/filters/mongoose-cast-error.filter.ts",
+      "find": "    if (children.length >= room) {\n      return undefined;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/mongoose-cast-error-filter.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
