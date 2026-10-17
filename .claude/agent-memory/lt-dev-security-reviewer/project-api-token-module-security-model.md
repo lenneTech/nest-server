@@ -34,3 +34,11 @@ Run with `npx tsx --tsconfig tsconfig.json <file>` importing reflect-metadata by
 - New assertion-redaction regex in logging.helper is not ReDoS-prone (measured, sub-ms on 64 KB).
 
 Related: [[project-roles-metadata-merge-semantics]], [[project-ai-mcp-oauth-refresh-token-binding]]
+
+**11.42.14 AuthGuard token branch (reviewed 2026-10-13, starter lock-step bump):** `AuthGuard(JWT|BETTER_AUTH)`
+now admits a middleware-authenticated token after calling `enforceApiTokenRoute()` itself. Sound: the
+trigger is the module-private symbol (only `attachApiTokenContext()` sets it, JSON cannot), global role
+guards still run BEFORE route-level guards (AND semantics, so it cannot widen a `@Roles` route), and a
+non-default `options.property` fails closed (helper reads `request.user` → 401). nest-server-starter has
+NO `apiTokens` config and NO `@ApiTokenScopes` anywhere → the branch is dead code there; re-check only if
+the starter starts releasing a route.

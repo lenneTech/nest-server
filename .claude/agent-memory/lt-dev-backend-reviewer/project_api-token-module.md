@@ -36,4 +36,4 @@ same as for sessions, not a token hole.
 
 **Why:** saves re-auditing the same surface; flags where a future diff would turn the gap real.
 **How to apply:** on any diff touching api-token helpers or adding `@ApiTokenScopes` to S_SELF/S_CREATOR
-routes, check the refusal is still in place (the mutation guards it). Related: [[project_401-403-denial-surface]].
+routes, check the refusal is still in place (the mutation guards it). Related: [[401-403-denial-surface]].

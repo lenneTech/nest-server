@@ -121,7 +121,7 @@ Every action writes an audit line: `[HUB-ACTION] <action> by user <id>`.
   whose `env` is not `local`/`development`/`test`/`ci`/`e2e`) — it suppresses outgoing mail.
 - **Public-access guard**: `roles: false` (no auth check — public config viewer, logs and destructive
   actions) throws at startup in any **reachable** environment unless `hub.allowPublicAccessInProduction:
-true` is set explicitly. This closes the single most dangerous Hub misconfiguration (a `roles: false`
+  true` is set explicitly. This closes the single most dangerous Hub misconfiguration (a `roles: false`
   copied from a local config into a reachable environment). The reachable check is fail-safe: it treats
   every env name except the known local/test set as reachable, so a custom name (`prod`, `preprod`,
   `staging-2`, …) cannot bypass it. Only acknowledge public access behind a fully-controlled network

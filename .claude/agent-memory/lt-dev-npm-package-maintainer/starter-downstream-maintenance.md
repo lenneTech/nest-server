@@ -237,4 +237,46 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   ip-address 10.7.4 (19:34 UTC, raise key `<10.7.4` + target together in BOTH repos).
   Gate: `check --no-fix` 473 tests / 33 files, 50 s.
 
+**20. Starter run for framework 11.42.14 (2026-10-13, 03:52 UTC).**
+- Shared pins again byte-identical to the framework manifest (47 entries); the 4 starter-only devDeps
+  (ansi-colors, cpy-cli, semver, standard-version) newest. Only override change: ip-address `<10.7.3` ->
+  `<10.7.4`, target 10.7.4 (express-rate-limit 8.7.1 asks `^10.2.0`, so it was a lock). Plain
+  `pnpm install` moved it: 5-line lock delta. After the raise ip-address is identical WITH/WITHOUT.
+- **Repo lock had drifted from a fresh resolve within one day** (p-map 7.1.0, strtok3 10.3.5, zod 4.6.5
+  vs 7.1.1 / 10.4.0 / 4.6.6, all published 2026-10-11). Lifted with a targeted
+  `pnpm update --depth Infinity --lockfile-only --ignore-scripts p-map strtok3 zod` in scratch: 194 diff
+  lines, but ALL are `(zod@…)` peer suffixes in better-auth / MCP SDK snapshot keys. To prove that, strip
+  the `< `/`> ` prefix BEFORE normalising versions, then `sort | uniq -c | awk '$1%2==1'` — empty means
+  every line pairs up. (Keeping the prefix makes every line unpaired and looks like huge churn.)
+  Result: repo lock == fresh resolve (1011 names, 0 diffs), dedupe byte-identical.
+- WITH vs WITHOUT unchanged (graphql-tools 12.0.0 + js-yaml 5.3.0 return, WITHOUT audits 1 high + 1
+  moderate; ajv 8.18, minimatch 9 + brace-expansion 2.1.7, uuid 14.0.1). Gate `pnpm run check` green
+  first try: 473 tests / 33 files, 1m04s at load ~14.
+- Pending next run (cooldown at 03:52 UTC): `@graphql-tools/utils` 12.0.4 (mature 2026-10-13 13:09 UTC)
+  and postcss 8.5.30 (20:38 UTC) — raise key + target in BOTH repos. mongoose 9.11.x + mongodb 7.7,
+  express 5.3.0, ws 8.22.0: framework-blocked as before. ansi-colors/tests/report.js and
+  standard-version: open repo decisions (item 19), unchanged.
+
+- **Item 21 (2026-10-13, DEV-3616, done in-session, not by a maintenance run):** item 19's open repo
+  decisions settled by Kai — `tests/report.js` + `ansi-colors`, `standard-version` + `.versionrc` +
+  `CHANGELOG.md` (frozen at 9.5.0 since 2023) and the unused `supertest` / `@types/supertest`
+  devDeps REMOVED, no replacement release tool. `extras/sync-packages.mjs` now raises a framework `dependencies` pin in either
+  section via `extras/align-package-versions.mjs` (`RAISE_SOURCES`), so mongodb no longer needs a hand raise
+  (item 12 obsolete); framework devDependencies still raise only devDependencies — better-auth stays
+  consumer-owned.
+  Starter oxfmt raised to 0.72.0 together with the framework; the six redundant
+  `@UseGuards(AuthGuard(BETTER_AUTH))` in `UserController` removed.
+
+**22. Framework pre-11.42.15 run (2026-10-17) — handover for the starter step (do it in the SAME release cycle):**
+- `check:consumer --fast --keep` raised 3 pins: `dependencies mongoose 9.10.4 -> 9.11.2`, `devDependencies mongodb
+  7.6.0 -> 7.7.0` (the DEV-3616 cross-section rule — item 12 is fixed: one mongodb 7.7.0, one bson 7.3.3 in the copy),
+  `devDependencies oxlint 1.87.0 -> 1.88.0`. Green: unit 359 + 1 skipped / 22 files, e2e 125 / 12 files.
+- **The copy ran undici 7.30.0 AND 7.30.1**: the starter's `'undici@>=7.0.0 <7.30.0': 7.30.0` still pins the
+  cheerio path to 7.30.0, which the 2026-10-15 undici security release covers (repository advisories, invisible to
+  `pnpm audit` for now). Raise key + target to `<7.30.1` -> 7.30.1. Same for `'qs@<6.16.0': 6.16.0` -> `<6.16.1`
+  -> 6.16.1 (hold-back) and `'nodemailer@<10.1.0': 10.1.0` -> `<10.1.2` -> 10.1.2 (lockstep comment; the
+  framework's exact 10.1.2 is outside the old key, so the copy had one copy).
+- Starter devDeps that stay on the framework's values: vitest/coverage 4.1.11, oxfmt 0.72.0 (both deliberately held
+  in the framework, see [[deferred-major-updates]]). utils/postcss entries: already identical to the framework.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

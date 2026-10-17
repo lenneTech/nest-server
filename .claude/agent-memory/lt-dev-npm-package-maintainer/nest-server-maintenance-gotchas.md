@@ -238,4 +238,20 @@ ran clean (3m41s). `pnpm install` "Packages: +51 -119" after a pnpm version chan
 resolution — diff the lock by name+version (scratch `lockdiff.mjs` parsing the `packages:` keys) before
 reading anything into it.
 
+## A green audit can sit on a fresh security release: read the notes of every runtime patch (2026-10-17)
+
+undici 7.30.1 fixed four HIGH CVEs (TLS renegotiation crash, function-valued Agent TLS options dropped, cache
+poisoning via cross-origin redirect, Content-Encoding crash). They were published as REPOSITORY advisories on
+2026-10-15; `gh api /advisories/<GHSA>` answered 404 two days later, so `pnpm audit` and `check:overrides`
+were both green on 7.30.0. The discovery script listed it as a routine patch. **How to apply:** for every direct
+RUNTIME dependency (and every override target) with a new patch, read its release notes
+(`gh release view vX -R owner/repo` — run under `bash -c`, zsh does not word-split `set -- $spec`). Record the
+GHSA ids in the override comment so the next run can tell when the global DB catches up.
+
+## oxlint prints NOTHING on a clean run here (2026-10-17)
+
+`pnpm run lint` / `oxlint ...` exit 0 with empty stdout under this repo's config, so a redirected
+comparison looks like a crash. Compare versions with `--format=json` (diagnostics, number_of_files,
+number_of_rules); `check` itself reports "lint clean".
+
 Related: [[nest-server-override-status]], [[deferred-major-updates]]

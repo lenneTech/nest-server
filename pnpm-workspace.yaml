@@ -158,7 +158,8 @@ overrides:
   # LOAD-BEARING, and no in-major bump reaches it: @nestjs/graphql 13.4.5 — the newest 13.x —
   # EXACT-pins `"@graphql-tools/utils": "12.0.0"`; only 14.x moves the pin, and crossing a major of
   # @nestjs/graphql to fix a transitive advisory is the shape the "stay within the major" rule forbids.
-  # Target is the newest 12.x, 12.0.3 (2026-10-09; was the fix line 12.0.1 until then). 12.0.2 moved
+  # Target is the newest 12.x, 12.0.4 (2026-10-13; 12.0.3 from 2026-10-09, the fix line 12.0.1
+  # before that — 12.0.4 carries the same dependencies and engines as 12.0.3). 12.0.2 moved
   # to `@whatwg-node/promise-helpers` ^2.0.0, whose engines field demands Node >=22.15.0, so the
   # target was held at 12.0.1 while this repo declared `engines.node: ">= 22.12"`. That floor was
   # already fictional for consumers: `@apollo/server` > @graphql-tools/schema / merge request
@@ -167,7 +168,7 @@ overrides:
   # The key INTERSECTS the `^12.0.0` that schema / merge request (the axios / browserslist hold-back
   # trap below): harmless only while the target is the newest 12.x, so raise it with each release.
   # Remove once @nestjs/graphql pins >=12.0.1 in the major this repo uses.
-  '@graphql-tools/utils@>=12.0.0 <12.0.3': '12.0.3'
+  '@graphql-tools/utils@>=12.0.0 <12.0.4': '12.0.4'
   # Security: qs — two MODERATE advisories, patched >=6.16.0 (added 2026-09-02)
   #   array-limit bypass via bracket-key comma parsing, and a DoS via attacker-controlled isBuffer
   # RUNTIME: qs is how Express parses query strings, so it is on the request path of every route.
@@ -175,7 +176,12 @@ overrides:
   # parsing is what lets `?token[$ne]=` arrive as an object, which the new `isQueryableString`
   # guards reject. Same major, so this is a plain patch lift.
   # Remove once express/body-parser floor it themselves.
-  'qs@<6.16.0': '6.16.0'
+  # Target raised 6.16.0 -> 6.16.1 on 2026-10-17 (pre-11.42.15 maintenance run), key with it: the old
+  # key intersected every requester (express 5.2.1 `^6.14.0`, body-parser 2.3.0 `^6.15.2`, superagent
+  # `^6.14.1`) and so PINNED 6.16.0 while a fresh resolve takes 6.16.1 — a hold-back on the request
+  # path. 6.16.1 is fixes only (parse no longer mutates an object input, bounded strictMerge nesting,
+  # arrayLimit applied to colliding values); no new advisory.
+  'qs@<6.16.1': '6.16.1'
   # Security: multer - four advisories, patched >=2.3.0 (added 2026-09-14)
   #   GHSA-wc9g-mqfw-jrwm, GHSA-535w-7cp7-47q4, GHSA-qfvm-cv95-jqjf  DoS via crafted / oversized /
   #                                                                  file-count multipart input (high)
@@ -364,15 +370,23 @@ overrides:
   # Target raised 8.5.28 -> 8.5.29 on 2026-10-06 (11.42.7 maintenance run), key with it: 8.5.29
   # (2026-10-05) is the newest 8.x past the hold-back. vite 8.3.2 requests ^8.5.28, which the new
   # key now intersects, so the entry fires again and pins 8.5.29 - the newest, i.e. no hold-back.
-  'postcss@<8.5.29': '8.5.29'
+  # Target raised 8.5.29 -> 8.5.30 on 2026-10-13 (DEV-3616), key with it: newest 8.x past the
+  # release-age gate, same engines; it requests nanoid ^3.3.20, which the nanoid entry above pins.
+  'postcss@<8.5.30': '8.5.30'
   # Security: undici request smuggling / header handling (moderate, patched >=7.29.0). Since 11.42.0
-  # undici is also a direct RUNTIME dependency (outbound-url.helper), pinned at 7.30.0 in package.json;
+  # undici is also a direct RUNTIME dependency (outbound-url.helper), pinned at 7.30.1 in package.json;
   # this entry only holds the transitive @compodoc/compodoc>cheerio>undici path at the patched line.
   # Remove once cheerio requests >=7.29.0.
   # Target raised 7.29.0 -> 7.30.0 on 2026-09-26, key with it: a clean resolve picks 7.30.0, so the
   # entry had become a hold-back. 7.30.0 was published 2026-09-25 07:15 UTC, i.e. it had only just
   # cleared the 1440-minute hold-back when this was written.
-  'undici@>=7.0.0 <7.30.0': '7.30.0'
+  # Target raised 7.30.0 -> 7.30.1 on 2026-10-17 (pre-11.42.15 maintenance run), key with it, in
+  # lockstep with the direct dependency: 7.30.1 is a security release (GHSA-qrxm-fqhp-jwvm,
+  # GHSA-2m5v-pch6-74hx, GHSA-4w7w-5xrc-9h26, GHSA-xjj6-f33q-929c high; GHSA-55wc-3pg8-jfw6,
+  # GHSA-f72v-6w45-q472, GHSA-4qv8-2p9j-2685, GHSA-9fm3-97px-rjf6 medium — published as repository
+  # advisories on 2026-10-15, not yet in the global database, so `pnpm audit` cannot report them).
+  # cheerio's `^7.19.0` intersected the old key, so the entry pinned the vulnerable 7.30.0.
+  'undici@>=7.0.0 <7.30.1': '7.30.1'
   # Security: hono path handling + body-limit bypass (moderate + low, patched >=4.12.34) - transitive
   # via @modelcontextprotocol/sdk>hono and >@hono/node-server>hono. Floored at >=4.0.0 so the entry
   # stays a patch bump inside major 4 and cannot drag a future 5.x across a major.

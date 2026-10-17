@@ -28,7 +28,7 @@ peer-requires `client-s3 ^<its own version>`; their peer ranges (`>=3.1045.0 <4`
 
 **Coupling — mongodb + mongoose move together.** mongoose declares `mongodb` with a tilde
 range (`9.9.3` → `~7.5`, `9.10.2` → `~7.6`); a direct `mongodb` outside it splits the tree
-(ObjectId `instanceof` failures). Current (2026-10-04): mongoose 9.10.4 (`~7.6`) + mongodb 7.6.0.
+(ObjectId `instanceof` failures). Current (2026-10-17, DEV-3616): mongoose 9.11.2 (`~7.7`) + mongodb 7.7.0. Since DEV-3616 the consumer gate and the starter's `pnpm run update` raise a framework `dependencies` pin in EITHER consumer section, so the starter's mongodb devDep follows automatically; framework devDeps still raise only consumer devDeps (better-auth stays consumer-owned).
 
 **Lockstep with upstream exact pins** (see [[nest-server-maintenance-gotchas]]):
 `graphql-ws` = `@nestjs/graphql`'s pin (6.2.1), `ws` = its pin (8.21.3), `multer` = the
