@@ -1,6 +1,6 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-11 (NestJS 12 family, vitest 5 (pool IDs vs per-worker DB names), graphql 17, graphql-upload 18, typescript 7, dotenv 18, ejs 7, undici 8, pnpm 12, better-auth lock-step, express 5.3 + ws/graphql-ws lockstep with upstream exact pins, mongoose 9.11 + mongodb 7.7 cross-repo, oxfmt 0.72); nodemailer 10 TAKEN in 11.41.5 as a security exception
+description: Updates deliberately NOT taken in nest-server and why, last run 2026-10-17 (vitest 4.1.12 held by two source comments, utils 12.1.0 + oxfmt 0.73 held as payload items, better-auth 1.7.10 lock-step; NestJS 12 family, vitest 5 (pool IDs vs per-worker DB names), graphql 17, graphql-upload 18, typescript 7, dotenv 18, ejs 7, undici 8, pnpm 12, better-auth lock-step, express 5.3 + ws/graphql-ws lockstep with upstream exact pins; mongoose 9.11 + mongodb 7.7 and oxfmt 0.72 TAKEN 2026-10-13 for 11.42.15, DEV-3616); nodemailer 10 TAKEN in 11.41.5 as a security exception
 metadata:
   type: project
 ---
@@ -41,13 +41,13 @@ oversight. Only take one if the run's explicit purpose is that migration.
 | Package | Current | Available (2026-10-03) | Reason deferred |
 |---|---|---|---|
 | `@nestjs/*` family (common/core/platform-express/testing 11.2.7, apollo/graphql 13.4.5, swagger 11.4.7, jwt 11.0.2, mongoose 11.0.4, passport 11.0.5, schedule 6.1.3, terminus 11.1.1, cli 11.0.24, schematics 11.1.0) | 11.x line | 12.x (core 12.1.2; apollo/graphql 14.0.3; schedule jumps 6 -> 12.0.2 to align with NestJS 12) | NestJS major = package major. Only in-major bumps (11.2.x) are taken. Every other @nestjs package is already the newest of its NestJS-11 line. |
-| `vitest` + `@vitest/coverage-v8` | 4.1.11 | 5.0.3 | Dev-only, but: `clearMocks` default flips to `true`, pool/worker IDs start at 1, `describe.sequential` removed. `scripts/check.mjs` AND `scripts/check-mutations.mjs` parse vitest's summary line; the latter runs only on the publish path, so `check` going green does not prove it. Take in its own change and run `check:mutations` too. |
+| `vitest` + `@vitest/coverage-v8` | 4.1.11 | 5.0.5 (4.1.12 in-major, see 2026-10-17 run) | Dev-only, but: `clearMocks` default flips to `true`, pool/worker IDs start at 1, `describe.sequential` removed. `scripts/check.mjs` AND `scripts/check-mutations.mjs` parse vitest's summary line; the latter runs only on the publish path, so `check` going green does not prove it. Take in its own change and run `check:mutations` too. |
 | `graphql` | 16.14.2 | 17.0.2 | Ecosystem-wide major (consumer-visible dependency). `@nestjs/graphql@13.4.5` peers `^16.11.0 \|\| ^17.0.0`. |
 | `graphql-upload` | 15.0.2 | 18.0.0 (18.0.1 in cooldown) | Exports moved `.js` -> `.mjs`: touches `src/core.module.ts` (`graphql-upload/graphqlUploadExpress.js`), `src/core/modules/file/core-file.resolver.ts` + `src/server/modules/file/file.resolver.ts` (`graphql-upload/GraphQLUpload.js`), `src/types/graphql-upload.d.ts`. |
 | `dotenv` | 17.4.2 | 18.0.5 | Runtime dependency major. |
-| `undici` | 7.30.0 | 8.11.2 | Runtime dependency major (direct since 11.42.0 for `outboundFetch()`; its agent must match the undici the helper's own `fetch` comes from). Also the override target `undici@>=7.0.0 <7.30.0` stays in 7.x. |
-| `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.3.0 | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (still the newest 13.x on 2026-10-03). Bumping alone puts a second copy into every consumer tree. The `ws` override target stays with them (two fresh resolves: identical with/without, so it holds nothing back). |
-| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.4 (taken 2026-10-04) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. There is no 7.6.x patch beyond 7.6.0 (only nightlies). **mongoose 9.11.0 declares `~7.7`** — published 2026-10-05 16:49 UTC, in cooldown on 2026-10-06; take mongoose 9.11.0 + mongodb 7.7.0 TOGETHER next run (a minor of a runtime dep: read its changelog first). **TRIED AND REVERTED 2026-10-06 (11.42.7 run):** `check` green, but `check:consumer --fast` went 74/119 red — see [[starter-downstream-maintenance]] item 12. It is a CROSS-REPO move: the starter must raise its `mongodb` devDep to 7.7.0 in the same release (or check-consumer must align across sections), plus a migration-guide line. Not a maintenance-run bump. |
+| `undici` | 7.30.1 (2026-10-17) | 8.12.2 | Runtime dependency major (direct since 11.42.0 for `outboundFetch()`; its agent must match the undici the helper's own `fetch` comes from). Also the override target `undici@>=7.0.0 <7.30.0` stays in 7.x. |
+| `ws` / `graphql-ws` | 8.21.3 / 6.2.1 | 8.22.0 / 6.4.1 (2026-10-17) | Not majors, but LOCKSTEP with `@nestjs/graphql` 13.4.5's exact pins (still the newest 13.x on 2026-10-03). Bumping alone puts a second copy into every consumer tree. The `ws` override target stays with them (two fresh resolves: identical with/without, so it holds nothing back). |
+| `mongodb` | 7.6.0 | 7.7.0 | mongoose 9.10.4 (taken 2026-10-04) still declares `~7.6`. Move only with a mongoose that declares `~7.7`. There is no 7.6.x patch beyond 7.6.0 (only nightlies). **mongoose 9.11.0 declares `~7.7`** — published 2026-10-05 16:49 UTC, in cooldown on 2026-10-06; take mongoose 9.11.0 + mongodb 7.7.0 TOGETHER next run (a minor of a runtime dep: read its changelog first). **TRIED AND REVERTED 2026-10-06 (11.42.7 run):** `check` green, but `check:consumer --fast` went 74/119 red — see [[starter-downstream-maintenance]] item 12. It is a CROSS-REPO move: the starter must raise its `mongodb` devDep to 7.7.0 in the same release (or check-consumer must align across sections), plus a migration-guide line. Not a maintenance-run bump. **TAKEN 2026-10-13 (DEV-3616, for 11.42.15):** mongoose 9.11.2 + mongodb 7.7.0; the gate and the starter's `pnpm run update` now raise a framework `dependencies` pin in either consumer section (mutation `consumer-gate-same-section-only`), so the starter's devDep follows without a hand edit; framework devDependencies still raise only consumer devDependencies, so better-auth stays consumer-owned (mutation `consumer-gate-devdeps-drive-runtime-pins`). |
 | `ejs` | 6.0.1 | 7.0.1 (2026-10-04) | Runtime major. Breaking: options-in-data (Express-2 compat) REMOVED, CLI argument parser reworked, browser bundle via conditional exports. Removing options-in-data is a hardening; check how `TemplateService` calls `renderFile` before taking it, in its own change. |
 | `@graphql-tools/schema` / `merge` refresh | **TAKEN 2026-10-09** (repo owner decision) | 10.1.3 / 9.2.6 on the `@apollo/server` path | Was held because the new releases request `@graphql-tools/utils ^12.0.3` -> `@whatwg-node/promise-helpers` 2 (Node >=22.15). Resolved together: `engines.node` `>= 22.12` -> `>= 22.15`, override target 12.0.1 -> 12.0.3. `@nestjs/graphql` 13.4.5 still EXACT-pins schema 10.1.0 / merge 9.2.3, so both copies coexist — expected, they share the single utils 12.0.3 and the single graphql 16.14.2. Not a downgrade: the same split a fresh consumer resolve already had. |
 | `typescript` | 5.9.3 | 7.0.2 | Skips "6". Ecosystem readiness across NestJS + ts-morph + oxlint unproven. |
@@ -143,3 +143,29 @@ same-section only), oxfmt 0.72.0 (no 0.72.1), all majors. better-auth 1.7.7 stil
 UTC: bullmq 6.3.13 (08:54), @graphql-tools/utils 12.0.4 (override target, 13:09), AWS trio 3.1150.0 (18:41),
 mongoose 9.11.2 (19:25), postcss 8.5.30 (override target, 20:38) — next run. Gate: `check --no-fix` 5381 tests /
 251 files, 3m48s, green first try. check:consumer skipped (only a devDep moved, runtime manifest unchanged).
+
+Pre-11.42.15 run (2026-10-17, DEV-3616 payload uncommitted: mongoose 9.11.2 + mongodb 7.7.0, oxfmt 0.72.0, utils
+12.0.4 + postcss 8.5.30 overrides). TAKEN: runtime undici 7.30.0 -> 7.30.1 (**security release**: four high + four
+medium CVEs, published as REPOSITORY advisories on 2026-10-15 and absent from the global GitHub DB, so `pnpm audit` and
+`check:overrides` were both green on the vulnerable 7.30.0 — found only by reading release notes; see
+[[nest-server-maintenance-gotchas]]), nodemailer 10.1.0 -> 10.1.2 (fetch strips credentials on cross-origin redirect,
+bounded per-message work), @getbrevo/brevo 6.0.3 -> 6.2.0 (Fern regeneration adding OAuth M2M; `AnyAuthProvider` tries
+the api-key header provider first, so an `apiKey`-only client is unchanged); devDeps AWS trio 3.1152.0 (one version),
+bullmq 6.3.15 (6.3.14 = cron-parser security bump), smtp-server 3.19.23 (exact-pins nodemailer 10.1.2 = our pin, single
+copy), oxlint 1.88.0 (0 diagnostics / 696 files / 113 rules, same as 1.87). No code change.
+**New deferrals, all for a reason OUTSIDE package.json — re-check next run:**
+- vitest + coverage-v8 4.1.12 (only a mocker hardening backport): `vitest.config.ts` ~line 28 and
+  `tests/helpers/expected-log-output.ts` ~line 29 both state "vitest 4.1.11 is the newest 4.x, so there is no patch to
+  take" (re the EnvironmentTeardownError race). A maintenance run may not edit them; take 4.1.12 together with a
+  version-free rewording of both comments. 4.1.12 does NOT touch the console RPC teardown.
+- @graphql-tools/utils 12.1.0 and oxfmt 0.73.0 (zero drift on 455 files): both are named DEV-3616 payload items
+  (12.0.4 / 0.72.0) and the payload migration guide states "→ 12.0.4". Take after the release; oxfmt with the starter.
+- js-yaml 5.5.0 (override target, 5.x line): minor with parser strictness + argparse ^3 (adds a second argparse major).
+  Not a hold-back (only @nestjs/swagger's exact 5.3.0 requests 5.x), no advisory — kept 5.4.3.
+- better-auth trio 1.7.10 (report only, lock-step): 1.7.8 fixes failed password resets consuming the token, resets
+  keeping the new password when session revocation fails, and aligns cookie attributes with RFC 6265bis — all areas
+  nest-server hardened recently; worth a coordinated move soon.
+- In cooldown: @tus/server 2.4.6 + @tus/s3-store 2.0.8 (mature 2026-10-18 ~11:42 UTC), bullmq 6.3.16 (2026-10-18 03:30).
+Still blocked, re-checked: express 5.3.0 (platform-express 11.2.7 = `legacy` tag, still pins 5.2.1), ws 8.22.0 /
+graphql-ws 6.4.1 (@nestjs/graphql 13.4.5 still newest 13.x, pins 8.21.3 / 6.2.1), all majors.
+Gate: `check --no-fix` 5392 tests / 251 files, 3m02s, green first try.

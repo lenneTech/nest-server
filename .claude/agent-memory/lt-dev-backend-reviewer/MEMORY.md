@@ -17,3 +17,4 @@
 - [setupSwagger helper (11.42.7-9)](project_swagger-helper.md) — guard model + BA openAPI rules verified; relocation fixed in round 2; admin()/organization() routes documented public (reported).
 - [TUS path/config (11.42.9)](project_tus-path-config.md) — tus key read, applyPath + Location verified by probe; prefix-including `path` workaround now doubles (reported).
 - [Secure cookie + auth-link gating (11.42.12)](project_secure-cookie-auth-link-gating.md) — usesSecureCookies reads input options (verified in BA dist); consumers parsing link logs run e2e/local.
+- [Cross-section pin alignment (11.42.15)](project_cross-section-pin-alignment.md) — gate == starter rule (fuzzed); range divergence unreachable, better-auth reach in peer range; keep vendor-stub strings out.

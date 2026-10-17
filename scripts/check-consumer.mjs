@@ -38,7 +38,13 @@
  *
  * The copy is UPDATED the way a consumer updates, not just re-pointed. A starter-based project
  * moves to a new framework version with `pnpm run update` (the starter's extras/sync-packages.mjs),
- * which raises every pin the framework declares in the same section to the framework's version.
+ * which raises every pin the project already declares to the framework's version. A package the
+ * framework ships (`dependencies`) is raised in whichever section the project keeps it: the starter
+ * keeps `mongodb` as a devDependency, and Better-Auth's MongoDB adapter resolves its `mongodb` peer
+ * from exactly that pin. Matching sections left it behind when mongoose 9.11 required mongodb ~7.7 —
+ * two bson copies, sign-in answered 401, and the gate broke on 2026-10-06. A package the framework
+ * only develops with (`devDependencies`, e.g. the better-auth trio) raises only the project's own
+ * devDependencies, never a runtime pin the project owns (`RAISE_SOURCES`).
  * Re-pointing only the framework dependency tested a state no documented path produces — and one
  * that fails for EVERY release raising a shared exact pin: the starter kept `@nestjs/common` 11.2.1
  * while the tarball brought 11.2.6, `@nestjs/schedule` was installed twice, and `CronJobs extends
@@ -74,6 +80,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGE_NAME = '@lenne.tech/nest-server';
+const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies'];
 
 /** `[major, minor, patch]` for an exact `x.y.z`, else undefined — ranges, tags and prereleases never compare. */
 function parseExactVersion(value) {
@@ -97,18 +104,42 @@ function compareExactVersions(a, b) {
 }
 
 /**
+ * Which framework sections may raise a pin in each consumer section. What the framework SHIPS
+ * (`dependencies`) must match wherever the consumer keeps it, or two copies end up in one tree. What
+ * the framework only develops and tests with (`devDependencies` — e.g. the better-auth trio, whose
+ * contract is the peer range) never sets a consumer's RUNTIME pin: the project owns those versions.
+ */
+const RAISE_SOURCES = {
+  dependencies: ['dependencies'],
+  devDependencies: ['dependencies', 'devDependencies'],
+};
+
+/** The newest exact version `framework` declares for `name` across `sections`, else undefined. */
+function newestFrameworkVersion(framework, name, sections) {
+  let newest;
+  for (const section of sections) {
+    const version = framework?.[section]?.[name];
+    if (version !== undefined && (newest === undefined || compareExactVersions(version, newest) > 0)) {
+      newest = version;
+    }
+  }
+  return newest;
+}
+
+/**
  * Raise the consumer's pins the way its own `pnpm run update` does (the starter's
- * extras/sync-packages.mjs): for `dependencies` and `devDependencies` alike, a package the consumer
- * ALREADY declares in the SAME section is raised to the framework's version when that is newer.
- * Never lowered, never added, never moved across sections, never touched when either side is not an
- * exact version. Mutates `consumer` and returns what it raised.
+ * extras/sync-packages.mjs, rule in extras/align-package-versions.mjs): a package the consumer ALREADY
+ * declares is raised to the framework's version when that is newer, in the section the consumer keeps
+ * it. The framework's version comes from the sections `RAISE_SOURCES` allows for that consumer
+ * section. Never lowered, never added, never moved to another section, never touched when either side
+ * is not an exact version. Mutates `consumer` and returns what it raised.
  */
 function alignConsumerPins(consumer, framework) {
   const raised = [];
-  for (const section of ['dependencies', 'devDependencies']) {
-    for (const [name, version] of Object.entries(framework?.[section] ?? {})) {
-      const current = consumer?.[section]?.[name];
-      if (name === PACKAGE_NAME || current === undefined) {
+  for (const section of DEPENDENCY_SECTIONS) {
+    for (const [name, current] of Object.entries(consumer?.[section] ?? {})) {
+      const version = newestFrameworkVersion(framework, name, RAISE_SOURCES[section]);
+      if (name === PACKAGE_NAME || version === undefined) {
         continue;
       }
       if (compareExactVersions(version, current) > 0) {

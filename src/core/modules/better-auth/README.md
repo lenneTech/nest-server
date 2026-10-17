@@ -1040,7 +1040,7 @@ better-auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)`; 1.7.3 restore
   recognised by shape, so a renamed collection or field is covered. Existing `issuer` values stay;
   they are inert. The backfill marker is deleted, so a rollback to a better-auth that needs the
   issuer runs the backfill again. Log line: `Dropped the unique index "…" on account(issuer,
-accountId)`. A failure is logged at `error` and the boot continues.
+  accountId)`. A failure is logged at `error` and the boot continues.
 - **better-auth 1.7.0–1.7.2: `backfillAccountIssuers()`, described below.** Kept for a project that
   has not raised its better-auth pin yet.
 

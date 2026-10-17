@@ -268,7 +268,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 132 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 134 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -287,7 +287,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 205 mutations.
+at 207 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -334,7 +334,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 73 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 205 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 207 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -652,15 +652,34 @@ differs under the starter's configuration.
 
 **The copy is updated the way a consumer updates, not merely re-pointed (11.41.4).** Before the
 checks, `alignConsumerPins()` applies the starter's own `pnpm run update` rule
-(`extras/sync-packages.mjs`) to the tarball's manifest: a pin the starter already declares in the
-SAME section is raised to the framework's version when that is newer — never lowered, added or moved
-across sections. Without it the gate tested a state no documented path produces, and refused 11.41.4
-although the tarball was sound: the starter still pinned `@nestjs/common` 11.2.1 against the
-tarball's 11.2.6, `@nestjs/schedule` was installed twice and `CronJobs extends CoreCronJobs` stopped
-type-checking. Every release that raises a shared exact pin would hit the same wall, because the
-starter is bumped only AFTER the npm publish. The gate prints each raised pin — those are the pins
-every consumer has to raise too, so the migration guide must list them. Pinned by
-`tests/unit/check-consumer-align.spec.ts` (mutation `consumer-gate-skips-pin-alignment`).
+(`extras/sync-packages.mjs`, rule in `extras/align-package-versions.mjs`) to the tarball's manifest:
+a pin the starter already declares is raised to the framework's version when that is newer, in the
+section the starter keeps it — never lowered, added or moved to another section. Without it the gate
+tested a state no documented path produces, and refused 11.41.4 although the tarball was sound: the
+starter still pinned `@nestjs/common` 11.2.1 against the tarball's 11.2.6, `@nestjs/schedule` was
+installed twice and `CronJobs extends CoreCronJobs` stopped type-checking. Every release that raises
+a shared exact pin would hit the same wall, because the starter is bumped only AFTER the npm publish.
+The gate prints each raised pin — those are the pins every consumer has to raise too, so the
+migration guide must list them. Pinned by `tests/unit/check-consumer-align.spec.ts` (mutation
+`consumer-gate-skips-pin-alignment`).
+
+**What the framework ships follows across sections; what it only develops with does not (11.42.15).**
+Until then both the gate and the starter's script matched sections. nest-server keeps `mongodb` in
+`dependencies`, the starter in `devDependencies` — and Better-Auth's MongoDB adapter resolves its
+`mongodb` peer from that pin. Raising mongoose to 9.11, which needs mongodb ~7.7, therefore left the
+starter on 7.6.0: two bson copies, the adapter's `instanceof ObjectId` failed, sign-in answered 401,
+and the gate broke on 2026-10-06 (74/119 red). So a framework `dependencies` version now raises the
+consumer's pin in either section (mutation `consumer-gate-same-section-only`).
+
+The reverse direction stays closed on purpose: a framework `devDependencies` version raises only the
+consumer's `devDependencies`, never a runtime pin. The better-auth trio is the reason — nest-server
+holds it as devDependencies (its own test versions; the peer range is the contract), a project holds
+it as dependencies and owns that version, because its api and app must resolve the same better-auth.
+Letting the framework's test pin drive it would move the api on the next `pnpm run update` and leave
+the app behind (mutation `consumer-gate-devdeps-drive-runtime-pins`). `RAISE_SOURCES` in
+`scripts/check-consumer.mjs` and in the starter's `extras/align-package-versions.mjs` encode this;
+the two must stay identical — a gate that is more generous than the consumer's script certifies an
+update path nobody has.
 
 Wired into `.github/workflows/publish.yml` before the publish step, with `--fast`. Deliberately not
 on every push (~5 minutes), and deliberately not the starter's full `check` in CI: that also runs

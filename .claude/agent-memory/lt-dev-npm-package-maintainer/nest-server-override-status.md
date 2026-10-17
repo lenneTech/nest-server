@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-11
+description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-17
 metadata:
   type: project
 ---
@@ -189,3 +189,18 @@ WITHOUT unchanged since 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2
 9.0.9 + brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~150 sticky
 transitive names (express-rate-limit 8.5.2 vs 8.7.1, kysely 0.28 vs 0.29, @hono/node-server 2.0.11 vs 2.1.4)
 — ordinary stickiness, not swapped. Next run: utils 12.0.4 and postcss 8.5.30 are due (both raise key+target).
+
+## Status 2026-10-17 (pre-11.42.15 run, 19 entries)
+
+Raised (key + target together, both were hold-backs): `qs@<6.16.0` -> `qs@<6.16.1`, target 6.16.1 (express `^6.14.0`,
+body-parser `^6.15.2`, superagent `^6.14.1` all intersect the old key); `undici@>=7.0.0 <7.30.0` -> `<7.30.1`, target
+7.30.1 in lockstep with the direct pin (cheerio `^7.19.0`; 7.30.1 is a security release that `pnpm audit` cannot see
+yet). The payload (DEV-3616) had already raised utils -> 12.0.4 and postcss -> 8.5.30. Trailing now: ws 8.21.3
+(lockstep), js-yaml 5.4.3 vs 5.5.0 (not a hold-back, deferred), @graphql-tools/utils 12.0.4 vs 12.1.0 (payload item).
+**utils wrinkle:** a FRESH resolve already takes schema 10.1.5 / merge 9.2.8, which request `^12.1.0` (outside the key)
+-> utils 12.1.0 on the Apollo path, 12.0.4 only on @nestjs/graphql's exact-pin path. The repo lock keeps the sticky
+schema 10.1.3 / merge 9.2.6 (`^12.0.3`), which the key pins to 12.0.4. Raise to `<12.1.0` -> 12.1.0 next run.
+Two fresh resolves: WITH vs WITHOUT unchanged since 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml
+5.3.0, minimatch 9.0.9 + brace-expansion 2.1.7; WITHOUT audits 2 high + 1 moderate counting the braces suppression).
+Repo lock vs fresh WITH: 175 sticky transitive names, no advisory among them — left. `pnpm dedupe`: only the sticky
+@types/node 26.6.4 + 134 annotation lines — skipped. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.

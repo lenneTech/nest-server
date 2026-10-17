@@ -257,4 +257,26 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
   express 5.3.0, ws 8.22.0: framework-blocked as before. ansi-colors/tests/report.js and
   standard-version: open repo decisions (item 19), unchanged.
 
+- **Item 21 (2026-10-13, DEV-3616, done in-session, not by a maintenance run):** item 19's open repo
+  decisions settled by Kai — `tests/report.js` + `ansi-colors`, `standard-version` + `.versionrc` +
+  `CHANGELOG.md` (frozen at 9.5.0 since 2023) and the unused `supertest` / `@types/supertest`
+  devDeps REMOVED, no replacement release tool. `extras/sync-packages.mjs` now raises a framework `dependencies` pin in either
+  section via `extras/align-package-versions.mjs` (`RAISE_SOURCES`), so mongodb no longer needs a hand raise
+  (item 12 obsolete); framework devDependencies still raise only devDependencies — better-auth stays
+  consumer-owned.
+  Starter oxfmt raised to 0.72.0 together with the framework; the six redundant
+  `@UseGuards(AuthGuard(BETTER_AUTH))` in `UserController` removed.
+
+**22. Framework pre-11.42.15 run (2026-10-17) — handover for the starter step (do it in the SAME release cycle):**
+- `check:consumer --fast --keep` raised 3 pins: `dependencies mongoose 9.10.4 -> 9.11.2`, `devDependencies mongodb
+  7.6.0 -> 7.7.0` (the DEV-3616 cross-section rule — item 12 is fixed: one mongodb 7.7.0, one bson 7.3.3 in the copy),
+  `devDependencies oxlint 1.87.0 -> 1.88.0`. Green: unit 359 + 1 skipped / 22 files, e2e 125 / 12 files.
+- **The copy ran undici 7.30.0 AND 7.30.1**: the starter's `'undici@>=7.0.0 <7.30.0': 7.30.0` still pins the
+  cheerio path to 7.30.0, which the 2026-10-15 undici security release covers (repository advisories, invisible to
+  `pnpm audit` for now). Raise key + target to `<7.30.1` -> 7.30.1. Same for `'qs@<6.16.0': 6.16.0` -> `<6.16.1`
+  -> 6.16.1 (hold-back) and `'nodemailer@<10.1.0': 10.1.0` -> `<10.1.2` -> 10.1.2 (lockstep comment; the
+  framework's exact 10.1.2 is outside the old key, so the copy had one copy).
+- Starter devDeps that stay on the framework's values: vitest/coverage 4.1.11, oxfmt 0.72.0 (both deliberately held
+  in the framework, see [[deferred-major-updates]]). utils/postcss entries: already identical to the framework.
+
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]

@@ -1576,6 +1576,28 @@
       "driverSpecific": false
     },
     {
+      "id": "consumer-gate-same-section-only",
+      "defect": "11.42.15 — the consumer gate (and the starter's `pnpm run update`) raised a pin only when the framework declared it in the SAME section. nest-server declares mongodb under dependencies, the starter under devDependencies, and Better-Auth's MongoDB adapter resolves its mongodb peer from that pin: raising mongoose 9.11 (mongodb ~7.7) left the starter on mongodb 7.6.0, two bson copies made the adapter's instanceof ObjectId fail, sign-in answered 401 and the gate broke on 2026-10-06.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "      const version = newestFrameworkVersion(framework, name, RAISE_SOURCES[section]);",
+      "replace": "      const version = framework?.[section]?.[name];",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-devdeps-drive-runtime-pins",
+      "defect": "11.42.15 (caught in review) — the first cross-section rule also let a framework devDependency raise a consumer RUNTIME dependency. nest-server keeps the better-auth trio as devDependencies (test versions; the peer range is the contract), projects keep them as dependencies and own that version so api and app resolve the same better-auth. The next better-auth patch in nest-server would have moved the api on `pnpm run update` and left the app behind.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "  dependencies: ['dependencies'],",
+      "replace": "  dependencies: ['dependencies', 'devDependencies'],",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "migration-down-outside-lock",
       "defect": "DEV-2728 — MigrationRunner.down() ran outside the migration lock while up() held it. A rollback is typically run while a deploy is failing, i.e. while replicas restart and each boots into `migrate up`; both read and rewrote the migration state concurrently.",
       "file": "src/core/modules/migrate/migration-runner.ts",
