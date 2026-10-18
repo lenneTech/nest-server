@@ -1,6 +1,6 @@
 ---
 name: starter-downstream-maintenance
-description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages AND check:consumer ignore overrides, bare lockstep overrides, exact-pin keys, stale lock copies, sticky optional peers, pnpm dedupe, safe final gate with foreign WIP)
+description: Traps when running the downstream nest-server-starter maintenance step after a nest-server release (sync-packages AND check:consumer ignore overrides, bare lockstep overrides, exact-pin keys, stale lock copies, sticky optional peers, pnpm dedupe, safe final gate with foreign WIP; judge framework advisory calls against the starter's own resolved version)
 metadata:
   type: project
 ---
@@ -304,5 +304,20 @@ lock carries a nested second copy under smtp-server: harmless (test-only), no ov
 - Override NOT raised by any script: `'@graphql-tools/utils@>=12.0.0 <12.0.4': 12.0.4` -> `<12.1.0` -> 12.1.0. That
   closes item 23's two-copy tree (schema 10.1.5 / merge 9.2.8 request `^12.1.0`). docs/security-overrides.md now
   recommends `<12.1.0` -> 12.1.0 to consumers too (raised by the orchestrator in 11.42.16).
+
+**25. Starter run for framework 11.43.0 (2026-10-18, 20:10 UTC) — no pin/override change; lockfile only.**
+- **Judge a framework-run advisory decision against the STARTER's own resolved version.** GHSA-fv63-qcqv-fg6m
+  (kysely, repo-only, MSSQL helper): nest-server's lock sits on 0.28.17 (fix 0.28.18 / 0.29.7 = "major" there),
+  but the starter — and every fresh resolve, since better-auth asks `^0.28.17 || ^0.29.0` — was on 0.29.6, inside
+  `>=0.29.0 <=0.29.6`, so here 0.29.7 is a PATCH. Taken; no override (fresh resolve lands on 0.29.7 by itself).
+  follow-redirects was already 1.16.1 in the starter's HEAD lock.
+- `pnpm update --depth Infinity` would NOT move electron-to-chromium / schema-utils 4.x / watchpack even with their
+  parents named (webpack under @nestjs/cli, browserslist held by its override). The fresh-resolve swap was clean
+  instead: exactly 5 names, every diff line paired except 10 integrity hashes + schema-utils 4.6.0's new `hasBin`,
+  header identical, `dedupe --check` 0. Prove it with the prefix-stripped `uniq -c | awk '$1%2==1'` pairing test.
+- WITH vs WITHOUT unchanged (WITHOUT audits 1 high utils + 1 moderate js-yaml). All 47 shared pins == framework.
+  Held as the framework holds them: ws 8.22.0, js-yaml 5.5.0, express 5.3.0, better-auth 1.7.10; repo advisories
+  re-checked for each (none on the held versions). Cooldown: postcss 8.5.31 (source-map fix), nodemailer 10.1.3-.7.
+- `check` rewrites `spectaql.yml` to the new version — it shows up in `git status`, expected. Gate 484 / 34 files, 58 s.
 
 Related: [[pnpm11-override-and-check-gotchas]], [[deferred-major-updates]]
