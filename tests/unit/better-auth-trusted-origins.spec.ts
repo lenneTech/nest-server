@@ -6,10 +6,16 @@
  * (GraphQL, REST, BetterAuth) in sync.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveServerUrls } from '../../src/core/common/helpers/cookies.helper';
-import { buildTrustedOrigins } from '../../src/core/modules/better-auth/better-auth.config';
+import { ConfigService } from '../../src/core/common/services/config.service';
+import {
+  buildTrustedOrigins,
+  createBetterAuthInstance,
+  mcpOAuthIssuerOrigin,
+  withMcpOAuthIssuerOrigin,
+} from '../../src/core/modules/better-auth/better-auth.config';
 
 // Helper to construct the options shape expected by buildTrustedOrigins
 const opts = (args: {
@@ -179,11 +185,7 @@ describe('buildTrustedOrigins', () => {
         serverCorsConfig: { allowedOrigins: ['https://admin.example.com'] },
       }),
     );
-    expect(result).toEqual([
-      'https://example.com',
-      'https://api.example.com',
-      'https://admin.example.com',
-    ]);
+    expect(result).toEqual(['https://example.com', 'https://api.example.com', 'https://admin.example.com']);
   });
 
   it('should deduplicate when allowedOrigins overlaps with appUrl', () => {
@@ -230,5 +232,67 @@ describe('buildTrustedOrigins', () => {
   it('should return undefined when nothing is configured', () => {
     const result = buildTrustedOrigins({} as any, opts({}));
     expect(result).toBeUndefined();
+  });
+});
+
+/**
+ * The MCP OAuth consent page is served on the issuer's origin (`ai.mcp.oauthBaseUrl`) and signs users
+ * in from there. Better-Auth's login-CSRF check refuses an origin it does not trust, so that origin
+ * must be trusted — also when `betterAuth.trustedOrigins` is set explicitly, which replaces the
+ * derived list.
+ */
+describe('MCP OAuth issuer origin', () => {
+  const oauth = (mcp: Record<string, unknown>) => ({ ai: { mcp: { oauth: true, ...mcp } } });
+
+  it('is the origin of ai.mcp.oauthBaseUrl, only with ai.mcp.oauth on and only for http(s)', () => {
+    expect(mcpOAuthIssuerOrigin(oauth({ oauthBaseUrl: 'https://mcp.example.org/some/path' }))).toBe(
+      'https://mcp.example.org',
+    );
+    expect(mcpOAuthIssuerOrigin({ ai: { mcp: { oauth: false, oauthBaseUrl: 'https://mcp.example.org' } } })).toBe(
+      undefined,
+    );
+    expect(mcpOAuthIssuerOrigin(oauth({}))).toBe(undefined);
+    expect(mcpOAuthIssuerOrigin(oauth({ oauthBaseUrl: 'javascript:alert(1)' }))).toBe(undefined);
+    expect(mcpOAuthIssuerOrigin(oauth({ oauthBaseUrl: 42 }))).toBe(undefined);
+    expect(mcpOAuthIssuerOrigin({ ai: true })).toBe(undefined);
+  });
+
+  it('is added to a derived list, to an explicit one, and to an unset one', () => {
+    const issuer = 'https://mcp.example.org';
+    expect(withMcpOAuthIssuerOrigin(['https://app.example.com'], issuer)).toEqual(['https://app.example.com', issuer]);
+    expect(withMcpOAuthIssuerOrigin([issuer], issuer)).toEqual([issuer]);
+    expect(withMcpOAuthIssuerOrigin(undefined, issuer)).toEqual([issuer]);
+    expect(withMcpOAuthIssuerOrigin(['https://app.example.com'], undefined)).toEqual(['https://app.example.com']);
+  });
+
+  describe('on the instance Better-Auth is built with', () => {
+    const fakeDb: any = { collection: () => ({ createIndex: async () => undefined, findOne: async () => null }) };
+    const previous = ConfigService.configFastButReadOnly;
+    afterEach(() => ConfigService.setConfig(previous as any, { reInit: true, warn: false }));
+
+    /**
+     * @regression   11.43.0 (review) — with ai.mcp.oauthBaseUrl on another host the consent page
+     *   signed users in from an origin Better-Auth did not trust: every sign-in there answered 403.
+     * @seen-failing Registered as `mcp-oauth-issuer-origin-untrusted` in tests/regression-mutations.json.
+     */
+    it('trusts the issuer origin next to an explicit trustedOrigins list', () => {
+      ConfigService.setConfig(oauth({ oauthBaseUrl: 'https://mcp.example.org', oauthSecret: 'x'.repeat(40) }) as any, {
+        reInit: true,
+        warn: false,
+      });
+      const result = createBetterAuthInstance({
+        config: {
+          enabled: true,
+          secret: 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing',
+          trustedOrigins: ['https://app.example.com'],
+        } as any,
+        db: fakeDb,
+      } as any);
+
+      expect((result!.instance as any).options.trustedOrigins).toEqual([
+        'https://app.example.com',
+        'https://mcp.example.org',
+      ]);
+    });
   });
 });

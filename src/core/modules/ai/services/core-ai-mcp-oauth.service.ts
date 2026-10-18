@@ -1,11 +1,23 @@
+import type * as OAuthErrors from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Connection } from 'mongoose';
 
-import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper';
+import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper';
 import { ConfigService } from '../../../common/services/config.service';
-import { getApiTokenContext } from '../../api-token/core-api-token.helpers';
+import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers';
+import { getBetterAuthTokenService } from '../../better-auth/core-better-auth.registry';
+import {
+  IMcpOAuthConsentView,
+  MCP_OAUTH_CONSENT_DECISION_FIELD,
+  MCP_OAUTH_CONSENT_TOKEN_FIELD,
+  mcpOAuthConsentHeaders,
+  mcpOAuthConsentLocale,
+  renderMcpOAuthConsentPage,
+} from '../helpers/ai-mcp-oauth-consent.helper';
+import { getMountedMcpOAuth } from '../helpers/ai-mcp-oauth.registry';
 
 /**
  * Stored OAuth client (dynamically registered).
@@ -37,15 +49,75 @@ export interface AiMcpAccessTokenPayload {
 }
 
 /**
+ * What a consent form's CSRF token is bound to: who approves, which client, where the code goes,
+ * and the PKCE challenge — so neither a token from another user's page nor a form with swapped
+ * parameters can issue a code.
+ */
+export interface IAiMcpOAuthConsentBinding {
+  clientId: string;
+  codeChallenge: string;
+  redirectUri: string;
+  userId: string;
+}
+
+/**
+ * The HTTP method of the `/authorize` request a consent step is answering, while it answers it.
+ *
+ * Set by the provider's `authorize` (outside the overridable {@link CoreAiMcpOAuthService.authorizeConsent}),
+ * read by {@link assertCodeIssuanceAllowed}.
+ */
+const authorizeRequest = new AsyncLocalStorage<{ method: string }>();
+
+/**
+ * Refuses to issue an authorization code while answering a GET to `/authorize`.
+ *
+ * A GET is what a link, an image or a redirect produces, and it carries the user's session cookie
+ * (SameSite=Lax). Anybody may register a client with their own redirect URI and start the flow, so
+ * PKCE is theirs too. A consent that issues on GET therefore hands a code for whoever opens the
+ * attacker's link to the attacker, who redeems it for that user's MCP access. The code must come
+ * from a POST: the form in which the user approved this client. A code saved outside the
+ * `/authorize` handler (e.g. by a consent route of the project's own) is not affected; that route
+ * carries the same obligation.
+ */
+function assertCodeIssuanceAllowed(): void {
+  const request = authorizeRequest.getStore();
+  if (request && request.method !== 'POST') {
+    const message =
+      `MCP OAuth: refused to issue an authorization code while answering ${request.method || 'a non-POST'} /authorize. ` +
+      'Show the consent page on GET and issue the code only when the user approves it with a POST.';
+    // Logged here because the SDK turns the error into a bare `error=server_error` redirect and says
+    // nothing server-side: without this line a consent implemented the wrong way fails silently.
+    new Logger('CoreAiMcpOAuthService').error(message);
+    throw new Error(message);
+  }
+}
+
+/**
+ * What a consent token signs. JSON, so no value can run into the next; the leading `[` keeps it
+ * apart from the access tokens' input (base64url, never a `[`), which use the same key.
+ */
+function consentTokenPayload(binding: IAiMcpOAuthConsentBinding, exp: number): string {
+  return JSON.stringify([
+    'mcp_consent',
+    binding.userId,
+    binding.clientId,
+    binding.redirectUri,
+    binding.codeChallenge,
+    exp,
+  ]);
+}
+
+/**
  * Security core for the MCP OAuth 2.1 flow.
  *
  * Implements the security-critical primitives — HMAC-signed access tokens
  * (constant-time verification), PKCE (S256) verification — and MongoDB-backed
  * stores for dynamically registered clients, authorization codes (TTL) and
  * refresh tokens. These power the SDK `OAuthServerProvider` returned by
- * {@link buildOAuthProvider}, which `mcpAuthRouter` mounts (see
- * `mountAiMcpOAuth`). The interactive consent/authorize flow is a thin layer on
- * top of these primitives and is documented in the integration checklist.
+ * {@link buildOAuthProvider}, which `CoreAiMcpOAuthInitializer` mounts as `mcpAuthRouter`
+ * when `ai.mcp.oauth` is enabled. The interactive consent step is built in
+ * ({@link authorizeConsent}: sign-in through Better-Auth, then Allow / Deny); a subclass
+ * registered via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })` can restyle or replace it.
  *
  * Token format: `base64url(JSON payload).base64url(HMAC-SHA256)`.
  */
@@ -64,23 +136,46 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   constructor(@InjectConnection() protected readonly connection: Connection) {}
 
   /**
-   * Fail loud at boot in production/staging when the OAuth 2.1 layer is enabled
-   * (`ai.mcp.oauth`) but no signing secret is configured — otherwise tokens would be
-   * signed with a public, insecure development default.
+   * Fail loud at boot when the OAuth 2.1 layer is enabled (`ai.mcp.oauth`) but no signing secret
+   * is configured outside the local environments — otherwise tokens would be signed with a
+   * public, insecure development default (see {@link allowsDevelopmentSecret}).
    */
   onModuleInit(): void {
     this.assertProductionSafe();
   }
 
-  /** Throw in production/staging when OAuth is enabled but no secret is configured. */
+  /** Throw when OAuth is enabled but no secret is configured outside local / ci / e2e. */
   assertProductionSafe(): void {
-    if (this.oauthEnabled() && isProductionLikeEnv(ConfigService.get<string>('env')) && !this.resolveSecret()) {
+    if (this.oauthEnabled() && !this.allowsDevelopmentSecret() && !this.resolveSecret()) {
       throw new Error(
-        'AI MCP OAuth signing secret is required in production/staging when ai.mcp.oauth is enabled, ' +
+        'AI MCP OAuth signing secret is required when ai.mcp.oauth is enabled outside local / ci / e2e, ' +
           'but none is set (ai.mcp.oauthSecret / ai.encryptionSecret / NSC__AI__ENCRYPTION_SECRET / ' +
           'SECRETS_ENCRYPTION_KEY). Set a random 32+ char value.',
       );
     }
+  }
+
+  /**
+   * Whether the public development key may sign tokens: only in the local environments
+   * (`isLocalEnv`: `local`, `ci`, `e2e`). Deliberately not "everything except production / staging":
+   * a starter-based project DEPLOYS `develop` and `test` stages, and there the public key would let
+   * anybody who knows a user id forge that user's MCP access token.
+   */
+  protected allowsDevelopmentSecret(): boolean {
+    return isLocalEnv(ConfigService.get<string>('env') ?? process.env.NODE_ENV);
+  }
+
+  /** Whether the OAuth 2.1 layer is enabled — `CoreAiMcpOAuthInitializer` mounts the endpoints only then. */
+  isOAuthEnabled(): boolean {
+    return this.oauthEnabled();
+  }
+
+  /**
+   * Whether the built-in consent page answers `/authorize` (no subclass replaced {@link authorizeConsent}).
+   * It signs users in through Better-Auth, which `CoreAiMcpOAuthInitializer` checks at boot.
+   */
+  usesBuiltInConsent(): boolean {
+    return this.authorizeConsent === CoreAiMcpOAuthService.prototype.authorizeConsent;
   }
 
   /** Whether the OAuth 2.1 layer is enabled via `ai.mcp.oauth`. */
@@ -206,11 +301,15 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
 
   /**
    * Persist an authorization code with its PKCE challenge (TTL 10 minutes).
+   *
+   * Issuing a code IS the authorization. While answering `/authorize` this refuses unless the
+   * request is a POST — the user's approval of the consent form (see `assertCodeIssuanceAllowed`).
    */
   async saveAuthorizationCode(
     code: string,
     data: { clientId: string; codeChallenge: string; userId: string },
   ): Promise<void> {
+    assertCodeIssuanceAllowed();
     await this.ensureIndexes();
     await this.db().collection(this.codesCollection).insertOne({
       clientId: data.clientId,
@@ -233,11 +332,17 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
 
   /**
    * Consume (read + delete) an authorization code. One-time use.
+   *
+   * With `clientId`, only a code issued to that client is consumed — atomically, like
+   * {@link rotateRefreshToken}. Another client presenting it then finds nothing and leaves the code
+   * for its owner, instead of deleting it first and comparing afterwards.
    */
   async consumeAuthorizationCode(
     code: string,
+    clientId?: string,
   ): Promise<{ clientId: string; codeChallenge: string; userId: string } | null> {
-    const doc = await this.db().collection(this.codesCollection).findOneAndDelete({ code });
+    const filter = clientId === undefined ? { code } : { clientId, code };
+    const doc = await this.db().collection(this.codesCollection).findOneAndDelete(filter);
     const value = (doc as any)?.value ?? doc; // driver version compatibility
     if (!value) {
       return null;
@@ -318,9 +423,13 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         // @ApiTokenScopes() does not reach it; the check sits here rather than in authorizeConsent()
         // so an override of that method cannot drop it.
         if (getApiTokenContext(res?.req?.user)) {
-          throw new Error('access_denied: an API token cannot authorize an OAuth client');
+          const { AccessDeniedError } = await this.loadOAuthErrors();
+          throw new AccessDeniedError('An API token cannot authorize an OAuth client');
         }
-        return this.authorizeConsent(client, params, res);
+        // Lets saveAuthorizationCode() refuse a code issued on GET — here, not in authorizeConsent(),
+        // so an override cannot drop it.
+        const method = String(res?.req?.method ?? '').toUpperCase();
+        return authorizeRequest.run({ method }, () => this.authorizeConsent(client, params, res));
       },
       challengeForAuthorizationCode: async (_client: any, authorizationCode: string) => {
         const stored = await this.getAuthorizationCode(authorizationCode);
@@ -331,9 +440,12 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         registerClient: (client: AiMcpOAuthClient) => this.registerClient(client),
       },
       exchangeAuthorizationCode: async (client: any, authorizationCode: string) => {
-        const stored = await this.consumeAuthorizationCode(authorizationCode);
-        if (!stored || stored.clientId !== client.client_id) {
-          throw new Error('invalid_grant');
+        const stored = await this.consumeAuthorizationCode(authorizationCode, String(client?.client_id ?? ''));
+        if (!stored || stored.clientId !== client?.client_id) {
+          const { InvalidGrantError } = await this.loadOAuthErrors();
+          throw new InvalidGrantError(
+            'Authorization code is invalid, expired, already used or issued to another client',
+          );
         }
         return {
           access_token: this.signAccessToken(stored.userId, stored.clientId, accessTtlSeconds),
@@ -350,11 +462,15 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         // via `findOneAndDelete({ token, clientId })`.
         const callerClientId = client?.client_id;
         if (!callerClientId) {
-          throw new Error('invalid_client');
+          const { InvalidClientError } = await this.loadOAuthErrors();
+          throw new InvalidClientError('Unknown client');
         }
         const rotated = await this.rotateRefreshToken(refreshToken, callerClientId);
         if (!rotated) {
-          throw new Error('invalid_grant');
+          // invalid_grant is the one answer on which an MCP client discards its stored tokens and asks
+          // the user to sign in again — see loadOAuthErrors().
+          const { InvalidGrantError } = await this.loadOAuthErrors();
+          throw new InvalidGrantError('Refresh token is invalid, already used or issued to another client');
         }
         return {
           access_token: this.signAccessToken(rotated.userId, rotated.clientId, accessTtlSeconds),
@@ -366,22 +482,253 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
       verifyAccessToken: async (token: string) => {
         const payload = this.verifyAccessToken(token);
         if (!payload) {
-          throw new Error('invalid_token');
+          const { InvalidTokenError } = await this.loadOAuthErrors();
+          throw new InvalidTokenError('Invalid or expired access token');
         }
-        return { clientId: payload.cid, extra: { userId: payload.sub }, scopes: [], token };
+        // `expiresAt` is part of the SDK's AuthInfo contract: its bearer middleware refuses a token without one.
+        return { clientId: payload.cid, expiresAt: payload.exp, extra: { userId: payload.sub }, scopes: [], token };
       },
     };
   }
 
+  /** Lifetime of a consent form's CSRF token, in seconds — the TTL of an authorization code. */
+  protected readonly consentTokenTtlSeconds = 600;
+
   /**
-   * Interactive authorize/consent step. Override to integrate your login + consent
-   * UI: authenticate the user, then call {@link saveAuthorizationCode} and redirect
-   * to `redirect_uri?code=...&state=...`. Default: not implemented.
+   * The interactive authorize/consent step — built in since 11.43.0.
+   *
+   * - nobody signed in → the sign-in view: e-mail + password and the two-factor step against
+   *   Better-Auth on this origin, then a reload of this very request; passkey / social login via the
+   *   app's login page (`ai.mcp.oauthLoginUrl`, else `<appUrl>/auth/login`).
+   * - signed in, GET → the consent view: which client, where the code goes, Allow / Deny, with a
+   *   CSRF token bound to user, client, redirect URI and PKCE challenge.
+   * - signed in, POST with Allow and a valid token → the code is issued, the browser goes to
+   *   `redirect_uri?code=…&state=…`. Deny → `access_denied`. A stale token shows the form again; a
+   *   foreign or tampered one too, and issues nothing.
+   *
+   * The signed-in user is whoever the Better-Auth middleware put on the request (session cookie or
+   * bearer). An API token never gets here — `buildOAuthProvider().authorize` refuses it first — and a
+   * code issued on GET is refused by `assertCodeIssuanceAllowed`.
+   *
+   * Override for a consent UI of your own (register the subclass via
+   * `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`), or override {@link renderConsentPage}
+   * to only restyle this one. An own implementation must keep the same shape — a signed-in session
+   * is not consent — and refuse with a class from {@link loadOAuthErrors}: any other error reaches
+   * the client as `server_error`.
    */
-  protected async authorizeConsent(_client: any, _params: any, _res: any): Promise<void> {
-    throw new Error(
-      'authorizeConsent is not implemented — override CoreAiMcpOAuthService.authorizeConsent to wire your login/consent UI.',
-    );
+  protected async authorizeConsent(client: any, params: any, res: any): Promise<void> {
+    const req = res?.req;
+    const user = await this.consentUser(req);
+    const decision = req?.method === 'POST' ? req.body?.[MCP_OAUTH_CONSENT_DECISION_FIELD] : undefined;
+
+    if (user && decision === 'deny') {
+      const { AccessDeniedError } = await this.loadOAuthErrors();
+      throw new AccessDeniedError('The user denied access');
+    }
+
+    let notice: IMcpOAuthConsentView['notice'];
+    if (user && decision === 'approve') {
+      const binding: IAiMcpOAuthConsentBinding = {
+        clientId: String(client.client_id),
+        codeChallenge: String(params.codeChallenge),
+        redirectUri: String(params.redirectUri),
+        userId: user.id,
+      };
+      const verdict = this.verifyConsentToken(req.body?.[MCP_OAUTH_CONSENT_TOKEN_FIELD], binding);
+      if (verdict === 'valid') {
+        const code = this.generateId();
+        await this.saveAuthorizationCode(code, {
+          clientId: binding.clientId,
+          codeChallenge: binding.codeChallenge,
+          userId: binding.userId,
+        });
+        const target = new URL(binding.redirectUri);
+        target.searchParams.set('code', code);
+        if (params.state) {
+          target.searchParams.set('state', params.state);
+        }
+        res.redirect(302, target.href);
+        return;
+      }
+      if (verdict === 'expired') {
+        notice = 'expired';
+      } else {
+        this.logger.warn(
+          `MCP OAuth consent for client ${binding.clientId} carried an invalid token (forged, tampered, or from ` +
+            'another session); no code issued, the form is shown again.',
+        );
+      }
+    }
+
+    const view = this.buildConsentView(req, client, params, user, notice);
+    res.status(200);
+    for (const [name, value] of Object.entries(mcpOAuthConsentHeaders(view.nonce))) {
+      res.setHeader(name, value);
+    }
+    res.send(this.renderConsentPage(view));
+  }
+
+  /** Renders the consent page. Override to restyle it; keep every dynamic value escaped. */
+  protected renderConsentPage(view: IMcpOAuthConsentView): string {
+    return renderMcpOAuthConsentPage(view);
+  }
+
+  /**
+   * The user the consent is given for: whoever the Better-Auth middleware put on the request — or,
+   * where it did not run, the session the request carries. Nest registers that middleware below a
+   * global prefix, while the OAuth router sits at the root, so under `setGlobalPrefix()` it never
+   * sees `/authorize`; the session is then resolved the way the middleware resolves it (bearer, then
+   * session cookie). Never an API token — those carry their own, narrower rights.
+   */
+  protected async consentUser(req: any): Promise<{ email?: string; id: string; name?: string } | undefined> {
+    const toConsentUser = (user: any) =>
+      user?.id && !getApiTokenContext(user) ? { email: user.email, id: String(user.id), name: user.name } : undefined;
+    if (req?.user?.id) {
+      return toConsentUser(req.user);
+    }
+    const tokenService = getBetterAuthTokenService();
+    if (!tokenService || !req || hasApiTokenCredential(req)) {
+      return undefined;
+    }
+    try {
+      const { token } = tokenService.extractTokenFromRequest(req);
+      return token ? toConsentUser(await tokenService.verifyAndLoadUser(token)) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Builds what the page shows. */
+  protected buildConsentView(
+    req: any,
+    client: any,
+    params: any,
+    user: { email?: string; id: string; name?: string } | undefined,
+    notice?: IMcpOAuthConsentView['notice'],
+  ): IMcpOAuthConsentView {
+    const redirect = new URL(String(params.redirectUri));
+    const oauthParams: Record<string, string> = {
+      client_id: String(client.client_id),
+      code_challenge: String(params.codeChallenge),
+      code_challenge_method: 'S256',
+      redirect_uri: String(params.redirectUri),
+      response_type: 'code',
+    };
+    if (params.state) {
+      oauthParams.state = String(params.state);
+    }
+    if (Array.isArray(params.scopes) && params.scopes.length) {
+      oauthParams.scope = params.scopes.join(' ');
+    }
+    if (params.resource) {
+      oauthParams.resource = String(params.resource.href ?? params.resource);
+    }
+    return {
+      appHost: this.consentAppHost(),
+      authBasePath: getBetterAuthTokenService()
+        ? getMountedMcpOAuth()?.authBasePath || ConfigService.get<string>('betterAuth.basePath') || '/iam'
+        : undefined,
+      client: { id: String(client.client_id), name: client.client_name },
+      csrfToken: user
+        ? this.signConsentToken({
+            clientId: oauthParams.client_id,
+            codeChallenge: oauthParams.code_challenge,
+            redirectUri: oauthParams.redirect_uri,
+            userId: user.id,
+          })
+        : undefined,
+      locale: mcpOAuthConsentLocale(req?.headers?.['accept-language']),
+      loginUrl: user ? undefined : this.consentLoginUrl(req),
+      nonce: randomBytes(16).toString('base64'),
+      notice,
+      oauthParams,
+      redirect: { host: redirect.host, loopback: ['localhost', '127.0.0.1', '[::1]'].includes(redirect.hostname) },
+      user: user ? { email: user.email, name: user.name } : undefined,
+    };
+  }
+
+  /** The host users know the application by: the app's, else the server's. */
+  protected consentAppHost(): string {
+    for (const url of [resolveAppUrlFromConfig(ConfigService), getMountedMcpOAuth()?.baseUrl]) {
+      try {
+        if (url) {
+          return new URL(url).host;
+        }
+      } catch {
+        // not a URL — try the next one
+      }
+    }
+    return '';
+  }
+
+  /**
+   * The app's login page, for sign-in methods the consent page does not offer (passkey, social
+   * login). `ai.mcp.oauthLoginUrl` wins; a `{returnTo}` in it is replaced by this `/authorize`
+   * request's URL, for a login page that sends the user back by itself. Default:
+   * `<appUrl>/auth/login`, opened next to the consent page.
+   */
+  protected consentLoginUrl(req: any): IMcpOAuthConsentView['loginUrl'] {
+    const configured = ConfigService.get<unknown>('ai.mcp.oauthLoginUrl');
+    const appUrl = resolveAppUrlFromConfig(ConfigService);
+    const template =
+      typeof configured === 'string' && configured.trim()
+        ? configured.trim()
+        : appUrl
+          ? `${appUrl.replace(/\/$/, '')}/auth/login`
+          : undefined;
+    if (!template) {
+      return undefined;
+    }
+    const returnsHere = template.includes('{returnTo}');
+    const base = getMountedMcpOAuth()?.baseUrl;
+    const returnTo = returnsHere && base && req?.originalUrl ? new URL(String(req.originalUrl), `${base}/`).href : '';
+    try {
+      const href = new URL(template.replace('{returnTo}', () => encodeURIComponent(returnTo))).href;
+      return /^https?:/.test(href) ? { href, returnsHere } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Signs a consent form's CSRF token: `<exp>.<hmac>` over the binding and the expiry. */
+  protected signConsentToken(binding: IAiMcpOAuthConsentBinding): string {
+    const exp = Math.floor(Date.now() / 1000) + this.consentTokenTtlSeconds;
+    return `${exp}.${this.hmac(consentTokenPayload(binding, exp))}`;
+  }
+
+  /**
+   * Checks a consent form's CSRF token against the binding of THIS request. The signature is
+   * checked first, so `expired` is only ever said of a token this server issued for this binding.
+   */
+  protected verifyConsentToken(token: unknown, binding: IAiMcpOAuthConsentBinding): 'expired' | 'invalid' | 'valid' {
+    if (typeof token !== 'string') {
+      return 'invalid';
+    }
+    const parts = token.split('.');
+    const exp = Number(parts[0]);
+    if (parts.length !== 2 || !Number.isSafeInteger(exp) || !parts[1]) {
+      return 'invalid';
+    }
+    if (!this.safeEqual(parts[1], this.hmac(consentTokenPayload(binding, exp)))) {
+      return 'invalid';
+    }
+    return exp > Math.floor(Date.now() / 1000) ? 'valid' : 'expired';
+  }
+
+  /**
+   * The SDK's OAuth error classes, for every refusal the provider reports.
+   *
+   * The SDK's handlers decide the HTTP answer with `instanceof OAuthError`; anything else becomes
+   * `500 server_error`. That is more than a wrong status: an MCP client discards its stored tokens
+   * only on `invalid_grant`. A refused refresh token answered with a 500 made it keep the dead
+   * token, retry the refresh, and never ask the user to sign in again.
+   *
+   * Imported lazily, like every other use of the SDK in this module and the same way
+   * `mountAiMcpOAuth()` imports the router, so both resolve the same build of the SDK: a class
+   * from its other build (CJS vs. ESM) would fail that `instanceof` just like a plain `Error`.
+   */
+  protected loadOAuthErrors(): Promise<typeof OAuthErrors> {
+    return import('@modelcontextprotocol/sdk/server/auth/errors.js');
   }
 
   // ===================================================================================================================
@@ -413,6 +760,16 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   protected getSecret(): string {
     const raw = this.resolveSecret();
+    if (!raw && !this.allowsDevelopmentSecret()) {
+      // The boot check (assertProductionSafe) normally stops this earlier. This is the backstop for
+      // a path that skipped it, e.g. a subclass whose onModuleInit() does not call super: signing
+      // with the public default below would make every token forgeable.
+      throw new Error(
+        'AI MCP OAuth signing secret is not configured outside local / ci / e2e; refusing to sign or verify ' +
+          'tokens with the public development default. Set ai.mcp.oauthSecret (or ai.encryptionSecret / ' +
+          'NSC__AI__ENCRYPTION_SECRET / SECRETS_ENCRYPTION_KEY).',
+      );
+    }
     if (!raw) {
       if (!this.warnedSecret) {
         this.logger.warn(

@@ -60,8 +60,8 @@ import type { ISwaggerApiTokenViewOptions, ISwaggerSetupOptions } from '../inter
  * - With multi-tenancy on, every operation that reads the tenant header documents it as a parameter.
  * - The routes Better-Auth serves itself (two-factor, passkey, sessions, password change, … — whatever the
  *   configured plugins add) are documented from Better-Auth's own OpenAPI generator, under the project's
- *   Better-Auth controller (since 11.42.9); so are `/ai/mcp` and the MCP OAuth endpoints
- *   `mountAiMcpOAuth()` mounted.
+ *   Better-Auth controller (since 11.42.9); so are `/ai/mcp` and the MCP OAuth endpoints that are
+ *   actually mounted (by `CoreModule` when `ai.mcp.oauth` is enabled).
  * - Only what can succeed under the running configuration is documented (since 11.42.9): an `@All()`
  *   handler keeps the methods `@ApiMethods()` names; legacy `/auth/*` disappears while
  *   `auth.legacyEndpoints` keeps REST closed; Better-Auth routes disappear when the configuration or the
@@ -437,8 +437,8 @@ function declaresSecurity(reference: IHandlerReference): boolean {
 }
 
 /**
- * Documents the MCP OAuth 2.1 endpoints `mountAiMcpOAuth()` mounted on Express — the ones it mounted,
- * nothing else. They authenticate the client themselves, so they carry no security requirement.
+ * Documents the MCP OAuth 2.1 endpoints mounted on Express (`CoreAiMcpOAuthInitializer`, or a manual
+ * `mountAiMcpOAuth()`) — the ones mounted, nothing else. They authenticate the client themselves, so they carry no security requirement.
  */
 function addMcpOAuthRoutes(
   document: OpenAPIObject,

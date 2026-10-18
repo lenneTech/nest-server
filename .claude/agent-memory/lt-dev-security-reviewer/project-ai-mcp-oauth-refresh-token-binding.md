@@ -1,14 +1,20 @@
 ---
 name: project-ai-mcp-oauth-refresh-token-binding
-description: MCP OAuth refresh-token rotation in CoreAiMcpOAuthService.exchangeRefreshToken does not validate the rotating client matches the issuing client — cross-client token theft risk when ai.mcp.oauth is enabled
+description: MCP OAuth refresh-token/code client binding — FIXED (rotateRefreshToken(token, clientId) + findOneAndDelete({clientId, token})); how to re-verify, and the residual code-burn ordering
 metadata:
   type: project
 ---
 
-`CoreAiMcpOAuthService.buildOAuthProvider().exchangeRefreshToken` is wired as `async (_client, refreshToken) => { const rotated = await this.rotateRefreshToken(refreshToken); … }`. The underscore-prefixed `_client` is the authenticated rotating client passed in by `mcpAuthRouter` (the MCP SDK verifies the rotating client via `client_id` + optional `client_secret` upstream), but our provider DOES NOT compare `rotated.clientId === _client.client_id`. By contrast `exchangeAuthorizationCode` DOES enforce `stored.clientId !== client.client_id ⇒ throw 'invalid_grant'`. Asymmetric.
+**FIXED** (verified 2026-10-18, 11.43.0 working tree). `exchangeRefreshToken` now passes the
+rotating `client.client_id` to `rotateRefreshToken(token, clientId)`, which deletes atomically via
+`findOneAndDelete({ clientId, token })`. A foreign client's refresh token answers `400 invalid_grant`
+(SDK `InvalidGrantError` since 11.43.0, a plain `Error` → 500 before).
 
-**Why this matters (OAuth 2.1 §4.13.2 / §7.4):** refresh tokens MUST be bound to the client they were issued to. Without the comparison, Client A that somehow obtains Client B's refresh token (compromised storage, log leak, browser cache, prior request) can rotate it into Client A's session and use the resulting access token to impersonate Client B's user (subject `sub` is preserved in the new access token).
+**Why keep this note:** the binding is a one-argument regression away. Re-verify on any change to
+`buildOAuthProvider()` / `rotateRefreshToken()`: the filter must contain BOTH `token` and `clientId`.
 
-**How to apply:** flag every change to `buildOAuthProvider()` / `rotateRefreshToken()`. The fix is to add a `if (rotated.clientId !== client.client_id) throw new Error('invalid_grant')` check inside `exchangeRefreshToken`, ideally inside `rotateRefreshToken` itself by passing the rotating clientId as a second argument and using it in the `findOneAndDelete` filter (`{ token, clientId }`). Also revisit `exchangeAuthorizationCode` if its check is ever loosened — currently correct.
+Code exchange: also bound since 11.43.0 — `consumeAuthorizationCode(code, clientId)` deletes via
+`findOneAndDelete({ clientId, code })`, so a foreign client no longer burns the owner's code
+(mutation `mcp-oauth-code-burned-by-foreign-client`).
 
-Only relevant when `ai.mcp.oauth: true`; without OAuth the MCP controller uses Bearer/session tokens that bind to a session, not a client.
+Only relevant when `ai.mcp.oauth: true`. See [[project-ai-mcp-oauth-mount-and-consent]].

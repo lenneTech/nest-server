@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
@@ -399,6 +400,9 @@ export class CoreBetterAuthController {
           email: input.email,
           password: normalizedPassword,
         },
+        // With a request, Better-Auth answers a Response by default; this controller reads the data.
+        asResponse: false,
+        request: this.csrfCheckedRequest(req ?? (res as any)?.req, '/sign-in/email'),
       })) as BetterAuthSignInResponse | null;
 
       if (!response) {
@@ -436,7 +440,7 @@ export class CoreBetterAuthController {
         const signInUrl = new URL(`${basePath}/sign-in/email`, baseUrl);
 
         // Create a new Web Request for Better Auth's native handler
-        const webRequest = new Request(signInUrl.toString(), {
+        const webRequest = new globalThis.Request(signInUrl.toString(), {
           body: modifiedBody,
           headers: new Headers({
             'Content-Type': 'application/json',
@@ -507,6 +511,7 @@ export class CoreBetterAuthController {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
+      this.rethrowCsrfRefusal(error, 'sign-in');
 
       throw new UnauthorizedException(ErrorCode.INVALID_CREDENTIALS);
     }
@@ -569,6 +574,9 @@ export class CoreBetterAuthController {
           name: input.name || input.email.split('@')[0],
           password: normalizedPassword,
         },
+        // With a request, Better-Auth answers a Response by default; this controller reads the data.
+        asResponse: false,
+        request: this.csrfCheckedRequest((res as any)?.req, '/sign-up/email'),
       });
 
       if (!response) {
@@ -637,10 +645,76 @@ export class CoreBetterAuthController {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.debug(`Sign-up error: ${errorMessage}`);
+      this.rethrowCsrfRefusal(error, 'sign-up');
       if (errorMessage.includes('already exists')) {
         throw new BadRequestException(ErrorCode.EMAIL_ALREADY_EXISTS);
       }
       throw new BadRequestException(ErrorCode.SIGNUP_FAILED);
+    }
+  }
+
+  /**
+   * The Web `Request` handed to `api.signInEmail()` / `api.signUpEmail()`, so Better-Auth's own CSRF
+   * protection runs. Both endpoints carry `formCsrfMiddleware`: it refuses a cross-site NAVIGATION
+   * (`Sec-Fetch-Site: cross-site` + `Sec-Fetch-Mode: navigate`, i.e. a form a hostile page submits)
+   * and checks a present `Origin` / `Referer` against `trustedOrigins`. It reads them from
+   * `ctx.request` — and called without one, the API skipped the check entirely, so a hostile page
+   * could sign a visitor in to an account of the attacker's choosing (login CSRF): whatever the
+   * visitor did next, including approving an MCP client on the consent page, happened in the
+   * attacker's account.
+   *
+   * Only those signals are forwarded, and only from a request that comes from a browser — login CSRF
+   * needs a victim's browser, so a client without one has nothing to protect. A browser sends `Origin`
+   * on every POST and `Sec-Fetch-Site` with all fetch metadata; a request carrying neither (nor a
+   * `Referer`) is not one. That matters because Node's built-in `fetch` (undici) sends a lone
+   * `Sec-Fetch-Mode: cors` and no `Origin`, which Better-Auth reads as a browser request missing its
+   * origin and refuses — every server-side script, seeder or SSR route signing in with `fetch` would
+   * answer 403. Not the cookie either: its presence alone makes Better-Auth demand an `Origin`, which
+   * would refuse non-browser clients that keep a cookie jar (API tests, apps) — a change unrelated to
+   * CSRF, since every browser sends `Origin` on a cross-site POST anyway.
+   * Returns `undefined` without a request (a subclass calling `super` with a stub), which keeps the
+   * call working as before.
+   */
+  protected csrfCheckedRequest(req: Request | undefined, path: string): globalThis.Request | undefined {
+    if (!req?.headers) {
+      return undefined;
+    }
+    const header = (name: string) => {
+      const value = req.headers[name];
+      return typeof value === 'string' && value ? value : undefined;
+    };
+    const fromBrowser = ['origin', 'referer', 'sec-fetch-site'].some((name) => header(name));
+    const headers = new Headers();
+    if (fromBrowser) {
+      for (const name of ['origin', 'referer', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site']) {
+        const value = header(name);
+        if (value) {
+          headers.set(name, value);
+        }
+      }
+    }
+    // The URL only names the endpoint; the checks read the headers. A missing baseUrl must not turn
+    // every sign-in into an error, so it falls back to a placeholder origin.
+    const url = new URL(
+      `${this.betterAuthService.getBasePath()}${path}`,
+      this.betterAuthService.getBaseUrl() || 'http://localhost',
+    );
+    return new globalThis.Request(url, { headers, method: 'POST' });
+  }
+
+  /**
+   * Answers a request Better-Auth's CSRF protection refused with 403, not as bad credentials: no
+   * sign-in can ever make it succeed, and "invalid credentials" would send whoever debugs a missing
+   * `trustedOrigins` entry looking at the password.
+   */
+  protected rethrowCsrfRefusal(error: unknown, action: string): void {
+    const code = (error as { body?: { code?: string } })?.body?.code;
+    if (code && ['CROSS_SITE_NAVIGATION_LOGIN_BLOCKED', 'INVALID_ORIGIN', 'MISSING_OR_NULL_ORIGIN'].includes(code)) {
+      this.logger.warn(
+        `Refused ${action}: ${code} (Better-Auth CSRF protection). If this is your own frontend, add its origin to ` +
+          'cors.allowedOrigins — an explicit betterAuth.trustedOrigins replaces the derived list.',
+      );
+      throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
     }
   }
 

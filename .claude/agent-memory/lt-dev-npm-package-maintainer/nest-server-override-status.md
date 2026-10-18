@@ -215,4 +215,17 @@ fresh resolves: WITH vs WITHOUT unchanged (utils 12.0.0 + promise-helpers 1.3.2,
 brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~163 sticky names, no advisory —
 left. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.
 
+## Status 2026-10-18 (pre-11.43.0 run, 19 entries, none changed)
+
+No raise due: every target is the newest mature release of its major; trailing by design: ws 8.21.3 (lockstep),
+js-yaml 5.4.3 vs 5.5.0 (no advisory, swagger's exact 5.3.0 still the only 5.x requester). Two fresh resolves: WITH vs
+WITHOUT unchanged since 2026-10-09 (utils 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
+brace-expansion 2.1.7; WITHOUT audits 2 high + 1 moderate incl. the ignored braces). `check:overrides` green.
+**New this run: a repo-advisory scan of the ~172 STICKY names** (repo lock older than fresh WITH) found two real hits
+the global DB did not have yet (all 404): follow-redirects 1.16.0 (GHSA-8r9p-f939-6h3c + GHSA-q3jh-wrc6-jgq8, medium,
+credential headers kept on cross-origin redirect, RUNTIME via node-mailjet > axios) -> fixed by targeted
+`pnpm update --depth Infinity follow-redirects` (axios asks `^1.16.0`, no override); kysely 0.28.17
+(GHSA-fv63-qcqv-fg6m, medium, MSSQL `jsonBuildObject` raw SQL, dev-only via better-auth) -> LEFT, see
+[[nest-server-maintenance-gotchas]]. Do the scan every run; ~2 min for ~170 names / ~100 repos.
+
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

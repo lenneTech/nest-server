@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-17 (v11.42.16)
+> Auto-generated from source code as of 2026-10-17 (v11.43.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -131,7 +131,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `maxRunMs?`: `number | undefined` (default: `0`) — Wall-clock ceiling for ONE prompt run, in milliseconds. Checked before each
   - `maxToolResultChars?`: `number | undefined` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; } | undefined` — Governed self-improvement loop for the system prompt. The orchestrator records
-  - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string; } | und...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+  - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthBaseUrl?: string; oauthL...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
   - `rateLimit?`: `IAiRateLimit | undefined` — Rate limiting for prompts.
   - `systemPrompt?`: `string | undefined` — Base system prompt prepended to every conversation.
 

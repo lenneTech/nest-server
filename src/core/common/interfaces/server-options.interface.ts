@@ -2114,12 +2114,36 @@ export interface IAi {
    * external MCP clients. Requires `@modelcontextprotocol/sdk`. Boolean shorthand.
    *
    * `oauth: true` additionally enables the OAuth 2.1 layer (dynamic client
-   * registration + PKCE) so generic MCP clients can authenticate; mount the OAuth
-   * router in `main.ts` via `mountAiMcpOAuth(app)` (see INTEGRATION-CHECKLIST).
-   * Without it, MCP authenticates via the existing Bearer/session token.
+   * registration + PKCE) so generic MCP clients can authenticate. `CoreModule` mounts
+   * its endpoints (`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`) during
+   * `app.init()` — no `main.ts` code (11.43.0+). The issuer is `oauthBaseUrl`, else
+   * the server's `baseUrl`; a deployed environment with neither fails the boot. `/authorize`
+   * answers with a built-in consent page: sign-in through Better-Auth (password + 2FA),
+   * then Allow / Deny. Replace it via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`.
+   * Without `oauth`, MCP authenticates via the existing Bearer/session token.
    * @default false
    */
-  mcp?: boolean | { enabled?: boolean; oauth?: boolean; oauthSecret?: string };
+  mcp?:
+    | boolean
+    | {
+        enabled?: boolean;
+        oauth?: boolean;
+        /**
+         * Public base URL of this server for the OAuth issuer and the MCP resource, when MCP
+         * clients reach it under a different URL than `baseUrl`. Blank counts as unset.
+         * @default the server's `baseUrl` (`http://localhost:3000` in local / ci / e2e)
+         */
+        oauthBaseUrl?: string;
+        /**
+         * The app's login page, linked from the consent page for sign-in methods it does not
+         * offer itself (passkey, social login). A `{returnTo}` in it is replaced by the URL of the
+         * pending `/authorize` request, for a login page that sends the user back by itself;
+         * without it the link opens next to the consent page, which then offers "continue".
+         * @default `<appUrl>/auth/login` when an app URL can be resolved
+         */
+        oauthLoginUrl?: string;
+        oauthSecret?: string;
+      };
 
   /** Rate limiting for prompts. */
   rateLimit?: IAiRateLimit;
@@ -4559,10 +4583,11 @@ interface IBetterAuthWithoutPasskey extends IBetterAuthBase {
    * Trusted origins for CORS configuration.
    *
    * Optional when Passkey is disabled.
-   * If not set, all origins are allowed (CORS `*`).
+   * If not set, it is derived (see below) — never "all origins": an origin check has no such mode.
    *
-   * Auto-derived from `baseUrl` and `appUrl` when these are configured.
-   * Explicitly listed origins are merged with the auto-derived ones.
+   * Auto-derived when not set: `appUrl`, `baseUrl` and `cors.allowedOrigins` (plus the passkey
+   * origins and, with `ai.mcp.oauth`, the origin of `ai.mcp.oauthBaseUrl`). An explicit list
+   * REPLACES the derived one — include `appUrl` and every frontend origin, or their sign-ins answer 403.
    *
    * **Important for cross-subdomain setups:** When using `crossSubDomainCookies`,
    * cookies are shared across subdomains, but the server also needs to accept requests
@@ -4621,8 +4646,9 @@ interface IBetterAuthWithPasskey extends IBetterAuthBase {
    * Passkey uses `credentials: 'include'` which requires explicit CORS origins.
    * Browsers don't allow wildcard `*` with credentials.
    *
-   * Auto-derived from `baseUrl` and `appUrl` when these are configured.
-   * Explicitly listed origins are merged with the auto-derived ones.
+   * Auto-derived when not set: `appUrl`, `baseUrl` and `cors.allowedOrigins` (plus the passkey
+   * origins and, with `ai.mcp.oauth`, the origin of `ai.mcp.oauthBaseUrl`). An explicit list
+   * REPLACES the derived one — include `appUrl` and every frontend origin, or their sign-ins answer 403.
    *
    * **Important for cross-subdomain setups:** When using `crossSubDomainCookies`,
    * cookies are shared across subdomains, but the server also needs to accept requests
@@ -4703,6 +4729,7 @@ export interface ICoreModuleOverrides {
    * - `conversationService` must extend `CoreAiConversationService`
    * - `interactionService` must extend `CoreAiInteractionService`
    * - `mcpClientService` must extend `CoreAiMcpClientService`
+   * - `mcpOAuthService` must extend `CoreAiMcpOAuthService` (implements `authorizeConsent()`)
    * - `modeService` must extend `CoreAiModeService`
    * - `placeholderRegistry` must extend `CoreAiPlaceholderRegistry`
    * - `preferenceService` must extend `CoreAiConnectionPreferenceService`
@@ -4735,6 +4762,7 @@ export interface ICoreModuleOverrides {
     conversationService?: Type<any>;
     interactionService?: Type<any>;
     mcpClientService?: Type<any>;
+    mcpOAuthService?: Type<any>;
     modeService?: Type<any>;
     placeholderRegistry?: Type<any>;
     preferenceService?: Type<any>;

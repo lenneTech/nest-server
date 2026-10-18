@@ -158,7 +158,15 @@ describe('MCP', () => {
   it('documents exactly the OAuth endpoints mountAiMcpOAuth() mounted', async () => {
     expect(Object.keys((await documentOf([UploadController], {})).paths)).not.toContain('/token');
 
-    setMountedMcpOAuth({ mcpPath: '/ai/mcp', registration: true, revocation: false });
+    setMountedMcpOAuth({
+      baseUrl: 'https://api.example.com',
+      issuerUrl: 'https://api.example.com/',
+      mcpPath: '/ai/mcp',
+      registration: true,
+      resourceMetadataUrl: 'https://api.example.com/.well-known/oauth-protected-resource/ai/mcp',
+      resourceUrl: 'https://api.example.com/ai/mcp',
+      revocation: false,
+    });
     const paths = Object.keys((await documentOf([UploadController], {})).paths);
     for (const path of [
       '/.well-known/oauth-authorization-server',

@@ -21,6 +21,8 @@ import { CoreAiMcpService } from '../../src/core/modules/ai/services/core-ai-mcp
 import { CoreAiPromptBuilderService } from '../../src/core/modules/ai/services/core-ai-prompt-builder.service';
 import { CoreAiService } from '../../src/core/modules/ai/services/core-ai.service';
 import { AiToolRegistry } from '../../src/core/modules/ai/tools/ai-tool.registry';
+import { setMountedMcpOAuth } from '../../src/core/modules/ai/helpers/ai-mcp-oauth.registry';
+import { createMcpOAuthMemoryConnection } from '../helpers/mcp-oauth-memory-connection';
 
 /** Minimal tool factory for tests. */
 function makeTool(name: string, roles: (RoleEnum | string)[], execute?: IAiTool['execute']): IAiTool {
@@ -1810,14 +1812,37 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
     return { captured, res };
   }
 
-  it('returns 401 with WWW-Authenticate header when no authentication is presented (handlePost)', async () => {
+  it('returns 401 with a plain Bearer challenge when no OAuth endpoints are mounted (handlePost)', async () => {
     const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
     const { captured, res } = makeRes();
     await controller.handlePost(makeReq(), res);
     expect(captured.status).toBe(401);
-    expect(captured.headers['WWW-Authenticate']).toMatch(/Bearer resource_metadata="/);
-    expect(captured.headers['WWW-Authenticate']).toContain('https://api.example.com/ai/mcp');
+    // No metadata document exists to point at, so none is advertised.
+    expect(captured.headers['WWW-Authenticate']).toBe('Bearer');
     expect(captured.body).toMatchObject({ error: expect.stringMatching(/Bearer token/i) });
+  });
+
+  it('points the 401 at the mounted protected resource metadata, not at the endpoint or the Host header', async () => {
+    setMountedMcpOAuth({
+      baseUrl: 'https://mcp.example.org',
+      issuerUrl: 'https://mcp.example.org/',
+      mcpPath: '/ai/mcp',
+      registration: true,
+      resourceMetadataUrl: 'https://mcp.example.org/.well-known/oauth-protected-resource/ai/mcp',
+      resourceUrl: 'https://mcp.example.org/ai/mcp',
+      revocation: false,
+    });
+    try {
+      const controller = new CoreAiMcpController({} as any, new CoreAiMcpOAuthService({} as any));
+      const { captured, res } = makeRes();
+      await controller.handlePost(makeReq(), res);
+      expect(captured.status).toBe(401);
+      expect(captured.headers['WWW-Authenticate']).toBe(
+        'Bearer resource_metadata="https://mcp.example.org/.well-known/oauth-protected-resource/ai/mcp"',
+      );
+    } finally {
+      setMountedMcpOAuth(undefined);
+    }
   });
 
   it('returns 401 from handleGet when no authentication is presented', async () => {
@@ -2759,7 +2784,7 @@ describe('CoreAiMcpOAuthService.buildOAuthProvider (wiring)', () => {
       clientId: 'client-9',
       extra: { userId: 'user-9' },
     });
-    await expect(provider.verifyAccessToken('bogus.token')).rejects.toThrow(/invalid_token/);
+    await expect(provider.verifyAccessToken('bogus.token')).rejects.toMatchObject({ errorCode: 'invalid_token' });
   });
 
   it('mountAiMcpOAuth mounts the OAuth router on the app', async () => {
@@ -2789,45 +2814,8 @@ describe('CoreAiMcpOAuthService (OAuth 2.1 flow against in-memory store)', () =>
     initConfig({ ai: { mcp: { oauth: true, oauthSecret: 'unit-oauth-flow-secret-32-chars!!' } } } as any);
   });
 
-  /** In-memory collection: array-backed; `findOneAndDelete` is atomic per call. */
-  function makeCollection() {
-    const docs: any[] = [];
-    const matches = (doc: any, query: any) => Object.keys(query).every((k) => doc[k] === query[k]);
-    return {
-      docs,
-      createIndex: async () => ({}),
-      findOne: async (query: any) => docs.find((d) => matches(d, query)) ?? null,
-      findOneAndDelete: async (query: any) => {
-        const idx = docs.findIndex((d) => matches(d, query));
-        if (idx < 0) {
-          return null;
-        }
-        const [removed] = docs.splice(idx, 1);
-        return removed;
-      },
-      insertOne: async (doc: any) => {
-        docs.push(doc);
-        return { insertedId: doc.client_id ?? doc.code ?? doc.token ?? 'x' };
-      },
-    };
-  }
-
-  function makeConnectionStub() {
-    const collections = new Map<string, ReturnType<typeof makeCollection>>();
-    return {
-      db: {
-        collection: (name: string) => {
-          if (!collections.has(name)) {
-            collections.set(name, makeCollection());
-          }
-          return collections.get(name)!;
-        },
-      },
-    };
-  }
-
   function makeSvc() {
-    return new CoreAiMcpOAuthService(makeConnectionStub() as any);
+    return new CoreAiMcpOAuthService(createMcpOAuthMemoryConnection() as any);
   }
 
   it('preserves client_secret across registerClient → getClient roundtrip (BSV-3)', async () => {
@@ -2923,9 +2911,9 @@ describe('CoreAiMcpOAuthService (OAuth 2.1 flow against in-memory store)', () =>
       extra: { userId: 'uid-flow' },
     });
     // Second use of the same authorization code is rejected.
-    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-flow' }, 'code-flow')).rejects.toThrow(
-      /invalid_grant/,
-    );
+    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-flow' }, 'code-flow')).rejects.toMatchObject({
+      errorCode: 'invalid_grant',
+    });
   });
 
   it('buildOAuthProvider.exchangeAuthorizationCode rejects code from a different client', async () => {
@@ -2936,9 +2924,9 @@ describe('CoreAiMcpOAuthService (OAuth 2.1 flow against in-memory store)', () =>
       codeChallenge: '',
       userId: 'uid-owner',
     });
-    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-other' }, 'code-mismatch')).rejects.toThrow(
-      /invalid_grant/,
-    );
+    await expect(provider.exchangeAuthorizationCode({ client_id: 'cid-other' }, 'code-mismatch')).rejects.toMatchObject({
+      errorCode: 'invalid_grant',
+    });
   });
 
   it('buildOAuthProvider.exchangeRefreshToken rotates only for the issuing client (SEC-001 end-to-end)', async () => {
@@ -2946,20 +2934,24 @@ describe('CoreAiMcpOAuthService (OAuth 2.1 flow against in-memory store)', () =>
     const provider = svc.buildOAuthProvider(60);
     const refresh = await svc.issueRefreshToken('uid-r', 'cid-r');
     // Wrong client → invalid_grant
-    await expect(provider.exchangeRefreshToken({ client_id: 'cid-attacker' }, refresh)).rejects.toThrow(
-      /invalid_grant/,
-    );
+    await expect(provider.exchangeRefreshToken({ client_id: 'cid-attacker' }, refresh)).rejects.toMatchObject({
+      errorCode: 'invalid_grant',
+    });
     // Right client → success
     const ok = await provider.exchangeRefreshToken({ client_id: 'cid-r' }, refresh);
     expect(ok).toMatchObject({ expires_in: 60, token_type: 'Bearer' });
     // Re-using the rotated (old) refresh token is rejected.
-    await expect(provider.exchangeRefreshToken({ client_id: 'cid-r' }, refresh)).rejects.toThrow(/invalid_grant/);
+    await expect(provider.exchangeRefreshToken({ client_id: 'cid-r' }, refresh)).rejects.toMatchObject({
+      errorCode: 'invalid_grant',
+    });
   });
 
   it('buildOAuthProvider.exchangeRefreshToken rejects an empty client', async () => {
     const svc = makeSvc();
     const provider = svc.buildOAuthProvider();
-    await expect(provider.exchangeRefreshToken({}, 'any-token')).rejects.toThrow(/invalid_client/);
+    await expect(provider.exchangeRefreshToken({}, 'any-token')).rejects.toMatchObject({
+      errorCode: 'invalid_client',
+    });
   });
 
   it('challengeForAuthorizationCode returns the stored PKCE challenge (does not consume)', async () => {

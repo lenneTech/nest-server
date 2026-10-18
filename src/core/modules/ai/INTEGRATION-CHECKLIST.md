@@ -44,8 +44,10 @@ rest. Without `ai.encryptionSecret` / `NSC__AI__ENCRYPTION_SECRET` /
 `SECRETS_ENCRYPTION_KEY`, an insecure development default is used (logged as a
 warning) in non-production environments. In **production/staging the app refuses to
 boot** when AI is enabled but no secret is set (mirrors the email/cookie production
-guards) — so a missing secret can never silently ship. The same applies to the MCP
-OAuth signing secret when `ai.mcp.oauth` is enabled.
+guards) — so a missing secret can never silently ship. The MCP OAuth signing secret
+(`ai.mcp.oauth`) is stricter: it is required everywhere except `local`, `ci` and `e2e`,
+deployed `develop` / `test` stages included — a public key there would let anybody forge
+an MCP access token for any user id.
 
 ### 2. Set the LLM API key (environment)
 
@@ -205,21 +207,42 @@ The response body carries the stable `#LTNS_0901` code, never the raw error.
 
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 
-**Edit `main.ts`** (after `app.init()`):
+**No `main.ts` step.** `CoreModule` mounts the OAuth endpoints itself during `app.init()`
+(11.43.0+). Remove a `mountAiMcpOAuth(app)` call from `main.ts` — it is a no-op now.
 
-```typescript
-import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
-await mountAiMcpOAuth(app);
-```
+**WHY not in `main.ts` any more:** the endpoints are an Express router, and Nest registers its
+not-found handler inside `app.init()`. Mounted after `app.init()`, as this checklist used to say,
+the router sat behind that handler and every OAuth endpoint answered 404.
 
-**WHY no `baseUrl` argument:** the issuer is every URL in the discovery metadata, and MCP clients
-follow them. The helper takes it from the server's `baseUrl` (`NSC__BASE_URL` when deployed) and
-fails the boot in a deployed environment that has none, rather than advertising `localhost` —
-which sends clients to the user's own machine. Pass `{ baseUrl }` only for an issuer that must
-differ from the server's `baseUrl`; never add a `localhost` fallback of your own.
+**Check `NSC__BASE_URL` in every deployed environment.** The issuer is every URL in the discovery
+metadata, and MCP clients follow them. It is the server's `baseUrl`, and a deployed environment
+without one fails the boot rather than advertising `localhost` — which sends clients to the user's
+own machine. Set `ai.mcp.oauthBaseUrl` only when MCP clients reach the server under another URL;
+never add a `localhost` fallback of your own.
 
-Override `CoreAiMcpOAuthService.authorizeConsent()` with your login/consent UI (the only
-browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are built in.
+**Nothing to create for consent.** `/authorize` answers with a built-in consent page: sign-in through
+Better-Auth (password + TOTP / backup code), then Allow / Deny with a CSRF token bound to user, client,
+redirect URI and PKCE challenge. It needs Better-Auth active (the boot warns otherwise).
+
+**Optional — `ai.mcp.oauthLoginUrl`:** the link for passkey / social login, default `<appUrl>/auth/login`.
+Put `{returnTo}` into it only if that login page can send the user back to the API's `/authorize` URL
+(the nuxt-base-starter login accepts same-origin targets only, so leave it out there).
+
+**Optional — your own consent UI:** a subclass of `CoreAiMcpOAuthService` overriding
+`renderConsentPage(view)` (restyle) or `authorizeConsent(client, params, res)` (replace), registered via
+`CoreModule.forRoot(envConfig, { ai: { mcpOAuthService: McpOAuthService } })`.
+
+**WHY a POST, never "signed in, so issue":** anybody can register a client with their own redirect
+URI and start the flow — PKCE is then theirs too. A GET to `/authorize` is what any link produces,
+and it carries the session cookie, so issuing on GET hands a code for whoever clicks to the
+attacker. The framework refuses a code saved while answering a GET to `/authorize` (the client gets
+`error=server_error`); an own consent UI must show WHICH client is approved and protect the POST
+with a CSRF token.
+
+**WHY refuse with `this.loadOAuthErrors()`:** the SDK maps an error to its OAuth code only when it
+is one of its own `OAuthError` classes, and turns anything else into `server_error`. A user who
+declines consent should send the client back with `access_denied` (`AccessDeniedError`), not with
+a server error.
 
 ## Verification Checklist
 
@@ -237,13 +260,16 @@ browser-interactive step). All other OAuth pieces (tokens, PKCE, stores) are bui
 
 ## Common Mistakes
 
-| Mistake                                          | Symptom                                                                                | Fix                                                                |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| No `ai` config block                             | Module not loaded, `aiPrompt` missing from schema                                      | Add an `ai` block (presence implies enabled)                       |
-| No encryption secret in prod                     | **App refuses to boot** (throws); dev/local only warns                                 | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)                       |
-| Encryption secret changed after keys stored      | Boot logs "key(s) could not be decrypted"; those prompts fail                          | Re-enter the API key for the listed connections                    |
-| Tool returns `.lean()`/aggregate data            | `@Restricted` fields leak into the LLM context                                         | Route through `CrudService` with `context.serviceOptions`          |
-| Tool not registered                              | Tool never offered to the LLM                                                          | Declare it as a provider in a module (extends `AiTool`)            |
-| Overridden resolver method missing decorators    | Method absent from GraphQL schema                                                      | Re-declare `@Mutation`/`@Query`/`@Roles` in the override           |
-| Storing a real API key in `config.env.ts`        | Secret committed to the repo                                                           | Use `apiKeyEnv` or the runtime connection CRUD                     |
-| `localhost` fallback for the MCP OAuth `baseUrl` | MCP client fails to register with `ECONNREFUSED`; discovery metadata names `localhost` | Call `mountAiMcpOAuth(app)` without `baseUrl`, set `NSC__BASE_URL` |
+| Mistake                                                    | Symptom                                                                                | Fix                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| No `ai` config block                                       | Module not loaded, `aiPrompt` missing from schema                                      | Add an `ai` block (presence implies enabled)                                     |
+| No encryption secret in prod                               | **App refuses to boot** (throws); dev/local only warns                                 | Set `NSC__AI__ENCRYPTION_SECRET` (32+ chars)                                     |
+| Encryption secret changed after keys stored                | Boot logs "key(s) could not be decrypted"; those prompts fail                          | Re-enter the API key for the listed connections                                  |
+| Tool returns `.lean()`/aggregate data                      | `@Restricted` fields leak into the LLM context                                         | Route through `CrudService` with `context.serviceOptions`                        |
+| Tool not registered                                        | Tool never offered to the LLM                                                          | Declare it as a provider in a module (extends `AiTool`)                          |
+| Overridden resolver method missing decorators              | Method absent from GraphQL schema                                                      | Re-declare `@Mutation`/`@Query`/`@Roles` in the override                         |
+| Storing a real API key in `config.env.ts`                  | Secret committed to the repo                                                           | Use `apiKeyEnv` or the runtime connection CRUD                                   |
+| `localhost` fallback for the MCP OAuth `baseUrl`           | MCP client fails to register with `ECONNREFUSED`; discovery metadata names `localhost` | Set `NSC__BASE_URL`; no `ai.mcp.oauthBaseUrl` pointing at `localhost`            |
+| `mountAiMcpOAuth(app)` after `app.init()` (pre-11.43.0)    | `/.well-known/oauth-*`, `/token`, `/register` answer Nest's 404                        | Upgrade; remove the call — `CoreModule` mounts the endpoints during `app.init()` |
+| Own consent issues the code on GET ("signed in = consent") | `/authorize` redirects back with `error=server_error`; the refusal is logged           | Show the consent page on GET, issue only on the approving POST with a CSRF token |
+| `ai.mcp.oauth` without Better-Auth                         | Boot warning; the consent page offers no sign-in                                       | Enable `betterAuth`, or register an own `authorizeConsent()`                     |

@@ -10,6 +10,7 @@ import * as path from 'path';
 import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
 import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
+import { ConfigService } from '../../common/services/config.service';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
 import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper';
 
@@ -482,11 +483,14 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   // Build configuration components (pass normalized passkey config and resolved URLs)
   const plugins = buildPlugins(config, { passkeyNormalization, serverEnv });
   const socialProviders = buildSocialProviders(config);
-  const trustedOrigins = buildTrustedOrigins(config, {
-    passkeyNormalization,
-    resolvedUrls,
-    serverCorsConfig: options.serverCorsConfig,
-  });
+  const trustedOrigins = withMcpOAuthIssuerOrigin(
+    buildTrustedOrigins(config, {
+      passkeyNormalization,
+      resolvedUrls,
+      serverCorsConfig: options.serverCorsConfig,
+    }),
+    mcpOAuthIssuerOrigin(ConfigService.configFastButReadOnly),
+  );
   const additionalFields = buildUserFields(config);
 
   // Resolve cross-subdomain cookies (Boolean Shorthand)
@@ -1120,6 +1124,46 @@ export function buildTrustedOrigins(
 
   // 7. Otherwise, let Better-Auth handle CORS with its default behavior
   return undefined;
+}
+
+/**
+ * The origin MCP clients reach this server under when `ai.mcp.oauthBaseUrl` names another host than
+ * `baseUrl`: the built-in MCP OAuth consent page is served there and signs users in from there. Only
+ * with `ai.mcp.oauth: true`; anything but an absolute http(s) URL yields nothing.
+ */
+export function mcpOAuthIssuerOrigin(serverConfig: { ai?: unknown } | undefined): string | undefined {
+  const ai = serverConfig?.ai;
+  const mcp = typeof ai === 'object' && ai !== null ? (ai as { mcp?: unknown }).mcp : undefined;
+  if (typeof mcp !== 'object' || mcp === null) {
+    return undefined;
+  }
+  const { oauth, oauthBaseUrl } = mcp as { oauth?: unknown; oauthBaseUrl?: unknown };
+  if (oauth !== true || typeof oauthBaseUrl !== 'string' || !oauthBaseUrl.trim()) {
+    return undefined;
+  }
+  try {
+    const url = new URL(oauthBaseUrl.trim());
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Adds the MCP OAuth issuer origin to Better-Auth's trusted origins — to an explicit
+ * `betterAuth.trustedOrigins` as well, which otherwise REPLACES the derived list. The issuer is this
+ * server under its second public URL, not a foreign frontend; without it Better-Auth's login-CSRF
+ * check refuses the consent page's sign-in with 403. A list Better-Auth would leave unset (it then
+ * trusts only its own baseURL) becomes the issuer alone — Better-Auth keeps trusting its baseURL.
+ */
+export function withMcpOAuthIssuerOrigin(
+  trustedOrigins: string[] | undefined,
+  issuerOrigin: string | undefined,
+): string[] | undefined {
+  if (!issuerOrigin) {
+    return trustedOrigins;
+  }
+  return [...new Set([...(trustedOrigins ?? []), issuerOrigin])];
 }
 
 /**

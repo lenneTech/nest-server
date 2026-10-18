@@ -253,6 +253,19 @@ per candidate: `gh api "repos/<owner>/<repo>/security-advisories?per_page=10&sor
 ranges + patched versions even while `/advisories/<GHSA>` still 404s). Run it for every update the run is about to
 SKIP, not only for runtime patches — a security patch overrides a deferral reason that lives in a comment.
 
+## Sticky transitives hide REPO advisories too: scan them (2026-10-18)
+
+`pnpm audit` only sees the global DB, so a stale lock entry whose fix exists can sit there green. Method: lockdiff the
+repo lock against a fresh `--lockfile-only` resolve WITH overrides, then for every name whose lock version is older,
+resolve its GitHub repo from the registry `latest` packument and test each
+`repos/<o>/<r>/security-advisories` range against the lock version (semver from the repo's node_modules; GitHub
+ranges use commas). False positives exist (esbuild's GHSA-gv7w-rqvm-qjhr states range `>=0.17.0` with fix 0.28.1).
+**`pnpm update --depth Infinity pkg@<version>` is refused for an INDIRECT dep** (`ERR_PNPM_UPDATE_VERSION_ON_INDIRECT_DEP`),
+so a targeted update always takes the highest in the requester's range. That is why kysely stayed at 0.28.17 on
+2026-10-18: better-auth asks `^0.28.17 || ^0.29.0`, the bare update would take 0.29.7 (a 0.x semver major, outside the
+run's "no majors" constraint), and an override to the 0.28.18 backport would itself hold back the 0.29.7 that fresh
+resolves pick. Reported as an orchestrator decision; one command when approved: `pnpm update --depth Infinity kysely`.
+
 ## oxlint prints NOTHING on a clean run here (2026-10-17)
 
 `pnpm run lint` / `oxlint ...` exit 0 with empty stdout under this repo's config, so a redirected

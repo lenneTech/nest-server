@@ -17,7 +17,7 @@ The AI module ships two test files: `tests/ai.e2e-spec.ts` (~1346 lines) and `te
 **Prior-review gaps (feature/ai-module, 2026-05-30) — still relevant:**
 
 **Gaps worth flagging in future reviews:**
-1. **OAuth 2.1 stores (P0).** `saveAuthorizationCode`, `consumeAuthorizationCode`, `issueRefreshToken`, `rotateRefreshToken`, `registerClient`, `getClient`, `loadUser` on `CoreAiMcpOAuthService` have ZERO test coverage. Only `signAccessToken` / `verifyAccessToken` / `verifyPkce` are unit-tested. `buildOAuthProvider` test only asserts function presence, not end-to-end flow. The `mountAiMcpOAuth` test only asserts `app.use` was called once with something truthy.
+1. **OAuth 2.1 stores — CLOSED in 11.43.0.** Now covered over HTTP on the real SDK router (`tests/unit/ai-mcp-oauth-token-errors.spec.ts`, `ai-mcp-oauth-lifecycle.spec.ts`) and end-to-end on CoreModule (`tests/ai-mcp-oauth.e2e-spec.ts`). See [[mcp-oauth-test-facts]].
 2. **MCP HTTP session lifecycle.** Only `POST /ai/mcp` (401-without-auth) is hit at the wire. `handleGet`/`handleDelete`/full Post→Get→Delete session flow against the controller is untested.
 3. **Lifecycle hooks `sessionStart` / `stop`.** Only `preToolUse` and `postToolUse` have tests. The other two hook methods are dispatched in the orchestrator but never asserted.
 4. **`search_tools` and `ask_user_question` tool implementations.** Both are referenced and behavior-tested via mocked replacements (the orchestrator's reaction to them), but their actual `execute()` bodies are not directly unit-tested.
