@@ -9,6 +9,7 @@ import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { ErrorCode } from '../error-code/error-codes';
+import { getMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
 import { CoreAiMcpService } from './services/core-ai-mcp.service';
 import { AiToolUser } from './tools/ai-tool.registry';
@@ -34,7 +35,8 @@ import { AiToolUser } from './tools/ai-tool.registry';
  * `WWW-Authenticate` header as the protocol expects.
  *
  * When `ai.mcp.oauth` is enabled, the handler additionally accepts OAuth 2.1 access
- * tokens (see `mountAiMcpOAuth`); otherwise it authenticates via Bearer/session token.
+ * tokens (endpoints mounted by `CoreAiMcpOAuthInitializer`); otherwise it authenticates via
+ * Bearer/session token.
  *
  * ## Multi-replica
  *
@@ -121,7 +123,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
     const user = await this.resolveUser(req);
     if (!user?.id) {
-      this.unauthorized(req, res);
+      this.unauthorized(res);
       return;
     }
 
@@ -298,7 +300,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
   private async handleSessionRequest(req: Request, res: Response): Promise<void> {
     const user = await this.resolveUser(req);
     if (!user?.id) {
-      this.unauthorized(req, res);
+      this.unauthorized(res);
       return;
     }
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
@@ -470,12 +472,17 @@ export class CoreAiMcpController implements OnModuleDestroy {
 
   /**
    * MCP-style 401 with a `WWW-Authenticate` header for OAuth discovery.
+   *
+   * `resource_metadata` is the URL of the protected resource METADATA (RFC 9728 §5.1), exactly as
+   * the mounted OAuth router serves it — not the endpoint itself, and not a URL built from the
+   * request's `Host` header, which the caller controls. Without mounted OAuth endpoints there is
+   * no metadata to point at, so the challenge is a plain `Bearer`.
    */
-  private unauthorized(req: Request, res: Response): void {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+  private unauthorized(res: Response): void {
+    const oauth = getMountedMcpOAuth();
     res
       .status(401)
-      .set({ 'WWW-Authenticate': `Bearer resource_metadata="${baseUrl}/ai/mcp"` })
+      .set({ 'WWW-Authenticate': oauth ? `Bearer resource_metadata="${oauth.resourceMetadataUrl}"` : 'Bearer' })
       .json({ error: 'Unauthorized: a valid Bearer token is required' });
   }
 

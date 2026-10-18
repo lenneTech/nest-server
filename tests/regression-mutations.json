@@ -2481,6 +2481,351 @@
         "tests/unit/mongoose-cast-error-filter.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-refresh-refusal-plain-error",
+      "defect": "11.42.16 and earlier — exchangeRefreshToken() refused an unknown, rotated or foreign refresh token with a plain Error('invalid_grant'). The SDK's token handler answers every error that is not one of its own OAuthError classes as 500 server_error. MCP clients discard their stored tokens only on invalid_grant, so Claude Code kept the dead token, retried the refresh on every start under a cross-process lock and never marked the server as needing a new sign-in; the servers ended in CONNECT_TIMEOUT.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "          throw new InvalidGrantError('Refresh token is invalid, already used or issued to another client');",
+      "replace": "          throw new Error('invalid_grant');",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-token-errors.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-code-refusal-plain-error",
+      "defect": "11.42.16 and earlier — exchangeAuthorizationCode() refused a code issued to another client with a plain Error('invalid_grant'), which the SDK's token handler answers as 500 server_error instead of 400 invalid_grant.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "          throw new InvalidGrantError(\n            'Authorization code is invalid, expired, already used or issued to another client',\n          );",
+      "replace": "          throw new Error('invalid_grant');",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-token-errors.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-refusal-plain-error",
+      "defect": "11.42.16 and earlier — authorize() refused an API token with a plain Error, so the SDK's authorize handler redirected the client back with error=server_error instead of access_denied.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "          throw new AccessDeniedError('An API token cannot authorize an OAuth client');",
+      "replace": "          throw new Error('access_denied: an API token cannot authorize an OAuth client');",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-token-errors.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-mounted-after-not-found-handler",
+      "defect": "11.42.16 and earlier — the MCP OAuth router was mounted after app.init(), as the documentation prescribed. Nest registers its not-found handler inside init(), so a router added afterwards was never reached: every OAuth endpoint (/.well-known/oauth-*, /authorize, /token, /register) answered 404 in every Nest application. The mutation defers the mount past app.init() — the same position — instead of dropping it.",
+      "file": "src/core/modules/ai/core-ai-mcp-oauth.initializer.ts",
+      "find": "  async onModuleInit(): Promise<void> {\n",
+      "replace": "  async onModuleInit(): Promise<void> {\n    void this.mountAfterInit();\n  }\n\n  private async mountAfterInit(): Promise<void> {\n    // the defect, reconstructed: the mount runs after app.init() registered the not-found handler\n    await new Promise((resolve) => setTimeout(resolve, 0));\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-resource-ignores-global-prefix",
+      "defect": "11.42.16 and earlier — the MCP resource was always described as /ai/mcp. Under a global prefix the protected resource metadata (RFC 9728) named a URL the MCP endpoint does not answer on, so a client following it reached nothing.",
+      "file": "src/core/modules/ai/core-ai-mcp-oauth.initializer.ts",
+      "find": "        ctrlPath,\n        globalPrefix: addLeadingSlash(applicationConfig.getGlobalPrefix()),\n",
+      "replace": "        ctrlPath,\n        globalPrefix: '',\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-401-names-endpoint-not-metadata",
+      "defect": "11.42.16 and earlier — the MCP endpoint's 401 advertised resource_metadata=\"<request host>/ai/mcp\": the endpoint itself rather than its protected resource metadata (RFC 9728 §5.1), built from the caller-controlled Host header. A client following it fetched the MCP endpoint, got another 401 and had to fall back to guessing the authorization server.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "Bearer resource_metadata=\"${oauth.resourceMetadataUrl}\"",
+      "replace": "Bearer resource_metadata=\"${oauth.resourceUrl}\"",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-second-mount-replaces-first",
+      "defect": "Guards the once-per-app rule of the OAuth mount: without it, CoreModule's automatic mount added a second router behind one a project mounted itself before app.init(), and replaced what the MCP 401 and Swagger describe with a URL the answering router does not serve.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth.helper.ts",
+      "find": "  if (existing) {\n    return existing;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-redundant-call-silent",
+      "defect": "Guards the upgrade path: a mountAiMcpOAuth() call left in main.ts after CoreModule mounted the router must say that it changed nothing and which of its options (baseUrl, mcpPath) it ignored — otherwise a project believes its custom issuer is in effect while another one is advertised.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth.helper.ts",
+      "find": "  if (existing) {\n    reportRedundantMount(await existing, options);\n    return;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-override-not-bound",
+      "defect": "11.42.16 and earlier — CoreAiModule offered no way to register a CoreAiMcpOAuthService subclass, although the documentation told projects to override authorizeConsent(). A subclass therefore never reached the OAuth endpoints or the MCP controller, and no authorization could complete.",
+      "file": "src/core/modules/ai/core-ai.module.ts",
+      "find": "        { provide: CoreAiMcpOAuthService, useClass: McpOAuthServiceClass },\n",
+      "replace": "        CoreAiMcpOAuthService,\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-code-issued-on-get",
+      "defect": "11.43.0 (pre-release review) — nothing stopped a consent step from issuing the authorization code on a GET to /authorize, and the documentation described exactly that shape (signed in, save the code, redirect). With dynamic client registration open, an attacker registers a client with its own redirect URI, starts the flow (so PKCE is the attacker's) and sends a signed-in user the /authorize link: the browser carries the SameSite=Lax session cookie on that top-level GET, the code goes to the attacker, who redeems it for the user's MCP access with refresh token.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "  if (request && request.method !== 'POST') {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-initializer-skips-secret-check",
+      "defect": "11.43.0 (pre-release review) — the production secret check ran only in CoreAiMcpOAuthService.onModuleInit(); a registered subclass overriding that hook without super skipped it, and the OAuth endpoints were mounted anyway.",
+      "file": "src/core/modules/ai/core-ai-mcp-oauth.initializer.ts",
+      "find": "    this.oauthService.assertProductionSafe();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-dev-secret-in-production",
+      "defect": "11.43.0 (pre-release review) — getSecret() fell back to a hard-coded development key in every environment. Whenever the boot check was skipped, production tokens were signed with a key anyone can read in the source: forgeable access tokens for any user.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!raw && !this.allowsDevelopmentSecret()) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-code-burned-by-foreign-client",
+      "defect": "11.42.16 and earlier — exchangeAuthorizationCode() consumed (deleted) the authorization code by its value alone and compared the client afterwards, so another client presenting the code burned it for the client it was issued to. The refresh-token rotation already bound its delete to the client; the code exchange now does the same.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    const filter = clientId === undefined ? { code } : { clientId, code };",
+      "replace": "    const filter = { code };",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-token-errors.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-token-unchecked",
+      "defect": "Guards the built-in consent page (11.43.0): Allow issues a code only with a CSRF token this server signed for this request. Without the signature check any POST carrying lt_mcp_consent=approve — from a stale tab, a tampered form or a cross-site form whose session cookie got through — authorizes the client.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!this.safeEqual(parts[1], this.hmac(consentTokenPayload(binding, exp)))) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-token-not-user-bound",
+      "defect": "Guards the built-in consent page (11.43.0): the CSRF token is bound to the user it was shown to. Unbound, a token taken from one user's consent page approves the same request for whoever else is signed in when it is posted.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "after": "function consentTokenPayload",
+      "find": "    binding.userId,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-challenge-not-bound",
+      "defect": "Guards the built-in consent page (11.43.0): the CSRF token is bound to the PKCE challenge the user approved. Unbound, the approving POST can carry another challenge — the code then goes out for a verifier somebody else holds.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "after": "function consentTokenPayload",
+      "find": "    binding.codeChallenge,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-client-name-unescaped",
+      "defect": "Guards the built-in consent page (11.43.0): the client's name comes from dynamic registration, i.e. from whoever registered the client. Rendered unescaped it runs script on the API origin, next to the Allow button.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "      (_, key: string) => `<strong>${escapeHtml(key === 'client' ? clientName : view.appHost)}</strong>`,",
+      "replace": "      (_, key: string) => `<strong>${key === 'client' ? clientName : view.appHost}</strong>`,",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-frameable",
+      "defect": "Guards the built-in consent page (11.43.0): it must not be framable. In a frame a hostile site can overlay the Allow button and have a signed-in user click it (clickjacking); the project's security headers may be switched off, so the page sets frame-ancestors itself.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "      \"img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'\",",
+      "replace": "      \"img-src 'self' data:; base-uri 'none'\",",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-double-clickjacking",
+      "defect": "11.43.0 (pre-release review) — Allow was clickable as soon as the consent page loaded. A hostile page opens a popup, navigates its own window (the opener) to /authorize behind it — a top-level GET, so the session cookie rides along and the page carries a valid CSRF token — and lets the second click of a 'double-click' land on Allow. Framing protection does not help: nothing is framed.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "    allow.addEventListener('click', function (event) { if (!armed) { event.preventDefault(); } });\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-script.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-client-not-bound",
+      "defect": "11.43.0 (pre-release review) — the consent token must be bound to the client: unbound, a token from one client's consent page approves another client the user never saw.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "after": "function consentTokenPayload",
+      "find": "    binding.clientId,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-redirect-not-bound",
+      "defect": "11.43.0 (pre-release review) — the consent token must be bound to the redirect URI: unbound, the approving POST can send the code to another of the client's registered redirect URIs than the one the user was shown.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "after": "function consentTokenPayload",
+      "find": "    binding.redirectUri,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-password-form-get",
+      "defect": "11.43.0 (pre-release review) — the consent page's sign-in form had no method and was visible without the script: when the script does not run, Enter submitted it by GET and put the password into the URL.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "<form id=\"lt-mcp-password\" method=\"post\" hidden>",
+      "replace": "<form id=\"lt-mcp-password\">",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-signin-csrf-check-skipped",
+      "defect": "11.42.16 and earlier — CoreBetterAuthController.signIn() called api.signInEmail() without a request. Better-Auth's formCsrfMiddleware reads Sec-Fetch-* and Origin from ctx.request, so it never ran: a hostile page could submit a form to /iam/sign-in/email with the attacker's credentials and the visitor's browser kept the session (login CSRF) — on the MCP consent page the visitor then approved a client for the attacker's account.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        request: this.csrfCheckedRequest(req ?? (res as any)?.req, '/sign-in/email'),\n",
+      "replace": "",
+      "specs": [
+        "tests/better-auth-signin-csrf.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-signup-csrf-check-skipped",
+      "defect": "11.42.16 and earlier — CoreBetterAuthController.signUp() called api.signUpEmail() without a request, so Better-Auth's formCsrfMiddleware never ran and a cross-site request could create an account and sign the visitor in to it.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        request: this.csrfCheckedRequest((res as any)?.req, '/sign-up/email'),\n",
+      "replace": "",
+      "specs": [
+        "tests/better-auth-signin-csrf.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-signin-csrf-nonbrowser-metadata-forwarded",
+      "defect": "Found while walking the 11.43.0 consent page, before release — csrfCheckedRequest() forwarded Sec-Fetch-* unconditionally. Node's built-in fetch (undici) sends a lone Sec-Fetch-Mode: cors without an Origin, which Better-Auth's formCsrfMiddleware reads as a browser request missing its origin (MISSING_OR_NULL_ORIGIN): every script, seeder or SSR route signing in with fetch answered 403.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "    const fromBrowser = ['origin', 'referer', 'sec-fetch-site'].some((name) => header(name));\n",
+      "replace": "    const fromBrowser = true;\n",
+      "specs": [
+        "tests/better-auth-signin-csrf.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-signin-csrf-site-not-a-browser-signal",
+      "defect": "The paired refusal for the browser signal in csrfCheckedRequest(): a browser always sends Sec-Fetch-Site with its fetch metadata, so a cross-site navigation that arrives without an Origin must still reach Better-Auth's CROSS_SITE_NAVIGATION_LOGIN_BLOCKED check. Reading only Origin / Referer as the browser signal would drop the metadata and wave it through.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "['origin', 'referer', 'sec-fetch-site'].some(",
+      "replace": "['origin', 'referer'].some(",
+      "specs": [
+        "tests/better-auth-signin-csrf.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-dev-secret-on-deployed-stage",
+      "defect": "11.43.0 (review) — the MCP OAuth service fell back to its public development signing key everywhere except `production` / `staging`. Starter-based projects deploy `develop` and `test` stages; with ai.mcp.oauth on and no secret configured there, anybody who knew a user id could sign a valid access token for that user and use /ai/mcp with that user's tools, administrators included.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    return isLocalEnv(ConfigService.get<string>('env') ?? process.env.NODE_ENV);",
+      "replace": "    return !['production', 'staging'].includes(String(ConfigService.get<string>('env')));",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-issuer-origin-untrusted",
+      "defect": "11.43.0 (review) — with ai.mcp.oauthBaseUrl naming another host than baseUrl, the built-in MCP OAuth consent page is served on that host and signs users in from there, but Better-Auth did not trust that origin: its login-CSRF check answered every sign-in on the consent page with 403, so no MCP client could be authorized.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    mcpOAuthIssuerOrigin(ConfigService.configFastButReadOnly),\n",
+      "replace": "    undefined,\n",
+      "specs": [
+        "tests/unit/better-auth-trusted-origins.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-ignores-session-under-prefix",
+      "defect": "11.43.0 (review) — the consent page only knew the user the Better-Auth middleware put on the request. Under setGlobalPrefix() Nest registers that middleware below the prefix while the OAuth router sits at the root, so /authorize never saw a signed-in session.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    const tokenService = getBetterAuthTokenService();\n    if (!tokenService || !req || hasApiTokenCredential(req)) {\n",
+      "replace": "    const tokenService = undefined as any;\n    if (!tokenService || !req || hasApiTokenCredential(req)) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-auth-path-ignores-prefix",
+      "defect": "11.43.0 (review) — the consent page's sign-in posted to Better-Auth's basePath (`/iam`) although the IAM controller answers below the global prefix (`/api/iam`): every sign-in there was a 404.",
+      "file": "src/core/modules/ai/core-ai-mcp-oauth.initializer.ts",
+      "find": "        authBasePath: this.resolveAuthBasePath(),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-consent-api-token-via-session-lookup",
+      "defect": "Guards the session fallback of the consent page: it resolves a credential the Better-Auth middleware did not see, and an API token must never become the consenting user — its rights are narrower than the user's, and the consent would mint a token with the user's full rights.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!tokenService || !req || hasApiTokenCredential(req)) {\n",
+      "replace": "    if (!tokenService || !req) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

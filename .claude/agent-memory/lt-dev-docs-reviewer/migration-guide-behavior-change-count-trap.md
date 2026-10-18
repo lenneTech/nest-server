@@ -13,4 +13,6 @@ When assessing whether a `migration-guides/X-to-Y.md` is COMPLETE and ACCURATE, 
 
 Related sub-trap: check whether the aligned-with pattern also carries an **ErrorCode** that the new code drops. RolesGuard throws `ForbiddenException(ErrorCode.ACCESS_DENIED)` (`LTNS_0101`, has a German translation); the new `AccessDeniedException` sites throw raw strings with no `#LTNS_xxxx:` marker, so `useLtErrorTranslation()` cannot translate them — while the guide simultaneously says "ErrorCodes — unchanged" and recommends the error-translation layer as the remedy.
 
+**Trap 3 — "Quick Migration" lags the Overview.** The skim section gets written first ("projects without X need nothing else") and is not revisited when a later section adds a break for EVERY project. 11.43.0: Overview said "For every project: a browser sign-in from an origin not in trustedOrigins now answers 403", Quick Migration still said non-OAuth projects need nothing else. Read Quick Migration against the Breaking Changes row every time.
+
 **How to apply:** For each `+`-added behavior in the diff, grep the guide for a matching keyword. A behavior change present in code but absent from the guide's "Behavior changes" section AND its opt-out is a High-priority finding. For every "already behaves like X" / "unchanged" claim, open X and enumerate its branches. See [[doc-surfaces-for-config-features]].

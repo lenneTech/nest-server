@@ -1,4 +1,5 @@
 // AI module public API
+export * from './core-ai-mcp-oauth.initializer';
 export * from './core-ai-mcp.controller';
 export * from './helpers/ai-mcp-oauth.helper';
 export * from './core-ai.controller';

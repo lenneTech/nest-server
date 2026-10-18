@@ -685,31 +685,116 @@ Without Redis nothing changes: unknown ids answer `404` exactly as before.
 For generic MCP clients that auto-discover + register:
 `CoreAiMcpOAuthService` provides HMAC-signed access tokens (constant-time verify),
 PKCE S256, and MongoDB-backed client/code/refresh stores; the MCP controller then
-also accepts OAuth access tokens. Mount the discovery/token endpoints in `main.ts`:
+also accepts OAuth access tokens.
 
 ```typescript
-// main.ts, after app.init()
-import { mountAiMcpOAuth } from '@lenne.tech/nest-server';
-await mountAiMcpOAuth(app);
+// config.env.ts — that is all: endpoints, consent page and sign-in come with it
+ai: { mcp: { oauth: true, oauthSecret: process.env.NSC__AI__ENCRYPTION_SECRET } }
 ```
+
+**Mounted by `CoreModule` (11.43.0).** `CoreAiMcpOAuthInitializer` mounts the discovery and token
+endpoints (`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource<mcp path>`,
+`/authorize`, `/token`, `/register`) during `app.init()` — no `main.ts` code, and the same under
+`Test.createTestingModule()`. The position is the point: the endpoints are an Express router, and Nest
+registers its not-found handler inside `app.init()`. The call this replaces — `mountAiMcpOAuth(app)` after
+`app.init()`, as this README used to say — sat behind that handler, so every OAuth endpoint answered 404.
+Mounted during init, the router sits behind every Nest middleware (security headers, request context,
+CORS) and the Nest routes, and ahead of the not-found handler. Guards and interceptors do not run for it;
+the SDK's handlers authenticate the client and rate-limit per IP themselves (so `trustProxy` matters
+behind a proxy). A `mountAiMcpOAuth()` call left in `main.ts` is a no-op and logs that it can go; options
+it passes that differ from the mount (`baseUrl`, `mcpPath`) are named in a warning.
+
+The protected MCP resource is described at the path Nest registered the endpoint at — global prefix and
+its exclusions, URI versioning and a `RouterModule` path included — and the endpoint's `401` names that
+metadata document in `WWW-Authenticate: Bearer resource_metadata="…"` (RFC 9728 §5.1). Without OAuth the
+challenge is a plain `Bearer`: there is no metadata to point at. CORS: a project's `enableCors()` runs
+first, so a browser-based MCP client on an origin it does not allow is refused at the preflight; native
+clients (Claude Code, Claude Desktop) send none.
 
 **Swagger (11.42.9):** `setupSwagger()` documents `/ai/mcp` (POST/GET/DELETE, with the bearer
 requirement the endpoint enforces itself) whenever the MCP server is registered, and — because the
-OAuth endpoints are an Express router, invisible to `@nestjs/swagger` — exactly the OAuth endpoints
-`mountAiMcpOAuth()` mounted (`/.well-known/oauth-authorization-server`,
-`/.well-known/oauth-protected-resource/ai/mcp`, `/authorize`, `/token`, `/register`; `/revoke` only for a
-provider with `revokeToken`). Without the call they are not documented, because they do not exist.
+OAuth endpoints are an Express router, invisible to `@nestjs/swagger` — exactly the OAuth endpoints that
+are mounted (`/revoke` only for a provider with `revokeToken`). Without `ai.mcp.oauth` they are not
+documented, because they do not exist.
 
 The issuer — and with it every endpoint URL in the discovery metadata, which MCP clients follow —
 is the server's `baseUrl` (`NSC__BASE_URL` when deployed), resolved the same way BetterAuth and
 CORS resolve it. `local` / `ci` / `e2e` fall back to `http://localhost:3000`; any other environment
-without a `baseUrl` fails the call instead of guessing, because a deployed API that advertised
+without a `baseUrl` fails the boot instead of guessing, because a deployed API that advertised
 `http://localhost:3000` sent Claude Code off to register the client on the user's own machine.
-Pass `{ baseUrl }` only when the issuer must differ from the server's `baseUrl`, and do not add a
-`localhost` fallback of your own. The resolved issuer is logged once at boot.
-
-Override `CoreAiMcpOAuthService.authorizeConsent()` to wire your login/consent UI.
+Set `ai.mcp.oauthBaseUrl` only when MCP clients reach the server under another URL than `baseUrl` (its
+origin is then trusted by Better-Auth automatically, because the consent page signs users in there),
+and do not add a `localhost` fallback of your own. Issuer and resource are logged once at boot.
 Set `ai.mcp.oauthSecret` (or reuse `ai.encryptionSecret`) to a random 32+ char value.
+
+**Consent page (11.43.0).** `/authorize` answers with a built-in, build-free page — the step where the
+user decides whether an MCP client may act for them:
+
+- **Nobody signed in** → the sign-in view: e-mail + password and the two-factor step (TOTP or backup
+  code) against Better-Auth's own endpoints on this origin (`<basePath>/sign-in/email`,
+  `/two-factor/verify-totp`, `/two-factor/verify-backup-code`), then a reload of the same `/authorize`
+  request. Passkey and social login go through the app's login page: `ai.mcp.oauthLoginUrl`, else
+  `<appUrl>/auth/login`, opened next to the consent page, which then offers "continue". A `{returnTo}`
+  in `oauthLoginUrl` is replaced by the pending request's URL, for a login page that sends the user
+  back by itself. A user already signed in to the API origin (session cookie) skips this view.
+- **Signed in** → the consent view: the signed-in account first (with "use another account", which signs
+  out and shows the sign-in view), the client's name, the host the code goes to (a loopback host is
+  named "an application on this computer"), Allow / Deny as a form POST. Allow is rendered `disabled`;
+  a nonce'd script enables it, and a click counts only after intent on this page — visible, focused,
+  and a pointer move / key / touch at least 600 ms after it got there. That defeats
+  double-clickjacking (a hostile page sends this window to `/authorize` behind a popup and lets the
+  second click of a "double-click" land on Allow). Without JavaScript nothing can be approved, and the
+  sign-in forms are hidden and `method="post"`, so a password never lands in a URL.
+- **Allow** issues the code only with the page's CSRF token, signed with the OAuth secret and bound to
+  the user, the client, the redirect URI and the PKCE challenge (10 minutes); a stale token shows the
+  form again, a forged or tampered one too, and nothing is issued. **Deny** sends the client back with
+  `access_denied`.
+
+The page carries its own `Content-Security-Policy` (script and style by nonce, `frame-ancestors 'none'`,
+no `form-action`, which browsers would apply to the redirect to the client), `X-Frame-Options: DENY`,
+`Cache-Control: no-store` and `Referrer-Policy: no-referrer`, independent of `security.headers`. Every
+value from outside is escaped — the client's name is chosen by whoever registered the client. German
+for a German `Accept-Language`, English otherwise.
+
+Why Allow is a deliberate step: dynamic registration is open by design, so anybody can register a
+client with their own redirect URI and start the flow — PKCE is then theirs too. A GET to `/authorize`
+is what any link produces, and it carries the session cookie, so a page that issued on GET would let any
+link a signed-in user opens authorize an attacker's client. The framework refuses a code saved while
+answering a GET to `/authorize` (logged; the client gets `error=server_error`) — for the built-in page
+and for one of your own alike.
+
+**Global prefix.** Nest registers the Better-Auth middleware below a global prefix while the OAuth router sits at the
+root, so the page resolves the session itself when the middleware did not run, and signs in at the prefixed IAM path
+(`/api/iam/sign-in/email`). Better-Auth's own routes are not forwarded below a global prefix (see `setupSwagger()`), so
+the two-factor step does not work there; users with 2FA sign in through the app.
+
+**Needs Better-Auth.** The page signs users in through it; without Better-Auth active the boot warns and
+the page offers no sign-in. Its sign-in goes through the IAM sign-in controller, which (since 11.43.0)
+hands Better-Auth the request so Better-Auth's own login-CSRF protection runs — otherwise a hostile page
+could sign the visitor in to the attacker's account before they approve a client.
+
+**Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it (keep every value
+escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
+→ sign in, GET → show which client, POST with a CSRF token → `saveAuthorizationCode()` and redirect;
+refuse with `AccessDeniedError` from `this.loadOAuthErrors()`. Register the subclass via
+`CoreModule.forRoot(env, { ai: { mcpOAuthService } })`, so the MCP controller and the endpoints share it.
+Two checks stay outside the overridable methods: an API token can never approve a consent, and the
+production secret check runs again before the endpoints are mounted (without a signing secret, a
+environment outside `local` / `ci` / `e2e` refuses to boot and to sign tokens at all — deployed `develop` and `test`
+stages included).
+
+Known property of the SDK: `/authorize` redirects its error answers to the client's registered
+redirect URI, and any client may register any https URI — an open redirect in the sense of RFC 9700
+§4.11.2, carrying only an OAuth error code.
+
+**Refusals are OAuth errors (11.43.0).** The SDK's handlers answer an error with its OAuth code only
+when it is one of the SDK's own `OAuthError` classes; anything else becomes `500 server_error`. The
+built-in provider refuses an unknown, rotated or foreign refresh token or authorization code with
+`400 invalid_grant` (until 11.43.0 these were plain `Error`s and answered 500). That matters beyond the
+status: an MCP client discards its stored tokens only on `invalid_grant`, so on a 500 it kept a dead
+token, retried, and never asked the user to sign in again. A refusal in your own `authorizeConsent()`
+needs the same: take the class from `this.loadOAuthErrors()` (e.g. `AccessDeniedError` when the user
+declines), never a plain `Error`.
 
 ## Tests
 

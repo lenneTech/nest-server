@@ -185,3 +185,15 @@ express 5.3.0, ws 8.22.0 / graphql-ws 6.4.1 (no @nestjs/graphql or platform-expr
 better-auth trio 1.7.10 (no advisory on 1.7.7; 1.8.0-beta.0/.1 out since 2026-10-15). In cooldown: @tus/server 2.4.6 +
 @tus/s3-store 2.0.8 (mature 2026-10-18 11:42 UTC), bullmq 6.3.16 (2026-10-18 03:30 UTC). Gate: `check --no-fix`
 5458 tests / 253 files, 4m40s, green first try. check:consumer skipped (only devDeps + an override moved).
+
+Pre-11.43.0 run (2026-10-18, MCP-OAuth payload uncommitted): TAKEN runtime @tus/server 2.4.5 -> 2.4.6 (typings only),
+devDeps @tus/s3-store 2.0.7 -> 2.0.8 (FD + disk leak fix), bullmq 6.3.15 -> 6.3.16 (valkey-glide cluster INFO); all three
+byte-identical dependency manifests. Lock-only: follow-redirects 1.16.0 -> 1.16.1 (repo-only advisories, see
+[[nest-server-override-status]]). No code change. Still blocked, re-checked: express 5.3.0 (platform-express 11.2.7, the
+`legacy` tag, still pins 5.2.1; 5.3.0's proxy-addr CVE GHSA-jqcg-44mw-7w3h is already closed here, lock has 2.0.8), ws
+8.22.0 / graphql-ws 6.4.1 (@nestjs/graphql 13.4.5 still newest 13.x), js-yaml 5.5.0, all majors. better-auth trio 1.7.10:
+no advisory covers 1.7.7 (1.7.8 aligns cookie attributes with RFC 6265bis), left per lock-step rule. In cooldown at
+19:32 UTC: nodemailer 10.1.3..10.1.7 (FIVE releases on 2026-10-18: linear-time References/URL stripping, addressparser
+rewrite incl. group-nesting bound, mime encoded-word params; mature from 2026-10-19 10:40..18:24 UTC) and smtp-server
+3.19.24 / 3.20.0..3.20.2 — take both next run, nodemailer is runtime: read notes again, a burst like this often precedes
+advisories. Gate: `check --no-fix` 5651 tests / 258 files, 3m12s, green first try (baseline identical).

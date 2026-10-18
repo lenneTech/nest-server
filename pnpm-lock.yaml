@@ -78,8 +78,8 @@ importers:
         specifier: 2.1.1
         version: 2.1.1(supports-color@5.5.0)
       '@tus/server':
-        specifier: 2.4.5
-        version: 2.4.5(supports-color@5.5.0)
+        specifier: 2.4.6
+        version: 2.4.6(supports-color@8.1.1)
       '@types/supertest':
         specifier: 7.2.1
         version: 7.2.1
@@ -217,8 +217,8 @@ importers:
         specifier: 1.16.18
         version: 1.16.18
       '@tus/s3-store':
-        specifier: 2.0.7
-        version: 2.0.7(supports-color@5.5.0)
+        specifier: 2.0.8
+        version: 2.0.8(supports-color@8.1.1)
       '@types/compression':
         specifier: 1.8.1
         version: 1.8.1
@@ -250,8 +250,8 @@ importers:
         specifier: 1.7.7
         version: 1.7.7(mongodb@7.7.0)(vitest@4.1.12)
       bullmq:
-        specifier: 6.3.15
-        version: 6.3.15(ioredis@6.0.0(supports-color@5.5.0))
+        specifier: 6.3.16
+        version: 6.3.16(ioredis@6.0.0(supports-color@5.5.0))
       cross-env:
         specifier: 10.1.0
         version: 10.1.0
@@ -2093,12 +2093,12 @@ packages:
     resolution: {integrity: sha512-/uXV3Ibb4Upirrsj7lSrX+o08H7IKYEkPHV8TKAPPK6CYUcOMTilluOkwPrb9JZydLSYlIBQkhZZVS9sPEfDwQ==}
     engines: {node: '>=20.19.0'}
 
-  '@tus/s3-store@2.0.7':
-    resolution: {integrity: sha512-wdDBfYxJiYRP7260sxwtAzyDQSAlRBtZvHp2oPpRR5EzbDTN5lF4Dq5nHH/6TyF6sLr/ZbKugoR70v7lEZb8Ug==}
+  '@tus/s3-store@2.0.8':
+    resolution: {integrity: sha512-Yry3fK4MKZAMMCijfytZEs0zX0BqYFm+veopWtvS7MnPpDqJf0MRkqOkE8XhMIZarVTG4vSaTnkLQpcrh+MguA==}
     engines: {node: '>=20.19.0'}
 
-  '@tus/server@2.4.5':
-    resolution: {integrity: sha512-DaQY5F1/JC1E+eDNY+Q5L08wgQ8NHFDNW/E6NclSx10BOHJk85BT4mSId49Ep890Utsk+6hEEuhNFb/LH+Og0w==}
+  '@tus/server@2.4.6':
+    resolution: {integrity: sha512-QdsNQzatF1r/Tls51vdLTh+Srx/hCdzNBA68bGxruC6N++k8NML+3y0XBV2t3f2KSABeXEE3uhwFOGURuuce2w==}
     engines: {node: '>=20.19.0'}
 
   '@tus/utils@0.7.1':
@@ -2641,8 +2641,8 @@ packages:
   buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
 
-  bullmq@6.3.15:
-    resolution: {integrity: sha512-J6EZH/DhfGnsIafSK2FfNJ6XtSAQnD4YM1vts5+jT4usLYkxV2uU72oKNpmyxUQl9U4sFEvK5MO5SJ+dGlwOLQ==}
+  bullmq@6.3.16:
+    resolution: {integrity: sha512-savxnrdqckobnm31XWwCKTAswkxrNIqLD/PsdwgYaDpst0UdULu/QjOtPdn86KNrBq8WoHKhJvbgGK13dgPJ8w==}
     engines: {node: '>=14.17.0'}
     peerDependencies:
       bullmq-otel: '>=2.0.0'
@@ -3254,8 +3254,8 @@ packages:
     resolution: {integrity: sha512-2kCCtc+JvcZ86IGAz3Z2Y0A1baIz9fL31pH/0S1IqZr9Iwnjq8izfPtrCyQKO6TLMPELLsQMre7VDqeIKCsHkA==}
     engines: {node: '>=18'}
 
-  follow-redirects@1.16.0:
-    resolution: {integrity: sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==}
+  follow-redirects@1.16.1:
+    resolution: {integrity: sha512-FNvFGzoMLWmE6Yj9spb/zjd7yiNCHiAW9/Tg9CXrQ8wuu32HtlJOwWO11OJafl5FfY3DxTdQ0vj42zU1kvv5jg==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -6913,25 +6913,25 @@ snapshots:
       - '@opentelemetry/api'
       - supports-color
 
-  '@tus/s3-store@2.0.7(supports-color@5.5.0)':
+  '@tus/s3-store@2.0.8(supports-color@8.1.1)':
     dependencies:
       '@aws-sdk/client-s3': 3.1152.0
       '@tus/utils': 0.7.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@8.1.1)
       multistream: 4.1.0
     transitivePeerDependencies:
       - supports-color
 
-  '@tus/server@2.4.5(supports-color@5.5.0)':
+  '@tus/server@2.4.6(supports-color@8.1.1)':
     dependencies:
       '@tus/utils': 0.7.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@8.1.1)
       lodash.throttle: 4.1.1
       set-cookie-parser: 2.7.2
       srvx: 0.11.15
     optionalDependencies:
       '@redis/client': 5.12.1
-      ioredis: 5.10.0(supports-color@5.5.0)
+      ioredis: 5.10.0(supports-color@8.1.1)
     transitivePeerDependencies:
       - '@node-rs/xxhash'
       - '@opentelemetry/api'
@@ -7421,7 +7421,7 @@ snapshots:
 
   axios@1.20.0(debug@4.4.3(supports-color@8.1.1))(supports-color@5.5.0):
     dependencies:
-      follow-redirects: 1.16.0(debug@4.4.3(supports-color@8.1.1))
+      follow-redirects: 1.16.1(debug@4.4.3(supports-color@8.1.1))
       form-data: 4.0.6
       https-proxy-agent: 5.0.1(supports-color@5.5.0)
       proxy-from-env: 2.1.0
@@ -7589,7 +7589,7 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  bullmq@6.3.15(ioredis@6.0.0(supports-color@5.5.0)):
+  bullmq@6.3.16(ioredis@6.0.0(supports-color@5.5.0)):
     dependencies:
       cron-parser: 5.10.2
       msgpackr: 2.1.0
@@ -8234,7 +8234,7 @@ snapshots:
       semver-regex: 4.0.5
       super-regex: 1.1.0
 
-  follow-redirects@1.16.0(debug@4.4.3(supports-color@8.1.1)):
+  follow-redirects@1.16.1(debug@4.4.3(supports-color@8.1.1)):
     optionalDependencies:
       debug: 4.4.3(supports-color@8.1.1)
 
@@ -8488,11 +8488,11 @@ snapshots:
     dependencies:
       kind-of: 6.0.3
 
-  ioredis@5.10.0(supports-color@5.5.0):
+  ioredis@5.10.0(supports-color@8.1.1):
     dependencies:
       '@ioredis/commands': 1.5.1
       cluster-key-slot: 1.1.2
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@8.1.1)
       denque: 2.1.0
       lodash.defaults: 4.2.0
       lodash.isarguments: 3.1.0

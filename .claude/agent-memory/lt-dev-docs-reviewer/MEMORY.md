@@ -7,7 +7,7 @@
 - [Vendor-mode atomic file-set check](vendor-mode-atomic-file-set-check.md) — every new file under src/core/ that an existing core file imports must be an enumerated atomic set in the guide
 - [main.ts opt-in APIs are invisible](main-ts-optin-api-has-no-doc-surface.md) — a helper consumers must wire into their OWN main.ts has no automatic doc surface; the migration guide is the only one that reaches them
 - [Release version artifacts](release-version-artifacts.md) — a version bump must touch package.json AND spectaql.yml; the lockstep is a git-history convention, written in no rule doc
-- [Migration-guide self-description traps](migration-guide-behavior-change-count-trap.md) — never trust a guide's Overview counts or its "aligns with existing pattern X" claims; derive both from the source diff
+- [Migration-guide self-description traps](migration-guide-behavior-change-count-trap.md) — never trust Overview counts, "aligns with X" claims, or a Quick Migration "nothing else" line; derive from the diff
 - [Comment-density baseline](comment-density-baseline.md) — src/core is 33% comments with 227 blocks >=15 lines; long narrative JSDoc is house style, grade duplication/placement/accuracy instead
 - [migrate CLI exit guard is dead](migrate-cli-exit-guard-dead-through-bin-shim.md) — `require.main === module` never true through bin/migrate.js (both bins + docker-entrypoint); check the shim before believing a CLI-lifecycle claim
 - [AI module false doc claims](ai-module-false-doc-claims.md) — `authorize()` is plan-mode-only, MCP has no confirmation gate, MCP SDK is a regular dep; both claims now CORRECTED in live surfaces as of 11.32.2 (facts still true; don't re-flag fixed surfaces)
@@ -31,3 +31,4 @@
 - [AuthGuard API-token claim scope](authguard-api-token-claim-scope.md) — 11.42.14 AuthGuard admits tokens; "never opens what role guards refuse" = route policy, not USER-token @Roles
 - [Consumer mongodb pin is runtime](consumer-mongodb-pin-is-runtime.md) — "test-only" mongodb devDep is better-auth adapter's runtime peer; stale pin + old bson lock = 401 / Invalid id value
 - [CastError vs ValidationError + Nest filter facts](mongoose-cast-vs-validation-error-and-nest-filter-facts.md) — save/create yield ValidationError, not CastError; Nest 11 filter order/logging/WS facts
+- [trustedOrigins replace semantics](trusted-origins-replace-semantics.md) — explicit betterAuth.trustedOrigins drops appUrl; cors.allowedOrigins is merged; tests never see origin 403s

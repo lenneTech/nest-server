@@ -13,7 +13,7 @@
  */
 import { Controller, ExecutionContext, ForbiddenException, Get, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { Roles } from '../../src/core/common/decorators/roles.decorator';
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
@@ -269,16 +269,42 @@ describe('API token invariants — an explicit AuthGuard on the route', () => {
 });
 
 describe('API token invariants — the MCP OAuth consent refuses tokens', () => {
-  const authorize = (user: unknown) =>
-    new CoreAiMcpOAuthService({} as any).buildOAuthProvider().authorize({ client_id: 'c' }, {}, { req: { user } });
+  /** A response stand-in that records what the consent step answered. */
+  const response = (user: unknown) => {
+    const sent: { body?: string; status?: number } = {};
+    const res: any = {
+      req: { headers: {}, method: 'GET', user },
+      send: (body: string) => (sent.body = body),
+      setHeader: () => undefined,
+      status: (status: number) => (sent.status = status),
+    };
+    return { res, sent };
+  };
+  const authorize = (res: unknown) =>
+    new CoreAiMcpOAuthService({} as any)
+      .buildOAuthProvider()
+      .authorize(
+        { client_id: 'c', client_name: 'Client' },
+        { codeChallenge: 'challenge', redirectUri: 'https://app.example.com/cb', scopes: [] },
+        res,
+      );
 
   it('refuses a tenant token and a user token', async () => {
-    await expect(authorize(tenantPrincipal())).rejects.toThrow(/access_denied/);
-    await expect(authorize(userWithToken())).rejects.toThrow(/access_denied/);
+    await expect(authorize(response(tenantPrincipal()).res)).rejects.toMatchObject({ errorCode: 'access_denied' });
+    await expect(authorize(response(userWithToken()).res)).rejects.toMatchObject({ errorCode: 'access_denied' });
   });
 
-  it('still hands a session user to authorizeConsent()', async () => {
-    // The default authorizeConsent() is unimplemented — reaching it proves the request was passed on.
-    await expect(authorize({ id: 'u1', roles: [] })).rejects.toThrow(/authorizeConsent is not implemented/);
+  it('still hands a session user to the consent step', async () => {
+    // The consent page signs a CSRF token; outside local / ci / e2e that needs a configured secret.
+    vi.stubEnv('NSC__AI__ENCRYPTION_SECRET', 'unit-api-token-invariants-consent-secret-32chars');
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
+    // The built-in consent answers a signed-in session user with the consent view (its CSRF field
+    // only exists there) — reaching it proves the request was passed on.
+    const { res, sent } = response({ email: 'u1@example.com', id: 'u1', roles: [] });
+    await authorize(res);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toContain('lt_mcp_csrf');
   });
 });

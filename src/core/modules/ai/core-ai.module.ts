@@ -1,6 +1,7 @@
 import { DynamicModule, Global, Module, Type } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { CoreAiMcpOAuthInitializer } from './core-ai-mcp-oauth.initializer';
 import { CoreAiMcpController } from './core-ai-mcp.controller';
 import { CoreAiController } from './core-ai.controller';
 import { CoreAiResolver } from './core-ai.resolver';
@@ -95,6 +96,12 @@ export interface CoreAiModuleOptions {
   /** Whether to register the MCP server controller at /ai/mcp. */
   mcpEnabled?: boolean;
 
+  /**
+   * Custom MCP OAuth service (extends CoreAiMcpOAuthService) — where `authorizeConsent()` wires the
+   * login/consent UI. Bound to the base token, so the MCP controller and the OAuth endpoints use it.
+   */
+  mcpOAuthService?: Type<CoreAiMcpOAuthService>;
+
   /** Custom connection-preference service (extends CoreAiConnectionPreferenceService). */
   preferenceService?: Type<CoreAiConnectionPreferenceService>;
 
@@ -174,11 +181,15 @@ export class CoreAiModule {
     const ToolPolicyServiceClass = options.toolPolicyService || CoreAiToolPolicyService;
     const ModeServiceClass = options.modeService || CoreAiModeService;
     const McpClientServiceClass = options.mcpClientService || CoreAiMcpClientService;
+    const McpOAuthServiceClass = options.mcpOAuthService || CoreAiMcpOAuthService;
 
-    // Register the MCP controller only when enabled (it lazy-loads the MCP SDK).
+    // Register the MCP controller only when enabled (it lazy-loads the MCP SDK), together with the
+    // initializer that mounts its OAuth endpoints when `ai.mcp.oauth` is enabled.
     const controllers: Type<any>[] = [ControllerClass];
+    const mcpProviders: Type<any>[] = [];
     if (options.mcpEnabled) {
       controllers.push(CoreAiMcpController);
+      mcpProviders.push(CoreAiMcpOAuthInitializer);
     }
 
     return {
@@ -246,7 +257,7 @@ export class CoreAiModule {
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
         CoreAiMcpService,
-        CoreAiMcpOAuthService,
+        ...mcpProviders,
         // Bind base-class tokens to the (possibly overridden) implementations so
         // injections by base type resolve to the project's subclass.
         { provide: CoreAiConnectionPreferenceService, useClass: PreferenceServiceClass },
@@ -262,6 +273,7 @@ export class CoreAiModule {
         { provide: CoreAiToolPolicyService, useClass: ToolPolicyServiceClass },
         { provide: CoreAiModeService, useClass: ModeServiceClass },
         { provide: CoreAiMcpClientService, useClass: McpClientServiceClass },
+        { provide: CoreAiMcpOAuthService, useClass: McpOAuthServiceClass },
         ResolverClass,
       ],
     };

@@ -483,6 +483,27 @@ normalise them away; mutation `openapi-plugin-routable` drops `serverOnlyPlugin(
 red) and the "framework routes" cases in `tests/unit/swagger-helper.spec.ts`, which run against the
 REAL generator output rather than a fixture.
 
+## 10. Direct `api.*` calls must hand Better-Auth the request — or its CSRF protection does not run
+
+`signInEmail` and `signUpEmail` carry Better-Auth's `formCsrfMiddleware`: it refuses a cross-site navigation
+(`Sec-Fetch-Site: cross-site` + `Sec-Fetch-Mode: navigate`) and validates a present `Origin` / `Referer` against
+`trustedOrigins`. It reads them from `ctx.request`. `CoreBetterAuthController` called both via `api.*({ body })` — no
+request, so the check was skipped and a hostile page could sign a visitor in to the attacker's account (login CSRF,
+fixed in 11.43.0; on the MCP consent page that turned into "approve a client for the attacker's account").
+
+| Rule | Why |
+|------|-----|
+| Pass `request: this.csrfCheckedRequest(req, '<path>')` AND `asResponse: false` | with a request Better-Auth answers a `Response` by default; the controller reads the data |
+| Forward `Origin`, `Referer`, `Sec-Fetch-*` only — never the cookie | a cookie alone makes Better-Auth demand an `Origin`, refusing non-browser clients with a cookie jar |
+| Forward them only from a BROWSER request: one carrying `Origin`, `Referer` or `Sec-Fetch-Site` | Node's built-in `fetch` (undici) sends a lone `Sec-Fetch-Mode: cors` and no `Origin`; Better-Auth reads any fetch metadata without an origin as `MISSING_OR_NULL_ORIGIN`, so forwarding it unconditionally answered every server-side `fetch` sign-in with 403. A browser always sends `Origin` on a POST and `Sec-Fetch-Site` with its metadata, so nothing a hostile page can make it send escapes the check (mutations `iam-signin-csrf-nonbrowser-metadata-forwarded`, `iam-signin-csrf-site-not-a-browser-signal`) |
+| Use `globalThis.Request`, not `Request` | the file imports Express's `Request` type; under Vitest (Vite SSR) the bare name resolves to that import, which is `undefined` at runtime — tsc happens to emit the global |
+| Map `CROSS_SITE_NAVIGATION_LOGIN_BLOCKED` / `INVALID_ORIGIN` / `MISSING_OR_NULL_ORIGIN` to 403 (`rethrowCsrfRefusal`) | "invalid credentials" would send whoever debugs a missing `trustedOrigins` entry looking at the password |
+
+**Tests:** Better-Auth skips its origin/CSRF checks under a test runner (`skipOriginCheck: isTest()`). A spec that pins
+this protection must set `betterAuth.options.advanced.disableOriginCheck: false` — otherwise it is green with the check
+removed. `tests/better-auth-signin-csrf.e2e-spec.ts` does; mutations `iam-signin-csrf-check-skipped` /
+`iam-signup-csrf-check-skipped`.
+
 ## Summary
 
 | Principle | Requirement |
@@ -496,3 +517,4 @@ REAL generator output rather than a fixture.
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
 | `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |
+| Direct `api.*` calls | Hand Better-Auth the request (CSRF headers only) + `asResponse: false`, or its login-CSRF check is skipped (§10) |
