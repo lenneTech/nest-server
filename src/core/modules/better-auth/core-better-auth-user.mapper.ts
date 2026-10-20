@@ -678,10 +678,19 @@ export class CoreBetterAuthUserMapper {
         delete processedAdditionalData?.termsAndPrivacyAccepted;
       }
 
+      // Reverse-sync the Better-Auth name into firstName/lastName ONLY when it actually
+      // differs from the stored combination. The split is lossy (first word vs. rest), so an
+      // unconditional overwrite would clobber locally maintained names on EVERY sign-in —
+      // e.g. firstName "Anna Maria" / lastName "von Berg" would mutate to "Anna" / "Maria von
+      // Berg" although nothing changed on the Better-Auth side.
+      const existingFullName = [existingUser?.firstName, existingUser?.lastName].filter(Boolean).join(' ');
+      const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;
+
       const updateData: Record<string, any> = {
         email: sessionUser.email,
-        ...(sessionUser.name && { firstName: sessionUser.name.split(' ')[0] }),
+        ...(sessionUser.name && nameChangedInIam && { firstName: sessionUser.name.split(' ')[0] }),
         ...(sessionUser.name &&
+          nameChangedInIam &&
           sessionUser.name.includes(' ') && {
             lastName: sessionUser.name.split(' ').slice(1).join(' '),
           }),
@@ -726,6 +735,44 @@ export class CoreBetterAuthUserMapper {
     } catch (error) {
       this.logger.error(`Error syncing Better-Auth user: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return null;
+    }
+  }
+
+  // ===================================================================================================================
+  // Name Sync
+  // ===================================================================================================================
+
+  /**
+   * Syncs a name change from Legacy Auth to Better-Auth (IAM)
+   *
+   * When a user changes their firstName/lastName in Legacy Auth (e.g. via PATCH /users/:id),
+   * the Better-Auth `name` field on the shared users document must follow. Without this sync,
+   * the next sign-in reverse-syncs the STALE Better-Auth name back into firstName/lastName
+   * (see linkOrCreateUser), silently discarding the user's edit.
+   *
+   * @param userEmail - The user's current email address (lookup key on the shared collection)
+   * @param name - The new display name (typically `firstName lastName`)
+   * @returns true if sync was successful, false otherwise
+   */
+  async syncNameChangeFromLegacy(userEmail: string, name: string): Promise<boolean> {
+    if (!this.connection) {
+      this.logger.warn('No database connection available - cannot sync name change');
+      return false;
+    }
+
+    try {
+      const usersCollection = this.connection.collection('users');
+      const result = await usersCollection.updateOne({ email: userEmail }, { $set: { name, updatedAt: new Date() } });
+      if (result.matchedCount === 0) {
+        return false;
+      }
+      this.logger.debug(`Synced name change from Legacy to IAM for ${maskEmail(userEmail)}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error syncing name change from Legacy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
     }
   }
 

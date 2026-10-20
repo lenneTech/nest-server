@@ -2859,6 +2859,28 @@
         "tests/unit/better-auth-base-url.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "user-update-skips-iam-name-sync",
+      "defect": "found in 11.43.1 — CoreUserService.update() synced email and password changes to the Better-Auth side of the shared users document but not firstName/lastName. The Better-Auth `name` stayed stale, and the next IAM sign-in reverse-synced it into firstName/lastName (linkOrCreateUser), silently discarding the user's edit.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "          await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-sign-in-resplits-unchanged-name",
+      "defect": "found in 11.43.1 — linkOrCreateUser() re-split the Better-Auth `name` into firstName/lastName on EVERY sign-in. The split is lossy (first word vs. rest), so a stored \"Anna Maria\" / \"von Berg\" became \"Anna\" / \"Maria von Berg\" although nothing had changed on the Better-Auth side.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;\n",
+      "replace": "      const nameChangedInIam = !!sessionUser.name;\n",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
