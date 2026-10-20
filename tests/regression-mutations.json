@@ -2859,6 +2859,17 @@
         "tests/unit/better-auth-base-url.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "id-plugin-stamps-bare-objectid",
+      "defect": "11.42.15 (mongodb 7.7 / bson 7.3) — mongooseIdPlugin's post(/.*/) hook treated the bare ObjectId VALUES a distinct() over an ObjectId field returns as documents (Mongoose gives ObjectId.prototype an _id getter returning itself) and assigned value.id = hex, which is bson's own id setter for the 12-byte buffer. bson >= 7.3 throws there, so every distinct() over an ObjectId field rejected.",
+      "file": "src/core/common/plugins/mongoose-id.plugin.ts",
+      "find": "      if (doc?._bsontype === 'ObjectId') {\n        continue;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/mongoose-plugins.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
