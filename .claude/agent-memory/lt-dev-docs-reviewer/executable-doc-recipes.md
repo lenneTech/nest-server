@@ -33,5 +33,11 @@ When a README ships cross-language recipes (e.g. the API-token signed-assertion 
   Same scratch dir + `tsconfig` copy also answers "does tsc catch X" probes (it accepts unknown
   vitest config keys under this repo's `module: commonjs`).
 
+- **FRAMEWORK-API.md generator claims** ("regenerates with the new version", "skips when unchanged"):
+  `sed` the script into `<scratch>/gen.cts` with `const ROOT = '<repo>'` and `const OUTPUT` pointing at a
+  scratch copy of FRAMEWORK-API.md, then run it from the repo with `NODE_PATH=<repo>/node_modules
+  ./node_modules/.bin/tsx <scratch>/gen.cts` (the `.cts` extension keeps it CJS). Edit the scratch copy
+  (version, date) to probe each branch. ~10 s, never touches the tracked file. Used 2026-10-20.
+
 Verified 2026-09-26: the 11.41.4 C#, PowerShell-shaped and Node assertion recipes all pass
 `decodeApiTokenAssertion` + `verifyApiTokenAssertionSignature` + `checkApiTokenAssertionTiming`.

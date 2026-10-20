@@ -169,7 +169,13 @@ Two ordering rules, both enforced by the contract test:
 Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
 
 **Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
-load-bearing (it has since grown back to 19 as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+load-bearing (it has since grown back to 20, mostly as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+
+**The one exception is a peer conflict nobody downstream can fix.** `'@nestjs/cli>webpack'` (added
+2026-10-20) carries no advisory: @nestjs/cli exact-pins a webpack that a newer transitive
+`schema-utils` refuses as a peer, so every fresh resolve fails `pnpm peers check`. Such an entry
+is parent-scoped (`parent>child`), so only the stale pin moves, and it states the release that
+lets it go. For such an entry `pnpm peers check` is the arbiter, not `pnpm audit`.
 
 ### Rule: Override Targets MUST Be Fixed Versions
 

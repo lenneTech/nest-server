@@ -240,8 +240,21 @@ overrides:
   # Target raised 4.29.1 -> 4.29.3 on 2026-10-01 for the same reason (4.29.3, published 2026-09-29,
   # is the newest 4.x past the hold-back). Key left at the fix line, as before - it fires on
   # webpack's caret request either way.
+  # Target raised 4.29.3 -> 4.29.4 on 2026-10-20 (published 2026-10-19). The hold-back broke the
+  # first `pnpm run check` of every fresh `lt fullstack init`: pnpm rewrites update-browserslist-db's
+  # PEER range (`>= 4.21.0` intersects the key) to the target, while ranged consumers above the key
+  # resolve the newer release, so `pnpm peers check` reports "unmet peer browserslist". Mirrors
+  # nest-server-starter.
   # Remove once webpack requests >=4.28.7 itself.
-  'browserslist@<4.28.7': '4.29.3'
+  'browserslist@<4.28.7': '4.29.4'
+  # Peer conflict, build-time only: @nestjs/cli 11.0.24 (newest 11.x) EXACT-pins webpack 5.106.2,
+  # while webpack's terser-webpack-plugin resolves schema-utils 4.8.x, which declares
+  # `peerDependencies.webpack: ^5.112.0` (new in 4.8.0, published 2026-10-18). A lockfile that still
+  # carries schema-utils 4.3.3 hides it; the first refresh fails `pnpm peers check`.
+  # Parent-scoped, so only the CLI's stale pin moves and no other consumer is held back. Nothing in
+  # the build uses webpack (tsc, and swc for check:swc-tdz). Mirrors nest-server-starter.
+  # Remove once @nestjs/cli requests webpack >=5.112 itself, or with @nestjs/cli 12 (peer there).
+  '@nestjs/cli>webpack': '5.112.0'
   'ws@>=8.0.0 <8.21.0': '8.21.3'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Target raised 1.18.1 -> 1.19.0 on 2026-08-22, and the key upper bound with it. NOT cosmetic: an

@@ -8,7 +8,7 @@
 
 import { Project, type InterfaceDeclaration } from 'ts-morph';
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // The package is CommonJS (no "type": "module"), so tsx runs this as CJS and __dirname is native.
@@ -194,8 +194,6 @@ function extractCoreModules(): string[] {
   const lines: string[] = [];
   const modulesDir = resolve(ROOT, 'src/core/modules');
 
-  // Read the directory manually
-  const { readdirSync, existsSync } = require('node:fs');
   const dirs = readdirSync(modulesDir, { withFileTypes: true })
     .filter((d: any) => d.isDirectory())
     .map((d: any) => d.name)
@@ -331,9 +329,9 @@ function main() {
   // two sessions a round of "did you change this?" over a one-line diff nobody had written.
   //
   // The commit date of HEAD answers the question the line is actually asking ("how current is
-  // this?") and only moves when the source does. Outside a git checkout (an npm consumer
-  // rebuilding from the tarball) there is no honest answer, so the clause is dropped rather
-  // than guessed.
+  // this?"). Outside a git checkout (an npm consumer rebuilding from the tarball) there is no
+  // honest answer, so the clause is dropped rather than guessed. HEAD's date alone is not stable
+  // either — see the comparison before the write below.
   let generatedFrom = '';
   try {
     const committed = execSync('git log -1 --format=%cs', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
@@ -416,6 +414,19 @@ ${exceptions.join('\n')}
 | \`docs/security-overrides.md\` | pnpm overrides are NOT inherited — two entries your project needs |
 | \`.claude/rules/\` | Detailed rules for architecture, security, testing |
 `;
+
+  // The date is self-referential: this file is committed in the very commit whose date it would
+  // have to show, so HEAD's date moves the moment that commit lands, and the next build rewrites
+  // the line again (11.43.1 shipped "as of 2026-10-18", its parent's date, and every build after
+  // it dirtied the tree). So the date is compared away: an unchanged API keeps the file, and its
+  // date, as it is. Only the date clause is ignored, not the whole line, because the version sits
+  // on the same line and a version bump must still rewrite the file.
+  const withoutDate = (text: string) =>
+    text.replace(/^(> Auto-generated from source code) as of \d{4}-\d{2}-\d{2}/m, '$1');
+  if (existsSync(OUTPUT) && withoutDate(readFileSync(OUTPUT, 'utf-8')) === withoutDate(doc)) {
+    console.log(`${OUTPUT} is up to date (${(doc.length / 1024).toFixed(1)} KB)`);
+    return;
+  }
 
   writeFileSync(OUTPUT, doc, 'utf-8');
   console.log(`Generated ${OUTPUT} (${(doc.length / 1024).toFixed(1)} KB)`);
