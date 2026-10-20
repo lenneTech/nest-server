@@ -29,6 +29,7 @@
 - [project-tus-protocol-dispatch-facts.md](project-tus-protocol-dispatch-facts.md) — tus/srvx ignore X-HTTP-Method-Override, llhttp 400s lowercase methods; Location is requester-only, not persisted
 - [project-route-authguard-redundant-under-global-guard.md](project-route-authguard-redundant-under-global-guard.md) — route AuthGuard(BETTER_AUTH) beside non-S_EVERYONE @Roles is decision-neutral; ts-node (not tsx) probe recipe
 - [project-cast-error-filter-security-model.md](project-cast-error-filter-security-model.md) — CastError filter (11.42.16) clean: $in value is one element, Map path `m.$*`, falsy-filter fallback, ~1.3 ms walk at 100 kB
+- [project-betterauth-baseurl-jwt-issuer.md](project-betterauth-baseurl-jwt-issuer.md) — getBaseUrl() from instance.options.baseURL: security-neutral (JWT iss + CSRF traced); trailing-slash 401 residual; SWC probe recipe
 
 ## Review Methodology
 
