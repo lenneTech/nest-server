@@ -123,8 +123,8 @@ describe.each(SERVER_BASE_URLS)('Bearer JWT with only the server baseUrl $server
       privateKey: 'unused-by-this-spec',
       publicKey: JSON.stringify(await exportJWK(publicKey)),
     });
-    const sign = (issuer: string) =>
-      new SignJWT({ ...claims, aud: issuer, iss: issuer }).setProtectedHeader({ alg: 'EdDSA', kid }).sign(privateKey);
+    const sign = (iss: string) =>
+      new SignJWT({ ...claims, aud: iss, iss }).setProtectedHeader({ alg: 'EdDSA', kid }).sign(privateKey);
 
     try {
       const own = await helper.rest('/jwt-issuer-probe/whoami', {

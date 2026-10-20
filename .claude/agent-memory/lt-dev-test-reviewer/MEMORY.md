@@ -20,3 +20,4 @@
 - [Nest Exception-Filter Transport Facts](nest-exception-filter-transport-facts.md) — APP_FILTER returning undefined: REST must answer itself, GraphQL hands back, ws never reached; filter order; log-after-json is deterministic.
 - [MCP OAuth Test Facts](mcp-oauth-test-facts.md) — 11.43.0: mounted-after-not-found mutation is a proxy (dup class member); CSRF specs need disableOriginCheck:false; SDK per-router rate limits.
 - [Better-Auth JWT Key + baseURL Facts](better-auth-jwt-key-and-baseurl-facts.md) — 1.7.7 signs with newest live key (epoch test key safe); static baseURL ignores request host; scratch probe for issuer-refusal cases.
+- [FRAMEWORK-API Generator Probe](framework-api-generator-probe.md) — generator has no spec; scratch-copy probe (sed ROOT/OUTPUT + NODE_PATH tsx) for its date-only skip; why the gap is not High.
