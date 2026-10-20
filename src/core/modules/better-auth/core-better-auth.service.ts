@@ -697,9 +697,27 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
   }
 
   /**
-   * Gets the base URL for better-auth
+   * Gets the base URL Better-Auth runs on: the ORIGIN of the `baseURL` the live instance was built with.
+   *
+   * Read off the instance rather than off `betterAuth.baseUrl`, because `createBetterAuthInstance()`
+   * resolves it as `betterAuth.baseUrl` → the server's `baseUrl` → localhost default. Better-Auth signs
+   * every JWT with the origin of that value as `iss` and `aud` (`createAuthContext()` stores
+   * `new URL(baseURL).origin`), so this answers the origin too — a trailing slash, a path or a default
+   * port in the configured string is not part of the claim. Until 11.43.1 this read only
+   * `betterAuth.baseUrl` and answered `http://localhost:3000` whenever just the server's `baseUrl` was
+   * set (`NSC__BASE_URL`, and every `lt dev up`), so the framework refused every Bearer JWT Better-Auth
+   * had issued. Without an instance (Better-Auth disabled) it falls back to the configured value.
    */
   getBaseUrl(): string {
+    const instanceBaseUrl = (this.getInstance() as unknown as { options?: { baseURL?: unknown } } | null)?.options
+      ?.baseURL;
+    if (typeof instanceBaseUrl === 'string' && instanceBaseUrl) {
+      try {
+        return new URL(instanceBaseUrl).origin;
+      } catch {
+        // Not an absolute URL: Better-Auth cannot derive an origin from it either, so use the configured value.
+      }
+    }
     return this.config.baseUrl || 'http://localhost:3000';
   }
 
@@ -710,8 +728,8 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * `createBetterAuthInstance()` pins `useSecureCookies: false` (for the cookie NAME) and restores
    * the transport flag through `advanced.defaultCookieAttributes.secure` on an `https://` base URL;
    * a project may override either. Reading the instance rather than re-deriving from a URL gives
-   * exactly the answer Better-Auth applies — including the base URL it actually uses, which
-   * {@link getBaseUrl} does not know when only the server's `baseUrl` is set.
+   * exactly the answer Better-Auth applies — including the base URL it actually uses, the same source
+   * {@link getBaseUrl} reads since 11.43.1.
    *
    * The framework's own cookie helper mirrors this, so a session cookie carries `Secure` no matter
    * which path wrote it.

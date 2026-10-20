@@ -20,3 +20,4 @@
 - [Cross-section pin alignment (11.42.15)](project_cross-section-pin-alignment.md) — gate == starter rule (fuzzed); range divergence unreachable, better-auth reach in peer range; keep vendor-stub strings out.
 - [CastError filter (11.42.16)](project_cast-error-filter.md) — Nest filter contract per transport (HTTP/GQL/WS) + root-module APP_FILTER is shadowed by CoreModule's.
 - [MCP OAuth consent 11.43.0](project_mcp-oauth-consent-11-42-17.md) — auto-mount + consent probed; oauthBaseUrl-origin 403 and global-prefix no-session gaps reported; how to probe from scratchpad.
+- [Better-Auth baseURL normalization](project_better-auth-baseurl-normalization.md) — auth.options keeps the raw baseURL, JWTs use its ORIGIN; compare iss/aud against new URL(raw).origin.

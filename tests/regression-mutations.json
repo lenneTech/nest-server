@@ -2826,6 +2826,39 @@
         "tests/unit/ai-mcp-oauth-lifecycle.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "jwt-issuer-ignores-server-base-url",
+      "defect": "11.43.0 and earlier (since 11.10.3) — CoreBetterAuthService.getBaseUrl() read only betterAuth.baseUrl and fell back to http://localhost:3000, while Better-Auth signs JWTs with the instance baseURL (betterAuth.baseUrl → server baseUrl). verifyJwksToken() checks iss/aud against getBaseUrl(), so with only NSC__BASE_URL set (every lt dev up) every Bearer JWT answered 401.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    if (typeof instanceBaseUrl === 'string' && instanceBaseUrl) {\n",
+      "replace": "    if (typeof instanceBaseUrl === 'string' && !instanceBaseUrl) {\n",
+      "specs": [
+        "tests/better-auth-jwt-issuer.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "jwt-issuer-raw-base-url",
+      "defect": "11.43.1 review — getBaseUrl() returned the configured baseURL string, while Better-Auth signs JWTs with its ORIGIN (createAuthContext() stores new URL(baseURL).origin). A trailing slash, a path or a default port in NSC__BASE_URL still refused every Bearer JWT with 401.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "        return new URL(instanceBaseUrl).origin;\n",
+      "replace": "        return instanceBaseUrl;\n",
+      "specs": [
+        "tests/better-auth-jwt-issuer.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "base-url-origin-dropped-unit",
+      "defect": "11.43.1 review — getBaseUrl() returned the configured baseURL string, while Better-Auth signs JWTs with its ORIGIN (createAuthContext() stores new URL(baseURL).origin). A trailing slash, a path or a default port in NSC__BASE_URL still refused every Bearer JWT with 401. Unit-level twin: getBaseUrl() compared against the live $context baseURL.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "        return new URL(instanceBaseUrl).origin;\n",
+      "replace": "        return instanceBaseUrl;\n",
+      "specs": [
+        "tests/unit/better-auth-base-url.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

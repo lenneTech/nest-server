@@ -1,4 +1,4 @@
-- [E2E Test Isolation Model](e2e-isolation-model.md) — per-RUN unique DB but ONE DB shared across files; the `jwks` deleteMany landmine that makes "flaky 401s" a deterministic cross-file bug (pair-run to reproduce, don't blame load).
+- [E2E Test Isolation Model](e2e-isolation-model.md) — DB per RUN, per FORK (`-w<N>`, since 2026-07-15) and opt-in per FILE (deriveTestDbUri); the historical jwks landmine behind "flaky 401s".
 - [ConfigService Singleton in Tests](configservice-singleton-in-tests.md) — per-file fork isolation makes static ConfigService safe between files; within a file mergeConfig (lodash merge) means arrays don't clear via [] — check test ORDER, not "reset".
 - [AI Module Test Coverage](ai-module-test-coverage.md) — AI gaps: CoreAiConnectionService has no unit spec + warnOnCapabilityDrift() is unreachable dead code (detectCapabilities only probes UNDEFINED flags); OAuth/MCP/hook gaps; brittle regex-on-message assertions.
 - [Vitest Is Blind to SWC/CJS TDZ](vitest-blind-to-swc-cjs-tdz.md) — vitest (even with unplugin-swc) can NEVER catch import-cycle TDZ crashes; only an SWC→CJS build+require does. Plus: 9 pre-existing cycles, so "zero cycles" tests are a non-starter.
@@ -19,3 +19,4 @@
 - [E2E Run Governor Test Facts](e2e-run-governor-test-facts.md) — vitest 4 `maxWorkers: undefined` safe; importing the e2e config unlinks slots (pin LT_E2E_SLOT_DIR); umask 077 hollows the 0700 test only.
 - [Nest Exception-Filter Transport Facts](nest-exception-filter-transport-facts.md) — APP_FILTER returning undefined: REST must answer itself, GraphQL hands back, ws never reached; filter order; log-after-json is deterministic.
 - [MCP OAuth Test Facts](mcp-oauth-test-facts.md) — 11.43.0: mounted-after-not-found mutation is a proxy (dup class member); CSRF specs need disableOriginCheck:false; SDK per-router rate limits.
+- [Better-Auth JWT Key + baseURL Facts](better-auth-jwt-key-and-baseurl-facts.md) — 1.7.7 signs with newest live key (epoch test key safe); static baseURL ignores request host; scratch probe for issuer-refusal cases.

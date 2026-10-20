@@ -1,26 +1,36 @@
 ---
 name: e2e-isolation-model
-description: How the nest-server Vitest e2e suite shares ONE database across parallel forks within a run — and the jwks landmine that makes "flaky 401s" a deterministic cross-file bug
+description: How the nest-server Vitest e2e suite isolates databases (per RUN, per FORK since 2026-07-15, per FILE via deriveTestDbUri) — and the historical jwks landmine behind the old "flaky 401s"
 metadata:
   type: project
 ---
 
 The e2e suite (`vitest-e2e.config.ts`) runs `pool: 'forks'`, `fileParallelism: true`, `isolate: true`.
 
-**DB model (corrected 2026-07-13 — earlier note here was stale):** `tests/global-setup.ts` gives every RUN its own database (`<base>-run-<ts>-p<pid>`), so two concurrent runs no longer clobber each other. But **within a single run, ALL test files still share that one database** — `isolate: true` isolates module state per fork, never the DB. So cross-RUN interference is fixed; cross-FILE interference is very much alive.
+**DB model (re-verified 2026-10-20 — the 2026-07-13 version of this note was stale):**
 
-**Escape hatch:** `deriveTestDbUri(suffix)` (`tests/db-lifecycle.reporter.ts:44`) gives a file its OWN database. Already used by `error-code-scenarios`, `mongoose-plugins`, `multi-tenancy`, `tenant-guard`. Any file that mutates GLOBAL state (not just its own rows) belongs in this list.
+| Layer | Mechanism | DB name |
+|---|---|---|
+| per RUN | `tests/global-setup.ts` sets MONGODB_URI | `<base>-run-<ts>-p<pid>` |
+| per FORK (since 2026-07-15, commit 3274b2d) | `tests/setup.ts` appends `-w<VITEST_POOL_ID>` before any import | `…-p<pid>-w<N>` |
+| per FILE (opt-in) | `deriveTestDbUri('<suffix>')` from `tests/db-lifecycle.reporter.ts` | `…-w<N>-<suffix>` |
 
-## The jwks landmine (root cause of the recurring "flaky 401s")
+Files in DIFFERENT forks can no longer collide. Files that share a fork run SEQUENTIALLY on the same
+`-w<N>` DB, so cross-file interference is now only sequential leftovers, not mid-run wipes. All of
+them are dropped on a green run (reporter drops every DB with the run-DB prefix; seen in the run log
+as `Test database cleanup: dropped …-w1-jwt-issuer`).
 
-`tests/stories/better-auth-integration.story.test.ts:962` runs `db.collection('jwks').deleteMany({})` in a `beforeAll` — an unscoped wipe of the **BetterAuth JWT signing keyset** — and that file does NOT use `deriveTestDbUri`. 19 e2e files boot BetterAuth-JWT apps against the same shared run DB.
+## The jwks landmine (historical root cause of the "flaky 401s")
 
-Victim pattern: `tests/ai.e2e-spec.ts` mints Bearer tokens ONCE in `beforeAll` (:156-157) and reuses them across ~40 later tests. When the jwks wipe lands mid-file, BetterAuth regenerates the keyset and every previously-signed JWT becomes unverifiable → `expected 200 "OK", got 401 "Unauthorized"` on ~10 tests at once. `retry: 5` cannot save it — the token is *durably* dead, and every retry replays the same stale `beforeAll` token.
+`tests/stories/better-auth-integration.story.test.ts` runs an unscoped `db.collection('jwks').deleteMany({})`.
+Before per-fork isolation, that wiped the JWT signing keyset of every PARALLEL file sharing the run DB;
+files minting a Bearer token once in `beforeAll` (e.g. `tests/ai.e2e-spec.ts`) then got ~10 x 401 at
+once, deterministically when the two files were scheduled together. Pair-running the two files was
+the discriminator; "flaky under load" was disproven.
 
-**Why it masquerades as an environment flake:** it is 100% deterministic *given the fork scheduling that pairs the two files*, and invisible otherwise. Verified 2026-07-13: 6/6 green across isolated runs, a full 51-file suite, and even two deliberately-concurrent full suites — yet `vitest run tests/ai.e2e-spec.ts tests/stories/better-auth-integration.story.test.ts` fails **4/4 on the branch and 2/2 on develop**. Do NOT accept "flaky under load / CPU contention" for this signature; that hypothesis is disproven.
-
-**How to apply:**
-- Pair-run the suspect file with the jwks-wiping file to reproduce a "flaky 401" on demand — that is the fastest discriminator, far better than re-running in isolation (which always passes).
-- Treat unscoped `deleteMany({})` on shared auth collections (`jwks`, `session`, `account`, `users`) as a cross-file bug, not a local cleanup. Other files' cleanups here are correctly scoped (`$in` / email regex) — jwks is the outlier.
-- Tokens minted once in `beforeAll` and reused across a long file are the vulnerable shape; re-minting per test (`beforeEach`) is the hardening.
-- `tests/ai.e2e-spec.ts:90` claims a JWT-fallback fix "eliminates the pre-existing flaky 401s in this file" — it made token *acquisition* deterministic but does nothing about *invalidation* by a foreign jwks wipe. The comment is misleading; don't trust it as evidence the file is fixed.
+**How to apply now:**
+- A spec that writes GLOBAL auth state (`jwks`, `session`, `account`) should still use `deriveTestDbUri`
+  — it removes even the sequential-leftover risk and makes the spec's own isolation obvious.
+- When a "flaky 401" reappears, first check whether the suspect file runs without the `-w` suffix
+  (externally pinned URI already ending in `-w\d+`, or a spec building its own URI) before blaming load.
+- Tokens minted once in `beforeAll` and reused across a long file remain the vulnerable shape.

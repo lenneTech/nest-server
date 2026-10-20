@@ -26,6 +26,7 @@
 - [scan-secrets + bridge normaliser costs](scan-secrets-and-bridge-normaliser-costs.md) — measured: Check 8 ~2ms/added line + ~100ms/cue line, --all ~57s baseline; oxfmt idempotence proven with real oxfmt.
 - [Mongoose CastError filter costs](mongoose-cast-error-filter-costs.md) — measured: APP_FILTER free off the error path; walk ~1 ms/10k nodes; array CastError.value → 3x Set build (~2x JSON.parse).
 - [MCP OAuth consent + sign-in Request costs](mcp-oauth-consent-and-signin-request-costs.md) — measured: Web Request on sign-in ~2.7 us, cached import() ~2 us, consent render ~6 us; findOneAndDelete({clientId,code}) rides {code:1}.
+- [Better-Auth JWT verify costs](better-auth-jwt-verify-costs.md) — measured: Bearer verify ~133 us (importJWK uncached + DB jwks lookup); instance.options is a plain data prop (~2 ns).
 
 ## Test Pipeline
 - [e2e low-resource CI trigger](e2e-low-resource-ci-trigger.md) — load signal fires on EVERY CI build (own unit step); A/B measured the 2-worker cap at +25 % e2e time, so it is skipped on github-hosted runners (not on GitLab).
