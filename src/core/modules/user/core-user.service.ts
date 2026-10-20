@@ -710,6 +710,25 @@ export abstract class CoreUserService<
       }
     }
 
+    // Sync name change to IAM if firstName/lastName was changed and mapper is available.
+    // Without this, the next sign-in reverse-syncs the STALE Better-Auth `name` back into
+    // firstName/lastName (linkOrCreateUser), silently discarding the user's edit.
+    if (this.options?.betterAuthUserMapper && (input.firstName !== undefined || input.lastName !== undefined)) {
+      const fullName = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(' ');
+      const currentEmail = updatedUser?.email ?? oldEmail;
+      if (fullName && currentEmail) {
+        try {
+          await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);
+          this.userServiceLogger.debug(`Synced name change from Legacy to IAM for user ${maskEmail(currentEmail)}`);
+        } catch (error) {
+          this.userServiceLogger.warn(
+            `Failed to sync name change to IAM for ${maskEmail(currentEmail)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          // Don't throw - name sync failure shouldn't block the update
+        }
+      }
+    }
+
     // Sync password change to IAM if password was changed and mapper is available
     if (this.options?.betterAuthUserMapper && passwordForIamSync && oldUser?.email) {
       try {
