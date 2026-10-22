@@ -181,6 +181,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     // GraphQL WebSocket. See core-tenant-context.registry.ts for why this is a registry and not DI.
     setTenantContextResolver({
       resolve: (user, headerTenantId) => this.resolveTenantContext(user, headerTenantId),
+      resolveMembership: (user, headerTenantId) => this.resolveMembershipContext(user, headerTenantId),
     });
 
     // Lets the role guards delegate non-system roles to this guard — only while it exists.
@@ -246,6 +247,39 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     const carrier: { tenantIds?: string[]; user: { id: string } } = { user: { id: user.id } };
     await this.resolveUserTenantIds(carrier);
     return { tenantIds: carrier.tenantIds ?? [] };
+  }
+
+  /**
+   * The tenant context `canActivate()` gives an `@Roles(S_EVERYONE)` route, for a caller it could not
+   * see: a route that authenticates its caller ITSELF, after the guards ran without a user.
+   *
+   * That is the MCP endpoint with an MCP OAuth access token — a credential nothing but its controller
+   * accepts, so the guard found no `request.user`, never checked the tenant header against a
+   * membership, and every tenant-scoped tool answered "Tenant context required" to a member of that
+   * very tenant. Answering through the same {@link memberTenantContext} as the guard's own branch is
+   * what keeps the result independent of which credential the caller used.
+   *
+   * Narrower than {@link resolveTenantContext} on purpose: that one answers for a transport whose every
+   * operation needs a scope (no admin bypass here, no list of all memberships without a header).
+   */
+  async resolveMembershipContext(
+    user: { id: string; roles?: string[] } | undefined,
+    headerTenantId?: string,
+  ): Promise<ResolvedTenantContext> {
+    const config = ConfigService.configFastButReadOnly?.multiTenancy;
+    if (!config || config.enabled === false) {
+      return {};
+    }
+    this.syncConfig(config);
+
+    const tenantId =
+      headerTenantId && typeof headerTenantId === 'string' && headerTenantId.length <= 128
+        ? headerTenantId.trim()
+        : undefined;
+    if (!tenantId || !user?.id) {
+      return {};
+    }
+    return (await this.memberTenantContext(user, tenantId)) ?? {};
   }
 
   /**
@@ -414,10 +448,10 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       // Optionally enrich with tenant context when header is present and user is an active member.
       // Never block access — S_EVERYONE endpoints are always public.
       if (headerTenantId && request.user?.id) {
-        const membership = await this.findMembershipCached(request.user.id, headerTenantId);
-        if (membership && (await this.isTenantActive(headerTenantId))) {
-          request.tenantId = headerTenantId;
-          request.tenantRole = capApiTokenTenantRole(request.user, membership.role as string) ?? undefined;
+        const member = await this.memberTenantContext(request.user, headerTenantId);
+        if (member) {
+          request.tenantId = member.tenantId;
+          request.tenantRole = member.tenantRole;
         }
       }
       return true;
@@ -899,6 +933,22 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       this.tenantActiveCache.set(tenantId, { active, expiresAt: now + ttl });
     }
     return active;
+  }
+
+  /**
+   * The context an ACTIVE membership in an active tenant establishes, or undefined. Never the header
+   * alone: a freely chosen tenant id only becomes a scope once it names one of the caller's own tenants.
+   * Shared by the `S_EVERYONE` branch of `canActivate()` and {@link resolveMembershipContext}.
+   */
+  private async memberTenantContext(
+    user: { id: string; roles?: string[] },
+    tenantId: string,
+  ): Promise<{ tenantId: string; tenantRole?: string } | undefined> {
+    const membership = await this.findMembershipCached(user.id, tenantId);
+    if (!membership || !(await this.isTenantActive(tenantId))) {
+      return undefined;
+    }
+    return { tenantId, tenantRole: capApiTokenTenantRole(user, membership.role as string) ?? undefined };
   }
 
   /** 403 for a deactivated tenant. */

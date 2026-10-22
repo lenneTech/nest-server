@@ -33,3 +33,4 @@
 - [CastError vs ValidationError + Nest filter facts](mongoose-cast-vs-validation-error-and-nest-filter-facts.md) — save/create yield ValidationError, not CastError; Nest 11 filter order/logging/WS facts
 - [trustedOrigins replace semantics](trusted-origins-replace-semantics.md) — explicit betterAuth.trustedOrigins drops appUrl; cors.allowedOrigins is merged; tests never see origin 403s
 - [Better-Auth base-URL readers](better-auth-request-url-and-base-url-readers.md) — who reads the Web Request host (oauth-proxy only) + consumers self-fetch via getBaseUrl()
+- [Plugin no-user vs no-context asymmetry](plugin-no-user-vs-no-context-asymmetry.md) — context-without-user: tenant plugin refuses, role-guard/audit read it as system; verify per plugin

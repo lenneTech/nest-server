@@ -71,10 +71,14 @@ Consequence chain for every MCP tool call touching a `tenantId` schema:
 `ForbiddenException('Tenant context required…')`. **Fail-CLOSED, not a cross-tenant leak.**
 
 Two corollaries worth remembering:
-- With `ai.mcp.oauth: true` the OAuth token is only resolved inside the CONTROLLER
-  (`resolveUser` → `oauthService.loadUser`), i.e. AFTER the guard ran with `request.user`
-  unset. So an OAuth MCP client can never acquire tenant context, even sending `X-Tenant-Id`.
-  MCP is effectively inert against tenant-scoped domain tools in that configuration.
+- **CHANGED in 11.43.3 (reviewed 2026-10-22, sound):** the OAuth token is still resolved only in
+  the controller, but `resolveScopedUser()` → `scopeLateResolvedUser()` now sets `req.user` and
+  asks `CoreTenantGuard.resolveMembershipContext()` (registry) — same `memberTenantContext()`
+  (ACTIVE membership + `isTenantActive`) as the guard's S_EVERYONE branch. OAuth MCP clients now
+  DO reach tenant data of tenants they are active members of; header alone never scopes. Only runs
+  when the guards saw no `req.user.id` (read before `resolveUser`). `RequestContext.isAdminBypass`
+  reads only `req.isAdminBypass` (guard-set), so no admin bypass on this path either.
+  OAuth user is minimal `{id, roles}` — no `hasRole`/verified flags, so checks fail narrower, not wider.
 - The same early return applies to a global `RoleEnum.ADMIN` over MCP — no admin bypass either.
 
 **How to apply:** when triaging "MCP has no `authorize()` and no confirmation gate", check
