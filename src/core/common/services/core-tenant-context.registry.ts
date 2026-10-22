@@ -28,6 +28,18 @@ export interface TenantContextResolver {
    *   validated against an active membership before it is returned
    */
   resolve(user: { id: string; roles?: string[] } | undefined, headerTenantId?: string): Promise<ResolvedTenantContext>;
+
+  /**
+   * The narrower answer `CoreTenantGuard` gives an `@Roles(S_EVERYONE)` route: a tenant only from an
+   * ACTIVE membership in the tenant the header names (in an active tenant) — no admin bypass, and no
+   * fallback to every membership when no tenant is named. For an HTTP route that authenticates its
+   * caller itself, after the guards ran without a user (the MCP endpoint and its OAuth access token),
+   * so that route scopes the request exactly as the guard would have.
+   *
+   * Optional because the interface is public. A caller finding it absent establishes no tenant, which
+   * leaves the plugin's safety net to refuse tenant-scoped reads.
+   */
+  resolveMembership?(user: { id: string; roles?: string[] }, headerTenantId?: string): Promise<ResolvedTenantContext>;
 }
 
 let resolver: TenantContextResolver | undefined;

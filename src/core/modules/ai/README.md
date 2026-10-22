@@ -619,6 +619,12 @@ them:
   so `mongooseTenantPlugin` filters by the tenant the guard validated. Without a tenant header there
   is no tenant scope on these routes and tenant-scoped reads are refused (403) — an AI client is
   never broader than its user, at worst narrower.
+  An **MCP OAuth access token** is accepted only by the MCP controller, after the guards ran without a
+  user. Since 11.43.3 the controller gives such a request what the guard gives a user it saw: the user
+  on the request (so `RequestContext.currentUser`, the audit fields and `mongooseRoleGuardPlugin` see
+  it), and the tenant the header names — only when the user is an ACTIVE member of it, through the
+  guard's own check (`CoreTenantGuard.resolveMembershipContext()`). Before, every tenant-scoped tool
+  answered "Tenant context required" to an OAuth client, even for a member.
 - **Service-level rules** apply on every entry point when the service enforces them itself —
   `assertTenantRole()` (see the tenant module README) — instead of relying on a controller's
   `@Roles()`, which a tool calling the service never passes through.

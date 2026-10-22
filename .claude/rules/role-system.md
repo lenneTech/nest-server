@@ -429,6 +429,14 @@ Three mechanisms keep those paths inside the user's rights:
 | AI tools (chat and `/ai/mcp`) | `AiToolRegistry.userCanAccess()` resolves tool roles like the guard under multi-tenancy (global vs membership role, `adminBypass` honoured), with the user as of the CURRENT request — an MCP session refreshes it on every request |
 | Data | `mongooseTenantPlugin` via `RequestContext` — tools run inside the HTTP request, so the validated tenant scopes them |
 
+**A route that authenticates its caller itself (11.43.3).** `@Roles(S_EVERYONE)` routes that resolve
+their own credential — `/ai/mcp` with an MCP OAuth access token — run AFTER the guards saw no user, so
+nothing turned the tenant header into a context and `RequestContext.currentUser` stayed empty (read as
+system work by the Mongoose plugins). `CoreAiMcpController.scopeLateResolvedUser()` now sets `req.user`
+and asks `CoreTenantGuard.resolveMembershipContext()` (via `core-tenant-context.registry.ts`), the
+guard's own `S_EVERYONE` decision. When you add such a route, do the same — never take the header's
+tenant at face value (mutations `mcp-oauth-user-tenant-unscoped`, `mcp-oauth-tenant-from-header`).
+
 **System work vs. an anonymous request.** Both have no current user. `assertTenantRole()` exempts
 system work (cron, migration, seed) and refuses the anonymous caller of a public route with 401 — told
 apart by `RequestContext.fromRequest`, which `RequestContextMiddleware` and the GraphQL WebSocket

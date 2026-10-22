@@ -2859,6 +2859,39 @@
         "tests/unit/better-auth-base-url.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-user-tenant-unscoped",
+      "defect": "11.43.2 and earlier — the MCP OAuth access token is resolved inside CoreAiMcpController, after the guards, so CoreTenantGuard saw no user and never turned the tenant header into a context. Every tenant-scoped tool answered \"Tenant context required\" to an active member of the very tenant the header named, while a session cookie or a Better-Auth JWT reached the data. Found in a consumer project.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "      await this.scopeLateResolvedUser(req, user);\n",
+      "replace": "",
+      "specs": [
+        "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-user-not-on-request",
+      "defect": "11.43.2 and earlier — for a user the MCP controller resolved itself, req.user stayed unset, so RequestContext.currentUser (read lazily from it) was empty. The Mongoose plugins read that as SYSTEM work: no createdBy/updatedBy, mongooseRoleGuardPlugin let a tool write change roles unchecked, and assertTenantRole() refused the call as anonymous.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    (req as any).user = user;\n",
+      "replace": "",
+      "specs": [
+        "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-tenant-from-header",
+      "defect": "11.43.3 fix, refusal half — a tenant for an MCP OAuth user must come from an ACTIVE membership in the tenant the header names. Taking the header at face value would hand any authenticated caller every tenant it can name; a freely chosen X-Tenant-Id is harmless only because of the membership check.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "    return (await this.memberTenantContext(user, tenantId)) ?? {};\n",
+      "replace": "    return { tenantId };\n",
+      "specs": [
+        "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

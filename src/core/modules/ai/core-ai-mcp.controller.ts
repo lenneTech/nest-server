@@ -7,6 +7,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RoleEnum } from '../../common/enums/role.enum';
 import { ConfigService } from '../../common/services/config.service';
 import { CoreRedisService } from '../../common/services/core-redis.service';
+import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry';
 import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
 import { ErrorCode } from '../error-code/error-codes';
 import { getMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry';
@@ -36,7 +37,9 @@ import { AiToolUser } from './tools/ai-tool.registry';
  *
  * When `ai.mcp.oauth` is enabled, the handler additionally accepts OAuth 2.1 access
  * tokens (endpoints mounted by `CoreAiMcpOAuthInitializer`); otherwise it authenticates via
- * Bearer/session token.
+ * Bearer/session token. A user resolved here rather than by the guards — the OAuth token always —
+ * gets the request scope the guards would have given it (`req.user`, and a tenant from an active
+ * membership in the tenant the header names): see {@link CoreAiMcpController.scopeLateResolvedUser}.
  *
  * ## Multi-replica
  *
@@ -121,7 +124,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
   })
   @Post()
   async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const user = await this.resolveUser(req);
+    const user = await this.resolveScopedUser(req);
     if (!user?.id) {
       this.unauthorized(res);
       return;
@@ -275,6 +278,59 @@ export class CoreAiMcpController implements OnModuleDestroy {
   }
 
   /**
+   * {@link resolveUser}, plus — for a user resolved HERE rather than seen by the guards — the request
+   * scope the guards give a user they saw (see {@link scopeLateResolvedUser}).
+   *
+   * Whether the guards saw the user is read BEFORE `resolveUser()` runs, so an override of it that sets
+   * `req.user` itself still counts as resolved late.
+   */
+  protected async resolveScopedUser(req: Request): Promise<any | null> {
+    const seenByGuards = !!(req as any).user?.id;
+    const user = await this.resolveUser(req);
+    if (user?.id && !seenByGuards) {
+      await this.scopeLateResolvedUser(req, user);
+    }
+    return user;
+  }
+
+  /**
+   * Give a request whose user this controller resolved itself what the guards give a request whose
+   * user they saw: the user on the request, and a tenant from an active membership only.
+   *
+   * The guards run before this controller, and an MCP OAuth access token is accepted by nothing else
+   * — so `CoreTenantGuard` found no `request.user` and never turned the tenant header into a context.
+   * In 11.43.2 and earlier that left two things behind:
+   * - **No tenant scope.** Every tenant-scoped tool answered "Tenant context required", even with a
+   *   tenant header naming a tenant the user is an active member of. Fail-closed, but unusable.
+   * - **No current user in `RequestContext`**, which reads `req.user` lazily. The Mongoose plugins read
+   *   that as SYSTEM work: no `createdBy` / `updatedBy`, `mongooseRoleGuardPlugin` let a tool's write
+   *   change roles, and `assertTenantRole()` refused the call as anonymous.
+   *
+   * The tenant comes from `CoreTenantGuard.resolveMembershipContext()`, the same decision its
+   * `@Roles(S_EVERYONE)` branch makes for a user it saw — so an OAuth token, a session cookie and a
+   * Better-Auth JWT reach the same scope. The header alone never establishes one: a tenant the user is
+   * not an active member of yields none, and the plugin's safety net refuses the read.
+   */
+  protected async scopeLateResolvedUser(req: Request, user: { id: string; roles?: string[] }): Promise<void> {
+    (req as any).user = user;
+
+    const config = ConfigService.configFastButReadOnly?.multiTenancy;
+    if (!config || config.enabled === false || (req as any).tenantId) {
+      return;
+    }
+    const headerName = (config.headerName ?? 'x-tenant-id').toLowerCase();
+    const header = req.headers?.[headerName];
+    const resolved = await getTenantContextResolver()?.resolveMembership?.(
+      user,
+      typeof header === 'string' ? header : undefined,
+    );
+    if (resolved?.tenantId) {
+      (req as any).tenantId = resolved.tenantId;
+      (req as any).tenantRole = resolved.tenantRole;
+    }
+  }
+
+  /**
    * Whether the body is an `initialize` — the one request that legitimately starts a session.
    *
    * A batch counts when any member is an initialize, matching how the SDK transport reads it.
@@ -298,7 +354,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
    * Forward a GET (SSE stream) or DELETE (close) to the session's transport.
    */
   private async handleSessionRequest(req: Request, res: Response): Promise<void> {
-    const user = await this.resolveUser(req);
+    const user = await this.resolveScopedUser(req);
     if (!user?.id) {
       this.unauthorized(res);
       return;

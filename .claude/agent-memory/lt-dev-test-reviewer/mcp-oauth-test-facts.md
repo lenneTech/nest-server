@@ -32,4 +32,23 @@ findings; suite deterministic (unit 3x, e2e 3x incl. `--retry=0`).
 - `issuedCodes()` in the lifecycle spec reads the memory connection's `aiMcpOAuthCodes` docs — verify the
   name still matches `codesCollection` if it changes, or every "no code issued" assertion goes vacuous.
 
+## 11.43.3 — tenant scope for OAuth-token MCP requests (reviewed 2026-10-22, zero findings)
+
+- **Signing a token with `signAccessToken()` directly is legitimate in resource-side specs.** The token
+  endpoint mints with the same `signAccessToken(userId, clientId, ttl)`, and the resource
+  (`CoreAiMcpController.resolveUser`) checks only HMAC + `type` + `exp`, then `loadUser(sub)` →
+  `{ id, roles }`. `cid` is never consulted there, so an unregistered client id hides nothing.
+  `ai-mcp-oauth.e2e-spec.ts` covers the full chain (consent → token → `mcpSession`).
+- **`isTenantActive` on the OAuth path is pinned only through the shared helper.** `resolveMembershipContext()`
+  and the guard's S_EVERYONE branch both call `memberTenantContext()`. The deactivated-tenant check
+  inside it is pinned by the `tenant-active.e2e-spec.ts` public-route case (mutation
+  `tenant-active-hook-ignored`). A refactor that stops `resolveMembershipContext` calling the helper
+  would escape every test, so re-check that call when the method is touched.
+- **The "reuse `resolve()` instead of `resolveMembership()`" mistake is caught** by the no-header case:
+  `resolveTenantContext` without a header returns `tenantIds`, so the plugin filters `$in` and the tool
+  returns data where `Tenant context required` is expected. A pure admin-bypass variant is not
+  exercised (the spec has no admin user).
+- The tool result is `JSON.stringify(result)` directly (not `{ data, success }`), so `session.callTool().json`
+  is the tool's own return value.
+
 Related: [[ai-module-test-coverage]], [[scratch-copy-mutation-check]].

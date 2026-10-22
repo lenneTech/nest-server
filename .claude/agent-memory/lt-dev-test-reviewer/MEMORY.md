@@ -18,6 +18,6 @@
 - [Windows Unit Job Path Separators](windows-unit-job-path-separators.md) — Windows CI runs vitest:unit; structural specs comparing relative() to '/' literals fail there only. Normalise with split(sep).join('/').
 - [E2E Run Governor Test Facts](e2e-run-governor-test-facts.md) — vitest 4 `maxWorkers: undefined` safe; importing the e2e config unlinks slots (pin LT_E2E_SLOT_DIR); umask 077 hollows the 0700 test only.
 - [Nest Exception-Filter Transport Facts](nest-exception-filter-transport-facts.md) — APP_FILTER returning undefined: REST must answer itself, GraphQL hands back, ws never reached; filter order; log-after-json is deterministic.
-- [MCP OAuth Test Facts](mcp-oauth-test-facts.md) — 11.43.0: mounted-after-not-found mutation is a proxy (dup class member); CSRF specs need disableOriginCheck:false; SDK per-router rate limits.
+- [MCP OAuth Test Facts](mcp-oauth-test-facts.md) — 11.43.0 proxy mutation + CSRF flag; 11.43.3: signAccessToken direct is OK, isTenantActive pinned only via shared helper.
 - [Better-Auth JWT Key + baseURL Facts](better-auth-jwt-key-and-baseurl-facts.md) — 1.7.7 signs with newest live key (epoch test key safe); static baseURL ignores request host; scratch probe for issuer-refusal cases.
 - [FRAMEWORK-API Generator Probe](framework-api-generator-probe.md) — generator has no spec; scratch-copy probe (sed ROOT/OUTPUT + NODE_PATH tsx) for its date-only skip; why the gap is not High.

@@ -34,6 +34,7 @@ Performance profile of the AI module (`src/core/modules/ai/`), reassessed 2026-0
 - Capability auto-detection persisted (`detectAndPersistCapabilities`) → not probed every prompt.
 - Context-window detection persisted on the connection doc (Ollama probe + known-model heuristic).
 - Prompt builder runs `approvedHints` only when `hintService` wired and learning is enabled.
+- MCP OAuth late scoping (`resolveScopedUser` → `scopeLateResolvedUser`, 11.43.3, reviewed 2026-10-22): an OAuth caller with a tenant header pays ONE membership `findOne` (`{user,tenant,status}` compound index, guard's 30 s positive-only cache, bounded 500) — exactly what the guard's `S_EVERYONE` branch charges a cookie/JWT caller. No double lookup: skipped when the guards already saw `req.user` or `req.tenantId` is set; no header / no multiTenancy / no registered tenant guard → zero DB. Pre-existing per-request OAuth cost (not cached): failed Better-Auth `verifyAndLoadUser` attempt + HMAC verify + `users.findOne({_id}, {roles})` via `loadUser()`.
 
 **Prompt-catalog token duplication for NATIVE providers (measured 2026-07-22, still open):**
 The `tool_catalog` prompt fragment has `capability: 'native'` as well as an emulated twin, so a native
