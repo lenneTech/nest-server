@@ -1,6 +1,6 @@
 import { CustomScalar, Scalar } from '@nestjs/graphql';
 
-import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
+import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper.js';
 
 /**
  * Date-Timestamp-Scalar to convert timestamp to date and vice versa

@@ -1,9 +1,9 @@
 import { Query, Resolver } from '@nestjs/graphql';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { CoreHealthCheckResult } from './core-health-check-result.model';
-import { CoreHealthCheckService } from './core-health-check.service';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { CoreHealthCheckResult } from './core-health-check-result.model.js';
+import { CoreHealthCheckService } from './core-health-check.service.js';
 
 /**
  * Resolver to process with user data

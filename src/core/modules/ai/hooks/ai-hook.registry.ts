@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { AiHookEvent, AiHookPreDecision, IAiHook } from '../interfaces/ai-hook.interface';
-import { IAiTool } from '../interfaces/ai-tool.interface';
-import { CoreAiResponse } from '../models/core-ai-response.model';
+import { AiHookEvent, AiHookPreDecision, IAiHook } from '../interfaces/ai-hook.interface.js';
+import { IAiTool } from '../interfaces/ai-tool.interface.js';
+import { CoreAiResponse } from '../models/core-ai-response.model.js';
 
 /**
  * Global registry of AI lifecycle hooks (PreToolUse / PostToolUse / SessionStart /

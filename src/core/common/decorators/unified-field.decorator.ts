@@ -1,8 +1,6 @@
-import { Field, FieldOptions, HideField } from '@nestjs/graphql';
-import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage.js';
+import { Field, FieldOptions, HideField, TypeMetadataStorage } from '@nestjs/graphql';
 import { Prop, PropOptions } from '@nestjs/mongoose';
 import { ApiHideProperty, ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
-import type { EnumAllowedTypes } from '@nestjs/swagger/dist/interfaces/schema-object-metadata.interface.js';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -21,13 +19,20 @@ import {
 } from 'class-validator';
 import { GraphQLScalarType, isEnumType } from 'graphql';
 
-import { RoleEnum } from '../enums/role.enum';
+import { RoleEnum } from '../enums/role.enum.js';
 // Re-exported below so no import path broke. The map moved into an import-free leaf because
 // `restricted.decorator` — which this file imports — now READS it; see that leaf's docblock.
-import { nestedTypeRegistry } from './nested-type.registry';
-import { Restricted, RestrictedType } from './restricted.decorator';
+import { nestedTypeRegistry } from './nested-type.registry.js';
+import { Restricted, RestrictedType } from './restricted.decorator.js';
 
-export { nestedTypeRegistry, resolveNestedType } from './nested-type.registry';
+/**
+ * The value shapes `@ApiProperty({ enum })` accepts. Derived from the public `ApiPropertyOptions`
+ * because `@nestjs/swagger` 12 declares an `exports` map that no longer lets the type be imported
+ * from `dist/interfaces/schema-object-metadata.interface.js`, where it is defined.
+ */
+type EnumAllowedTypes = NonNullable<ApiPropertyOptions['enum']>;
+
+export { nestedTypeRegistry, resolveNestedType } from './nested-type.registry.js';
 
 /**
  * Registry to map enum objects to their names.

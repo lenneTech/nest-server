@@ -2,23 +2,23 @@ import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { CrudService } from '../../../common/services/crud.service';
-import { RequestContext } from '../../../common/services/request-context.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiSlotCreateInput } from '../inputs/core-ai-slot-create.input';
-import { CoreAiSlotUpdateInput } from '../inputs/core-ai-slot-update.input';
-import { AiSlotDocument, CoreAiSlot } from '../models/core-ai-slot.model';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import { RequestContext } from '../../../common/services/request-context.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { CoreAiSlotCreateInput } from '../inputs/core-ai-slot-create.input.js';
+import { CoreAiSlotUpdateInput } from '../inputs/core-ai-slot-update.input.js';
+import { AiSlotDocument, CoreAiSlot } from '../models/core-ai-slot.model.js';
 
-import { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants';
+import { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants';
+export { AI_SLOT_CLASS, AI_SLOT_MODEL } from '../core-ai.constants.js';
 
 /** A resolved prompt fragment ready for placeholder rendering + assembly. */
 export interface ResolvedPromptFragment {

@@ -4,30 +4,30 @@ import { ModulesContainer } from '@nestjs/core';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-import { getMountedMcpOAuth } from '../../modules/ai/helpers/ai-mcp-oauth.registry';
-import { resolveApiTokenConfig } from '../../modules/api-token/core-api-token.helpers';
-import { API_TOKEN_SCOPES_KEY } from '../../modules/api-token/core-api-token.constants';
-import { CoreAuthController } from '../../modules/auth/core-auth.controller';
-import { isLegacyEndpointEnabled } from '../../modules/auth/helpers/legacy-endpoints.helper';
-import { resolveBetterAuthSessionCookieName } from '../../modules/better-auth/better-auth-cookie-prefix.helper';
+import { getMountedMcpOAuth } from '../../modules/ai/helpers/ai-mcp-oauth.registry.js';
+import { resolveApiTokenConfig } from '../../modules/api-token/core-api-token.helpers.js';
+import { API_TOKEN_SCOPES_KEY } from '../../modules/api-token/core-api-token.constants.js';
+import { CoreAuthController } from '../../modules/auth/core-auth.controller.js';
+import { isLegacyEndpointEnabled } from '../../modules/auth/helpers/legacy-endpoints.helper.js';
+import { resolveBetterAuthSessionCookieName } from '../../modules/better-auth/better-auth-cookie-prefix.helper.js';
 import {
   isBetterAuthOpenApiPath,
   isControllerHandledPath,
   isUnavailableOperation,
   switchedOffBetterAuthPaths,
-} from '../../modules/better-auth/core-better-auth-openapi.helper';
-import { CoreBetterAuthUserMapper } from '../../modules/better-auth/core-better-auth-user.mapper';
-import { CoreBetterAuthController } from '../../modules/better-auth/core-better-auth.controller';
-import { CoreBetterAuthService } from '../../modules/better-auth/core-better-auth.service';
-import { CoreHubActionsController } from '../../modules/hub/core-hub-actions.controller';
-import { CoreHubController } from '../../modules/hub/core-hub.controller';
-import { isHubEnabled, normalizeHubConfig } from '../../modules/hub/hub-config.helper';
-import { SKIP_TENANT_CHECK_KEY } from '../../modules/tenant/core-tenant.decorators';
-import { API_METHODS_KEY } from '../decorators/api-methods.decorator';
-import { mergeRolesMetadata } from '../../modules/tenant/core-tenant.helpers';
-import { RoleEnum } from '../enums/role.enum';
-import { ConfigService } from '../services/config.service';
-import { isCookiesEnabled } from './cookies.helper';
+} from '../../modules/better-auth/core-better-auth-openapi.helper.js';
+import { CoreBetterAuthUserMapper } from '../../modules/better-auth/core-better-auth-user.mapper.js';
+import { CoreBetterAuthController } from '../../modules/better-auth/core-better-auth.controller.js';
+import { CoreBetterAuthService } from '../../modules/better-auth/core-better-auth.service.js';
+import { CoreHubActionsController } from '../../modules/hub/core-hub-actions.controller.js';
+import { CoreHubController } from '../../modules/hub/core-hub.controller.js';
+import { isHubEnabled, normalizeHubConfig } from '../../modules/hub/hub-config.helper.js';
+import { SKIP_TENANT_CHECK_KEY } from '../../modules/tenant/core-tenant.decorators.js';
+import { API_METHODS_KEY } from '../decorators/api-methods.decorator.js';
+import { mergeRolesMetadata } from '../../modules/tenant/core-tenant.helpers.js';
+import { RoleEnum } from '../enums/role.enum.js';
+import { ConfigService } from '../services/config.service.js';
+import { isCookiesEnabled } from './cookies.helper.js';
 
 import type { INestApplication, Type } from '@nestjs/common';
 import type {
@@ -38,11 +38,14 @@ import type {
   ReferenceObject,
   TagObject,
 } from '@nestjs/swagger';
-import type { IMountedMcpOAuth } from '../../modules/ai/helpers/ai-mcp-oauth.registry';
-import type { IBetterAuthOpenApiDocument } from '../../modules/better-auth/core-better-auth-openapi.helper';
-import type { ResolvedHubConfig } from '../../modules/hub/interfaces/hub-config.interface';
-import type { IServerOptions } from '../interfaces/server-options.interface';
-import type { ISwaggerApiTokenViewOptions, ISwaggerSetupOptions } from '../interfaces/swagger-setup-options.interface';
+import type { IMountedMcpOAuth } from '../../modules/ai/helpers/ai-mcp-oauth.registry.js';
+import type { IBetterAuthOpenApiDocument } from '../../modules/better-auth/core-better-auth-openapi.helper.js';
+import type { ResolvedHubConfig } from '../../modules/hub/interfaces/hub-config.interface.js';
+import type { IServerOptions } from '../interfaces/server-options.interface.js';
+import type {
+  ISwaggerApiTokenViewOptions,
+  ISwaggerSetupOptions,
+} from '../interfaces/swagger-setup-options.interface.js';
 
 /**
  * Swagger setup that describes how a route is actually reached (since 11.42.7).
@@ -87,10 +90,20 @@ export const SWAGGER_API_TOKEN_SCOPES_EXTENSION = 'x-api-token-scopes';
 
 /**
  * Fields of an OpenAPI path item that are not operations. Every other key is an operation: they are read
- * from the path item rather than from a list of HTTP methods, because `@All()` makes @nestjs/swagger emit
- * a `search` operation too, which no OpenAPI version lists — a fixed list left it unenriched.
+ * from the path item rather than from a list of HTTP methods, so a method outside the usual set is
+ * enriched like any other.
  */
 const PATH_ITEM_FIELDS = new Set(['$ref', 'description', 'parameters', 'servers', 'summary']);
+
+/**
+ * OpenAPI 3.2's container for operations whose method is outside the fixed set, keyed by the method in
+ * upper case (`SEARCH`, `QUERY`). @nestjs/swagger 12 emits `@All()` as these methods too: into this
+ * container when the document is 3.2 (`configureBuilder` → `setOpenAPIVersion('3.2.0')`), and not at all
+ * in the default 3.0 document. Until 11.x it wrote a bare `search` key, which no OpenAPI version allows.
+ * The container is neither an operation nor a path-level field: its entries are operations in their own
+ * right, and every reader and writer here goes through {@link operationsOf} / {@link removeOperation}.
+ */
+const ADDITIONAL_OPERATIONS = 'additionalOperations';
 
 /** An operation with the vendor extension this helper writes */
 type EnrichedOperation = OperationObject & { [SWAGGER_API_TOKEN_SCOPES_EXTENSION]?: string[] };
@@ -290,7 +303,7 @@ export function buildSwaggerDocument(
 
   for (const [path, method] of switchedOff) {
     const item = document.paths[path] as Record<string, unknown>;
-    delete item[method];
+    removeOperation(item, method);
     if (!operationsOf(document.paths[path]).length) {
       delete document.paths[path];
     }
@@ -699,8 +712,8 @@ export function buildApiTokenSwaggerDocument(
 
   const paths: OpenAPIObject['paths'] = {};
   for (const [path, item] of Object.entries(view.paths)) {
-    const kept: Record<string, EnrichedOperation> = {};
-    for (const [method, operation] of operationsOf(item)) {
+    const kept: Record<string, unknown> = {};
+    for (const [method, operation, additional] of operationsOf(item)) {
       if (!operation[SWAGGER_API_TOKEN_SCOPES_EXTENSION]?.length) {
         continue;
       }
@@ -711,7 +724,7 @@ export function buildApiTokenSwaggerDocument(
             !isRef(parameter) || parameter.$ref !== `#/components/parameters/${SWAGGER_TENANT_HEADER_PARAMETER}`,
         );
       }
-      kept[method] = operation;
+      putOperation(kept, method, operation, additional);
     }
     if (Object.keys(kept).length) {
       paths[path] = { ...pathLevelFields(item), ...kept };
@@ -909,11 +922,57 @@ function isPathItemField(key: string): boolean {
   return PATH_ITEM_FIELDS.has(key) || key.startsWith('x-');
 }
 
-/** The operations of a path item, keyed by their lower-case HTTP method (`get`, ..., `search`). */
-function operationsOf(item: PathItemObject): [string, EnrichedOperation][] {
-  return Object.entries(item).filter(
-    ([key, value]) => !isPathItemField(key) && typeof value === 'object' && value !== null && !Array.isArray(value),
-  ) as [string, EnrichedOperation][];
+function isOperationValue(value: unknown): value is EnrichedOperation {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The operations of a path item, keyed by their lower-case HTTP method (`get`, ..., `search`) — those
+ * in OpenAPI 3.2's `additionalOperations` included, marked by the third element.
+ */
+function operationsOf(item: PathItemObject): [string, EnrichedOperation, boolean][] {
+  const standard = Object.entries(item)
+    .filter(([key, value]) => !isPathItemField(key) && key !== ADDITIONAL_OPERATIONS && isOperationValue(value))
+    .map(([key, value]) => [key, value, false] as [string, EnrichedOperation, boolean]);
+  const additional = Object.entries((item as Record<string, unknown>)[ADDITIONAL_OPERATIONS] ?? {})
+    .filter(([, value]) => isOperationValue(value))
+    .map(([key, value]) => [key.toLowerCase(), value, true] as [string, EnrichedOperation, boolean]);
+  return [...standard, ...additional];
+}
+
+/** Store an operation where {@link operationsOf} found it: a method key, or `additionalOperations`. */
+function putOperation(
+  item: Record<string, unknown>,
+  method: string,
+  operation: EnrichedOperation,
+  additional: boolean,
+): void {
+  if (!additional) {
+    item[method] = operation;
+    return;
+  }
+  const container = (item[ADDITIONAL_OPERATIONS] ??= {}) as Record<string, unknown>;
+  container[method.toUpperCase()] = operation;
+}
+
+/** Remove an operation wherever it is stored, and an `additionalOperations` it leaves empty. */
+function removeOperation(item: Record<string, unknown>, method: string): void {
+  if (method !== ADDITIONAL_OPERATIONS && method in item) {
+    delete item[method];
+    return;
+  }
+  const container = item[ADDITIONAL_OPERATIONS] as Record<string, unknown> | undefined;
+  if (!container) {
+    return;
+  }
+  for (const key of Object.keys(container)) {
+    if (key.toLowerCase() === method) {
+      delete container[key];
+    }
+  }
+  if (!Object.keys(container).length) {
+    delete item[ADDITIONAL_OPERATIONS];
+  }
 }
 
 /** Fields of a path item that are not operations (summary, description, servers, shared parameters). */

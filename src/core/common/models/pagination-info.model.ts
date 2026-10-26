@@ -1,6 +1,6 @@
 import { ObjectType } from '@nestjs/graphql';
 
-import { UnifiedField } from '../decorators/unified-field.decorator';
+import { UnifiedField } from '../decorators/unified-field.decorator.js';
 
 /**
  * Pagination information for paginated queries

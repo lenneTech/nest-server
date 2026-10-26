@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { AiToolContext, AiToolResult } from '../interfaces/ai-tool.interface';
-import { AiTool } from './ai-tool.base';
-import { AiToolRegistry } from './ai-tool.registry';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { AiToolContext, AiToolResult } from '../interfaces/ai-tool.interface.js';
+import { AiTool } from './ai-tool.base.js';
+import { AiToolRegistry } from './ai-tool.registry.js';
 
 /**
  * Built-in **meta-tool** for the "deferred tool-schemas" mode

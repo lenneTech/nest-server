@@ -1,6 +1,6 @@
-import { GLOBAL_ONLY_ROLES, isSystemRole, looksLikeSystemRole } from '../../common/enums/role.enum';
-import { ConfigService } from '../../common/services/config.service';
-import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums';
+import { GLOBAL_ONLY_ROLES, isSystemRole, looksLikeSystemRole } from '../../common/enums/role.enum.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums.js';
 
 /**
  * Where a role's authority comes from — and therefore which source may answer it.

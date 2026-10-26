@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
  *   THEIR codebase, re-delivered on every core update, run by nobody.
  *
  * Co-location is a fine default for an application. For a library whose `src/` is the delivery,
- * the separation wins. The runner's include glob (`vitest.include-globs.ts`) no longer even looks
+ * the separation wins. The runner's include glob (`vitest.include-globs.mts`) no longer even looks
  * at `src/`, so a spec placed there would not run — this test makes that visible as a failure
  * rather than as silently skipped coverage.
  */

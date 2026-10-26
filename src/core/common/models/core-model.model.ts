@@ -1,4 +1,4 @@
-import { map } from '../helpers/model.helper';
+import { map } from '../helpers/model.helper.js';
 
 /**
  * Core Model

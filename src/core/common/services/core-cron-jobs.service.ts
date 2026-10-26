@@ -1,15 +1,25 @@
-import { OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import { Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 
-import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface';
-import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface';
-import { Falsy } from '../types/falsy.type';
-import { getCronJobsInfrastructure } from './core-cron-jobs.registry';
+import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface.js';
+import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface.js';
+import { Falsy } from '../types/falsy.type.js';
+import { getCronJobsInfrastructure } from './core-cron-jobs.registry.js';
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from './core-redis.service.js';
 import type { Redis } from 'ioredis';
 import type { Connection } from 'mongoose';
+
+/**
+ * One logger for every cron message, through Nest's logger so levels, JSON mode and a project's custom logger apply.
+ * Module-level rather than a class member on purpose: a project `CronJobs extends CoreCronJobs` that declares its
+ * own `logger` field (a common shape) would otherwise stop compiling.
+ */
+const cronLogger = new Logger('CronJobs');
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorStack = (error: unknown): string | undefined => (error instanceof Error ? error.stack : undefined);
 
 /**
  * Collection holding the per-tick cron leases.
@@ -137,7 +147,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    */
   async onApplicationBootstrap(): Promise<void> {
     if (this.config.log) {
-      console.info('Init CronJobs after application bootstrap');
+      cronLogger.log('Init CronJobs after application bootstrap');
     }
     await this.initCronJobs();
   }
@@ -154,7 +164,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     const results = await Promise.allSettled([this.bullWorker?.close(), this.bullQueue?.close()]);
     for (const result of results) {
       if (result.status === 'rejected') {
-        console.error('BullMQ shutdown failed', result.reason);
+        cronLogger.error(`BullMQ shutdown failed: ${errorMessage(result.reason)}`, errorStack(result.reason));
       }
     }
     this.bullWorker = undefined;
@@ -217,7 +227,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       // check if cron job exists
       if (!this[name]) {
         if (this.config.log) {
-          console.info(`Missing cron job function ${name}`);
+          cronLogger.warn(`Missing cron job function ${name}`);
         }
         continue;
       }
@@ -232,7 +242,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
           bullScheduled.add(name);
           continue;
         }
-        console.debug(
+        cronLogger.debug(
           `CronJob ${name} cannot be expressed as BullMQ scheduler (${
             typeof config.cronTime === 'string' ? 'utcOffset is set' : 'cronTime is a Date'
           }), falling back to a local timer with lease`,
@@ -285,7 +295,10 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
         // DUPLICATE run, and treating an unreachable Redis as "someone else won" would
         // instead stop every scheduled job on every replica — a silent, fleet-wide outage
         // of all cron work, which is the worse failure of the two.
-        console.error(`Cron lease for ${leaseKey} failed on Redis, running the tick anyway`, e);
+        cronLogger.error(
+          `Cron lease for ${leaseKey} failed on Redis, running the tick anyway: ${errorMessage(e)}`,
+          errorStack(e),
+        );
         return true;
       }
     }
@@ -311,7 +324,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
         this.logSkippedTick(leaseKey);
         return false;
       }
-      console.error(`Cron lease for ${leaseKey} failed, running the tick anyway`, e);
+      cronLogger.error(`Cron lease for ${leaseKey} failed, running the tick anyway: ${errorMessage(e)}`, errorStack(e));
       return true;
     }
   }
@@ -328,7 +341,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
         .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
         .then(() => undefined)
         .catch((e) => {
-          console.error('Could not create TTL index on cron lock collection', e);
+          cronLogger.error(`Could not create TTL index on cron lock collection: ${errorMessage(e)}`, errorStack(e));
         });
     }
     return this.leaseIndexReady;
@@ -386,10 +399,10 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     let bullmq: any;
     try {
       bullmq = await this.importBullMq();
-    } catch {
-      console.warn(
-        'Redis is configured but the optional peer dependency "bullmq" is not installed — cron jobs fall back to ' +
-          'per-tick MongoDB leases. Run: pnpm add bullmq',
+    } catch (error) {
+      cronLogger.warn(
+        `Redis is configured but the optional peer dependency "bullmq" could not be loaded (${errorMessage(error)}) — ` +
+          'cron jobs fall back to per-tick MongoDB leases. If it is missing: pnpm add bullmq',
       );
       return false;
     }
@@ -432,7 +445,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     // promise from run() and takes the fetch loop down with it — after which no replica runs
     // any job again. A transient error must stay transient.
     this.bullWorker.on('error', (error: Error) => {
-      console.error(`BullMQ cron worker error: ${error.message}`);
+      cronLogger.error(`BullMQ cron worker error: ${error.message}`, error.stack);
     });
 
     return true;
@@ -454,14 +467,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     if (!running()) {
       return;
     }
-    console.info(`Waiting up to ${timeoutMs}ms for ${running()} running cron job(s) to finish`);
+    cronLogger.log(`Waiting up to ${timeoutMs}ms for ${running()} running cron job(s) to finish`);
 
     while (running() && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     if (running()) {
-      console.warn(`${running()} cron job(s) still running after ${timeoutMs}ms — shutting down anyway`);
+      cronLogger.warn(`${running()} cron job(s) still running after ${timeoutMs}ms — shutting down anyway`);
     }
   }
 
@@ -489,12 +502,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       for (const scheduler of await this.bullQueue.getJobSchedulers()) {
         if (scheduler?.key && known.has(scheduler.key) && !active.has(scheduler.key)) {
           await this.bullQueue.removeJobScheduler(scheduler.key);
-          console.info(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
+          cronLogger.log(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
         }
       }
     } catch (error) {
       // Reconciliation is housekeeping: a failure here must not stop the jobs from starting.
-      console.warn('Failed to reconcile BullMQ job schedulers', error);
+      cronLogger.warn(`Failed to reconcile BullMQ job schedulers: ${errorMessage(error)}`);
     }
   }
 
@@ -510,7 +523,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       return;
     }
     this.bullWorker.concurrency = Math.max(1, Object.keys(this.jobConfigs).length);
-    this.bullWorker.run().catch((e: unknown) => console.error('BullMQ cron worker stopped', e));
+    this.bullWorker
+      .run()
+      .catch((e: unknown) => cronLogger.error(`BullMQ cron worker stopped: ${errorMessage(e)}`, errorStack(e)));
   }
 
   /**
@@ -518,7 +533,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    */
   protected logSkippedTick(leaseKey: string): void {
     if (this.config.log) {
-      console.debug(`CronJob tick ${leaseKey} skipped, lease held by another replica`);
+      cronLogger.debug(`CronJob tick ${leaseKey} skipped, lease held by another replica`);
     }
   }
 
@@ -564,7 +579,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     if (this.config.log) {
-      console.info(`CronJob ${name} initialized with "${config.cronTime}" (BullMQ scheduler)`);
+      cronLogger.log(`CronJob ${name} initialized with "${config.cronTime}" (BullMQ scheduler)`);
     }
   }
 
@@ -616,7 +631,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     ref.job = job;
     this.schedulerRegistry.addCronJob(name, job);
     if (this.config.log && this.schedulerRegistry.getCronJob(name)) {
-      console.info(`CronJob ${name} initialized with "${config.cronTime}"`);
+      cronLogger.log(`CronJob ${name} initialized with "${config.cronTime}"`);
     }
   }
 
@@ -636,7 +651,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    */
   protected runInitTick(name: string): void {
     this.runDistributedTick(name, 'init').catch((e) => {
-      console.error(`CronJob ${name} failed on its startup run`, e);
+      cronLogger.error(`CronJob ${name} failed on its startup run: ${errorMessage(e)}`, errorStack(e));
     });
   }
 
@@ -649,7 +664,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     if (!config) {
       // Returning quietly here is how a mis-timed BullMQ delivery got recorded as a
       // successful, completed tick. The guard stays, but it no longer stays silent.
-      console.warn(`CronJob tick for "${name}" dropped — no registered config`);
+      cronLogger.warn(`CronJob tick for "${name}" dropped — no registered config`);
       return;
     }
 
@@ -680,7 +695,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       if (config.throwException) {
         throw e;
       } else {
-        console.error(e);
+        cronLogger.error(`CronJob ${name} failed: ${errorMessage(e)}`, errorStack(e));
       }
     }
 
@@ -696,7 +711,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       return;
     }
     this.dedupWarned = true;
-    console.warn(
+    cronLogger.warn(
       'Cron job deduplication is inactive: neither a Redis service nor a Mongoose connection was passed to ' +
         'CoreCronJobs. Every replica runs every tick.',
     );

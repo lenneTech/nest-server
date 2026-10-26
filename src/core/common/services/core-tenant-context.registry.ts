@@ -16,7 +16,7 @@
  * returns `true` without deciding anything. This registry is what lets the WebSocket path ask the
  * same question through the same membership logic and cache.
  */
-import type { IRequestContext } from './request-context.service';
+import type { IRequestContext } from './request-context.service.js';
 
 /** The tenant-relevant slice of a request context — everything the Mongoose tenant plugin reads. */
 export type ResolvedTenantContext = Pick<IRequestContext, 'isAdminBypass' | 'tenantId' | 'tenantIds' | 'tenantRole'>;

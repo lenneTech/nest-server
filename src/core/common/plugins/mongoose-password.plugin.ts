@@ -1,7 +1,7 @@
-import bcrypt = require('bcrypt');
+import bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
 
-import { ConfigService } from '../services/config.service';
+import { ConfigService } from '../services/config.service.js';
 
 /**
  * Mongoose plugin that automatically hashes passwords before saving to the database.

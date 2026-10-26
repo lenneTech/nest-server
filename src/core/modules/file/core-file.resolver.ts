@@ -1,13 +1,12 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';
-
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
-import { CoreFileInfo } from './core-file-info.model';
-import { CoreFileService } from './core-file.service';
-import { FileUpload } from './interfaces/file-upload.interface';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { GraphQLUpload } from '../../common/scalars/upload.scalar.js';
+import { SkipTenantCheck } from '../tenant/core-tenant.decorators.js';
+import { CoreFileInfo } from './core-file-info.model.js';
+import { CoreFileService } from './core-file.service.js';
+import type { FileUpload } from './interfaces/file-upload.interface.js';
 
 /**
  * File resolver

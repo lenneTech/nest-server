@@ -71,6 +71,20 @@ compatible with either downstream layout:
   repo's. The `src/server/` here is a framework-testing example, not
   a shipping component.
 
+- **ESM package (`"type": "module"`), source valid as CommonJS AND ESM
+  (12.0.0+).** CommonJS projects load the package through
+  `require(esm)` like every `@nestjs/*` package — so no top-level
+  `await` anywhere in it. `helpers/` (the TypeScript loader) and `bin/`
+  stay CommonJS through a directory `package.json`. A vendor-mode
+  project compiles the core with its own format. So in `src/core/`: relative imports end in `.js` / `/index.js`,
+  no `require()` / `__dirname` / `import x = require()` / `import.meta`
+  (use `createRequire()` for project files, `callerDirectory()` for
+  "this file's directory"), `import type` for types (`isolatedModules`),
+  no deep imports into `@nestjs/*` root-only packages, no relative
+  dynamic `import()`, and a dual package is lazy everywhere or static
+  everywhere. `pnpm run check:esm` proves it. See
+  `.claude/rules/architecture.md` → "Module Format".
+
 - **Keep top-level `src/index.ts` and `src/core.module.ts` consistent**
   with the core directory structure. The flatten-fix strips `./core/`
   from specifiers in these two files, so if you add re-exports there,
@@ -117,7 +131,7 @@ the update-agent contract.
 ```bash
 # Building & Running
 pnpm run build          # Build (outputs to dist/)
-pnpm start              # Start in local mode
+pnpm start              # Start in local mode (nodemon + SWC source loader — no type-check, `build` does that)
 pnpm run start:dev      # Development mode with watch
 
 # Testing (ALWAYS run before completing changes)
@@ -125,11 +139,11 @@ pnpm test               # Unit + E2E tests (Vitest); E2E half needs MongoDB
 pnpm run vitest:unit    # Unit tests only (fast, no MongoDB)
 pnpm run test:e2e       # E2E tests only
 pnpm run test:cov       # Both suites with coverage (coverage/unit + coverage/e2e)
-npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process   # Debug open handles
+npx vitest run --config vitest-e2e.config.mts --reporter=hanging-process   # Debug open handles
 pnpm run test:cleanup   # Remove leftover test artifacts (.txt, .bin, .png) — Node, runs on Windows too
 
 # Linting & Formatting
-pnpm run lint           # oxlint check
+pnpm run lint           # oxlint --type-aware (no-floating-promises is an error, as in NestJS 12's template)
 pnpm run lint:fix       # Auto-fix
 pnpm run format         # oxfmt format
 
@@ -145,6 +159,15 @@ pnpm run check:overrides # Cross-checks every pnpm override and every auditConfi
                         # See .claude/rules/package-management.md → "Overrides AGE"
 pnpm peers check        # pnpm 11 builtin: unmet/missing peer dependencies, read from the lockfile
 
+pnpm run typecheck:vendor # src/ under `module: commonjs`, declarations EMITTED and scanned — how a
+                        # vendor-mode project compiles the core. Fails on type errors and on
+                        # declarations naming a type via `typeof import()` or a package's /dist/ path
+                        # (break in a consumer's isolated pnpm layout). The nodenext build sees
+                        # neither; see .claude/rules/architecture.md → "Module Format"
+pnpm run check:esm      # Compiles what a vendor project receives as a "type": "module" package and
+                        # imports EVERY module — the proof that the core runs as ESM. Catches a
+                        # named import Node cannot see in a CJS package, a type imported as a value,
+                        # a missing `.js`; see .claude/rules/architecture.md → "Module Format"
 pnpm run check:swc-tdz  # SWC→CJS build, loads EVERY module as its own entry point.
                         # The only step that catches a temporal-dead-zone crash from an
                         # import cycle — tsc, vitest and oxlint are all blind to it.
@@ -236,7 +259,9 @@ boundary under `adminBypass: false`. User-entered URLs (webhooks, export targets
 Since 11.42.3 an **open GraphQL WebSocket** is re-checked, not trusted for its lifetime: at once on an
 invalidation (tenant guard, role change, password reset, sign-out), otherwise every
 `graphQl.subscriptionRevalidationMs` (30 s); changed rights close it with 4403 and the client
-reconnects. A custom `onConnect` must call `registerWsConnection()` to keep that.
+reconnects. A custom `onConnect` must call `registerWsConnection()` to keep that, and refuses a credential
+with `return refuseWsHandshake(extra.socket, reason)` (4401) — never by throwing (graphql-ws: 4500 + an
+"internal error" log line) or a bare `false` (4403, which the client retries) (12.0.0).
 
 See `.claude/rules/role-system.md` for complete documentation.
 

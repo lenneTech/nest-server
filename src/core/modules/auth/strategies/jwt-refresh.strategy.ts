@@ -3,9 +3,9 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Request, Request as RequestType } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
-import { CoreAuthService } from '../services/core-auth.service';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum.js';
+import { CoreAuthService } from '../services/core-auth.service.js';
 
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(Strategy, AuthGuardStrategy.JWT_REFRESH) {

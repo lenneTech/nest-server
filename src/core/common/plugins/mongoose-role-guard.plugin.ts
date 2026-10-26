@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../enums/role.enum';
-import { ConfigService } from '../services/config.service';
-import { RequestContext } from '../services/request-context.service';
+import { RoleEnum } from '../enums/role.enum.js';
+import { ConfigService } from '../services/config.service.js';
+import { RequestContext } from '../services/request-context.service.js';
 
 const logger = new Logger('mongooseRoleGuardPlugin');
 

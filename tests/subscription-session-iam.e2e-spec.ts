@@ -35,6 +35,13 @@ import { JSON as JSONScalar } from '../src/core/common/scalars/json.scalar';
  * @seen-failing Drop the signed session cookie from the headers `revokeSession()` passes in
  *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
  *   `iam-revoke-session-header-only` in tests/regression-mutations.json.
+ *
+ * @regression   12.0.0 — `onConnect` THREW on a token that authenticates nobody. graphql-ws's ws adapter
+ *   treats a throw as an internal error: it logged "Internal error occurred during message handling.
+ *   Please check your implementation." with a stack trace — in production, for every expired token —
+ *   and closed with 4500, a server error, instead of 4401.
+ * @seen-failing Throw instead of `refuseWsHandshake()` for an unknown IAM token in src/core.module.ts —
+ *   registered as mutation `iam-ws-handshake-refusal-throws` in tests/regression-mutations.json.
  */
 describe('IAM WebSocket handshake and session lifecycle (e2e)', () => {
   let app: INestApplication;
@@ -159,7 +166,8 @@ describe('IAM WebSocket handshake and session lifecycle (e2e)', () => {
     const socket = connect('not-a-session-token-at-all');
     await waitUntil(() => socket.connected || socket.closes.length > 0, 'handshake answered');
     expect(socket.connected).toBe(false);
-    expect(socket.closes[0].code).not.toBe(1000);
+    // 4401 Unauthorized: not retried by the graphql-ws client, and no "internal error" in the server log.
+    expect(socket.closes[0].code, 'refused as unauthorized, not as a server error (4500)').toBe(4401);
   });
 
   it('signs a session out for real: the token no longer authenticates afterwards', async () => {

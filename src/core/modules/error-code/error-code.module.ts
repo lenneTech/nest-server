@@ -1,8 +1,8 @@
 import { DynamicModule, Global, Module, Type } from '@nestjs/common';
 
-import { CoreErrorCodeController } from './core-error-code.controller';
-import { CoreErrorCodeService } from './core-error-code.service';
-import { IErrorCodeModuleConfig } from './interfaces/error-code.interfaces';
+import { CoreErrorCodeController } from './core-error-code.controller.js';
+import { CoreErrorCodeService } from './core-error-code.service.js';
+import { IErrorCodeModuleConfig } from './interfaces/error-code.interfaces.js';
 
 /**
  * Error Code Module

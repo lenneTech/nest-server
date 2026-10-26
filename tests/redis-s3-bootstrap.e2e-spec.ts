@@ -9,6 +9,7 @@ import { CoreS3Service } from '../src/core/common/services/core-s3.service';
 import { getCronJobsInfrastructure } from '../src/core/common/services/core-cron-jobs.registry';
 import envConfig from '../src/config.env';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { dropS3Buckets } from './helpers/s3-test-cleanup';
 
 /**
  * Boot the real CoreModule with Redis AND S3 configured.
@@ -38,6 +39,9 @@ const testConfig = {
   },
   s3: {
     accessKeyId: process.env.S3_ACCESS_KEY || 'rustfs',
+    // Created at boot (and removed in afterAll): without it the boot check reports the missing bucket as an
+    // ERROR on every green run — the configuration this suite wires up should be a working one.
+    autoCreateBucket: true,
     bucket: `nest-server-bootstrap-${Date.now()}-p${process.pid}`,
     endpoint: process.env.S3_ENDPOINT || 'http://localhost:9102',
     forcePathStyle: true,
@@ -62,6 +66,10 @@ describe('Bootstrap with Redis and S3 configured', () => {
   }, 60_000);
 
   afterAll(async () => {
+    const s3 = app?.get(CoreS3Service);
+    if (s3?.getClient()) {
+      await dropS3Buckets(s3.getClient(), [testConfig.s3.bucket]);
+    }
     await app?.close();
   });
 

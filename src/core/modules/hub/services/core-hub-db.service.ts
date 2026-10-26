@@ -1,20 +1,20 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import * as mongo from 'mongodb';
-import { Connection, Types } from 'mongoose';
+import { type Connection, Types } from 'mongoose';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreS3Service } from '../../../common/services/core-s3.service';
-import { ModelRegistry } from '../../../common/services/model-registry.service';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CoreS3Service } from '../../../common/services/core-s3.service.js';
+import { ModelRegistry } from '../../../common/services/model-registry.service.js';
 import {
   DEFAULT_FILESYSTEM_DIR,
   FILESYSTEM_FILES_COLLECTION,
   FilesystemFileHelper,
-} from '../../file/filesystem-file.helper';
-import { S3_FILES_COLLECTION, S3FileHelper } from '../../file/s3-file.helper';
-import { HubActionMessage } from '../hub-action-messages';
-import { HUB_CONFIG } from '../hub.constants';
-import { buildErDiagram, HubModelDescriptor, HubModelField } from '../helpers/hub-mermaid.helper';
+} from '../../file/filesystem-file.helper.js';
+import { S3_FILES_COLLECTION, S3FileHelper } from '../../file/s3-file.helper.js';
+import { HubActionMessage } from '../hub-action-messages.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { buildErDiagram, HubModelDescriptor, HubModelField } from '../helpers/hub-mermaid.helper.js';
 import {
   HubDbData,
   HubFilesData,
@@ -22,8 +22,8 @@ import {
   HubFileStoreSummary,
   HubModelsData,
   HubUnavailable,
-} from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+} from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 /**
  * Read-only MongoDB introspection for the DB, Models/ERD and Files panels.

@@ -1,4 +1,4 @@
-import { JwtPayload } from './jwt-payload.interface';
+import { JwtPayload } from './jwt-payload.interface.js';
 
 /**
  * Auth Provider Interface

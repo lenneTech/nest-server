@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server's pnpm overrides live, why a range-floored key does NOT prevent downgrades, how to test load-bearing vs inert honestly, and the per-entry status as of 2026-10-17 (pre-11.42.16)
+description: Where nest-server pnpm overrides live, why a range-floored key does NOT prevent downgrades, the two-fresh-resolve test, and the current state — since 2026-10-24 (12.0.0) only TWO entries (utils + multer, both on NestJS 12 exact pins); inert entries are removed, not kept as insurance
 metadata:
   type: project
 ---
@@ -12,10 +12,11 @@ stopped reading the `pnpm` field. `allowBuilds`, `auditConfig.ignoreGhsas`,
 `minimumReleaseAge`/`minimumReleaseAgeExclude`, `peerDependencyRules`, `nodeLinker` are
 all there too.
 
-**Why this matters:** the file's own header block tracks each entry as LOAD-BEARING or
-INERT, and that classification is part of the contract — an entry whose status changed
-but whose comment still claims the old status is worse than no comment, because the next
-maintainer trusts it.
+**Owner rule since 2026-10-24: an entry that changes nothing goes.** Kai: "Nicht mehr verwendete
+bitte entfernen (alles soll so sauber wie möglich sein)". "Cheap insurance against a parent
+re-pinning downwards" is NOT a reason to keep an entry — `pnpm audit` and `check:overrides` run in
+every `check` and report such a regression the day it happens. Each surviving entry states WHY it is
+load-bearing (advisory + upstream exact pin) and its removal condition.
 
 ## A range-floored key does NOT make an entry downgrade-proof
 
@@ -48,184 +49,40 @@ So an entry whose package is still in the tree (e.g. multer, pulled directly) ca
 reported UNUSED even when the entry itself fires on nothing. Under the coordinator's rule
 "remove only if UNUSED + no lockfile change", such an entry gets RAISED in lockstep instead.
 
-## Status 2026-09-26 (18 entries, none removed)
+## Current state (2026-10-24, nest-server 12.0.0): two entries
 
-Without the block, a fresh resolve has **zero** advisories (1069 versions) — no entry is
-security-load-bearing in this repo after the 11.41.4 direct bumps. minimatch is the only
-entry that still changes the tree (keeps 9.0.9 + brace-expansion 2.x out; both patched now).
-Seven downgrade locks found and raised: axios 1.20.0, browserslist 4.29.1, brace-expansion
-1.1.21 / 5.0.12 (2.x → 2.1.7 for consistency), fast-uri 3.1.8, hono 4.13.9, ip-address
-10.7.2, undici 7.30.0. Also raised: nanoid 3.3.19, postcss 8.5.28, multer 2.4.0 (lockstep with
-direct; inert since `@nestjs/platform-express@11.2.6` exact-pins 2.4.0, but mirrored for
-consumers in `docs/security-overrides.md`). Unchanged: qs, ws, js-yaml x2, minimatch,
-body-parser. After the raise, WITH == WITHOUT for every overridden package except the
-minimatch design.
+- `'@graphql-tools/utils@>=12.0.0 <12.1.0': '12.1.0'` — GHSA-c4qx-w738-7hr3 (high, <=12.0.1); @nestjs/graphql
+  14.0.3 exact-pins 12.0.1. Also keeps one copy (Apollo path requests `^12.1.0`). Raise key + target with each
+  new 12.x.
+- `'multer@>=2.0.0 <2.5.0': '2.5.0'` — GHSA-q7qp-rjg7-q26m (high); @nestjs/platform-express 12.2.0 exact-pins
+  2.4.0. Target in lockstep with the direct `multer`.
 
-## Status 2026-10-01 (11.41.5 run, 18 entries, none removed)
+Re-verified 2026-10-27 with the final dependency set (two fresh resolves): without the block, utils 12.0.1 and
+multer 2.4.0 return (plus a second `@whatwg-node/promise-helpers` 1.3.2) — both still load-bearing, both targets
+still the newest in their line, nothing to raise.
 
-Raised: js-yaml 5.x (now LOAD-BEARING, see above), browserslist 4.29.1 -> 4.29.3 and hono
-4.13.9 -> 4.13.11 (downgrade locks again — both packages ship patches weekly, so expect these
-two every run). Two fresh resolves after the raise: WITH vs WITHOUT differs only in js-yaml
-(5.3.0 returns) and the minimatch design (9.0.9 + brace-expansion 2.1.7 return). Every other
-target was already the newest mature release in its major.
-`@xhmikosr/decompress` (critical GHSA-hrh2-vp3x-79xf, fixed 11.1.4) needed NO override: the
-lockfile was just stale (downloader requests `^11.1.1`). `pnpm update --depth Infinity
-@xhmikosr/decompress` fixed it, then `@xhmikosr/decompress-tar` needed the same to drop a
-stale 9.0.1 copy. The starter has a key `'@xhmikosr/decompress@>=11.0.0 <11.1.3': 11.1.4`,
-which fires on the caret request and already delivers 11.1.4.
+Removed on 2026-10-24 after two fresh resolves (full former block vs. only these two): axios, body-parser,
+brace-expansion x3, fast-uri, hono, ip-address, js-yaml x2, minimatch, nanoid, postcss, qs, undici, ws. Same
+audit (0), same peers check, same package set — except minimatch, which forced minimatch-9 requesters ACROSS
+A MAJOR onto 10.2.6 (9.0.9 / brace-expansion 2.1.7 / balanced-match 1.0.2 return without it, all patched):
+removed because crossing a major for a transitive is the shape the rules forbid. Also removed: allowBuilds
+`@nestjs/core` + `@compodoc/compodoc` (no install script any more), and `peerDependencyRules.allowedVersions
+'@apollo/server'` (nothing conflicts). The full per-run history (2026-09-26 … 2026-10-24) is in git
+(`git log -p .claude/agent-memory/lt-dev-npm-package-maintainer/nest-server-override-status.md`).
 
-## Status 2026-10-03 (11.41.7 run, 18 entries, none removed)
+## Lessons from the 2026-10-24 cleanup
 
-Raised (key + target together, pure hold-backs, no new advisory): ip-address 10.7.2 -> 10.7.3,
-hono 4.13.11 -> 4.13.12 — hono for the THIRD run in a row, so treat it as a standing item.
-`ws` trailed 8.22.0 but stayed at 8.21.3: lockstep with the direct `ws` and `@nestjs/graphql`
-13.4.5's exact pin, and two fresh resolves showed ws identical with and without the block (no
-caret parent exists), so it holds nothing back. WITH vs WITHOUT now differs ONLY in js-yaml 5.x
-(5.3.0 returns) and the minimatch design (9.0.9 + brace-expansion 2.1.7 return) — same as
-2026-10-01. `auditConfig.ignoreGhsas` gained two entries in the 11.41.7 release work
-(GHSA-ch52-4w7c-c8xp http-cache-semantics, GHSA-vfj7-8cjw-p6xm braces; no patched release
-anywhere); `check:overrides` confirmed 2/2 still unfixed. A quick way to find hold-backs: parse
-the `overrides:` block, and for each target list the newest same-major version older than
-1440 min from `npm view <pkg> time --json` (script took ~20 s for 18 entries).
-
-## Status 2026-10-04 (11.42.1 run, 18 entries, none changed)
-
-First run with NO raise: every target was already the newest mature release of its major (hono
-included — published nothing new in the window). Only `ws` trails (8.21.3 vs 8.22.0), the documented
-lockstep case; `@nestjs/graphql` 13.4.5 is still the newest 13.x and still exact-pins ws 8.21.3 +
-graphql-ws 6.2.1. Two fresh resolves: WITH vs WITHOUT differs ONLY in js-yaml 5.x and the minimatch
-design, unchanged from 2026-10-01. `check:overrides`: 2/2 suppressions still have no fix. The
-override-target check (script parsing the `overrides:` block + `npm view <pkg> time --json`) takes
-~20 s and is the fastest way to know whether a raise is due at all.
-
-Shipped doc drift: the 2026-10-01 items (swagger js-yaml pin, platform-express multer pin) were
-fixed in 11.41.6. `docs/security-overrides.md` line ~21 now reads "11.2.6 ... pins `2.4.0`, and so
-does 11.2.7, declared since 11.41.7" (fixed). Check that line whenever `@nestjs/platform-express` moves.
-
-## Status 2026-10-06 (11.42.4 run, 19 entries)
-
-New entry from the release work (not this run): `'@graphql-tools/utils@>=12.0.0 <12.0.1': '12.0.1'`,
-LOAD-BEARING (@nestjs/graphql 13.4.5 exact-pins 12.0.0, GHSA-7mx3-vvmw-hjmv). It deliberately TRAILS
-12.0.3 (Node >=22.15 via @whatwg-node/promise-helpers 2) — the target check flags it every run; that is
-expected until `engines.node` reaches 22.15. Raised: hono 4.13.12 -> 4.13.13 (FOURTH run in a row —
-standing item). `ws` still trails 8.22.0 (lockstep). Two fresh resolves after the raise: WITH vs
-WITHOUT differs only in @graphql-tools/utils (12.0.0 returns), js-yaml 5.x (5.3.0 returns) and the
-minimatch design. In cooldown on 2026-10-06, raise next run: js-yaml 5.4.3, nanoid 3.3.20, postcss 8.5.29.
-
-## Status 2026-10-06 (11.42.7 run, 19 entries)
-
-Raised (key + target together): nanoid 3.3.19 -> 3.3.20 (a REAL hold-back: postcss 8.5.28 asks
-`^3.3.18`, which intersects `<3.3.19`), postcss 8.5.28 -> 8.5.29 (was inert, the lockfile was merely
-sticky). hono had nothing new this time. Still trailing by design: @graphql-tools/utils (engines), ws
-(lockstep). Pending: js-yaml 5.4.3 (non-security bug fix, matured 2026-10-06 22:13 UTC, after this run's
-gate). Two fresh resolves: WITH vs WITHOUT unchanged (graphql-tools 12.0.0 and js-yaml 5.3.0 return and
-are audited vulnerable without the block; minimatch design). A FRESH resolve with the block lands
-http-cache-semantics on 4.3.0, which escapes the GHSA-ch52 range, so only one suppression fires there;
-the repo lock stays on 4.2.0 (two suppressions).
-
-## Status 2026-10-07 (11.42.8 run, 19 entries)
-
-Raised (key + target together): js-yaml 5.x 5.4.2 -> 5.4.3 (parser bug fix, no advisory). Not a
-hold-back: `@nestjs/swagger`'s exact 5.3.0 is still the only 5.x requester, so this is purely "newest
-bug-fix line for the pin the entry replaces". `docs/security-overrides.md` still recommends `<5.4.2` ->
-5.4.2 to consumers — deliberately left: 5.4.2 clears both advisories, and the dated comment on the
-entry says so. Every other target is the newest mature release of its major; still trailing by design:
-@graphql-tools/utils (engines), ws (lockstep). Two fresh resolves: WITH vs WITHOUT unchanged
-(graphql-tools 12.0.0 + js-yaml 5.3.0 return and audit vulnerable; minimatch design). `pnpm dedupe`:
-nothing. Names only in the repo lock (`arch`, `lodash.defaults`, `lodash.isarguments`) are ordinary
-drift (`@xhmikosr/os-filter-obj` 4.1 and ioredis 5.11 dropped them), not sticky optional peers.
-`check:overrides`: 19 ok, 2/2 suppressions still unfixed upstream.
-
-## Status 2026-10-09 (post-11.42.9 run, 19 entries, none changed)
-
-Second run with NO raise (hono published nothing new). Every target is the newest mature release of its
-major; still trailing by design: @graphql-tools/utils 12.0.1 (12.0.3 exists — see the engines wrinkle
-in [[deferred-major-updates]]: a fresh resolve carries 12.0.3 on the merge 9.2.6 path anyway) and ws
-8.21.3 (lockstep). Two fresh resolves: WITH vs WITHOUT unchanged (graphql-tools 12.0.0 + js-yaml 5.3.0
-return, WITHOUT audits 1 high + 1 moderate; minimatch 9.0.9 + brace-expansion 2.1.7 design). The
-baseline-red handlebars advisories needed NO override — stale lock, targeted update (same shape as
-@xhmikosr/decompress on 2026-10-01): read the requester's declared range BEFORE writing an entry.
-`pnpm dedupe`: zero version movement, only `supports-color` suffix churn — skipped.
-
-
-**Same day, after the run (repo owner decision):** `@graphql-tools/utils` re-targeted
-`'@graphql-tools/utils@>=12.0.0 <12.0.3': '12.0.3'` together with `engines.node` `>= 22.15`. It no
-longer trails by design — the newest 12.x is now the target, so the hold-back on schema / merge is
-gone (apollo path 10.1.3 / 9.2.6). From here it follows the usual rule: raise key and target with
-each new 12.x, as long as its engines stay within the floor.
-
-## Status 2026-10-11 (pre-11.42.11 run, 19 entries, none changed)
-
-Third run with NO raise: every target is the newest mature release of its major (hono, axios, ip-address,
-browserslist all quiet); only ws 8.21.3 trails (lockstep). Two fresh resolves: WITH vs WITHOUT differs
-exactly as on 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
-brace-expansion 2.1.7); WITHOUT audits 1 high + 1 moderate, WITH audits only the braces suppression
-(http-cache-semantics floats to 4.3.0 in a fresh resolve). `check:overrides` 19 ok, 2/2 suppressions
-still unpatched. A discovery script (session scratch, rewrite each run: registry packument `time` + 1440-min filter, same
-major / same 0.x minor, override keys parsed from the yaml) covered all 111 entries in seconds.
-**Same day, after the run: GHSA-ch52-4w7c-c8xp suppression removed, lock lifted to 4.3.0.**
-Prompted by nest-server-starter, which retracted its entry the same day. The lock had stayed on 4.2.0
-only by stickiness (`cacheable-request` asks `^4.2.0`, a fresh resolve takes 4.3.0), so the next update
-would have left an INERT suppression: hiding nothing, and swallowing the advisory unseen once its range
-is extended to 4.3.0. 4.3.0 is still no fix (max-stale code byte-identical, diffed); the yaml comment
-says so. If the range is extended, `pnpm audit` goes red: re-argue dev-only, then restore entry + spec
-guard together. One suppression left (braces).
-
-## Status 2026-10-12 (pre-11.42.13 run, 19 entries, none changed)
-
-Fourth run with no raise. Only ws 8.21.3 trails (lockstep); ip-address 10.7.4 was still in cooldown
-(raise next run, key `<10.7.4` + target together). Two fresh resolves: WITH vs WITHOUT differs exactly as
-on 2026-10-09/11 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
-brace-expansion 2.1.7), so no hold-back anywhere. `check:overrides` 19 ok, 1/1 suppression (braces)
-still unpatched. `pnpm dedupe` would only drop the sticky `@types/node` 26.6.4 plus ~130 lines of
-supports-color churn — skipped again.
-
-## Status 2026-10-13 (pre-11.42.14 run, 19 entries)
-
-Raised: ip-address `<10.7.3` -> `<10.7.4`, target 10.7.4 (express-rate-limit 8.7.1, newest, still asks
-`^10.2.0`, so the removal condition is unmet). Only ws 8.21.3 trails (lockstep). Two fresh resolves: WITH vs
-WITHOUT unchanged since 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch
-9.0.9 + brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~150 sticky
-transitive names (express-rate-limit 8.5.2 vs 8.7.1, kysely 0.28 vs 0.29, @hono/node-server 2.0.11 vs 2.1.4)
-— ordinary stickiness, not swapped. Next run: utils 12.0.4 and postcss 8.5.30 are due (both raise key+target).
-
-## Status 2026-10-17 (pre-11.42.15 run, 19 entries)
-
-Raised (key + target together, both were hold-backs): `qs@<6.16.0` -> `qs@<6.16.1`, target 6.16.1 (express `^6.14.0`,
-body-parser `^6.15.2`, superagent `^6.14.1` all intersect the old key); `undici@>=7.0.0 <7.30.0` -> `<7.30.1`, target
-7.30.1 in lockstep with the direct pin (cheerio `^7.19.0`; 7.30.1 is a security release that `pnpm audit` cannot see
-yet). The payload (DEV-3616) had already raised utils -> 12.0.4 and postcss -> 8.5.30. Trailing now: ws 8.21.3
-(lockstep), js-yaml 5.4.3 vs 5.5.0 (not a hold-back, deferred), @graphql-tools/utils 12.0.4 vs 12.1.0 (payload item).
-**utils wrinkle:** a FRESH resolve already takes schema 10.1.5 / merge 9.2.8, which request `^12.1.0` (outside the key)
--> utils 12.1.0 on the Apollo path, 12.0.4 only on @nestjs/graphql's exact-pin path. The repo lock keeps the sticky
-schema 10.1.3 / merge 9.2.6 (`^12.0.3`), which the key pins to 12.0.4. Raise to `<12.1.0` -> 12.1.0 next run.
-Two fresh resolves: WITH vs WITHOUT unchanged since 2026-10-09 (graphql-tools 12.0.0 + promise-helpers 1.3.2, js-yaml
-5.3.0, minimatch 9.0.9 + brace-expansion 2.1.7; WITHOUT audits 2 high + 1 moderate counting the braces suppression).
-Repo lock vs fresh WITH: 175 sticky transitive names, no advisory among them — left. `pnpm dedupe`: only the sticky
-@types/node 26.6.4 + 134 annotation lines — skipped. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.
-
-## Status 2026-10-17 evening (pre-11.42.16 run, 19 entries)
-
-Raised: `@graphql-tools/utils@>=12.0.0 <12.0.4` -> `<12.1.0`, target 12.1.0 (key + target; same deps/engines as
-12.0.4). Plus a targeted `pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge` (10.1.3 -> 10.1.5,
-9.2.6 -> 9.2.8 on the Apollo path, nothing else moved), so repo lock == fresh resolve on the GraphQL path: ONE utils
-copy, the two-copy consumer tree from starter item 23 is gone. Every other target is the newest mature release in its
-major; trailing by design: ws 8.21.3 (lockstep), js-yaml 5.4.3 vs 5.5.0 (no 5.x caret requester, no advisory). Two
-fresh resolves: WITH vs WITHOUT unchanged (utils 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
-brace-expansion 2.1.7; WITHOUT audits 1 high + 1 moderate). Repo lock vs fresh WITH: ~163 sticky names, no advisory —
-left. `check:overrides` 19 ok, 1/1 suppression (braces) unpatched.
-
-## Status 2026-10-18 (pre-11.43.0 run, 19 entries, none changed)
-
-No raise due: every target is the newest mature release of its major; trailing by design: ws 8.21.3 (lockstep),
-js-yaml 5.4.3 vs 5.5.0 (no advisory, swagger's exact 5.3.0 still the only 5.x requester). Two fresh resolves: WITH vs
-WITHOUT unchanged since 2026-10-09 (utils 12.0.0 + promise-helpers 1.3.2, js-yaml 5.3.0, minimatch 9.0.9 +
-brace-expansion 2.1.7; WITHOUT audits 2 high + 1 moderate incl. the ignored braces). `check:overrides` green.
-**New this run: a repo-advisory scan of the ~172 STICKY names** (repo lock older than fresh WITH) found two real hits
-the global DB did not have yet (all 404): follow-redirects 1.16.0 (GHSA-8r9p-f939-6h3c + GHSA-q3jh-wrc6-jgq8, medium,
-credential headers kept on cross-origin redirect, RUNTIME via node-mailjet > axios) -> fixed by targeted
-`pnpm update --depth Infinity follow-redirects` (axios asks `^1.16.0`, no override); kysely 0.28.17
-(GHSA-fv63-qcqv-fg6m, medium, MSSQL `jsonBuildObject` raw SQL, dev-only via better-auth) -> LEFT, see
-[[nest-server-maintenance-gotchas]]. Do the scan every run; ~2 min for ~170 names / ~100 repos.
+- **Run the fresh-resolve comparison with the FINAL dependency set.** The first comparison ran while
+  graphql-upload was on 17.1.0 (peers `@types/express ^4 || ^5`), so `allowedVersions '@types/express': '5'`
+  looked unused. graphql-upload went back to 15.0.2 (peers `^4.0.29`) and `pnpm peers check` failed until
+  the rule was restored. Re-check every rule after the last version change of the run.
+- **Removing an `allowBuilds` entry leaves stale state in `node_modules/.modules.yaml`** (`ignoredBuilds`):
+  the next `pnpm install` fails with ERR_PNPM_IGNORED_BUILDS naming packages that HAVE no install script
+  (verified on the published tarballs). A fresh install from the same lockfile passes. Fix locally with
+  `rm -rf node_modules && pnpm install --frozen-lockfile`; CI is unaffected (always fresh).
+- `pnpm update --depth Infinity` (no package names) refreshes every transitive within its range and leaves
+  exact direct pins alone — safe here; it moved ~100 transitive versions (kysely 0.28.17 -> 0.29.7 among
+  them) with nothing red. `git diff --stat package.json` afterwards shows the cumulative diff vs HEAD, not
+  what the update did — check for `^`/`~` instead of reading the stat.
 
 Related: [[deferred-major-updates]], [[nest-server-maintenance-gotchas]], [[pnpm11-override-and-check-gotchas]]

@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 import { IsIn } from 'class-validator';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
 
 /**
  * Input to update a learned AI prompt hint (admins typically approve/reject or edit).

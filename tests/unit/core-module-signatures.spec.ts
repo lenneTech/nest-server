@@ -10,7 +10,7 @@
  * Scenario 4: ICoreModuleOverrides - overrides parameter for both signatures
  */
 
-import { DynamicModule, Injectable } from '@nestjs/common';
+import { DynamicModule, Injectable, Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreModule } from '../../src/core.module';
@@ -46,15 +46,13 @@ const baseConfig: Partial<IServerOptions> = {
 };
 
 describe('CoreModule.forRoot() Signatures', () => {
-  // Suppress console.warn during tests (JWT secret warning)
-  const originalWarn = console.warn;
-
+  // forRoot() reports configuration warnings through Nest's Logger; keep them out of the test output.
   beforeEach(() => {
-    console.warn = vi.fn();
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
-    console.warn = originalWarn;
+    vi.restoreAllMocks();
   });
 
   // ===========================================================================================================
@@ -715,7 +713,7 @@ describe('CoreModule.forRoot() Signatures', () => {
 
     describe('autoRegister: false + overrides warnings', () => {
       it('should warn when errorCode overrides are provided with autoRegister: false', () => {
-        const warnSpy = vi.spyOn(console, 'warn');
+        const warnSpy = vi.spyOn(Logger.prototype, 'warn');
         const config: Partial<IServerOptions> = {
           ...baseConfig,
           errorCode: { autoRegister: false },
@@ -732,7 +730,7 @@ describe('CoreModule.forRoot() Signatures', () => {
       });
 
       it('should warn when betterAuth overrides are provided with autoRegister: false', () => {
-        const warnSpy = vi.spyOn(console, 'warn');
+        const warnSpy = vi.spyOn(Logger.prototype, 'warn');
         const config: Partial<IServerOptions> = {
           ...baseConfig,
           betterAuth: {
@@ -753,7 +751,7 @@ describe('CoreModule.forRoot() Signatures', () => {
       });
 
       it('should NOT warn when overrides are provided without autoRegister: false', () => {
-        const warnSpy = vi.spyOn(console, 'warn');
+        const warnSpy = vi.spyOn(Logger.prototype, 'warn');
         const config: Partial<IServerOptions> = { ...baseConfig };
         const overrides: ICoreModuleOverrides = {
           errorCode: { controller: MockErrorCodeController },

@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
-import { AiToolRegistry } from '../tools/ai-tool.registry';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface.js';
+import { AiToolRegistry } from '../tools/ai-tool.registry.js';
 
 /**
  * The MCP-client side of `@modelcontextprotocol/sdk` that we need to talk to. Kept

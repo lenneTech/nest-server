@@ -1,8 +1,8 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { CoreBetterAuthSessionInfoModel, CoreBetterAuthUserModel } from './core-better-auth-models';
+import { Restricted } from '../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { CoreBetterAuthSessionInfoModel, CoreBetterAuthUserModel } from './core-better-auth-models.js';
 
 /**
  * Better-Auth Authentication Response Model

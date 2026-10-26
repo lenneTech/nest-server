@@ -8,16 +8,16 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
+import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { ApiTokenKind } from '../api-token/core-api-token.constants';
-import { enforceApiTokenRoute } from '../api-token/core-api-token.helpers';
-import { ErrorCode } from '../error-code';
-import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers';
-import { BetterAuthTokenService } from './better-auth-token.service';
-import { BetterAuthenticatedUser } from './better-auth.types';
-import { getBetterAuthTokenService } from './core-better-auth.registry';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { ApiTokenKind } from '../api-token/core-api-token.constants.js';
+import { enforceApiTokenRoute } from '../api-token/core-api-token.helpers.js';
+import { ErrorCode } from '../error-code/index.js';
+import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../tenant/core-tenant.helpers.js';
+import { BetterAuthTokenService } from './better-auth-token.service.js';
+import { BetterAuthenticatedUser } from './better-auth.types.js';
+import { getBetterAuthTokenService } from './core-better-auth.registry.js';
 
 /**
  * BetterAuth Roles Guard

@@ -26,9 +26,9 @@ import { randomBytes } from 'crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { GridFSBucket, MongoClient } from 'mongodb';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, relative } from 'path';
 
-import { uploadFileToGridFS } from '../../src/core/modules/migrate/helpers/migration.helper';
+import { uploadFileToGridFS } from '../../src/core/modules/migrate/migration.helper';
 import { deriveTestDbUri } from '../db-lifecycle.reporter';
 
 describe('uploadFileToGridFS (e2e)', () => {
@@ -112,11 +112,30 @@ describe('uploadFileToGridFS (e2e)', () => {
     await expect(client!.db().collection(`${bucketName}.chunks`).countDocuments({ files_id: id })).resolves.toEqual(0);
   });
 
-  it('resolves a relative path against the helper module, as every documented caller does', async () => {
-    // The README, the migration template and the 11.3.x guide all pass a
-    // RELATIVE path, which `path.resolve(__dirname, …)` anchors at the helper's
-    // own directory. An absolute path silently bypasses that anchoring (resolve
-    // discards the base), so only this case exercises the real code path.
+  /**
+   * @regression   12.0.0 (pre-existing) — a relative path was resolved against the helper's own directory, which in
+   *   npm mode is inside `node_modules/@lenne.tech/nest-server/dist/…`: a migration could not name a file next to
+   *   itself. It now resolves against the calling file (the migration), with the helper's directory as fallback.
+   * @seen-failing Resolve against the helper again — registered as mutation `gridfs-upload-path-from-helper` in
+   *   tests/regression-mutations.json.
+   */
+  it('resolves a relative path against the calling file', async () => {
+    // This spec is the caller. The file sits in a temp dir, named relative to the spec's own directory.
+    const source = join(workDir!, 'next-to-caller.bin');
+    writeFileSync(source, randomBytes(1024));
+    const fromCaller = relative(join(process.cwd(), 'tests', 'migrate'), source);
+
+    const id = await uploadFileToGridFS(mongoUrl, fromCaller, { bucketName });
+
+    const files = await client!.db().collection(`${bucketName}.files`).findOne({ _id: id });
+    expect(files!.filename).toEqual('next-to-caller.bin');
+    expect(files!.length).toBe(1024);
+  });
+
+  it('still finds a path relative to the helper module (callers written before 12.0.0)', async () => {
+    // The README, the migration template and the 11.3.x guide passed paths anchored at the helper's own directory.
+    // A path that does not exist next to the caller still resolves there. An absolute path bypasses the anchoring
+    // (resolve discards the base), so only a relative one exercises it.
     const id = await uploadFileToGridFS(mongoUrl, '../templates/migration-project.template.ts', { bucketName });
 
     const files = await client!.db().collection(`${bucketName}.files`).findOne({ _id: id });

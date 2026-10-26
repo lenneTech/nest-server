@@ -10,27 +10,27 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { CrudService } from '../../../common/services/crud.service';
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { ErrorCode } from '../../error-code';
-import { CoreAiConnectionCreateInput } from '../inputs/core-ai-connection-create.input';
-import { CoreAiConnectionInput } from '../inputs/core-ai-connection.input';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
-import { AiConnectionDocument, CoreAiConnection } from '../models/core-ai-connection.model';
-import { LlmProviderFactory } from '../providers/llm-provider.factory';
-import { AiCryptoService } from './ai-crypto.service';
-import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { ErrorCode } from '../../error-code/index.js';
+import { CoreAiConnectionCreateInput } from '../inputs/core-ai-connection-create.input.js';
+import { CoreAiConnectionInput } from '../inputs/core-ai-connection.input.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
+import { AiConnectionDocument, CoreAiConnection } from '../models/core-ai-connection.model.js';
+import { LlmProviderFactory } from '../providers/llm-provider.factory.js';
+import { AiCryptoService } from './ai-crypto.service.js';
+import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service.js';
 
-import { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
+import { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants';
+export { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants.js';
 
 /**
  * Minimal shape of a persisted (lean) connection document that the boot-time drift

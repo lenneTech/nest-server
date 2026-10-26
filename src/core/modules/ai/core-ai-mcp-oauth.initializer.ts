@@ -12,12 +12,12 @@ import { addLeadingSlash } from '@nestjs/common/utils/shared.utils';
 import { ApplicationConfig, HttpAdapterHost, ModuleRef, ModulesContainer } from '@nestjs/core';
 import { RoutePathFactory } from '@nestjs/core/router/route-path-factory';
 
-import { ConfigService } from '../../common/services/config.service';
-import { getBetterAuthTokenService } from '../better-auth/core-better-auth.registry';
-import { CoreAiMcpController } from './core-ai-mcp.controller';
-import { mountAiMcpOAuthRouter } from './helpers/ai-mcp-oauth.helper';
-import { getMountedMcpOAuth, IMountedMcpOAuth, setMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry';
-import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
+import { ConfigService } from '../../common/services/config.service.js';
+import { getBetterAuthTokenService } from '../better-auth/core-better-auth.registry.js';
+import { CoreAiMcpController } from './core-ai-mcp.controller.js';
+import { mountAiMcpOAuthRouter } from './helpers/ai-mcp-oauth.helper.js';
+import { getMountedMcpOAuth, IMountedMcpOAuth, setMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry.js';
+import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
 
 /**
  * Mounts the MCP OAuth 2.1 endpoints (`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`)

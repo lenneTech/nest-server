@@ -10,16 +10,16 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { ApiCommonErrorResponses } from '../../../core/common/decorators/common-error.decorator';
-import { CurrentUser } from '../../../core/common/decorators/current-user.decorator';
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { UserCreateInput } from './inputs/user-create.input';
-import { UserInput } from './inputs/user.input';
-import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
-import { User } from './user.model';
-import { UserService } from './user.service';
+import { ApiCommonErrorResponses } from '../../../core/common/decorators/common-error.decorator.js';
+import { CurrentUser } from '../../../core/common/decorators/current-user.decorator.js';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface.js';
+import { UserCreateInput } from './inputs/user-create.input.js';
+import { UserInput } from './inputs/user.input.js';
+import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output.js';
+import { User } from './user.model.js';
+import { UserService } from './user.service.js';
 
 /**
  * Controller to handle user REST API endpoints

@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreAiConnectionInput } from './core-ai-connection.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreAiConnectionInput } from './core-ai-connection.input.js';
 
 /**
  * Input to create a new AI connection. Makes `baseUrl`, `model` and `name`

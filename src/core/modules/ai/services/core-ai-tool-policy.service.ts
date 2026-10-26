@@ -2,18 +2,18 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { AiToolPolicyDocument, CoreAiToolPolicy } from '../models/core-ai-tool-policy.model';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { AiToolPolicyDocument, CoreAiToolPolicy } from '../models/core-ai-tool-policy.model.js';
 
-import { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants';
+import { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants';
+export { AI_TOOL_POLICY_CLASS, AI_TOOL_POLICY_MODEL } from '../core-ai.constants.js';
 
 export interface AiToolPolicyDecision {
   /** Final decision: 'allow', 'deny' or 'ask'. */

@@ -1,14 +1,25 @@
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
-import { UNIT_TEST_INCLUDE } from './vitest.include-globs';
+import { UNIT_TEST_INCLUDE } from './vitest.include-globs.mjs';
 
 export default defineConfig({
   // Vite 8 switched the default TS/JS transformer from esbuild to Oxc. unplugin-swc
   // disables esbuild internally — without `oxc: false`, Oxc would still run in parallel.
   oxc: false,
+  // Probe extensionless files in NODE's order: `.js` before `.mjs`. Vite's default tries `.mjs` first, so a package
+  // whose `main` has no extension — graphql: `"main": "index"` next to `index.mjs`, no `exports` — loads its ESM build
+  // for an `import` while Node (and every `require`) loads `index.js`. Two graphql instances in one test process, and
+  // a schema built by @nestjs/graphql is refused by our `execute()`: "Cannot use GraphQLSchema from another module or
+  // realm". The source imports graphql with `import` since 12.0.0 (valid as CommonJS and ESM), which is what exposed
+  // it. Pinned by tests/unit/vitest-node-resolution.spec.ts.
+  resolve: { extensions: ['.js', '.mjs', '.mts', '.ts', '.jsx', '.tsx', '.json'] },
   plugins: [swc.vite()],
   test: {
+    // Deliberate, and stated so vitest 5 stops suggesting `isolate: false`: the suites rely on fresh module state
+    // per file — static registries (RolesGuardRegistry, the tenant-guard and cron registries), CoreBetterAuthModule's
+    // static instance, ConfigService's singleton. Sharing them across files would make results order-dependent.
+    isolate: true,
     // Separate directory from the e2e runner's report — the two suites run as separate vitest
     // processes and would otherwise overwrite each other's coverage. `pnpm run test:cov` runs both.
     coverage: { reportsDirectory: './coverage/unit' },
@@ -26,7 +37,8 @@ export default defineConfig({
     // So a log written by the last test of a file can still be travelling when cleanup runs, and
     // the rejection surfaces as an unhandled error that fails the whole run. It is a RACE, not a
     // late log: the specs involved all await correctly. No vitest 4.x release changes this
-    // teardown path, so there is no patch to take.
+    // teardown path, and 5.0 keeps it too (`$rejectPendingCalls` in the worker init, verified on
+    // 5.0.5), so there is no patch to take.
     //
     // With this flag `setupConsoleLogSpy()` is skipped entirely (vitest/dist/chunks/base.*.js),
     // so the RPC that raced does not exist. Chosen over silencing the output because the output
@@ -41,7 +53,7 @@ export default defineConfig({
     disableConsoleIntercept: true,
     environment: 'node',
     globals: true,
-    // Shared with test-file-routing.spec.ts — see vitest.include-globs.ts.
+    // Shared with test-file-routing.spec.ts — see vitest.include-globs.mts.
     include: UNIT_TEST_INCLUDE,
     // Restore every `vi.spyOn` before each test attempt (vitest does this in
     // `onBeforeTryTask`, i.e. ahead of `beforeEach` and of every retry). Without it, a

@@ -37,7 +37,7 @@
  * be split for the same reason (it imports the endpoint classes, which inject `CoreFileService`), and
  * this file is read FROM the service. See `.claude/rules/architecture.md` → "DI Token Placement".
  */
-import { RoleEnum } from '../../common/enums/role.enum';
+import { RoleEnum } from '../../common/enums/role.enum.js';
 
 /** Which of the four project classes this deployment is. */
 export type FileAccessPreset = 'authenticated' | 'custom' | 'owner' | 'public' | 'tenant';

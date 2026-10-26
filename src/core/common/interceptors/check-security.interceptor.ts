@@ -2,11 +2,11 @@ import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nes
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { getContextData } from '../helpers/context.helper';
-import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker';
-import { getStringIds } from '../helpers/db.helper';
-import { processDeep } from '../helpers/input.helper';
-import { ConfigService } from '../services/config.service';
+import { getContextData } from '../helpers/context.helper.js';
+import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker.js';
+import { getStringIds } from '../helpers/db.helper.js';
+import { processDeep } from '../helpers/input.helper.js';
+import { ConfigService } from '../services/config.service.js';
 
 /**
  * Verification of all outgoing data via securityCheck

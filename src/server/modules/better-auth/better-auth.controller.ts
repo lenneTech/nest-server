@@ -1,13 +1,13 @@
 import { Controller, Optional } from '@nestjs/common';
 
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreBetterAuthEmailVerificationService } from '../../../core/modules/better-auth/core-better-auth-email-verification.service';
-import { CoreBetterAuthSignUpValidatorService } from '../../../core/modules/better-auth/core-better-auth-signup-validator.service';
-import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
-import { CoreBetterAuthController } from '../../../core/modules/better-auth/core-better-auth.controller';
-import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-better-auth.service';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreBetterAuthEmailVerificationService } from '../../../core/modules/better-auth/core-better-auth-email-verification.service.js';
+import { CoreBetterAuthSignUpValidatorService } from '../../../core/modules/better-auth/core-better-auth-signup-validator.service.js';
+import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper.js';
+import { CoreBetterAuthController } from '../../../core/modules/better-auth/core-better-auth.controller.js';
+import { CoreBetterAuthService } from '../../../core/modules/better-auth/core-better-auth.service.js';
 
 /**
  * Server BetterAuth REST Controller

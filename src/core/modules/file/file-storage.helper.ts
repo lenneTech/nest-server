@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 
-import { IServerOptions } from '../../common/interfaces/server-options.interface';
+import { IServerOptions } from '../../common/interfaces/server-options.interface.js';
 
 const logger = new Logger('CoreFileStorage');
 

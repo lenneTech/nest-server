@@ -2,22 +2,22 @@ import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiPromptCreateInput } from '../inputs/core-ai-prompt-create.input';
-import { CoreAiPromptUpdateInput } from '../inputs/core-ai-prompt-update.input';
-import { AiPromptDocument, CoreAiPrompt } from '../models/core-ai-prompt.model';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { CoreAiPromptCreateInput } from '../inputs/core-ai-prompt-create.input.js';
+import { CoreAiPromptUpdateInput } from '../inputs/core-ai-prompt-update.input.js';
+import { AiPromptDocument, CoreAiPrompt } from '../models/core-ai-prompt.model.js';
 
-import { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants';
+import { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants';
+export { AI_PROMPT_CLASS, AI_PROMPT_MODEL } from '../core-ai.constants.js';
 
 const VALID_SCOPES = new Set(['tenant', 'user']);
 

@@ -14,28 +14,28 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
 import {
   revalidateAllWsConnections,
   revalidateWsConnectionsForTenant,
   revalidateWsConnectionsOf,
-} from '../../common/helpers/graphql-ws-connection.helper';
-import { ConfigService } from '../../common/services/config.service';
-import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { ApiTokenKind } from '../api-token/core-api-token.constants';
+} from '../../common/helpers/graphql-ws-connection.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { ApiTokenKind } from '../api-token/core-api-token.constants.js';
 import {
   capApiTokenTenantRole,
   enforceApiTokenRoute,
   getApiTokenContext,
   getApiTokenTenantRestriction,
-} from '../api-token/core-api-token.helpers';
-import { ErrorCode } from '../error-code/error-codes';
-import { CoreTenantMemberModel } from './core-tenant-member.model';
-import { registerActiveTenantGuard } from './core-tenant-guard.registry';
-import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators';
-import { TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
+} from '../api-token/core-api-token.helpers.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { CoreTenantMemberModel } from './core-tenant-member.model.js';
+import { registerActiveTenantGuard } from './core-tenant-guard.registry.js';
+import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators.js';
+import { TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums.js';
 import {
   checkRoleAccess,
   getMinRequiredLevel,
@@ -44,7 +44,8 @@ import {
   mergeRolesMetadata,
   resolveGlobalAndTenantRoles,
   tenantSatisfiableRoles,
-} from './core-tenant.helpers';
+} from './core-tenant.helpers.js';
+import { isBetterAuthHandlerClass } from '../better-auth/core-better-auth.registry.js';
 
 /**
  * Cached membership entry with TTL
@@ -1025,32 +1026,11 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
    * Check if the current request is handled by a BetterAuth (IAM) handler
    * (controller or resolver). Used for auto-skip tenant check on IAM endpoints.
    *
-   * Uses require() instead of import to avoid a circular dependency:
-   * tenant module → better-auth module (which may depend on tenant module indirectly).
-   * The require() is lazy and resolved only when needed (Node.js caches the result).
+   * Reads the classes from the better-auth registry leaf, where both register themselves as their files load: a
+   * direct import would put tenant and better-auth on an import cycle, and the lazy `require()` this used before
+   * exists only in CommonJS. A handler whose file was never loaded cannot be the current handler anyway.
    */
   private isBetterAuthHandler(context: ExecutionContext): boolean {
-    const handler = context.getClass();
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { CoreBetterAuthController } =
-        require('../better-auth/core-better-auth.controller') as typeof import('../better-auth/core-better-auth.controller');
-      if (handler === CoreBetterAuthController || handler.prototype instanceof CoreBetterAuthController) {
-        return true;
-      }
-    } catch {
-      /* BetterAuth controller not available */
-    }
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { CoreBetterAuthResolver } =
-        require('../better-auth/core-better-auth.resolver') as typeof import('../better-auth/core-better-auth.resolver');
-      if (handler === CoreBetterAuthResolver || handler.prototype instanceof CoreBetterAuthResolver) {
-        return true;
-      }
-    } catch {
-      /* BetterAuth resolver not available */
-    }
-    return false;
+    return isBetterAuthHandlerClass(context.getClass());
   }
 }

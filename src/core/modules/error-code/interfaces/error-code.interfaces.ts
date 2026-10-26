@@ -1,7 +1,7 @@
 import { Type } from '@nestjs/common';
 
-import { CoreErrorCodeService } from '../core-error-code.service';
-import { IErrorRegistry } from '../error-codes';
+import { CoreErrorCodeService } from '../core-error-code.service.js';
+import { IErrorRegistry } from '../error-codes.js';
 
 /**
  * Configuration for the error code module

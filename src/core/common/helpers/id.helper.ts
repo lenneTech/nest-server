@@ -28,10 +28,10 @@
  * `db.helper` re-exports all four public functions, so every existing import path keeps working.
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
-import _ = require('lodash');
+import _ from 'lodash';
 import { Types } from 'mongoose';
 
-import { IdsType } from '../types/ids.type';
+import { IdsType } from '../types/ids.type.js';
 
 /**
  * Checks if all IDs are equal

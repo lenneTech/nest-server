@@ -1,10 +1,10 @@
 /**
  * Unit Tests: MigrationRunner identity + missing-file tolerance
  *
- * Safety properties for the ts-node → compiled-JS production transition:
+ * Safety properties for the source → compiled-JS production transition:
  *
  *  1. Extension-agnostic identity — a migration recorded under its `.ts` name (how it
- *     ran via ts-node) must NOT be re-run once the prod image ships the compiled `.js`.
+ *     ran from source) must NOT be re-run once the prod image ships the compiled `.js`.
  *     Keying state by raw filename would treat `foo.js` as a new migration against a
  *     `foo.ts` state and re-run already-applied, non-idempotent migrations (data loss).
  *     Co-present `foo.ts` + `foo.js` are ONE migration — only one file is loaded and
@@ -71,7 +71,7 @@ afterAll(() => {
 });
 
 // A failing assertion between spyOn and mockRestore must not leak a silenced console
-// into the remaining tests of this fork (vitest.config.ts sets no restoreMocks).
+// into the remaining tests of this fork (vitest.config.mts sets no restoreMocks).
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -119,7 +119,7 @@ describe('MigrationRunner', () => {
     // RPC channel (`onUserConsoleLog`), and a call still pending when the worker is
     // torn down aborts the whole run with `EnvironmentTeardownError` — a red exit code
     // with zero failed tests. `Logger.overrideLogger` does not cover raw `console.*`.
-    // (`restoreMocks: true` in vitest.config.ts restores this before the next test.)
+    // (`restoreMocks: true` in vitest.config.mts restores this before the next test.)
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
   });
 

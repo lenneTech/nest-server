@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
 import { CoreCronJobs } from '../src/core/common/services/core-cron-jobs.service';
 import { CoreBetterAuthRateLimiter } from '../src/core/modules/better-auth/core-better-auth-rate-limiter.service';
+import { captureExpectedLogs } from './helpers/expected-log-output';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
 import type { SchedulerRegistry } from '@nestjs/schedule';
@@ -259,10 +260,13 @@ describe('Multi-replica behavior (real Redis)', () => {
     expect((await limiter.check('203.0.113.9', '/token')).allowed).toBe(true);
 
     // Sever the connection the way a restarting Redis does
+    const degradation = captureExpectedLogs();
     redis.getClient().disconnect();
 
     const afterOutage = await limiter.check('203.0.113.9', '/token');
     expect(afterOutage.allowed).toBe(true);
     expect(afterOutage.limit).toBe(3);
+    // The degradation is REPORTED, once — documented behaviour, asserted rather than printed.
+    expect(degradation.join('\n')).toContain('Falling back to per-replica in-memory limits');
   });
 });

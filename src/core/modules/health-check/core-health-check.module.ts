@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 
-import { CoreHealthCheckController } from './core-health-check.controller';
-import { CoreHealthCheckResolver } from './core-health-check.resolver';
-import { CoreHealthCheckService } from './core-health-check.service';
+import { CoreHealthCheckController } from './core-health-check.controller.js';
+import { CoreHealthCheckResolver } from './core-health-check.resolver.js';
+import { CoreHealthCheckService } from './core-health-check.service.js';
 
 /**
  * This is a module that imports the TerminusModule and includes a HealthController.

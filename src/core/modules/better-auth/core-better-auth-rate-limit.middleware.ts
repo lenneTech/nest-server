@@ -1,8 +1,8 @@
 import { HttpException, HttpStatus, Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { CoreBetterAuthRateLimiter, RateLimitResult } from './core-better-auth-rate-limiter.service';
-import { CoreBetterAuthService } from './core-better-auth.service';
+import { CoreBetterAuthRateLimiter, RateLimitResult } from './core-better-auth-rate-limiter.service.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * Middleware that applies rate limiting to Better-Auth endpoints

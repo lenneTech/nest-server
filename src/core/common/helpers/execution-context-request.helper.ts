@@ -85,8 +85,8 @@ export function resolveGuardRequest(
   }
 
   if (isSubscriptionContext(gqlContext)) {
-    // Normalize the two names the transports use, so a guard reads `headers` unconditionally:
-    // `graphql-ws` gets them from CoreModule's onConnect, `subscriptions-transport-ws` from its own,
+    // Normalize the names a context may carry, so a guard reads `headers` unconditionally:
+    // `graphql-ws` gets them from CoreModule's onConnect, a custom onConnect may set `headers` itself,
     // and the raw upgrade request is the fallback for a custom onConnect that forwards neither.
     if (!gqlContext.headers) {
       gqlContext.headers = gqlContext.connectionParams ?? gqlContext.request?.headers ?? {};

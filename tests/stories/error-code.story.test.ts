@@ -68,7 +68,13 @@ import { ServerController } from '../../src/server/server.controller';
   controllers: [ServerController, AuthController],
   exports: [CoreModule, AuthModule, BetterAuthModule, FileModule],
   imports: [
-    CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), envConfig),
+    // Scenario D registers the ErrorCodeModule itself (below), so CoreModule must not register the core
+    // one first — that one would claim `/i18n/errors/:locale` and hide the project codes. Said here
+    // rather than inherited from config.env.ts, whose server setup uses the overrides parameter instead.
+    CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(envConfig.jwt), {
+      ...envConfig,
+      errorCode: { ...envConfig.errorCode, autoRegister: false },
+    }),
     ScheduleModule.forRoot(),
     AuthModule.forRoot(envConfig.jwt),
     BetterAuthModule.forRoot({

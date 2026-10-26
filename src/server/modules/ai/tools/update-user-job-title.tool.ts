@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
-import { AiToolContext } from '../../../../core/modules/ai/interfaces/ai-tool.interface';
-import { AiTool } from '../../../../core/modules/ai/tools/ai-tool.base';
-import { AiToolRegistry } from '../../../../core/modules/ai/tools/ai-tool.registry';
-import { RoleEnum } from '../../../../core/common/enums/role.enum';
-import { UserInput } from '../../user/inputs/user.input';
-import { UserService } from '../../user/user.service';
+import { AiToolContext } from '../../../../core/modules/ai/interfaces/ai-tool.interface.js';
+import { AiTool } from '../../../../core/modules/ai/tools/ai-tool.base.js';
+import { AiToolRegistry } from '../../../../core/modules/ai/tools/ai-tool.registry.js';
+import { RoleEnum } from '../../../../core/common/enums/role.enum.js';
+import { UserInput } from '../../user/inputs/user.input.js';
+import { UserService } from '../../user/user.service.js';
 
 /**
  * Example AI tool: update a user's job title (admin only — data manipulation).

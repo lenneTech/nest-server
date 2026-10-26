@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The low-resource worker cap in vitest-e2e.config.ts.
+ * The low-resource worker cap in vitest-e2e.config.mts.
  *
  * It used to be `poolOptions.forks.maxForks`, which Vitest 4 removed: the cap was announced on
  * stderr and silently discarded, so overlapping e2e runs kept starving each other. This file is
@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * ones included, so asserting on it would be no stronger — only a fork count of a real run is.
  * Do not count on the type-check instead: under this repo's
  * `module: commonjs` vitest's config type collapses to `any` (see the comment at `maxWorkers` in
- * vitest-e2e.config.ts), so an unknown option type-checks clean.
+ * vitest-e2e.config.mts), so an unknown option type-checks clean.
  *
  * The config is evaluated at import time from the environment, hence `vi.resetModules()` and a
  * fresh import per case. `LT_E2E_SLOT_DIR` points at an empty directory so that real e2e runs on
@@ -53,7 +53,7 @@ describe('vitest-e2e.config low-resource cap', () => {
   });
 
   async function loadTestConfig() {
-    const { default: config } = await import('../../vitest-e2e.config');
+    const { default: config } = await import('../../vitest-e2e.config.mjs');
     return config.test;
   }
 
@@ -62,7 +62,7 @@ describe('vitest-e2e.config low-resource cap', () => {
    *   (`poolOptions.forks.maxForks`) was logged and discarded: a run announcing "maxForks=2" used
    *   8 forks on a 12-core machine, the same run with `maxWorkers` used 2.
    * @seen-failing Put `poolOptions.forks.maxForks` back in place of `maxWorkers` in
-   *   vitest-e2e.config.ts — registered as mutation `e2e-low-resource-cap-pooloptions` in
+   *   vitest-e2e.config.mts — registered as mutation `e2e-low-resource-cap-pooloptions` in
    *   tests/regression-mutations.json.
    */
   it('caps the workers via maxWorkers in low-resource mode', async () => {
@@ -82,7 +82,7 @@ describe('vitest-e2e.config low-resource cap', () => {
    *   effect, that self-inflicted load cut the e2e step from vitest's 3 workers to 2 on every build
    *   and release — measured on hosted runners: 133 s -> 198 s mean e2e wall time (+25 % after
    *   normalising for runner speed).
-   * @seen-failing Cap the workers on every low-resource trigger in vitest-e2e.config.ts —
+   * @seen-failing Cap the workers on every low-resource trigger in vitest-e2e.config.mts —
    *   registered as mutation `e2e-low-resource-cap-ci-self-load` in tests/regression-mutations.json.
    */
   it('does not cap the workers on a GitHub-hosted runner when only the load signal fired', async () => {

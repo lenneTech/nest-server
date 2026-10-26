@@ -12,7 +12,12 @@
  *    A direct assignment (not `vi.spyOn`) is used on purpose so a global `vi.restoreAllMocks()`
  *    never removes this filter.
  *
- * 2. NestJS `Logger` level — restricted to `error`/`fatal`. The framework emits expected
+ * 2. `console.info` filter — suppresses `Configured for: <env>`, the one-line boot notice
+ *    `getEnvironmentConfig()` prints whenever `config.env.ts` is imported. Useful once per process
+ *    in an application; in a test run it is one line per spec file (every file re-imports the
+ *    config in its own module graph). Same exact-prefix rule and direct assignment as above.
+ *
+ * 3. NestJS `Logger` level — restricted to `error`/`fatal`. The framework emits expected
  *    `logger.warn`/`logger.log` output during tests (rate-limit-exceeded warnings from the
  *    rate-limiter services, Passkey auto-detection notices from BetterAuthConfig, Nest
  *    bootstrap logs). This is correct production behaviour but pure noise in test runs. Tests
@@ -53,6 +58,15 @@ console.warn = (...args: unknown[]): void => {
     return;
   }
   originalConsoleWarn(...args);
+};
+
+const originalConsoleInfo = console.info.bind(console);
+
+console.info = (...args: unknown[]): void => {
+  if (typeof args[0] === 'string' && args[0].startsWith('Configured for: ')) {
+    return;
+  }
+  originalConsoleInfo(...args);
 };
 
 Logger.overrideLogger(['error', 'fatal']);

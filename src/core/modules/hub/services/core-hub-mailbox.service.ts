@@ -1,11 +1,11 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 
-import { redactSensitiveText } from '../../../common/helpers/logging.helper';
-import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { HUB_CONFIG } from '../hub.constants';
-import { HubBuffer } from '../hub-buffer';
-import { HubMailboxData, HubMailboxEntry } from '../interfaces/hub-panels.interface';
-import { IHubCapturedMailInput, IHubEmailCapture, ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { redactSensitiveText } from '../../../common/helpers/logging.helper.js';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { HubBuffer } from '../hub-buffer.js';
+import { HubMailboxData, HubMailboxEntry } from '../interfaces/hub-panels.interface.js';
+import { IHubCapturedMailInput, IHubEmailCapture, type ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 /** A captured mail: the list metadata plus the (truncated) bodies kept for the preview iframe. */
 interface StoredMail extends HubMailboxEntry {

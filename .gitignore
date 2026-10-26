@@ -6,6 +6,10 @@ public
 !public/assets
 !public/images
 
+# TypeScript build cache. With `rootDir: ./src` (tsconfig.build.json, since 12.0.0) the incremental
+# build writes it next to the tsconfig instead of into dist/; `nest build` (deleteOutDir) still removes it.
+*.tsbuildinfo
+
 # Config
 config.json
 src/config.json

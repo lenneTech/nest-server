@@ -2,8 +2,8 @@ import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestj
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { ErrorCode } from '../../error-code';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { ErrorCode } from '../../error-code/index.js';
 import {
   ILlmProvider,
   LlmCapabilities,
@@ -11,8 +11,8 @@ import {
   LlmMessage,
   LlmResponse,
   LlmToolSchema,
-} from '../interfaces/llm-provider.interface';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
+} from '../interfaces/llm-provider.interface.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
 
 /**
  * Provider that drives the local Claude Code CLI (`claude`) as an LLM backend.

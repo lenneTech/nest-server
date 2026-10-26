@@ -169,11 +169,18 @@ Two ordering rules, both enforced by the contract test:
 Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
 
 **Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
-load-bearing (it has since grown back to 20, mostly as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+load-bearing (it has since grown back to as many as 20, mostly as new advisories landed). On
+2026-10-24 (nest-server 12.0.0) two fresh resolves showed that 16 of the remaining 18 changed nothing,
+and they were removed: **two entries remain** (`@graphql-tools/utils`, `multer`), both on an upstream
+EXACT pin with an open advisory. An override is only necessary if removing it lets the package resolve
+back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
+"Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
+`check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
 
-**The one exception is a peer conflict nobody downstream can fix.** `'@nestjs/cli>webpack'` (added
-2026-10-20) carries no advisory: @nestjs/cli exact-pins a webpack that a newer transitive
-`schema-utils` refuses as a peer, so every fresh resolve fails `pnpm peers check`. Such an entry
+**The one exception is a peer conflict nobody downstream can fix.** `'@nestjs/cli>webpack'`
+(2026-10-20 until the move to @nestjs/cli 12 in nest-server 12.0.0, where webpack became an optional
+peer) carried no advisory: @nestjs/cli 11 exact-pinned a webpack that a newer transitive
+`schema-utils` refused as a peer, so every fresh resolve failed `pnpm peers check`. Such an entry
 is parent-scoped (`parent>child`), so only the stale pin moves, and it states the release that
 lets it go. For such an entry `pnpm peers check` is the arbiter, not `pnpm audit`.
 
@@ -256,9 +263,9 @@ from a casual read.
 
 **How to spot both — and the check that does NOT work.** "The same package appears twice under
 `overrides:`" is the obvious heuristic and it is wrong: several packages legitimately need one entry
-per major, because different majors coexist in the tree. This repo has three `brace-expansion`
-entries (1.x, 2.x, 5.x) and two for `js-yaml` (4.x, 5.x), all correct. Flagging those trains the
-reader to ignore the check.
+per major, because different majors coexist in the tree. This repo carried three `brace-expansion`
+entries (1.x, 2.x, 5.x) and two for `js-yaml` (4.x, 5.x) until 12.0.0, all correct. Flagging those
+trains the reader to ignore the check.
 
 The reliable tells are narrower:
 
@@ -401,12 +408,16 @@ plus one for the opposite failure, a guard that rejects a declaration which is s
 matters just as much: a check that cries wolf on correct entries is a check that gets switched off,
 which is how the hole this feature closes came about in the first place.
 
-**Current entry (since 2026-10-11):** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch), a
-dev-tooling-only path of an advisory with no patched release at all; the justification sits next to
-the entry in `pnpm-workspace.yaml`. **Do not copy it into nest-server-starter without thinking it
-through:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into every
-generated project, so an entry there hides the advisory in every customer workspace — including
-production paths this repository does not have.
+**No current entry (since 2026-10-24).** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch) was
+listed from 2026-10-11 to 2026-10-24: a dev-tooling-only path of an advisory with no patched release
+at all. GitHub withdrew the advisory on 2026-10-23, and `check:overrides` reported the entry as
+obsolete on the next run — the guard doing exactly its job, since a withdrawal changes nothing in
+this repository and `pnpm audit` simply stops mentioning it. The entry and its scope guard in
+`tests/unit/audit-suppression-scope.spec.ts` left together; the history is in git (the comment
+block above `ignoreGhsas` in `pnpm-workspace.yaml` before 12.0.0). **Before adding an entry, and before copying one into
+nest-server-starter:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into
+every generated project, so an entry there hides the advisory in every customer workspace —
+including production paths this repository does not have.
 
 **An entry whose package has left the declared range goes, even when the new version is no fix.**
 `GHSA-ch52-4w7c-c8xp` (http-cache-semantics `<= 4.2.0`) was listed from 2026-10-03 to 2026-10-11.
@@ -414,7 +425,7 @@ production paths this repository does not have.
 as "up to the newest release" and never followed. On 4.3.0 the suppression hid nothing and would
 have swallowed a range extension unseen; without it, an extension turns `pnpm audit` red, and that
 is the moment to re-argue the case. Do not record such a lift as the advisory being fixed. Write
-down that the version is merely outside the range, as `pnpm-workspace.yaml` does.
+down that the version is merely outside the range.
 
 ### Safe Override Workflow
 

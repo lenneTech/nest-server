@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
 
-import { IFileConfig } from '../../common/interfaces/server-options.interface';
-import { CoreFileController } from './core-file.controller';
-import { CoreFileResolver } from './core-file.resolver';
-import { FILE_ROLE_MEMBERS, FileEndpointClassName, FileRoleKey, resolveRoles } from './file-roles.config';
+import { IFileConfig } from '../../common/interfaces/server-options.interface.js';
+import { CoreFileController } from './core-file.controller.js';
+import { CoreFileResolver } from './core-file.resolver.js';
+import { FILE_ROLE_MEMBERS, FileEndpointClassName, FileRoleKey, resolveRoles } from './file-roles.config.js';
 
 const logger = new Logger('CoreFileRoles');
 
@@ -17,8 +17,8 @@ export {
   warnOnPresignedDownloadsWithRestrictedRoles,
   warnOnUndecidedEffectiveFileAccess,
   warnOnUndecidedFileAccess,
-} from './file-roles.config';
-export type { FileEndpointClassName, FileRoleKey, ObservedFileHandler } from './file-roles.config';
+} from './file-roles.config.js';
+export type { FileEndpointClassName, FileRoleKey, ObservedFileHandler } from './file-roles.config.js';
 
 /**
  * The prototypes the member names in {@link FILE_ROLE_MEMBERS} resolve against.

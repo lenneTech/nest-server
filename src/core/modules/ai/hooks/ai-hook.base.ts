@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { IAiHook } from '../interfaces/ai-hook.interface';
-import { AiHookRegistry } from './ai-hook.registry';
+import { IAiHook } from '../interfaces/ai-hook.interface.js';
+import { AiHookRegistry } from './ai-hook.registry.js';
 
 /**
  * Convenience base class for AI lifecycle hooks. Extend it, declare the class as

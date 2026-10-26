@@ -1,8 +1,8 @@
 // Controller
-export * from './error-code.controller';
+export * from './error-code.controller.js';
 
 // Service
-export * from './error-code.service';
+export * from './error-code.service.js';
 
 // Error Codes
-export * from './error-codes';
+export * from './error-codes.js';

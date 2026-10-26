@@ -1,18 +1,19 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import ejs = require('ejs');
+import ejs from 'ejs';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { isLocalEnv, isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
-import { maskEmail } from '../../common/helpers/logging.helper';
-import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface';
-import { BrevoService } from '../../common/services/brevo.service';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { EmailService } from '../../common/services/email.service';
-import { TemplateService } from '../../common/services/template.service';
-import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config';
+import { isLocalEnv, isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
+import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface.js';
+import { BrevoService } from '../../common/services/brevo.service.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { EmailService } from '../../common/services/email.service.js';
+import { TemplateService } from '../../common/services/template.service.js';
+import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config.js';
+import { callerDirectory } from '../../common/helpers/module-location.helper.js';
 
 /**
  * Resolved configuration type for email verification
@@ -637,6 +638,15 @@ export class CoreBetterAuthEmailVerificationService {
     // a client that names its page is a better authority on that page than a framework default.
     if (!target) {
       target = this.readCallbackUrlFromBetterAuthLink(options.url);
+      // Only an absolute http(s) URL or a root-relative path names a page. Anything else — a path without
+      // its leading slash (`redirectTo: 'reset'`), or a template literal over an unset variable
+      // (`${baseUrl}/reset` → 'undefined/reset') — would reach the mail as a relative link that resolves
+      // nowhere, and a mail is the one place nobody can fix it afterwards. Use the default page instead.
+      // Debug, not warn: the route is unauthenticated, and a log line per request is a log-flooding lever.
+      if (target && !target.startsWith('/') && !/^https?:\/\//i.test(target)) {
+        this.logger.debug(`Ignoring redirectTo "${target}" for the reset link: not an absolute URL or a path`);
+        target = undefined;
+      }
     }
 
     // The SAME resolver the legacy twin uses. Until 11.39.0 this read `appUrl` straight off the
@@ -777,7 +787,7 @@ export class CoreBetterAuthEmailVerificationService {
     }
 
     const projectTemplatesPath = this.configService.getFastButReadOnly<string>('templates.path');
-    const nestServerTemplatesPath = path.join(__dirname, '..', '..', '..', 'templates');
+    const nestServerTemplatesPath = path.join(callerDirectory(), '..', '..', '..', 'templates');
 
     const candidates = [
       // Project templates (with locale)

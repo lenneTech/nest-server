@@ -562,6 +562,14 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       e2eAuthToken = signInResult.token || signInResult.session?.token;
     });
 
+    /**
+     * @regression   12.0.0 — the API middleware forwarded native password routes untouched, so enabling 2FA
+     *   with the right plaintext password answered "Invalid password" (only sign-in/sign-up/reset normalized).
+     *   This flow had never run past that request: its catch block returned early.
+     * @seen-failing Drop the normalizeNativePasswords() call from the request handler in
+     *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+     *   `native-password-normalization-unwired` in tests/regression-mutations.json.
+     */
     it('should complete full 2FA setup and login flow', async () => {
       if (!isBetterAuthEnabled || !isTwoFactorEnabled || !e2eAuthToken) {
         // Skipping 2FA E2E flow test - 2FA not enabled or no auth token
@@ -571,120 +579,75 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       // =================================================================
       // Step 1: Enable 2FA and get TOTP secret
       // =================================================================
-      let enableResponse: any;
-      try {
-        enableResponse = await testHelper.rest('/iam/two-factor/enable', {
-          headers: {
-            Authorization: `Bearer ${e2eAuthToken}`,
-            Cookie: `token=${e2eAuthToken}; iam.session_token=${e2eAuthToken}`,
-          },
-          method: 'POST',
-          payload: { password: e2eTestPassword },
-          statusCode: 200,
-        });
-      } catch (error: any) {
-        // If enable fails (e.g., already enabled or config issue), skip remaining steps
-        console.warn('2FA enable failed (may already be enabled):', error.message || error);
-        return;
-      }
+      // The bearer token alone: the token from the sign-in body is not a session-cookie value, and sending it
+      // as `iam.session_token` too only gave Better-Auth an unsigned cookie to refuse. The plaintext password is
+      // what an API client sends — normalized by the API middleware since 12.0.0 (PASSWORD_FIELD_PATHS).
+      const enableResponse: any = await testHelper.rest('/iam/two-factor/enable', {
+        headers: { Authorization: `Bearer ${e2eAuthToken}` },
+        method: 'POST',
+        payload: { password: e2eTestPassword },
+        statusCode: 200,
+      });
 
       expect(enableResponse).toBeDefined();
 
       // Extract TOTP secret from the response
       // Better Auth returns totpURI in format: otpauth://totp/AppName:email?secret=XXX&...
       const totpUri = enableResponse.totpURI || enableResponse.totpUri || enableResponse.uri;
-      if (!totpUri) {
-        // No TOTP URI in response, skipping verification steps
-        return;
-      }
-
-      // Parse secret from TOTP URI
-      const secretMatch = totpUri.match(/secret=([A-Z2-7]+)/i);
-      if (!secretMatch) {
-        // Could not parse secret from TOTP URI
-        return;
-      }
-      totpSecret = secretMatch[1];
-      expect(totpSecret).toBeDefined();
+      totpSecret = String(totpUri).match(/secret=([A-Z2-7]+)/i)?.[1] as string;
+      expect(totpSecret, 'enable returns a TOTP URI with a secret').toBeTruthy();
       expect(totpSecret.length).toBeGreaterThan(10);
 
       // =================================================================
-      // Step 2: Generate valid TOTP code using otpauth library
+      // Step 2: Confirm the secret — in TOTP mode this is what ACTIVATES 2FA
       // =================================================================
+      // Without it 2FA was never active, the sign-in below never asked for it, and every step after this
+      // one had never run.
       const totp = new OTPAuth.TOTP({
         algorithm: 'SHA1',
         digits: 6,
         period: 30,
         secret: OTPAuth.Secret.fromBase32(totpSecret),
       });
-
-      const validCode = totp.generate();
-      expect(validCode).toHaveLength(6);
-      expect(/^\d{6}$/.test(validCode)).toBe(true);
-
-      // =================================================================
-      // Step 3: Sign out and sign in again to trigger 2FA requirement
-      // =================================================================
-      try {
-        await testHelper.rest('/iam/sign-out', {
-          headers: {
-            Authorization: `Bearer ${e2eAuthToken}`,
-            Cookie: `token=${e2eAuthToken}; iam.session_token=${e2eAuthToken}`,
-          },
-          method: 'POST',
-        });
-      } catch {
-        // Sign-out may fail or return different status - continue anyway
-      }
-
-      // Sign in again - should now require 2FA
-      let signInResponse: any;
-      try {
-        signInResponse = await testHelper.rest('/iam/sign-in/email', {
-          method: 'POST',
-          payload: { email: e2eTestEmail, password: e2eTestPassword },
-        });
-      } catch (error: any) {
-        // Sign-in might return non-200 when 2FA is required
-        signInResponse = error;
-      }
-
-      // Check if 2FA is required (twoFactorRedirect: true)
-      const requires2FA = signInResponse?.twoFactorRedirect === true ||
-                          signInResponse?.data?.twoFactorRedirect === true;
-
-      if (!requires2FA) {
-        // Sign-in did not require 2FA - may be trusted device or config issue
-        // Even if 2FA redirect is not required, we've verified the setup flow works
-        return;
-      }
-
-      expect(requires2FA).toBe(true);
+      await testHelper.rest('/iam/two-factor/verify-totp', {
+        headers: { Authorization: `Bearer ${e2eAuthToken}` },
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
 
       // =================================================================
-      // Step 4: Verify TOTP code to complete login
+      // Step 3: Sign out and sign in again — now the second factor is required
       // =================================================================
-      // Generate fresh code in case time has passed
-      const freshCode = totp.generate();
+      await testHelper.rest('/iam/sign-out', {
+        headers: { Authorization: `Bearer ${e2eAuthToken}` },
+        method: 'POST',
+        statusCode: 201,
+      });
 
-      let verifyResponse: any;
-      try {
-        verifyResponse = await testHelper.rest('/iam/two-factor/verify-totp', {
-          method: 'POST',
-          payload: { code: freshCode },
-          // Note: The pending session cookie should be set from sign-in response
-        });
-      } catch (error: any) {
-        // Verify might fail if session cookies aren't properly forwarded in test
-        console.warn('2FA verification error (expected in some test setups):', error.message || error);
-        return;
-      }
+      const signIn: any = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email: e2eTestEmail, password: e2eTestPassword },
+        returnResponse: true,
+        statusCode: 200,
+      });
+      const signInBody = JSON.parse(signIn.text);
+      expect(signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true, 'sign-in asks for the second factor').toBe(true);
 
-      // If verification succeeds, we should have a session
-      if (verifyResponse?.session || verifyResponse?.user) {
-        expect(verifyResponse.session || verifyResponse.user).toBeDefined();
-        console.info('Full 2FA E2E flow completed successfully!');
-      }
+      // =================================================================
+      // Step 4: Complete the sign-in with a TOTP code and the pending two-factor cookie
+      // =================================================================
+      const setCookies: string[] = [].concat(signIn.headers['set-cookie'] ?? []);
+      const pendingCookies = setCookies.map((cookie) => cookie.split(';')[0]).join('; ');
+      expect(pendingCookies, 'sign-in hands out the pending two-factor cookie').toContain('two_factor');
+
+      const verifyResponse: any = await testHelper.rest('/iam/two-factor/verify-totp', {
+        cookies: pendingCookies,
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
+      expect(verifyResponse?.token || verifyResponse?.user?.id, 'the second factor completes the sign-in').toBeTruthy();
     });
 
     it('should reject invalid TOTP codes during 2FA verification', async () => {
@@ -708,38 +671,43 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       }
     });
 
-    it('should handle backup code verification', async () => {
-      if (!isBetterAuthEnabled || !isTwoFactorEnabled || !e2eAuthToken) return;
+    it('should generate backup codes once 2FA is active', async () => {
+      if (!isBetterAuthEnabled || !isTwoFactorEnabled) return;
 
-      // First, generate backup codes
-      let backupCodes: string[] = [];
-      try {
-        const response: any = await testHelper.rest('/iam/two-factor/generate-backup-codes', {
-          headers: {
-            Authorization: `Bearer ${e2eAuthToken}`,
-            Cookie: `token=${e2eAuthToken}; iam.session_token=${e2eAuthToken}`,
-          },
-          method: 'POST',
-          statusCode: 200,
-        });
+      // Self-contained: it used to reuse the flow test's user, on which TOTP was never confirmed — so 2FA was
+      // never active, the request (which also sent no password) answered 400, and the case returned early.
+      const email = `backup-codes-${Date.now()}@test.com`;
+      const password = 'BackupCodes123!';
+      await createBetterAuthUser(email, password);
+      const signIn: any = await signInBetterAuth(email, password);
+      const auth = { Authorization: `Bearer ${signIn.token || signIn.session?.token}` };
 
-        backupCodes = response.backupCodes || response.codes || [];
-      } catch (error: any) {
-        // Backup code generation might fail if 2FA not fully enabled
-        console.warn('Backup code generation failed:', error.message || error);
-        return;
-      }
+      const enable: any = await testHelper.rest('/iam/two-factor/enable', {
+        headers: auth,
+        method: 'POST',
+        payload: { password },
+        statusCode: 200,
+      });
+      const secret = String(enable.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
+      expect(secret, 'enable returns a TOTP URI with a secret').toBeTruthy();
+      const totp = new OTPAuth.TOTP({ algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret!) });
 
-      if (backupCodes.length === 0) {
-        // No backup codes returned
-        return;
-      }
+      // In TOTP mode Better-Auth activates 2FA only once a code from the new secret is confirmed.
+      await testHelper.rest('/iam/two-factor/verify-totp', {
+        headers: auth,
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
 
-      expect(backupCodes.length).toBeGreaterThan(0);
-      expect(backupCodes[0]).toBeDefined();
-
-      // Verify backup code format (typically 8-12 characters)
-      expect(backupCodes[0].length).toBeGreaterThanOrEqual(8);
+      const response: any = await testHelper.rest('/iam/two-factor/generate-backup-codes', {
+        headers: auth,
+        method: 'POST',
+        payload: { password },
+        statusCode: 200,
+      });
+      expect(response.backupCodes.length).toBeGreaterThan(0);
+      expect(response.backupCodes[0].length).toBeGreaterThanOrEqual(8);
     });
   });
 
@@ -782,6 +750,44 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       } catch (error: any) {
         expect([400, 404]).toContain(error.statusCode);
       }
+    });
+
+    /**
+     * @regression   12.0.0 — the API middleware holds a plaintext NEW password to the length policy before it
+     *   hashes it (Better-Auth would only see a 64-character sha256). The refusal is a BadRequestException, and the
+     *   middleware's catch answered every error with 500 "Authentication handler error" plus an ERROR log line — on
+     *   /change-password since the native routes were normalized, on the reset routes since the check existed.
+     * @seen-failing Drop the `if (error instanceof HttpException) { throw error; }` passthrough from the catch in
+     *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+     *   `native-password-length-refusal-answered-500` in tests/regression-mutations.json.
+     */
+    it('answers a too-short plaintext new password on change-password with 400 and keeps the old password', async () => {
+      const email = generateTestEmail();
+      const password = 'SecurePassword123!';
+      await createBetterAuthUser(email, password);
+      const signIn = await signInBetterAuth(email, password);
+      const token = signIn.token || signIn.session?.token;
+      expect(token, 'sign-in returns a token').toBeTruthy();
+
+      const refusal: any = await testHelper.rest('/iam/change-password', {
+        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+        payload: { currentPassword: password, newPassword: 'short' },
+        statusCode: 400,
+      });
+      expect(JSON.stringify(refusal)).toContain('Password must be between');
+
+      // Nothing was changed: the original password still signs in.
+      await signInBetterAuth(email, password);
+    });
+
+    it('answers a too-short reset password with 400 before any token is looked at', async () => {
+      const refusal: any = await testHelper.rest('/iam/reset-password', {
+        method: 'POST',
+        payload: { newPassword: 'short', token: 'not-a-reset-token' },
+        statusCode: 400,
+      });
+      expect(JSON.stringify(refusal)).toContain('Password must be between');
     });
   });
 
@@ -904,41 +910,30 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       }
 
       // Enable 2FA for this user
-      let enableResponse: any;
-      try {
-        enableResponse = await testHelper.rest('/iam/two-factor/enable', {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-            Cookie: `token=${authToken}; iam.session_token=${authToken}`,
-          },
-          method: 'POST',
-          payload: { password: twoFaCookieTestPassword },
-          statusCode: 200,
-        });
-      } catch (error: any) {
-        console.warn('2FA enable failed:', error.message || error);
-        return;
-      }
+      const enableResponse: any = await testHelper.rest('/iam/two-factor/enable', {
+        headers: { Authorization: `Bearer ${authToken}` },
+        method: 'POST',
+        payload: { password: twoFaCookieTestPassword },
+        statusCode: 200,
+      });
 
-      // Extract TOTP secret to verify 2FA is properly enabled
-      const totpUri = enableResponse?.totpURI || enableResponse?.totpUri || enableResponse?.uri;
-      if (!totpUri) {
-        console.warn('No TOTP URI returned, 2FA may not be properly configured');
-        return;
-      }
+      // TOTP mode activates 2FA only once a code from the new secret is confirmed. Without this step 2FA was never
+      // active, the sign-in below never asked for it, and the case returned before its critical assertion.
+      const secret = String(enableResponse?.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
+      expect(secret, 'enable returns a TOTP URI with a secret').toBeTruthy();
+      const totp = new OTPAuth.TOTP({ algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret!) });
+      await testHelper.rest('/iam/two-factor/verify-totp', {
+        headers: { Authorization: `Bearer ${authToken}` },
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
 
-      // Sign out to clear the session
-      try {
-        await testHelper.rest('/iam/sign-out', {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-            Cookie: `token=${authToken}; iam.session_token=${authToken}`,
-          },
-          method: 'POST',
-        });
-      } catch {
-        // Sign-out may fail or return different status - continue anyway
-      }
+      await testHelper.rest('/iam/sign-out', {
+        headers: { Authorization: `Bearer ${authToken}` },
+        method: 'POST',
+        statusCode: 201,
+      });
 
       // Sign in again - this time 2FA should be required
       // Use returnResponse: true to get access to the Set-Cookie headers
@@ -960,13 +955,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       // Check that 2FA is required
       const requires2FA = responseBody.requiresTwoFactor === true ||
                           responseBody.twoFactorRedirect === true;
-
-      if (!requires2FA) {
-        console.warn('2FA was not required on sign-in (may be trusted device or config issue)');
-        return;
-      }
-
-      expect(requires2FA).toBe(true);
+      expect(requires2FA, 'sign-in asks for the second factor once 2FA is active').toBe(true);
 
       // CRITICAL ASSERTION: Verify Set-Cookie header contains the two_factor token
       // This is the bug that was fixed in 11.10.x - without this cookie, 2FA verification fails
@@ -983,11 +972,6 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
 
       // This assertion will FAIL without the fix implemented in 11.10.x
       expect(hasTwoFactorCookie).toBe(true);
-
-      // Log the cookie for debugging (in development only)
-      if (hasTwoFactorCookie) {
-        console.info('✓ Set-Cookie header correctly contains two_factor token for 2FA flow');
-      }
     });
   });
 

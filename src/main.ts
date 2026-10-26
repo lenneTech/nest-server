@@ -1,23 +1,26 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { exec } from 'child_process';
-import compression = require('compression');
-import cookieParser = require('cookie-parser');
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
 
-import envConfig from './config.env';
-import { FilterArgs } from './core/common/args/filter.args';
-import { buildCorsConfig, isCookiesEnabled, isCorsDisabled } from './core/common/helpers/cookies.helper';
-import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter';
-import { installGracefulShutdown } from './core/common/helpers/graceful-shutdown.helper';
-import { handleFatalBootstrapError, installProcessDiagnostics } from './core/common/helpers/process-diagnostics.helper';
-import { setupSwagger } from './core/common/helpers/swagger.helper';
-import { CorePersistenceModel } from './core/common/models/core-persistence.model';
-import { CoreAuthModel } from './core/modules/auth/core-auth.model';
-import { CoreUserModel } from './core/modules/user/core-user.model';
-import { PersistenceModel } from './server/common/models/persistence.model';
-import { Auth } from './server/modules/auth/auth.model';
-import { User } from './server/modules/user/user.model';
-import { ServerModule } from './server/server.module';
+import envConfig from './config.env.js';
+import { FilterArgs } from './core/common/args/filter.args.js';
+import { buildCorsConfig, isCookiesEnabled, isCorsDisabled } from './core/common/helpers/cookies.helper.js';
+import { HttpExceptionLogFilter } from './core/common/filters/http-exception-log.filter.js';
+import { installGracefulShutdown } from './core/common/helpers/graceful-shutdown.helper.js';
+import {
+  handleFatalBootstrapError,
+  installProcessDiagnostics,
+} from './core/common/helpers/process-diagnostics.helper.js';
+import { setupSwagger } from './core/common/helpers/swagger.helper.js';
+import { CorePersistenceModel } from './core/common/models/core-persistence.model.js';
+import { CoreAuthModel } from './core/modules/auth/core-auth.model.js';
+import { CoreUserModel } from './core/modules/user/core-user.model.js';
+import { PersistenceModel } from './server/common/models/persistence.model.js';
+import { Auth } from './server/modules/auth/auth.model.js';
+import { User } from './server/modules/user/user.model.js';
+import { ServerModule } from './server/server.module.js';
 
 /**
  * Preparations for server start

@@ -1,11 +1,11 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 
-import { ErrorCode } from '../../error-code';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
-import { CoreAiAvailableConnection } from '../models/core-ai-available-connection.model';
-import { CoreAiConnectionPreference } from '../models/core-ai-connection-preference.model';
-import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service';
-import { CoreAiConnectionService } from './core-ai-connection.service';
+import { ErrorCode } from '../../error-code/index.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
+import { CoreAiAvailableConnection } from '../models/core-ai-available-connection.model.js';
+import { CoreAiConnectionPreference } from '../models/core-ai-connection-preference.model.js';
+import { CoreAiConnectionPreferenceService } from './core-ai-connection-preference.service.js';
+import { CoreAiConnectionService } from './core-ai-connection.service.js';
 
 /**
  * Lightweight connection shape used during resolution (no secrets). `model` and

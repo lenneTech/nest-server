@@ -463,7 +463,7 @@ describe('Tenant context surfaces (e2e)', () => {
             name: 'guardedSubscription',
             type: TestGraphQLType.SUBSCRIPTION,
           },
-          { countOfSubscriptionMessages: 1, log: true },
+          { countOfSubscriptionMessages: 1 },
         )
         .then(
           (messages: any) => ({ delivered: messages }),

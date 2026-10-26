@@ -35,7 +35,7 @@
  * ```
  */
 
-export * from './cli/migrate-cli';
-export * from './helpers/migration.helper';
-export * from './migration-runner';
-export * from './mongo-state-store';
+export * from './cli/migrate-cli.js';
+export * from './migration.helper.js';
+export * from './migration-runner.js';
+export * from './mongo-state-store.js';

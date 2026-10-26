@@ -3,32 +3,32 @@ import { ModuleRef } from '@nestjs/core';
 import { FileStore } from '@tus/file-store';
 import { Server, Upload } from '@tus/server';
 import * as fs from 'fs';
-import { Connection, mongo } from 'mongoose';
+import { type Connection, mongo } from 'mongoose';
 import * as path from 'path';
 import { Readable } from 'stream';
 
-import { GridFSHelper } from '../../common/helpers/gridfs.helper';
-import { ITusConfig } from '../../common/interfaces/server-options.interface';
-import { buildCorsConfig } from '../../common/helpers/cookies.helper';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { CoreS3Service } from '../../common/services/core-s3.service';
-import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry';
-import { resolveFileStorage } from '../file/file-storage.helper';
+import { GridFSHelper } from '../../common/helpers/gridfs.helper.js';
+import { ITusConfig } from '../../common/interfaces/server-options.interface.js';
+import { buildCorsConfig } from '../../common/helpers/cookies.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { CoreS3Service } from '../../common/services/core-s3.service.js';
+import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
+import { resolveFileStorage } from '../file/file-storage.helper.js';
 import {
   DEFAULT_FILESYSTEM_DIR,
   FILESYSTEM_FILES_COLLECTION,
   FilesystemFileHelper,
-} from '../file/filesystem-file.helper';
-import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper';
-import { TUS_FILE_ID_HEADER, TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants';
-import { TusRedisLocker } from './tus-redis-locker';
+} from '../file/filesystem-file.helper.js';
+import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper.js';
+import { TUS_FILE_ID_HEADER, TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants.js';
+import { TusRedisLocker } from './tus-redis-locker.js';
 import {
   DEFAULT_TUS_ALLOWED_HEADERS,
   DEFAULT_TUS_CONFIG,
   normalizeTusConfig,
   parseExpirationTime,
-} from './interfaces/tus-config.interface';
+} from './interfaces/tus-config.interface.js';
 
 /**
  * Optional dependencies of CoreTusService.

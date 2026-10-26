@@ -1,15 +1,14 @@
-import { Logger, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { Controller } from '@nestjs/common/decorators/core/controller.decorator';
+import { Controller, Logger, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
-import { CurrentUser } from '../../../core/common/decorators/current-user.decorator';
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { getStringIds } from '../../../core/common/helpers/db.helper';
-import { multerFileToUpload, multerOptionsForImageUpload } from '../../../core/common/helpers/file.helper';
-import { FileService } from '../file/file.service';
-import { User } from './user.model';
-import { UserService } from './user.service';
+import { CurrentUser } from '../../../core/common/decorators/current-user.decorator.js';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { getStringIds } from '../../../core/common/helpers/db.helper.js';
+import { multerFileToUpload, multerOptionsForImageUpload } from '../../../core/common/helpers/file.helper.js';
+import { FileService } from '../file/file.service.js';
+import { User } from './user.model.js';
+import { UserService } from './user.service.js';
 
 /**
  * Controller for avatar

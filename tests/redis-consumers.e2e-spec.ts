@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
 import { HubBuffer } from '../src/core/modules/hub/hub-buffer';
@@ -137,7 +137,7 @@ describe('Redis consumers across replicas (real Redis)', () => {
       expect(await replicaA.getClient().exists(key)).toBe(1);
 
       // Drop the heartbeat the way a dead process would, then let the TTL lapse.
-      await (shortLived as unknown as { stopHeartbeat?: () => void }).stopHeartbeat?.();
+      (shortLived as unknown as { stopHeartbeat?: () => void }).stopHeartbeat?.();
       clearInterval((shortLived as unknown as { heartbeat?: NodeJS.Timeout }).heartbeat);
 
       expect(await waitFor(async () => (await replicaA.getClient().exists(key)) === 0, 3000)).toBe(true);
@@ -217,12 +217,16 @@ describe('Redis consumers across replicas (real Redis)', () => {
     it('survives Redis being unavailable instead of taking the request down', async () => {
       // The mirror is fire-and-forget by design: an observability feature must
       // never fail the request it is observing.
+      // HubBuffer reports the fallback on console.debug (deliberately not the Logger — see hub-buffer.ts).
+      // Expected here, and asserted: the degradation is reported, not silent.
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const severed = createRedis();
       const buffer = new HubBuffer<LogEntry>(10, 'logs-severed', severed);
 
       expect(() => buffer.add({ message: 'no redis here' } as Omit<LogEntry, 'seq' | 'timestamp'>)).not.toThrow();
       expect((await buffer.read()).entries.map(entry => entry.message)).toContain('no redis here');
       await severed.onApplicationShutdown();
+      expect(debug.mock.calls.flat().join('\n')).toContain('using the local buffer');
     }, 30_000);
   });
 });

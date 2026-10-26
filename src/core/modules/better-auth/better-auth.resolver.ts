@@ -2,21 +2,21 @@ import { Optional } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
-import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model.js';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service.js';
 import {
   CoreBetterAuth2FASetupModel,
   CoreBetterAuthFeaturesModel,
   CoreBetterAuthPasskeyChallengeModel,
   CoreBetterAuthPasskeyModel,
   CoreBetterAuthSessionModel,
-} from './core-better-auth-models';
-import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
-import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
-import { CoreBetterAuthResolver } from './core-better-auth.resolver';
-import { CoreBetterAuthService } from './core-better-auth.service';
+} from './core-better-auth-models.js';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service.js';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
+import { CoreBetterAuthResolver } from './core-better-auth.resolver.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * Default BetterAuth GraphQL Resolver

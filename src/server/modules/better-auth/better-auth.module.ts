@@ -1,9 +1,9 @@
 import { DynamicModule, Module } from '@nestjs/common';
 
-import { IBetterAuth } from '../../../core/common/interfaces/server-options.interface';
-import { CoreBetterAuthModule } from '../../../core/modules/better-auth/core-better-auth.module';
-import { BetterAuthController } from './better-auth.controller';
-import { BetterAuthResolver } from './better-auth.resolver';
+import { IBetterAuth } from '../../../core/common/interfaces/server-options.interface.js';
+import { CoreBetterAuthModule } from '../../../core/modules/better-auth/core-better-auth.module.js';
+import { BetterAuthController } from './better-auth.controller.js';
+import { BetterAuthResolver } from './better-auth.resolver.js';
 
 /**
  * Options for BetterAuthModule.forRoot()

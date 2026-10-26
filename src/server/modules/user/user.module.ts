@@ -2,15 +2,15 @@ import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreRedisPubSub } from '../../../core/common/services/core-redis-pubsub';
-import { CoreRedisService } from '../../../core/common/services/core-redis.service';
-import { FileModule } from '../file/file.module';
-import { AvatarController } from './avatar.controller';
-import { UserController } from './user.controller';
-import { User, UserSchema } from './user.model';
-import { UserResolver } from './user.resolver';
-import { UserService } from './user.service';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreRedisPubSub } from '../../../core/common/services/core-redis-pubsub.js';
+import { CoreRedisService } from '../../../core/common/services/core-redis.service.js';
+import { FileModule } from '../file/file.module.js';
+import { AvatarController } from './avatar.controller.js';
+import { UserController } from './user.controller.js';
+import { User, UserSchema } from './user.model.js';
+import { UserResolver } from './user.resolver.js';
+import { UserService } from './user.service.js';
 
 /**
  * User module

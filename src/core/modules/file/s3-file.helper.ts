@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { Readable } from 'stream';
 
-import { CoreS3Service } from '../../common/services/core-s3.service';
+import { CoreS3Service } from '../../common/services/core-s3.service.js';
 import {
   ensureFilenameIndex,
   FileCollection,
@@ -9,7 +9,7 @@ import {
   findMetadata,
   findMetadataById,
   findMetadataByName,
-} from './file-metadata.helper';
+} from './file-metadata.helper.js';
 
 /**
  * Name of the MongoDB collection holding the metadata of S3-stored files.

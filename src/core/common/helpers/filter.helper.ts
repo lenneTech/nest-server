@@ -1,14 +1,14 @@
 import { QueryFilter, QueryOptions } from 'mongoose';
 
-import { FilterArgs } from '../args/filter.args';
-import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum';
-import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
-import { SortOrderEnum } from '../enums/sort-order.emum';
-import { FilterInput } from '../inputs/filter.input';
-import { SortInput } from '../inputs/sort.input';
-import { ConfigService } from '../services/config.service';
-import { checkStringIds, getObjectIds } from './db.helper';
-import { assignPlain, clone } from './input.helper';
+import { FilterArgs } from '../args/filter.args.js';
+import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum.js';
+import { LogicalOperatorEnum } from '../enums/logical-operator.enum.js';
+import { SortOrderEnum } from '../enums/sort-order.emum.js';
+import { FilterInput } from '../inputs/filter.input.js';
+import { SortInput } from '../inputs/sort.input.js';
+import { ConfigService } from '../services/config.service.js';
+import { checkStringIds, getObjectIds } from './db.helper.js';
+import { assignPlain, clone } from './input.helper.js';
 
 /**
  * Helper for filter handling

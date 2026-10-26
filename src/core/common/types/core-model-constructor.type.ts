@@ -1,4 +1,4 @@
-import { CoreModel } from '../models/core-model.model';
+import { CoreModel } from '../models/core-model.model.js';
 
 export interface CoreModelConstructor<T extends CoreModel> {
   init(this: new (...args: any[]) => T, ...args: any[]): T;

@@ -1,4 +1,4 @@
-import { Comparator } from '../types/scim-comparator.type';
+import { Comparator } from '../types/scim-comparator.type.js';
 
 /** Represents a single SCIM condition such as userName eq "Joe" */
 export interface ConditionNode {

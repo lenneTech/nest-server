@@ -42,7 +42,7 @@
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
  *
- * `--no-infra` selects the 165 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 185 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 249 rather than caching per-mutation verdicts: the gate
+ * Why the release gate still runs all 274 rather than caching per-mutation verdicts: the gate
  * runs ONCE PER RELEASE, not per commit, and in CI it runs alongside the publish without blocking
  * it. The price of caching would be a cache that has to model each spec's full dependency closure
  * correctly, and the failure mode of getting that wrong is a stale PASS for a test that has since
- * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 249 mutations.
+ * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 274 mutations.
  *
  * DECIDED 2026-10-03 (repo owner): keep the full run. Measured at 128 mutations, the CI job for
  * 11.41.6 took 14 minutes. The trigger to revisit is that WALL TIME, not the mutation count —
@@ -168,13 +168,13 @@ function specEnv(specs, jobs) {
   return {
     ...process.env,
     // Low-resource mode raises the e2e timeouts and caps `maxWorkers`. The parallel path deliberately
-    // creates the very multi-run state `vitest-e2e.config.ts` auto-detects, so it must be ON there:
+    // creates the very multi-run state `vitest-e2e.config.mts` auto-detects, so it must be ON there:
     // its own comment describes what starvation costs — requests queue past the 30s testTimeout,
     // auth comes back as spurious 401s, sockets hang up — symptoms that read like product bugs and,
     // before the INCONCLUSIVE verdict, would have been reported as confirmed evidence.
     //
     // The SEQUENTIAL path leaves the variable UNSET rather than forcing '0'. Forcing it off does not
-    // merely decline low-resource mode, it DISABLES the auto-detection (`vitest-e2e.config.ts` only
+    // merely decline low-resource mode, it DISABLES the auto-detection (`vitest-e2e.config.mts` only
     // computes `LOW_RESOURCE_AUTO` when the variable is undefined). "Nothing else is competing" is
     // true of this run, not of the machine: `countOtherActiveRuns()` exists precisely because
     // another lt project's e2e suite may be live, and forcing full speed against it reproduces the
@@ -188,7 +188,7 @@ function specEnv(specs, jobs) {
     // `poolOptions.forks.maxForks` it was written into. It binds now — 1 worker per lane at 12 cores
     // and 4 jobs, or on a 4-vCPU runner with 2 jobs. The wall-clock effect is close to nil: a single
     // spec file runs in one fork anyway, and of the e2e mutations only 2 name more than one spec file.
-    // The unit mutations run through vitest.config.ts and never see this variable's effect.
+    // The unit mutations run through vitest.config.mts and never see this variable's effect.
     ...(jobs > 1
       ? { CHECK_LOW_RESOURCE_FORKS: String(Math.max(1, Math.floor(availableParallelism() / (3 * jobs)))) }
       : {}),
@@ -203,7 +203,7 @@ function specEnv(specs, jobs) {
 /**
  * Pick the ONE vitest config a mutation's specs run under.
  *
- * The two runners have DISJOINT globs — `vitest.config.ts` claims `tests/unit/**`, the e2e config
+ * The two runners have DISJOINT globs — `vitest.config.mts` claims `tests/unit/**`, the e2e config
  * claims `tests/**\/*.e2e-spec.ts` and `tests/stories/**\/*.story.test.ts`. A spec that the chosen
  * config does not match is not an error there: vitest simply runs the ones it recognises. So a
  * mixed list used to resolve to the e2e config and DROP the unit specs in silence — the mutation
@@ -229,7 +229,7 @@ function specConfig(specs, id) {
     );
   }
 
-  return unit.length === specs.length ? 'vitest.config.ts' : 'vitest-e2e.config.ts';
+  return unit.length === specs.length ? 'vitest.config.mts' : 'vitest-e2e.config.mts';
 }
 
 /**
@@ -325,10 +325,10 @@ const GLOBAL_INPUTS = [
   'tests/setup.ts',
   'tests/global-setup.ts',
   'tests/db-lifecycle.reporter.ts',
-  'tests/e2e-run-slots.ts',
-  'vitest.config.ts',
-  'vitest-e2e.config.ts',
-  'vitest.include-globs.ts',
+  'tests/e2e-run-slots.mts',
+  'vitest.config.mts',
+  'vitest-e2e.config.mts',
+  'vitest.include-globs.mts',
   'scripts/check-mutations.mjs',
   'src/config.env.ts',
   'tsconfig.json',
@@ -812,5 +812,8 @@ function isCliEntry() {
 }
 
 if (isCliEntry()) {
-  main();
+  main().catch((err) => {
+    console.error(`\ncheck-mutations.mjs crashed: ${err?.stack || err}`);
+    process.exit(1);
+  });
 }

@@ -1,5 +1,5 @@
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { ICoreAuthUser } from '../interfaces/core-auth-user.interface.js';
 
 /**
  * Abstract class for user service in authorization module

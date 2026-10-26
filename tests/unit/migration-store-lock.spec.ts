@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { createMigrationStore } from '../../src/core/modules/migrate/helpers/migration.helper';
+import { createMigrationStore } from '../../src/core/modules/migrate/migration.helper';
 import { MongoStateStore, withMigrationLock } from '../../src/core/modules/migrate/mongo-state-store';
 
 describe('createMigrationStore', () => {

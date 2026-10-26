@@ -23,36 +23,36 @@
  */
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
-import _ = require('lodash');
+import _ from 'lodash';
 
-import { ProcessType } from '../enums/process-type.enum';
+import { ProcessType } from '../enums/process-type.enum.js';
 // isSystemRole comes from the role.enum LEAF (import-free), not from core-tenant.helpers, so this
 // adds no new import edge to a file whose TDZ-immunity is a deliberate safety property.
-import { isSystemRole, RoleEnum } from '../enums/role.enum';
-import { accessDeniedException } from '../exceptions/access-denied.exception';
+import { isSystemRole, RoleEnum } from '../enums/role.enum.js';
+import { accessDeniedException } from '../exceptions/access-denied.exception.js';
 // From the import-free LEAF, never from unified-field.decorator: that file imports THIS one for
 // `@Restricted`, so reading the map from there would put this file back on an import cycle.
-import { resolveNestedType } from './nested-type.registry';
+import { resolveNestedType } from './nested-type.registry.js';
 // From an import-free LEAF: the marker is read here and in both interceptors, and this file's
 // position on zero import cycles is a defended property.
 import {
   hasRestrictionsCheckedMarker,
   hasUnrecognizedRestrictionsFlag,
   RESTRICTIONS_CHECKED_KEY,
-} from './restrictions-checked.marker';
+} from './restrictions-checked.marker.js';
 // Import from the id.helper LEAF, never from db.helper: db.helper imports input.helper, which
 // imports this file back — that cycle is what the extraction removed. See id.helper's docblock.
-import { equalIds, getIncludedIds } from '../helpers/id.helper';
-import { RequestContext } from '../services/request-context.service';
-import { RequireAtLeastOne } from '../types/required-at-least-one.type';
-import { checkRoleAccess, resolveGlobalAndTenantRoles } from '../../modules/tenant/core-tenant.helpers';
+import { equalIds, getIncludedIds } from '../helpers/id.helper.js';
+import { RequestContext } from '../services/request-context.service.js';
+import { RequireAtLeastOne } from '../types/required-at-least-one.type.js';
+import { checkRoleAccess, resolveGlobalAndTenantRoles } from '../../modules/tenant/core-tenant.helpers.js';
 
 export {
   hasRestrictionsCheckedMarker,
   hasUnrecognizedRestrictionsFlag,
   markRestrictionsChecked,
   RESTRICTIONS_CHECKED_KEY,
-} from './restrictions-checked.marker';
+} from './restrictions-checked.marker.js';
 
 /**
  * Restricted meta key

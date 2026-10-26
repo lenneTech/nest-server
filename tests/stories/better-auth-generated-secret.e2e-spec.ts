@@ -50,7 +50,8 @@ describe('Story: BetterAuth with an auto-generated secret', () => {
       betterAuth: { ...envConfig.betterAuth, emailVerification: false, secret: undefined, signUpChecks: false },
       jwt: {
         ...envConfig.jwt,
-        refresh: { ...envConfig.jwt?.refresh, secret: SHORT_SECRET },
+        // Different from `secret` (equal JWT secrets are a warning of their own), and short as well.
+        refresh: { ...envConfig.jwt?.refresh, secret: 'refresh-24-characters-ok' },
         secret: SHORT_SECRET,
       },
       mongoose: { ...envConfig.mongoose, uri: DB_URI },

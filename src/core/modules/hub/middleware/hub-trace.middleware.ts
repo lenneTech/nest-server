@@ -1,7 +1,7 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { HubTraceBufferService } from '../services/hub-trace-buffer.service';
+import { HubTraceBufferService } from '../services/hub-trace-buffer.service.js';
 
 /**
  * Measures request duration and records a trace at response completion.

@@ -21,9 +21,10 @@ const START_CONTAINER
   = 'docker run -d --name nest-server-2985-rustfs -p 9102:9000 -e RUSTFS_ROOT_USER=rustfs '
     + '-e RUSTFS_ROOT_PASSWORD=rustfs-secret -e RUSTFS_VOLUMES=/data rustfs/rustfs:1.0.0-rc.1 server /data';
 
-function createService(): CoreS3Service {
+function createService(options: { autoCreateBucket?: boolean } = {}): CoreS3Service {
   const s3Config = {
     accessKeyId: process.env.S3_ACCESS_KEY || 'rustfs',
+    autoCreateBucket: options.autoCreateBucket ?? false,
     bucket: RUN_BUCKET,
     endpoint: process.env.S3_ENDPOINT || 'http://localhost:9102',
     forcePathStyle: true,
@@ -49,7 +50,9 @@ describe('S3 infrastructure (real RustFS)', () => {
   let service: CoreS3Service;
 
   beforeAll(async () => {
-    service = createService();
+    // autoCreateBucket: the run bucket does not exist yet, and the boot check would otherwise report it as a
+    // misconfiguration (ERROR) on every green run. ensureBucket() below stays the reachability preflight.
+    service = createService({ autoCreateBucket: true });
     await service.onModuleInit();
     try {
       await service.ensureBucket(RUN_BUCKET);

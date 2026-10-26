@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { TemplateFunction } from 'ejs';
-import ejs = require('ejs');
-import fs = require('fs');
+import ejs from 'ejs';
+import * as fs from 'fs';
 import { resolve, sep } from 'path';
 
-import { ConfigService } from './config.service';
+import { ConfigService } from './config.service.js';
 
 /**
  * Template service

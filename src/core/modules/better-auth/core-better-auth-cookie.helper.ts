@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { Response } from 'express';
 
-import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
-import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
-import { isJwtShaped } from './core-better-auth-token.helper';
-import { signCookieValue } from './core-better-auth-web.helper';
+import { isProductionLikeEnv } from '../../common/helpers/cookies.helper.js';
+import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper.js';
+import { isJwtShaped } from './core-better-auth-token.helper.js';
+import { signCookieValue } from './core-better-auth-web.helper.js';
 
 /**
  * Last-resort logger for the JWT refusal below.

@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Optional } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 
-import { IServerOptions } from '../interfaces/server-options.interface';
-import { ConfigService } from './config.service';
+import { IServerOptions } from '../interfaces/server-options.interface.js';
+import { ConfigService } from './config.service.js';
 
 /** Express setting name — the string Express itself keys the compiled trust function off */
 const TRUST_PROXY = 'trust proxy';

@@ -2,18 +2,46 @@ import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/
 import { ModuleRef } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
-import { defaultOptions } from '@nestjs/passport/dist/options.js';
-import { memoize } from '@nestjs/passport/dist/utils/memoize.util.js';
-import passport = require('passport');
+import passport from 'passport';
 
-import { enforceApiTokenRoute, getApiTokenContext } from '../../api-token/core-api-token.helpers';
-import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
-import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
-import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
-import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
-import { ExpiredRefreshTokenException } from '../exceptions/expired-refresh-token.exception';
-import { ExpiredTokenException } from '../exceptions/expired-token.exception';
-import { InvalidTokenException } from '../exceptions/invalid-token.exception';
+import { enforceApiTokenRoute, getApiTokenContext } from '../../api-token/core-api-token.helpers.js';
+import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service.js';
+import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types.js';
+import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service.js';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum.js';
+import { ExpiredRefreshTokenException } from '../exceptions/expired-refresh-token.exception.js';
+import { ExpiredTokenException } from '../exceptions/expired-token.exception.js';
+import { InvalidTokenException } from '../exceptions/invalid-token.exception.js';
+
+/**
+ * Passport defaults, as `@nestjs/passport` applies them in its own AuthGuard.
+ *
+ * Kept here rather than imported: until 11.x this file read them from `@nestjs/passport/dist/options.js`
+ * and `memoize` from `dist/utils/memoize.util.js`. `@nestjs/passport` 12 declares an `exports` map
+ * that only allows the package root, and neither helper is exported there, so the deep imports fail
+ * with ERR_PACKAGE_PATH_NOT_EXPORTED.
+ */
+const defaultOptions = {
+  property: 'user',
+  session: false,
+};
+
+/**
+ * One guard class per strategy key, so `AuthGuard('jwt')` returns the same class on every call —
+ * NestJS caches guard instances by class, and a fresh class per call would defeat that.
+ * Same behaviour as `@nestjs/passport`'s internal `memoize`.
+ */
+function memoize<T>(fn: (key?: string | string[]) => T): (key?: string | string[]) => T {
+  const defaultKey = 'default';
+  const cache: Record<string, T> = {};
+  return (...args) => {
+    const key = (args[0] as string) || defaultKey;
+    if (!(key in cache)) {
+      cache[key] = fn(key === defaultKey ? undefined : args[0]);
+    }
+    return cache[key];
+  };
+}
 
 /**
  * Missing strategy error

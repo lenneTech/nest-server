@@ -1,0 +1,10 @@
+{
+  // Editor view of the tests. An IDE type-checks a file with the NEAREST tsconfig.json; without this one
+  // that is the root config, which is `nodenext` (how src/ is built) and reports ~80 errors in specs that
+  // compile cleanly the way vitest runs them (missing `.js` extensions, ES2023 lib). This file makes the
+  // editor use tsconfig.tests.json — the config `pnpm run typecheck:tests` checks with.
+  "extends": "../tsconfig.tests.json",
+  // TypeScript 6 defaults rootDir to this file's directory; the specs import src/ from one level up.
+  "compilerOptions": { "rootDir": ".." },
+  "include": ["./**/*.ts"]
+}

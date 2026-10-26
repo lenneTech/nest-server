@@ -1,16 +1,16 @@
 import { Args, Context, Mutation, Resolver } from '@nestjs/graphql';
 import { Response as ResponseType } from 'express';
 
-import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator';
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreAuthResolver } from '../../../core/modules/auth/core-auth.resolver';
-import { Auth } from './auth.model';
-import { AuthService } from './auth.service';
-import { AuthSignInInput } from './inputs/auth-sign-in.input';
-import { AuthSignUpInput } from './inputs/auth-sign-up.input';
+import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator.js';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import type { ServiceOptions } from '../../../core/common/interfaces/service-options.interface.js';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreAuthResolver } from '../../../core/modules/auth/core-auth.resolver.js';
+import { Auth } from './auth.model.js';
+import { AuthService } from './auth.service.js';
+import { AuthSignInInput } from './inputs/auth-sign-in.input.js';
+import { AuthSignUpInput } from './inputs/auth-sign-up.input.js';
 
 /**
  * Authentication resolver for the sign in

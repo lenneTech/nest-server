@@ -164,9 +164,9 @@ describe('selectMutations', () => {
         'tests/regression-mutations.json',
         'tests/setup.ts',
         'tests/global-setup.ts',
-        'vitest.config.ts',
-        'vitest-e2e.config.ts',
-        'vitest.include-globs.ts',
+        'vitest.config.mts',
+        'vitest-e2e.config.mts',
+        'vitest.include-globs.mts',
         'scripts/check-mutations.mjs',
       ];
       for (const file of globalInputs) {

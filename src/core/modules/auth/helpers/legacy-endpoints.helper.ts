@@ -1,4 +1,4 @@
-import type { IAuthLegacyEndpoints } from '../../../common/interfaces/server-options.interface';
+import type { IAuthLegacyEndpoints } from '../../../common/interfaces/server-options.interface.js';
 
 /**
  * The two transports legacy auth is reachable over.

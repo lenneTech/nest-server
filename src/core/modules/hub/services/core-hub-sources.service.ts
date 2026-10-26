@@ -2,11 +2,11 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { SchedulerRegistry } from '@nestjs/schedule';
 
-import { CoreAiInteractionService } from '../../ai/services/core-ai-interaction.service';
-import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper';
-import { CoreErrorCodeService } from '../../error-code/core-error-code.service';
-import { CorePermissionsService } from '../../permissions/core-permissions.service';
-import { HubCronData, HubErrorCodesData, HubUnavailable } from '../interfaces/hub-panels.interface';
+import { CoreAiInteractionService } from '../../ai/services/core-ai-interaction.service.js';
+import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper.js';
+import { CoreErrorCodeService } from '../../error-code/core-error-code.service.js';
+import { CorePermissionsService } from '../../permissions/core-permissions.service.js';
+import { HubCronData, HubErrorCodesData, HubUnavailable } from '../interfaces/hub-panels.interface.js';
 
 /**
  * Single choke point for the Hub's OPTIONAL data sources.
@@ -124,7 +124,13 @@ export class CoreHubSourcesService {
     if (action === 'start') {
       job.start();
     } else if (action === 'stop') {
-      job.stop();
+      // With `waitForCompletion`, cron's stop() returns a promise that waits for the running tick and `onComplete`;
+      // a rejection from either must not become an unhandled one.
+      job.stop()?.catch((error: unknown) => {
+        this.logger.warn(
+          `Cron job "${name}" failed while stopping: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
     } else {
       // Fire the job's callback once now.
       const fire = (job as unknown as { fireOnTick?: () => void }).fireOnTick;

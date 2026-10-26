@@ -1,8 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { CoreHealthCheckService } from './core-health-check.service';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { CoreHealthCheckService } from './core-health-check.service.js';
 
 /**
  * The HealthController class checks the health of various components including the database, memory, and disk.

@@ -1,6 +1,6 @@
 import { INestApplication, Logger } from '@nestjs/common';
 
-import { ConfigService } from '../services/config.service';
+import { ConfigService } from '../services/config.service.js';
 
 /** Signals an orchestrator uses to ask a container to stop */
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];

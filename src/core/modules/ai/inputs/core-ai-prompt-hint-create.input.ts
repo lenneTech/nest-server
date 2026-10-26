@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreAiPromptHintInput } from './core-ai-prompt-hint.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreAiPromptHintInput } from './core-ai-prompt-hint.input.js';
 
 /**
  * Input to create a learned AI prompt hint manually. `content` and `trigger` are

@@ -1,9 +1,9 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 
-import { getProjectSlug } from '../helpers/project-name.helper';
-import { ConfigService } from './config.service';
+import { getProjectSlug } from '../helpers/project-name.helper.js';
+import { ConfigService } from './config.service.js';
 
-import type { IRedisConfig } from '../interfaces/server-options.interface';
+import type { IRedisConfig } from '../interfaces/server-options.interface.js';
 import type { Redis, RedisOptions } from 'ioredis';
 
 /**

@@ -1,17 +1,17 @@
-import bcrypt = require('bcrypt');
+import bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
-import _ = require('lodash');
+import _ from 'lodash';
 import { Types } from 'mongoose';
 
-import { RoleEnum } from '../enums/role.enum';
-import { accessDeniedException } from '../exceptions/access-denied.exception';
-import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface';
-import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface';
-import { ResolveSelector } from '../interfaces/resolve-selector.interface';
-import { ServiceOptions } from '../interfaces/service-options.interface';
-import { ConfigService } from '../services/config.service';
-import { getStringIds } from './db.helper';
-import { clone, plainToInstanceClean, processDeep } from './input.helper';
+import { RoleEnum } from '../enums/role.enum.js';
+import { accessDeniedException } from '../exceptions/access-denied.exception.js';
+import { PrepareInputOptions } from '../interfaces/prepare-input-options.interface.js';
+import { PrepareOutputOptions } from '../interfaces/prepare-output-options.interface.js';
+import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
+import { ServiceOptions } from '../interfaces/service-options.interface.js';
+import { ConfigService } from '../services/config.service.js';
+import { getStringIds } from './db.helper.js';
+import { clone, plainToInstanceClean, processDeep } from './input.helper.js';
 
 // Secret field names for recursive removal in prepareOutput — allocated once, never change.
 // Only fields that are NEVER needed internally (hashed passwords, one-time tokens).

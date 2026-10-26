@@ -1,6 +1,6 @@
 import { createParamDecorator } from '@nestjs/common';
 
-import { currentUserDec } from '../helpers/decorator.helper';
+import { currentUserDec } from '../helpers/decorator.helper.js';
 
 /**
  * Decorator to get current user for Controller (http context) and Resolver (graphql context)

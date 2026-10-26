@@ -3,17 +3,17 @@
 // to a second copy of the module (a bundler's interop namespace, or a duplicated install), and the
 // wrapper would then reject the very schema it was handed. The repo already uses this form for
 // `graphql-upload` and `lodash` for the same reason.
-import graphql = require('graphql');
+import * as graphql from 'graphql';
 
-import { getTenantContextResolver, ResolvedTenantContext } from '../services/core-tenant-context.registry';
-import { IRequestContext, RequestContext } from '../services/request-context.service';
+import { getTenantContextResolver, ResolvedTenantContext } from '../services/core-tenant-context.registry.js';
+import { IRequestContext, RequestContext } from '../services/request-context.service.js';
 import {
   ensureWsConnectionCurrent,
   getWsConnection,
   noteWsConnectionTenant,
   readWsTenantHeader,
   WsConnection,
-} from './graphql-ws-connection.helper';
+} from './graphql-ws-connection.helper.js';
 
 /**
  * A `RequestContext` for GraphQL operations that arrive over a WEBSOCKET.
@@ -33,8 +33,8 @@ import {
  * schema is touched without a tenant) never fired, because there was no context to notice.
  *
  * WHERE IT HOOKS IN: `GqlSubscriptionService` reads `execute` and `subscribe` off the GraphQL module
- * options and hands them to BOTH WebSocket transports (`graphql-ws` and `subscriptions-transport-ws`),
- * defaulting to graphql-js's own. Those two functions are the only place where the whole WS operation
+ * options and hands them to the graphql-ws server — the only WebSocket transport since
+ * `@nestjs/graphql` 14 removed `subscriptions-transport-ws` — defaulting to graphql-js's own. Those two functions are the only place where the whole WS operation
  * — including every field resolver and the `resolve`/`filter` callbacks of a subscription — is
  * reachable as one call. HTTP does not go through them (Apollo runs its own pipeline), so wrapping
  * them touches the WS path only.
@@ -64,11 +64,10 @@ type ExecuteFn = (args: GraphQlArgs) => any;
 /**
  * Read the tenant header out of whatever the transport left on the context.
  *
- * Both WS transports are covered, and the reason there are three sources is that they genuinely
- * differ: `graphql-ws` gets `extra.headers` from `CoreModule`'s `onConnect` (the client's
- * `connectionParams`), `subscriptions-transport-ws` returns `{ headers }` from its own `onConnect`,
- * and the raw upgrade request is the fallback for a project with a custom `onConnect` that forwards
- * neither. Header names are matched case-insensitively — `connectionParams` are client-supplied JSON
+ * There are three sources because the shapes genuinely differ: `graphql-ws` gets `extra.headers`
+ * from `CoreModule`'s `onConnect` (the client's `connectionParams`), a project's own `onConnect` may
+ * return `{ headers }` (the shape `subscriptions-transport-ws` used until `@nestjs/graphql` 14 removed
+ * it), and the raw upgrade request is the fallback for a custom `onConnect` that forwards neither. Header names are matched case-insensitively — `connectionParams` are client-supplied JSON
  * and arrive with whatever casing the client used, unlike Node's lower-cased HTTP headers.
  *
  * Lives in `graphql-ws-connection.helper.ts`, because a connection's re-check has to resolve the

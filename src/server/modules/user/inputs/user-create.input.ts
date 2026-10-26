@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../../core/common/enums/role.enum';
-import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-user-create.input';
+import { Restricted } from '../../../../core/common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../../core/common/enums/role.enum.js';
+import { CoreUserCreateInput } from '../../../../core/modules/user/inputs/core-user-create.input.js';
 
 /**
  * User input to create a new user

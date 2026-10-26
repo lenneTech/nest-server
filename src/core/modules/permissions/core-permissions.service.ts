@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
-import type { ModulePermissions, PermissionsReport } from './interfaces/permissions.interface';
-import { findProjectRoot, generateMarkdownReport, scanPermissions } from './permissions-scanner';
+import type { ModulePermissions, PermissionsReport } from './interfaces/permissions.interface.js';
+import { findProjectRoot, generateMarkdownReport, scanPermissions } from './permissions-scanner.js';
 
 @Injectable()
 export class CorePermissionsService implements OnModuleDestroy {

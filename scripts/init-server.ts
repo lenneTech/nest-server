@@ -10,4 +10,7 @@ const run = async () => {
   await app.close();
   process.exit(0);
 };
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

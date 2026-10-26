@@ -84,7 +84,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
     // independence: setting `emailVerified` here would be synced to the nest-server `verified` field
     // by the user mapper on sign-in, which would invalidate the `verified` email-verification-bypass
     // assertion further down. Running this file under the `local` config (e.g. a bare
-    // `npx vitest run --config vitest-e2e.config.ts <file>` WITHOUT NODE_ENV=e2e) will therefore
+    // `npx vitest run --config vitest-e2e.config.mts <file>` WITHOUT NODE_ENV=e2e) will therefore
     // fail sign-in with 401 EMAIL_VERIFICATION_REQUIRED — that is a wrong-runner symptom, not a bug.
     // The guard `it('has Better-Auth enabled …')` plus this note make the requirement explicit.
     const signIn = await testHelper.rest('/iam/sign-in/email', {

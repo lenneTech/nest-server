@@ -1,9 +1,9 @@
 import { Injectable, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { setCronJobsInfrastructure } from './core-cron-jobs.registry';
-import { CoreRedisService } from './core-redis.service';
+import { setCronJobsInfrastructure } from './core-cron-jobs.registry.js';
+import { CoreRedisService } from './core-redis.service.js';
 
 /**
  * Populates the cron-jobs infrastructure registry at bootstrap so that

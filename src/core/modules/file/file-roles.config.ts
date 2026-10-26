@@ -17,8 +17,8 @@
  */
 import { Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { IFileConfig, IS3Config } from '../../common/interfaces/server-options.interface';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { IFileConfig, IS3Config } from '../../common/interfaces/server-options.interface.js';
 
 const logger = new Logger('CoreFileRoles');
 

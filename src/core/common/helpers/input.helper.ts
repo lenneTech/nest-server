@@ -1,17 +1,17 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { ValidatorOptions } from 'class-validator/types/validation/ValidatorOptions';
-import { Kind } from 'graphql/index';
+import type { ValidatorOptions } from 'class-validator';
+import { Kind } from 'graphql';
 
-import { checkRestricted } from '../decorators/restricted.decorator';
-import { ProcessType } from '../enums/process-type.enum';
-import { RoleEnum } from '../enums/role.enum';
-import { accessDeniedException } from '../exceptions/access-denied.exception';
-import { ErrorCode } from '../../modules/error-code/error-codes';
-import { clone } from './clone.helper';
-import { merge } from './config.helper';
-import { equalIds } from './id.helper';
+import { checkRestricted } from '../decorators/restricted.decorator.js';
+import { ProcessType } from '../enums/process-type.enum.js';
+import { RoleEnum } from '../enums/role.enum.js';
+import { accessDeniedException } from '../exceptions/access-denied.exception.js';
+import { ErrorCode } from '../../modules/error-code/error-codes.js';
+import { clone } from './clone.helper.js';
+import { merge } from './config.helper.js';
+import { equalIds } from './id.helper.js';
 
 /**
  * `clone` and `deepFreeze` moved to `./clone.helper` and are re-exported here so every existing
@@ -21,7 +21,7 @@ import { equalIds } from './id.helper';
  * that is one top-level line away from an SWC temporal-dead-zone crash. `clone.helper` imports no
  * framework code, so it can never be part of a cycle. Do NOT move them back.
  */
-export { clone, deepFreeze } from './clone.helper';
+export { clone, deepFreeze } from './clone.helper.js';
 
 /**
  * Helper class for inputs

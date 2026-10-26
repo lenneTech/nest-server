@@ -1,14 +1,14 @@
 import { ObjectType } from '@nestjs/graphql';
 import { Schema } from '@nestjs/mongoose';
 
-import { Restricted } from '../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
-import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { RequestContext } from '../../common/services/request-context.service';
-import { DefaultHR, TenantMemberStatus } from './core-tenant.enums';
-import { checkRoleAccess } from './core-tenant.helpers';
+import { Restricted } from '../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
+import { CorePersistenceModel } from '../../common/models/core-persistence.model.js';
+import { RequestContext } from '../../common/services/request-context.service.js';
+import { DefaultHR, TenantMemberStatus } from './core-tenant.enums.js';
+import { checkRoleAccess } from './core-tenant.helpers.js';
 
 /**
  * Core tenant member model (join table: User <-> Tenant).

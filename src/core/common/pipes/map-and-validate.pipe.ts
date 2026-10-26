@@ -23,14 +23,14 @@ import {
   ValidationArguments,
   ValidationError,
 } from 'class-validator';
-import { ValidationMetadata } from 'class-validator/types/metadata/ValidationMetadata';
+import type { ValidationMetadata } from 'class-validator/types/metadata/ValidationMetadata.js';
 import { inspect } from 'util';
 
-import { getUnifiedFieldKeys, nestedTypeRegistry } from '../decorators/unified-field.decorator';
-import { isBasicType } from '../helpers/input.helper';
-import { replaceMessageSpecialTokens } from '../helpers/validation-message.helper';
-import { ConfigService } from '../services/config.service';
-import { ErrorCode } from '../../modules/error-code/error-codes';
+import { getUnifiedFieldKeys, nestedTypeRegistry } from '../decorators/unified-field.decorator.js';
+import { isBasicType } from '../helpers/input.helper.js';
+import { replaceMessageSpecialTokens } from '../helpers/validation-message.helper.js';
+import { ConfigService } from '../services/config.service.js';
+import { ErrorCode } from '../../modules/error-code/error-codes.js';
 
 // Debug mode can be enabled via environment variable: DEBUG_VALIDATION=true
 const DEBUG_VALIDATION = process.env.DEBUG_VALIDATION === 'true';

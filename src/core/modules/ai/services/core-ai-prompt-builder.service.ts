@@ -1,11 +1,11 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { IAiTool } from '../interfaces/ai-tool.interface';
-import { LlmToolSchema } from '../interfaces/llm-provider.interface';
-import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry';
-import { CoreAiPromptHintService } from './core-ai-prompt-hint.service';
-import { CoreAiSlotService, getSystemDefaultSlots, ResolvedPromptFragment } from './core-ai-slot.service';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { IAiTool } from '../interfaces/ai-tool.interface.js';
+import { LlmToolSchema } from '../interfaces/llm-provider.interface.js';
+import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry.js';
+import { CoreAiPromptHintService } from './core-ai-prompt-hint.service.js';
+import { CoreAiSlotService, getSystemDefaultSlots, ResolvedPromptFragment } from './core-ai-slot.service.js';
 
 /** Options for a prompt build (locale for template/hint selection). */
 export interface BuildPromptOptions {

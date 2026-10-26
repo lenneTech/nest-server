@@ -1,8 +1,8 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import fs = require('fs');
-import { Connection } from 'mongoose';
-import YumlDiagram = require('yuml-diagram');
+import * as fs from 'fs';
+import type { Connection } from 'mongoose';
+import YumlDiagram from 'yuml-diagram';
 
 /**
  * Schema config for yUml creation

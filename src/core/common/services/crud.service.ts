@@ -12,16 +12,16 @@ import {
   Types,
 } from 'mongoose';
 
-import { FilterArgs } from '../args/filter.args';
-import { getStringIds } from '../helpers/db.helper';
-import { convertFilterArgsToQuery } from '../helpers/filter.helper';
-import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper';
-import { ServiceOptions } from '../interfaces/service-options.interface';
-import { CoreModel } from '../models/core-model.model';
-import { PaginationInfo } from '../models/pagination-info.model';
-import { PlainObject } from '../types/plain-object.type';
-import { ConfigService } from './config.service';
-import { ModuleService } from './module.service';
+import { FilterArgs } from '../args/filter.args.js';
+import { getStringIds } from '../helpers/db.helper.js';
+import { convertFilterArgsToQuery } from '../helpers/filter.helper.js';
+import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper.js';
+import { ServiceOptions } from '../interfaces/service-options.interface.js';
+import { CoreModel } from '../models/core-model.model.js';
+import { PaginationInfo } from '../models/pagination-info.model.js';
+import { PlainObject } from '../types/plain-object.type.js';
+import { ConfigService } from './config.service.js';
+import { ModuleService } from './module.service.js';
 
 export abstract class CrudService<
   Model extends CoreModel = any,

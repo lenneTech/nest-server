@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CoreBetterAuthModule, CoreBetterAuthService, TestHelper } from '../src';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { apiTokenIamConfig, bootApiTokenIamApp } from './helpers/api-token-e2e.helpers';
+import { captureExpectedLogs } from './helpers/expected-log-output';
 
 const CROSS_SITE_FORM = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'cross-site' };
 
@@ -85,10 +86,13 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
    * @seen-failing Registered as `iam-signin-csrf-check-skipped` in tests/regression-mutations.json.
    */
   it('refuses a sign-in a hostile page submits as a form, and sets no session cookie', async () => {
+    // Better-Auth reports every refused attempt as an error (through Nest's logger since 12.0.0).
+    const refusals = captureExpectedLogs();
     const response = await signIn({ ...CROSS_SITE_FORM, origin: 'https://evil.example' }, true);
 
     expect(response.status).toBe(403);
     expect(sessionCookie(response)).toBeUndefined();
+    expect(refusals.join('\n')).toMatch(/Blocked cross-site navigation login attempt|Invalid origin/);
   });
 
   /**
@@ -96,6 +100,7 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
    * @seen-failing Registered as `iam-signin-csrf-check-skipped` in tests/regression-mutations.json.
    */
   it('refuses a sign-in from an untrusted origin', async () => {
+    const refusals = captureExpectedLogs();
     const response = await signIn({
       origin: 'https://evil.example',
       'sec-fetch-mode': 'cors',
@@ -104,6 +109,7 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
 
     expect(response.status).toBe(403);
     expect(sessionCookie(response)).toBeUndefined();
+    expect(refusals.join('\n')).toContain('Invalid origin: https://evil.example');
   });
 
   it('signs in from a trusted origin, from the API origin itself and from a client without browser headers', async () => {
@@ -153,10 +159,12 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
    *   tests/regression-mutations.json.
    */
   it('still refuses a cross-site navigation that carries no Origin', async () => {
+    const refusals = captureExpectedLogs();
     const response = await signIn(CROSS_SITE_FORM, true);
 
     expect(response.status).toBe(403);
     expect(sessionCookie(response)).toBeUndefined();
+    expect(refusals.join('\n')).toContain('Blocked cross-site navigation login attempt');
   });
 
   /**
@@ -166,6 +174,7 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
    */
   it('refuses a cross-site sign-up, and creates no account', async () => {
     const victimEmail = `signup-csrf-${Date.now()}@test.com`;
+    const refusals = captureExpectedLogs();
 
     // JSON with the browser's cross-site signals: a urlencoded form already fails the input
     // validation (no boolean for termsAndPrivacyAccepted), which would hide whether this check runs.
@@ -176,5 +185,6 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
 
     expect(response.status).toBe(403);
     expect(await db.collection('users').countDocuments({ email: victimEmail })).toBe(0);
+    expect(refusals.join('\n')).toContain('Blocked cross-site navigation login attempt');
   });
 });

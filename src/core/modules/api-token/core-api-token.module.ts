@@ -1,10 +1,10 @@
 import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, Type } from '@nestjs/common';
 import { MongooseModule, SchemaFactory } from '@nestjs/mongoose';
 
-import { API_TOKEN_MODEL_TOKEN } from './core-api-token.constants';
-import { CoreApiTokenMiddleware } from './core-api-token.middleware';
-import { CoreApiTokenModel } from './core-api-token.model';
-import { CoreApiTokenService } from './core-api-token.service';
+import { API_TOKEN_MODEL_TOKEN } from './core-api-token.constants.js';
+import { CoreApiTokenMiddleware } from './core-api-token.middleware.js';
+import { CoreApiTokenModel } from './core-api-token.model.js';
+import { CoreApiTokenService } from './core-api-token.service.js';
 
 /**
  * Options for `CoreApiTokenModule.forRoot()`.

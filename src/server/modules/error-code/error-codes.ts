@@ -1,4 +1,4 @@
-import { IErrorRegistry, mergeErrorCodes } from '../../../core/modules/error-code/error-codes';
+import { IErrorRegistry, mergeErrorCodes } from '../../../core/modules/error-code/error-codes.js';
 
 /**
  * Server-specific Error Registry

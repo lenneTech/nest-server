@@ -2,16 +2,16 @@ import { Inject } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
 
-import { FilterArgs } from '../../../core/common/args/filter.args';
-import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator';
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { UserCreateInput } from './inputs/user-create.input';
-import { UserInput } from './inputs/user.input';
-import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output';
-import { User } from './user.model';
-import { UserService } from './user.service';
+import { FilterArgs } from '../../../core/common/args/filter.args.js';
+import { GraphQLServiceOptions } from '../../../core/common/decorators/graphql-service-options.decorator.js';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import type { ServiceOptions } from '../../../core/common/interfaces/service-options.interface.js';
+import { UserCreateInput } from './inputs/user-create.input.js';
+import { UserInput } from './inputs/user.input.js';
+import { FindAndCountUsersResult } from './outputs/find-and-count-users-result.output.js';
+import { User } from './user.model.js';
+import { UserService } from './user.service.js';
 
 /**
  * Resolver to process with user data
@@ -174,7 +174,7 @@ export class UserResolver {
     },
     resolve: (user) => user,
   })
-  async userCreated() {
+  async userCreated(): Promise<AsyncIterableIterator<unknown>> {
     return this.pubSub.asyncIterableIterator('userCreated');
   }
 }

@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-import { getContextData } from '../../common/helpers/context.helper';
+import { getContextData } from '../../common/helpers/context.helper.js';
 
 /**
  * Get current tokens

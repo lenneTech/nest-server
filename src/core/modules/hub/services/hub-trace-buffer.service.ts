@@ -1,11 +1,11 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Request, Response } from 'express';
 
-import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { HUB_CONFIG } from '../hub.constants';
-import { HubBuffer } from '../hub-buffer';
-import { HubTraceRecord, HubTracesData } from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { HubBuffer } from '../hub-buffer.js';
+import { HubTraceRecord, HubTracesData } from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 interface TraceRecord extends HubTraceRecord {
   timestamp: number;

@@ -341,9 +341,9 @@ describe('Swagger helper', () => {
       await relayApp?.close();
     });
 
-    it('enriches every operation it produces, SEARCH included', () => {
+    it('enriches every operation it produces', () => {
       const operations = Object.entries(document.paths['/relay'] ?? {});
-      expect(operations.map(([method]) => method)).toContain('search');
+      expect(operations.length).toBeGreaterThan(0);
       for (const [method, op] of operations as [string, OperationObject & Record<string, any>][]) {
         expect(op[SWAGGER_API_TOKEN_SCOPES_EXTENSION], method).toEqual(['read']);
         expect(op.description, method).toContain('**API tokens:** allowed with scope `read`.');
@@ -351,7 +351,61 @@ describe('Swagger helper', () => {
       }
     });
 
-    it('retags SEARCH like every other method', () => {
+    it('emits no method key OpenAPI 3.0 does not define (@nestjs/swagger 12 drops SEARCH / QUERY there)', () => {
+      // 11.x wrote a bare `search` key into the 3.0 document — not a valid path-item field.
+      const methods = Object.keys(document.paths['/relay'] ?? {});
+      expect(methods).not.toContain('search');
+      expect(methods).not.toContain('query');
+      expect(methods).not.toContain('additionalOperations');
+    });
+
+    /**
+     * @regression   12.0.0 — @nestjs/swagger 12 moves methods outside the fixed path-item set into
+     *   OpenAPI 3.2's `additionalOperations`. Read as one more operation key, the container itself was
+     *   "enriched" and the operations inside it were not — no API-token line, no tenant header — and
+     *   the API-token view dropped them.
+     * @seen-failing Make `operationsOf()` in src/core/common/helpers/swagger.helper.ts return only the
+     *   standard keys — registered as mutation `swagger-additional-operations-skipped` in
+     *   tests/regression-mutations.json.
+     */
+    describe('in an OpenAPI 3.2 document', () => {
+      let document32: OpenAPIObject;
+
+      beforeAll(() => {
+        document32 = buildSwaggerDocument(
+          relayApp,
+          { ...options, configureBuilder: (builder) => builder.setOpenAPIVersion('3.2.0') },
+          fullConfig,
+        );
+      });
+
+      it('enriches SEARCH inside additionalOperations, and not the container itself', () => {
+        const item = document32.paths['/relay'] as Record<string, any>;
+        // QUERY is a fixed path-item method in 3.2, so only SEARCH goes into the container.
+        expect(item.query?.[SWAGGER_API_TOKEN_SCOPES_EXTENSION]).toEqual(['read']);
+        const additional = item.additionalOperations as Record<string, OperationObject & Record<string, any>>;
+        expect(Object.keys(additional ?? {})).toEqual(['SEARCH']);
+        for (const [method, op] of Object.entries(additional)) {
+          expect(op[SWAGGER_API_TOKEN_SCOPES_EXTENSION], method).toEqual(['read']);
+          expect(op.description, method).toContain('**API tokens:** allowed with scope `read`.');
+          expect(hasTenantHeader(op), method).toBe(true);
+        }
+        // Treated as an operation, the container would have been given a description and parameters.
+        expect(additional[SWAGGER_API_TOKEN_SCOPES_EXTENSION as never]).toBeUndefined();
+        expect((additional as any).description).toBeUndefined();
+      });
+
+      it('keeps SEARCH in the API-token view, inside additionalOperations', () => {
+        const view = buildApiTokenSwaggerDocument(document32, {}, fullConfig);
+        const search = (view.paths['/relay'] as Record<string, any>)?.additionalOperations?.SEARCH as
+          | (OperationObject & Record<string, any>)
+          | undefined;
+        expect(search?.[SWAGGER_API_TOKEN_SCOPES_EXTENSION]).toEqual(['read']);
+        expect(search?.security).toEqual([{ bearer: [] }]);
+      });
+    });
+
+    it('retags every method', () => {
       // Not 'Relay': autoTagControllers already gives every operation that tag, so it would pass unretagged.
       const tagged = buildSwaggerDocument(relayApp, { ...options, operationTags: () => ['Integration'] }, fullConfig);
       for (const [method, op] of Object.entries(tagged.paths['/relay'] ?? {}) as [string, OperationObject][]) {
@@ -359,12 +413,6 @@ describe('Swagger helper', () => {
       }
     });
 
-    it('treats SEARCH as an operation in the API-token view, not as a field of the path', () => {
-      const view = buildApiTokenSwaggerDocument(document, {}, fullConfig);
-      const search = view.paths['/relay']?.['search' as 'get'] as (OperationObject & Record<string, any>) | undefined;
-      expect(search?.[SWAGGER_API_TOKEN_SCOPES_EXTENSION]).toEqual(['read']);
-      expect(search?.security).toEqual([{ bearer: [] }]);
-    });
   });
 
   describe('framework routes', () => {

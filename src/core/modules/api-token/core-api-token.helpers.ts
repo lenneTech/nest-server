@@ -2,19 +2,19 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 
-import { isForbiddenMembershipRole, RoleEnum } from '../../common/enums/role.enum';
-import { isProductionLikeEnv } from '../../common/helpers/cookies.helper';
-import type { IApiTokens, IMultiTenancy } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { ErrorCode } from '../error-code/error-codes';
-import { DEFAULT_ROLE_HIERARCHY } from '../tenant/core-tenant.enums';
+import { isForbiddenMembershipRole, RoleEnum } from '../../common/enums/role.enum.js';
+import { isProductionLikeEnv } from '../../common/helpers/cookies.helper.js';
+import type { IApiTokens, IMultiTenancy } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { DEFAULT_ROLE_HIERARCHY } from '../tenant/core-tenant.enums.js';
 import {
   checkRoleAccess,
   isSystemRole,
   mergeRolesMetadata,
   tenantSatisfiableRoles,
-} from '../tenant/core-tenant.helpers';
-import { API_TOKEN_SCOPES_KEY, ApiTokenKind } from './core-api-token.constants';
+} from '../tenant/core-tenant.helpers.js';
+import { API_TOKEN_SCOPES_KEY, ApiTokenKind } from './core-api-token.constants.js';
 
 // =====================================================================================================================
 // Configuration

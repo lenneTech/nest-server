@@ -1,8 +1,8 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreAuthSignInInput } from './core-auth-sign-in.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreAuthSignInInput } from './core-auth-sign-in.input.js';
 
 /**
  * SignUp input

@@ -1,8 +1,8 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { currentUserDec, graphqlPopulateDec } from '../helpers/decorator.helper';
-import { ServiceOptions } from '../interfaces/service-options.interface';
+import { currentUserDec, graphqlPopulateDec } from '../helpers/decorator.helper.js';
+import { ServiceOptions } from '../interfaces/service-options.interface.js';
 
 /**
  * Get standard ServiceOptions for GraphQL-Requests

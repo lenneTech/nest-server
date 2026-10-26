@@ -1,4 +1,4 @@
-import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper';
+import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper.js';
 
 /**
  * Optional configuration for CoreUserService

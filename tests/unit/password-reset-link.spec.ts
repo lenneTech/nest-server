@@ -30,6 +30,13 @@
  *                                           losing the localhost default, the host-split `baseUrl`
  *                                           derivation and the `cors.deriveAppUrl` opt-out that the
  *                                           legacy twin already had
+ *
+ * @regression   12.0.0 — a `redirectTo` that was neither an absolute URL nor a root-relative path
+ *   (`'reset'`, or `${baseUrl}/reset` over an unset `baseUrl` → `'undefined/reset'`) was mailed
+ *   verbatim, as a relative link that resolves nowhere — found through the parity e2e spec, whose
+ *   mails carried `undefined/reset?token=…`.
+ * @seen-failing Registered mutation `reset-link-relative-redirectto-mailed` in
+ *   tests/regression-mutations.json — removes the guard in buildPasswordResetUrl().
  */
 
 import { describe, expect, it } from 'vitest';
@@ -65,6 +72,7 @@ const resolve = (options: {
 }): string => {
   const service = Object.create(CoreBetterAuthEmailVerificationService.prototype) as any;
   service.config = { passwordResetLink: options.passwordResetLink };
+  service.logger = { debug: () => undefined };
   service.configService = {
     getFastButReadOnly: (key: string) =>
       ({
@@ -224,6 +232,22 @@ describe('password-reset link resolution', () => {
       // redirectTo must not quietly undo a deployment's decision to keep that hop.
       expect(resolve({ passwordResetLink: false, redirectTo: 'https://example.com/auth/reset-password' })).toBe(
         betterAuthUrlWithCallback('https://example.com/auth/reset-password'),
+      );
+    });
+
+    it('resolves a root-relative path against the app URL', () => {
+      expect(resolve({ appUrl: 'https://example.com', redirectTo: '/konto/neues-passwort' })).toBe(
+        'https://example.com/konto/neues-passwort?token=tok-123',
+      );
+    });
+
+    it.each([
+      ['a path without its leading slash', 'reset'],
+      ['a template literal over an unset variable', 'undefined/reset'],
+      ['a non-http scheme', 'mailto:someone@test.com'],
+    ])('falls back to the default page for %s, never mailing a link that resolves nowhere', (_case, redirectTo) => {
+      expect(resolve({ appUrl: 'https://example.com', redirectTo })).toBe(
+        'https://example.com/auth/reset-password?token=tok-123',
       );
     });
   });

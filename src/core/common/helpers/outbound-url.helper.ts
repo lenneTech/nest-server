@@ -2,8 +2,8 @@ import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { BlockList, isIP } from 'node:net';
 import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
 
-import { ConfigService } from '../services/config.service';
-import { isLocalEnv } from './cookies.helper';
+import { ConfigService } from '../services/config.service.js';
+import { isLocalEnv } from './cookies.helper.js';
 
 /**
  * Requests to a URL a USER entered — a webhook, an export target, an ERP address.

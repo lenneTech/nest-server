@@ -1,5 +1,5 @@
-import { map } from '../helpers/model.helper';
-import { CoreModel } from '../models/core-model.model';
+import { map } from '../helpers/model.helper.js';
+import { CoreModel } from '../models/core-model.model.js';
 
 /**
  * Core Input

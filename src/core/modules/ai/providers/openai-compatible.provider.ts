@@ -1,7 +1,7 @@
 import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestjs/common';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { ErrorCode } from '../../error-code';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { ErrorCode } from '../../error-code/index.js';
 import {
   ILlmProvider,
   LlmCapabilities,
@@ -10,8 +10,8 @@ import {
   LlmResponse,
   LlmToolSchema,
   LlmUsage,
-} from '../interfaces/llm-provider.interface';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
+} from '../interfaces/llm-provider.interface.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
 
 /**
  * Provider for OpenAI-compatible chat-completions endpoints.

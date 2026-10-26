@@ -20,7 +20,7 @@
  * the cycle.
  */
 
-import type { BetterAuthTokenService } from './better-auth-token.service';
+import type { BetterAuthTokenService } from './better-auth-token.service.js';
 
 let tokenServiceInstance: BetterAuthTokenService | null = null;
 
@@ -50,4 +50,38 @@ export function getBetterAuthTokenService(): BetterAuthTokenService | null {
  */
 export function resetBetterAuthRegistry(): void {
   tokenServiceInstance = null;
+}
+
+/** A class decorated as an IAM controller or resolver; subclasses in projects count as the same handler. */
+type BetterAuthHandlerClass = abstract new (...args: any[]) => unknown;
+
+const handlerClasses = new Set<BetterAuthHandlerClass>();
+
+/**
+ * Records `CoreBetterAuthController` / `CoreBetterAuthResolver`, called once by each file as it is loaded.
+ *
+ * `CoreTenantGuard` skips the tenant check for IAM handlers and has to recognise them without importing them —
+ * tenant and better-auth reach each other. It used a lazy `require()` of both files for that, which exists only
+ * in CommonJS; this registry is the form that works in both module systems. Not cleared by
+ * `resetBetterAuthRegistry()`: the classes are registered when their file loads, which happens once per process.
+ * @internal
+ */
+export function registerBetterAuthHandlerClass(handlerClass: BetterAuthHandlerClass): void {
+  handlerClasses.add(handlerClass);
+}
+
+/**
+ * Whether `handlerClass` is one of the registered IAM handler classes or extends one.
+ * @internal
+ */
+export function isBetterAuthHandlerClass(handlerClass: Function | undefined): boolean {
+  if (!handlerClass) {
+    return false;
+  }
+  for (const base of handlerClasses) {
+    if (handlerClass === base || handlerClass.prototype instanceof base) {
+      return true;
+    }
+  }
+  return false;
 }

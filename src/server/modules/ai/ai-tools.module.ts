@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 
-import { ClaudeCliProvider } from '../../../core/modules/ai/providers/claude-cli.provider';
-import { LlmProviderFactory } from '../../../core/modules/ai/providers/llm-provider.factory';
-import { UserModule } from '../user/user.module';
-import { DeleteUserAiTool } from './tools/delete-user.tool';
-import { FindUsersAiTool } from './tools/find-users.tool';
-import { GetUserAiTool } from './tools/get-user.tool';
-import { UpdateUserJobTitleAiTool } from './tools/update-user-job-title.tool';
+import { ClaudeCliProvider } from '../../../core/modules/ai/providers/claude-cli.provider.js';
+import { LlmProviderFactory } from '../../../core/modules/ai/providers/llm-provider.factory.js';
+import { UserModule } from '../user/user.module.js';
+import { DeleteUserAiTool } from './tools/delete-user.tool.js';
+import { FindUsersAiTool } from './tools/find-users.tool.js';
+import { GetUserAiTool } from './tools/get-user.tool.js';
+import { UpdateUserJobTitleAiTool } from './tools/update-user-job-title.tool.js';
 
 /**
  * Registers the example AI tools.

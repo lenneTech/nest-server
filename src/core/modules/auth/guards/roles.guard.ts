@@ -10,21 +10,21 @@ import {
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { resolveGuardRequest } from '../../../common/helpers/execution-context-request.helper';
+import { resolveGuardRequest } from '../../../common/helpers/execution-context-request.helper.js';
 import { firstValueFrom, isObservable } from 'rxjs';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ApiTokenKind } from '../../api-token/core-api-token.constants';
-import { enforceApiTokenRoute } from '../../api-token/core-api-token.helpers';
-import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service';
-import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types';
-import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
-import { ErrorCode } from '../../error-code';
-import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../../tenant/core-tenant.helpers';
-import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
-import { ExpiredTokenException } from '../exceptions/expired-token.exception';
-import { InvalidTokenException } from '../exceptions/invalid-token.exception';
-import { AuthGuard } from './auth.guard';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { ApiTokenKind } from '../../api-token/core-api-token.constants.js';
+import { enforceApiTokenRoute } from '../../api-token/core-api-token.helpers.js';
+import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service.js';
+import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types.js';
+import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service.js';
+import { ErrorCode } from '../../error-code/index.js';
+import { delegatesRolesToTenantGuard, isSystemRole, mergeRolesMetadata } from '../../tenant/core-tenant.helpers.js';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum.js';
+import { ExpiredTokenException } from '../exceptions/expired-token.exception.js';
+import { InvalidTokenException } from '../exceptions/invalid-token.exception.js';
+import { AuthGuard } from './auth.guard.js';
 
 /**
  * Role guard

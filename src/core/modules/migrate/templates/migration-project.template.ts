@@ -1,5 +1,7 @@
 import { getDb, uploadFileToGridFS } from '@lenne.tech/nest-server';
 import { Db, ObjectId } from 'mongodb';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
 
 /**
  * Migration template for nest-server projects
@@ -12,21 +14,36 @@ import { Db, ObjectId } from 'mongodb';
  * - uploadFileToGridFS(uri, filePath, options): Upload file to GridFS
  *
  * MongoDB URI resolution (in order):
- * 1. config.env.ts (local development via ts-node)
+ * 1. the project's config.env — next to `migrations/` when run from source (through the `--compiler ts:` loader), or
+ *    the compiled `dist/src/config.env.js` when run from `dist/migrations`
  * 2. NSC__MONGOOSE__URI environment variable (Docker production)
  */
 
-let MONGO_URL: string;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const config = require('../src/config.env');
-  MONGO_URL = (config.default || config).mongoose.uri;
-} catch {
-  // Fallback for Docker production where config.env.ts is not available as TypeScript source
-  if (!process.env.NSC__MONGOOSE__URI) {
-    throw new Error('MongoDB URI not available. Set NSC__MONGOOSE__URI or ensure config.env.ts is loadable.');
+// `createRequire` rather than `require`, so the migration works in CommonJS and ESM projects alike. `__dirname` exists
+// in a CommonJS project only and finds config.env relative to this file — in the source tree and in `dist/` alike. An ES
+// module project has no `__dirname` here; it falls back to the directory the migrate scripts run from.
+const projectRequire = createRequire(join(process.cwd(), 'package.json'));
+const configCandidates = [
+  ...(typeof __dirname === 'string' ? [join(__dirname, '..', 'src', 'config.env')] : []),
+  join(process.cwd(), 'src', 'config.env'),
+  join(process.cwd(), 'dist', 'src', 'config.env'),
+];
+
+let configuredUri: string | undefined;
+for (const candidate of configCandidates) {
+  try {
+    const config = projectRequire(candidate);
+    configuredUri = (config.default || config).mongoose?.uri;
+  } catch {
+    // Not loadable in this layout — try the next one.
   }
-  MONGO_URL = process.env.NSC__MONGOOSE__URI;
+  if (configuredUri) {
+    break;
+  }
+}
+const MONGO_URL = configuredUri ?? process.env.NSC__MONGOOSE__URI;
+if (!MONGO_URL) {
+  throw new Error('MongoDB URI not available. Set NSC__MONGOOSE__URI or ensure config.env is loadable.');
 }
 
 /**
@@ -46,7 +63,7 @@ export const up = async () => {
   // Example: Upload a file to GridFS
   // const fileId: ObjectId = await uploadFileToGridFS(
   //   MONGO_URL,
-  //   '../assets/image.png',
+  //   '../assets/image.png', // relative to this migration file
   //   { bucketName: 'images', filename: 'logo.png' }
   // );
 };

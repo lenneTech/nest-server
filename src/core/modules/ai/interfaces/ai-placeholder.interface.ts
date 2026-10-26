@@ -1,4 +1,4 @@
-import { IAiTool } from './ai-tool.interface';
+import { IAiTool } from './ai-tool.interface.js';
 
 /**
  * Runtime context passed to every placeholder resolver. Mirrors the data a

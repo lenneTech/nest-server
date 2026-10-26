@@ -12,16 +12,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import { type Connection, Model, Types } from 'mongoose';
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../common/services/rate-limit-store';
-import { ErrorCode } from '../error-code/error-codes';
-import { checkRoleAccess, getRoleHierarchy, resolveGlobalAndTenantRoles } from '../tenant/core-tenant.helpers';
-import { CoreTenantService } from '../tenant/core-tenant.service';
-import { API_TOKEN_MODEL_TOKEN, ApiTokenKind } from './core-api-token.constants';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../common/services/rate-limit-store.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { checkRoleAccess, getRoleHierarchy, resolveGlobalAndTenantRoles } from '../tenant/core-tenant.helpers.js';
+import { CoreTenantService } from '../tenant/core-tenant.service.js';
+import { API_TOKEN_MODEL_TOKEN, ApiTokenKind } from './core-api-token.constants.js';
 import {
   assertApiTokenConfigIsUsable,
   attachApiTokenContext,
@@ -41,9 +41,9 @@ import {
   resolveApiTokenEncryptionKey,
   safeEqualHex,
   verifyApiTokenAssertionSignature,
-} from './core-api-token.helpers';
-import { CoreApiTokenModel } from './core-api-token.model';
-import { ApiTokenOwnerIdentity, setApiTokenRevoker } from './core-api-token.registry';
+} from './core-api-token.helpers.js';
+import { CoreApiTokenModel } from './core-api-token.model.js';
+import { ApiTokenOwnerIdentity, setApiTokenRevoker } from './core-api-token.registry.js';
 
 /** Fields a caller can never set through a create/update input. */
 const PROTECTED_FIELDS = new Set([

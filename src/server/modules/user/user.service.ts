@@ -3,16 +3,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
 
-import { getTranslatablePropertyKeys, updateLanguage } from '../../../core/common/decorators/translatable.decorator';
-import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface';
-import { ConfigService } from '../../../core/common/services/config.service';
-import { EmailService } from '../../../core/common/services/email.service';
-import { CoreModelConstructor } from '../../../core/common/types/core-model-constructor.type';
-import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper';
-import { CoreUserService } from '../../../core/modules/user/core-user.service';
-import { UserCreateInput } from './inputs/user-create.input';
-import { UserInput } from './inputs/user.input';
-import { User, UserDocument } from './user.model';
+import { getTranslatablePropertyKeys, updateLanguage } from '../../../core/common/decorators/translatable.decorator.js';
+import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface.js';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { EmailService } from '../../../core/common/services/email.service.js';
+import type { CoreModelConstructor } from '../../../core/common/types/core-model-constructor.type.js';
+import { CoreBetterAuthUserMapper } from '../../../core/modules/better-auth/core-better-auth-user.mapper.js';
+import { CoreUserService } from '../../../core/modules/user/core-user.service.js';
+import { UserCreateInput } from './inputs/user-create.input.js';
+import { UserInput } from './inputs/user.input.js';
+import { User, UserDocument } from './user.model.js';
 
 /**
  * User service

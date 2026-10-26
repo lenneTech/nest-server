@@ -5,7 +5,7 @@ import { diskStorage, memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Readable } from 'stream';
 
-import type { FileUploadSource } from '../../modules/file/interfaces/file-upload.interface';
+import type { FileUploadSource } from '../../modules/file/interfaces/file-upload.interface.js';
 
 /**
  * What an upload endpoint accepts: exact mimetypes and exact file extensions.

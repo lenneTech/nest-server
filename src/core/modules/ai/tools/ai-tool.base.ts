@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
-import { AiToolRegistry } from './ai-tool.registry';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface.js';
+import { AiToolRegistry } from './ai-tool.registry.js';
 
 /**
  * Convenience base class for AI tools.

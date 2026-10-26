@@ -1,7 +1,7 @@
 /**
  * Single source of truth for the two vitest runners' `include` globs.
  *
- * Imported by `vitest.config.ts`, `vitest-e2e.config.ts` AND
+ * Imported by `vitest.config.mts`, `vitest-e2e.config.mts` AND
  * `tests/unit/test-file-routing.spec.ts`. The routing guard reads the exact arrays the runners
  * use, so it can never drift from them — without importing (and thereby evaluating) the full
  * config modules, which would instantiate the swc plugin and, under `CHECK_LOW_RESOURCE`, write
@@ -11,7 +11,7 @@
  */
 
 /**
- * Unit runner (`vitest.config.ts`): no MongoDB, no globalSetup.
+ * Unit runner (`vitest.config.mts`): no MongoDB, no globalSetup.
  *
  * `tests/unit/**` ONLY — deliberately not `src/**`.
  *
@@ -27,7 +27,7 @@
 export const UNIT_TEST_INCLUDE = ['tests/unit/**/*.spec.ts'];
 
 /**
- * E2E runner (`vitest-e2e.config.ts`): mongod + globalSetup. Story tests are e2e-grade.
+ * E2E runner (`vitest-e2e.config.mts`): mongod + globalSetup. Story tests are e2e-grade.
  *
  * `tests/**` is intentionally broad on the `.e2e-spec.ts` suffix. Type-only tests under
  * `tests/types/` MUST keep the `.type-test.ts` suffix (compiled by `pnpm run test:types`, never

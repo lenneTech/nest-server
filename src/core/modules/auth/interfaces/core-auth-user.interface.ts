@@ -1,4 +1,4 @@
-import { CoreTokenData } from './core-token-data.interface';
+import { CoreTokenData } from './core-token-data.interface.js';
 
 /**
  * Interface for user used in authorization module

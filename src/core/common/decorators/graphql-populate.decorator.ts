@@ -1,6 +1,6 @@
 import { createParamDecorator } from '@nestjs/common';
 
-import { graphqlPopulateDec } from '../helpers/decorator.helper';
+import { graphqlPopulateDec } from '../helpers/decorator.helper.js';
 
 /**
  * Get Mongoose populate configuration for result type of GraphQL request

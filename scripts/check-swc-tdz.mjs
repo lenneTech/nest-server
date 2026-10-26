@@ -45,7 +45,7 @@
  * Brute force is the feature.
  */
 import { fork } from 'node:child_process';
-import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
 import { basename, dirname, join, relative, sep } from 'node:path';
@@ -174,6 +174,30 @@ if (!existsSync(DIST)) {
   );
   process.exit(1);
 }
+
+/**
+ * SWC compiles `.ts` and `.js` only. tsc (`allowJs`) also emits the `.cjs` / `.mjs` sources — the TypeScript loader's
+ * implementation and its ESM hooks, which are `.cjs` / `.mjs` so they keep their module format inside a
+ * `"type": "module"` project. Without them the loader's `ts-compiler.js` entry fails here with "Cannot find module",
+ * a reason that has nothing to do with import cycles. So they are placed where tsc places them, next to the compiled
+ * files. (Nest's own asset copy is no substitute: under this config it writes to `dist-swc-tdz/src/…`.)
+ */
+function mirrorModuleFormatSources(from, to) {
+  for (const entry of readdirSync(from)) {
+    const source = join(from, entry);
+    if (statSync(source).isDirectory()) {
+      mirrorModuleFormatSources(source, join(to, entry));
+    } else if ((entry.endsWith('.cjs') || entry.endsWith('.mjs')) && existsSync(to)) {
+      copyFileSync(source, join(to, entry));
+    }
+  }
+}
+mirrorModuleFormatSources(join(ROOT, 'src'), DIST);
+
+// The SWC build is CommonJS (what a CommonJS vendor project runs), while this package is `"type": "module"` since
+// 12.0.0 — so Node would read every `.js` in DIST as an ES module. A package.json at the output root states the
+// format the build actually has.
+writeFileSync(join(DIST, 'package.json'), '{ "type": "commonjs" }\n');
 
 const allFiles = collectJsFiles(DIST).sort();
 const excluded = allFiles.filter(isExcluded);

@@ -1,73 +1,80 @@
 import { DynamicModule, Global, Module, Type } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { CoreAiMcpOAuthInitializer } from './core-ai-mcp-oauth.initializer';
-import { CoreAiMcpController } from './core-ai-mcp.controller';
-import { CoreAiController } from './core-ai.controller';
-import { CoreAiResolver } from './core-ai.resolver';
-import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
-import { CoreAiMcpService } from './services/core-ai-mcp.service';
-import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model';
-import { AiConnectionPreferenceSchema, CoreAiConnectionPreference } from './models/core-ai-connection-preference.model';
-import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model';
-import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model';
-import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model';
-import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model';
-import { AiPromptSchema, CoreAiPrompt } from './models/core-ai-prompt.model';
-import { AiSlotSchema, CoreAiSlot } from './models/core-ai-slot.model';
-import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model';
-import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model';
-import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model';
-import { LlmProviderFactory } from './providers/llm-provider.factory';
-import { AiCryptoService } from './services/ai-crypto.service';
-import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, CoreAiBudgetService } from './services/core-ai-budget.service';
+import { CoreAiMcpOAuthInitializer } from './core-ai-mcp-oauth.initializer.js';
+import { CoreAiMcpController } from './core-ai-mcp.controller.js';
+import { CoreAiController } from './core-ai.controller.js';
+import { CoreAiResolver } from './core-ai.resolver.js';
+import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
+import { CoreAiMcpService } from './services/core-ai-mcp.service.js';
+import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model.js';
+import {
+  AiConnectionPreferenceSchema,
+  CoreAiConnectionPreference,
+} from './models/core-ai-connection-preference.model.js';
+import { AiConnectionSchema, CoreAiConnection } from './models/core-ai-connection.model.js';
+import { AiConversationSchema, CoreAiConversation } from './models/core-ai-conversation.model.js';
+import { AiInteractionSchema, CoreAiInteraction } from './models/core-ai-interaction.model.js';
+import { AiPromptHintSchema, CoreAiPromptHint } from './models/core-ai-prompt-hint.model.js';
+import { AiPromptSchema, CoreAiPrompt } from './models/core-ai-prompt.model.js';
+import { AiSlotSchema, CoreAiSlot } from './models/core-ai-slot.model.js';
+import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model.js';
+import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model.js';
+import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model.js';
+import { LlmProviderFactory } from './providers/llm-provider.factory.js';
+import { AiCryptoService } from './services/ai-crypto.service.js';
+import {
+  AI_BUDGET_LIMIT_CLASS,
+  AI_BUDGET_LIMIT_MODEL,
+  CoreAiBudgetService,
+} from './services/core-ai-budget.service.js';
 import {
   AI_CONNECTION_PREFERENCE_CLASS,
   AI_CONNECTION_PREFERENCE_MODEL,
   CoreAiConnectionPreferenceService,
-} from './services/core-ai-connection-preference.service';
-import { CoreAiConnectionResolverService } from './services/core-ai-connection-resolver.service';
+} from './services/core-ai-connection-preference.service.js';
+import { CoreAiConnectionResolverService } from './services/core-ai-connection-resolver.service.js';
 import {
   AI_CONNECTION_CLASS,
   AI_CONNECTION_MODEL,
   CoreAiConnectionService,
-} from './services/core-ai-connection.service';
+} from './services/core-ai-connection.service.js';
 import {
   AI_CONVERSATION_CLASS,
   AI_CONVERSATION_MODEL,
   CoreAiConversationService,
-} from './services/core-ai-conversation.service';
+} from './services/core-ai-conversation.service.js';
 import {
   AI_INTERACTION_CLASS,
   AI_INTERACTION_MODEL,
   CoreAiInteractionService,
-} from './services/core-ai-interaction.service';
-import { CoreAiPlaceholderRegistry } from './services/core-ai-placeholder.registry';
-import { CoreAiPromptBuilderService } from './services/core-ai-prompt-builder.service';
+} from './services/core-ai-interaction.service.js';
+import { CoreAiPlaceholderRegistry } from './services/core-ai-placeholder.registry.js';
+import { CoreAiPromptBuilderService } from './services/core-ai-prompt-builder.service.js';
 import {
   AI_PROMPT_HINT_CLASS,
   AI_PROMPT_HINT_MODEL,
   CoreAiPromptHintService,
-} from './services/core-ai-prompt-hint.service';
-import { AI_PROMPT_CLASS, AI_PROMPT_MODEL, CoreAiPromptService } from './services/core-ai-prompt.service';
-import { AI_SLOT_CLASS, AI_SLOT_MODEL, CoreAiSlotService } from './services/core-ai-slot.service';
+} from './services/core-ai-prompt-hint.service.js';
+import { AI_PROMPT_CLASS, AI_PROMPT_MODEL, CoreAiPromptService } from './services/core-ai-prompt.service.js';
+import { AI_SLOT_CLASS, AI_SLOT_MODEL, CoreAiSlotService } from './services/core-ai-slot.service.js';
 import {
   AI_TOOL_GRANT_CLASS,
   AI_TOOL_GRANT_MODEL,
   CoreAiToolGrantService,
-} from './services/core-ai-tool-grant.service';
+} from './services/core-ai-tool-grant.service.js';
 import {
   AI_TOOL_POLICY_CLASS,
   AI_TOOL_POLICY_MODEL,
   CoreAiToolPolicyService,
-} from './services/core-ai-tool-policy.service';
-import { AI_MODE_CLASS, AI_MODE_MODEL, CoreAiModeService } from './services/core-ai-mode.service';
-import { CoreAiMcpClientService } from './services/core-ai-mcp-client.service';
-import { CoreAiService } from './services/core-ai.service';
-import { AiHookRegistry } from './hooks/ai-hook.registry';
-import { AskUserQuestionAiTool } from './tools/ask-user-question.tool';
-import { SearchToolsAiTool } from './tools/search-tools.tool';
-import { AiToolRegistry } from './tools/ai-tool.registry';
+} from './services/core-ai-tool-policy.service.js';
+import { AI_MODE_CLASS, AI_MODE_MODEL, CoreAiModeService } from './services/core-ai-mode.service.js';
+import { CoreAiMcpClientService } from './services/core-ai-mcp-client.service.js';
+import { CoreAiService } from './services/core-ai.service.js';
+import { AiHookRegistry } from './hooks/ai-hook.registry.js';
+import { AskUserQuestionAiTool } from './tools/ask-user-question.tool.js';
+import { SearchToolsAiTool } from './tools/search-tools.tool.js';
+import { AiToolRegistry } from './tools/ai-tool.registry.js';
 
 /**
  * Options for {@link CoreAiModule.forRoot}. Every collaborator can be replaced

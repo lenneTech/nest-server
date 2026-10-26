@@ -183,7 +183,7 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
   const resetViaIam = async (email: string, newPasswordOnWire: string): Promise<void> => {
     await testHelper.rest('/iam/request-password-reset', {
       method: 'POST',
-      payload: { email, redirectTo: `${envConfig.baseUrl}/reset` },
+      payload: { email },
     });
     const user = await db.collection('users').findOne({ email });
     const verification = await db

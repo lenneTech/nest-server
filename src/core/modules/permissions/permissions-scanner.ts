@@ -26,7 +26,7 @@ import type {
   SecurityCheckInfo,
   SecurityWarning,
   WarningsByType,
-} from './interfaces/permissions.interface';
+} from './interfaces/permissions.interface.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API

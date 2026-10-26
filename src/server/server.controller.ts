@@ -1,6 +1,6 @@
 import { Controller, Get, Render } from '@nestjs/common';
 
-import { ConfigService, RoleEnum, Roles } from '..';
+import { ConfigService, RoleEnum, Roles } from '../index.js';
 
 @Controller()
 @Roles(RoleEnum.ADMIN)

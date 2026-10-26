@@ -13,41 +13,41 @@ import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import mongoose, { Connection } from 'mongoose';
 
-import { maskEmail } from '../../common/helpers/logging.helper';
-import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
-import { BrevoService } from '../../common/services/brevo.service';
-import { ConfigService } from '../../common/services/config.service';
-import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry';
-import { isLegacyEndpointEnabled } from '../auth/helpers/legacy-endpoints.helper';
-import { BetterAuthRolesGuard } from './better-auth-roles.guard';
-import { BetterAuthTokenService } from './better-auth-token.service';
+import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface.js';
+import { BrevoService } from '../../common/services/brevo.service.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry.js';
+import { isLegacyEndpointEnabled } from '../auth/helpers/legacy-endpoints.helper.js';
+import { BetterAuthRolesGuard } from './better-auth-roles.guard.js';
+import { BetterAuthTokenService } from './better-auth-token.service.js';
 import {
   AuthEmailCallbackOptions,
   BetterAuthInstance,
   CreateBetterAuthResult,
   createBetterAuthInstance,
   OnPasswordResetCallback,
-} from './better-auth.config';
-import { DefaultBetterAuthResolver } from './better-auth.resolver';
-import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware';
-import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
-import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
-import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware';
-import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service';
-import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry';
-import { getInFlightResetPassword } from './core-better-auth-password-reset.registry';
-import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
-import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
-import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
-import { CoreBetterAuthController } from './core-better-auth.controller';
-import { CoreBetterAuthMiddleware } from './core-better-auth.middleware';
+} from './better-auth.config.js';
+import { DefaultBetterAuthResolver } from './better-auth.resolver.js';
+import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware.js';
+import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service.js';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service.js';
+import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware.js';
+import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service.js';
+import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry.js';
+import { getInFlightResetPassword } from './core-better-auth-password-reset.registry.js';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service.js';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
+import { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN, BETTER_AUTH_INSTANCE } from './core-better-auth.constants.js';
+import { CoreBetterAuthController } from './core-better-auth.controller.js';
+import { CoreBetterAuthMiddleware } from './core-better-auth.middleware.js';
 import {
   getBetterAuthTokenService,
   resetBetterAuthRegistry,
   setBetterAuthTokenService,
-} from './core-better-auth.registry';
-import { CoreBetterAuthResolver } from './core-better-auth.resolver';
-import { CoreBetterAuthService } from './core-better-auth.service';
+} from './core-better-auth.registry.js';
+import { CoreBetterAuthResolver } from './core-better-auth.resolver.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * @deprecated Import from `./core-better-auth.constants` instead. Re-exported only
@@ -65,7 +65,7 @@ import { CoreBetterAuthService } from './core-better-auth.service';
  * ambiguity error. The mechanical guards are `pnpm run check:swc-tdz` and
  * `tests/unit/better-auth-di-tokens.spec.ts`.
  */
-export { BETTER_AUTH_INSTANCE } from './core-better-auth.constants';
+export { BETTER_AUTH_INSTANCE } from './core-better-auth.constants.js';
 
 /**
  * Options for CoreBetterAuthModule.forRoot()
@@ -439,7 +439,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       // Apply session middleware to all routes FIRST
       // This resolves JWT tokens to DB sessions, making req.betterAuthSession available
       // for the API middleware to use when forwarding to Better Auth's native handler.
-      consumer.apply(CoreBetterAuthMiddleware).forRoutes('(.*)'); // New path-to-regexp syntax for wildcard
+      // `{*path}` — path-to-regexp 8's named, optional wildcard: every route, the root included. The old
+      // `(.*)` only worked because Nest's LegacyRouteConverter rewrites it to exactly this.
+      consumer.apply(CoreBetterAuthMiddleware).forRoutes('{*path}');
       CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
 
       // Apply rate limiting to Better-Auth endpoints only.

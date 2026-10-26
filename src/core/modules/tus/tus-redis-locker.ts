@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { CoreRedisService } from '../../common/services/core-redis.service';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
 
 /** Release callback handed to the current lock holder when someone else wants the resource */
 type RequestRelease = () => Promise<void> | void;

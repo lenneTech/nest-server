@@ -4,18 +4,18 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PubSub } from 'graphql-subscriptions';
 
-import { CoreRedisPubSub } from '../../common/services/core-redis-pubsub';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { AuthGuardStrategy } from './auth-guard-strategy.enum';
-import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
-import { RolesGuardRegistry } from './guards/roles-guard-registry';
-import { RolesGuard } from './guards/roles.guard';
-import { CoreAuthUserService } from './services/core-auth-user.service';
-import { CoreAuthService } from './services/core-auth.service';
-import { CoreLegacyAuthDeprecationInitializer } from './core-legacy-auth-deprecation.initializer';
-import { LegacyAuthRateLimiter } from './services/legacy-auth-rate-limiter.service';
-import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { CoreRedisPubSub } from '../../common/services/core-redis-pubsub.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { AuthGuardStrategy } from './auth-guard-strategy.enum.js';
+import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard.js';
+import { RolesGuardRegistry } from './guards/roles-guard-registry.js';
+import { RolesGuard } from './guards/roles.guard.js';
+import { CoreAuthUserService } from './services/core-auth-user.service.js';
+import { CoreAuthService } from './services/core-auth.service.js';
+import { CoreLegacyAuthDeprecationInitializer } from './core-legacy-auth-deprecation.initializer.js';
+import { LegacyAuthRateLimiter } from './services/legacy-auth-rate-limiter.service.js';
+import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
 
 /**
  * CoreAuthModule to handle user authentication and enables Roles

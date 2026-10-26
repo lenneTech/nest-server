@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreCronJobs } from '../../../core/common/services/core-cron-jobs.service';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreCronJobs } from '../../../core/common/services/core-cron-jobs.service.js';
 
 @Injectable()
 export class CronJobs extends CoreCronJobs {
+  protected readonly logger = new Logger(CronJobs.name);
+
   // ===================================================================================================================
   // Initializations
   // ===================================================================================================================
@@ -24,10 +26,7 @@ export class CronJobs extends CoreCronJobs {
   // Cron jobs
   // ===================================================================================================================
 
-  protected async sayHello() {
-    console.info('Hello :)');
-    await new Promise<void>((resolve) => {
-      setTimeout(() => resolve(), 30000);
-    });
+  protected sayHello() {
+    this.logger.log('Hello :)');
   }
 }

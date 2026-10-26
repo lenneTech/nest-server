@@ -1,24 +1,24 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { type Connection, Model } from 'mongoose';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { ErrorCode } from '../../error-code';
-import { CoreAiBudgetLimitCreateInput } from '../inputs/core-ai-budget-limit-create.input';
-import { CoreAiBudgetLimitInput } from '../inputs/core-ai-budget-limit.input';
-import { AiBudgetLimitDocument, CoreAiBudgetLimit } from '../models/core-ai-budget-limit.model';
-import { CoreAiBudgetSummary, CoreAiUsageInfo, CoreAiUsageScope } from '../models/core-ai-usage-info.model';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { ErrorCode } from '../../error-code/index.js';
+import { CoreAiBudgetLimitCreateInput } from '../inputs/core-ai-budget-limit-create.input.js';
+import { CoreAiBudgetLimitInput } from '../inputs/core-ai-budget-limit.input.js';
+import { AiBudgetLimitDocument, CoreAiBudgetLimit } from '../models/core-ai-budget-limit.model.js';
+import { CoreAiBudgetSummary, CoreAiUsageInfo, CoreAiUsageScope } from '../models/core-ai-usage-info.model.js';
 
-import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants';
+import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants';
+export { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants.js';
 
 /** Resolved effective limit for a scope. */
 export interface ResolvedAiBudgetLimit {

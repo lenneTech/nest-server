@@ -1,11 +1,11 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { hasApiTokenCredential } from '../api-token/core-api-token.helpers';
-import { isLegacyJwt } from './core-better-auth-token.helper';
-import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
-import { convertExpressHeaders, extractSessionToken } from './core-better-auth-web.helper';
-import { CoreBetterAuthService } from './core-better-auth.service';
+import { hasApiTokenCredential } from '../api-token/core-api-token.helpers.js';
+import { isLegacyJwt } from './core-better-auth-token.helper.js';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper.js';
+import { convertExpressHeaders, extractSessionToken } from './core-better-auth-web.helper.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * Extended Express Request with Better-Auth session data

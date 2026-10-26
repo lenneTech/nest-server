@@ -3,12 +3,12 @@ import { Blob } from 'buffer';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
 import { Types } from 'mongoose';
-import supertest = require('supertest');
-import util = require('util');
-import ws = require('ws');
+import supertest from 'supertest';
+import * as util from 'util';
+import ws from 'ws';
 
-import { getStringIds } from '../core/common/helpers/db.helper';
-import { resolveBetterAuthSessionCookieName } from '../core/modules/better-auth/better-auth-cookie-prefix.helper';
+import { getStringIds } from '../core/common/helpers/db.helper.js';
+import { resolveBetterAuthSessionCookieName } from '../core/modules/better-auth/better-auth-cookie-prefix.helper.js';
 
 /**
  * GraphQL request type

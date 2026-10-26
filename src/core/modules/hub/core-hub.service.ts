@@ -1,16 +1,16 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { getBuildInfo } from '../../common/helpers/meta.helper';
-import { ConfigService } from '../../common/services/config.service';
+import { getBuildInfo } from '../../common/helpers/meta.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
 
-import { HUB_CONFIG } from './hub.constants';
-import { HUB_PANEL_GROUPS, HUB_PANELS } from './hub-nav';
-import { maskConfigDeep } from './helpers/hub-mask.helper';
-import { CoreHubSourcesService } from './services/core-hub-sources.service';
-import { HubDashboardData, HubDiagnosticsData, HubSessionData } from './interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from './interfaces/hub-config.interface';
+import { HUB_CONFIG } from './hub.constants.js';
+import { HUB_PANEL_GROUPS, HUB_PANELS } from './hub-nav.js';
+import { maskConfigDeep } from './helpers/hub-mask.helper.js';
+import { CoreHubSourcesService } from './services/core-hub-sources.service.js';
+import { HubDashboardData, HubDiagnosticsData, HubSessionData } from './interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from './interfaces/hub-config.interface.js';
 
 /**
  * Framework-default secret field names (see CheckSecurityInterceptor). Union with the pattern-based

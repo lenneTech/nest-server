@@ -1,6 +1,6 @@
 import { CustomScalar, Scalar } from '@nestjs/graphql';
 
-import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper';
+import { checkAndGetDate, getDateFromGraphQL } from '../helpers/input.helper.js';
 
 /**
  * Date scalar to convert string into date

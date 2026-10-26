@@ -1,7 +1,7 @@
-import { looksLikeSystemRole } from '../../common/enums/role.enum';
-import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
-import { RequestContext } from '../../common/services/request-context.service';
-import { checkRoleAccess, resolveGlobalAndTenantRoles, tenantSatisfiableRoles } from './core-tenant.helpers';
+import { looksLikeSystemRole } from '../../common/enums/role.enum.js';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
+import { RequestContext } from '../../common/services/request-context.service.js';
+import { checkRoleAccess, resolveGlobalAndTenantRoles, tenantSatisfiableRoles } from './core-tenant.helpers.js';
 
 /**
  * Service-level tenant role checks.

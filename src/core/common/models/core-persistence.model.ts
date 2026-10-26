@@ -2,11 +2,11 @@ import { ObjectType } from '@nestjs/graphql';
 import { Schema } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
-import { Restricted } from '../decorators/restricted.decorator';
-import { UnifiedField } from '../decorators/unified-field.decorator';
-import { RoleEnum } from '../enums/role.enum';
-import { getStringIds } from '../helpers/db.helper';
-import { CoreModel } from './core-model.model';
+import { Restricted } from '../decorators/restricted.decorator.js';
+import { UnifiedField } from '../decorators/unified-field.decorator.js';
+import { RoleEnum } from '../enums/role.enum.js';
+import { getStringIds } from '../helpers/db.helper.js';
+import { CoreModel } from './core-model.model.js';
 
 /**
  * Metadata for persistent objects

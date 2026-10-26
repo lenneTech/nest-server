@@ -5,7 +5,7 @@
 #
 # Migrations are compiled to JavaScript by `pnpm run build` (tsconfig.build.json includes
 # migrations/ + migrations-utils/), so the production image runs them without a TypeScript
-# transpiler — ts-node is a devDependency and gets pruned.
+# transpiler — the TypeScript loader's @swc/core is a devDependency and gets pruned.
 #
 # The migrate CLI is looked up in both supported layouts:
 #   npm mode     /app/node_modules/.bin/migrate  (bin of @lenne.tech/nest-server)

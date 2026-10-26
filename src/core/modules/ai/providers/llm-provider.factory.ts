@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { ILlmProvider } from '../interfaces/llm-provider.interface';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
-import { OpenAiCompatibleProvider } from './openai-compatible.provider';
+import { ILlmProvider } from '../interfaces/llm-provider.interface.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
+import { OpenAiCompatibleProvider } from './openai-compatible.provider.js';
 
 /**
  * Builds an {@link ILlmProvider} from a resolved connection.
