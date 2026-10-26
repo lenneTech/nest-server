@@ -158,7 +158,7 @@ function importsIntoCommonJsScope(file: string, text: string, scopes: string[]):
     if (specifier && ts.isStringLiteral(specifier) && /^\.\.?\//.test(specifier.text)) {
       if (insideScope(resolve(dirname(file), specifier.text), scopes)) {
         const { line } = source.getLineAndCharacterOfPosition(statement.getStart());
-        found.push(`${relative(SRC, file)}:${line + 1} '${specifier.text}'`);
+        found.push(`${relative(SRC, file).split(sep).join('/')}:${line + 1} '${specifier.text}'`);
       }
     }
   }
