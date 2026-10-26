@@ -1,11 +1,11 @@
 import { InputType } from '@nestjs/graphql';
 import { IsEmail, IsString, Matches } from 'class-validator';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { ProcessType } from '../../../common/enums/process-type.enum';
-import { RoleEnum, SYSTEM_ROLE_PREFIX, SYSTEM_ROLE_REJECT_PATTERN } from '../../../common/enums/role.enum';
-import { CoreInput } from '../../../common/inputs/core-input.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { ProcessType } from '../../../common/enums/process-type.enum.js';
+import { RoleEnum, SYSTEM_ROLE_PREFIX, SYSTEM_ROLE_REJECT_PATTERN } from '../../../common/enums/role.enum.js';
+import { CoreInput } from '../../../common/inputs/core-input.input.js';
 
 /**
  * User input to update a user

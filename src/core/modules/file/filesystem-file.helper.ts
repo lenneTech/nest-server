@@ -12,8 +12,8 @@ import {
   findMetadata,
   findMetadataById,
   findMetadataByName,
-} from './file-metadata.helper';
-import { streamToBuffer } from './s3-file.helper';
+} from './file-metadata.helper.js';
+import { streamToBuffer } from './s3-file.helper.js';
 
 /** Metadata collection for files stored on the local filesystem */
 export const FILESYSTEM_FILES_COLLECTION = 'filesystem-files';

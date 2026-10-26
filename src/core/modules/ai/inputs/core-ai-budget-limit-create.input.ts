@@ -1,10 +1,10 @@
 import { InputType } from '@nestjs/graphql';
 import { IsIn } from 'class-validator';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreAiBudgetLimitInput } from './core-ai-budget-limit.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreAiBudgetLimitInput } from './core-ai-budget-limit.input.js';
 
 /**
  * Input to create an AI budget limit. `scope` and `refId` are required.

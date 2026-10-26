@@ -2,10 +2,10 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import * as crypto from 'crypto';
 import { Collection, Document } from 'mongodb';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { IBetterAuth } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
+import { IBetterAuth } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
 
 /**
  * WebAuthn challenge mapping document structure.

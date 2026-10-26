@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from './core-redis.service.js';
 
 /**
  * Escape Redis glob metacharacters so a LITERAL key can be embedded in a `SCAN MATCH` pattern.
@@ -107,6 +107,9 @@ function overflowSlot(key: string): number {
  * Process-local fixed-window store (previous behavior of all framework rate
  * limiters). Entries are capped and cleaned up periodically.
  */
+/** Through Nest's logger like the Redis store below; module level so a subclass keeps its own `logger` free. */
+const inMemoryStoreLogger = new Logger('InMemoryRateLimitStore');
+
 export class InMemoryRateLimitStore implements RateLimitStore {
   protected readonly store = new Map<string, { count: number; resetTime: number }>();
   protected cleanupInterval: NodeJS.Timeout | null = null;
@@ -159,7 +162,7 @@ export class InMemoryRateLimitStore implements RateLimitStore {
         if (this.atCapacity) {
           if (!this.capacityWarned) {
             this.capacityWarned = true;
-            console.warn(
+            inMemoryStoreLogger.warn(
               `Rate limit store is at capacity (${this.maxEntries} live counters). New clients now share ` +
                 `${OVERFLOW_BUCKETS} coarse counters until entries expire, so they may be limited earlier than ` +
                 'their own traffic warrants. Existing limits are unaffected.',
@@ -432,7 +435,7 @@ export class RedisRateLimitStore implements RateLimitStore {
         this.degraded = true;
         this.logger.error(
           `Redis rate limiting unavailable (${namespaceLabel(this.namespace)}): ${
-            error instanceof Error ? error.message : 'Unknown error'
+            error instanceof Error ? error.message.replace(/\.+$/, '') : 'Unknown error'
           }. Falling back to per-replica in-memory limits until Redis recovers.`,
         );
       }

@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../../core/common/enums/role.enum';
-import { CoreAuthSignUpInput } from '../../../../core/modules/auth/inputs/core-auth-sign-up.input';
+import { Restricted } from '../../../../core/common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../../core/common/enums/role.enum.js';
+import { CoreAuthSignUpInput } from '../../../../core/modules/auth/inputs/core-auth-sign-up.input.js';
 
 /**
  * SignUp input

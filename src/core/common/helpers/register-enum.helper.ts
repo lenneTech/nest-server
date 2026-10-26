@@ -1,6 +1,6 @@
 import { registerEnumType } from '@nestjs/graphql';
 
-import { enumNameRegistry } from '../decorators/unified-field.decorator';
+import { enumNameRegistry } from '../decorators/unified-field.decorator.js';
 
 /**
  * Tracks which enum objects have been registered for GraphQL via registerEnum/registerEnums.

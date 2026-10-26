@@ -1,13 +1,13 @@
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { isEmail } from 'class-validator';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { ConfigService } from '../../common/services/config.service';
-import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-account-issuer.helper';
-import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper';
-import { CoreBetterAuthService } from '../better-auth/core-better-auth.service';
-import { ErrorCode } from '../error-code/error-codes';
+import { ConfigService } from '../../common/services/config.service.js';
+import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-account-issuer.helper.js';
+import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper.js';
+import { CoreBetterAuthService } from '../better-auth/core-better-auth.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 
 /**
  * Collection holding the bootstrap claim markers.

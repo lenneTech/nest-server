@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { AiPlaceholderContext, AiPlaceholderInfo, IAiPlaceholder } from '../interfaces/ai-placeholder.interface';
-import { CoreAiPromptHintService } from './core-ai-prompt-hint.service';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { AiPlaceholderContext, AiPlaceholderInfo, IAiPlaceholder } from '../interfaces/ai-placeholder.interface.js';
+import { CoreAiPromptHintService } from './core-ai-prompt-hint.service.js';
 
 /**
  * Runtime registry of `{{placeholder}}` resolvers used by slots and user

@@ -36,7 +36,7 @@ describe('public export surface', () => {
     // graph inside the unit runner (seconds per run). That the re-export actually resolves is
     // covered by `pnpm run build` (tsc).
     const indexSource = readSourceWithoutComments('src/index.ts');
-    expect(indexSource).toContain("export * from './core/common/helpers/process-diagnostics.helper'");
+    expect(indexSource).toContain("export * from './core/common/helpers/process-diagnostics.helper.js'");
   });
 });
 

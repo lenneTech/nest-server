@@ -1,23 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import { type Connection, Model, Types } from 'mongoose';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiConversationCreateInput } from '../inputs/core-ai-conversation-create.input';
-import { CoreAiConversationInput } from '../inputs/core-ai-conversation.input';
-import { AiConversationDocument, CoreAiConversation } from '../models/core-ai-conversation.model';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { CoreAiConversationCreateInput } from '../inputs/core-ai-conversation-create.input.js';
+import { CoreAiConversationInput } from '../inputs/core-ai-conversation.input.js';
+import { AiConversationDocument, CoreAiConversation } from '../models/core-ai-conversation.model.js';
 
-import { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants';
+import { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants';
+export { AI_CONVERSATION_CLASS, AI_CONVERSATION_MODEL } from '../core-ai.constants.js';
 
 /**
  * CRUD service for multi-turn {@link CoreAiConversation}s.

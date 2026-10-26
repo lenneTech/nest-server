@@ -33,13 +33,13 @@
  */
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../decorators/restricted.decorator';
-import { UnifiedField } from '../decorators/unified-field.decorator';
-import { LogicalOperatorEnum } from '../enums/logical-operator.enum';
-import { RoleEnum } from '../enums/role.enum';
-import { maps } from '../helpers/model.helper';
-import { CoreInput } from './core-input.input';
-import { SingleFilterInput } from './single-filter.input';
+import { Restricted } from '../decorators/restricted.decorator.js';
+import { UnifiedField } from '../decorators/unified-field.decorator.js';
+import { LogicalOperatorEnum } from '../enums/logical-operator.enum.js';
+import { RoleEnum } from '../enums/role.enum.js';
+import { maps } from '../helpers/model.helper.js';
+import { CoreInput } from './core-input.input.js';
+import { SingleFilterInput } from './single-filter.input.js';
 
 /**
  * Combination of multiple filters via logical operator.

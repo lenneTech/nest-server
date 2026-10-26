@@ -4,15 +4,15 @@
  * The interfaces are defined in server-options.interface.ts to avoid circular imports.
  * This file contains helper functions and defaults.
  */
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ITusConfig, ITusExpirationConfig } from '../../../common/interfaces/server-options.interface';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import type { ITusConfig, ITusExpirationConfig } from '../../../common/interfaces/server-options.interface.js';
 
-// Re-export for convenience
-export {
+// Re-export for convenience (type-only: an `export { … }` of a type is a value re-export in ESM and fails to link)
+export type {
   ITusConfig,
   ITusCreationConfig,
   ITusExpirationConfig,
-} from '../../../common/interfaces/server-options.interface';
+} from '../../../common/interfaces/server-options.interface.js';
 
 /**
  * Additional allowed headers for TUS requests (beyond @tus/server defaults).

@@ -1,5 +1,5 @@
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { HubBufferEntry, HubRingBuffer } from './hub-ring-buffer';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { HubBufferEntry, HubRingBuffer } from './hub-ring-buffer.js';
 
 /** A buffer read, shaped like the `cursor` / `dropped` fields every Hub panel payload carries. */
 export interface HubBufferData<T> {

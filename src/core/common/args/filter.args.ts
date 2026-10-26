@@ -1,8 +1,8 @@
 import { ArgsType } from '@nestjs/graphql';
 
-import { UnifiedField } from '../decorators/unified-field.decorator';
-import { FilterInput } from '../inputs/filter.input';
-import { PaginationArgs } from './pagination.args';
+import { UnifiedField } from '../decorators/unified-field.decorator.js';
+import { FilterInput } from '../inputs/filter.input.js';
+import { PaginationArgs } from './pagination.args.js';
 
 @ArgsType()
 export class FilterArgs extends PaginationArgs {

@@ -1,14 +1,13 @@
-import { cloneDeep } from 'lodash';
-import _ = require('lodash');
+import _ from 'lodash';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 
-import { merge } from '../helpers/config.helper';
+import { merge } from '../helpers/config.helper.js';
 // Import from the clone.helper LEAF, never from input.helper: input.helper imports
 // restricted.decorator, which reaches back here via core-tenant.helpers — that cycle is what the
 // extraction removed. See clone.helper's docblock.
-import { clone, deepFreeze } from '../helpers/clone.helper';
-import { IServerOptions } from '../interfaces/server-options.interface';
+import { clone, deepFreeze } from '../helpers/clone.helper.js';
+import { IServerOptions } from '../interfaces/server-options.interface.js';
 
 /**
  * Config service can be used as provider (after initialization in CoreModule.forRoot)
@@ -61,6 +60,11 @@ export class ConfigService {
 
   /**
    * Create config service or return singleton instance if exists
+   *
+   * `warn: true` prints the whole merged configuration when this is a second construction — a debugging
+   * aid, and an opt-in since 12.0.0 like it always was for `setConfig()` / `mergeConfig()`. As the default it
+   * wrote every secret in the config (JWT and Better-Auth secrets, database and Redis URIs, API keys) to
+   * stdout whenever `CoreModule.forRoot()` ran a second time in one process: tests, scripts, a second app.
    */
   constructor(
     configObject?: Partial<IServerOptions> & { [key: string]: any },
@@ -68,7 +72,7 @@ export class ConfigService {
   ) {
     const config = {
       reInit: false,
-      warn: true,
+      warn: false,
       ...options,
     };
 
@@ -78,7 +82,7 @@ export class ConfigService {
     // Init subject handling
     if (!isInitialized) {
       ConfigService._configSubject$.subscribe((value) => {
-        ConfigService._frozenConfigSubject$.next(deepFreeze(cloneDeep(value)));
+        ConfigService._frozenConfigSubject$.next(deepFreeze(_.cloneDeep(value)));
       });
     }
 
@@ -271,7 +275,7 @@ export class ConfigService {
 
     // Merge config
     const activity = isInitialized ? 'merged' : 'initialized';
-    const merged = merge(ConfigService._configSubject$.getValue() || {}, cloneDeep(configData));
+    const merged = merge(ConfigService._configSubject$.getValue() || {}, _.cloneDeep(configData));
     ConfigService._configSubject$.next(merged);
 
     // Warn if requested
@@ -307,7 +311,7 @@ export class ConfigService {
     // Merge property
     const current = ConfigService._configSubject$.getValue() || {};
     if (typeof value === 'object') {
-      current[key] = merge(current[key], cloneDeep(value));
+      current[key] = merge(current[key], _.cloneDeep(value));
     } else {
       current[key] = value;
     }

@@ -2,9 +2,9 @@
  * Unit Tests: every test file is claimed by exactly one vitest runner.
  *
  * The two runners select files by filename pattern:
- * - `vitest.config.ts`      → `tests/unit/**\/*.spec.ts` (deliberately NOT `src/**`, see
- *   `vitest.include-globs.ts` and `tests/unit/test-file-placement.spec.ts`)
- * - `vitest-e2e.config.ts`  → `tests/**\/*.e2e-spec.ts`, `tests/stories/**\/*.story.test.ts`
+ * - `vitest.config.mts`      → `tests/unit/**\/*.spec.ts` (deliberately NOT `src/**`, see
+ *   `vitest.include-globs.mts` and `tests/unit/test-file-placement.spec.ts`)
+ * - `vitest-e2e.config.mts`  → `tests/**\/*.e2e-spec.ts`, `tests/stories/**\/*.story.test.ts`
  *
  * Narrow patterns are what keep unit tests out of the mongod-backed e2e runner, but they also
  * mean a file whose name matches NEITHER pattern runs nowhere: `tests/stories/foo.test.ts`
@@ -13,7 +13,7 @@
  *
  * This spec closes that hole from both sides: no test file may be orphaned, and none may be
  * claimed twice (running a unit test inside the e2e runner is the bug that motivated the split).
- * The patterns come from `vitest.include-globs.ts`, the same module both configs import for their
+ * The patterns come from `vitest.include-globs.mts`, the same module both configs import for their
  * `include`, so this check can never drift from what the runners actually use — and reading the
  * arrays directly avoids importing the full config modules (which would evaluate the swc plugin).
  */
@@ -21,7 +21,7 @@ import { readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { E2E_TEST_INCLUDE, UNIT_TEST_INCLUDE } from '../../vitest.include-globs';
+import { E2E_TEST_INCLUDE, UNIT_TEST_INCLUDE } from '../../vitest.include-globs.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 
@@ -81,8 +81,8 @@ function globToRegExp(glob: string): RegExp {
 }
 
 const RUNNERS = [
-  { name: 'unit (vitest.config.ts)', patterns: UNIT_TEST_INCLUDE },
-  { name: 'e2e (vitest-e2e.config.ts)', patterns: E2E_TEST_INCLUDE },
+  { name: 'unit (vitest.config.mts)', patterns: UNIT_TEST_INCLUDE },
+  { name: 'e2e (vitest-e2e.config.mts)', patterns: E2E_TEST_INCLUDE },
 ].map(runner => ({ ...runner, matchers: runner.patterns.map(globToRegExp) }));
 
 function claimingRunners(file: string): string[] {
@@ -109,10 +109,10 @@ describe('Test file routing', () => {
   });
 
   it('should route unit and e2e suites to their own runner', () => {
-    expect(claimingRunners('tests/unit/cookies-cors-config.spec.ts')).toEqual(['unit (vitest.config.ts)']);
-    expect(claimingRunners('tests/server.e2e-spec.ts')).toEqual(['e2e (vitest-e2e.config.ts)']);
-    expect(claimingRunners('tests/migrate/mongo-state-store.e2e-spec.ts')).toEqual(['e2e (vitest-e2e.config.ts)']);
-    expect(claimingRunners('tests/stories/error-code.story.test.ts')).toEqual(['e2e (vitest-e2e.config.ts)']);
+    expect(claimingRunners('tests/unit/cookies-cors-config.spec.ts')).toEqual(['unit (vitest.config.mts)']);
+    expect(claimingRunners('tests/server.e2e-spec.ts')).toEqual(['e2e (vitest-e2e.config.mts)']);
+    expect(claimingRunners('tests/migrate/mongo-state-store.e2e-spec.ts')).toEqual(['e2e (vitest-e2e.config.mts)']);
+    expect(claimingRunners('tests/stories/error-code.story.test.ts')).toEqual(['e2e (vitest-e2e.config.mts)']);
   });
 
   // The exact filename shapes that used to slip through both configs unnoticed.

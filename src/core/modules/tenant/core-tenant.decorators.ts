@@ -1,6 +1,6 @@
 import { createParamDecorator, SetMetadata } from '@nestjs/common';
 
-import { RequestContext } from '../../common/services/request-context.service';
+import { RequestContext } from '../../common/services/request-context.service.js';
 
 /**
  * Metadata key for @SkipTenantCheck() decorator.

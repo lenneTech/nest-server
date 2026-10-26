@@ -2,9 +2,9 @@ import { Injectable, Logger, OnModuleInit, Optional, PayloadTooLargeException } 
 import { HttpAdapterHost, ModuleRef } from '@nestjs/core';
 import { json, urlencoded } from 'express';
 
-import { ErrorCode } from '../../modules/error-code/error-codes';
-import { IBodyParserConfig } from '../interfaces/server-options.interface';
-import { ConfigService } from './config.service';
+import { ErrorCode } from '../../modules/error-code/error-codes.js';
+import { IBodyParserConfig } from '../interfaces/server-options.interface.js';
+import { ConfigService } from './config.service.js';
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 

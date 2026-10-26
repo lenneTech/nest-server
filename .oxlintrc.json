@@ -49,7 +49,34 @@
     "unicorn/consistent-function-scoping": "off",
     "unicorn/no-array-sort": "off",
     "import/no-unassigned-import": "off",
-    "preserve-caught-error": "warn"
+    "preserve-caught-error": "warn",
+
+    // Type-aware rules (`oxlint --type-aware`, needs oxlint-tsgolint), as in NestJS 12's project template.
+    // An un-awaited promise is the one defect here no other check sees: its rejection is unhandled, and Node ends
+    // the process on that by default.
+    "typescript/no-floating-promises": "error",
+    // `--type-aware` also turns on every type-aware rule of the categories above. These are off because they cannot
+    // work under `strict: false` (they answer "requires strictNullChecks" for every file) ...
+    "typescript/no-unnecessary-boolean-literal-compare": "off",
+    "typescript/no-useless-default-assignment": "off",
+    // ... or because they flag this codebase's deliberate idioms rather than defects: `as` casts in a non-strict
+    // codebase, `String(unknown)` and ids in log messages, exception bodies built by spreading, framework methods
+    // passed by reference, role strings compared with RoleEnum members, `.sort()` on strings. Measured 2026-10-26:
+    // ~3000 findings, none of them a defect. The rules that found real ones stay on.
+    "typescript/consistent-return": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-misused-spread": "off",
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-unnecessary-template-expression": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-unsafe-enum-comparison": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/unbound-method": "off"
   },
   "overrides": [
     {

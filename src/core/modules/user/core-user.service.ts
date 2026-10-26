@@ -1,26 +1,26 @@
 import { BadRequestException, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import bcrypt = require('bcrypt');
-import crypto = require('crypto');
+import bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { sha256 } from 'js-sha256';
 import { Document, Model } from 'mongoose';
 
-import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
-import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
-import { resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper';
-import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
-import { maskEmail } from '../../common/helpers/logging.helper';
-import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper';
-import { ServiceOptions } from '../../common/interfaces/service-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { CrudService } from '../../common/services/crud.service';
-import { ErrorCode } from '../error-code/error-codes';
-import { EmailService } from '../../common/services/email.service';
-import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry';
-import { CoreModelConstructor } from '../../common/types/core-model-constructor.type';
-import { CoreUserModel } from './core-user.model';
-import { CoreUserCreateInput } from './inputs/core-user-create.input';
-import { CoreUserInput } from './inputs/core-user.input';
-import { CoreUserServiceOptions } from './interfaces/core-user-service-options.interface';
+import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
+import { resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
+import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper.js';
+import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper.js';
+import { ServiceOptions } from '../../common/interfaces/service-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CrudService } from '../../common/services/crud.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { EmailService } from '../../common/services/email.service.js';
+import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry.js';
+import { CoreModelConstructor } from '../../common/types/core-model-constructor.type.js';
+import { CoreUserModel } from './core-user.model.js';
+import { CoreUserCreateInput } from './inputs/core-user-create.input.js';
+import { CoreUserInput } from './inputs/core-user.input.js';
+import { CoreUserServiceOptions } from './interfaces/core-user-service-options.interface.js';
 
 /**
  * User service

@@ -9,8 +9,8 @@ import {
   Post,
 } from '@nestjs/common';
 
-import { HubActionMessage } from './hub-action-messages';
-import { CoreHubActionsService } from './services/core-hub-actions.service';
+import { HubActionMessage } from './hub-action-messages.js';
+import { CoreHubActionsService } from './services/core-hub-actions.service.js';
 
 /** Body shape shared by the confirm-guarded actions. */
 interface ConfirmBody {

@@ -1,6 +1,6 @@
 import type { Response } from 'express';
 
-import type { ICookiesConfig, ICorsConfig, IServerOptions } from '../interfaces/server-options.interface';
+import type { ICookiesConfig, ICorsConfig, IServerOptions } from '../interfaces/server-options.interface.js';
 
 /**
  * Module-scoped cache of `process.env.NODE_ENV === 'production'`.

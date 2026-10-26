@@ -2,21 +2,21 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { CoreAiPromptHintCreateInput } from '../inputs/core-ai-prompt-hint-create.input';
-import { CoreAiPromptHintInput } from '../inputs/core-ai-prompt-hint.input';
-import { AiPromptHintDocument, CoreAiPromptHint } from '../models/core-ai-prompt-hint.model';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { CoreAiPromptHintCreateInput } from '../inputs/core-ai-prompt-hint-create.input.js';
+import { CoreAiPromptHintInput } from '../inputs/core-ai-prompt-hint.input.js';
+import { AiPromptHintDocument, CoreAiPromptHint } from '../models/core-ai-prompt-hint.model.js';
 
-import { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants';
+import { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants';
+export { AI_PROMPT_HINT_CLASS, AI_PROMPT_HINT_MODEL } from '../core-ai.constants.js';
 
 /** A failure signal recorded by the orchestrator for the learning loop. */
 export interface AiPromptFeedbackSignal {

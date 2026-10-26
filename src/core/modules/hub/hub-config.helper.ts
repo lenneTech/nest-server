@@ -1,5 +1,5 @@
-import { RoleEnum } from '../../common/enums/role.enum';
-import { getVersion } from '../../common/helpers/meta.helper';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { getVersion } from '../../common/helpers/meta.helper.js';
 
 import {
   HUB_DEFAULT_LOG_CAPACITY,
@@ -17,7 +17,7 @@ import {
   HUB_DEFAULT_TRACE_CAPACITY,
   HUB_DEFAULT_TRACE_SLOW_MS,
   HUB_MIN_POLL_INTERVAL_MS,
-} from './hub.constants';
+} from './hub.constants.js';
 import {
   IHubConfig,
   IHubLogsConfig,
@@ -25,7 +25,7 @@ import {
   IHubQueriesConfig,
   IHubTracesConfig,
   ResolvedHubConfig,
-} from './interfaces/hub-config.interface';
+} from './interfaces/hub-config.interface.js';
 
 /** Context needed to resolve environment-dependent defaults (env badge, links, mailbox guard). */
 export interface HubConfigContext {

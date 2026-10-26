@@ -1,7 +1,7 @@
 import { ForbiddenException, Logger } from '@nestjs/common';
 
-import { ConfigService } from '../services/config.service';
-import { RequestContext } from '../services/request-context.service';
+import { ConfigService } from '../services/config.service.js';
+import { RequestContext } from '../services/request-context.service.js';
 
 /** Models already warned about, so the message appears once per process rather than per query. */
 const isolationDisabledWarned = new Set<string>();

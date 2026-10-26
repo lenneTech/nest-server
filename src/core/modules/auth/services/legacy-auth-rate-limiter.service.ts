@@ -1,15 +1,15 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 
-import { IAuthRateLimit } from '../../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreRedisService } from '../../../common/services/core-redis.service';
+import { IAuthRateLimit } from '../../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
 import {
   InMemoryRateLimitStore,
   rateLimitKey,
   rateLimitKeyPrefix,
   RateLimitStore,
   RedisRateLimitStore,
-} from '../../../common/services/rate-limit-store';
+} from '../../../common/services/rate-limit-store.js';
 
 /**
  * Result of a rate limit check

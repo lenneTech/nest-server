@@ -11,6 +11,11 @@
   // With its own outDir the guard is side-effect free and order-independent.
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // CommonJS on purpose: this guard checks what a CommonJS project runs under `nest start -b swc`. Since 12.0.0 the
+    // package is `"type": "module"`, and @nestjs/cli then emits ES modules unless the tsconfig pins an older module
+    // kind. `moduleResolution: null` clears the inherited `nodenext`, as in tsconfig.vendor-commonjs.json.
+    "module": "commonjs",
+    "moduleResolution": null,
     "outDir": "./dist-swc-tdz"
   }
 }

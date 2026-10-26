@@ -1,14 +1,13 @@
-import type * as OAuthErrors from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper';
-import { ConfigService } from '../../../common/services/config.service';
-import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers';
-import { getBetterAuthTokenService } from '../../better-auth/core-better-auth.registry';
+import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers.js';
+import { getBetterAuthTokenService } from '../../better-auth/core-better-auth.registry.js';
 import {
   IMcpOAuthConsentView,
   MCP_OAUTH_CONSENT_DECISION_FIELD,
@@ -16,8 +15,45 @@ import {
   mcpOAuthConsentHeaders,
   mcpOAuthConsentLocale,
   renderMcpOAuthConsentPage,
-} from '../helpers/ai-mcp-oauth-consent.helper';
-import { getMountedMcpOAuth } from '../helpers/ai-mcp-oauth.registry';
+} from '../helpers/ai-mcp-oauth-consent.helper.js';
+import { getMountedMcpOAuth } from '../helpers/ai-mcp-oauth.registry.js';
+
+/** One of the MCP SDK's OAuth error classes: constructed with a message (and optionally an error URI) and thrown. */
+export interface IMcpOAuthErrorClass {
+  new (message: string, errorUri?: string): Error & { readonly errorCode: string };
+}
+
+/**
+ * The MCP SDK's OAuth error classes by name — what {@link CoreAiMcpOAuthService.loadOAuthErrors} resolves to,
+ * and what a project's own consent step (`authorizeConsent()` override) throws from. A thrown instance is
+ * answered by the SDK with the matching OAuth error response; anything else becomes a 500.
+ *
+ * Structural on purpose. The SDK ships separate CJS and ESM builds, the lazy `import()` loads the ESM one
+ * under `module: nodenext` and the CJS one under `module: commonjs` (a vendor project's tsconfig), and the
+ * classes of one build are not assignable to the other's. A type derived from either build also cannot be
+ * named in a consumer's declarations once its pnpm layout is isolated (TS2883, measured in a vendor project
+ * on `module: commonjs`). Every class the SDK exports with the `(message, errorUri?)` constructor is listed.
+ */
+export interface IMcpOAuthErrorClasses {
+  AccessDeniedError: IMcpOAuthErrorClass;
+  InsufficientScopeError: IMcpOAuthErrorClass;
+  InvalidClientError: IMcpOAuthErrorClass;
+  InvalidClientMetadataError: IMcpOAuthErrorClass;
+  InvalidGrantError: IMcpOAuthErrorClass;
+  InvalidRequestError: IMcpOAuthErrorClass;
+  InvalidScopeError: IMcpOAuthErrorClass;
+  InvalidTargetError: IMcpOAuthErrorClass;
+  InvalidTokenError: IMcpOAuthErrorClass;
+  MethodNotAllowedError: IMcpOAuthErrorClass;
+  OAuthError: IMcpOAuthErrorClass;
+  ServerError: IMcpOAuthErrorClass;
+  TemporarilyUnavailableError: IMcpOAuthErrorClass;
+  TooManyRequestsError: IMcpOAuthErrorClass;
+  UnauthorizedClientError: IMcpOAuthErrorClass;
+  UnsupportedGrantTypeError: IMcpOAuthErrorClass;
+  UnsupportedResponseTypeError: IMcpOAuthErrorClass;
+  UnsupportedTokenTypeError: IMcpOAuthErrorClass;
+}
 
 /**
  * Stored OAuth client (dynamically registered).
@@ -727,7 +763,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * `mountAiMcpOAuth()` imports the router, so both resolve the same build of the SDK: a class
    * from its other build (CJS vs. ESM) would fail that `instanceof` just like a plain `Error`.
    */
-  protected loadOAuthErrors(): Promise<typeof OAuthErrors> {
+  protected loadOAuthErrors(): Promise<IMcpOAuthErrorClasses> {
     return import('@modelcontextprotocol/sdk/server/auth/errors.js');
   }
 

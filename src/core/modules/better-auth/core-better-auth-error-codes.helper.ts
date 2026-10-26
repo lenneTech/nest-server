@@ -1,4 +1,4 @@
-import { ErrorCode } from '../error-code/error-codes';
+import { ErrorCode } from '../error-code/error-codes.js';
 
 /**
  * Translate Better-Auth's own error codes into nest-server's `#LTNS_XXXX:` message format.

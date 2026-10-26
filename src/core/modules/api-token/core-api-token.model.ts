@@ -1,16 +1,16 @@
 import { ObjectType } from '@nestjs/graphql';
 import { Schema } from '@nestjs/mongoose';
 
-import { Restricted } from '../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
-import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { ConfigService } from '../../common/services/config.service';
-import { RequestContext } from '../../common/services/request-context.service';
-import { checkRoleAccess } from '../tenant/core-tenant.helpers';
-import { ApiTokenKind } from './core-api-token.constants';
-import { getApiTokenContext, getApiTokenManageRole } from './core-api-token.helpers';
+import { Restricted } from '../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
+import { CorePersistenceModel } from '../../common/models/core-persistence.model.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { RequestContext } from '../../common/services/request-context.service.js';
+import { checkRoleAccess } from '../tenant/core-tenant.helpers.js';
+import { ApiTokenKind } from './core-api-token.constants.js';
+import { getApiTokenContext, getApiTokenManageRole } from './core-api-token.helpers.js';
 
 /**
  * API token (`apiTokens` config): a USER token or a TENANT token, see {@link ApiTokenKind}.

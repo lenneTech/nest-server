@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../enums/role.enum';
+import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../enums/role.enum.js';
 
 /**
  * Mongoose plugin that refuses to STORE system roles (`s_*`) in a `roles` array.

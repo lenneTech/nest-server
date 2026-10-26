@@ -1,23 +1,23 @@
 import { DynamicModule, MiddlewareConsumer, Module, NestModule, Provider, Type } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 
-import { CoreHubActionsController } from './core-hub-actions.controller';
-import { CoreHubHtmlService } from './core-hub-html.service';
-import { CoreHubController } from './core-hub.controller';
-import { CoreHubService } from './core-hub.service';
-import { HUB_CONFIG, HUB_EMAIL_CAPTURE } from './hub.constants';
-import { HubConfigContext, isReachableEnv, normalizeHubConfig } from './hub-config.helper';
-import { HubTraceMiddleware } from './middleware/hub-trace.middleware';
-import { CoreHubActionsService } from './services/core-hub-actions.service';
-import { CoreHubDbService } from './services/core-hub-db.service';
-import { CoreHubEmailService } from './services/core-hub-email.service';
-import { CoreHubMailboxService } from './services/core-hub-mailbox.service';
-import { CoreHubMigrationsService } from './services/core-hub-migrations.service';
-import { CoreHubSourcesService } from './services/core-hub-sources.service';
-import { HubLogBufferService } from './services/hub-log-buffer.service';
-import { HubQueryProfilerService } from './services/hub-query-profiler.service';
-import { HubTraceBufferService } from './services/hub-trace-buffer.service';
-import { IHubConfig } from './interfaces/hub-config.interface';
+import { CoreHubActionsController } from './core-hub-actions.controller.js';
+import { CoreHubHtmlService } from './core-hub-html.service.js';
+import { CoreHubController } from './core-hub.controller.js';
+import { CoreHubService } from './core-hub.service.js';
+import { HUB_CONFIG, HUB_EMAIL_CAPTURE } from './hub.constants.js';
+import { HubConfigContext, isReachableEnv, normalizeHubConfig } from './hub-config.helper.js';
+import { HubTraceMiddleware } from './middleware/hub-trace.middleware.js';
+import { CoreHubActionsService } from './services/core-hub-actions.service.js';
+import { CoreHubDbService } from './services/core-hub-db.service.js';
+import { CoreHubEmailService } from './services/core-hub-email.service.js';
+import { CoreHubMailboxService } from './services/core-hub-mailbox.service.js';
+import { CoreHubMigrationsService } from './services/core-hub-migrations.service.js';
+import { CoreHubSourcesService } from './services/core-hub-sources.service.js';
+import { HubLogBufferService } from './services/hub-log-buffer.service.js';
+import { HubQueryProfilerService } from './services/hub-query-profiler.service.js';
+import { HubTraceBufferService } from './services/hub-trace-buffer.service.js';
+import { IHubConfig } from './interfaces/hub-config.interface.js';
 
 /** Options passed by `CoreModule.forRoot()` when it registers the Hub. */
 export interface CoreHubModuleOptions {

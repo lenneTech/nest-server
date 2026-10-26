@@ -1,8 +1,8 @@
 import { ArgumentMetadata, Inject, Injectable, PipeTransform } from '@nestjs/common';
 import { CONTEXT } from '@nestjs/graphql';
 
-import { getContextData } from '../helpers/context.helper';
-import { check } from '../helpers/input.helper';
+import { getContextData } from '../helpers/context.helper.js';
+import { check } from '../helpers/input.helper.js';
 
 /**
  * The CheckInputPipe checks the permissibility of individual properties of inputs for the resolvers

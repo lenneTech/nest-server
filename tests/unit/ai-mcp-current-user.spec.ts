@@ -118,6 +118,6 @@ describe('MCP sessions follow the current user', () => {
     await controller.handleGet(request(['auditor'], 'session-1'), res);
     expect(userRef!().roles).toEqual(['auditor']);
 
-    controller.onModuleDestroy();
+    await controller.onModuleDestroy();
   });
 });

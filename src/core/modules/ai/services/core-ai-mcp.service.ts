@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { AiToolContext } from '../interfaces/ai-tool.interface';
-import { AiToolRegistry, AiToolUser } from '../tools/ai-tool.registry';
+import { AiToolContext } from '../interfaces/ai-tool.interface.js';
+import { AiToolRegistry, AiToolUser } from '../tools/ai-tool.registry.js';
 
 /**
  * MCP tool descriptor (name + description + JSON-schema input).

@@ -21,4 +21,4 @@ Reviewed 2026-10-22 (uncommitted on develop), zero findings.
 - Hook/DB throw in the controller path -> Nest 500, same as the guard path (`@Res()` does not disable the filter).
 - Registry stays a type-only leaf; madge still the known 6 cycles.
 
-Related: [[project_mcp-oauth-consent-11-42-17]], [[project_core-controller-override-contract]].
+Related: [[project_mcp-oauth-consent-11-42-17]], [[core-controller-override-contract]].

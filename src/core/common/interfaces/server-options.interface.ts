@@ -2,12 +2,11 @@ import { ApolloDriverConfig } from '@nestjs/apollo';
 import { Type } from '@nestjs/common';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
-import type { JwtSignOptions } from '@nestjs/jwt/dist/interfaces/index.js';
+import type { JwtSignOptions } from '@nestjs/jwt';
 import { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
-import type { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health.js';
-import type { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type.js';
+import type { DiskHealthIndicatorOptions, MongoosePingCheckSettings } from '@nestjs/terminus';
 import compression from 'compression';
 import { CollationOptions } from 'mongodb';
 import type { Connection } from 'mongoose';
@@ -18,12 +17,12 @@ import type * as SMTPPool from 'nodemailer/lib/smtp-pool';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type * as StreamTransport from 'nodemailer/lib/stream-transport';
 
-import { Falsy } from '../types/falsy.type';
-import { IHubConfig } from '../../modules/hub/interfaces/hub-config.interface';
-import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface';
-import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface';
-import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface';
-import { MailjetOptions } from './mailjet-options.interface';
+import { Falsy } from '../types/falsy.type.js';
+import { IHubConfig } from '../../modules/hub/interfaces/hub-config.interface.js';
+import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface.js';
+import { CronJobConfigWithTimeZone } from './cron-job-config-with-time-zone.interface.js';
+import { CronJobConfigWithUtcOffset } from './cron-job-config-with-utc-offset.interface.js';
+import { MailjetOptions } from './mailjet-options.interface.js';
 
 /**
  * Better-Auth field type definition
@@ -2900,10 +2899,15 @@ export interface IServerOptions {
     };
 
   /**
-   * Load local configuration
-   * false: no local configuration is loaded,
-   * true: it tries to load ./config.json or ../config.json,
-   * string: path to configuration
+   * Load a local configuration file and merge it over this environment's configuration
+   * - `false` / unset: nothing is loaded
+   * - `true`: `config.json` in the working directory, else `src/config.json`
+   * - string: path to the file, relative to the working directory. `.json` is read as JSON, anything else is loaded
+   *   as a module and its default export used
+   *
+   * Read synchronously, merged before `getEnvironmentConfig()` returns. Until 12.0.0 the file was searched next to
+   * nest-server's own config helper and merged asynchronously, so it never reached the configuration.
+   * @default false
    */
   loadLocalConfig?: boolean | string;
 

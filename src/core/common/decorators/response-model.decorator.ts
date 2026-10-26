@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
-import { CoreModel } from '../models/core-model.model';
+import { CoreModel } from '../models/core-model.model.js';
 
 /**
  * Metadata key used to store the explicit response model class on a handler.

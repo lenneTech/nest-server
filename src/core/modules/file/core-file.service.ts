@@ -1,37 +1,37 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import { Connection, mongo, Types } from 'mongoose';
+import { type Connection, mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
-import { FilterArgs } from '../../common/args/filter.args';
-import { accessDeniedException } from '../../common/exceptions/access-denied.exception';
-import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
-import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
-import { GridFSHelper } from '../../common/helpers/gridfs.helper';
-import { check } from '../../common/helpers/input.helper';
-import { prepareOutput } from '../../common/helpers/service.helper';
-import { ConfigService } from '../../common/services/config.service';
-import { RequestContext } from '../../common/services/request-context.service';
-import { CoreS3Service } from '../../common/services/core-s3.service';
-import { MaybePromise } from '../../common/types/maybe-promise.type';
-import { CoreFileInfo } from './core-file-info.model';
-import { decideFileAccess, fileAccessNeedsRawDocument, resolveFileAccessPreset } from './file-access.helper';
-import { warnOnUndecidedFileAccess } from './file-roles.config';
-import { FileServiceOptions } from './interfaces/file-service-options.interface';
-import { FileUploadSource } from './interfaces/file-upload.interface';
+import { FilterArgs } from '../../common/args/filter.args.js';
+import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
+import { getObjectIds, getStringIds } from '../../common/helpers/db.helper.js';
+import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper.js';
+import { GridFSHelper } from '../../common/helpers/gridfs.helper.js';
+import { check } from '../../common/helpers/input.helper.js';
+import { prepareOutput } from '../../common/helpers/service.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { RequestContext } from '../../common/services/request-context.service.js';
+import { CoreS3Service } from '../../common/services/core-s3.service.js';
+import { MaybePromise } from '../../common/types/maybe-promise.type.js';
+import { CoreFileInfo } from './core-file-info.model.js';
+import { decideFileAccess, fileAccessNeedsRawDocument, resolveFileAccessPreset } from './file-access.helper.js';
+import { warnOnUndecidedFileAccess } from './file-roles.config.js';
+import { FileServiceOptions } from './interfaces/file-service-options.interface.js';
+import { FileUploadSource } from './interfaces/file-upload.interface.js';
 import {
   assertFileStorageAvailable,
   FileStorageDriver,
   FileStorageResolution,
   logFileStorage,
   resolveFileStorage,
-} from './file-storage.helper';
+} from './file-storage.helper.js';
 import {
   DEFAULT_FILESYSTEM_DIR,
   FILESYSTEM_FILES_COLLECTION,
   FilesystemFileHelper,
   FilesystemFileInfo,
-} from './filesystem-file.helper';
-import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo } from './s3-file.helper';
+} from './filesystem-file.helper.js';
+import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo } from './s3-file.helper.js';
 
 /**
  * Type for checking input

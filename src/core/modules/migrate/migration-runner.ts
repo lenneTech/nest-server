@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { MongoStateStore, withMigrationLock } from './mongo-state-store';
+import { _endMigration, _startMigration } from './migration.helper.js';
+import { MongoStateStore, withMigrationLock } from './mongo-state-store.js';
+import { createRequire } from 'node:module';
 
 /**
  * Migration file interface
@@ -43,10 +45,11 @@ const MIGRATION_EXTENSION_PATTERN = /\.(ts|js)$/;
  * Migration identity = the timestamped file stem WITHOUT its `.ts`/`.js` extension.
  *
  * A migration keeps its identity when a project switches its production image from
- * ts-node (`1699-foo.ts`) to compiled JavaScript (`1699-foo.js`) — the recommended
- * prod setup, since the image prunes ts-node. Comparing raw filenames would make
- * every compiled `.js` migration look "pending" against a state recorded under `.ts`
- * names and re-run already-applied migrations (data corruption on existing DBs).
+ * TypeScript sources (`1699-foo.ts`) to compiled JavaScript (`1699-foo.js`) — the
+ * recommended prod setup, since the image prunes the TypeScript loader's `@swc/core`.
+ * Comparing raw filenames would make every compiled `.js` migration look "pending"
+ * against a state recorded under `.ts` names and re-run already-applied migrations
+ * (data corruption on existing DBs).
  * Normalising both sides makes the transition safe with no state rewrite.
  *
  * @param title Migration title, usually the filename (e.g. `1699000000000-foo.ts`)
@@ -195,7 +198,7 @@ export class MigrationRunner {
 
       const filePath = path.join(this.options.migrationsDirectory, file);
 
-      const module = require(filePath);
+      const module = createRequire(path.join(process.cwd(), 'package.json'))(filePath);
 
       if (!module.up) {
         console.warn(`Migration ${file} has no 'up' function, skipping...`);
@@ -232,8 +235,6 @@ export class MigrationRunner {
   }
 
   protected async runUp(): Promise<void> {
-    const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
-
     const allMigrations = await this.loadMigrationFiles();
     const state = await this.options.stateStore.loadAsync();
     const recorded = state.migrations || [];
@@ -308,8 +309,6 @@ export class MigrationRunner {
   }
 
   protected async runDown(): Promise<void> {
-    const { _endMigration, _startMigration } = await import('./helpers/migration.helper');
-
     const state = await this.options.stateStore.loadAsync();
     const completedMigrations = state.migrations || [];
 

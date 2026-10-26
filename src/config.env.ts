@@ -2,9 +2,9 @@ import { CronExpression } from '@nestjs/schedule';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
 
-import { RoleEnum } from './core/common/enums/role.enum';
-import { getEnvironmentConfig, resolveSmtpSecure } from './core/common/helpers/config.helper';
-import { IServerOptions } from './core/common/interfaces/server-options.interface';
+import { RoleEnum } from './core/common/enums/role.enum.js';
+import { getEnvironmentConfig, resolveSmtpSecure } from './core/common/helpers/config.helper.js';
+import { IServerOptions } from './core/common/interfaces/server-options.interface.js';
 
 /**
  * Configuration for the different environments
@@ -80,9 +80,11 @@ const config: { [env: string]: IServerOptions } = {
     cookies: { exposeTokenInBody: true },
     cors: { allowAll: true },
     cronJobs: {
+      // Sample job (src/server/common/services/cron-jobs.service.ts). Off like in the starter: enabled it
+      // fires every 10 s, and a test app or a nodemon restart then waits for a running tick on shutdown.
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
-        disabled: false,
+        disabled: true,
         runOnInit: false,
         runParallel: 1,
         throwException: false,
@@ -106,10 +108,6 @@ const config: { [env: string]: IServerOptions } = {
       },
     },
     env: 'ci',
-    // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
-    errorCode: {
-      autoRegister: false,
-    },
     execAfterInit: 'pnpm run docs:bootstrap',
     // File access — the COARSE gate on the two inherited download routes
     // (`GET /files/id/:id`, `GET /files/:filename`), which `FileController` inherits
@@ -174,7 +172,8 @@ const config: { [env: string]: IServerOptions } = {
         expiresIn: '15m',
       },
     },
-    loadLocalConfig: true,
+    // Off for test runs: a developer's local config.json must not change what the suite tests.
+    loadLocalConfig: false,
     logExceptions: true,
     mongoose: {
       collation: {
@@ -204,11 +203,11 @@ const config: { [env: string]: IServerOptions } = {
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
-      path: join(__dirname, '..', 'public'),
+      path: join(import.meta.dirname, '..', 'public'),
     },
     templates: {
       engine: 'ejs',
-      path: join(__dirname, 'templates'),
+      path: join(import.meta.dirname, 'templates'),
     },
   },
 
@@ -334,11 +333,11 @@ const config: { [env: string]: IServerOptions } = {
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
-      path: join(__dirname, '..', 'public'),
+      path: join(import.meta.dirname, '..', 'public'),
     },
     templates: {
       engine: 'ejs',
-      path: join(__dirname, 'templates'),
+      path: join(import.meta.dirname, 'templates'),
     },
   },
 
@@ -389,9 +388,11 @@ const config: { [env: string]: IServerOptions } = {
     cookies: { exposeTokenInBody: true },
     cors: { allowAll: true },
     cronJobs: {
+      // Sample job (src/server/common/services/cron-jobs.service.ts). Off like in the starter: enabled it
+      // fires every 10 s, and a test app or a nodemon restart then waits for a running tick on shutdown.
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
-        disabled: false,
+        disabled: true,
         runOnInit: false,
         runParallel: 1,
         throwException: false,
@@ -415,10 +416,6 @@ const config: { [env: string]: IServerOptions } = {
       },
     },
     env: 'e2e',
-    // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
-    errorCode: {
-      autoRegister: false,
-    },
     execAfterInit: 'pnpm run docs:bootstrap',
     // Coarse download gate widened to any signed-in user; the per-file rule lives in
     // `FileService.checkRights()`. Full rationale in the `ci` block above.
@@ -456,7 +453,8 @@ const config: { [env: string]: IServerOptions } = {
         expiresIn: '15m',
       },
     },
-    loadLocalConfig: true,
+    // Off for test runs: a developer's local config.json must not change what the suite tests.
+    loadLocalConfig: false,
     logExceptions: true,
     mongoose: {
       collation: {
@@ -486,11 +484,11 @@ const config: { [env: string]: IServerOptions } = {
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
-      path: join(__dirname, '..', 'public'),
+      path: join(import.meta.dirname, '..', 'public'),
     },
     templates: {
       engine: 'ejs',
-      path: join(__dirname, 'templates'),
+      path: join(import.meta.dirname, 'templates'),
     },
   },
 
@@ -538,6 +536,12 @@ const config: { [env: string]: IServerOptions } = {
       legacyEndpoints: { enabled: true },
     },
     automaticObjectIdFiltering: true,
+    // Explicit, so Better-Auth does not warn about running on a fallback secret at every boot. The default
+    // is the value it used as that fallback until now (the local refresh-token secret below — the JWT secret
+    // is too short), so `jwks` keys already persisted in a local database stay readable.
+    betterAuth: {
+      secret: process.env.BETTER_AUTH_SECRET || process.env.JWT_REFRESH_SECRET || 'SECRET_OR_PRIVATE_KEY_LOCAL_REFRESH',
+    },
     // Brevo transactional API — optional overlay for template-based emails.
     // Activated only when BREVO_API_KEY is set; otherwise SMTP handles everything.
     ...(process.env.BREVO_API_KEY
@@ -554,9 +558,11 @@ const config: { [env: string]: IServerOptions } = {
     compression: true,
     cors: { allowAll: true },
     cronJobs: {
+      // Sample job (src/server/common/services/cron-jobs.service.ts). Off like in the starter: enabled it
+      // fires every 10 s, and a test app or a nodemon restart then waits for a running tick on shutdown.
       sayHello: {
         cronTime: CronExpression.EVERY_10_SECONDS,
-        disabled: false,
+        disabled: true,
         runOnInit: false,
         runParallel: 1,
         throwException: false,
@@ -580,10 +586,6 @@ const config: { [env: string]: IServerOptions } = {
       },
     },
     env: 'local',
-    // Disable auto-registration to allow Server ErrorCodeModule with SRV_* codes
-    errorCode: {
-      autoRegister: false,
-    },
     execAfterInit: 'pnpm run docs:bootstrap',
     // Coarse download gate widened to any signed-in user; the per-file rule lives in
     // `FileService.checkRights()`. Full rationale in the `ci` block above.
@@ -654,11 +656,11 @@ const config: { [env: string]: IServerOptions } = {
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
-      path: join(__dirname, '..', 'public'),
+      path: join(import.meta.dirname, '..', 'public'),
     },
     templates: {
       engine: 'ejs',
-      path: join(__dirname, 'templates'),
+      path: join(import.meta.dirname, 'templates'),
     },
   },
 
@@ -810,11 +812,11 @@ const config: { [env: string]: IServerOptions } = {
     sha256: true,
     staticAssets: {
       options: { prefix: '' },
-      path: join(__dirname, '..', 'public'),
+      path: join(import.meta.dirname, '..', 'public'),
     },
     templates: {
       engine: 'ejs',
-      path: join(__dirname, 'templates'),
+      path: join(import.meta.dirname, 'templates'),
     },
   },
 };

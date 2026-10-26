@@ -76,6 +76,88 @@ consumer follows. See `.claude/rules/configurable-features.md` for the full opti
 - `CheckResponseInterceptor` - Filters restricted fields
 - `CheckSecurityInterceptor` - Processes `securityCheck()` methods
 
+## Module Format: an ESM package whose source is valid as CommonJS AND ESM (12.0.0+)
+
+All NestJS 12 packages are ESM-only, and so is this one since 12.0.0: `package.json` declares `"type": "module"`,
+`dist/` is one ESM build. A CommonJS project loads it through Node's `require(esm)` (Node 20.19+ / 22.12+;
+`engines.node` is `>= 22.15`) exactly as it loads every `@nestjs/*` package — verified against the unchanged
+nest-server-starter (type check, all tests, build, `migrate:list`, production start). `tsconfig.json` uses `module` /
+`moduleResolution: nodenext`, so `tsc` resolves exactly like Node, `exports` maps included, plus `isolatedModules`
+(NestJS 12's default; SWC compiles one file at a time anyway).
+
+**`require()` of the package must keep working, so the package must never contain top-level `await`** —
+`require(esm)` refuses a graph with it (`ERR_REQUIRE_ASYNC_MODULE`), and every CommonJS project would stop loading.
+
+**Two contracts stay CommonJS, through a directory-level `package.json` with `"type": "commonjs"`:**
+`src/core/modules/migrate/helpers/` (the TypeScript loader `ts-compiler.js`, whose path and function export every
+project's `--compiler ts:…` and `node -r …` name) and `bin/` (`bin/migrate.js`, the `migrate` binary). Both
+`package.json` files reach `dist/` and vendor projects like any other file, so the contracts hold in CommonJS and ESM
+projects alike.
+
+**No CommonJS module may sit inside the core's ES module graph and load other core modules.** Found the hard way:
+with `migration.helper.ts` compiled as CommonJS in `helpers/` and imported by the barrel, `require('@lenne.tech/nest-server')`
+returned the helper's exports instead of the barrel's — Node mixed up the module objects while a CommonJS module
+required ES modules of the graph it was being loaded for. The helper therefore lives in `migrate/migration.helper.ts`
+(ESM like the rest); `helpers/migration.helper.ts` is a CommonJS forwarder for the path existing
+`migrations-utils/migrate.js` files require, and nothing in the core imports it.
+
+**Enforced in three places, because vitest sees none of it** (it imports sources through its own module runner):
+`tests/unit/module-format-invariants.spec.ts` refuses a runtime import from a CommonJS directory into the graph and any
+top-level `await` (mutation `barrel-imports-cjs-forwarder`); `tests/unit/package-format-contracts.spec.ts` loads
+`bin/migrate.js`, the loader and the forwarder in place, in a child process, and checks that every CommonJS `.js` file
+sits in a CommonJS scope and that nest-cli copies the nested manifests into `dist/` (mutations
+`bin-manifest-type-module`, `nest-cli-assets-drop-json`, `migration-helper-forwarder-emptied`); and
+`pnpm run check:manifest` (after the build in `check`) does the same against the PACKED package, plus `require()` vs
+`import()` of `dist/index.js` in two fresh processes — the export lists must match.
+
+The **source** of `src/core/` must additionally be valid as **ESM**, because a vendor-mode project may be an ESM
+project (`"type": "module"`, what `nest new` generates since NestJS 12) and then compiles and runs the vendored core as
+ESM. Rules for code in `src/core/`, `src/index.ts`, `src/core.module.ts` and `src/test/`:
+
+| Rule | Why |
+|------|-----|
+| Relative specifiers name the emitted file: `./x.js`, `./dir/index.js` — never `./x` or `./dir` | ESM resolves no extension and no directory. `tsc` under `nodenext` keeps the specifier as written; the SWC loader and vitest map `.js` to `.ts` in a source run |
+| No `require()`, `__dirname` / `__filename`, `import x = require()`, `export =` (CommonJS only) and no `import.meta` (ESM only). Use static imports, `createRequire(join(process.cwd(), 'package.json'))` to load a PROJECT file, `callerDirectory()` (`common/helpers/module-location.helper.ts`) for "the directory of this file" | each of them fails in the other module system — inside a function only when it runs. Enforced by `tests/unit/module-format-invariants.spec.ts` (mutation `core-uses-dirname`), because `check:esm` sees only what fails while a module LOADS |
+| A CommonJS package without `__esModule` is a DEFAULT import (`import _ from 'lodash'`), one WITH it (graphql) a named or namespace import. Never a named import Node cannot see (`import { cloneDeep } from 'lodash'`, mongoose's `Connection` as a value) | ESM gets a CommonJS module's names from `cjs-module-lexer`, which misses lodash's and mongoose's. Under CommonJS the same line works, so only `pnpm run check:esm` notices |
+| `import type` for types — also in decorated signatures; `export type` for re-exported types | `isolatedModules` (TS1272 / TS1205): a value import of a type links under CommonJS and fails under ESM |
+| A cycle that forces laziness is broken with an import-free leaf, never with a lazy `require()` | `core-better-auth.registry.ts` → `isBetterAuthHandlerClass()` is how the tenant guard recognises the IAM handlers |
+| No deep imports into `@nestjs/*` packages whose `exports` map lists only the root (`jwt`, `mongoose`, `passport`, `schedule`, `swagger`, `terminus`) | `ERR_PACKAGE_PATH_NOT_EXPORTED` at runtime, `TS2307` at compile time. `@nestjs/common`, `core`, `platform-express` and `graphql` export `./*`, so their subpaths still resolve |
+| No relative dynamic `import()` at all | under `nodenext` a dynamic `import()` in CommonJS output stays a NATIVE `import()` and follows ESM resolution, while a source run in a CommonJS project turns it into `require()`. vitest accepts both, so only `tests/unit/module-format-invariants.spec.ts` sees it — the 12.0.0 migration runner shipped `await import('./helpers/migration.helper.js')` with every suite green |
+| A dual package (separate CJS and ESM builds — `@aws-sdk/*`, `@modelcontextprotocol/sdk`, `@getbrevo/brevo`, `bullmq`) is either lazy everywhere or static everywhere | a native `import()` loads the ESM build, a static import the CJS build — two module instances, and an `instanceof` across them fails. Take its types from the import EXPRESSION (`const load = () => import('x'); type X = Awaited<ReturnType<typeof load>>`), never from an `import type`: TypeScript types an `import()` the way it is emitted (ESM under `nodenext`, CJS under `module: commonjs`), while any fixed `import type` matches only one of the two (TS2322 in the other). And keep such a derived CLASS type out of public/protected signatures — under `module: commonjs` with declarations it cannot be named (TS2883); give the extension point a structural interface instead (`IBrevoSdkClient`) |
+| Write code that compiles under BOTH `nodenext` and `module: commonjs` | vendor consumers compile `src/core/` with their own tsconfig. Under TypeScript 6, `module: commonjs` without `moduleResolution` resolves as `bundler` and keeps the `require()` emit for `import()`. Enforced by `pnpm run typecheck:vendor` (`scripts/check-vendor-declarations.mjs` + `tsconfig.vendor-commonjs.json`, part of `check`): it compiles under `module: commonjs`, emits the declarations and fails on `typeof import("<package>")` or `import("<pkg>/…/dist/…")` in them — references that resolve in this repo's HOISTED `node_modules` and break in a consumer's isolated pnpm layout (TS2883). The nodenext build alone passed three 12.0.0 errors that only a vendor project saw |
+
+**`pnpm run check:esm`** (`scripts/check-esm-core.mjs`, part of `check`) is the proof of the ESM half: it copies what a
+vendor project receives into a temporary `"type": "module"` package, compiles it with `nodenext` and imports EVERY
+module plus the barrel in one process. It catches what no other step can — a named import Node cannot see, a type
+imported as a value, a missing extension — and reports each distinct cause once.
+
+**The TypeScript loader is three files.** `helpers/ts-compiler.cjs` is the implementation, `ts-compiler-hooks.mjs` the
+ESM hooks it registers through `module.register()` (resolve `.js` → `.ts`, compile ESM-scoped `.ts` with SWC — import
+attributes kept — and hand CommonJS-scoped files back), and `ts-compiler.js` the established entry path, a one-line
+CommonJS shim that `helpers/package.json` keeps CommonJS in every project. The SWC build (`check:swc-tdz`) does not
+emit `.cjs` / `.mjs` sources; its guard places them like `tsc` does. That guard also pins the SWC build to CommonJS
+(`tsconfig.swc-tdz.json`), because it checks what a CommonJS project runs under `nest start -b swc`; `@nestjs/cli` would
+otherwise emit ES modules for this `"type": "module"` package.
+
+**The build `target` stays `es2022`**, although NestJS 12's template uses `ES2023`: a vendor project compiles the core
+with its own lib, and the starter's is es2022 — see `tests/unit/toolchain-contract.spec.ts`. ES2023 changes no emitted
+syntax on Node 22, only which APIs the type-checker allows.
+
+**Type-aware lint.** `pnpm run lint` runs `oxlint --type-aware` (needs `oxlint-tsgolint`) with
+`typescript/no-floating-promises` as an error, as NestJS 12's template does: an un-awaited promise's rejection is
+unhandled, and Node ends the process on that by default. Mark a deliberate fire-and-forget with `void` and say why it
+cannot reject. The other type-aware rules the categories would turn on are switched off in `.oxlintrc.json`, each
+with the reason; `tests/unit/lint-type-aware.spec.ts` pins the flag, the backend and the rule, because without either
+half oxlint skips the rule silently.
+
+The SWC build (`nest start -b swc`, `check:swc-tdz`), the SWC source loader and vitest transform `import()`
+themselves; none of them is affected by the tsconfig's `module` setting. `tsconfig.tests.json` uses
+`module: preserve` + `moduleResolution: bundler` because that is how vitest resolves the specs. **Both vitest configs
+set `resolve.extensions` in Node's order** (`.js` before `.mjs`): graphql declares an extensionless `main` next to an
+`index.mjs`, Vite probes `.mjs` first, and an `import` of graphql then loaded a second, ESM copy — every subscription
+closed with 4500 ("Cannot use GraphQLSchema from another module or realm"). Pinned by
+`tests/unit/vitest-node-resolution.spec.ts`. Background: `migration-guides/11.43.x-to-12.0.x.md` §2–§3 and §17.
+
 ## DI Token Placement (SWC-Safe)
 
 **Rule: DI tokens belong in an import-free leaf file (`*.constants.ts` / `*.enums.ts`) — never in `*.module.ts` or `*.service.ts`.**

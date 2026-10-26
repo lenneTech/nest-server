@@ -1,13 +1,13 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreS3Service } from '../../../core/common/services/core-s3.service';
-import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model';
-import { CoreFileService, FileInputCheckType } from '../../../core/modules/file/core-file.service';
-import { FileServiceOptions } from '../../../core/modules/file/interfaces/file-service-options.interface';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreS3Service } from '../../../core/common/services/core-s3.service.js';
+import { CoreFileInfo } from '../../../core/modules/file/core-file-info.model.js';
+import { CoreFileService, FileInputCheckType } from '../../../core/modules/file/core-file.service.js';
+import { FileServiceOptions } from '../../../core/modules/file/interfaces/file-service-options.interface.js';
 
 /**
  * File service

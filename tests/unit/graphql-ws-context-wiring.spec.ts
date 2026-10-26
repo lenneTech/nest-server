@@ -68,12 +68,12 @@ describe('WebSocket request-context wiring in CoreModule', () => {
    *   `onConnect` in src/core.module.ts — registered as mutation `ws-onconnect-not-registered` in
    *   tests/regression-mutations.json.
    */
-  it('registers every accepted connection for re-checking — in every builder, on both transports', () => {
-    // Every `onConnect` (graphql-ws and subscriptions-transport-ws, per builder) must register what it
-    // accepted, with a way to re-run its own authentication. A handler that does not is "authorized
-    // once, forever" again — on exactly one auth mode and one transport, with every other test green.
+  it('registers every accepted connection for re-checking — in every builder', () => {
+    // Every `onConnect` (one graphql-ws handler per builder) must register what it accepted, with a
+    // way to re-run its own authentication. A handler that does not is "authorized once, forever"
+    // again — on exactly one auth mode, with every other test green.
     const handlers = source.split('onConnect: async').slice(1);
-    expect(handlers, 'onConnect handlers in core.module.ts').toHaveLength(builderCount * 2);
+    expect(handlers, 'onConnect handlers in core.module.ts').toHaveLength(builderCount);
     for (const handler of handlers) {
       const body = handler.slice(0, handler.indexOf('throw new UnauthorizedException(\'Missing authentication token\')'));
       expect(body, 'onConnect registers the connection').toContain('registerWsConnection({');
@@ -81,15 +81,18 @@ describe('WebSocket request-context wiring in CoreModule', () => {
     }
   });
 
-  it('registers graphql-ws connections with their socket, and transport-ws connections with theirs', () => {
+  it('registers graphql-ws connections with their socket', () => {
     const blocks = source.split('subscriptions: {').slice(1);
     for (const block of blocks) {
-      const graphqlWs = block.slice(block.indexOf("'graphql-ws'"), block.indexOf("'subscriptions-transport-ws'"));
-      const transportWs = block.slice(block.indexOf("'subscriptions-transport-ws'"));
-      expect(graphqlWs).toContain('socket: extra.socket');
-      expect(transportWs).toContain('onConnect: async (connectionParams, webSocket)');
-      expect(transportWs).toContain('socket: webSocket');
+      expect(block.slice(block.indexOf("'graphql-ws'"))).toContain('socket: extra.socket');
     }
+  });
+
+  it('configures no subscriptions-transport-ws handler — @nestjs/graphql 14 ignores the key', () => {
+    // `@nestjs/graphql` 14 removed the transport, and `GqlSubscriptionService` only reads
+    // `'graphql-ws'`. A `'subscriptions-transport-ws'` block would still type-check against a loosely
+    // typed driver config and never run: an authentication handler that looks wired and is dead.
+    expect(source).not.toContain("'subscriptions-transport-ws': {");
   });
 
   it('does NOT import graphql through an ESM specifier in core.module.ts', () => {

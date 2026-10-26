@@ -1,14 +1,14 @@
 // Controller
-export * from './core-error-code.controller';
+export * from './core-error-code.controller.js';
 
 // Service
-export * from './core-error-code.service';
+export * from './core-error-code.service.js';
 
 // Module
-export * from './error-code.module';
+export * from './error-code.module.js';
 
 // Error Codes
-export * from './error-codes';
+export * from './error-codes.js';
 
 // Interfaces
-export * from './interfaces/error-code.interfaces';
+export * from './interfaces/error-code.interfaces.js';

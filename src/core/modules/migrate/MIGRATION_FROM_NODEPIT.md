@@ -266,7 +266,7 @@ export const down = async () => {
 If issues occur during migration:
 
 - Check that `@lenne.tech/nest-server` is at version 11.3.0 or higher
-- Verify `ts-node` is installed as devDependency
+- Verify `@swc/core` is installed as devDependency (the `--compiler ts:…` loader needs it since 12.0.0)
 - Ensure `migrations-utils/migrate.js` exports the state store correctly
 - Test with `migrate --help` to verify CLI is available
 - Remember: Command must come FIRST in CLI syntax

@@ -62,7 +62,7 @@
 
 import { writeSync } from 'node:fs';
 
-import { redactSensitiveText } from './logging.helper';
+import { redactSensitiveText } from './logging.helper.js';
 
 /**
  * Hard cap for a single diagnostic line.

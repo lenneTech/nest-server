@@ -1,9 +1,9 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { CoreInput } from '../../../common/inputs/core-input.input';
-import { RoleEnum } from '../../../common/enums/role.enum';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { CoreInput } from '../../../common/inputs/core-input.input.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
 
 /**
  * Input for creating a {@link CoreAiPrompt}. `ownerId`/`tenantId` are set

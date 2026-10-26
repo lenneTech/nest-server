@@ -26,29 +26,30 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { isCookiesEnabled, isExposeTokenInBodyEnabled } from '../../common/helpers/cookies.helper';
-import type { ICookiesConfig } from '../../common/interfaces/server-options.interface';
-import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
-import { ConfigService } from '../../common/services/config.service';
-import { ErrorCode } from '../error-code/error-codes';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { isCookiesEnabled, isExposeTokenInBodyEnabled } from '../../common/helpers/cookies.helper.js';
+import type { ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
+import { maskEmail, maskToken } from '../../common/helpers/logging.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 import {
   BetterAuthSignInResponse,
   hasSession,
   hasUser,
   requires2FA,
   sessionTokenFromResponse,
-} from './better-auth.types';
-import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
-import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
-import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
-import { isJwtShaped, isSessionToken } from './core-better-auth-token.helper';
-import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
-import { convertExpressHeaders, sendWebResponse, toWebRequest } from './core-better-auth-web.helper';
-import { CoreBetterAuthService } from './core-better-auth.service';
+} from './better-auth.types.js';
+import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper.js';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service.js';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service.js';
+import { isJwtShaped, isSessionToken } from './core-better-auth-token.helper.js';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
+import { convertExpressHeaders, sendWebResponse, toWebRequest } from './core-better-auth-web.helper.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
+import { registerBetterAuthHandlerClass } from './core-better-auth.registry.js';
 
 // ===================================================================================================================
 // Response Models
@@ -1122,3 +1123,5 @@ export class CoreBetterAuthController {
     return this.extractSessionToken(req);
   }
 }
+
+registerBetterAuthHandlerClass(CoreBetterAuthController);

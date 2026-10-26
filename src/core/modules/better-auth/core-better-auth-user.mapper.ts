@@ -4,7 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, scrypt, ScryptOptions } from 'crypto';
 import { sha256 } from 'js-sha256';
 import { ObjectId } from 'mongodb';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
 // Promisify Node.js crypto.scrypt
 const scryptPromise = (password: string, salt: string, keylen: number, options: ScryptOptions): Promise<Buffer> => {
@@ -16,9 +16,9 @@ const scryptPromise = (password: string, salt: string, keylen: number, options: 
   });
 };
 
-import { RoleEnum } from '../../common/enums/role.enum';
-import { maskEmail } from '../../common/helpers/logging.helper';
-import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper.js';
 
 /**
  * Interface for Better-Auth session user
@@ -122,6 +122,17 @@ interface CachedUserData {
   id: string;
   roles: string[];
   verified: boolean;
+}
+
+/**
+ * Whether an error means the application closed its own database connection under a running query.
+ *
+ * Matched by `name`, not `instanceof`: a project may resolve a second copy of the driver, and the name is
+ * the driver's documented discriminator for both classes.
+ */
+function isClosedConnectionError(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === 'MongoClientClosedError' || name === 'MongoTopologyClosedError';
 }
 
 @Injectable()
@@ -1122,7 +1133,16 @@ export class CoreBetterAuthUserMapper {
         usersWithIamId,
       };
     } catch (error) {
-      this.logger.error(`Error getting migration status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (isClosedConnectionError(error)) {
+        // The application is shutting down. The boot-time report of CoreLegacyAuthDeprecationInitializer
+        // runs detached on purpose (it must not delay readiness), so a process that closes right after
+        // init() — `docs:ci`, a script, a test — closes the connection under it. Nothing failed.
+        this.logger.debug('Migration status not read: the database connection was closed (application shutting down)');
+      } else {
+        this.logger.error(
+          `Error getting migration status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
       return {
         canDisableLegacyAuth: false,
         fullyMigratedUsers: 0,

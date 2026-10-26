@@ -1,7 +1,7 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-import { currentUserDec } from '../helpers/decorator.helper';
-import { ServiceOptions } from '../interfaces/service-options.interface';
+import { currentUserDec } from '../helpers/decorator.helper.js';
+import { ServiceOptions } from '../interfaces/service-options.interface.js';
 
 /**
  * Get standard ServiceOptions for REST-Requests

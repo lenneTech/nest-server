@@ -1,21 +1,21 @@
 import { Controller, Get, Headers, Optional, Param, Query, Res } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
 
-import { CoreHubHtmlService } from './core-hub-html.service';
-import { CoreHubService } from './core-hub.service';
-import { HUB_PANELS } from './hub-nav';
-import { CoreHubDbService } from './services/core-hub-db.service';
-import { CoreHubEmailService } from './services/core-hub-email.service';
-import { CoreHubMailboxService } from './services/core-hub-mailbox.service';
-import { CoreHubMigrationsService } from './services/core-hub-migrations.service';
-import { CoreHubSourcesService } from './services/core-hub-sources.service';
-import { HubLogBufferService } from './services/hub-log-buffer.service';
-import { HubQueryProfilerService } from './services/hub-query-profiler.service';
-import { HubTraceBufferService } from './services/hub-trace-buffer.service';
-import { buildHubSecurityHeaders, escapeHtml, generateNonce, injectNonce } from './helpers/hub-shell.helper';
+import { CoreHubHtmlService } from './core-hub-html.service.js';
+import { CoreHubService } from './core-hub.service.js';
+import { HUB_PANELS } from './hub-nav.js';
+import { CoreHubDbService } from './services/core-hub-db.service.js';
+import { CoreHubEmailService } from './services/core-hub-email.service.js';
+import { CoreHubMailboxService } from './services/core-hub-mailbox.service.js';
+import { CoreHubMigrationsService } from './services/core-hub-migrations.service.js';
+import { CoreHubSourcesService } from './services/core-hub-sources.service.js';
+import { HubLogBufferService } from './services/hub-log-buffer.service.js';
+import { HubQueryProfilerService } from './services/hub-query-profiler.service.js';
+import { HubTraceBufferService } from './services/hub-trace-buffer.service.js';
+import { buildHubSecurityHeaders, escapeHtml, generateNonce, injectNonce } from './helpers/hub-shell.helper.js';
 
 /** Route sub-paths of every non-root panel — the shell handler answers all of them. */
 const HUB_PAGE_PATHS = HUB_PANELS.filter((panel) => panel.path).map((panel) => panel.path);

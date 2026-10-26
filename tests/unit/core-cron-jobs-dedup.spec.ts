@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,10 +83,11 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
   beforeEach(() => {
     collection = new FakeLockCollection();
-    vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // CoreCronJobs logs through Nest's Logger (one module-level instance), so the prototype is where to listen.
+    vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -105,7 +107,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       expect(service.calls).toEqual(['job1']);
       expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
-      expect(console.warn).not.toHaveBeenCalled();
+      expect(Logger.prototype.warn).not.toHaveBeenCalled();
     });
 
     it('is overridden by the options object', async () => {
@@ -238,7 +240,10 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       process.off('unhandledRejection', onRejection);
       expect(rejections).toEqual([]);
-      expect(console.error).toHaveBeenCalledWith('CronJob boom failed on its startup run', expect.any(Error));
+      expect(Logger.prototype.error).toHaveBeenCalledWith(
+        expect.stringContaining('CronJob boom failed on its startup run'),
+        expect.any(String),
+      );
     });
 
     it('logs the skipped tick on a duplicate key and creates the TTL index once', async () => {
@@ -258,7 +263,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       // its own lifetime — a scheduled tick's hour and a startup lease's short window share
       // one collection, which a fixed expireAfterSeconds could not express.
       expect(collection.createIndex).toHaveBeenCalledWith({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-      expect(console.debug).toHaveBeenCalledWith(
+      expect(Logger.prototype.debug).toHaveBeenCalledWith(
         'CronJob tick job1:2026-08-07T10:00:00.000Z skipped, lease held by another replica',
       );
     });
@@ -271,8 +276,8 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       await service.runDistributedTick('job1', new Date());
 
       expect(service.calls).toEqual(['job1', 'job1']);
-      expect(console.warn).toHaveBeenCalledTimes(1);
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Cron job deduplication is inactive'));
+      expect(Logger.prototype.warn).toHaveBeenCalledTimes(1);
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('Cron job deduplication is inactive'));
     });
   });
 
@@ -378,7 +383,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       await service.onApplicationBootstrap();
 
       expect(upsertJobScheduler).not.toHaveBeenCalled();
-      expect(console.debug).toHaveBeenCalledWith(expect.stringContaining('cronTime is a Date'));
+      expect(Logger.prototype.debug).toHaveBeenCalledWith(expect.stringContaining('cronTime is a Date'));
     });
 
     it('closes worker and queue on application shutdown', async () => {
@@ -400,8 +405,9 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       await service.onApplicationBootstrap();
       await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
 
-      expect(console.warn).toHaveBeenCalledTimes(1);
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"bullmq" is not installed'));
+      expect(Logger.prototype.warn).toHaveBeenCalledTimes(1);
+      // The warning names the load error, so a bullmq that is installed but fails to load is not misreported as missing.
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('"bullmq" could not be loaded (Cannot find module)'));
       expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
       expect(service.calls).toEqual(['job1']);
     });

@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
-import { API_TOKEN_SCOPES_KEY } from './core-api-token.constants';
+import { API_TOKEN_SCOPES_KEY } from './core-api-token.constants.js';
 
 /**
  * Method/class decorator that opens an endpoint to API tokens (`apiTokens` config).

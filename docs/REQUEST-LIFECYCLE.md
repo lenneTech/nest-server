@@ -658,8 +658,18 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > *which* user was reset but not to *what*, and cannot mirror the new password into the legacy
 > bcrypt store — leaving the old password valid on the legacy path after a reset.
 >
+> **Since 12.0.0 every other native password route as well** — `normalizeNativePasswords()`, driven by
+> `PASSWORD_FIELD_PATHS`: `/change-password` (`currentPassword`, `newPassword`), `/delete-user`,
+> `/verify-password` and `/two-factor/{enable,disable,generate-backup-codes,get-totp-uri}` (`password`).
+> Before, a plaintext password was refused there as "Invalid password", and `change-password` stored a
+> plaintext new one as `scrypt(plaintext)` — the same lockout as above. A new password is held to the
+> configured length policy like a reset; an already hashed value passes through unchanged. A refusal is a
+> `BadRequestException` that the middleware's `catch` rethrows, so Nest's exception filters answer it with 400 —
+> every other error in that `catch` stays a 500 "Authentication handler error".
+>
 > A project subclassing the middleware must know this: the body it forwards is no longer
-> byte-identical to the body it received. `normalizeResetPassword()` is `protected`.
+> byte-identical to the body it received. `normalizeResetPassword()` and `normalizeNativePasswords()`
+> are `protected`.
 
 > **Response side, since 11.38.0 — `wrapBetterAuthErrorResponse()`.** The mirror image of the note
 > above. Immediately after `authInstance.handler()` returns, every **failed** response passes

@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "strict": false,
     "declaration": true,
     "noImplicitAny": false,
     "removeComments": true,
@@ -8,6 +11,10 @@
     "allowSyntheticDefaultImports": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
+    // NestJS 12's default, and what SWC (dev loader, vitest, `nest build -b swc`) compiles under anyway: one file at a
+    // time. It makes tsc refuse what only a whole-program compiler can get right — a value import of a type in a
+    // decorated signature, a type re-exported without `export type` — which links fine as CommonJS and fails as ESM.
+    "isolatedModules": true,
     "allowJs": true,
     "target": "es2022",
     "sourceMap": true,
@@ -23,7 +30,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "vite.config.ts",
     "src/core/modules/migrate/templates/migration-project.template.ts"
   ]
 }

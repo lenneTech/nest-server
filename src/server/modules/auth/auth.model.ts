@@ -1,11 +1,11 @@
 import { ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../core/common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { mapClasses } from '../../../core/common/helpers/model.helper';
-import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model';
-import { User } from '../user/user.model';
+import { Restricted } from '../../../core/common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { mapClasses } from '../../../core/common/helpers/model.helper.js';
+import { CoreAuthModel } from '../../../core/modules/auth/core-auth.model.js';
+import { User } from '../user/user.model.js';
 
 /**
  * Authentication data

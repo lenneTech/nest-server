@@ -1,16 +1,16 @@
-import { BadRequestException, Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Logger, NestMiddleware, Optional } from '@nestjs/common';
 import { Response as ExpressResponse, NextFunction, Request } from 'express';
 
-import { isProduction } from '../../common/helpers/logging.helper';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service';
-import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper';
-import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.helper';
-import { isControllerHandledPath } from './core-better-auth-openapi.helper';
-import { runWithResetPassword } from './core-better-auth-password-reset.registry';
-import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper';
-import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper';
-import { CoreBetterAuthService } from './core-better-auth.service';
+import { isProduction } from '../../common/helpers/logging.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service.js';
+import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-cookie.helper.js';
+import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.helper.js';
+import { isControllerHandledPath } from './core-better-auth-openapi.helper.js';
+import { runWithResetPassword } from './core-better-auth-password-reset.registry.js';
+import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
+import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * Native Better-Auth routes that set a NEW password from a token or OTP, with the body
@@ -33,6 +33,43 @@ export const PASSWORD_RESET_PATHS: { field: string; path: string }[] = [
   { field: 'newPassword', path: '/reset-password' },
   { field: 'password', path: '/email-otp/reset-password' },
   { field: 'newPassword', path: '/phone-number/reset-password' },
+];
+
+/**
+ * The other native Better-Auth routes whose body carries a password (Better-Auth 1.7 sources): `verify`
+ * fields are checked against the stored credential, `set` fields become the new one.
+ *
+ * Same reason as above, from the other side. Sign-in normalizes, so a client may send a plaintext or a
+ * sha256 password — but until 12.0.0 these routes were forwarded untouched. A plaintext `password` was then
+ * compared as `scrypt(plaintext)` against `scrypt(sha256(...))`: enabling 2FA, deleting the account or
+ * generating backup codes answered "Invalid password" for the right password. Worse, `change-password` stored
+ * a plaintext `newPassword` as `scrypt(plaintext)` and locked the account out at the next sign-in.
+ * nuxt-extensions hashes in the browser and never noticed; every other client (an app, a script, a test) did.
+ * Normalizing an already-hashed value is a no-op, so hashing clients are unaffected.
+ */
+/**
+ * A request path without trailing slashes and lower-cased — the form the route tables above are matched in.
+ *
+ * A loop, not `path.replace(/\/+$/, '')`: that regex backtracks quadratically on a long run of slashes followed by
+ * another character, and the path comes from an unauthenticated request. A 16 KB path (what Node's header limit
+ * allows) blocked the event loop for ~115 ms per call.
+ */
+export function normalizeIamRoutePath(path: string): string {
+  let end = path.length;
+  while (end > 0 && path.charCodeAt(end - 1) === 47 /* '/' */) {
+    end--;
+  }
+  return path.slice(0, end).toLowerCase();
+}
+
+export const PASSWORD_FIELD_PATHS: { path: string; set: string[]; verify: string[] }[] = [
+  { path: '/change-password', set: ['newPassword'], verify: ['currentPassword'] },
+  { path: '/delete-user', set: [], verify: ['password'] },
+  { path: '/two-factor/disable', set: [], verify: ['password'] },
+  { path: '/two-factor/enable', set: [], verify: ['password'] },
+  { path: '/two-factor/generate-backup-codes', set: [], verify: ['password'] },
+  { path: '/two-factor/get-totp-uri', set: [], verify: ['password'] },
+  { path: '/verify-password', set: [], verify: ['password'] },
 ];
 
 /**
@@ -89,7 +126,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
     // `===` — so a variant it accepts but this table does not would silently skip BOTH the
     // normalization and the legacy mirror, i.e. reproduce the exact lockout this method exists
     // to prevent, through a URL shape rather than a code change.
-    const normalizedPath = relativePath.replace(/\/+$/, '').toLowerCase();
+    const normalizedPath = normalizeIamRoutePath(relativePath);
     const route = PASSWORD_RESET_PATHS.find((entry) => normalizedPath === entry.path);
     if (!route) {
       return undefined;
@@ -121,6 +158,32 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
     // actually hashes.
     req.body[route.field] = normalized;
     return normalized;
+  }
+
+  /**
+   * Brings every other password a native route carries (see {@link PASSWORD_FIELD_PATHS}) to the shape the
+   * stored credential was written in. Matched like {@link normalizeResetPassword}: exact, after trimming a
+   * trailing slash and lower-casing.
+   *
+   * @throws BadRequestException when a plaintext NEW password violates the configured length policy
+   */
+  protected normalizeNativePasswords(req: Request, relativePath: string): void {
+    const normalizedPath = normalizeIamRoutePath(relativePath);
+    const route = PASSWORD_FIELD_PATHS.find((entry) => normalizedPath === entry.path);
+    if (!route || !this.userMapper) {
+      // A missing mapper is reported by normalizeResetPassword() for the routes where it locks accounts out.
+      return;
+    }
+    for (const field of [...route.verify, ...route.set]) {
+      const submitted = req.body?.[field];
+      if (!submitted || typeof submitted !== 'string') {
+        continue;
+      }
+      if (route.set.includes(field)) {
+        this.assertResetPasswordLength(submitted);
+      }
+      req.body[field] = this.userMapper.normalizePasswordForIam(submitted);
+    }
   }
 
   /**
@@ -283,6 +346,8 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // Put a reset password into the shape sign-in expects BEFORE the body is
       // serialized, and keep the value for the legacy mirror below.
       const resetPassword = this.normalizeResetPassword(req, relativePath);
+      // …and every password a non-reset native route carries (2FA, change-password, delete-user, …).
+      this.normalizeNativePasswords(req, relativePath);
 
       // Convert Express request to Web Standard Request with proper cookie signing
       const webRequest = await toWebRequest(req, {
@@ -458,6 +523,13 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // Convert Web Standard Response to Express response using shared helper
       await sendWebResponse(res, response);
     } catch (error) {
+      // A refused request (the password length policy) is an answer, not a handler failure. Nest's middleware
+      // proxy hands a thrown exception to the exception filters, so it is rendered like the same refusal from a
+      // controller: 400 with its message, and no ERROR line. Answering it here as a 500 told the client nothing.
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       // Log error with appropriate detail level
       if (this.isProd) {
         this.logger.error('Better Auth handler error');

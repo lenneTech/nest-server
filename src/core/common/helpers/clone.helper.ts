@@ -27,8 +27,8 @@
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
 import * as inspector from 'inspector';
-import _ = require('lodash');
-import rfdc = require('rfdc');
+import _ from 'lodash';
+import rfdc from 'rfdc';
 import * as util from 'util';
 
 /**

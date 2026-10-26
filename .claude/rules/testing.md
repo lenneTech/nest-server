@@ -6,8 +6,8 @@
 
 | Runner | Config | Test files | Needs MongoDB |
 |--------|--------|-----------|:-------------:|
-| Unit | `vitest.config.ts` | `tests/unit/**/*.spec.ts` | No |
-| E2E | `vitest-e2e.config.ts` | `tests/**/*.e2e-spec.ts`, `tests/stories/**/*.story.test.ts` | Yes |
+| Unit | `vitest.config.mts` | `tests/unit/**/*.spec.ts` | No |
+| E2E | `vitest-e2e.config.mts` | `tests/**/*.e2e-spec.ts`, `tests/stories/**/*.story.test.ts` | Yes |
 
 **Test files NEVER live in `src/`.** Not a style preference — `src/` is this framework's shipping
 artifact: `package.json` → `files` ships all of `src` recursively into the npm tarball, and
@@ -93,7 +93,7 @@ pnpm run test:cov
 pnpm run test:ci
 
 # Debug open handles
-npx vitest run --config vitest-e2e.config.ts --reporter=hanging-process
+npx vitest run --config vitest-e2e.config.mts --reporter=hanging-process
 
 # Clean up leftover test artifacts (.txt, .bin files from failed file upload tests)
 pnpm run test:cleanup
@@ -105,6 +105,11 @@ pnpm run test:cleanup
   `NODE_ENV`; vitest defaults it to `test`, and `getEnvironmentConfig()` falls back to `config.local`.
 - Both runners load `tests/setup.ts` via `setupFiles` (Nest Logger restricted to `error`/`fatal`,
   `@UnifiedField` deprecation warnings filtered).
+- Both runners set `resolve.extensions` in **Node's order** (`.js` before `.mjs`). graphql has an extensionless
+  `main` next to an `index.mjs`; with Vite's default order an `import` of graphql loaded a second, ESM copy, and every
+  GraphQL subscription closed with 4500 ("Cannot use GraphQLSchema from another module or realm"). Pinned by
+  `tests/unit/vitest-node-resolution.spec.ts` (mutation `vitest-resolves-graphql-esm-build`). Consumer projects need
+  the same line — migration guide 12.0.x §17.
 - Database (E2E only): **one unique database per run** (`nest-server-e2e-run-<ts>-p<pid>`), created by `tests/global-setup.ts` so concurrent runs cannot interfere with each other. Specs needing an extra DB derive it via `deriveTestDbUri('<suffix>')` — never a hardcoded/`Date.now()` name (escapes the cleanup scheme).
 - DB lifecycle (`tests/db-lifecycle.reporter.ts`): run passes → DB dropped immediately + stale run DBs from crashed/failed runs collected; run fails → DB kept for debugging. Additionally `tests/global-setup.ts` runs a **startup sweep** (shared `isStaleTestDb()` predicate, dead-PID/age guarded) — leftovers are removed when the NEXT run starts, which survives SIGKILL (check watchdog) and `--reporter` CLI overrides. An externally set `MONGODB_URI` (CI) opts out of the scheme.
 - The drop guard (`SAFE_TEST_DB_PATTERN` + `NON_DISPOSABLE_DB_PATTERN`): nothing in the scheme drops
@@ -141,7 +146,7 @@ pnpm run test:cleanup
   Pinned by `tests/unit/db-lifecycle-guard.spec.ts` (registered mutation
   `safe-test-db-pattern-unanchored`; reverting the anchoring turns 13 cases red). **The refusal list
   in that spec IS the specification** — extend it rather than loosening the pattern.
-- Run governor (`tests/e2e-run-slots.ts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). On a GitHub-hosted runner (`RUNNER_ENVIRONMENT=github-hosted`) the load signal alone raises the timeouts but does NOT cap the workers: such a runner runs one job per VM, and at config time the load is the job's own `vitest:unit` from a second earlier (0.84–0.92/core on every runner build). Measured there, the cap took the e2e step from 133 s to 198 s mean (+25 % normalised for runner speed). Keyed on `RUNNER_ENVIRONMENT`, not `CI`: a shared GitLab runner sets `CI`, carries real contention (2.6–5.0/core measured in a consuming project) and keeps the cap. The cap is `maxWorkers`; the `poolOptions.forks.maxForks` it replaced was removed in Vitest 4 and silently ignored. Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open). A slot is reclaimed when its PID is dead OR it is older than six hours — liveness alone made a slot immortal once its PID was recycled. The slot directory is shared machine-wide (on a multi-user Linux host `/tmp`), so it is created 0700 and the slot file is written without following a planted symlink (unlink + `wx`, 0600). A slot that cannot be written does not abort the suite: the run proceeds ungoverned, because the governor is a throughput measure, not a correctness one. Pinned by `tests/unit/e2e-run-slots.spec.ts` (mutations `e2e-slot-*`).
+- Run governor (`tests/e2e-run-slots.mts`): machine-wide slot dir (`<tmpdir>/lt-e2e-run-slots`) caps concurrent e2e runs across ALL lt projects/sessions (default 2 on ≥8 cores). Further runs wait, logging `[e2e-governor] waiting…` every 15s (keeps the check watchdog fed — a queued run is NOT hung). The e2e config counts foreign slots at load time and drops to low-resource mode (reduced forks, raised timeouts) when another run is active — deterministic, unlike the lagging 1-min load average (kept as second signal). On a GitHub-hosted runner (`RUNNER_ENVIRONMENT=github-hosted`) the load signal alone raises the timeouts but does NOT cap the workers: such a runner runs one job per VM, and at config time the load is the job's own `vitest:unit` from a second earlier (0.84–0.92/core on every runner build). Measured there, the cap took the e2e step from 133 s to 198 s mean (+25 % normalised for runner speed). Keyed on `RUNNER_ENVIRONMENT`, not `CI`: a shared GitLab runner sets `CI`, carries real contention (2.6–5.0/core measured in a consuming project) and keeps the cap. The cap is `maxWorkers`; the `poolOptions.forks.maxForks` it replaced was removed in Vitest 4 and silently ignored. Knobs: `LT_E2E_MAX_RUNS` (0 disables), `LT_E2E_SLOT_DIR`, `LT_E2E_SLOT_TIMEOUT` (fail-open). A slot is reclaimed when its PID is dead OR it is older than six hours — liveness alone made a slot immortal once its PID was recycled. The slot directory is shared machine-wide (on a multi-user Linux host `/tmp`), so it is created 0700 and the slot file is written without following a planted symlink (unlink + `wx`, 0600). A slot that cannot be written does not abort the suite: the run proceeds ungoverned, because the governor is a throughput measure, not a correctness one. Pinned by `tests/unit/e2e-run-slots.spec.ts` (mutations `e2e-slot-*`).
 - `retry: 2` (e2e) is deliberate — with `retry: 5`, one spec file with broken app/socket state ground through 6 attempts × 30s timeout × 22 tests ≈ an hour at 0% CPU (looked like a deadlock; the check watchdog killed it). Never raise retry to paper over contention.
 - Infrastructure containers (E2E only, the **seven** specs listed under "Infrastructure containers"
   above) round-trip against a REAL Redis and/or a REAL S3-compatible store.
@@ -268,7 +273,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 165 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 185 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -287,7 +292,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 249 mutations.
+at 274 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -332,9 +337,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 84 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 89 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 249 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 274 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -507,9 +512,9 @@ The writes that actually fed the RPC:
 
 | Source | Call |
 |--------|------|
-| `common/helpers/config.helper.ts` | `console.info` — "Configured for: …", "No local config.json found!" |
-| `common/services/config.service.ts` | `console.warn` from `mergeConfig` |
-| `common/services/rate-limit-store.ts` | `console.warn` from `InMemoryRateLimitStore.hit` |
+| `common/helpers/config.helper.ts` | `console.info` — "Configured for: …" (filtered in `tests/setup.ts` since 12.0.0), the local-config notice |
+| `common/services/config.service.ts` | `console.warn` from `mergeConfig` — since 12.0.0 only when `warn: true` is passed (the constructor used to default to it and dumped the whole config) |
+| `common/services/rate-limit-store.ts` | `console.warn` from `InMemoryRateLimitStore.hit` — a Nest `Logger` since 12.0.0, so no longer an RPC source |
 | `modules/hub/hub-buffer.ts` | `console.debug` from `readShared` |
 | `modules/better-auth/…-email-verification.service.ts` | `console.log` from `logAuthUrlForDevelopment` |
 
@@ -583,9 +588,10 @@ configuration that actually exists** — `grep` for the key in `config.env.ts` b
 
 ## Known coverage gap: no load-test baseline for the auth endpoints
 
-There is no `tests/k6/` in this repository — no config, no endpoint scripts, no baselines. That is
-recorded here rather than quietly absent, because one specific question is unanswered and a reader
-should not have to infer it from silence:
+`tests/k6/` holds a health-check load script and a memory soak test (`memory-test.sh`), but nothing
+for the auth endpoints — no endpoint scripts, no baselines for them. That is recorded here rather than
+quietly absent, because one specific question is unanswered and a reader should not have to infer it
+from silence:
 
 > Under concurrent password-reset load, at what request rate does the added key-derivation work
 > saturate the libuv threadpool?
@@ -622,7 +628,7 @@ environment that breaks it is the one nobody runs tests in by hand.
 **Before a release, run the unit suite the way a runner sees it:**
 
 ```bash
-CI=true npx vitest run --config vitest.config.ts --reporter=dot
+CI=true npx vitest run --config vitest.config.mts --reporter=dot
 ```
 
 Deliberately NOT wired into `check`. It would run all 2381 unit tests a second time — about 40s on
@@ -731,6 +737,9 @@ catches the *failure*, never the *disarming* of the safety property.
 | Internal calls forward the caller's `ServiceOptions` | `tests/unit/service-options-forwarding.spec.ts` |
 | The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts` |
 | Regression tests carry re-runnable evidence | `tests/unit/regression-evidence.spec.ts` |
+| The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
+| The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |
+| Type-aware lint is armed (flag, `oxlint-tsgolint`, `no-floating-promises: error`) | `tests/unit/lint-type-aware.spec.ts` |
 
 `service-options-forwarding` is 11.33.1 generalised: inside `src/core/`, a method that HAS the
 caller's context must pass it to every internal call that accepts one. Passing a local derived from

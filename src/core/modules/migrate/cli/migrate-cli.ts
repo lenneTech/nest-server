@@ -24,8 +24,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { MigrationRunner, parseStrictEnv } from '../migration-runner';
-import { MongoStateStore } from '../mongo-state-store';
+import { MigrationRunner, parseStrictEnv } from '../migration-runner.js';
+import { MongoStateStore } from '../mongo-state-store.js';
+import { createRequire } from 'node:module';
+import { callerDirectory } from '../../../common/helpers/module-location.helper.js';
+
+/**
+ * Loads a file the CLI was pointed at (store, `--compiler`) by absolute path. `createRequire` instead of `require`:
+ * the core's source is valid as CommonJS and as ESM, and only the former has a `require` in scope.
+ */
+function requireFromProject(absolutePath: string): any {
+  return createRequire(path.join(process.cwd(), 'package.json'))(absolutePath);
+}
 
 interface CliOptions {
   compiler?: string;
@@ -35,10 +45,59 @@ interface CliOptions {
   templateFile?: string;
 }
 
+const FRAMEWORK_PACKAGE = '@lenne.tech/nest-server';
+
+/**
+ * The import specifier a migration created in `migrationsDir` must use for the framework's helpers.
+ *
+ * The shipped template imports `getDb` / `uploadFileToGridFS` from `@lenne.tech/nest-server`. A
+ * vendor-mode project has no such package — its core lives in `src/core/` — so a migration created
+ * from the unchanged template fails with TS2307 in the IDE and `tsc`, and with MODULE_NOT_FOUND at run time.
+ * Returns the relative path from the migrations directory to the vendored core when the package does
+ * not resolve from `cwd` AND this CLI runs from a vendored core (one with its own `index` next to
+ * `modules/`, as the vendor flatten-fix leaves it); otherwise `undefined`, i.e. keep the package name.
+ * In npm mode the package resolves, and in this framework repo `src/core/` has no `index`, so neither
+ * is rewritten.
+ *
+ * @param migrationsDir - Directory the migration is written to, absolute or relative to `cwd`
+ * @param cwd - Project directory the package is resolved from
+ * @param coreRoot - Root of the core this CLI belongs to
+ */
+export function vendoredFrameworkSpecifier(
+  migrationsDir: string,
+  cwd: string = process.cwd(),
+  coreRoot: string = path.resolve(callerDirectory(), '..', '..', '..'),
+): string | undefined {
+  try {
+    createRequire(path.join(cwd, 'package.json')).resolve(FRAMEWORK_PACKAGE);
+    return undefined;
+  } catch {
+    // Not installed — the vendor-mode case, if the core below has an entry point of its own.
+  }
+  if (!['index.ts', 'index.js'].some((entry) => fs.existsSync(path.join(coreRoot, entry)))) {
+    return undefined;
+  }
+  const relativePath = path.relative(path.resolve(cwd, migrationsDir), coreRoot).split(path.sep).join('/');
+  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
+}
+
+/**
+ * Replaces the exact `@lenne.tech/nest-server` specifier (`from '…'`, `require('…')`, single or double
+ * quotes) in a migration template. Subpaths of the package are left alone.
+ */
+export function rewriteFrameworkSpecifier(template: string, specifier: string): string {
+  return template.replace(
+    /(['"])@lenne\.tech\/nest-server\1/g,
+    (_match, quote: string) => `${quote}${specifier}${quote}`,
+  );
+}
+
 /**
  * Create a new migration file
+ *
+ * @param coreRoot - Root of the core this CLI belongs to; defaults to the one it runs from (tests only)
  */
-async function createMigration(name: string, options: CliOptions) {
+async function createMigration(name: string, options: CliOptions, coreRoot?: string) {
   if (!name) {
     console.error('Error: Migration name is required');
     console.log('Usage: migrate create <name> [options]');
@@ -60,6 +119,10 @@ async function createMigration(name: string, options: CliOptions) {
   if (options.templateFile) {
     const templatePath = path.resolve(process.cwd(), options.templateFile);
     template = fs.readFileSync(templatePath, 'utf-8');
+    const specifier = vendoredFrameworkSpecifier(options.migrationsDir, process.cwd(), coreRoot);
+    if (specifier) {
+      template = rewriteFrameworkSpecifier(template, specifier);
+    }
   } else {
     // Default template
     template = `/**
@@ -141,7 +204,7 @@ function loadStateStore(storePath: string | undefined): MongoStateStore {
 
   const absolutePath = path.resolve(process.cwd(), storePath);
 
-  const StoreClass = require(absolutePath);
+  const StoreClass = requireFromProject(absolutePath);
 
   // Handle different export patterns
   if (StoreClass.default) {
@@ -255,7 +318,7 @@ function registerCompiler(compiler: string | undefined) {
   if (type === 'ts' && compilerPath) {
     const absolutePath = path.resolve(process.cwd(), compilerPath);
 
-    const register = require(absolutePath);
+    const register = requireFromProject(absolutePath);
     if (typeof register === 'function') {
       register();
     }
@@ -395,9 +458,10 @@ const runCli = async (): Promise<void> => {
 
 // Run CLI if executed directly (`node migrate-cli.js`). The bin shim calls
 // runCli() itself, so this only covers a direct invocation of the compiled file.
-if (require.main === module) {
+// `typeof` first: as ESM neither `require` nor `module` exists, and reading them would throw at load time.
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
   void runCli();
 }
 
 // parseArgs is exported for unit testing only (same pattern as resolveCliPath in bin/migrate.js)
-export { flushAndExit, main, parseArgs, runCli };
+export { createMigration, flushAndExit, main, parseArgs, runCli };

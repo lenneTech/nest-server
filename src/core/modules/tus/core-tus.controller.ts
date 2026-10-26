@@ -1,11 +1,11 @@
 import { All, Controller, Logger, Options, Req, Res } from '@nestjs/common';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
-import { ApiMethods } from '../../common/decorators/api-methods.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
-import { CoreTusService } from './core-tus.service';
+import { ApiMethods } from '../../common/decorators/api-methods.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { SkipTenantCheck } from '../tenant/core-tenant.decorators.js';
+import { CoreTusService } from './core-tus.service.js';
 
 /**
  * Core TUS Controller

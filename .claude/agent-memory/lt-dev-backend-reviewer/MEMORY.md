@@ -22,3 +22,5 @@
 - [MCP OAuth consent 11.43.0](project_mcp-oauth-consent-11-42-17.md) — auto-mount + consent probed; oauthBaseUrl-origin 403 and global-prefix no-session gaps reported; how to probe from scratchpad.
 - [Better-Auth baseURL normalization](project_better-auth-baseurl-normalization.md) — auth.options keeps the raw baseURL, JWTs use its ORIGIN; compare iss/aud against new URL(raw).origin.
 - [MCP late-user tenant scope (11.43.3)](project_mcp-late-user-tenant-scope.md) — scopeLateResolvedUser + resolveMembershipContext verified identical to the guard; plain OAuth user is safe.
+- [12.0.0 native password routes](project_12-0-0-native-password-routes.md) — length refusal on /iam/change-password answered 500 via the middleware catch, BA logger dropped Error args — both FIXED 2026-10-24 (catch rethrows HttpException; formatBetterAuthLogArg).
+- [12.0.0 ESM dist switch](project_12-0-0-esm-dist-switch.md) — migration template cwd config lookup broke compiled runs w/o NSC__MONGOOSE__URI (High, FIXED 2026-10-26); rest of ESM switch probed sound.

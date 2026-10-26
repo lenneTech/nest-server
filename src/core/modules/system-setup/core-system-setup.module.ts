@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
-import { CoreSystemSetupController } from './core-system-setup.controller';
-import { CoreSystemSetupService } from './core-system-setup.service';
+import { CoreSystemSetupController } from './core-system-setup.controller.js';
+import { CoreSystemSetupService } from './core-system-setup.service.js';
 
 /**
  * CoreSystemSetupModule provides initial admin creation for fresh deployments.

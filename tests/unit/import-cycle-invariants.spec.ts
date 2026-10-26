@@ -77,13 +77,13 @@ describe('SWC/TDZ import-cycle invariants', () => {
     const configService = read('core', 'common', 'services', 'config.service.ts');
 
     it('restricted.decorator takes the ID helpers from the id.helper leaf, not db.helper', () => {
-      expect(restricted).toMatch(/from '\.\.\/helpers\/id\.helper'/);
-      expect(restricted).not.toMatch(/from '\.\.\/helpers\/db\.helper'/);
+      expect(restricted).toMatch(/from '\.\.\/helpers\/id\.helper(\.js)?'/);
+      expect(restricted).not.toMatch(/from '\.\.\/helpers\/db\.helper(\.js)?'/);
     });
 
     it('config.service takes clone/deepFreeze from the clone.helper leaf, not input.helper', () => {
-      expect(configService).toMatch(/from '\.\.\/helpers\/clone\.helper'/);
-      expect(configService).not.toMatch(/from '\.\.\/helpers\/input\.helper'/);
+      expect(configService).toMatch(/from '\.\.\/helpers\/clone\.helper(\.js)?'/);
+      expect(configService).not.toMatch(/from '\.\.\/helpers\/input\.helper(\.js)?'/);
     });
 
     /**
@@ -114,7 +114,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
     const ALLOWED = /^(node:)?(inspector|util|lodash|rfdc|mongoose)$/;
 
     it.each([
-      ['id.helper.ts', ['../types/ids.type']],
+      ['id.helper.ts', ['../types/ids.type', '../types/ids.type.js']],
       ['clone.helper.ts', []],
     ])('%s imports no framework code', (file, allowedRelative) => {
       const source = read('core', 'common', 'helpers', file);
@@ -164,11 +164,11 @@ describe('SWC/TDZ import-cycle invariants', () => {
     });
 
     it('filter.input.ts does not import combined-filter.input.ts (that edge was the cycle)', () => {
-      expect(filterInput).not.toMatch(/from '\.\/combined-filter\.input'/);
+      expect(filterInput).not.toMatch(/from '\.\/combined-filter\.input(\.js)?'/);
     });
 
     it('combined-filter.input.ts is a re-export shim only — no class declaration', () => {
-      expect(combinedFilterInput).toMatch(/export \{ CombinedFilterInput \} from '\.\/filter\.input'/);
+      expect(combinedFilterInput).toMatch(/export \{ CombinedFilterInput \} from '\.\/filter\.input(\.js)?'/);
       expect(combinedFilterInput).not.toMatch(/^export class\b/m);
     });
   });
@@ -190,7 +190,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
       ['helpers/input.helper.ts', ['clone', 'deepFreeze'], './clone.helper'],
     ])('%s still re-exports %j', (file, symbols, from) => {
       const source = read('core', 'common', ...file.split('/'));
-      const reExport = new RegExp(`export \\{[^}]*\\} from '${from.replace('.', '\\.')}'`);
+      const reExport = new RegExp(`export \\{[^}]*\\} from '${from.replace('.', '\\.')}(\\.js)?'`);
       const line = source.match(reExport)?.[0] ?? '';
 
       expect(line, `${file} must re-export from ${from}`).not.toBe('');
@@ -204,7 +204,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
       ['core-better-auth.service.ts', ['BETTER_AUTH_CONFIG', 'BETTER_AUTH_COOKIE_DOMAIN']],
     ])('%s still re-exports its original tokens (and only those)', (file, symbols) => {
       const source = read('core', 'modules', 'better-auth', file);
-      const line = source.match(/export \{[^}]*\} from '\.\/core-better-auth\.constants'/)?.[0] ?? '';
+      const line = source.match(/export \{[^}]*\} from '\.\/core-better-auth\.constants(\.js)?'/)?.[0] ?? '';
 
       expect(line, `${file} must keep its compat token re-export`).not.toBe('');
       for (const symbol of symbols as string[]) {
@@ -220,7 +220,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
       // Exporting it would let a consumer swap or null the token service that BetterAuthRolesGuard
       // makes its authorization decisions with.
       const barrel = read('core', 'modules', 'better-auth', 'index.ts');
-      expect(barrel).not.toMatch(/^export \* from '\.\/core-better-auth\.registry'/m);
+      expect(barrel).not.toMatch(/^export \* from '\.\/core-better-auth\.registry(\.js)?'/m);
     });
   });
 
@@ -293,7 +293,7 @@ describe('SWC/TDZ import-cycle invariants', () => {
     it('core-ai-interaction.service.ts does not import from core-ai.service at all', () => {
       const source = read('core', 'modules', 'ai', 'services', 'core-ai-interaction.service.ts');
 
-      expect(source).not.toMatch(/from '\.\/core-ai\.service'/);
+      expect(source).not.toMatch(/from '\.\/core-ai\.service(\.js)?'/);
     });
 
     it('AiInteractionRecord is declared in the interfaces leaf', () => {

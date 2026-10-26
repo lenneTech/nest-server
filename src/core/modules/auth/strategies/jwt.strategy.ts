@@ -3,10 +3,10 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Request as RequestType } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { AuthGuardStrategy } from '../auth-guard-strategy.enum';
-import { JwtPayload } from '../interfaces/jwt-payload.interface';
-import { CoreAuthService } from '../services/core-auth.service';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { AuthGuardStrategy } from '../auth-guard-strategy.enum.js';
+import { JwtPayload } from '../interfaces/jwt-payload.interface.js';
+import { CoreAuthService } from '../services/core-auth.service.js';
 
 /**
  * Use JWT strategy for passport

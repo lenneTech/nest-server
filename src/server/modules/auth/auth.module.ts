@@ -1,13 +1,13 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { JwtModuleOptions } from '@nestjs/jwt';
 
-import { EmailService } from '../../../core/common/services/email.service';
-import { CoreAuthModule } from '../../../core/modules/auth/core-auth.module';
-import { UserModule } from '../user/user.module';
-import { UserService } from '../user/user.service';
-import { AuthController } from './auth.controller';
-import { AuthResolver } from './auth.resolver';
-import { AuthService } from './auth.service';
+import { EmailService } from '../../../core/common/services/email.service.js';
+import { CoreAuthModule } from '../../../core/modules/auth/core-auth.module.js';
+import { UserModule } from '../user/user.module.js';
+import { UserService } from '../user/user.service.js';
+import { AuthController } from './auth.controller.js';
+import { AuthResolver } from './auth.resolver.js';
+import { AuthService } from './auth.service.js';
 
 /**
  * CoreAuthModule to handle user authentication

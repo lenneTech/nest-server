@@ -16,7 +16,7 @@
  * so a registration that happens after the service was constructed still takes effect.
  */
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from './core-redis.service.js';
 import type { Connection } from 'mongoose';
 
 export interface CronJobsInfrastructure {

@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 
-import { ConfigService } from '../services/config.service';
-import { getTenantContextResolver, ResolvedTenantContext } from '../services/core-tenant-context.registry';
+import { ConfigService } from '../services/config.service.js';
+import { getTenantContextResolver, ResolvedTenantContext } from '../services/core-tenant-context.registry.js';
 
 /**
  * The authorization lifecycle of an OPEN GraphQL WebSocket connection.
@@ -41,6 +41,30 @@ import { getTenantContextResolver, ResolvedTenantContext } from '../services/cor
  */
 export const WS_AUTHORIZATION_CHANGED_CLOSE_CODE = 4403;
 
+/**
+ * Close code for a handshake whose credential does not authenticate: graphql-ws's `CloseCode.Unauthorized`.
+ * Unlike 4403 its client does NOT retry it — the same credential would only be refused again.
+ */
+export const WS_UNAUTHORIZED_CLOSE_CODE = 4401;
+
+/**
+ * Refuse a graphql-ws handshake from `onConnect` because its credential does not authenticate. Returns
+ * `false`, which `onConnect` must return.
+ *
+ * graphql-ws offers two ways to refuse, and neither fits: returning `false` closes with 4403, which its
+ * client retries — with the same refused credential, again and again — and throwing makes its ws adapter
+ * log "Internal error occurred during message handling. Please check your implementation." and close
+ * with 4500, a SERVER error for a client's expired token. Until 12.0.0 `onConnect` threw, so every
+ * expired token printed that line with a stack trace, in production too. Closing with 4401 first turns
+ * the close graphql-ws issues after a `false` into a no-op on a socket that is already closing.
+ *
+ * Without a socket (a transport that hands none to `onConnect`) the `false` alone refuses, with 4403.
+ */
+export function refuseWsHandshake(socket: IWsConnectionSocket | undefined, reason = 'Unauthorized'): false {
+  socket?.close(WS_UNAUTHORIZED_CLOSE_CODE, reason);
+  return false;
+}
+
 /** Default for `graphQl.subscriptionRevalidationMs`. */
 export const DEFAULT_SUBSCRIPTION_REVALIDATION_MS = 30_000;
 
@@ -53,8 +77,8 @@ export interface IWsConnectionSocket {
 export interface IWsConnectionRegistration {
   /**
    * The object every operation of the connection receives as its GraphQL context: `extra` for
-   * graphql-ws, the object `onConnect` returns for subscriptions-transport-ws (which copies it per
-   * operation — the registration survives that copy).
+   * graphql-ws, or whatever object a project's own transport hands each operation — the registration
+   * survives a shallow per-operation copy of it.
    */
   carrier: object;
 
@@ -106,8 +130,9 @@ export interface WsConnection {
 /**
  * Module-private and not `Symbol.for()`: nothing a client sends — `connectionParams` are JSON — can
  * produce it, so a registration cannot be forged or overwritten from outside. Enumerable on purpose:
- * subscriptions-transport-ws hands each operation an `Object.assign` copy of the connection context,
- * and only enumerable own properties survive that.
+ * a transport that hands each operation an `Object.assign` copy of the connection context (as
+ * subscriptions-transport-ws did until `@nestjs/graphql` 14 removed it) keeps only enumerable own
+ * properties.
  */
 const WS_CONNECTION = Symbol('ltWsConnection');
 

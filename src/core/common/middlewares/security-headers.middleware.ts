@@ -1,8 +1,8 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Response as ExpressResponse, NextFunction, Request } from 'express';
 
-import { ISecurityHeaders } from '../interfaces/server-options.interface';
-import { ConfigService } from '../services/config.service';
+import { ISecurityHeaders } from '../interfaces/server-options.interface.js';
+import { ConfigService } from '../services/config.service.js';
 
 /**
  * Sets the standard browser security headers on every response.

@@ -1,10 +1,10 @@
 import { ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../../core/common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../../core/common/enums/role.enum';
-import { PaginationInfo } from '../../../../core/common/models/pagination-info.model';
-import { User } from '../user.model';
+import { Restricted } from '../../../../core/common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../../core/common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../../core/common/enums/role.enum.js';
+import { PaginationInfo } from '../../../../core/common/models/pagination-info.model.js';
+import { User } from '../user.model.js';
 
 @ObjectType({ description: 'Result of find and count' })
 @Restricted(RoleEnum.ADMIN)

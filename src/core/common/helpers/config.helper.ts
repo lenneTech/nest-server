@@ -1,7 +1,9 @@
 import * as dotenv from 'dotenv';
-import _ = require('lodash');
+import _ from 'lodash';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import * as process from 'node:process';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 /**
  * Helper class for configurations
@@ -25,6 +27,41 @@ export default class Config {
   public static merge(obj: Record<string, any>, ...sources: any[]): any {
     return merge(obj, sources);
   }
+}
+
+/**
+ * The local configuration `loadLocalConfig` names, read SYNCHRONOUSLY — or `undefined` when there is none.
+ *
+ * - `true`: `config.json` in the working directory, then `src/config.json` (the project, never this package).
+ * - a path: relative paths resolve against the working directory. `.json` is read as JSON, anything else is loaded
+ *   as a module (`require`, which also loads ESM without top-level await) and its default export is used.
+ *
+ * Until 12.0.0 this used `import()`, relative to THIS helper's own directory: in npm mode that searched
+ * `node_modules/@lenne.tech/nest-server/dist/…`, a JSON file needs an import attribute that was never passed (under
+ * `module: nodenext` the `import()` stays native), and the merge landed after the configuration had been returned.
+ *
+ * @param loadLocalConfig the `loadLocalConfig` setting
+ * @param cwd the directory relative paths and the `true` search start from (default: `process.cwd()`)
+ */
+export function loadLocalConfigFile(
+  loadLocalConfig: boolean | string,
+  cwd: string = process.cwd(),
+): Record<string, any> | undefined {
+  const candidates =
+    typeof loadLocalConfig === 'string'
+      ? [resolve(cwd, loadLocalConfig)]
+      : loadLocalConfig
+        ? [join(cwd, 'config.json'), join(cwd, 'src', 'config.json')]
+        : [];
+  const file = candidates.find((candidate) => existsSync(candidate));
+  if (!file) {
+    return undefined;
+  }
+  if (file.endsWith('.json')) {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  }
+  const loaded = createRequire(join(cwd, 'package.json'))(file);
+  return loaded?.default ?? loaded;
 }
 
 /**
@@ -60,34 +97,15 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
 
   // Merge with localConfig (e.g. config.json)
   if (envConfig.loadLocalConfig) {
-    let localConfig: Record<string, any>;
-    if (typeof envConfig.loadLocalConfig === 'string') {
-      import(envConfig.loadLocalConfig)
-        .then((loadedConfig) => {
-          localConfig = loadedConfig.default || loadedConfig;
-          merge(envConfig, localConfig);
-        })
-        .catch(() => {
-          console.info(`Configuration ${envConfig.loadLocalConfig} not found!`);
-        });
+    const localConfig = loadLocalConfigFile(envConfig.loadLocalConfig);
+    if (localConfig) {
+      merge(envConfig, localConfig);
+    } else if (typeof envConfig.loadLocalConfig === 'string') {
+      console.warn(
+        `Local configuration ${envConfig.loadLocalConfig} (loadLocalConfig) not found — continuing without it`,
+      );
     } else {
-      // get config from src directory
-      import(join(__dirname, 'config.json'))
-        .then((loadedConfig) => {
-          localConfig = loadedConfig.default || loadedConfig;
-          merge(envConfig, localConfig);
-        })
-        .catch(() => {
-          // if not found try to find in project directory
-          import(join(__dirname, '..', 'config.json'))
-            .then((loadedConfig) => {
-              localConfig = loadedConfig.default || loadedConfig;
-              merge(envConfig, localConfig);
-            })
-            .catch(() => {
-              console.info('No local config.json found!');
-            });
-        });
+      console.info('No local config.json (loadLocalConfig) — using the environment configuration only');
     }
   }
 

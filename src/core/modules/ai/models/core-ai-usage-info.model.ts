@@ -1,7 +1,7 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
 
 /**
  * Compact token-budget summary attached to every prompt response.

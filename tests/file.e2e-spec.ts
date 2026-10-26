@@ -47,10 +47,6 @@ describe('File (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
-    // Indicates that cookies are enabled
-    if (envConfig.cookies) {
-      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
-    }
     fixtureDir = await createFixtureDir('nest-server-file-');
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({

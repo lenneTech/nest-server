@@ -1,5 +1,10 @@
 {
   "extends": "./tsconfig.json",
+  // TypeScript 6 defaults `rootDir` to the directory of the tsconfig. Without this line the build
+  // would emit `dist/src/index.js` and the package's `main` (`dist/index.js`) would point at nothing.
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",

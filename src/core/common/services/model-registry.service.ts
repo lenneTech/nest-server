@@ -1,4 +1,4 @@
-import { CoreModel } from '../models/core-model.model';
+import { CoreModel } from '../models/core-model.model.js';
 
 /**
  * Central registry mapping Mongoose model names to CoreModel classes.

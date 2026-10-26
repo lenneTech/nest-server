@@ -2,10 +2,10 @@ import { BadRequestException, Logger, Optional, UnauthorizedException } from '@n
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { maskEmail } from '../../common/helpers/logging.helper';
-import { ErrorCode } from '../error-code/error-codes';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 import {
   BetterAuth2FAResponse,
   BetterAuthSignInResponse,
@@ -14,10 +14,10 @@ import {
   hasUser,
   requires2FA,
   sessionTokenFromResponse,
-} from './better-auth.types';
-import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model';
-import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service';
-import { CoreBetterAuthMigrationStatusModel } from './core-better-auth-migration-status.model';
+} from './better-auth.types.js';
+import { CoreBetterAuthAuthModel } from './core-better-auth-auth.model.js';
+import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service.js';
+import { CoreBetterAuthMigrationStatusModel } from './core-better-auth-migration-status.model.js';
 import {
   CoreBetterAuth2FASetupModel,
   CoreBetterAuthFeaturesModel,
@@ -25,11 +25,12 @@ import {
   CoreBetterAuthPasskeyModel,
   CoreBetterAuthSessionModel,
   CoreBetterAuthUserModel,
-} from './core-better-auth-models';
-import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service';
-import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper';
-import { convertExpressHeaders } from './core-better-auth-web.helper';
-import { CoreBetterAuthService } from './core-better-auth.service';
+} from './core-better-auth-models.js';
+import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service.js';
+import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper.js';
+import { convertExpressHeaders } from './core-better-auth-web.helper.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
+import { registerBetterAuthHandlerClass } from './core-better-auth.registry.js';
 
 /**
  * Abstract GraphQL Resolver for Better-Auth operations
@@ -957,3 +958,5 @@ export class CoreBetterAuthResolver {
     };
   }
 }
+
+registerBetterAuthHandlerClass(CoreBetterAuthResolver);

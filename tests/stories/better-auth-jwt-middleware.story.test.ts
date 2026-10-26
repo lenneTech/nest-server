@@ -391,47 +391,21 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
       // =================================================================
       // Step 1: Enable 2FA using JWT from cookie (not Authorization header)
       // =================================================================
-      let enableResponse: any;
-      try {
-        enableResponse = await testHelper.rest('/iam/two-factor/enable', {
-          cookies: `lt-jwt-token=${jwtToken}`,
-          method: 'POST',
-          payload: { password: testPassword },
-          statusCode: 200,
-        });
-      } catch (error: any) {
-        // If enable fails with 401, the middleware fix is broken
-        const status = error?.statusCode || error?.status;
-        if (status === 401) {
-          throw new Error(
-            '2FA enable returned 401 with JWT cookie - middleware order or JWT cookie extraction is broken', { cause: error },
-          );
-        }
-        // Other errors (e.g., config issue) are acceptable
-        console.warn('2FA enable failed (non-401):', error.message || error);
-        return;
-      }
+      // A 401 here means the middleware did not resolve the JWT cookie to a session (the 11.x defect this
+      // story pins); any other failure is a failure too — the case used to swallow it and return.
+      const enableResponse: any = await testHelper.rest('/iam/two-factor/enable', {
+        cookies: `lt-jwt-token=${jwtToken}`,
+        method: 'POST',
+        payload: { password: testPassword },
+        statusCode: 200,
+      });
 
-      expect(enableResponse).toBeDefined();
-
-      // Extract TOTP secret from response
-      const totpUri = enableResponse.totpURI || enableResponse.totpUri;
-      if (!totpUri) {
-        console.warn('No TOTP URI in response, skipping verification');
-        return;
-      }
-
-      const secretMatch = totpUri.match(/secret=([A-Z2-7]+)/i);
-      if (!secretMatch) {
-        console.warn('Could not parse TOTP secret');
-        return;
-      }
-      totpSecret = secretMatch[1];
-      expect(totpSecret).toBeDefined();
+      totpSecret = String(enableResponse.totpURI || enableResponse.totpUri).match(/secret=([A-Z2-7]+)/i)?.[1] as string;
+      expect(totpSecret, 'enable returns a TOTP URI with a secret').toBeTruthy();
       expect(totpSecret.length).toBeGreaterThan(10);
 
       // =================================================================
-      // Step 2: Generate and verify TOTP code
+      // Step 2: Confirm the secret through the JWT cookie — this ACTIVATES 2FA in TOTP mode
       // =================================================================
       const totp = new OTPAuth.TOTP({
         algorithm: 'SHA1',
@@ -439,64 +413,47 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
         period: 30,
         secret: OTPAuth.Secret.fromBase32(totpSecret),
       });
-
-      const validCode = totp.generate();
-      expect(validCode).toHaveLength(6);
-
-      // =================================================================
-      // Step 3: Sign out
-      // =================================================================
-      try {
-        await testHelper.rest('/iam/sign-out', {
-          cookies: `lt-jwt-token=${jwtToken}`,
-          method: 'POST',
-        });
-      } catch {
-        // Sign-out may fail or return different status - continue anyway
-      }
+      await testHelper.rest('/iam/two-factor/verify-totp', {
+        cookies: `lt-jwt-token=${jwtToken}`,
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
 
       // =================================================================
-      // Step 4: Sign in again - should require 2FA
+      // Step 3: Sign out, sign in again — now the second factor is required
       // =================================================================
-      let signInResponse: any;
-      try {
-        signInResponse = await testHelper.rest('/iam/sign-in/email', {
-          method: 'POST',
-          payload: { email: testEmail, password: testPassword },
-        });
-      } catch (error: any) {
-        signInResponse = error;
-      }
+      await testHelper.rest('/iam/sign-out', {
+        cookies: `lt-jwt-token=${jwtToken}`,
+        method: 'POST',
+        statusCode: 201,
+      });
 
-      const requires2FA = signInResponse?.twoFactorRedirect === true ||
-                          signInResponse?.requiresTwoFactor === true;
-
-      if (!requires2FA) {
-        // 2FA may not be required in test setup (e.g., not verified yet)
-        console.warn('2FA was not required on sign-in, skipping TOTP verify step');
-        return;
-      }
-
-      expect(requires2FA).toBe(true);
+      const secondSignIn: any = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email: testEmail, password: testPassword },
+        returnResponse: true,
+        statusCode: 200,
+      });
+      const signInBody = JSON.parse(secondSignIn.text);
+      expect(signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true, 'sign-in asks for the second factor').toBe(true);
 
       // =================================================================
-      // Step 5: Verify TOTP code to complete login
+      // Step 4: Complete the sign-in with a TOTP code and the pending two-factor cookie
       // =================================================================
-      const freshCode = totp.generate();
+      const pendingCookies = ([] as string[])
+        .concat(secondSignIn.headers['set-cookie'] ?? [])
+        .map((cookie) => cookie.split(';')[0])
+        .join('; ');
+      expect(pendingCookies, 'sign-in hands out the pending two-factor cookie').toContain('two_factor');
 
-      try {
-        const verifyResponse: any = await testHelper.rest('/iam/two-factor/verify-totp', {
-          method: 'POST',
-          payload: { code: freshCode },
-        });
-
-        if (verifyResponse?.session || verifyResponse?.user || verifyResponse?.token) {
-          expect(verifyResponse.session || verifyResponse.user || verifyResponse.token).toBeDefined();
-        }
-      } catch (error: any) {
-        // TOTP verification may fail if session cookies aren't forwarded in test
-        console.warn('2FA verification error (expected in some test setups):', error.message || error);
-      }
+      const verifyResponse: any = await testHelper.rest('/iam/two-factor/verify-totp', {
+        cookies: pendingCookies,
+        method: 'POST',
+        payload: { code: totp.generate() },
+        statusCode: 200,
+      });
+      expect(verifyResponse?.token || verifyResponse?.user?.id, 'the second factor completes the sign-in').toBeTruthy();
     });
   });
 

@@ -1,13 +1,13 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
 import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 
-import { ResolveSelector } from '../interfaces/resolve-selector.interface';
-import { CoreModel } from '../models/core-model.model';
-import { FieldSelection } from '../types/field-selection.type';
-import { IdsType } from '../types/ids.type';
-import { StringOrObjectId } from '../types/string-or-object-id.type';
-import { equalIds, getObjectIds, getStringIds } from './id.helper';
-import { removePropertiesDeep } from './input.helper';
+import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
+import { CoreModel } from '../models/core-model.model.js';
+import { FieldSelection } from '../types/field-selection.type.js';
+import { IdsType } from '../types/ids.type.js';
+import { StringOrObjectId } from '../types/string-or-object-id.type.js';
+import { equalIds, getObjectIds, getStringIds } from './id.helper.js';
+import { removePropertiesDeep } from './input.helper.js';
 
 /**
  * The ID helpers moved to `./id.helper` and are re-exported here so every existing import path keeps
@@ -17,7 +17,7 @@ import { removePropertiesDeep } from './input.helper';
  * line away from an SWC temporal-dead-zone crash. `id.helper` imports no framework code, so it can
  * never be part of a cycle. Do NOT move them back.
  */
-export { equalIds, getIncludedIds, getObjectIds, getStringIds } from './id.helper';
+export { equalIds, getIncludedIds, getObjectIds, getStringIds } from './id.helper.js';
 
 // =====================================================================================================================
 // Export functions

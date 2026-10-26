@@ -11,12 +11,12 @@ import {
 } from '@nestjs/common';
 import { inspect } from 'util';
 
-import { redactSensitiveText } from '../../../common/helpers/logging.helper';
-import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { HUB_CONFIG } from '../hub.constants';
-import { HubBuffer } from '../hub-buffer';
-import { HubLogRecord, HubLogsData } from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { redactSensitiveText } from '../../../common/helpers/logging.helper.js';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { HubBuffer } from '../hub-buffer.js';
+import { HubLogRecord, HubLogsData } from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 interface BufferedLog extends HubLogRecord {
   timestamp: number;

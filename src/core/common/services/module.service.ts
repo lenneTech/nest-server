@@ -1,17 +1,17 @@
-import _ = require('lodash');
+import _ from 'lodash';
 import { Document, Model, Types } from 'mongoose';
 
-import { ProcessType } from '../enums/process-type.enum';
-import { getStringIds, popAndMap } from '../helpers/db.helper';
-import { check } from '../helpers/input.helper';
-import { prepareInput, prepareOutput } from '../helpers/service.helper';
-import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator';
-import { ServiceOptions } from '../interfaces/service-options.interface';
-import { CoreModel } from '../models/core-model.model';
-import { FieldSelection } from '../types/field-selection.type';
-import { ConfigService } from './config.service';
-import { ModelRegistry } from './model-registry.service';
-import { RequestContext } from './request-context.service';
+import { ProcessType } from '../enums/process-type.enum.js';
+import { getStringIds, popAndMap } from '../helpers/db.helper.js';
+import { check } from '../helpers/input.helper.js';
+import { prepareInput, prepareOutput } from '../helpers/service.helper.js';
+import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator.js';
+import { ServiceOptions } from '../interfaces/service-options.interface.js';
+import { CoreModel } from '../models/core-model.model.js';
+import { FieldSelection } from '../types/field-selection.type.js';
+import { ConfigService } from './config.service.js';
+import { ModelRegistry } from './model-registry.service.js';
+import { RequestContext } from './request-context.service.js';
 
 /**
  * Mongoose Model with native driver access paths removed to prevent

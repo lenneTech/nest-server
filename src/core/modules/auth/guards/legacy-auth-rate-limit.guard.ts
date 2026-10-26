@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { LegacyAuthRateLimiter } from '../services/legacy-auth-rate-limiter.service';
+import { LegacyAuthRateLimiter } from '../services/legacy-auth-rate-limiter.service.js';
 
 /**
  * Guard for rate limiting Legacy Auth endpoints

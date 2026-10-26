@@ -25,10 +25,13 @@ const ROOT = join(__dirname, '../..');
 /**
  * Packages whose advisories are currently suppressed, and must stay dev-only.
  *
- * One entry since 2026-10-11, an advisory with NO patched release at all, reached only
- * through dev tooling (see the comments in `pnpm-workspace.yaml`). The pattern matches
- * ANY version on purpose: with no fixed release, every version in the production tree
- * is a vulnerable one, so any appearance there voids the justification.
+ * EMPTY since 2026-10-24. GHSA-vfj7-8cjw-p6xm (braces, via nodemon / npm-watch > chokidar@3)
+ * had an entry here from 2026-10-11, an advisory with NO patched release at all, reached only
+ * through dev tooling. GitHub withdrew it on 2026-10-23, `check:overrides` flagged the
+ * suppression as obsolete, and entry and guard left together (see `pnpm-workspace.yaml`).
+ * An entry added here should match ANY version of its package, as that one did: with no fixed
+ * release, every version in the production tree is a vulnerable one, so any appearance there
+ * voids the justification.
  *
  * GHSA-ch52-4w7c-c8xp (http-cache-semantics) had an entry here from 2026-10-03 until
  * 2026-10-11. It left with its suppression, when the lockfile moved to 4.3.0 — outside
@@ -68,10 +71,7 @@ const ROOT = join(__dirname, '../..');
  * An entry added below should still carry a date to re-verify by — the guard tells you
  * when upstream moves, not when your own reasoning stopped applying.
  */
-const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [
-  // via nodemon (and npm-watch) > chokidar@3
-  { ghsa: 'GHSA-vfj7-8cjw-p6xm', pkg: 'braces', vulnerableInProd: /braces@/ },
-];
+const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [];
 
 describe('audit suppressions stay within their justification', () => {
   const workspace = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');

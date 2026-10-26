@@ -1,7 +1,7 @@
 import { SelectionNode } from 'graphql';
 import { PopulateOptions } from 'mongoose';
 
-import { ResolveSelector } from '../interfaces/resolve-selector.interface';
+import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
 
 /**
  * Field selection to set fields of (populated) result

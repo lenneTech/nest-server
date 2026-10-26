@@ -20,6 +20,13 @@ What worked (2026-10-06, generated-secret story):
   `.nuxt/tsconfig.json`), ~1.6 MB. lt-monorepo needs only `scripts/` + `package.json` (node --test).
 - vitest 5 `--reporter=json` WRITES `.vitest/json/output.json` into the repo it runs in — an
   untracked artifact in a "do not edit" tree. Use `--reporter=verbose` + grep, or delete it after.
+- ANY `--reporter=` flag REPLACES the config reporters, `db-lifecycle.reporter.ts` included, so even
+  green e2e runs leave their `-run-…-w<N>` DBs in the shared local mongod. Finish with one plain run
+  (no `--reporter`) in the copy: its startup sweep drops them. Not a framework defect.
+- Registered mutations (since 12.0.0 the configs are `.mts`): a tiny node script that reads
+  `tests/regression-mutations.json`, asserts `find` matches once and applies it, works well. It must
+  not stack two mutations on ONE file with a per-file `.orig` backup — the second overwrites the
+  backup with the first mutant; restore from the real repo instead.
 
 **Why:** a green test looks the same whether it checks something or nothing; the copy gives the
 "show me it red" evidence the repo rule demands without colliding with the author's live tree.

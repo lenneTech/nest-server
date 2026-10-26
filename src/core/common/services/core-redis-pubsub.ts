@@ -1,7 +1,7 @@
 import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { PubSubEngine } from 'graphql-subscriptions';
 
-import type { CoreRedisService } from './core-redis.service';
+import type { CoreRedisService } from './core-redis.service.js';
 import type { Redis } from 'ioredis';
 
 /**

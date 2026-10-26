@@ -1,10 +1,10 @@
 import { Controller } from '@nestjs/common';
 
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { ConfigService } from '../../../core/common/services/config.service';
-import { CoreAuthController } from '../../../core/modules/auth/core-auth.controller';
-import { AuthService } from './auth.service';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { ConfigService } from '../../../core/common/services/config.service.js';
+import { CoreAuthController } from '../../../core/modules/auth/core-auth.controller.js';
+import { AuthService } from './auth.service.js';
 
 @Controller('auth')
 @Roles(RoleEnum.ADMIN)

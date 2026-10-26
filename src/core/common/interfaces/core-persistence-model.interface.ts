@@ -1,4 +1,4 @@
-import { CorePersistenceModel } from '../../..';
+import { CorePersistenceModel } from '../../../index.js';
 
 export interface ICorePersistenceModel<T extends CorePersistenceModel = any> {
   [key: string]: any;

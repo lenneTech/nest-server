@@ -2,16 +2,16 @@ import { DynamicModule, Global, Logger, Module, OnModuleInit, Type } from '@nest
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { ModuleRef } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { ITusConfig } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { CoreS3Service } from '../../common/services/core-s3.service';
-import { CoreTusController } from './core-tus.controller';
-import { CoreTusService } from './core-tus.service';
-import { TUS_CONFIG } from './tus.constants';
-import { DEFAULT_TUS_CONFIG, normalizeTusConfig } from './interfaces/tus-config.interface';
+import { ITusConfig } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { CoreS3Service } from '../../common/services/core-s3.service.js';
+import { CoreTusController } from './core-tus.controller.js';
+import { CoreTusService } from './core-tus.service.js';
+import { TUS_CONFIG } from './tus.constants.js';
+import { DEFAULT_TUS_CONFIG, normalizeTusConfig } from './interfaces/tus-config.interface.js';
 
 /**
  * @deprecated Import from `./tus.constants` instead. Re-exported only so existing deep imports keep
@@ -20,7 +20,7 @@ import { DEFAULT_TUS_CONFIG, normalizeTusConfig } from './interfaces/tus-config.
  *
  * Do NOT import it from here inside the TUS module itself — that is what re-creates the cycle.
  */
-export { TUS_CONFIG } from './tus.constants';
+export { TUS_CONFIG } from './tus.constants.js';
 
 /**
  * Options for TusModule.forRoot()

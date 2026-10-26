@@ -1,11 +1,10 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
-
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
-import { FileInfo } from './file-info.model';
-import { FileService } from './file.service';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { GraphQLUpload } from '../../../core/common/scalars/upload.scalar.js';
+import type { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface.js';
+import { FileInfo } from './file-info.model.js';
+import { FileService } from './file.service.js';
 
 /**
  * File resolver

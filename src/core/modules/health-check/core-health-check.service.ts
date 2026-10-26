@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import {
   DiskHealthIndicator,
+  type DiskHealthIndicatorOptions,
   HealthCheckResult,
   HealthCheckService,
   MemoryHealthIndicator,
   MongooseHealthIndicator,
+  type MongoosePingCheckSettings,
 } from '@nestjs/terminus';
-import type { MongoosePingCheckSettings } from '@nestjs/terminus/dist/health-indicator/database/mongoose.health.js';
-import type { DiskHealthIndicatorOptions } from '@nestjs/terminus/dist/health-indicator/disk/disk-health-options.type.js';
 
-import { getBuildInfo } from '../../common/helpers/meta.helper';
-import { ConfigService } from '../../common/services/config.service';
+import { getBuildInfo } from '../../common/helpers/meta.helper.js';
+import { ConfigService } from '../../common/services/config.service.js';
 
 /**
  * Core health check service
@@ -29,12 +29,21 @@ export class CoreHealthCheckService {
   healthCheck(): Promise<HealthCheckResult> {
     const healthIndicatorFunctions = [];
     if (this.config.get<boolean>('healthCheck.configs.database.enabled')) {
-      healthIndicatorFunctions.push(() =>
-        this.db.pingCheck(
+      healthIndicatorFunctions.push(() => {
+        // `timeout` stays part of the config contract, but @nestjs/terminus 12 deprecated it on the
+        // indicator in favour of `.withTimeout()` on the returned attempt — translate it here, so the
+        // configuration keeps working once the option is gone from the indicator.
+        // Same effective timeouts as before: 300 ms without configured options, otherwise the
+        // configured `timeout`, otherwise Terminus' own default (1000 ms).
+        const { timeout, ...options } = this.config.get<MongoosePingCheckSettings>(
+          'healthCheck.configs.database.options',
+        ) ?? { timeout: 300 };
+        const attempt = this.db.pingCheck(
           this.config.get<string>('healthCheck.configs.database.key') ?? 'database',
-          this.config.get<MongoosePingCheckSettings>('healthCheck.configs.database.options') ?? { timeout: 300 },
-        ),
-      );
+          options,
+        );
+        return timeout === undefined ? attempt : attempt.withTimeout(timeout);
+      });
     }
     if (this.config.get<boolean>('healthCheck.configs.memoryHeap.enabled')) {
       healthIndicatorFunctions.push(() =>

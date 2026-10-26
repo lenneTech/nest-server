@@ -10,8 +10,10 @@ import {
   resolveSubscriptionRevalidationMs,
   revalidateAllWsConnections,
   revalidateWsConnectionsForTenant,
+  refuseWsHandshake,
   revalidateWsConnectionsOf,
   WS_AUTHORIZATION_CHANGED_CLOSE_CODE,
+  WS_UNAUTHORIZED_CLOSE_CODE,
 } from '../../src/core/common/helpers/graphql-ws-connection.helper';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import {
@@ -333,7 +335,7 @@ describe('graphql-ws connection revalidation', () => {
   });
 
   describe('carrier', () => {
-    it('survives the shallow copy subscriptions-transport-ws makes of the connection context', () => {
+    it('survives a shallow per-operation copy of the connection context', () => {
       const { carrier, connection } = connect();
       const perOperationCopy = Object.assign(Object.create(Object.getPrototypeOf(carrier)), carrier);
       expect(getWsConnection(perOperationCopy)).toBe(connection);
@@ -343,6 +345,22 @@ describe('graphql-ws connection revalidation', () => {
       const forged = JSON.parse(JSON.stringify({ connection: 'x', wsConnection: {} }));
       expect(getWsConnection(forged)).toBeUndefined();
       expect(getWsConnection(undefined)).toBeUndefined();
+    });
+  });
+
+  describe('refuseWsHandshake()', () => {
+    // graphql-ws closes a `false` from onConnect with 4403 — which its client RETRIES, with the same
+    // refused credential — and a throw with 4500 plus a console.error "check your implementation".
+    // A refused credential is neither a retryable condition nor a server error.
+    it('closes with 4401, which the graphql-ws client does not retry, and answers false', () => {
+      const socket = { close: vi.fn() };
+      expect(refuseWsHandshake(socket, 'Invalid or expired session')).toBe(false);
+      expect(socket.close).toHaveBeenCalledWith(WS_UNAUTHORIZED_CLOSE_CODE, 'Invalid or expired session');
+      expect(WS_UNAUTHORIZED_CLOSE_CODE).toBe(4401);
+    });
+
+    it('still refuses without a socket (the false alone closes with 4403)', () => {
+      expect(refuseWsHandshake(undefined)).toBe(false);
     });
   });
 });

@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
-import { IBetterAuthSignUpChecksConfig } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { ErrorCode } from '../error-code/error-codes';
+import { IBetterAuthSignUpChecksConfig } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 
 /**
  * Default configuration for sign-up checks

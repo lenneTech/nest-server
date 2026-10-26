@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { CoreErrorCodeService } from '../../../core/modules/error-code/core-error-code.service';
-import { ServerErrors } from './error-codes';
+import { CoreErrorCodeService } from '../../../core/modules/error-code/core-error-code.service.js';
+import { ServerErrors } from './error-codes.js';
 
 /**
  * Server Error Code Service

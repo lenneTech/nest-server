@@ -1,5 +1,5 @@
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
 
 /**
  * Execution context handed to a tool when the LLM invokes it.

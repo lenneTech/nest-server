@@ -87,6 +87,13 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
   });
 
   beforeEach(async () => {
+    // The store and the runner report progress on the console, as the migrate CLI should ("No migrations found…",
+    // "Waiting for migration lock release …", "Breaking stale migration lock…"). Expected output in this suite, so
+    // it is kept out of the run's output; restoreMocks undoes the spies after every test.
+    vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     // Clean up test collections before each test
     await cleanupAllCollections();
   });

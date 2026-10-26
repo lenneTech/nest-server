@@ -1,9 +1,9 @@
 import { ArgsType, Int } from '@nestjs/graphql';
 
-import { UnifiedField } from '../decorators/unified-field.decorator';
-import { maps } from '../helpers/model.helper';
-import { CoreInput } from '../inputs/core-input.input';
-import { SortInput } from '../inputs/sort.input';
+import { UnifiedField } from '../decorators/unified-field.decorator.js';
+import { maps } from '../helpers/model.helper.js';
+import { CoreInput } from '../inputs/core-input.input.js';
+import { SortInput } from '../inputs/sort.input.js';
 
 @ArgsType()
 export class PaginationArgs extends CoreInput {

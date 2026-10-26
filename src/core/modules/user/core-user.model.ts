@@ -3,11 +3,11 @@ import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
 import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
 import { Document } from 'mongoose';
 
-import { Restricted } from '../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { CorePersistenceModel } from '../../common/models/core-persistence.model';
-import { CoreTokenData } from '../auth/interfaces/core-token-data.interface';
+import { Restricted } from '../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { CorePersistenceModel } from '../../common/models/core-persistence.model.js';
+import { CoreTokenData } from '../auth/interfaces/core-token-data.interface.js';
 
 export type CoreUserModelDocument = CoreUserModel & Document;
 

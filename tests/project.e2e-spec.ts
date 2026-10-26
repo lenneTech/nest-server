@@ -42,10 +42,6 @@ describe('Project (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
-    // Indicates that cookies are enabled
-    if (envConfig.cookies) {
-      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
-    }
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [ServerModule],
@@ -179,7 +175,7 @@ describe('Project (e2e)', () => {
         name: 'updateUser',
         type: TestGraphQLType.MUTATION,
       },
-      { language: 'en', log: true, token: users[0].token },
+      { language: 'en', token: users[0].token },
     );
 
     expect(res.id).toEqual(users[0].id);

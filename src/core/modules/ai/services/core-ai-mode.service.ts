@@ -2,18 +2,18 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { CrudService } from '../../../common/services/crud.service';
-import { CoreModelConstructor } from '../../../common/types/core-model-constructor.type';
-import { AiModeDocument, CoreAiMode } from '../models/core-ai-mode.model';
+import { CrudService } from '../../../common/services/crud.service.js';
+import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
+import { AiModeDocument, CoreAiMode } from '../models/core-ai-mode.model.js';
 
-import { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants';
+import { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
  * keep working; the tokens are declared in an import-free leaf so no cycle can form around them
  * (SWC-safe — see core-ai.constants.ts).
  */
-export { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants';
+export { AI_MODE_CLASS, AI_MODE_MODEL } from '../core-ai.constants.js';
 
 /**
  * Named-mode store. See {@link CoreAiMode}. Override via

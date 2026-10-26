@@ -1,4 +1,4 @@
-import type { IBetterAuth } from '../../common/interfaces/server-options.interface';
+import type { IBetterAuth } from '../../common/interfaces/server-options.interface.js';
 
 /**
  * What the Swagger document needs to know about the routes under the Better-Auth base path.

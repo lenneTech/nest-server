@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { Error as MongooseError } from 'mongoose';
 
-import { ErrorCode } from '../../modules/error-code/error-codes';
+import { ErrorCode } from '../../modules/error-code/error-codes.js';
 
 import type { GqlContextType } from '@nestjs/graphql';
 import type { Request, Response } from 'express';

@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper';
-import { ConfigService } from '../../../common/services/config.service';
+import { isProductionLikeEnv } from '../../../common/helpers/cookies.helper.js';
+import { ConfigService } from '../../../common/services/config.service.js';
 
 /**
  * AES-256-GCM wrapper for AI connection secrets (API keys).

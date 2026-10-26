@@ -31,13 +31,27 @@ When a README ships cross-language recipes (e.g. the API-token signed-assertion 
   WHICH cases go red per mutation — the per-test granularity the gate itself does not report.
   Used 2026-10-11 for the four `e2e-slot-*` / `e2e-low-resource-cap-pooloptions` mutations (all red as tagged).
   Same scratch dir + `tsconfig` copy also answers "does tsc catch X" probes (it accepts unknown
-  vitest config keys under this repo's `module: commonjs`).
+  vitest config keys; since 12.0.0 the base tsconfig is `module`/`moduleResolution: nodenext` and
+  `tsconfig.tests.json` overrides it with `preserve` + `bundler` — copy the one the claim is about).
 
 - **FRAMEWORK-API.md generator claims** ("regenerates with the new version", "skips when unchanged"):
   `sed` the script into `<scratch>/gen.cts` with `const ROOT = '<repo>'` and `const OUTPUT` pointing at a
   scratch copy of FRAMEWORK-API.md, then run it from the repo with `NODE_PATH=<repo>/node_modules
   ./node_modules/.bin/tsx <scratch>/gen.cts` (the `.cts` extension keeps it CJS). Edit the scratch copy
   (version, date) to probe each branch. ~10 s, never touches the tracked file. Used 2026-10-20.
+
+- **"Pin X and you get two copies" claims:** scratch dir with `fw/package.json` (the framework's deps) +
+  root `package.json` (`"fake-framework": "file:./fw"` + the consumer pins), `pnpm-workspace.yaml` with
+  `nodeLinker: hoisted` + `minimumReleaseAge: 0`, then `pnpm install --lockfile-only --ignore-scripts` (~3 s,
+  needs the registry). Count `'@nestjs/mongoose@12.0.0(` snapshot keys: one per distinct peer set. Used 2026-10-24.
+- **TypeScript-upgrade emit/runtime claims:** scratch project with `node_modules/typescript` symlinked to the
+  repo's TS (6.x) and the starter's TS (5.9) as the baseline binary; compile a 3-line probe and `grep
+  __importStar` / run it. For Nest schema effects, compile a tiny `@Resolver` and call
+  `GraphQLSchemaFactory.create()` from `GraphQLSchemaBuilderModule` — no DB, no HTTP. ts-node under a newer TS:
+  run the starter's `node_modules/ts-node/dist/bin.js` from a dir whose `node_modules/typescript` points at
+  the new TS (ts-node resolves the compiler from the project dir). Used 2026-10-24.
+- **A loader / config file against the real starter:** `cd nest-server-starter && node -e "require('<repo>/dist/…/ts-compiler.js'); require('./migrations-utils/mongo-uri').resolveMongoUri()"`
+  loads the starter's `config.env.ts` read-only. Used 2026-10-24.
 
 Verified 2026-09-26: the 11.41.4 C#, PowerShell-shaped and Node assertion recipes all pass
 `decodeApiTokenAssertion` + `verifyApiTokenAssertionSignature` + `checkApiTokenAssertionTiming`.

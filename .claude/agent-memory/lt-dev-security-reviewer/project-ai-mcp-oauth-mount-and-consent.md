@@ -21,8 +21,12 @@ Consequences:
   `refresh_token`, `grant_type` as `z.string()` before our native-driver queries — no NoSQL injection.
 - CORS: project cors answers preflights first (stricter); SDK `cors()` overwrites ACAO to `*` on
   simple requests, same as standalone. No weakening.
-- dual-package `instanceof`: tsconfig `module: commonjs` compiles both lazy `import()`s (router +
-  errors) to `require` → same CJS build; vitest → both ESM. Consistent.
+- dual-package `instanceof`: both SDK loads (router + errors) are lazy `import()`s, so every build mode
+  loads ONE build for both: since 12.0.0 `tsc` (`module: nodenext`) keeps them native → ESM build;
+  a vendor project on `module: commonjs` and SWC rewrite both to `require` → CJS build; vitest → ESM.
+  The invariant to check is "both lazy" — a static import of either would split them. The errors type
+  is derived from the import expression (`loadOAuthErrorsModule`, `core-ai-mcp-oauth.service.ts`), so it
+  matches the loaded build in either `module` setting.
 
 **Consent CSRF via dynamic registration — found, then ENFORCED in the framework (same day).**
 `/register` is unauthenticated and accepts any https `redirect_uris`. A consent built as the

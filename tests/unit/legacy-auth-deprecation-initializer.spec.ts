@@ -156,4 +156,20 @@ describe('CoreLegacyAuthDeprecationInitializer', () => {
     // The deprecation warning still went out — the status is an addition to it, not a gate on it.
     expect(warn.mock.calls.map(String).join('\n')).toContain('Legacy Auth is ENABLED');
   });
+
+  it('reports once per application, however often CoreAuthModule is registered', async () => {
+    // The classic legacy server module registers CoreAuthModule twice (once through
+    // CoreModule.forRoot(), once imported directly); both instances share the app's ConfigService.
+    const configService = configServiceFor({ enabled: true });
+    const { getMigrationStatus, mapper } = mapperFor({ canDisableLegacyAuth: false, fullyMigratedUsers: 1, migrationPercentage: 50, totalUsers: 2 });
+
+    await bootAndSettle(new CoreLegacyAuthDeprecationInitializer(configService, mapper));
+    await bootAndSettle(new CoreLegacyAuthDeprecationInitializer(configService, mapper));
+    expect(getMigrationStatus, 'one status read per application').toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.map(String).filter((line) => line.includes('Legacy Auth is ENABLED'))).toHaveLength(1);
+
+    // A second application (another ConfigService) is reported on again.
+    await bootAndSettle(new CoreLegacyAuthDeprecationInitializer(configServiceFor({ enabled: true }), mapper));
+    expect(getMigrationStatus).toHaveBeenCalledTimes(2);
+  });
 });

@@ -1,7 +1,7 @@
 import { Controller, Get, Header, Headers, Post } from '@nestjs/common';
 
-import { CorePermissionsService } from './core-permissions.service';
-import type { PermissionsReport } from './interfaces/permissions.interface';
+import { CorePermissionsService } from './core-permissions.service.js';
+import type { PermissionsReport } from './interfaces/permissions.interface.js';
 
 @Controller()
 export class CorePermissionsController {

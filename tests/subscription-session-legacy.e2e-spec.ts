@@ -36,6 +36,13 @@ import { UserService } from '../src/server/modules/user/user.service';
  * @seen-failing Make `authenticateLegacyWsToken()` in src/core.module.ts read the payload with
  *   `authService.decodeJwt(authToken)` instead of verifying it — registered as mutation
  *   `legacy-ws-jwt-unverified` in tests/regression-mutations.json.
+ *
+ * @regression   12.0.0 — the legacy `onConnect` THREW on a token that authenticates nobody, which
+ *   graphql-ws's ws adapter logs as "Internal error occurred during message handling. Please check your
+ *   implementation." and closes with 4500, a server error, instead of 4401.
+ * @seen-failing Throw instead of `refuseWsHandshake()` for an unverified legacy token in
+ *   src/core.module.ts — registered as mutation `legacy-ws-handshake-refusal-throws` in
+ *   tests/regression-mutations.json.
  */
 describe('Role changes reach open WebSockets (legacy builder, e2e)', () => {
   let app: INestApplication;
@@ -190,6 +197,7 @@ describe('Role changes reach open WebSockets (legacy builder, e2e)', () => {
     const socket = connect(forged);
     await waitUntil(() => socket.connected || socket.closes.length > 0, 'handshake answered');
     expect(socket.connected, 'a re-signed token opened a socket').toBe(false);
+    expect(socket.closes[0]?.code, 'refused as unauthorized, not as a server error (4500)').toBe(4401);
   });
 
   it('refuses a handshake with an expired token', async () => {
@@ -199,6 +207,7 @@ describe('Role changes reach open WebSockets (legacy builder, e2e)', () => {
     const socket = connect(expired);
     await waitUntil(() => socket.connected || socket.closes.length > 0, 'handshake answered');
     expect(socket.connected, 'an expired token opened a socket').toBe(false);
+    expect(socket.closes[0]?.code, 'refused as unauthorized, not as a server error (4500)').toBe(4401);
   });
 
   it('accepts the same re-signing with the server key while it is valid (control)', async () => {

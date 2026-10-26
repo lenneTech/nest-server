@@ -38,9 +38,12 @@ const GUIDES = join(ROOT, 'migration-guides');
 /** The guide this suite pins. Older guides describe an API that has since moved on. */
 const GUIDE = '11.34.x-to-11.35.x.md';
 
-/** Resolve a relative module specifier to the file it names, `.ts` or `index.ts`. */
+/**
+ * Resolve a relative module specifier to the file it names, `.ts` or `index.ts`. Since 12.0.0 the source writes
+ * the emitted extension (`./x.js`, valid as CommonJS and ESM), which names the `.ts` file next to it.
+ */
 function resolveSpecifier(fromFile: string, specifier: string): string | undefined {
-  const base = resolve(dirname(fromFile), specifier);
+  const base = resolve(dirname(fromFile), specifier.replace(/\.js$/, ''));
   return [`${base}.ts`, join(base, 'index.ts')].find(candidate => existsSync(candidate));
 }
 

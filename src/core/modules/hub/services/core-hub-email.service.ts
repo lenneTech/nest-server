@@ -2,11 +2,12 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { existsSync, readdirSync } from 'fs';
 import { join, resolve } from 'path';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { TemplateService } from '../../../common/services/template.service';
-import { HUB_CONFIG } from '../hub.constants';
-import { HubEmailsData, HubUnavailable } from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { TemplateService } from '../../../common/services/template.service.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { HubEmailsData, HubUnavailable } from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
+import { callerDirectory } from '../../../common/helpers/module-location.helper.js';
 
 /** Sample data used to render an email template preview. Values are illustrative, never real user data. */
 const SAMPLE_PAYLOAD: Record<string, unknown> = {
@@ -118,7 +119,7 @@ export class CoreHubEmailService {
 
   protected frameworkTemplatesDir(): string {
     // From src/core/modules/hub/services → src/templates (same relative offset in dist/).
-    return resolve(__dirname, '../../../../templates');
+    return resolve(callerDirectory(), '../../../../templates');
   }
 
   protected listEjs(dir: string): string[] {

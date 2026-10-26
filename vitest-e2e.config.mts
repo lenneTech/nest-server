@@ -3,8 +3,8 @@ import os from 'node:os';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
-import { countOtherActiveRuns } from './tests/e2e-run-slots';
-import { E2E_TEST_INCLUDE } from './vitest.include-globs';
+import { countOtherActiveRuns } from './tests/e2e-run-slots.mjs';
+import { E2E_TEST_INCLUDE } from './vitest.include-globs.mjs';
 
 // Low-resource mode — caps parallel forks and raises timeouts so many e2e suites can share one
 // machine's CPU and mongod without starving each other. The failure mode it prevents is real and
@@ -23,7 +23,7 @@ import { E2E_TEST_INCLUDE } from './vitest.include-globs';
 //   CHECK_LOW_RESOURCE=0 / false -> force off  (benchmarking; never auto-throttle)
 //   unset                        -> auto       (on iff another e2e run is active OR load is high)
 //
-// Signal 1 — another e2e run is ACTIVE right now (slot files of tests/e2e-run-slots.ts, checked
+// Signal 1 — another e2e run is ACTIVE right now (slot files of tests/e2e-run-slots.mts, checked
 // by PID-liveness). This is the deterministic signal: measured on 12 cores, a single full-speed
 // run only drives the 1-minute load average up near its END (~2.5 -> 9 over 34s), so a second
 // run starting 15s in still sees a "calm" machine — the load heuristic alone structurally cannot
@@ -93,6 +93,13 @@ export default defineConfig({
   // Vite 8 switched the default TS/JS transformer from esbuild to Oxc. unplugin-swc
   // disables esbuild internally — without `oxc: false`, Oxc would still run in parallel.
   oxc: false,
+  // Probe extensionless files in NODE's order: `.js` before `.mjs`. Vite's default tries `.mjs` first, so a package
+  // whose `main` has no extension — graphql: `"main": "index"` next to `index.mjs`, no `exports` — loads its ESM build
+  // for an `import` while Node (and every `require`) loads `index.js`. Two graphql instances in one test process, and
+  // a schema built by @nestjs/graphql is refused by our `execute()`: "Cannot use GraphQLSchema from another module or
+  // realm". The source imports graphql with `import` since 12.0.0 (valid as CommonJS and ESM), which is what exposed
+  // it. Pinned by tests/unit/vitest-node-resolution.spec.ts.
+  resolve: { extensions: ['.js', '.mjs', '.mts', '.ts', '.jsx', '.tsx', '.json'] },
   plugins: [
     swc.vite({
       jsc: {
@@ -103,15 +110,19 @@ export default defineConfig({
     }),
   ],
   test: {
-    // Separate directory from the unit runner's report — see vitest.config.ts.
+    // Separate directory from the unit runner's report — see vitest.config.mts.
     coverage: { reportsDirectory: './coverage/e2e' },
+    // e2e suites sign users up and reset passwords by the hundred; the development convenience of printing
+    // each auth link (logAuthUrlForDevelopment, on by default in `e2e`) would only bury the run's output.
+    // The unit spec that pins that behaviour sets the variable itself.
+    env: { LT_LOG_AUTH_URLS: '0' },
     environment: 'node',
     // No `exclude` needed: the `include` patterns below match neither the type-only tests
     // (`tests/types/**/*.type-test.ts`, run via `pnpm run test:types`) nor the test-infrastructure
     // modules (global setup, worker setup, DB reporter). Leaving `exclude` unset keeps vitest's
     // own defaults (node_modules, dist, …) in place instead of replacing them.
     // Enable parallel file execution for speed
-    // Same reasoning as vitest.config.ts — see the long comment there. Applied here too, and if
+    // Same reasoning as vitest.config.mts — see the long comment there. Applied here too, and if
     // anything the exposure is larger: the e2e suite boots real apps and logs far more, so more
     // console writes are in flight at any worker teardown. `pnpm run check` runs BOTH suites
     // (`test` = `vitest:unit && vitest`), so leaving one half on the RPC path would keep the
@@ -124,25 +135,25 @@ export default defineConfig({
     // full Nest app can exceed 60s under load (parallel transform/import),
     // which failed whole files without any retry. Be generous here.
     hookTimeout: LOW_RESOURCE ? 240000 : 120000,
-    // Matches the unit runner — see vitest.config.ts for the timing (restore happens
+    // Matches the unit runner — see vitest.config.mts for the timing (restore happens
     // BEFORE each attempt, so a `beforeAll`-installed spy does not survive) and for
     // why a leaked spy is worse than it looks.
     restoreMocks: true,
     // Suites that need the mongod + globalSetup this config provides: e2e specs and story
     // tests. Naming the patterns explicitly (instead of `tests/**/*.ts`) keeps helpers,
     // setup and reporters out — and, crucially, keeps `tests/unit/**` out: those are plain
-    // unit tests, run by vitest.config.ts, against a database they neither need nor use.
-    // The patterns live in vitest.include-globs.ts, shared with
+    // unit tests, run by vitest.config.mts, against a database they neither need nor use.
+    // The patterns live in vitest.include-globs.mts, shared with
     // `tests/unit/test-file-routing.spec.ts`, which asserts that every *.spec.ts / *.test.ts file
     // in the repo is claimed by exactly one of the two runners — so narrowing them can never
     // silently drop a suite.
     include: E2E_TEST_INCLUDE,
     // Runs in every test worker before test files are imported (filters expected log/warn noise)
     setupFiles: ['tests/setup.ts'],
-    // PARALLEL CONFIGURATION: Fast execution with retry mechanism
-    // Files run in parallel for maximum speed
-    // Flaky tests are automatically retried up to 3 times
-    // Isolate each test file in its own process for stability
+    // PARALLEL CONFIGURATION: files run in parallel, each in its own process. `isolate` is stated rather than
+    // defaulted on purpose: the suites rely on fresh module state per file (static registries,
+    // CoreBetterAuthModule's static instance, ConfigService's singleton), and an explicit value is also what
+    // keeps vitest 5 from suggesting `isolate: false`. Retries: see `retry` below (2, deliberately not more).
     isolate: true,
     // Allow multiple files to run concurrently
     maxConcurrency: 3,

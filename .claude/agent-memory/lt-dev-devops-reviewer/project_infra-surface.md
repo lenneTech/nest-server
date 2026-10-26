@@ -45,8 +45,34 @@ this repo's Dockerfile alone does not show the deployed configuration.
   (`MIGRATE_FAILURE_POLICY=warn` opts out).
 - No coverage upload, no `lt server permissions` gate (the scanner targets consumer projects).
 
-**Other (non-Docker) review surface:** `scripts/check.mjs`, `vitest.config.ts` + `vitest-e2e.config.ts`,
+**Other (non-Docker) review surface:** `scripts/check.mjs` (runs the `check:raw` chain),
+`vitest.config.mts` + `vitest-e2e.config.mts` (renamed from `.ts` in 12.0.0),
 `pnpm-workspace.yaml` (see [[project-pnpm-audit-and-overrides]] — non-obvious pnpm 11 mechanics),
-`bin/migrate.js` (3-layout resolver).
+`bin/migrate.js` (3-layout resolver; compiled candidates first, TS source last).
+
+**12.0.0 (2026-10-24): ts-node is gone.** The TS loader is an SWC require hook,
+`src/core/modules/migrate/helpers/ts-compiler.js` (`@swc/core` = optional peer + devDep), used by
+nodemon, `docs:ci`, bin/migrate.js's source branch and consumers' `migrate:*` `--compiler ts:` scripts.
+Production never touches it: the entrypoint passes no `--compiler`, and the compiled migrate chain
+requires only builtins + `mongodb`. Fast proof that a pruned image still boots: a `-r` preload that
+overrides `Module._resolveFilename` to throw for every devDependency that is neither a dependency nor a
+REQUIRED peer (better-auth trio are required peers — block them and you get a false alarm), then
+`require('./dist/core/modules/migrate/cli/migrate-cli.js')` + `require('./dist/index.js')`.
+
+**12.0.0 (2026-10-26): the package became `"type": "module"`, so dist/ is ESM.** CommonJS consumers load
+it through `require(esm)` (Node 22.12+/24; breaks only on top-level await in the graph). Two
+`{ "type": "commonjs" }` scope files keep CJS islands: `bin/package.json` (the `migrate` shim uses
+`require`/`__dirname`/`require.main`) and `src/core/modules/migrate/helpers/package.json` (loader
+shim `ts-compiler.js` → `ts-compiler.cjs`; tsc under nodenext also EMITS `helpers/*.ts` as CJS, so the
+copied `dist/.../helpers/package.json` from nest-cli's `**/*.json` asset glob is load-bearing).
+Both ship (verified with npm AND pnpm pack), and since 2026-10-26 `check:manifest` requires every nested
+`package.json` below `bin/` and `src/core/` in the tarball (plus its `dist/` counterpart) and loads the built
+loader, forwarder and `bin/migrate.js --help` in place.
+Publish uses `JS-DevTools/npm-publish` (npm packlist). Strongest proof, ~1 min with a warm store:
+`npm pack --ignore-scripts --pack-destination <scratch>`, scratch project with the tgz + better-auth
+trio, `nodeLinker: isolated`, `pnpm install --prod` (no @swc/core lands), CJS store
+`require('@lenne.tech/nest-server').createMigrationStore(...)`, then `node_modules/.bin/migrate up`
+against a throwaway `*-test-*` DB — check exit 0, and exit 1 on a throwing migration. Drop the DB
+via the installed `mongodb` driver (mongosh is absent on this machine).
 
 See [[feedback-review-uncommitted-worktree]] for how these reviews are requested.

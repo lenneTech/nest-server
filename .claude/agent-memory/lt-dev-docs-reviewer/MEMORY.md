@@ -17,7 +17,7 @@
 - [config.env.ts is consumer-owned](config-env-is-consumer-owned.md) — a fix landing in src/config.env.ts is NOT delivered by `pnpm update`; a guide claiming "it now just works" is inaccurate
 - [Audit suppressions have no rule-doc home](audit-suppression-has-no-rule-doc-home.md) — RESOLVED 2026-09-03; kept because one script enforces it. 2026-10-06: unusableFixConsumers grammar + pnpm-tolerance verified
 - [Tenant API tokens outlive their tenant](api-token-tenant-token-lifetime.md) — no tenant-existence check; only deleteAllForTenant ends them; "access ends when owner disappears" is USER-only
-- [Executable doc recipes](executable-doc-recipes.md) — dotnet runs C#; no pwsh; Better-Auth OpenAPI via root .mjs; mutation + FRAMEWORK-API generator replay in scratchpad
+- [Executable doc recipes](executable-doc-recipes.md) — dotnet runs C#; no pwsh; Better-Auth OpenAPI via root .mjs; mutation + FRAMEWORK-API generator replay; pnpm dup-copy + TS-emit probes
 - [Override recipes vs consumer lockfiles](override-recipe-vs-consumer-lockfiles.md) — check a guide's override key against REAL consumer lockfiles (turbo etc.) + a scratchpad `pnpm audit`; older lines escape it
 - [Optional-peer vendor delivery](optional-peer-vendor-delivery.md) — new lazy-imported peers reach vendor projects via the CLI closure scan + the guide, NOT vendor-runtime-deps.json
 - [Starter config.env.ts has two bases](starter-config-env-two-bases.md) — localConfig (local/e2e/ci) vs deployedConfig share nothing; an example in one never reaches the other pipeline
@@ -34,3 +34,6 @@
 - [trustedOrigins replace semantics](trusted-origins-replace-semantics.md) — explicit betterAuth.trustedOrigins drops appUrl; cors.allowedOrigins is merged; tests never see origin 403s
 - [Better-Auth base-URL readers](better-auth-request-url-and-base-url-readers.md) — who reads the Web Request host (oauth-proxy only) + consumers self-fetch via getBaseUrl()
 - [Plugin no-user vs no-context asymmetry](plugin-no-user-vs-no-context-asymmetry.md) — context-without-user: tenant plugin refuses, role-guard/audit read it as system; verify per plugin
+- [TS6 esModuleInterop namespace-import trap](ts6-esmoduleinterop-namespace-import-trap.md) — `import * as GraphQLUpload` compiles green under TS 6 and fails at boot; carried by nest-server's CoreFileResolver ≤ 11.43.3, not by the CLI generator
+- [Starter update does not apply every row](starter-update-does-not-apply-every-row.md) — RAISE_SOURCES skips devDep→runtime + undeclared pkgs; diff every guide table row against package.json
+- [Vendor legacy ts-node bootstrap](vendor-legacy-ts-node-bootstrap.md) — CLI-generated migrations-utils/ts-compiler.js survives core sync; 12.x core breaks migrate:* through it

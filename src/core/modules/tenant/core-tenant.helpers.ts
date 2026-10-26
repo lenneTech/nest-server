@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 
-import { isForbiddenMembershipRole, isGlobalOnlyRole, looksLikeSystemRole } from '../../common/enums/role.enum';
-import { ConfigService } from '../../common/services/config.service';
-import { RoleScope, roleScopeRegistry, RoleScopeSource } from './core-role-scope.registry';
-import { hasActiveTenantGuard } from './core-tenant-guard.registry';
-import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums';
+import { isForbiddenMembershipRole, isGlobalOnlyRole, looksLikeSystemRole } from '../../common/enums/role.enum.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { RoleScope, roleScopeRegistry, RoleScopeSource } from './core-role-scope.registry.js';
+import { hasActiveTenantGuard } from './core-tenant-guard.registry.js';
+import { DEFAULT_ROLE_HIERARCHY } from './core-tenant.enums.js';
 
 /**
  * Merge handler-level and class-level @Roles() metadata arrays into a single flat array.
@@ -37,7 +37,7 @@ export {
   looksLikeGlobalOnlyRole,
   looksLikeSystemRole,
   SYSTEM_ROLE_PREFIX,
-} from '../../common/enums/role.enum';
+} from '../../common/enums/role.enum.js';
 
 /**
  * Feeds the role-scope registry from `multiTenancy` config.

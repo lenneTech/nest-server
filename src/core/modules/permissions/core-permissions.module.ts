@@ -1,11 +1,11 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 
-import { RoleEnum } from '../../common/enums/role.enum';
+import { RoleEnum } from '../../common/enums/role.enum.js';
 
-import { CorePermissionsController } from './core-permissions.controller';
-import { CorePermissionsService } from './core-permissions.service';
-import type { IPermissions } from './interfaces/permissions.interface';
+import { CorePermissionsController } from './core-permissions.controller.js';
+import { CorePermissionsService } from './core-permissions.service.js';
+import type { IPermissions } from './interfaces/permissions.interface.js';
 
 @Module({})
 export class CorePermissionsModule {

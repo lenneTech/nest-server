@@ -4,7 +4,7 @@ import type { ApolloServerPlugin, BaseContext, GraphQLRequestListener } from '@a
 import { GraphQLError } from 'graphql';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 
-import { ConfigService } from '../services/config.service';
+import { ConfigService } from '../services/config.service.js';
 
 @Plugin()
 export class ComplexityPlugin implements ApolloServerPlugin {

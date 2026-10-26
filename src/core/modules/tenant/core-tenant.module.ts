@@ -3,13 +3,13 @@ import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { roleScopeRegistry } from './core-role-scope.registry';
-import { registerActiveTenantGuard } from './core-tenant-guard.registry';
-import { CoreTenantMemberModel } from './core-tenant-member.model';
-import { TENANT_MEMBER_MODEL_TOKEN } from './core-tenant.enums';
-import { assertRoleVocabularyIsCoherent, configRoleScopeSource } from './core-tenant.helpers';
-import { CoreTenantGuard } from './core-tenant.guard';
-import { CoreTenantService } from './core-tenant.service';
+import { roleScopeRegistry } from './core-role-scope.registry.js';
+import { registerActiveTenantGuard } from './core-tenant-guard.registry.js';
+import { CoreTenantMemberModel } from './core-tenant-member.model.js';
+import { TENANT_MEMBER_MODEL_TOKEN } from './core-tenant.enums.js';
+import { assertRoleVocabularyIsCoherent, configRoleScopeSource } from './core-tenant.helpers.js';
+import { CoreTenantGuard } from './core-tenant.guard.js';
+import { CoreTenantService } from './core-tenant.service.js';
 
 /**
  * Options for CoreTenantModule.forRoot().

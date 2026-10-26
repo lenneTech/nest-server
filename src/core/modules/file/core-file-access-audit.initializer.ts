@@ -1,16 +1,16 @@
 import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { DiscoveryService } from '@nestjs/core';
 
-import { ConfigService } from '../../common/services/config.service';
-import { CoreFileController } from './core-file.controller';
-import { CoreFileResolver } from './core-file.resolver';
-import { CoreFileService } from './core-file.service';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreFileController } from './core-file.controller.js';
+import { CoreFileResolver } from './core-file.resolver.js';
+import { CoreFileService } from './core-file.service.js';
 import {
   FILE_ROLE_MEMBERS,
   FileEndpointClassName,
   ObservedFileHandler,
   warnOnUndecidedEffectiveFileAccess,
-} from './file-roles.config';
+} from './file-roles.config.js';
 
 /**
  * Audits the file endpoints a project ACTUALLY registered, and warns when one of them is open beyond

@@ -14,10 +14,10 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { acquireRunSlot, activeRuns, countOtherActiveRuns, maxConcurrentE2eRuns, slotDir } from '../e2e-run-slots';
+import { acquireRunSlot, activeRuns, countOtherActiveRuns, maxConcurrentE2eRuns, slotDir } from '../e2e-run-slots.mjs';
 
 /**
- * Unit tests for the machine-wide e2e run governor (tests/e2e-run-slots.ts).
+ * Unit tests for the machine-wide e2e run governor (tests/e2e-run-slots.mts).
  *
  * The governor is what keeps parallel `lt dev` / `lt ticket` sessions from starving
  * each other's e2e runs, and its crash-recovery (PID-liveness reclaim) is what keeps
@@ -120,7 +120,7 @@ describe('e2e-run-slots', () => {
    *   recycled by an unrelated long-lived process was counted as an active run forever and never
    *   unlinked. Every later run on the machine then dropped into low-resource mode or waited out
    *   the full fail-open timeout.
-   * @seen-failing Disable the age cap in activeRuns() in tests/e2e-run-slots.ts — registered as
+   * @seen-failing Disable the age cap in activeRuns() in tests/e2e-run-slots.mts — registered as
    *   mutation `e2e-slot-no-age-cap` in tests/regression-mutations.json.
    */
   it('reclaims a slot whose PID is alive but whose age says it cannot be a run (PID recycling)', () => {
@@ -154,7 +154,7 @@ describe('e2e-run-slots', () => {
    *   mode and the slot file written with flag 'w', so a `<pid>.slot` symlink planted by another
    *   user made the write truncate the link's target and fill it with the slot JSON.
    * @seen-failing Restore the bare `mkdirSync` + flag 'w' write in claimOwnSlot() in
-   *   tests/e2e-run-slots.ts — registered as mutation `e2e-slot-claim-follows-symlink` in
+   *   tests/e2e-run-slots.mts — registered as mutation `e2e-slot-claim-follows-symlink` in
    *   tests/regression-mutations.json.
    */
   it.skipIf(process.platform === 'win32')('creates a missing slot directory private (0700)', async () => {
@@ -173,7 +173,7 @@ describe('e2e-run-slots', () => {
    * @regression   11.42.x — see the 0700 case above: same defect, the half that writes through the
    *   planted link.
    * @seen-failing Restore the bare `mkdirSync` + flag 'w' write in claimOwnSlot() in
-   *   tests/e2e-run-slots.ts — registered as mutation `e2e-slot-claim-follows-symlink` in
+   *   tests/e2e-run-slots.mts — registered as mutation `e2e-slot-claim-follows-symlink` in
    *   tests/regression-mutations.json.
    */
   it.skipIf(process.platform === 'win32')('does not follow a symlink planted at the own slot path', async () => {
@@ -200,7 +200,7 @@ describe('e2e-run-slots', () => {
    *   written (another user owns the directory on a shared host, a read-only tmpdir) threw out of
    *   acquireRunSlot() and, through tests/global-setup.ts, aborted the whole e2e suite.
    * @seen-failing Rethrow from the catch around claimOwnSlot() in acquireRunSlot() in
-   *   tests/e2e-run-slots.ts, i.e. the old unguarded call — registered as mutation
+   *   tests/e2e-run-slots.mts, i.e. the old unguarded call — registered as mutation
    *   `e2e-slot-claim-not-fail-open` in tests/regression-mutations.json.
    */
   it('proceeds without the governor instead of killing the run when no slot can be written', async () => {

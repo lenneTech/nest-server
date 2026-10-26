@@ -3,13 +3,13 @@ import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose'
 import { IsEmail } from 'class-validator';
 import { Document, Schema } from 'mongoose';
 
-import { Restricted } from '../../../core/common/decorators/restricted.decorator';
-import { Translatable } from '../../../core/common/decorators/translatable.decorator';
-import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator';
-import { ProcessType } from '../../../core/common/enums/process-type.enum';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { CoreUserModel } from '../../../core/modules/user/core-user.model';
-import { PersistenceModel } from '../../common/models/persistence.model';
+import { Restricted } from '../../../core/common/decorators/restricted.decorator.js';
+import { Translatable } from '../../../core/common/decorators/translatable.decorator.js';
+import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator.js';
+import { ProcessType } from '../../../core/common/enums/process-type.enum.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { CoreUserModel } from '../../../core/modules/user/core-user.model.js';
+import { PersistenceModel } from '../../common/models/persistence.model.js';
 
 export type UserDocument = Document & User;
 

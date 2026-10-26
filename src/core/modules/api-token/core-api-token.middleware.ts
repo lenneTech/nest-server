@@ -1,9 +1,9 @@
 import { HttpException, HttpStatus, Injectable, NestMiddleware, Optional, UnauthorizedException } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { ErrorCode } from '../error-code/error-codes';
-import { getApiTokenConfig, getApiTokenContext, readApiTokenCredentialFromHeaders } from './core-api-token.helpers';
-import { CoreApiTokenService } from './core-api-token.service';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { getApiTokenConfig, getApiTokenContext, readApiTokenCredentialFromHeaders } from './core-api-token.helpers.js';
+import { CoreApiTokenService } from './core-api-token.service.js';
 
 /**
  * Authenticates requests that carry an API token or a signed assertion — `Authorization: Bearer …` or

@@ -2207,7 +2207,7 @@
     {
       "id": "e2e-low-resource-cap-pooloptions",
       "defect": "11.42.x — Vitest 4 removed `test.poolOptions`. The e2e low-resource mode still set `poolOptions.forks.maxForks`, so the worker cap was announced on stderr and discarded: measured here and in a consuming project (8 e2e files, 12 cores), a run logging \"maxForks=2\" used 8 forks, the same run with `maxWorkers` used 2. Low-resource mode was a pure timeout extension and overlapping e2e runs kept starving each other. The type-check could not catch it (the config type collapses to `any` under `module: commonjs`), and vitest only logs a deprecation.",
-      "file": "vitest-e2e.config.ts",
+      "file": "vitest-e2e.config.mts",
       "find": "    maxWorkers: CAP_WORKERS ? LOW_RESOURCE_FORKS : undefined,",
       "replace": "    ...(LOW_RESOURCE ? { poolOptions: { forks: { maxForks: LOW_RESOURCE_FORKS, minForks: 1 } } } : {}),",
       "specs": [
@@ -2217,8 +2217,8 @@
     },
     {
       "id": "e2e-slot-no-age-cap",
-      "defect": "11.42.x — tests/e2e-run-slots.ts reclaimed a slot by PID liveness alone. A slot whose PID had been recycled by an unrelated long-lived process was counted as an active run forever and never unlinked, so every later e2e run on the machine dropped into low-resource mode or waited out the full fail-open timeout. Ported from nest-server-starter 46b9ac2.",
-      "file": "tests/e2e-run-slots.ts",
+      "defect": "11.42.x — tests/e2e-run-slots.mts reclaimed a slot by PID liveness alone. A slot whose PID had been recycled by an unrelated long-lived process was counted as an active run forever and never unlinked, so every later e2e run on the machine dropped into low-resource mode or waited out the full fail-open timeout. Ported from nest-server-starter 46b9ac2.",
+      "file": "tests/e2e-run-slots.mts",
       "find": "    if (startedAt > 0 && Date.now() - startedAt > STALE_SLOT_MAX_AGE_MS) {",
       "replace": "    if (startedAt > 0 && Date.now() - startedAt > Number.POSITIVE_INFINITY) {",
       "specs": [
@@ -2229,7 +2229,7 @@
     {
       "id": "e2e-slot-claim-follows-symlink",
       "defect": "11.42.x — claimOwnSlot() created the machine-wide slot directory without a mode and wrote the slot file with flag 'w'. On a multi-user Linux host os.tmpdir() is the world-writable /tmp, so a <pid>.slot symlink planted by another user made the write truncate the link target and fill it with the slot JSON, with the running user's privileges. Ported from nest-server-starter 46b9ac2.",
-      "file": "tests/e2e-run-slots.ts",
+      "file": "tests/e2e-run-slots.mts",
       "find": "  mkdirSync(slotDir(), { mode: 0o700, recursive: true });\n  try {\n    unlinkSync(ownSlotPath());\n  } catch {\n    /* nothing there, which is the normal case */\n  }\n  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'wx', mode: 0o600 });",
       "replace": "  mkdirSync(slotDir(), { recursive: true });\n  writeFileSync(ownSlotPath(), JSON.stringify(info), { flag: 'w' });",
       "specs": [
@@ -2240,7 +2240,7 @@
     {
       "id": "e2e-slot-claim-not-fail-open",
       "defect": "11.42.x — acquireRunSlot() is documented as fail-open, but a slot that could not be written (another user owns the directory on a shared host, a read-only tmpdir) threw out of it and, through tests/global-setup.ts, aborted the whole e2e suite. Ported from nest-server-starter 46b9ac2.",
-      "file": "tests/e2e-run-slots.ts",
+      "file": "tests/e2e-run-slots.mts",
       "find": "        return () => {};\n      }\n      // Two waiters",
       "replace": "        throw error;\n      }\n      // Two waiters",
       "specs": [
@@ -2251,7 +2251,7 @@
     {
       "id": "e2e-low-resource-cap-ci-self-load",
       "defect": "11.42.x (caught in review, before release) — once the low-resource cap took effect, it also fired on GitHub-hosted runners on the load signal alone. Such a runner runs one job per VM, so that load is the job's own vitest:unit, finished about a second before the e2e config loads (0.84-0.92/core on the runner builds of 11.42.8-11.42.10). Measured on hosted 4-vCPU runners, the cap took the e2e step from 133 s to 198 s mean wall time (+25 % normalised for runner speed) on every build and release, against a contention that does not exist.",
-      "file": "vitest-e2e.config.ts",
+      "file": "vitest-e2e.config.mts",
       "find": "const CAP_WORKERS = LOW_RESOURCE && !(ON_GITHUB_HOSTED_RUNNER && LOAD_ONLY_TRIGGER);",
       "replace": "const CAP_WORKERS = LOW_RESOURCE;",
       "specs": [
@@ -2890,6 +2890,281 @@
       "replace": "    return { tenantId };\n",
       "specs": [
         "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-additional-operations-skipped",
+      "defect": "12.0.0 — @nestjs/swagger 12 puts @All() methods outside the fixed path-item set (SEARCH) into OpenAPI 3.2's additionalOperations. A helper reading only the method keys leaves those operations without the API-token line and tenant header, and the API-token view drops them.",
+      "file": "src/core/common/helpers/swagger.helper.ts",
+      "find": "  return [...standard, ...additional];\n",
+      "replace": "  return standard;\n",
+      "specs": [
+        "tests/unit/swagger-helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-runner-relative-dynamic-import",
+      "defect": "12.0.0 — MigrationRunner loaded its helper with `await import('./helpers/migration.helper.js')`. Under `module: nodenext` that stays a native import(), and ts-node (vendor-mode projects run the core from source with it) resolves no spelling of a relative dynamic import: ERR_MODULE_NOT_FOUND on every migrate run, with vitest, SWC and the tsc build all green.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "      // Mark start of migration for auto-cleanup\n      _startMigration();\n",
+      "replace": "      // Mark start of migration for auto-cleanup\n      (await import('./migration.helper.js'))._startMigration();\n",
+      "specs": [
+        "tests/unit/module-format-invariants.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migrate-create-vendor-specifier-unwired",
+      "defect": "12.0.0 (pre-existing) — `migrate create` copied the shipped template verbatim, so every migration created in a vendor-mode project imported `@lenne.tech/nest-server`, a package such a project does not have: TS2307 under ts-node, MODULE_NOT_FOUND from dist/.",
+      "file": "src/core/modules/migrate/cli/migrate-cli.ts",
+      "find": "    if (specifier) {\n      template = rewriteFrameworkSpecifier(template, specifier);\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/migrate-cli-template.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-status-closed-connection-logged-as-error",
+      "defect": "12.0.0 — getMigrationStatus() logged every failure at ERROR level, including the driver's MongoClientClosedError. CoreLegacyAuthDeprecationInitializer reads the status detached from the boot (it must not delay readiness), so any process that closes right after init() — docs:ci (scripts/init-server.ts), scripts, tests — closed the connection under that read and printed 'Error getting migration status: Operation interrupted because client was closed' although nothing had failed.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      if (isClosedConnectionError(error)) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/unit/migration-status-closed-connection.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-ws-handshake-refusal-throws",
+      "defect": "12.0.0 — the IAM-only WebSocket onConnect THREW on a token that authenticates nobody. graphql-ws's ws adapter treats a throw from message handling as an internal error: it logged 'Internal error occurred during message handling. Please check your implementation.' with a stack trace — in production, for every expired token — and closed the socket with 4500 (a server error) instead of 4401 Unauthorized. Returning false alone is no fix either: graphql-ws closes that with 4403, which its client retries with the same refused credential.",
+      "file": "src/core.module.ts",
+      "find": "                    // Get headers from raw headers or connection params\n                    const headers = CoreModule.getHeaderFromArray(extra.request?.rawHeaders);\n                    const authToken: string =\n                      connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];\n\n                    if (authToken) {\n                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().\n                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);\n                      if (!user) {\n                        return refuseWsHandshake(extra.socket, 'Invalid or expired session');\n",
+      "replace": "                    // Get headers from raw headers or connection params\n                    const headers = CoreModule.getHeaderFromArray(extra.request?.rawHeaders);\n                    const authToken: string =\n                      connectionParams?.Authorization?.split(' ')[1] ?? headers.Authorization?.split(' ')[1];\n\n                    if (authToken) {\n                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().\n                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);\n                      if (!user) {\n                        throw new UnauthorizedException('Invalid or expired session');\n",
+      "specs": [
+        "tests/subscription-session-iam.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "legacy-ws-handshake-refusal-throws",
+      "defect": "12.0.0 — the legacy WebSocket onConnect THREW on a token that authenticates nobody. graphql-ws's ws adapter treats a throw from message handling as an internal error: it logged 'Internal error occurred during message handling. Please check your implementation.' with a stack trace — in production, for every expired token — and closed the socket with 4500 (a server error) instead of 4401 Unauthorized. Returning false alone is no fix either: graphql-ws closes that with 4403, which its client retries with the same refused credential.",
+      "file": "src/core.module.ts",
+      "find": "                        return refuseWsHandshake(extra.socket, 'No user found for token');\n",
+      "replace": "                        throw new UnauthorizedException('No user found for token');\n",
+      "specs": [
+        "tests/subscription-session-legacy.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-link-relative-redirectto-mailed",
+      "defect": "12.0.0 — buildPasswordResetUrl() resolved only a redirectTo starting with '/'. A value that was neither that nor an absolute http(s) URL ('reset', or a template literal over an unset variable: 'undefined/reset') reached the reset mail verbatim, as a relative link that resolves nowhere. Found because the password-reset parity e2e spec sent `${envConfig.baseUrl}/reset` with no baseUrl set.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "      if (target && !target.startsWith('/') && !/^https?:\\/\\//i.test(target)) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/unit/password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-service-dumps-config-by-default",
+      "defect": "12.0.0 — the ConfigService constructor defaulted to `warn: true`. Every construction after the first (CoreModule.forRoot() running a second time in one process: e2e spec files, scripts, a second application) merged and then wrote the WHOLE merged configuration to stdout through console.warn — JWT and Better-Auth secrets, database and Redis URIs, API keys included.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "    const config = {\n      reInit: false,\n      warn: false,\n",
+      "replace": "    const config = {\n      reInit: false,\n      warn: true,\n",
+      "specs": [
+        "tests/unit/config-service-log-leak.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "native-password-routes-not-normalized",
+      "defect": "12.0.0 — the Better-Auth API middleware normalized passwords (plaintext → sha256, the shape every credential is stored in) only on sign-in, sign-up and the reset routes. The other native routes with a password were forwarded untouched: /two-factor/enable, /two-factor/disable, /two-factor/generate-backup-codes, /two-factor/get-totp-uri, /delete-user and /verify-password answered 'Invalid password' for the right plaintext password, and /change-password stored a plaintext newPassword as scrypt(plaintext), locking the account out at the next sign-in. nuxt-extensions hashes in the browser; every other client was affected.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    if (!route || !this.userMapper) {\n      // A missing mapper is reported by normalizeResetPassword()",
+      "replace": "    if (true) {\n      // A missing mapper is reported by normalizeResetPassword()",
+      "specs": [
+        "tests/unit/password-field-paths.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "native-password-normalization-unwired",
+      "defect": "12.0.0 — the Better-Auth API middleware normalized passwords (plaintext → sha256, the shape every credential is stored in) only on sign-in, sign-up and the reset routes. The other native routes with a password were forwarded untouched: /two-factor/enable, /two-factor/disable, /two-factor/generate-backup-codes, /two-factor/get-totp-uri, /delete-user and /verify-password answered 'Invalid password' for the right plaintext password, and /change-password stored a plaintext newPassword as scrypt(plaintext), locking the account out at the next sign-in. nuxt-extensions hashes in the browser; every other client was affected.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      this.normalizeNativePasswords(req, relativePath);\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/better-auth-plugins.story.test.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "native-password-length-refusal-answered-500",
+      "defect": "12.0.0 — the Better-Auth API middleware refuses a plaintext NEW password outside the length policy with a BadRequestException (Better-Auth would only see the 64-character sha256 and could not check it). The middleware catch answered every error with 500 \"Authentication handler error\" plus an ERROR log line, so the client was never told why — on /change-password since 12.0.0 normalized the native routes, on the reset routes since the length check existed. The catch now hands an HttpException to Nest's exception layer.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      if (error instanceof HttpException) {\n        throw error;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/better-auth-plugins.story.test.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "better-auth-log-error-args-dropped",
+      "defect": "12.0.0 — Better-Auth's logger was routed through Nest, serializing every argument with JSON.stringify. An Error serializes to {}, so the caught errors Better-Auth passes to its logger (\"Failed to run background task:\", e; \"JWKS fetch failed:\", error; logger.error(e.name, e) for an unexpected endpoint error) reached the log as \"TypeError {}\" — message and stack gone, where Better-Auth's own console logger had printed both. A circular argument made the logger itself throw.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "  if (arg instanceof Error) {\n    return arg.stack ?? `${arg.name}: ${arg.message}`;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-logger-routing.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "vitest-resolves-graphql-esm-build",
+      "defect": "12.0.0 — the core imports graphql with `import` (valid as CommonJS and ESM) instead of `import graphql = require(...)`. graphql declares an extensionless `main: index` next to index.mjs; Vite probes `.mjs` first, Node `.js`, so under vitest the import loaded graphql's ESM build while @nestjs/graphql used the CommonJS one. Every GraphQL subscription closed with 4500 (\"Cannot use GraphQLSchema from another module or realm\"). vitest now probes extensions in Node's order.",
+      "file": "vitest.config.mts",
+      "find": "  resolve: { extensions: ['.js', '.mjs', '.mts', '.ts', '.jsx', '.tsx', '.json'] },\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/vitest-node-resolution.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "local-config-searched-in-helper-dir",
+      "defect": "12.0.0 (pre-existing) — `loadLocalConfig: true` searched for config.json next to the config helper (`dist/core/common/helpers`, then its parent — inside node_modules in npm mode) and never in the project, so the documented setting had no effect. It now searches the working directory, then `src/`.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "        ? [join(cwd, 'config.json'), join(cwd, 'src', 'config.json')]",
+      "replace": "        ? [join(__dirname, 'config.json'), join(__dirname, '..', 'config.json')]",
+      "specs": [
+        "tests/unit/load-local-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "local-config-merged-after-return",
+      "defect": "12.0.0 (pre-existing) — the local configuration was loaded with `import()` and merged in its `.then()`, i.e. after `getEnvironmentConfig()` had returned the configuration everything at boot reads. It is now read synchronously and merged before returning.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "      merge(envConfig, localConfig);\n",
+      "replace": "      setTimeout(() => merge(envConfig, localConfig));\n",
+      "specs": [
+        "tests/unit/load-local-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "gridfs-upload-path-from-helper",
+      "defect": "12.0.0 (pre-existing) — uploadFileToGridFS() resolved a relative path against the helper's own directory, inside node_modules/@lenne.tech/nest-server/dist in npm mode, so a migration could not name a file next to itself. It now resolves against the calling file, with the helper's directory as fallback for callers written before.",
+      "file": "src/core/modules/migrate/migration.helper.ts",
+      "find": "  const fromCaller = path.resolve(callerDir, relativePath);",
+      "replace": "  const fromCaller = path.resolve(callerDirectory(), relativePath);",
+      "specs": [
+        "tests/migrate/upload-file-to-gridfs.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "core-uses-dirname",
+      "defect": "12.0.0 — the core used `__dirname`, `import x = require()` and other CommonJS-only constructs. Since 12.0.0 a vendor-mode project may compile the core as ESM, where they fail; one inside a function fails only when it runs, which `check:esm` (it loads every module) cannot see.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    const nestServerTemplatesPath = path.join(callerDirectory(), '..', '..', '..', 'templates');",
+      "replace": "    const nestServerTemplatesPath = path.join(__dirname, '..', '..', '..', 'templates');",
+      "specs": [
+        "tests/unit/module-format-invariants.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "esm-hooks-drop-import-attributes",
+      "defect": "12.0.0 (pre-release) — the loader's ESM hooks compiled TypeScript with SWC's defaults, which drop import attributes. An ESM project's `import pkg from '../package.json' with { type: 'json' }` reached Node without its attribute, so the dev start from source failed with ERR_IMPORT_ATTRIBUTE_MISSING while the tsc build passed. Found by converting a copy of nest-server-starter to ESM.",
+      "file": "src/core/modules/migrate/helpers/ts-compiler-hooks.mjs",
+      "find": "    jsc: { ...SWC_OPTIONS.jsc, experimental: { keepImportAssertions: true } },\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ts-compiler.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-route-path-quadratic-regex",
+      "defect": "12.0.0 (pre-release) — the IAM middleware's route matchers trimmed trailing slashes with `/\\/+$/`, which backtracks quadratically on a long run of slashes. Every unauthenticated /iam/* request runs both matchers; a 16 KB path blocked the event loop for ~230 ms.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "  return path.slice(0, end).toLowerCase();",
+      "replace": "  return path.replace(/\\/+$/, '').toLowerCase();",
+      "specs": [
+        "tests/unit/password-field-paths.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "caller-directory-file-url",
+      "defect": "12.0.0 (pre-release) — callerDirectory() has a `file:` URL branch that only an ES module's stack frame reaches, i.e. the published package; every suite took the plain-path branch. Without it, mail templates, the Hub email preview and uploadFileToGridFS paths resolve against a non-existent `file:/…` directory in production.",
+      "file": "src/core/common/helpers/module-location.helper.ts",
+      "find": "  return dirname(file.startsWith('file:') ? fileURLToPath(file) : file);",
+      "replace": "  return dirname(file);",
+      "specs": [
+        "tests/unit/module-location.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-template-config-src-only",
+      "defect": "12.0.0 (pre-release) — the migration template looked for config.env only under `<cwd>/src`, so a migration run from `dist/migrations` in an image without `src/` and without NSC__MONGOOSE__URI threw although `dist/src/config.env.js` existed.",
+      "file": "src/core/modules/migrate/templates/migration-project.template.ts",
+      "find": "const configCandidates = [\n  ...(typeof __dirname === 'string' ? [join(__dirname, '..', 'src', 'config.env')] : []),\n  join(process.cwd(), 'src', 'config.env'),\n  join(process.cwd(), 'dist', 'src', 'config.env'),\n];",
+      "replace": "const configCandidates = [join(process.cwd(), 'src', 'config.env')];",
+      "specs": [
+        "tests/unit/migrate-cli-template.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "barrel-imports-cjs-forwarder",
+      "defect": "12.0.0 (pre-release) — the migrate barrel re-exported the helper from `helpers/`, a directory its package.json keeps CommonJS. That put a CommonJS module inside the ES module graph, and `require()` of the package from a CommonJS project returned the forwarder's exports instead of the barrel's.",
+      "file": "src/core/modules/migrate/index.ts",
+      "find": "export * from './migration.helper.js';",
+      "replace": "export * from './helpers/migration.helper.js';",
+      "specs": [
+        "tests/unit/module-format-invariants.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "bin-manifest-type-module",
+      "defect": "12.0.0 (pre-release) — `bin/migrate.js` is CommonJS inside an ES module package; without `bin/package.json` declaring `\"type\": \"commonjs\"` the `migrate` bin dies with \"require is not defined in ES module scope\" in every project.",
+      "file": "bin/package.json",
+      "find": "\"type\": \"commonjs\"",
+      "replace": "\"type\": \"module\"",
+      "specs": [
+        "tests/unit/package-format-contracts.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "nest-cli-assets-drop-json",
+      "defect": "12.0.0 (pre-release) — nest-cli copies `helpers/package.json` into dist/ only as an asset; without the `**/*.json` asset the built loader and forwarder run as ES modules and fail on `require`.",
+      "file": "nest-cli.json",
+      "find": "\"assets\": [\"templates/**\",\"**/*.json\"],",
+      "replace": "\"assets\": [\"templates/**\"],",
+      "specs": [
+        "tests/unit/package-format-contracts.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-helper-forwarder-emptied",
+      "defect": "12.0.0 (pre-release) — the helper moved out of `helpers/`; vendor bootstraps generated by the lt CLI still require the old path, so a forwarder that no longer re-exports the API breaks `migrate:*` in those projects.",
+      "file": "src/core/modules/migrate/helpers/migration.helper.ts",
+      "find": "export * from '../migration.helper.js';",
+      "replace": "export {};",
+      "specs": [
+        "tests/unit/package-format-contracts.spec.ts"
       ],
       "driverSpecific": false
     }

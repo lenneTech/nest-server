@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { HUB_CONFIG } from './hub.constants';
+import { HUB_CONFIG } from './hub.constants.js';
 
 /**
  * Per-process cache-bust token for the client bundle (`hub.js?v=<token>`). It changes on every server
@@ -10,9 +10,9 @@ import { HUB_CONFIG } from './hub.constants';
  * (the version is shown only in the ADMIN-gated, client-built topbar from session.json).
  */
 const HUB_ASSET_TOKEN = Date.now().toString(36);
-import { getHubClientJs } from './helpers/hub-client-js.helper';
-import { escapeHtml, escapeJsString, HUB_NONCE_PLACEHOLDER } from './helpers/hub-shell.helper';
-import { ResolvedHubConfig } from './interfaces/hub-config.interface';
+import { getHubClientJs } from './helpers/hub-client-js.helper.js';
+import { escapeHtml, escapeJsString, HUB_NONCE_PLACEHOLDER } from './helpers/hub-shell.helper.js';
+import type { ResolvedHubConfig } from './interfaces/hub-config.interface.js';
 
 /**
  * Builds the Hub's single, self-contained HTML shell. Every page route serves the same shell (the

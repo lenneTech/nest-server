@@ -1,6 +1,6 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 
-import { ErrorCode } from '../../modules/error-code/error-codes';
+import { ErrorCode } from '../../modules/error-code/error-codes.js';
 
 /**
  * Creates the access error that matches the requester's auth state (RFC 9110, mirrors RolesGuard):

@@ -1,9 +1,9 @@
 import { CollationOptions } from 'mongodb';
 import { Model, PopulateOptions } from 'mongoose';
 
-import { FieldSelection } from '../types/field-selection.type';
-import { PrepareInputOptions } from './prepare-input-options.interface';
-import { PrepareOutputOptions } from './prepare-output-options.interface';
+import { FieldSelection } from '../types/field-selection.type.js';
+import { PrepareInputOptions } from './prepare-input-options.interface.js';
+import { PrepareOutputOptions } from './prepare-output-options.interface.js';
 
 /**
  * General service options

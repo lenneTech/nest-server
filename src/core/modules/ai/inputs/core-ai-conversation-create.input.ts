@@ -1,8 +1,8 @@
 import { InputType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreAiConversationInput } from './core-ai-conversation.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreAiConversationInput } from './core-ai-conversation.input.js';
 
 /**
  * Input to create a new AI conversation (same shape as the update input; both

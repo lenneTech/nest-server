@@ -1,22 +1,22 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 
-import envConfig from '../config.env';
-import { CoreModule } from '../core.module';
-import { Any } from '../core/common/scalars/any.scalar';
-import { DateScalar } from '../core/common/scalars/date.scalar';
-import { JSON } from '../core/common/scalars/json.scalar';
-import { CoreAuthService } from '../core/modules/auth/services/core-auth.service';
-import { TusModule } from '../core/modules/tus';
-import { CronJobs } from './common/services/cron-jobs.service';
-import { AiToolsModule } from './modules/ai/ai-tools.module';
-import { AuthController } from './modules/auth/auth.controller';
-import { AuthModule } from './modules/auth/auth.module';
-import { BetterAuthModule } from './modules/better-auth/better-auth.module';
-import { ErrorCodeController } from './modules/error-code/error-code.controller';
-import { ErrorCodeService } from './modules/error-code/error-code.service';
-import { FileModule } from './modules/file/file.module';
-import { ServerController } from './server.controller';
+import envConfig from '../config.env.js';
+import { CoreModule } from '../core.module.js';
+import { Any } from '../core/common/scalars/any.scalar.js';
+import { DateScalar } from '../core/common/scalars/date.scalar.js';
+import { JSON } from '../core/common/scalars/json.scalar.js';
+import { CoreAuthService } from '../core/modules/auth/services/core-auth.service.js';
+import { TusModule } from '../core/modules/tus/index.js';
+import { CronJobs } from './common/services/cron-jobs.service.js';
+import { AiToolsModule } from './modules/ai/ai-tools.module.js';
+import { AuthController } from './modules/auth/auth.controller.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { BetterAuthModule } from './modules/better-auth/better-auth.module.js';
+import { ErrorCodeController } from './modules/error-code/error-code.controller.js';
+import { ErrorCodeService } from './modules/error-code/error-code.service.js';
+import { FileModule } from './modules/file/file.module.js';
+import { ServerController } from './server.controller.js';
 
 /**
  * Server module (dynamic)

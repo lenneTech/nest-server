@@ -1,7 +1,7 @@
-import type { Comparator } from '../types/scim-comparator.type';
-import type { LogicalOperator } from '../types/scim-logical-operator.type';
+import type { Comparator } from '../types/scim-comparator.type.js';
+import type { LogicalOperator } from '../types/scim-logical-operator.type.js';
 
-import { ScimNode } from '../types/scim-node.type';
+import { ScimNode } from '../types/scim-node.type.js';
 
 export function scimToMongo(scim: string): any {
   if (!scim) {

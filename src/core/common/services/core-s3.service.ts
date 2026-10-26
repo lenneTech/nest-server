@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { PassThrough } from 'stream';
 
-import { buildContentDisposition } from '../helpers/content-disposition.helper';
-import { ConfigService } from './config.service';
+import { buildContentDisposition } from '../helpers/content-disposition.helper.js';
+import { ConfigService } from './config.service.js';
 
-import type { IS3Config } from '../interfaces/server-options.interface';
+import type { IS3Config } from '../interfaces/server-options.interface.js';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Readable } from 'stream';
 
@@ -194,6 +194,20 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
     this.client = new this.sdk.S3Client({
       ...(endpoint ? { endpoint } : {}),
       forcePathStyle,
+      // Without a logger the SDK writes some warnings straight to `console` — "An error was encountered in
+      // a non-retryable streaming request." on every failed or aborted upload stream — outside the app's
+      // log levels and format. Warnings go through this service's logger instead. Everything else stays
+      // silent, exactly as with the SDK's default NoOpLogger: `info` would add one line per request, and
+      // `error` reports every failed command — including the expected 404 of an existence check, which this
+      // service already turns into a result or a meaningful error of its own.
+      logger: {
+        debug: () => undefined,
+        error: () => undefined,
+        info: () => undefined,
+        trace: () => undefined,
+        warn: (...content: unknown[]) =>
+          this.logger.warn(content.map((part) => (typeof part === 'string' ? part : JSON.stringify(part))).join(' ')),
+      },
       region,
       // Fall back to the SDK default credential chain when no keys are configured
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),

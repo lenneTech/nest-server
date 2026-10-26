@@ -1,9 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
+import { type Connection, Types } from 'mongoose';
 
-import { BetterAuthenticatedUser } from './better-auth.types';
-import { CoreBetterAuthService } from './core-better-auth.service';
+import { BetterAuthenticatedUser } from './better-auth.types.js';
+import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
  * Result of token extraction from a request

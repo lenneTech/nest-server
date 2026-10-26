@@ -1,15 +1,16 @@
 import { createHash } from 'crypto';
 import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
-import nodemailer = require('nodemailer');
-import { Attachment } from 'nodemailer/lib/mailer';
+import { createTransport } from 'nodemailer';
+import type { Transporter } from 'nodemailer';
+import type { Attachment } from 'nodemailer/lib/mailer';
 
-import { isImpossibleSmtpTlsCombination } from '../helpers/config.helper';
-import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper';
-import { MailTransportOptions } from '../interfaces/server-options.interface';
-import { HUB_EMAIL_CAPTURE } from '../../modules/hub/hub.constants';
-import { ConfigService } from './config.service';
-import { TemplateService } from './template.service';
-import type { IHubEmailCapture } from '../../modules/hub/interfaces/hub-config.interface';
+import { isImpossibleSmtpTlsCombination } from '../helpers/config.helper.js';
+import { isNonEmptyString, isTrue, returnFalse } from '../helpers/input.helper.js';
+import { MailTransportOptions } from '../interfaces/server-options.interface.js';
+import { HUB_EMAIL_CAPTURE } from '../../modules/hub/hub.constants.js';
+import { ConfigService } from './config.service.js';
+import { TemplateService } from './template.service.js';
+import type { IHubEmailCapture } from '../../modules/hub/interfaces/hub-config.interface.js';
 
 /**
  * Email service
@@ -20,7 +21,7 @@ export class EmailService implements OnModuleDestroy {
    * Cached transporter to avoid creating new SMTP connections per email.
    * Reused as long as the SMTP config hasn't changed.
    */
-  private cachedTransporter: nodemailer.Transporter | null = null;
+  private cachedTransporter: Transporter | null = null;
   private cachedSmtpConfig: string | null = null;
 
   protected readonly emailServiceLogger = new Logger(EmailService.name);
@@ -185,7 +186,7 @@ export class EmailService implements OnModuleDestroy {
     // Use hash instead of raw JSON to avoid keeping credentials as a string in memory
     const smtpKey = createHash('sha256').update(JSON.stringify(smtp)).digest('hex');
     if (!this.cachedTransporter || this.cachedSmtpConfig !== smtpKey) {
-      this.cachedTransporter = nodemailer.createTransport(smtp);
+      this.cachedTransporter = createTransport(smtp);
       this.cachedSmtpConfig = smtpKey;
     }
 

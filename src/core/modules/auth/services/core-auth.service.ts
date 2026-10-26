@@ -7,23 +7,23 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import bcrypt = require('bcrypt');
+import bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { sha256 } from 'js-sha256';
 
-import { getStringIds } from '../../../common/helpers/db.helper';
-import { prepareServiceOptions } from '../../../common/helpers/service.helper';
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper';
-import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service';
-import { ErrorCode } from '../../error-code';
-import { CoreAuthModel } from '../core-auth.model';
-import { CoreAuthSignInInput } from '../inputs/core-auth-sign-in.input';
-import { CoreAuthSignUpInput } from '../inputs/core-auth-sign-up.input';
-import { ICoreAuthUser } from '../interfaces/core-auth-user.interface';
-import { JwtPayload } from '../interfaces/jwt-payload.interface';
-import { CoreAuthUserService } from './core-auth-user.service';
+import { getStringIds } from '../../../common/helpers/db.helper.js';
+import { prepareServiceOptions } from '../../../common/helpers/service.helper.js';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper.js';
+import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service.js';
+import { ErrorCode } from '../../error-code/index.js';
+import { CoreAuthModel } from '../core-auth.model.js';
+import { CoreAuthSignInInput } from '../inputs/core-auth-sign-in.input.js';
+import { CoreAuthSignUpInput } from '../inputs/core-auth-sign-up.input.js';
+import { ICoreAuthUser } from '../interfaces/core-auth-user.interface.js';
+import { JwtPayload } from '../interfaces/jwt-payload.interface.js';
+import { CoreAuthUserService } from './core-auth-user.service.js';
 
 /**
  * Options for getResult method

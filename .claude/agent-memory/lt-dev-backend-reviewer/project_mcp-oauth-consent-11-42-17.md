@@ -23,4 +23,4 @@ no new import cycles (madge: the known 6).
 
 **How to probe without touching the tree:** scratch spec + a config that imports `vitest-e2e.config` by absolute path
 and overrides `test.dir`/`include`; decorators do not compile outside the repo root (call `Module({...})(Cls)`).
-Related: [[project_core-controller-override-contract]].
+Related: [[core-controller-override-contract]].

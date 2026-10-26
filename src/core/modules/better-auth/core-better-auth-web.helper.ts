@@ -2,8 +2,8 @@ import { Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 
-import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
-import { isSessionToken } from './core-better-auth-token.helper';
+import { resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper.js';
+import { isSessionToken } from './core-better-auth-token.helper.js';
 
 /**
  * Cookie names used by Better Auth and nest-server

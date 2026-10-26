@@ -2,12 +2,12 @@ import { BadRequestException, Injectable, Logger, NotFoundException, Optional } 
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
-import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum';
-import { ConfigService } from '../../common/services/config.service';
-import { RequestContext } from '../../common/services/request-context.service';
-import { CoreTenantMemberModel } from './core-tenant-member.model';
-import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums';
-import { CoreTenantGuard } from './core-tenant.guard';
+import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { RequestContext } from '../../common/services/request-context.service.js';
+import { CoreTenantMemberModel } from './core-tenant-member.model.js';
+import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums.js';
+import { CoreTenantGuard } from './core-tenant.guard.js';
 
 /**
  * Core service for tenant membership operations.

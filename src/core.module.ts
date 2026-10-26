@@ -12,67 +12,70 @@ import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/
 import { GraphQLModule } from '@nestjs/graphql';
 import { MongooseModule } from '@nestjs/mongoose';
 import type { Context } from 'graphql-ws';
-import graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
+import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
 import mongoose from 'mongoose';
 
-import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter';
-import { merge } from './core/common/helpers/config.helper';
-import { registerWsConnection } from './core/common/helpers/graphql-ws-connection.helper';
+import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter.js';
+import { merge } from './core/common/helpers/config.helper.js';
+import { refuseWsHandshake, registerWsConnection } from './core/common/helpers/graphql-ws-connection.helper.js';
 import {
   buildRequestContextAwareExecute,
   buildRequestContextAwareSubscribe,
-} from './core/common/helpers/graphql-ws-context.helper';
-import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor';
-import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor';
-import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor';
-import { TranslateResponseInterceptor } from './core/common/interceptors/translate-response.interceptor';
+} from './core/common/helpers/graphql-ws-context.helper.js';
+import { CheckResponseInterceptor } from './core/common/interceptors/check-response.interceptor.js';
+import { CheckSecurityInterceptor } from './core/common/interceptors/check-security.interceptor.js';
+import { ResponseModelInterceptor } from './core/common/interceptors/response-model.interceptor.js';
+import { TranslateResponseInterceptor } from './core/common/interceptors/translate-response.interceptor.js';
 import {
   assertCookiesProductionSafe,
   buildCorsConfig,
   isCookiesEnabled,
   isCorsDisabled,
   isExposeTokenInBodyEnabled,
-} from './core/common/helpers/cookies.helper';
+} from './core/common/helpers/cookies.helper.js';
 import {
   ICookiesConfig,
   ICoreModuleOverrides,
   IServerOptions,
-} from './core/common/interfaces/server-options.interface';
-import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware';
-import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware';
-import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe';
-import { ComplexityPlugin } from './core/common/plugins/complexity.plugin';
-import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin';
-import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin';
-import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin';
-import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin';
-import { mongooseSystemRolePlugin } from './core/common/plugins/mongoose-system-role.plugin';
-import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin';
-import { ConfigService } from './core/common/services/config.service';
-import { CoreBodyParserInitializer } from './core/common/services/core-body-parser.initializer';
-import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer';
-import { CoreRedisService } from './core/common/services/core-redis.service';
-import { CoreS3Service } from './core/common/services/core-s3.service';
-import { CoreTrustProxyInitializer } from './core/common/services/core-trust-proxy.initializer';
-import { EmailService } from './core/common/services/email.service';
-import { MailjetService } from './core/common/services/mailjet.service';
-import { ModelDocService } from './core/common/services/model-doc.service';
-import { TemplateService } from './core/common/services/template.service';
-import { CoreAiModule } from './core/modules/ai/core-ai.module';
-import { isLegacyJwt } from './core/modules/better-auth/core-better-auth-token.helper';
-import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better-auth-user.mapper';
-import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module';
-import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service';
-import { ErrorCodeModule } from './core/modules/error-code/error-code.module';
-import { CoreFileAccessAuditInitializer } from './core/modules/file/core-file-access-audit.initializer';
-import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper';
-import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module';
-import { CoreHubModule } from './core/modules/hub/core-hub.module';
-import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper';
-import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module';
-import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module';
-import { CoreApiTokenModule } from './core/modules/api-token/core-api-token.module';
-import { CoreTenantModule } from './core/modules/tenant/core-tenant.module';
+} from './core/common/interfaces/server-options.interface.js';
+import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware.js';
+import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware.js';
+import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe.js';
+import { ComplexityPlugin } from './core/common/plugins/complexity.plugin.js';
+import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin.js';
+import { mongooseAuditFieldsPlugin } from './core/common/plugins/mongoose-audit-fields.plugin.js';
+import { mongoosePasswordPlugin } from './core/common/plugins/mongoose-password.plugin.js';
+import { mongooseRoleGuardPlugin } from './core/common/plugins/mongoose-role-guard.plugin.js';
+import { mongooseSystemRolePlugin } from './core/common/plugins/mongoose-system-role.plugin.js';
+import { mongooseTenantPlugin } from './core/common/plugins/mongoose-tenant.plugin.js';
+import { ConfigService } from './core/common/services/config.service.js';
+import { CoreBodyParserInitializer } from './core/common/services/core-body-parser.initializer.js';
+import { CoreCronJobsInitializer } from './core/common/services/core-cron-jobs.initializer.js';
+import { CoreRedisService } from './core/common/services/core-redis.service.js';
+import { CoreS3Service } from './core/common/services/core-s3.service.js';
+import { CoreTrustProxyInitializer } from './core/common/services/core-trust-proxy.initializer.js';
+import { EmailService } from './core/common/services/email.service.js';
+import { MailjetService } from './core/common/services/mailjet.service.js';
+import { ModelDocService } from './core/common/services/model-doc.service.js';
+import { TemplateService } from './core/common/services/template.service.js';
+import { CoreAiModule } from './core/modules/ai/core-ai.module.js';
+import { isLegacyJwt } from './core/modules/better-auth/core-better-auth-token.helper.js';
+import { CoreBetterAuthUserMapper } from './core/modules/better-auth/core-better-auth-user.mapper.js';
+import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-auth.module.js';
+import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service.js';
+import { ErrorCodeModule } from './core/modules/error-code/error-code.module.js';
+import { CoreFileAccessAuditInitializer } from './core/modules/file/core-file-access-audit.initializer.js';
+import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper.js';
+import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module.js';
+import { CoreHubModule } from './core/modules/hub/core-hub.module.js';
+import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config.helper.js';
+import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module.js';
+import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module.js';
+import { CoreApiTokenModule } from './core/modules/api-token/core-api-token.module.js';
+import { CoreTenantModule } from './core/modules/tenant/core-tenant.module.js';
+
+/** Configuration warnings of `forRoot()`, through Nest's logger so log levels and a project's logger apply. */
+const coreModuleLogger = new Logger('CoreModule');
 
 /**
  * Core module (dynamic)
@@ -314,7 +317,7 @@ export class CoreModule implements NestModule {
     // Check secrets
     const jwtConfig = config.jwt;
     if (jwtConfig?.secret && jwtConfig.secret && jwtConfig.refresh && jwtConfig.refresh.secret === jwtConfig.secret) {
-      console.warn('JWT secret and refresh secret are equal, this can lead to security vulnerabilities!');
+      coreModuleLogger.warn('JWT secret and refresh secret are equal, this can lead to security vulnerabilities!');
     }
 
     // Set providers
@@ -440,7 +443,7 @@ export class CoreModule implements NestModule {
     const isErrorCodeAutoRegister = errorCodeConfig?.autoRegister !== false;
 
     if (!isErrorCodeAutoRegister && (overrides?.errorCode?.controller || overrides?.errorCode?.service)) {
-      console.warn(
+      coreModuleLogger.warn(
         'CoreModule: errorCode overrides are ignored because errorCode.autoRegister is false. ' +
           'Either remove autoRegister: false or pass controller/service to your own ErrorCodeModule.forRoot() call.',
       );
@@ -525,7 +528,7 @@ export class CoreModule implements NestModule {
     const configResolver = typeof betterAuthConfig === 'object' ? betterAuthConfig?.resolver : undefined;
 
     if (isAutoRegisterDisabled && (overrides?.betterAuth?.controller || overrides?.betterAuth?.resolver)) {
-      console.warn(
+      coreModuleLogger.warn(
         'CoreModule: betterAuth overrides are ignored because betterAuth.autoRegister is false. ' +
           'Either remove autoRegister: false or pass controller/resolver to your own BetterAuthModule.forRoot() call.',
       );
@@ -566,7 +569,7 @@ export class CoreModule implements NestModule {
       const hubIsGated = !(typeof config.hub === 'object' && config.hub.roles === false);
       const noBuiltInRolesGuard = isIamOnlyMode && !isBetterAuthEnabled;
       if (hubIsGated && noBuiltInRolesGuard) {
-        console.warn(
+        coreModuleLogger.warn(
           'CoreModule: the Hub is enabled and ADMIN-gated, but neither BetterAuth (IAM) nor the legacy ' +
             'Auth module is active — so no built-in guard enforces its @Roles(ADMIN) metadata. Unless you ' +
             'have registered your own APP_GUARD that reads @Roles, the Hub (including its destructive ' +
@@ -665,7 +668,7 @@ export class CoreModule implements NestModule {
             installSubscriptionHandlers: true,
             subscriptions: {
               // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
-              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // `subscribe` from its own options and hands them to the graphql-ws server, so these two
               // are the only place where a whole WS operation is reachable as one call. They must sit
               // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
               // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
@@ -695,7 +698,7 @@ export class CoreModule implements NestModule {
                       // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
                       const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
                       if (!user) {
-                        throw new UnauthorizedException('Invalid or expired session');
+                        return refuseWsHandshake(extra.socket, 'Invalid or expired session');
                       }
 
                       extra.user = user;
@@ -711,38 +714,7 @@ export class CoreModule implements NestModule {
                       return extra;
                     }
 
-                    throw new UnauthorizedException('Missing authentication token');
-                  }
-                },
-              },
-              'subscriptions-transport-ws': {
-                onConnect: async (connectionParams, webSocket) => {
-                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
-
-                  if (enableAuth) {
-                    const authToken: string = connectionParams?.Authorization?.split(' ')[1];
-
-                    if (authToken) {
-                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
-                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
-                      if (!user) {
-                        throw new UnauthorizedException('Invalid or expired session');
-                      }
-
-                      // subscriptions-transport-ws hands each operation a copy of this object; the
-                      // registration survives that copy — see graphql-ws-connection.helper.ts.
-                      const connectionContext = { headers: connectionParams, user };
-                      registerWsConnection({
-                        carrier: connectionContext,
-                        reauthenticate: () =>
-                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
-                        socket: webSocket,
-                        user,
-                      });
-                      return connectionContext;
-                    }
-
-                    throw new UnauthorizedException('Missing authentication token');
+                    return refuseWsHandshake(extra.socket, 'Missing authentication token');
                   }
                 },
               },
@@ -775,7 +747,7 @@ export class CoreModule implements NestModule {
             installSubscriptionHandlers: true,
             subscriptions: {
               // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
-              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // `subscribe` from its own options and hands them to the graphql-ws server, so these two
               // are the only place where a whole WS operation is reachable as one call. They must sit
               // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
               // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
@@ -811,7 +783,7 @@ export class CoreModule implements NestModule {
                       // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
                       const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
                       if (!user) {
-                        throw new UnauthorizedException('Invalid or expired session');
+                        return refuseWsHandshake(extra.socket, 'Invalid or expired session');
                       }
 
                       extra.user = user;
@@ -827,45 +799,7 @@ export class CoreModule implements NestModule {
                       return extra;
                     }
 
-                    throw new UnauthorizedException('Missing authentication token');
-                  }
-                },
-              },
-              'subscriptions-transport-ws': {
-                onConnect: async (connectionParams, webSocket) => {
-                  const enableAuth = graphQlOpts?.enableSubscriptionAuth ?? true;
-
-                  if (enableAuth) {
-                    const betterAuthService = CoreBetterAuthModule.getServiceInstance();
-                    const userMapper = CoreBetterAuthModule.getUserMapperInstance();
-
-                    if (!betterAuthService || !userMapper) {
-                      throw new UnauthorizedException('BetterAuth not initialized');
-                    }
-
-                    const authToken: string = connectionParams?.Authorization?.split(' ')[1];
-
-                    if (authToken) {
-                      // Resolved like an HTTP request with the same header — see authenticateIamWsToken().
-                      const user = await CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken);
-                      if (!user) {
-                        throw new UnauthorizedException('Invalid or expired session');
-                      }
-
-                      // subscriptions-transport-ws hands each operation a copy of this object; the
-                      // registration survives that copy — see graphql-ws-connection.helper.ts.
-                      const connectionContext = { headers: connectionParams, user };
-                      registerWsConnection({
-                        carrier: connectionContext,
-                        reauthenticate: () =>
-                          CoreModule.authenticateIamWsToken(betterAuthService, userMapper, authToken),
-                        socket: webSocket,
-                        user,
-                      });
-                      return connectionContext;
-                    }
-
-                    throw new UnauthorizedException('Missing authentication token');
+                    return refuseWsHandshake(extra.socket, 'Missing authentication token');
                   }
                 },
               },
@@ -906,7 +840,7 @@ export class CoreModule implements NestModule {
             installSubscriptionHandlers: true,
             subscriptions: {
               // WEBSOCKET REQUEST CONTEXT. `GqlSubscriptionService` destructures `execute` /
-              // `subscribe` from its own options and hands them to BOTH WS transports, so these two
+              // `subscribe` from its own options and hands them to the graphql-ws server, so these two
               // are the only place where a whole WS operation is reachable as one call. They must sit
               // INSIDE `subscriptions`: `ApolloDriver.start()` forwards only
               // `{ schema, path, context, ...options.subscriptions }`, so a top-level pair is
@@ -933,7 +867,7 @@ export class CoreModule implements NestModule {
                       // verify authToken/getJwtPayLoad
                       const user = await CoreModule.authenticateLegacyWsToken(authService, authToken);
                       if (!user) {
-                        throw new UnauthorizedException('No user found for token');
+                        return refuseWsHandshake(extra.socket, 'No user found for token');
                       }
                       // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
                       extra.user = user;
@@ -948,36 +882,7 @@ export class CoreModule implements NestModule {
                       return extra;
                     }
 
-                    throw new UnauthorizedException('Missing authentication token');
-                  }
-                },
-              },
-              'subscriptions-transport-ws': {
-                onConnect: async (connectionParams, webSocket) => {
-                  if (enableSubscriptionAuth) {
-                    // get authToken from authorization header
-                    const authToken: string = connectionParams?.Authorization?.split(' ')[1];
-
-                    if (authToken) {
-                      // verify authToken/getJwtPayLoad
-                      const user = await CoreModule.authenticateLegacyWsToken(authService, authToken);
-                      if (!user) {
-                        throw new UnauthorizedException('No user found for token');
-                      }
-                      // the user/jwtPayload object found will be available as context.currentUser/jwtPayload in your GraphQL resolvers
-                      // subscriptions-transport-ws hands each operation a copy of this object; the
-                      // registration survives that copy — see graphql-ws-connection.helper.ts.
-                      const connectionContext = { headers: connectionParams, user };
-                      registerWsConnection({
-                        carrier: connectionContext,
-                        reauthenticate: () => CoreModule.authenticateLegacyWsToken(authService, authToken),
-                        socket: webSocket,
-                        user,
-                      });
-                      return connectionContext;
-                    }
-
-                    throw new UnauthorizedException('Missing authentication token');
+                    return refuseWsHandshake(extra.socket, 'Missing authentication token');
                   }
                 },
               },
@@ -1058,7 +963,7 @@ export class CoreModule implements NestModule {
     } else {
       if (!CoreModule.unverifiedLegacyWsTokenWarned) {
         CoreModule.unverifiedLegacyWsTokenWarned = true;
-        new Logger('CoreModule').warn(
+        coreModuleLogger.warn(
           'The AuthService passed to CoreModule.forRoot() has no verifyJwt(): legacy WebSocket tokens are ' +
             'read WITHOUT checking signature or expiry. Extend CoreAuthService to close that.',
         );

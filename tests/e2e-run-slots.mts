@@ -10,7 +10,7 @@ import { join } from 'node:path';
  * Two overlapping full-speed runs saturate the box (measured: load 30 on 12 cores), requests
  * queue past the testTimeout, auth queries come back as spurious 401s, and one of the runs
  * fails — pure resource starvation that reads like product bugs. The load-average heuristic
- * in vitest-e2e.config.ts cannot protect against this alone: the 1-minute average lags a
+ * in vitest-e2e.config.mts cannot protect against this alone: the 1-minute average lags a
  * 30-60s test run, so two runs STARTING together both see an idle machine.
  *
  * Mechanism: a cross-process slot directory in the OS temp dir, shared by ALL lt projects on

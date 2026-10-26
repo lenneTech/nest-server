@@ -26,6 +26,7 @@
 - [scan-secrets + bridge normaliser costs](scan-secrets-and-bridge-normaliser-costs.md) — measured: Check 8 ~2ms/added line + ~100ms/cue line, --all ~57s baseline; oxfmt idempotence proven with real oxfmt.
 - [Mongoose CastError filter costs](mongoose-cast-error-filter-costs.md) — measured: APP_FILTER free off the error path; walk ~1 ms/10k nodes; array CastError.value → 3x Set build (~2x JSON.parse).
 - [MCP OAuth consent + sign-in Request costs](mcp-oauth-consent-and-signin-request-costs.md) — measured: Web Request on sign-in ~2.7 us, cached import() ~2 us, consent render ~6 us; findOneAndDelete({clientId,code}) rides {code:1}.
+- [Path regex + ESM switch costs](path-regex-and-esm-switch-costs.md) — `/\/+$/` on req path O(n²) ~120-150 ms @16 KB URL (URL counts toward maxHeaderSize; FIXED: normalizeIamRoutePath); callerDirectory ~6 us.
 - [Better-Auth JWT verify costs](better-auth-jwt-verify-costs.md) — measured: Bearer verify ~133 us (importJWK uncached + DB jwks lookup); instance.options is a plain data prop (~2 ns).
 
 ## Test Pipeline

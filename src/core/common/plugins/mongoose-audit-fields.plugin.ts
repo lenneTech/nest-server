@@ -1,4 +1,4 @@
-import { RequestContext } from '../services/request-context.service';
+import { RequestContext } from '../services/request-context.service.js';
 
 /**
  * Mongoose plugin that automatically sets createdBy/updatedBy fields.

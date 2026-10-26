@@ -11,11 +11,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Readable } from 'stream';
 
-import { Roles } from '../../../core/common/decorators/roles.decorator';
-import { RoleEnum } from '../../../core/common/enums/role.enum';
-import { CoreFileController } from '../../../core/modules/file/core-file.controller';
-import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface';
-import { FileService } from './file.service';
+import { Roles } from '../../../core/common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../../core/common/enums/role.enum.js';
+import { CoreFileController } from '../../../core/modules/file/core-file.controller.js';
+import { FileUpload } from '../../../core/modules/file/interfaces/file-upload.interface.js';
+import { FileService } from './file.service.js';
 
 /**
  * File controller

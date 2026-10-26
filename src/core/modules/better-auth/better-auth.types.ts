@@ -7,7 +7,7 @@
 
 import { Types } from 'mongoose';
 
-import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
+import { BetterAuthSessionUser } from './core-better-auth-user.mapper.js';
 
 /**
  * Better-Auth 2FA verification response

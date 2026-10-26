@@ -1,19 +1,19 @@
 import { Controller, Delete, Get, Logger, OnModuleDestroy, Optional, Post, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { hostname } from 'node:os';
 
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { ConfigService } from '../../common/services/config.service';
-import { CoreRedisService } from '../../common/services/core-redis.service';
-import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry';
-import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module';
-import { ErrorCode } from '../error-code/error-codes';
-import { getMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry';
-import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service';
-import { CoreAiMcpService } from './services/core-ai-mcp.service';
-import { AiToolUser } from './tools/ai-tool.registry';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
+import { CoreBetterAuthModule } from '../better-auth/core-better-auth.module.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { getMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry.js';
+import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
+import { CoreAiMcpService } from './services/core-ai-mcp.service.js';
+import { AiToolUser } from './tools/ai-tool.registry.js';
 
 /**
  * MCP Streamable-HTTP endpoint at `/ai/mcp`.
@@ -198,7 +198,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
       transport.onclose = () => {
         if (transport.sessionId) {
           this.transports.delete(transport.sessionId);
-          this.releaseSession(transport.sessionId);
+          void this.releaseSession(transport.sessionId);
         }
       };
       entry = created;
@@ -443,7 +443,10 @@ export class CoreAiMcpController implements OnModuleDestroy {
       .catch((err: Error) => this.logger.debug(`MCP session registry write failed: ${err.message}`));
   }
 
-  /** Drop the session from the shared registry (close/evict). Fire-and-forget. */
+  /**
+   * Drop the session from the shared registry (close/evict). Fire-and-forget: it never rejects (a failure is logged),
+   * which is what lets the close and evict paths call it without awaiting. An override must keep that.
+   */
   protected releaseSession(sessionId: string): Promise<void> {
     if (!this.redisService?.enabled) {
       return Promise.resolve();
@@ -598,7 +601,7 @@ export class CoreAiMcpController implements OnModuleDestroy {
     }
     const evicted = this.transports.get(oldestKey);
     this.transports.delete(oldestKey);
-    this.releaseSession(oldestKey);
+    void this.releaseSession(oldestKey);
     try {
       evicted?.transport.close?.();
     } catch {

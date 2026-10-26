@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { ConfigService } from '../../../common/services/config.service';
-import { RequestContext } from '../../../common/services/request-context.service';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { RequestContext } from '../../../common/services/request-context.service.js';
 import {
   checkRoleAccess,
   isMultiTenancyActive,
   resolveGlobalAndTenantRoles,
   tenantSatisfiableRoles,
-} from '../../tenant/core-tenant.helpers';
-import { IAiTool } from '../interfaces/ai-tool.interface';
+} from '../../tenant/core-tenant.helpers.js';
+import { IAiTool } from '../interfaces/ai-tool.interface.js';
 
 /**
  * Minimal shape of the current user needed for tool-visibility checks.

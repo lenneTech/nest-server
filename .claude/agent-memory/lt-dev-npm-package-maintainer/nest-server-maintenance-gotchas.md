@@ -50,10 +50,15 @@ drifting formatter silently rewrites `src/` — always evaluate a formatter bump
 Frequent depcheck false positives here — all genuinely required, do not remove:
 `@as-integrations/express5` (runtime `loadPackage` by `@nestjs/apollo`, optional peer +
 `autoInstallPeers: false`), `@swc/cli` (needed by `nest build -b swc`, i.e. by
-`check:swc-tdz`), `@nestjs/schematics` (`nest-cli.json` `collection`), `unplugin-swc` and
-`vite-plugin-node` (root-level vitest/vite configs — remember to grep the repo ROOT, not
-just `src/`), `tsconfig-paths` + `npm-watch` + `rimraf` (package.json scripts), `husky`
-(`.husky/`), `@compodoc/compodoc` (`compodoc` binary in `docs` scripts).
+`check:swc-tdz`), `@nestjs/schematics` (`nest-cli.json` `collection`), `unplugin-swc` and `vite`
+(the root-level vitest configs; `vite` is vitest's peer — remember to grep the repo ROOT, not
+just `src/`), `rimraf` + `nodemon` (package.json scripts), `@compodoc/compodoc` (`compodoc` binary in
+`docs` scripts), `yuml-diagram` (`ModelDocService`, registered by `CoreModule`), every `@types/*` here
+(none of their libraries ships its own types, checked 2026-10-24).
+GENUINELY dead and removed 2026-10-24 (12.0.0): `tsconfig-paths` (`-r tsconfig-paths/register` with a tsconfig
+that declares no `paths` is a no-op), `vite-plugin-node` + `vite.config.ts` (no script ran vite, both vitest
+configs stand alone), `npm-watch` (unmaintained; `pnpm run watch` calls `nodemon` directly). `husky` left in
+11.41.8. A false positive is told apart by asking what LOADS it, not whether a file imports it.
 
 ## `pnpm ... | tail` / `| head` fakes a hang (recurred 2026-08-22)
 
@@ -266,6 +271,23 @@ so a targeted update always takes the highest in the requester's range. That is 
 run's "no majors" constraint), and an override to the 0.28.18 backport would itself hold back the 0.29.7 that fresh
 resolves pick. Reported as an orchestrator decision; one command when approved: `pnpm update --depth Infinity kysely`.
 
+**Paid off again 2026-10-27:** follow-redirects 1.16.1 (runtime: node-mailjet > axios) was covered by repo advisory
+GHSA-mrwp-f3q8-3g9p (medium, published 2026-10-25, still 404 in the global DB two days later), `pnpm audit` green.
+1.16.2 is inside axios's range, so consumers resolving fresh already had it; only this lockfile was sticky. Fix was
+a targeted `pnpm update --depth Infinity follow-redirects` (no override). Script: scratchpad `repo-adv.mjs`
+(name@version list -> registry repo URL -> `gh api repos/<o>/<r>/security-advisories` -> semver match).
+`readdirp` 5.0.0 (dev, chokidar 5 `^5.0.0`) refuses to move with a targeted update although a fresh resolve picks
+5.1.1 — cosmetic, no advisory, left.
+
+## A better-auth bump leaves stale copies behind `better-call` (2026-10-27)
+
+better-auth 1.7.13 exact-pins `@better-auth/utils` 0.5.1 and `@better-fetch/fetch` 1.3.3, while `better-call` 1.4.4
+requests `^0.5.0` / `^1.3.1` and keeps the old lock entries: two copies of each, and `@better-fetch/fetch` is an
+exact PEER of `@better-auth/core`. After every better-auth bump: lockdiff, then
+`pnpm update --depth Infinity @better-fetch/fetch @better-auth/utils` (one copy each, nothing else moves).
+Also: bump the trio by editing `package.json` + `pnpm install` rather than `pnpm add -D` — the three are also in
+`peerDependencies`, whose range must stay byte-identical (precaution, `pnpm add`'s peer handling was not tested).
+
 ## oxlint prints NOTHING on a clean run here (2026-10-17)
 
 `pnpm run lint` / `oxlint ...` exit 0 with empty stdout under this repo's config, so a redirected
@@ -273,3 +295,20 @@ comparison looks like a crash. Compare versions with `--format=json` (diagnostic
 number_of_rules); `check` itself reports "lint clean".
 
 Related: [[nest-server-override-status]], [[deferred-major-updates]]
+
+## Removing an audit suppression is a TWO-file change (2026-10-24)
+
+`tests/unit/audit-suppression-scope.spec.ts` asserts that the GHSA list in `pnpm-workspace.yaml` equals its own
+`DEV_ONLY_SUPPRESSIONS` list. Dropping an `ignoreGhsas` entry without dropping its guard turns the unit suite red;
+the pairing is intended (entry and guard come and go together), so the spec edit is not a "test modification to get
+green" — report it as the coupled half. An explicitly empty `ignoreGhsas: []` is accepted by `check:overrides`.
+
+## Another session can be editing the tree mid-run (2026-10-24)
+
+During the 12.0.0 run, `CLAUDE.md`, two `.claude/rules/*.md` files and a new migration guide appeared modified
+while this run never touched them. Re-run `git status --short` right before the gate and before the report, list
+the files you changed explicitly, and leave the foreign ones alone.
+
+## `tsc --noEmit -p tsconfig.build.json` writes `tsconfig.build.tsbuildinfo` (incremental: true)
+
+Harmless (build artifact, `nest build` rewrites it), but it shows up as a fresh mtime on an untracked file.

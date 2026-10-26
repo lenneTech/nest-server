@@ -6,13 +6,14 @@ import { jwt, openAPI, twoFactor } from 'better-auth/plugins';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { inspect } from 'util';
 
-import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
-import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
-import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
-import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper';
+import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper.js';
+import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper.js';
+import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper.js';
+import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper.js';
 
 /**
  * Type for better-auth instance with plugins
@@ -23,6 +24,48 @@ export type BetterAuthInstance = ReturnType<typeof betterAuth>;
  * Shared logger for all functions in this config module
  */
 const logger = new Logger('BetterAuthConfig');
+
+/** Better-Auth's own runtime messages ("Invalid password", blocked CSRF attempts, …). */
+const betterAuthRuntimeLogger = new Logger('BetterAuth');
+
+/**
+ * Better-Auth's `logger.log` handler: its messages go through Nest's logger, so they carry a context and honour
+ * the application's log levels and JSON mode instead of being printed by Better-Auth's own console logger.
+ * Better-Auth still filters by its `level` (default `warn`) before calling this, so what is logged is unchanged.
+ */
+function logThroughNest(level: 'debug' | 'error' | 'info' | 'warn', message: string, ...args: unknown[]): void {
+  const detail = args.length ? ` ${args.map(formatBetterAuthLogArg).join(' ')}` : '';
+  const line = `${message}${detail}`;
+  if (level === 'error') {
+    betterAuthRuntimeLogger.error(line);
+  } else if (level === 'warn') {
+    betterAuthRuntimeLogger.warn(line);
+  } else if (level === 'info') {
+    betterAuthRuntimeLogger.log(line);
+  } else {
+    betterAuthRuntimeLogger.debug(line);
+  }
+}
+
+/**
+ * One argument of a Better-Auth log call as text. Better-Auth passes caught errors here ("Failed to run background
+ * task:", e) — `JSON.stringify` turns an `Error` into `{}`, which threw away the message and stack its own console
+ * logger used to print. A plain object stays compact JSON; one that cannot be serialized (a circular reference)
+ * falls back to `inspect()` instead of making the logger throw inside Better-Auth's error handling.
+ */
+function formatBetterAuthLogArg(arg: unknown): string {
+  if (typeof arg === 'string') {
+    return arg;
+  }
+  if (arg instanceof Error) {
+    return arg.stack ?? `${arg.name}: ${arg.message}`;
+  }
+  try {
+    return JSON.stringify(arg) ?? String(arg);
+  } catch {
+    return inspect(arg, { breakLength: Infinity, depth: 3 });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Performance-optimized password hashing using Node.js native crypto.scrypt
@@ -375,7 +418,13 @@ interface PasskeyNormalizationResult {
   trustedOrigins: null | string[];
 
   /**
-   * Warnings generated during normalization
+   * What was auto-detected — information, logged at `log` level. Not a warning: auto-detection is the
+   * intended default, and a WARN on every boot of every project trains people to ignore the real ones.
+   */
+  notices: string[];
+
+  /**
+   * Warnings generated during normalization (something needs attention, e.g. Passkey had to be disabled)
    */
   warnings: string[];
 }
@@ -462,7 +511,10 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   // Passkey is now AUTO-ACTIVATED by default (not opt-in)
   const passkeyNormalization = normalizePasskeyConfig(config, { resolvedUrls, serverEnv });
 
-  // Log passkey normalization warnings (info about auto-detection or disabled status)
+  // Auto-detected values are information; only what needs attention (Passkey disabled) is a warning.
+  for (const notice of passkeyNormalization.notices) {
+    logger.log(notice);
+  }
   for (const warning of passkeyNormalization.warnings) {
     logger.warn(warning);
   }
@@ -530,6 +582,8 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
   const secureCookies = betterAuthBaseUrl.startsWith('https://');
 
   const betterAuthConfig: Record<string, unknown> = {
+    // Through Nest's logger; a project's own `options.logger` is merged over it (see below).
+    logger: { log: logThroughNest },
     advanced: {
       cookiePrefix,
       ...(crossSubDomain.enabled && {
@@ -676,6 +730,12 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
       ...restOptions
     } = config.options as Record<string, unknown>;
     finalConfig = { ...betterAuthConfig, ...restOptions };
+
+    // `logger` is merged, not replaced: a project that only sets `level` or `disabled` keeps the Nest routing,
+    // one that passes its own `log` handler gets exactly that.
+    if (restOptions.logger && typeof restOptions.logger === 'object') {
+      finalConfig.logger = { ...(betterAuthConfig.logger as object), ...(restOptions.logger as object) };
+    }
 
     // `emailAndPassword` needs a DEEP merge, and this one is load-bearing.
     // The block above carries `password: { hash: nativeScryptHash, verify:
@@ -1487,6 +1547,7 @@ function normalizePasskeyConfig(
   options: { resolvedUrls: ResolvedUrls; serverEnv?: string },
 ): PasskeyNormalizationResult {
   const { resolvedUrls, serverEnv } = options;
+  const notices: string[] = [];
   const warnings: string[] = [];
 
   // Check if Passkey is explicitly DISABLED
@@ -1495,7 +1556,7 @@ function normalizePasskeyConfig(
     config.passkey === false || (typeof config.passkey === 'object' && config.passkey?.enabled === false);
 
   if (isExplicitlyDisabled) {
-    return { enabled: false, normalizedConfig: null, trustedOrigins: null, warnings };
+    return { enabled: false, normalizedConfig: null, notices, trustedOrigins: null, warnings };
   }
 
   // Get the raw passkey config (if object)
@@ -1531,18 +1592,18 @@ function normalizePasskeyConfig(
         '  3. Disable Passkey explicitly: passkey: false (no warning)',
     );
 
-    return { enabled: false, normalizedConfig: null, trustedOrigins: null, warnings };
+    return { enabled: false, normalizedConfig: null, notices, trustedOrigins: null, warnings };
   }
 
   // Log auto-detection info
   if (!rawConfig.rpId && resolvedUrls.rpId) {
-    warnings.push(`PASSKEY: Using rpId="${finalRpId}" (auto-detected from appUrl)`);
+    notices.push(`PASSKEY: Using rpId="${finalRpId}" (auto-detected from appUrl)`);
   }
   if (!rawConfig.origin && resolvedUrls.appUrl) {
-    warnings.push(`PASSKEY: Using origin="${finalOrigin}" (= appUrl)`);
+    notices.push(`PASSKEY: Using origin="${finalOrigin}" (= appUrl)`);
   }
   if (!config.trustedOrigins?.length && resolvedUrls.appUrl) {
-    warnings.push(`PASSKEY: Using trustedOrigins=${JSON.stringify(finalTrustedOrigins)} (= [appUrl])`);
+    notices.push(`PASSKEY: Using trustedOrigins=${JSON.stringify(finalTrustedOrigins)} (= [appUrl])`);
   }
 
   // Build normalized config
@@ -1576,6 +1637,7 @@ function normalizePasskeyConfig(
   return {
     enabled: true,
     normalizedConfig,
+    notices,
     trustedOrigins: finalTrustedOrigins,
     warnings,
   };
@@ -1600,7 +1662,10 @@ export interface ResolvedCrossSubDomainCookies {
  * dedicated helper module to avoid pulling the heavy config-builder into the
  * dependency graph (which forces import cycles in some build setups).
  */
-export { resolveBetterAuthCookiePrefix, resolveBetterAuthSessionCookieName } from './better-auth-cookie-prefix.helper';
+export {
+  resolveBetterAuthCookiePrefix,
+  resolveBetterAuthSessionCookieName,
+} from './better-auth-cookie-prefix.helper.js';
 
 /**
  * Resolves the cross-subdomain cookies configuration.

@@ -1,10 +1,10 @@
 import { InputType } from '@nestjs/graphql';
 import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { CoreInput } from '../../../common/inputs/core-input.input';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { CoreInput } from '../../../common/inputs/core-input.input.js';
 
 /**
  * SignIn input

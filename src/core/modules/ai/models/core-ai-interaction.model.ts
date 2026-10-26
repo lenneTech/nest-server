@@ -2,11 +2,11 @@ import { ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { UnifiedField } from '../../../common/decorators/unified-field.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { JSON } from '../../../common/scalars/json.scalar';
-import { CorePersistenceModel } from '../../../common/models/core-persistence.model';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { JSON } from '../../../common/scalars/json.scalar.js';
+import { CorePersistenceModel } from '../../../common/models/core-persistence.model.js';
 
 export type AiInteractionDocument = CoreAiInteraction & Document;
 

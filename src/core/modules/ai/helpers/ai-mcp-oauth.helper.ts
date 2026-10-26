@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
 
-import { resolveServerUrls } from '../../../common/helpers/cookies.helper';
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreAiMcpOAuthService } from '../services/core-ai-mcp-oauth.service';
-import { IMountedMcpOAuth, setMountedMcpOAuth } from './ai-mcp-oauth.registry';
+import { resolveServerUrls } from '../../../common/helpers/cookies.helper.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CoreAiMcpOAuthService } from '../services/core-ai-mcp-oauth.service.js';
+import { IMountedMcpOAuth, setMountedMcpOAuth } from './ai-mcp-oauth.registry.js';
 
 const logger = new Logger('mountAiMcpOAuth');
 

@@ -16,27 +16,27 @@ import {
 } from 'better-auth/api';
 import { Request } from 'express';
 import { importJWK, jwtVerify } from 'jose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper';
-import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
-import { IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { ErrorCode } from '../error-code/error-codes';
-import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper';
-import { BetterAuthInstance } from './better-auth.config';
-import { legacyCredentialAccountIssuer, usesLegacyAccountIssuer } from './core-better-auth-account-issuer.helper';
+import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper.js';
+import { maskEmail, maskToken } from '../../common/helpers/logging.helper.js';
+import { type IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper.js';
+import type { BetterAuthInstance } from './better-auth.config.js';
+import { legacyCredentialAccountIssuer, usesLegacyAccountIssuer } from './core-better-auth-account-issuer.helper.js';
 import {
   BUILT_IN_BETTER_AUTH_PLUGIN_IDS,
   HANDLER_SESSION_PATHS,
   isUnavailableOperation,
   toOpenApiPath,
   unavailableBetterAuthOperations,
-} from './core-better-auth-openapi.helper';
-import type { IBetterAuthOpenApiDocument, IBetterAuthRuntime } from './core-better-auth-openapi.helper';
-import { isJwtShaped } from './core-better-auth-token.helper';
-import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
-import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
+} from './core-better-auth-openapi.helper.js';
+import type { IBetterAuthOpenApiDocument, IBetterAuthRuntime } from './core-better-auth-openapi.helper.js';
+import { isJwtShaped } from './core-better-auth-token.helper.js';
+import { BetterAuthSessionUser } from './core-better-auth-user.mapper.js';
+import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper.js';
 import {
   ACCOUNT_ISSUER_BACKFILL_ID,
   BACKFILL_MARKER_COLLECTION,
@@ -46,7 +46,7 @@ import {
   DEFAULT_ACCOUNT_ACCOUNT_ID_FIELD,
   DEFAULT_ACCOUNT_ISSUER_FIELD,
   DEFAULT_ACCOUNT_MODEL_NAME,
-} from './core-better-auth.constants';
+} from './core-better-auth.constants.js';
 
 /**
  * Result of a session validation
@@ -77,7 +77,7 @@ export interface SessionResult {
  * ambiguity error. The mechanical guards are `pnpm run check:swc-tdz` and
  * `tests/unit/better-auth-di-tokens.spec.ts`.
  */
-export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-auth.constants';
+export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-auth.constants.js';
 
 /**
  * CoreBetterAuthService provides a NestJS-friendly wrapper around the better-auth instance.

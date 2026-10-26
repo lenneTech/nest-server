@@ -38,8 +38,18 @@
   // The other half of the fix lives in `.oxlintrc.json`, which turns
   // `unicorn/no-array-reverse` off for `src/**` so the linter cannot introduce
   // into shipped source an API that shipped source may not use.
+  //
+  // `module: preserve` + `moduleResolution: bundler` HERE, while the base tsconfig uses `nodenext`.
+  // That is not a loosening: it is the resolution the specs actually RUN under. vitest resolves every
+  // import through Vite (bundler semantics — extensionless relative paths, the `import` condition),
+  // and `scripts/**/*.ts` run through tsx, which resolves the same way. Checking them under
+  // `nodenext` would demand `.js` on every `await import('../../src/…')` — dozens of edits that
+  // describe a resolver none of these files ever meets. The shipped code (`src/`, tsconfig.build.json)
+  // keeps `nodenext`, which is what `tsc` emits and Node loads.
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "skipLibCheck": true

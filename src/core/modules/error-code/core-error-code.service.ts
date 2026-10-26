@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { getAllErrorDefinitions, IErrorRegistry } from './error-codes';
-import { SupportedLocale } from './interfaces/error-code.interfaces';
+import { getAllErrorDefinitions, IErrorRegistry } from './error-codes.js';
+import { SupportedLocale } from './interfaces/error-code.interfaces.js';
 
 /**
  * Core Error Code Service

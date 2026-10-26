@@ -11,7 +11,7 @@ import {
   SAFE_TEST_DB_PATTERN,
   splitMongoUri,
 } from './db-lifecycle.reporter';
-import { acquireRunSlot } from './e2e-run-slots';
+import { acquireRunSlot } from './e2e-run-slots.mjs';
 // Plain .mjs helper, shared with the npm scripts and CI
 import { up as startTestInfra } from '../scripts/test-infra.mjs';
 
@@ -37,7 +37,7 @@ import { up as startTestInfra } from '../scripts/test-infra.mjs';
  *    reporters). Sweeping at STARTUP makes cleanup independent of how the
  *    previous run died: restarting the suite always restores a clean state.
  *
- * 2. RUN GOVERNOR — acquire a machine-wide e2e slot (tests/e2e-run-slots.ts)
+ * 2. RUN GOVERNOR — acquire a machine-wide e2e slot (tests/e2e-run-slots.mts)
  *    so at most N e2e suites run concurrently across ALL lt projects/sessions
  *    on this machine. Measured on 12 cores: one full-speed run takes ~34s at
  *    load 9; two concurrent runs drive load to 30 and produce spurious 401

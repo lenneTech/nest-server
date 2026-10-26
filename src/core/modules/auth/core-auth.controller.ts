@@ -8,26 +8,26 @@ import {
   ApiQuery,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
-import { Response as ResponseType } from 'express';
+import type { Response as ResponseType } from 'express';
 
-import { ApiCommonErrorResponses } from '../../common/decorators/common-error.decorator';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { setLegacyAuthCookies } from '../../common/helpers/cookies.helper';
-import type { ICookiesConfig } from '../../common/interfaces/server-options.interface';
-import { ConfigService } from '../../common/services/config.service';
-import { AuthGuardStrategy } from './auth-guard-strategy.enum';
-import { CoreAuthModel } from './core-auth.model';
-import { LegacyAuthDisabledException } from './exceptions/legacy-auth-disabled.exception';
-import { AuthGuard } from './guards/auth.guard';
-import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard';
-import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper';
-import { CoreAuthSignInInput } from './inputs/core-auth-sign-in.input';
-import { CoreAuthSignUpInput } from './inputs/core-auth-sign-up.input';
-import { ICoreAuthUser } from './interfaces/core-auth-user.interface';
-import { CoreAuthService } from './services/core-auth.service';
-import { Tokens } from './tokens.decorator';
+import { ApiCommonErrorResponses } from '../../common/decorators/common-error.decorator.js';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { setLegacyAuthCookies } from '../../common/helpers/cookies.helper.js';
+import type { ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
+import { ConfigService } from '../../common/services/config.service.js';
+import { AuthGuardStrategy } from './auth-guard-strategy.enum.js';
+import { CoreAuthModel } from './core-auth.model.js';
+import { LegacyAuthDisabledException } from './exceptions/legacy-auth-disabled.exception.js';
+import { AuthGuard } from './guards/auth.guard.js';
+import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard.js';
+import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper.js';
+import { CoreAuthSignInInput } from './inputs/core-auth-sign-in.input.js';
+import { CoreAuthSignUpInput } from './inputs/core-auth-sign-up.input.js';
+import type { ICoreAuthUser } from './interfaces/core-auth-user.interface.js';
+import { CoreAuthService } from './services/core-auth.service.js';
+import { Tokens } from './tokens.decorator.js';
 
 /**
  * Authentication controller for REST endpoints

@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 
-import { ConfigService } from '../../common/services/config.service';
-import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper';
-import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper';
+import { ConfigService } from '../../common/services/config.service.js';
+import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper.js';
+import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper.js';
 
 /**
  * Says out loud, once at boot, that this deployment still exposes Legacy Auth.
@@ -25,6 +25,15 @@ import { isLegacyEndpointEnabled } from './helpers/legacy-endpoints.helper';
  * default — the migration has to be finished before the door closes, and only the
  * operator can know when that is.
  */
+/**
+ * Applications already reported on, keyed by their (application-wide, singleton) `ConfigService`.
+ *
+ * The classic legacy server module passes `AuthModule.forRoot()` to `CoreModule.forRoot()` AND imports
+ * `AuthModule.forRoot()` itself, which registers `CoreAuthModule` — and this initializer — twice. Without
+ * this, every warning appeared twice per boot and the collection-scale status read ran twice.
+ */
+const reportedApplications = new WeakSet<object>();
+
 @Injectable()
 export class CoreLegacyAuthDeprecationInitializer implements OnApplicationBootstrap {
   protected readonly logger = new Logger(CoreLegacyAuthDeprecationInitializer.name);
@@ -35,6 +44,11 @@ export class CoreLegacyAuthDeprecationInitializer implements OnApplicationBootst
   ) {}
 
   onApplicationBootstrap(): void {
+    if (reportedApplications.has(this.configService)) {
+      return;
+    }
+    reportedApplications.add(this.configService);
+
     const legacyConfig = this.configService.getFastButReadOnly('auth')?.legacyEndpoints;
     const graphqlOn = isLegacyEndpointEnabled(legacyConfig, 'graphql');
     const restOn = isLegacyEndpointEnabled(legacyConfig, 'rest');

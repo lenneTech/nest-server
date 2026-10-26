@@ -11,9 +11,8 @@ import { execSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// The package is CommonJS (no "type": "module"), so tsx runs this as CJS and __dirname is native.
-// An import.meta.url shim would not typecheck against the root tsconfig (module: commonjs).
-const ROOT = resolve(__dirname, '..');
+// The package is an ES module since 12.0.0 (`"type": "module"`), so tsx runs this file as ESM.
+const ROOT = resolve(import.meta.dirname, '..');
 const OUTPUT = resolve(ROOT, 'FRAMEWORK-API.md');
 
 // ─── ts-morph setup ──────────────────────────────────────────────

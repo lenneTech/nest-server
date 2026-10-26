@@ -1,17 +1,17 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { EmailService } from '../../../common/services/email.service';
-import { RequestContext } from '../../../common/services/request-context.service';
-import { HubActionMessage } from '../hub-action-messages';
-import { HubFileStore } from '../interfaces/hub-panels.interface';
-import { CoreHubDbService } from './core-hub-db.service';
-import { CoreHubEmailService } from './core-hub-email.service';
-import { CoreHubMailboxService } from './core-hub-mailbox.service';
-import { CoreHubMigrationsService } from './core-hub-migrations.service';
-import { CoreHubSourcesService } from './core-hub-sources.service';
-import { HubLogBufferService } from './hub-log-buffer.service';
-import { HubQueryProfilerService } from './hub-query-profiler.service';
-import { HubTraceBufferService } from './hub-trace-buffer.service';
+import { EmailService } from '../../../common/services/email.service.js';
+import { RequestContext } from '../../../common/services/request-context.service.js';
+import { HubActionMessage } from '../hub-action-messages.js';
+import { HubFileStore } from '../interfaces/hub-panels.interface.js';
+import { CoreHubDbService } from './core-hub-db.service.js';
+import { CoreHubEmailService } from './core-hub-email.service.js';
+import { CoreHubMailboxService } from './core-hub-mailbox.service.js';
+import { CoreHubMigrationsService } from './core-hub-migrations.service.js';
+import { CoreHubSourcesService } from './core-hub-sources.service.js';
+import { HubLogBufferService } from './hub-log-buffer.service.js';
+import { HubQueryProfilerService } from './hub-query-profiler.service.js';
+import { HubTraceBufferService } from './hub-trace-buffer.service.js';
 
 /** Illustrative sample data for the test-mail action. */
 const TEST_MAIL_DATA = {

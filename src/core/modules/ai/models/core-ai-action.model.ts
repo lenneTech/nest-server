@@ -1,8 +1,8 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { JSON } from '../../../common/scalars/json.scalar';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { JSON } from '../../../common/scalars/json.scalar.js';
 
 /**
  * A single tool execution performed during an AI prompt — surfaced to the

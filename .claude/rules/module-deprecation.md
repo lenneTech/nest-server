@@ -4,7 +4,7 @@ This document describes the deprecation strategy for Legacy Auth and the migrati
 
 ## Authentication System Roadmap
 
-### v11.x (Current - Backward Compatible)
+### v11.x – v12.x (Current - Backward Compatible)
 
 - **Legacy Auth** (CoreAuthService) is available for backwards compatibility
 - **BetterAuth** (IAM) can run standalone or alongside Legacy Auth
@@ -228,7 +228,8 @@ both Legacy Auth and BetterAuth transparently.
 | Version | Status | Changes |
 |---------|--------|---------|
 | v11.6.x | Released | BetterAuth introduced |
-| v11.7.x | Current | Legacy endpoint controls, IAuthProvider, migration status |
+| v11.7.x | Released | Legacy endpoint controls, IAuthProvider, migration status |
+| v12.0.x | Current | NestJS 12 — Legacy Auth unchanged, still available alongside IAM |
 | Future | Planned | BetterAuth default, simplified API, Legacy optional |
 
 ## Related Documentation

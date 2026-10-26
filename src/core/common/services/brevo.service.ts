@@ -1,9 +1,35 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import type { Brevo, BrevoClient } from '@getbrevo/brevo';
+import { ConfigService } from './config.service.js';
 
-import { ConfigService } from './config.service';
+/**
+ * The SDK as the lazy `import()` in {@link BrevoService.getClient} resolves it.
+ *
+ * Derived from the import EXPRESSION on purpose: TypeScript types an `import()` the way it is emitted —
+ * the ESM build under `module: nodenext` (this repo; a native `import()`), the CJS build under
+ * `module: commonjs` (a vendor project's tsconfig; rewritten to `require()`). A plain `import type`
+ * resolves this file's own format instead, and `BrevoClient` has private members, so one build's class
+ * is not assignable to the other's: whichever fixed choice is written breaks the other configuration.
+ */
+const loadBrevoSdk = () => import('@getbrevo/brevo');
+type BrevoClient = InstanceType<Awaited<ReturnType<typeof loadBrevoSdk>>['BrevoClient']>;
+type SendTransacEmailRequest = Parameters<BrevoClient['transactionalEmails']['sendTransacEmail']>[0];
+
+/**
+ * The part of the Brevo SDK client `BrevoService` calls — the return type of the overridable
+ * {@link BrevoService.getClient}.
+ *
+ * Structural on purpose. The SDK's `BrevoClient` class differs between its CJS and ESM builds, and
+ * which one the lazy import loads depends on the consumer's `module` setting, so neither can be named
+ * in this package's declarations (TS2883 under `module: commonjs`). Either build's client satisfies
+ * this, and so does a test double.
+ */
+export interface IBrevoSdkClient {
+  transactionalEmails: {
+    sendTransacEmail(request: object): Promise<unknown>;
+  };
+}
 
 /**
  * Brevo service to send transactional emails
@@ -59,7 +85,7 @@ export class BrevoService {
       }
 
       // Prepare data
-      const request: Brevo.SendTransacEmailRequest = {
+      const request: SendTransacEmailRequest = {
         headers: this.buildIdempotencyHeaders(),
         // The public signature keeps the wider `object` so existing callers stay source-compatible;
         // the SDK narrowed its own field to an index-signature type in v6.
@@ -103,7 +129,7 @@ export class BrevoService {
       }
 
       // Prepare data
-      const request: Brevo.SendTransacEmailRequest = {
+      const request: SendTransacEmailRequest = {
         headers: this.buildIdempotencyHeaders(),
         htmlContent: html,
         params: options?.params,
@@ -172,9 +198,9 @@ export class BrevoService {
    *
    * @returns The memoised SDK client
    */
-  protected async getClient(): Promise<BrevoClient> {
+  protected async getClient(): Promise<IBrevoSdkClient> {
     if (!this.client) {
-      const { BrevoClient: BrevoClientCtor } = await import('@getbrevo/brevo');
+      const { BrevoClient: BrevoClientCtor } = await loadBrevoSdk();
       this.client = new BrevoClientCtor({
         apiKey: this.brevoConfig.apiKey,
         // The SDK defaults to 2 retries honouring `Retry-After` with a 60 s cap PER attempt, and to

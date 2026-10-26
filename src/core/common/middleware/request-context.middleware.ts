@@ -1,7 +1,7 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
-import { IRequestContext, RequestContext } from '../services/request-context.service';
+import { IRequestContext, RequestContext } from '../services/request-context.service.js';
 
 /**
  * Middleware that wraps each request in a RequestContext (AsyncLocalStorage).

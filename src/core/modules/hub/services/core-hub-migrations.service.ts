@@ -1,16 +1,16 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { readdir } from 'fs/promises';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 import { resolve } from 'path';
 
-import { ConfigService } from '../../../common/services/config.service';
-import { DEFAULT_MIGRATION_FILE_PATTERN, MigrationRunner } from '../../migrate/migration-runner';
-import { MongoStateStore } from '../../migrate/mongo-state-store';
-import { HubActionMessage } from '../hub-action-messages';
-import { HUB_CONFIG } from '../hub.constants';
-import { HubMigrationsData, HubUnavailable } from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { DEFAULT_MIGRATION_FILE_PATTERN, MigrationRunner } from '../../migrate/migration-runner.js';
+import { MongoStateStore } from '../../migrate/mongo-state-store.js';
+import { HubActionMessage } from '../hub-action-messages.js';
+import { HUB_CONFIG } from '../hub.constants.js';
+import { HubMigrationsData, HubUnavailable } from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 /**
  * Reads migration status for the Migrations panel.

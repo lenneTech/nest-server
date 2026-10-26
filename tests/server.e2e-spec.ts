@@ -56,10 +56,6 @@ describe('ServerModule (e2e)', () => {
    * Before all tests
    */
   beforeAll(async () => {
-    // Indicates that cookies are enabled
-    if (envConfig.cookies) {
-      console.error('NOTE: Cookie handling is enabled. The tests with tokens will fail!');
-    }
     try {
       // Start server for testing
       const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -91,7 +87,6 @@ describe('ServerModule (e2e)', () => {
       oTempTokenPeriod = envConfig.jwt.sameTokenIdPeriod;
 
       // Connection to database
-      console.info(`MongoDB: Create connection to ${envConfig.mongoose.uri}`);
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
@@ -358,16 +353,9 @@ describe('ServerModule (e2e)', () => {
     expect(res.token.length).not.toEqual(gToken);
     expect(res.refreshToken.length).not.toEqual(gRefreshToken);
     if (envConfig.jwt.sameTokenIdPeriod) {
-      const timeBetween = Date.now() - gLastRefreshRequestTime;
-      console.debug(
-        `tempToken used | config: ${envConfig.jwt.sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${
-          envConfig.jwt.sameTokenIdPeriod - timeBetween
-        }`,
-      );
       expect(gLastRefreshRequestTime).toBeGreaterThanOrEqual(Date.now() - envConfig.jwt.sameTokenIdPeriod);
       expect(testHelper.parseJwt(res.token).tokenId).toEqual(testHelper.parseJwt(gToken).tokenId);
     } else {
-      console.debug('tempToken not used');
       expect(testHelper.parseJwt(res.token).tokenId).not.toEqual(testHelper.parseJwt(gToken).tokenId);
     }
     gToken = res.token;
@@ -397,15 +385,8 @@ describe('ServerModule (e2e)', () => {
     expect(res.token.length).not.toEqual(gToken);
     expect(res.refreshToken.length).not.toEqual(gRefreshToken);
     if (sameTokenIdPeriod) {
-      const timeBetween = Date.now() - gLastRefreshRequestTime;
-      console.debug(
-        `tempToken2 used | config: ${sameTokenIdPeriod}, timeBetween: ${timeBetween}, rest: ${
-          sameTokenIdPeriod - timeBetween
-        }`,
-      );
       expect(testHelper.parseJwt(res.token).tokenId).toEqual(testHelper.parseJwt(gToken).tokenId);
     } else {
-      console.debug('tempToken2 not used');
       expect(testHelper.parseJwt(res.token).tokenId).not.toEqual(testHelper.parseJwt(gToken).tokenId);
     }
     configService.setProperty('jwt.sameTokenIdPeriod', oTempTokenPeriod);

@@ -1,14 +1,14 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
+import type { Connection } from 'mongoose';
 
-import { redactSensitiveText } from '../../../common/helpers/logging.helper';
-import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { HUB_CONFIG, HUB_QUERY_PENDING_LIMIT } from '../hub.constants';
-import { HubBuffer } from '../hub-buffer';
-import { normalizeCommandShape } from '../helpers/hub-command-shape.helper';
-import { HubQueriesData, HubQueryRecord, HubQueryTemplate } from '../interfaces/hub-panels.interface';
-import { ResolvedHubConfig } from '../interfaces/hub-config.interface';
+import { redactSensitiveText } from '../../../common/helpers/logging.helper.js';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
+import { HUB_CONFIG, HUB_QUERY_PENDING_LIMIT } from '../hub.constants.js';
+import { HubBuffer } from '../hub-buffer.js';
+import { normalizeCommandShape } from '../helpers/hub-command-shape.helper.js';
+import { HubQueriesData, HubQueryRecord, HubQueryTemplate } from '../interfaces/hub-panels.interface.js';
+import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
 
 interface ProfilerRecord extends HubQueryRecord {
   timestamp: number;

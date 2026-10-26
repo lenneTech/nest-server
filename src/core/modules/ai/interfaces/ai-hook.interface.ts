@@ -1,6 +1,6 @@
-import type { AiToolContext, IAiTool } from './ai-tool.interface';
-import type { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
-import type { CoreAiResponse } from '../models/core-ai-response.model';
+import type { AiToolContext, IAiTool } from './ai-tool.interface.js';
+import type { CoreAiPromptInput } from '../inputs/core-ai-prompt.input.js';
+import type { CoreAiResponse } from '../models/core-ai-response.model.js';
 
 /**
  * Decision returned by a `preToolUse` hook. `block: true` aborts the tool call

@@ -1,0 +1,28 @@
+{
+  // Type-check gate for vendor-mode consumers (`pnpm run typecheck:vendor`, part of `check`).
+  //
+  // Vendor-mode projects copy `src/core/` into their own tree and compile it with THEIR tsconfig.
+  // The base tsconfig here is `nodenext`; a project that kept `module: commonjs` (the minimal
+  // TypeScript 6 migration, see migration-guides/11.43.x-to-12.0.x.md §2) compiles the same files
+  // under `bundler` resolution with `import()` rewritten to `require()` — and with declarations,
+  // which the starter emits. Code can be correct under one and fail under the other: in 12.0.0 a
+  // type taken with `resolution-mode: 'import'` and a derived SDK class type in a protected
+  // signature both passed the nodenext build and failed here (TS2322 / TS2883), found by the lt CLI
+  // session after the fact. This config is what would have caught it. It is driven by
+  // scripts/check-vendor-declarations.mjs, which also emits the declarations and rejects references
+  // that only resolve in this repo's hoisted node_modules.
+  //
+  // `moduleResolution: null` clears the inherited `nodenext`, so TypeScript picks its own default
+  // for `module: commonjs` — exactly what such a project gets.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": null,
+    "noEmit": true,
+    "incremental": false
+  },
+  // What a vendor-mode project receives (the CLI's convertCloneToVendored) — the same set scripts/check-esm-core.mjs
+  // checks. src/server/, src/main.ts and src/config.env.ts are this repository's own ESM test server, never vendored.
+  "include": ["src/core/**/*", "src/index.ts", "src/core.module.ts", "src/test/**/*", "src/types/**/*"],
+  "exclude": ["node_modules", "dist", "src/core/modules/migrate/templates/migration-project.template.ts"]
+}

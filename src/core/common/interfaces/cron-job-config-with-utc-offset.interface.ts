@@ -1,6 +1,6 @@
 import { CronJobParams, CronOnCompleteCommand } from 'cron';
 
-import { CronJobConfig } from './cron-job-config.interface';
+import { CronJobConfig } from './cron-job-config.interface.js';
 
 /**
  * Interface for cron job configuration

@@ -2,14 +2,14 @@ import { BadRequestException, Controller, Get, Logger, NotFoundException, Param,
 import type { Response } from 'express';
 import type { Readable } from 'stream';
 
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RoleEnum } from '../../common/enums/role.enum';
-import { buildContentDisposition } from '../../common/helpers/content-disposition.helper';
-import { ErrorCode } from '../error-code/error-codes';
-import { SkipTenantCheck } from '../tenant/core-tenant.decorators';
-import { CoreFileService } from './core-file.service';
-import type { FileServiceOptions } from './interfaces/file-service-options.interface';
+import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
+import { buildContentDisposition } from '../../common/helpers/content-disposition.helper.js';
+import { ErrorCode } from '../error-code/error-codes.js';
+import { SkipTenantCheck } from '../tenant/core-tenant.decorators.js';
+import { CoreFileService } from './core-file.service.js';
+import type { FileServiceOptions } from './interfaces/file-service-options.interface.js';
 
 const fileStreamLogger = new Logger('CoreFileController');
 

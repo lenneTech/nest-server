@@ -3,7 +3,7 @@ import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { applyTranslationsRecursively } from '../helpers/service.helper';
+import { applyTranslationsRecursively } from '../helpers/service.helper.js';
 
 /**
  * Interceptor that automatically applies translations from _translations

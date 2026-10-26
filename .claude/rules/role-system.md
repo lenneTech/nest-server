@@ -484,6 +484,15 @@ socket therefore ends with its token: at expiry or at the next token refresh.
 **A guard that asks "is this request allowed?" once is not enough for a connection that outlives the
 answer.** When you add a long-lived channel (SSE, a WebSocket of your own), register it the same way.
 
+**Refusing the handshake itself (12.0.0).** `onConnect` refuses a missing or non-authenticating credential with
+`return refuseWsHandshake(extra.socket, reason)` — close code **4401**, which the graphql-ws client does not retry.
+Never by throwing: graphql-ws's ws adapter answers a throw with 4500 and logs "Internal error occurred during
+message handling. Please check your implementation." (until 12.0.0 that happened for every expired token). Never
+by a bare `false`: that closes with 4403, which the client RETRIES — with the same refused credential. 4403 stays
+reserved for a socket whose rights changed while it was open (above). Pinned by
+`tests/subscription-session-iam.e2e-spec.ts` / `tests/subscription-session-legacy.e2e-spec.ts` (mutations
+`iam-ws-handshake-refusal-throws`, `legacy-ws-handshake-refusal-throws`).
+
 ## Role Check Implementation
 
 The role system is evaluated in:

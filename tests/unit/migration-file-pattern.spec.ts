@@ -16,7 +16,7 @@ import { DEFAULT_MIGRATION_FILE_PATTERN as PATTERN } from '../../src/core/module
 const matches = (file: string) => PATTERN.test(file);
 
 describe('DEFAULT_MIGRATION_FILE_PATTERN', () => {
-  it('matches TypeScript migrations (source / ts-node runs)', () => {
+  it('matches TypeScript migrations (source runs)', () => {
     expect(matches('1750000000000-add-user-email.ts')).toBe(true);
   });
 

@@ -1,7 +1,15 @@
 import { HttpException, Injectable } from '@nestjs/common';
-const Mailjet = require('node-mailjet');
+import type { Client } from 'node-mailjet';
+import MailjetDefault from 'node-mailjet';
 
-import { ConfigService } from './config.service';
+import { ConfigService } from './config.service.js';
+
+/**
+ * node-mailjet's declarations say `export default Mailjet`, while its CommonJS build exports the class itself (no
+ * `.default`). At runtime both module systems hand the class to a default import; only TypeScript's ESM view types it
+ * as the module object. `Mailjet` extends `Client` without changing the constructor, so this is the honest type.
+ */
+const Mailjet = MailjetDefault as unknown as typeof Client;
 
 /**
  * Mailjet service

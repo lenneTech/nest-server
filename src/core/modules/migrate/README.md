@@ -417,8 +417,10 @@ const fileId = await uploadFileToGridFS('mongodb://localhost/mydb', '../assets/i
 });
 ```
 
-`relativePath` is resolved against the **helper module's** directory, not the migration file's — the
-paths in this example and in the migration template are written accordingly.
+Since 12.0.0 a relative `relativePath` is resolved against the directory of the **migration** that calls the
+helper (`../assets/image.png` above: an `assets` folder next to `migrations/`). Until then it was resolved against the
+helper module's own directory — inside `node_modules/@lenne.tech/nest-server/dist` in npm mode; that location is still
+tried when the file does not exist next to the migration, so paths written for it keep working.
 
 The returned promise settles only after three guarantees hold:
 
@@ -460,13 +462,33 @@ Ready-to-use template for nest-server projects:
 
 This template automatically imports `getDb()` and `uploadFileToGridFS()` from nest-server, along with your project's config. It's ready to use with zero configuration.
 
-### TypeScript Compiler
+**Vendor mode (12.0.0+):** a project with the core vendored into `src/core/` has no `@lenne.tech/nest-server` package, so
+`migrate create` rewrites the template's `'@lenne.tech/nest-server'` import to the relative path from the migrations
+directory to the vendored core (e.g. `'../src/core'`). It does so only when the package does not resolve from the
+project and the core it runs from has its own `index`; in npm mode the template is written unchanged.
 
-Pre-configured TypeScript compiler for migrate CLI:
+### TypeScript Loader
+
+`helpers/ts-compiler.js` lets the migrate CLI load TypeScript migrations and `config.env.ts`:
 
 ```bash
-migrate --compiler="ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js"
+migrate up --compiler="ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js"
 ```
+
+Since 12.0.0 it compiles `.ts` / `.cts` / `.mts` with **SWC** (`@swc/core`) instead of ts-node. It strips types and
+lowers decorators with the options of the `tsc` build (target `es2022`, legacy decorators with metadata, define
+semantics for class fields), and type-checks nothing — `tsc` and the IDE do that. It needs `@swc/core` in the project
+(`pnpm add -D @swc/core`; starter-based projects have it), resolved from the working directory. The same file runs
+the dev server from source: `node -r <path>/ts-compiler.js src/main.ts`.
+
+It covers both module systems: a `require` hook for CommonJS, and Node module hooks (`ts-compiler-hooks.mjs`,
+registered on load) for ES modules — an ESM project's entry and everything it imports. Both map a `./x.js` specifier to
+`./x.ts` when only the source exists. The implementation is `ts-compiler.cjs`; `ts-compiler.js` is the established
+entry path and forwards to it. `helpers/package.json` declares `"type": "commonjs"`, so that path works in CommonJS and
+ESM projects, in npm and vendor mode.
+
+Production images do not use it: migrations are compiled with the build and run as `.js` (see
+[Extension-agnostic identity](#extension-agnostic-identity-safe-source--compiled-js-transition)).
 
 ## Complete Setup Guide
 
@@ -476,7 +498,9 @@ For a complete step-by-step guide on migrating from @nodepit/migrate-state-store
 
 **No need to install the `migrate` package!** nest-server now includes a built-in migration CLI.
 
-1. Install ts-node (dev dependency): `npm install --save-dev ts-node`
+1. Make sure `@swc/core` is a dev dependency (`pnpm add -D @swc/core`) — the `--compiler ts:…` loader
+   below compiles TypeScript migrations with it (since 12.0.0; ts-node before, see
+   [TypeScript Loader](#typescript-loader))
 2. Create `migrations-utils/migrate.js` using `createMigrationStore()`
 3. Add migration scripts to your `package.json`
 4. Run migrations using the built-in CLI
@@ -499,14 +523,14 @@ See the [Migration Guide](./MIGRATION_FROM_NODEPIT.md) for detailed migration in
 
 ## Migration Identity & Strict Mode
 
-### Extension-agnostic identity (safe ts-node → compiled-JS transition)
+### Extension-agnostic identity (safe source → compiled-JS transition)
 
 A migration's identity is its timestamped file stem **without** the `.ts`/`.js` extension
 (`migrationId('1699-foo.ts') === migrationId('1699-foo.js') === '1699-foo'`). `up`, `down`,
 and `list`/`status` all compare identities, not raw filenames.
 
 This makes the recommended production setup — running compiled `.js` migrations in the image
-while the state was recorded under `.ts` names via ts-node — safe: already-applied migrations
+while the state was recorded under `.ts` names by source runs — safe: already-applied migrations
 are **not** re-run after the switch, and no state rewrite is needed. If both `foo.ts` and
 `foo.js` are present in the migrations directory (e.g. an overlapping `outDir`), they count
 as ONE migration: only the `.js` file is loaded and executed, and a warning is emitted.

@@ -1,35 +1,39 @@
 import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 
-import { ServiceOptions } from '../../../common/interfaces/service-options.interface';
-import { ConfigService } from '../../../common/services/config.service';
-import { CoreRedisService } from '../../../common/services/core-redis.service';
-import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../../common/services/rate-limit-store';
-import { RequestContext } from '../../../common/services/request-context.service';
-import { ErrorCode } from '../../error-code';
-import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface';
-import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface';
-import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface';
-import { CoreAiAction } from '../models/core-ai-action.model';
-import { CoreAiResponse } from '../models/core-ai-response.model';
-import { CoreAiUsage } from '../models/core-ai-usage.model';
-import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input';
-import { LlmProviderFactory } from '../providers/llm-provider.factory';
-import { AiHookRegistry } from '../hooks/ai-hook.registry';
-import { AiHookEvent } from '../interfaces/ai-hook.interface';
-import { AiToolRegistry } from '../tools/ai-tool.registry';
-import { ASK_USER_QUESTION_SENTINEL } from '../tools/ask-user-question.tool';
-import { CoreAiBudgetService } from './core-ai-budget.service';
-import { CoreAiConnectionResolverService } from './core-ai-connection-resolver.service';
-import { CoreAiConnectionService } from './core-ai-connection.service';
-import { CoreAiConversationService } from './core-ai-conversation.service';
-import { CoreAiInteractionService } from './core-ai-interaction.service';
-import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry';
-import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service';
-import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service';
-import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service';
-import { CoreAiToolPolicyService } from './core-ai-tool-policy.service';
-import { CoreAiModeService } from './core-ai-mode.service';
-import type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface';
+import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import { CoreRedisService } from '../../../common/services/core-redis.service.js';
+import {
+  InMemoryRateLimitStore,
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../../common/services/rate-limit-store.js';
+import { RequestContext } from '../../../common/services/request-context.service.js';
+import { ErrorCode } from '../../error-code/index.js';
+import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface.js';
+import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface.js';
+import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
+import { CoreAiAction } from '../models/core-ai-action.model.js';
+import { CoreAiResponse } from '../models/core-ai-response.model.js';
+import { CoreAiUsage } from '../models/core-ai-usage.model.js';
+import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input.js';
+import { LlmProviderFactory } from '../providers/llm-provider.factory.js';
+import { AiHookRegistry } from '../hooks/ai-hook.registry.js';
+import { AiHookEvent } from '../interfaces/ai-hook.interface.js';
+import { AiToolRegistry } from '../tools/ai-tool.registry.js';
+import { ASK_USER_QUESTION_SENTINEL } from '../tools/ask-user-question.tool.js';
+import { CoreAiBudgetService } from './core-ai-budget.service.js';
+import { CoreAiConnectionResolverService } from './core-ai-connection-resolver.service.js';
+import { CoreAiConnectionService } from './core-ai-connection.service.js';
+import { CoreAiConversationService } from './core-ai-conversation.service.js';
+import { CoreAiInteractionService } from './core-ai-interaction.service.js';
+import { CoreAiPlaceholderRegistry } from './core-ai-placeholder.registry.js';
+import { CoreAiPromptBuilderService } from './core-ai-prompt-builder.service.js';
+import { AiPromptFeedbackSignal, CoreAiPromptHintService } from './core-ai-prompt-hint.service.js';
+import { AiToolGrantScope, CoreAiToolGrantService } from './core-ai-tool-grant.service.js';
+import { CoreAiToolPolicyService } from './core-ai-tool-policy.service.js';
+import { CoreAiModeService } from './core-ai-mode.service.js';
+import type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface.js';
 
 /**
  * @deprecated Import from `../interfaces/ai-interaction-record.interface` instead. Re-exported only
@@ -39,7 +43,7 @@ import type { AiInteractionRecord } from '../interfaces/ai-interaction-record.in
  * imports THAT service — an import cycle held apart only by an `import type`. See the interface's
  * docblock.
  */
-export type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface';
+export type { AiInteractionRecord } from '../interfaces/ai-interaction-record.interface.js';
 
 /**
  * Event emitted by {@link CoreAiService.promptStream} over SSE.
@@ -60,7 +64,7 @@ export type AiStreamEvent =
  * by the auto and plan execution modes.
  */
 export interface AiRunContext {
-  connection: import('../interfaces/resolved-ai-connection.interface').ResolvedAiConnection;
+  connection: import('../interfaces/resolved-ai-connection.interface.js').ResolvedAiConnection;
   context: AiToolContext;
   currentUser: ServiceOptions['currentUser'];
   history: { content: string; role: string }[];
@@ -74,7 +78,7 @@ export interface AiRunContext {
    * every action arrives in one burst after the work is already done.
    */
   onAction?: (action: CoreAiAction) => void;
-  provider: import('../interfaces/llm-provider.interface').ILlmProvider;
+  provider: import('../interfaces/llm-provider.interface.js').ILlmProvider;
   tenantId?: string;
   tools: IAiTool[];
 }

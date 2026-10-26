@@ -1,11 +1,11 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 
-import { Restricted } from '../../../common/decorators/restricted.decorator';
-import { RoleEnum } from '../../../common/enums/role.enum';
-import { JSON } from '../../../common/scalars/json.scalar';
-import { CoreAiAction } from './core-ai-action.model';
-import { CoreAiBudgetSummary } from './core-ai-usage-info.model';
-import { CoreAiUsage } from './core-ai-usage.model';
+import { Restricted } from '../../../common/decorators/restricted.decorator.js';
+import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { JSON } from '../../../common/scalars/json.scalar.js';
+import { CoreAiAction } from './core-ai-action.model.js';
+import { CoreAiBudgetSummary } from './core-ai-usage-info.model.js';
+import { CoreAiUsage } from './core-ai-usage.model.js';
 
 /**
  * Structured response of an AI prompt.

@@ -2,9 +2,9 @@ import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nes
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { checkRestricted } from '../decorators/restricted.decorator';
-import { getContextData } from '../helpers/context.helper';
-import { ConfigService } from '../services/config.service';
+import { checkRestricted } from '../decorators/restricted.decorator.js';
+import { getContextData } from '../helpers/context.helper.js';
+import { ConfigService } from '../services/config.service.js';
 
 /**
  * Interceptor to check the response data for current user

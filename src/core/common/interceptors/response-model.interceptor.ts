@@ -2,11 +2,11 @@ import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } fr
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { resolveResponseModelClass } from '../helpers/interceptor.helper';
-import { CoreModel } from '../models/core-model.model';
-import { ConfigService } from '../services/config.service';
-import { ModelRegistry } from '../services/model-registry.service';
-import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker';
+import { resolveResponseModelClass } from '../helpers/interceptor.helper.js';
+import { CoreModel } from '../models/core-model.model.js';
+import { ConfigService } from '../services/config.service.js';
+import { ModelRegistry } from '../services/model-registry.service.js';
+import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker.js';
 
 /**
  * Interceptor that automatically converts plain objects and Mongoose documents

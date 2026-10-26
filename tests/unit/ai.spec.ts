@@ -51,12 +51,11 @@ class ScriptedProvider implements ILlmProvider {
 }
 
 /**
- * Construct a ConfigService WITHOUT the constructor's `warn: true` default, which
- * dumps the entire merged config through `console.warn` on every call. That output
- * crosses the worker RPC channel (`onUserConsoleLog`) — the same channel whose
- * pending call, torn down mid-flight, aborted a whole run with
- * `EnvironmentTeardownError` while every test had passed. `setConfig` already
- * defaults to `warn: false`; the constructor does not.
+ * Construct a ConfigService with `warn: false` stated explicitly. Until 12.0.0 the constructor
+ * defaulted to `warn: true`, which dumped the entire merged config through `console.warn` on every
+ * call — output that crosses the worker RPC channel (`onUserConsoleLog`), the same channel whose
+ * pending call, torn down mid-flight, aborted a whole run with `EnvironmentTeardownError` while every
+ * test had passed. Kept explicit so the helper does not depend on the default.
  */
 const initConfig = (config: any, options: { reInit?: boolean; warn?: boolean } = {}) =>
   new ConfigService(config, { warn: false, ...options });
@@ -2088,7 +2087,7 @@ describe('CoreAiMcpController (HTTP session lifecycle)', () => {
     // "onUserConsoleLog" was pending`. That surfaced as a flaky exit code 1 on a run
     // where every single test had passed. Spying also lets us assert the operator
     // actually gets a log, not just the caller a 503. (`restoreMocks: true` in
-    // vitest.config.ts is the net if an assertion below throws before the restore.)
+    // vitest.config.mts is the net if an assertion below throws before the restore.)
     const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     controller.mcpUnavailable(res, new Error("Cannot find module '@modelcontextprotocol/sdk/server/streamableHttp.js'"));
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('MCP SDK not available'));

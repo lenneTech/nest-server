@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 
-import { clone, plainToInstanceClean } from './input.helper';
+import { clone, plainToInstanceClean } from './input.helper.js';
 
 /**
  * Helper class for models

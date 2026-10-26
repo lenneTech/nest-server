@@ -51,8 +51,10 @@ describe('hub-shell.helper', () => {
       expect(out).toContain('\\u2029');
       expect(out).not.toContain(lineSep);
       expect(out).not.toContain(paraSep);
-      // The escaped result must be a valid single-line JS string literal.
+      // The escaped result must be a valid single-line JS string literal — evaluating it is the test.
+      // oxlint-disable-next-line typescript/no-implied-eval
       expect(() => new Function(`return '${out}';`)()).not.toThrow();
+      // oxlint-disable-next-line typescript/no-implied-eval
       expect(new Function(`return '${out}';`)()).toBe(`before${lineSep}mid${paraSep}after`);
     });
   });

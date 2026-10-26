@@ -34,7 +34,7 @@ import { vi } from 'vitest';
  * and several of these messages document a fallback a reader would otherwise never see proven.
  *
  * Only `error` is captured: `warn`/`log` are already off via `Logger.overrideLogger`, and
- * `restoreMocks: true` (vitest.config.ts) undoes the spy after every test, so a REAL error from
+ * `restoreMocks: true` (vitest.config.mts) undoes the spy after every test, so a REAL error from
  * an unexpected path in the next test still reaches the reporter.
  *
  * @param level - which sink to capture; defaults to `error`
