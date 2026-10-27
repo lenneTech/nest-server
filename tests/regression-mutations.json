@@ -215,8 +215,8 @@
     {
       "id": "exclude-schemas-warns-silently",
       "defect": "11.35.0 — a schema that DECLARES tenantId and is listed in multiTenancy.excludeSchemas lost its tenant filter with no signal anywhere. The framework's own docs carried `excludeSchemas: ['User', 'Session']` in a copyable @example, which on a project with per-tenant users switches isolation off for the user collection.",
-      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
-      "after": "function shouldBypass(modelName?: string): boolean {",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
+      "after": "export function isTenantPolicyBypassed(modelName?: string): boolean {",
       "find": "    warnIsolationDisabled(modelName);\n",
       "replace": "",
       "specs": [
@@ -546,7 +546,7 @@
     {
       "id": "cross-tenant-writes-accepted",
       "defect": "11.35.0 — the tenant plugin stamped tenantId only when absent, and filtered WHERE but not the update payload. So a caller-supplied tenantId survived (planting a row in a foreign tenant) and an update could rewrite tenantId (moving a row out of its own tenant). Both are cross-tenant writes from an ordinary request.",
-      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
       "find": "  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
       "replace": "  return;\n  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
       "specs": [
@@ -2386,7 +2386,7 @@
       "id": "malformed-file-id-500",
       "defect": "11.42.13 — an id that is not a 24-character hex string (a TUS upload id, which clients took for the file id) reached new ObjectId() and threw a BSONError, so GET /files/id/<tus-upload-id> answered 500 instead of the 404 an unknown id gets.",
       "file": "src/core/modules/file/core-file.service.ts",
-      "find": "    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));",
+      "find": "    return typeof id === 'string' && !isWellFormedId(id);",
       "replace": "    return false;",
       "specs": [
         "tests/file-missing-answers.e2e-spec.ts"
@@ -3220,6 +3220,39 @@
       "replace": "      if (fullName && currentEmail) {\n        try {\n          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-row-check-not-registered",
+      "defect": "DEV-3828 (db-agnostic phase 0) — the tenant row check after reads (the after-layer every data store shares) is the tenant plugin's post hooks on MongoDB. Without them a read whose filter was built for the wrong tenant returns that tenant's rows.",
+      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "find": "  for (const hookName of rowCheckHooks) {\n    schema.post(hookName, function (result: any) {",
+      "replace": "  for (const hookName of [] as string[]) {\n    schema.post(hookName, function (result: any) {",
+      "specs": [
+        "tests/persistence-tenant-row-check.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "lock-store-takes-held-lease",
+      "defect": "DEV-3828 (db-agnostic phase 0) — a lease claim that does not compare expiresAt takes over a held, unexpired lease, so two replicas run what exactly one of them may run.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "        { _id: key, expiresAt: { $lte: now } },",
+      "replace": "        { _id: key },",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "database-mongodb-url-not-connected",
+      "defect": "DEV-3828 (db-agnostic phase 0, review) — a MongoDB URL in `database` passed the boot guard, but Mongoose still connected with the fallback URI (NSC__MONGOOSE__URI or mongodb://localhost/nest-server-default): another database, without an error.",
+      "file": "src/core.module.ts",
+      "find": "      config.mongoose.uri = defaultSource.url;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
       ],
       "driverSpecific": false
     }

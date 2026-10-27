@@ -8,6 +8,8 @@ import { prepareInput, prepareOutput } from '../helpers/service.helper.js';
 import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator.js';
 import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import { CoreModel } from '../models/core-model.model.js';
+import type { DataStore } from '../persistence/data-store.interface.js';
+import { MongooseDataStore } from '../persistence/mongoose-data-store.js';
 import { FieldSelection } from '../types/field-selection.type.js';
 import { ConfigService } from './config.service.js';
 import { ModelRegistry } from './model-registry.service.js';
@@ -51,16 +53,48 @@ export abstract class ModuleService<T extends CoreModel = any> {
    */
   protected mainDbModel: SafeModel<Document & T>;
 
+  /** Store passed explicitly to the constructor */
+  private explicitDataStore?: DataStore<T>;
+
+  /** Store derived from `mainDbModel`, rebuilt when the model is replaced */
+  private derivedDataStore?: { model: unknown; store: DataStore<T> };
+
+  /**
+   * Database-neutral data store of the main model.
+   *
+   * Derived from `mainDbModel` when none is passed — at access time, not in the constructor, because a
+   * subclass may assign `mainDbModel` after `super()`. Operations whose semantics are identical on every
+   * database run through it already; the Mongoose-document path of the CRUD pipeline stays behind the
+   * store's `mongoosePopulate` capability until a SQL store provides the neutral one.
+   */
+  protected get dataStore(): DataStore<T> | undefined {
+    if (this.explicitDataStore) {
+      return this.explicitDataStore;
+    }
+    if (!this.mainDbModel) {
+      return undefined;
+    }
+    if (this.derivedDataStore?.model !== this.mainDbModel) {
+      this.derivedDataStore = {
+        model: this.mainDbModel,
+        store: new MongooseDataStore<T>(this.mainDbModel as unknown as Model<any>),
+      };
+    }
+    return this.derivedDataStore.store;
+  }
+
   /**
    * Set main properties
    */
   protected constructor(options?: {
     configService?: ConfigService;
+    dataStore?: DataStore<T>;
     mainDbModel?: Model<Document & T>;
     mainModelConstructor?: new (...args: any[]) => T;
   }) {
     this.configService = options?.configService;
     this.mainDbModel = options?.mainDbModel as SafeModel<Document & T>;
+    this.explicitDataStore = options?.dataStore;
     this.mainModelConstructor = options?.mainModelConstructor;
 
     // Auto-register model class for ResponseModelInterceptor lookups

@@ -2152,6 +2152,60 @@ export interface IAi {
 }
 
 /**
+ * Library that executes the framework's SQL on a SQL data source. The framework compiles every query,
+ * policy and schema change itself, so the engine decides only what projects use for native queries —
+ * switching it on the same database is a configuration change.
+ */
+export type DatabaseSqlEngine = 'drizzle' | 'kysely' | 'typeorm';
+
+/**
+ * One data source: a connection URL plus, for SQL databases, the engine.
+ */
+export interface IDatabaseSourceConfig {
+  /**
+   * SQL engine for this source. Only valid on SQL URLs.
+   * @default the top-level `sqlEngine`, else 'typeorm'
+   */
+  sqlEngine?: DatabaseSqlEngine;
+
+  /**
+   * Connection URL. The scheme selects the database: `mongodb://`, `mongodb+srv://`, `postgres://`,
+   * `postgresql://`, `mysql://`, `mariadb://`.
+   */
+  url: string;
+}
+
+/**
+ * Data sources and which model is stored where.
+ *
+ * One default source serves every model; `sources` adds further ones and `models` lists the exceptions.
+ * A model may also name its source in code with `@PersistedModel({ dataSource })`; the configuration
+ * wins, so operations can move a model without a code change.
+ */
+export interface IDatabaseConfig {
+  /**
+   * Model name → source name, for the models that do not use the default source.
+   */
+  models?: Record<string, string>;
+
+  /**
+   * Further sources by name, each a URL or a source configuration. The name `default` is reserved.
+   */
+  sources?: Record<string, IDatabaseSourceConfig | string>;
+
+  /**
+   * SQL engine for every SQL source that does not set its own.
+   * @default 'typeorm'
+   */
+  sqlEngine?: DatabaseSqlEngine;
+
+  /**
+   * URL of the default source. Without it, the `mongoose` configuration stays the default source.
+   */
+  url?: string;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
@@ -2496,6 +2550,25 @@ export interface IServerOptions {
     string,
     CronExpression | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset | Date | Falsy | string
   >;
+
+  /**
+   * Data sources: where models are stored.
+   *
+   * - absent: the `mongoose` configuration is the only data source — exactly as before
+   * - a URL (`'postgres://…'`): that database is the default source for every model
+   * - an object: a default source plus further `sources` and per-model exceptions (`models`)
+   * - `false`: no database at all
+   *
+   * When this sets a default source and the project ALSO configures `mongoose` explicitly, that
+   * MongoDB becomes the additional source named `mongoose`. Connection URLs are never logged with
+   * their credentials.
+   *
+   * Which databases this version can actually wire is checked at boot; anything it cannot is refused
+   * with a named error before any connection is attempted.
+   *
+   * @default undefined (the `mongoose` configuration)
+   */
+  database?: false | IDatabaseConfig | string;
 
   /**
    * When true, logs a debug message when prepareInput() changes the input type during process().

@@ -113,7 +113,8 @@ JWT-based authentication for existing projects:
 | **Query Complexity** | GraphQL query complexity analysis to prevent DoS |
 | **Tenant Isolation** | Header-based multi-tenant isolation with membership validation (opt-in) |
 | **Tenant Guard** | `CoreTenantGuard` validates tenant membership — and, with `multiTenancy.isTenantActive` (11.42.0), that the tenant is not deactivated; system roles (`S_EVERYONE`, `S_USER`, `S_VERIFIED`) are checked as OR alternatives before real roles; hierarchy roles (`@Roles(DefaultHR.MEMBER)`), `@SkipTenantCheck()`, BetterAuth auto-skip (`betterAuth.skipTenantCheck`) |
-| **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context |
+| **Tenant Plugin Safety Net** | Mongoose tenant plugin throws `ForbiddenException` when tenant-schema is accessed without valid tenant context. Its post hooks (`find`, `findOne`, `findOneAnd*`) additionally check every RETURNED row (`assertRowsInTenantScope()`): a row of a tenant outside the caller's scope withholds the whole result with 403. The decisions live in `common/persistence/policies/tenant.policy.ts`, which every data store shares |
+| **Data Store** | `DataStore<T>` (`common/persistence/`) is the database-neutral port below the CrudService pipeline; every `ModuleService` has one (`this.dataStore`, derived from `mainDbModel`). On MongoDB it runs through Mongoose model methods, so every plugin fires. `CorePersistenceModule.forFeature()` + `@InjectStore()` register and inject it. The `database` configuration and its boot guard decide which data sources exist |
 | **API Tokens** | `apiTokens` config (opt-in): USER tokens act as their user without global roles; TENANT tokens (multi-tenancy only) act with the lowest tenant role in their own tenant. `CoreApiTokenMiddleware` authenticates `Authorization: Bearer` / `x-api-key`; every guard denies a token unless the route declares `@ApiTokenScopes()`. Signed short-lived assertions for embedded pages. See `src/core/modules/api-token/README.md` |
 
 ### Data & CRUD
@@ -1024,6 +1025,8 @@ Enabled via `multiTenancy: {}` in config. Auto-activates only on schemas with a 
 The `tenantId` is read from RequestContext (set by CoreTenantGuard via `req.tenantId`), not the raw header.
 
 **Safety Net:** If a tenant-schema is accessed without a valid tenant context (no `tenantId` and no bypass), the plugin throws a `ForbiddenException`. This prevents accidental cross-tenant data leaks when developers forget to set the tenant header or bypass.
+
+**Row check after reads:** the pre hooks decide which rows a query may touch; post hooks on `find`, `findOne` and `findOneAnd*` check what came back, with the same policy a SQL store applies (`assertRowsInTenantScope()`). On a correct path the filter already holds and nothing changes; a row of another tenant — a filter built with the wrong scope — withholds the result with 403 and logs an error naming the model, never the foreign tenant. Rows without a `tenantId` property (a projection left it out) cannot be verified and pass. Aggregations are not checked: their output is reshaped.
 
 ```
                         +---------------------+

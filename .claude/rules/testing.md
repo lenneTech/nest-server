@@ -212,6 +212,8 @@ exactly that (`getRawFileInfoByName()` consulted two of the three stores), and e
 | Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
 | Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
 
+The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. Today it has one column (`mongodb`); each SQL database and engine becomes a column of its own (plan `.claude/plans/db-agnostic/PLAN.md` §6).
+
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
 Omitting a case for one implementation and declaring it impossible there produce the same artefact
@@ -273,7 +275,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 186 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 187 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -292,7 +294,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 279 mutations.
+at 282 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -337,9 +339,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 93 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 95 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 279 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 282 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -735,7 +737,7 @@ catches the *failure*, never the *disarming* of the safety property.
 |-----------|-------|
 | DI tokens live in import-free leaves (SWC/TDZ) | `tests/unit/import-cycle-invariants.spec.ts` |
 | Internal calls forward the caller's `ServiceOptions` | `tests/unit/service-options-forwarding.spec.ts` |
-| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts` |
+| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts`, `tests/unit/persistence-parity-matrix.spec.ts` |
 | Regression tests carry re-runnable evidence | `tests/unit/regression-evidence.spec.ts` |
 | The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
 | The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |

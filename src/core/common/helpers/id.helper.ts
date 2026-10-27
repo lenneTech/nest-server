@@ -34,6 +34,19 @@ import { Types } from 'mongoose';
 import { IdsType } from '../types/ids.type.js';
 
 /**
+ * Whether a value is an ObjectId, recognised by bson's own type tag instead of by class identity, so
+ * an ObjectId from a second installed copy of bson counts too. A mongoose `Types.ObjectId` is one.
+ */
+export function isObjectIdLike(value: unknown): value is { toHexString(): string } {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    (value as { _bsontype?: unknown })._bsontype === 'ObjectId' &&
+    typeof (value as { toHexString?: unknown }).toHexString === 'function'
+  );
+}
+
+/**
  * Checks if all IDs are equal
  */
 export function equalIds(...ids: IdsType[]): boolean {
@@ -175,7 +188,10 @@ function getStringId(element: any): string {
 
   // Object handling
   if (typeof element === 'object') {
-    if (element instanceof Types.ObjectId) {
+    // By bson type tag rather than `instanceof Types.ObjectId`: an ObjectId from another bson copy
+    // fails `instanceof`, and its `id` bytes are a plain Uint8Array outside Node — the branch below
+    // would then stringify the bytes ("101,31,0,…") instead of returning the hex id.
+    if (isObjectIdLike(element)) {
       return element.toHexString();
     }
 

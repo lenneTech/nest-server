@@ -113,7 +113,7 @@ export abstract class CrudService<
    * Get distinct values of a property
    */
   distinct(property: string): Promise<string[]> {
-    return this.mainDbModel.distinct(property).exec() as Promise<string[]>;
+    return this.dataStore.distinct(property) as Promise<string[]>;
   }
 
   /**
@@ -728,22 +728,11 @@ export abstract class CrudService<
       return;
     }
 
-    const stringId = getStringIds(id);
-    const pushOp: any = { $each: itemsArray };
-    if (options?.$slice !== undefined) {
-      pushOp.$slice = options.$slice;
-    }
-    if (options?.$position !== undefined) {
-      pushOp.$position = options.$position;
-    }
-    if (options?.$sort) {
-      pushOp.$sort = options.$sort;
-    }
-
-    await this.mainDbModel
-      .findByIdAndUpdate(stringId, { $push: { [field]: pushOp } } as any)
-      .lean()
-      .exec();
+    await this.dataStore.pushToArray(getStringIds(id), field, itemsArray, {
+      position: options?.$position,
+      slice: options?.$slice,
+      sort: options?.$sort,
+    });
   }
 
   /**
@@ -771,11 +760,7 @@ export abstract class CrudService<
       throw new Error(`pullFromArray: invalid field name "${field}"`);
     }
 
-    const stringId = getStringIds(id);
-    await this.mainDbModel
-      .findByIdAndUpdate(stringId, { $pull: { [field]: condition } } as any)
-      .lean()
-      .exec();
+    await this.dataStore.pullFromArray(getStringIds(id), field, condition);
   }
 
   /**

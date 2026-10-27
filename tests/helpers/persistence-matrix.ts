@@ -1,0 +1,117 @@
+/**
+ * THE PERSISTENCE PARITY MATRIX — one declaration of what a data store must do, executed against every
+ * database (and, on SQL, every engine).
+ *
+ * Same discipline as `tests/helpers/file-storage-matrix.ts`, for the same reason: one contract with several
+ * implementations is tested ONCE, against all of them, or a behaviour that holds on one database and not on
+ * another has nowhere to show up. A (case, driver) cell is in one of three declared states, and
+ * `tests/unit/persistence-parity-matrix.spec.ts` fails the build on anything else:
+ *
+ *   EXECUTED     — the case lists the driver; the executor registers a real `it()` via `persistenceIt()`.
+ *   IMPOSSIBLE   — an exclusion whose reason starts with `IMPOSSIBLE:`; nothing is registered.
+ *   BY DESIGN    — an exclusion whose reason starts with `DIFFERENT-BY-DESIGN:`; it MUST name a `provenBy`
+ *                  case run for that driver, and the executor registers the complement via
+ *                  `persistenceComplement()`. A design difference nobody asserts is indistinguishable from a
+ *                  bug nobody noticed.
+ *
+ * Phase 0 of the database-agnostic work fills the MongoDB column. Phase 1 adds one column per SQL database
+ * and engine; every case must then be executed there too, or be declared with a reason.
+ *
+ * Executor: `tests/persistence-parity.e2e-spec.ts`.
+ */
+import { it } from 'vitest';
+
+export type PersistenceDriver = 'mongodb';
+
+export const PERSISTENCE_DRIVERS: readonly PersistenceDriver[] = ['mongodb'] as const;
+
+export interface PersistenceCase {
+  /** Drivers this case is EXECUTED for. Every driver not listed needs an exclusion entry. */
+  drivers: readonly PersistenceDriver[];
+  id: string;
+  title: string;
+}
+
+export interface PersistenceExclusion {
+  case: string;
+  driver: PersistenceDriver;
+  /** Case id asserting the complement. Required for `DIFFERENT-BY-DESIGN:`, forbidden for `IMPOSSIBLE:`. */
+  provenBy?: string;
+  /** Must start with `IMPOSSIBLE:` or `DIFFERENT-BY-DESIGN:`. */
+  reason: string;
+}
+
+const ALL = PERSISTENCE_DRIVERS;
+
+export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
+  // --- CRUD contract --------------------------------------------------------------------------------------------
+  {
+    drivers: ALL,
+    id: 'insert-returns-string-id',
+    title: 'insert returns the stored record with its id as a string, without _id',
+  },
+  { drivers: ALL, id: 'find-by-id', title: 'findById returns the record, and null for an unknown id' },
+  { drivers: ALL, id: 'find-where-sort-skip-limit', title: 'find applies the filter, sort, skip and limit' },
+  { drivers: ALL, id: 'find-by-neutral-id', title: 'find and findOne address the id as `id`, also inside $or' },
+  { drivers: ALL, id: 'find-one', title: 'findOne returns the first match, and null without one' },
+  { drivers: ALL, id: 'find-select', title: 'select returns the requested fields and always the id' },
+  { drivers: ALL, id: 'count', title: 'count counts the matches' },
+  { drivers: ALL, id: 'distinct', title: 'distinct returns each value once' },
+  {
+    drivers: ALL,
+    id: 'update-partial',
+    title: 'updateById with a partial record sets those fields and returns the result',
+  },
+  { drivers: ALL, id: 'update-operators', title: 'updateById applies $inc and $unset' },
+  { drivers: ALL, id: 'delete-by-id', title: 'deleteById removes the record and returns it' },
+  { drivers: ALL, id: 'push-with-slice', title: 'pushToArray appends atomically and keeps the last n with slice' },
+  { drivers: ALL, id: 'pull-by-condition', title: 'pullFromArray removes the matching items' },
+  { drivers: ALL, id: 'array-field-guard', title: 'array operations refuse an operator or empty field name' },
+  {
+    drivers: ALL,
+    id: 'native-access-needs-reason',
+    title: 'native() and raw() refuse an access without a meaningful reason',
+  },
+  // --- Security policies (before-layer and after-layer) ---------------------------------------------------------
+  { drivers: ALL, id: 'tenant-filters-reads', title: 'a tenant sees only its own rows' },
+  { drivers: ALL, id: 'tenant-stamps-writes', title: 'a write in a tenant context is stamped with that tenant' },
+  { drivers: ALL, id: 'tenant-refuses-foreign-write', title: 'a write naming another tenant is refused' },
+  { drivers: ALL, id: 'tenant-safety-net', title: 'tenant-scoped data without a tenant context is refused' },
+  { drivers: ALL, id: 'tenant-foreign-update-misses', title: 'an update of another tenant’s record finds nothing' },
+  { drivers: ALL, id: 'audit-stamps-actor', title: 'createdBy and updatedBy carry the acting user' },
+  { drivers: ALL, id: 'password-hashed', title: 'a password is stored hashed, never in plaintext' },
+  { drivers: ALL, id: 'system-role-refused', title: 'a system role is never stored' },
+  { drivers: ALL, id: 'role-change-stripped', title: 'a role change by a non-admin is stripped' },
+];
+
+export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [];
+
+export function getPersistenceCase(id: string): PersistenceCase {
+  const found = PERSISTENCE_CASES.find((entry) => entry.id === id);
+  if (!found) {
+    throw new Error(`Unknown persistence case '${id}'. Declare it in tests/helpers/persistence-matrix.ts.`);
+  }
+  return found;
+}
+
+export function getPersistenceExclusion(id: string, driver: PersistenceDriver): PersistenceExclusion | undefined {
+  return PERSISTENCE_EXCLUSIONS.find((entry) => entry.case === id && entry.driver === driver);
+}
+
+/** Register an executed cell; refuses a driver the matrix does not list for the case. */
+export function persistenceIt(id: string, driver: PersistenceDriver, body: () => Promise<void> | void): void {
+  const spec = getPersistenceCase(id);
+  if (!spec.drivers.includes(driver)) {
+    throw new Error(`Persistence case '${id}' is not declared for driver '${driver}'.`);
+  }
+  it(spec.title, body);
+}
+
+/** Register the complement of a `DIFFERENT-BY-DESIGN:` exclusion. */
+export function persistenceComplement(id: string, driver: PersistenceDriver, body: () => Promise<void> | void): void {
+  const exclusion = getPersistenceExclusion(id, driver);
+  if (!exclusion?.reason.startsWith('DIFFERENT-BY-DESIGN:')) {
+    throw new Error(`Persistence case '${id}' is not excluded as DIFFERENT-BY-DESIGN for '${driver}'.`);
+  }
+  it(`instead of "${getPersistenceCase(id).title}": ${exclusion.reason.replace('DIFFERENT-BY-DESIGN: ', '')}`, body);
+}

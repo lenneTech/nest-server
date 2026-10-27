@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-22 (v12.0.0)
+> Auto-generated from source code as of 2026-10-27 (v12.0.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -25,6 +25,7 @@
   - `cookies?`: `boolean | ICookiesConfig` (default: `true`) — Cookie configuration for authentication handling.
   - `cors?`: `boolean | ICorsConfig` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
+  - `database?`: `string | false | IDatabaseConfig` (default: `undefined (the `mongoose` configuration)`) — Data sources: where models are stored.
   - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
   - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
   - `env?`: `string` — Environment

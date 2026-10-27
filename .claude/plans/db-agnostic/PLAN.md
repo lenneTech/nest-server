@@ -107,6 +107,14 @@ cardinality, `select: false`, `lowercase`/`trim`, TTL, `renamedFrom`, and the mo
    declared with a plain `@Prop()` — common in consumer projects — are derived from `schema.paths`, the same
    reverse-engineering the Hub's ERD already does. Existing models therefore work on SQL without being edited.
 
+**Order (decided while implementing phase 0):** phase 0 derives the descriptor from the Mongoose schema only — it
+already contains both `@UnifiedField({ mongoose })` and plain `@Prop()` declarations, exactly as MongoDB stores them,
+and a second source that must agree would add risk without adding coverage while Mongoose is always present. The
+`@UnifiedField` source arrives in phase 5, when Mongoose becomes optional; the descriptor snapshot over every core and
+reference model (`tests/unit/persistence-model-descriptor.spec.ts`) is what proves both sources agree. Probed on
+Mongoose 9: `type: Types.ObjectId` (the bson class) reports as `Mixed`, so a reference is recognised by its `ref`
+option, never by its type; a nested class without `@Schema` is stored as `Mixed` and therefore described as JSON.
+
 The SQL side builds tables from the descriptors: scalar → column (snake_case), declared nested object/array and
 `isAny` → JSON (`jsonb` on Postgres), ref → indexed text column (no hard FK across modules — keeps core modules
 swappable), `createdAt`/`updatedAt` columns, compound indexes from the class options, `tenant_id` leading in every
@@ -224,8 +232,11 @@ database: false
   `mariadb://` → MariaDB. A source may carry its own `sqlEngine`.
 * A model may also declare its source in code (`@PersistedModel({ dataSource: 'logs' })`). Precedence:
   **config > decorator > default**, so operations can move a model without a code change.
-* `mongoose` alone keeps today's behaviour (it is the default source). `database` and `mongoose` both defining a
-  default fails the boot with a message naming both ways to resolve it.
+* `mongoose` alone keeps today's behaviour (it is the default source). When `database` sets a default and the project
+  ALSO configures `mongoose` explicitly, that MongoDB becomes the additional source `mongoose` (a hybrid project needs
+  no extra key). Only the project's own `mongoose` counts: `CoreModule.forRoot()` always merges a fallback URI in, so
+  "both configured → boot error", as first planned, would have refused every project that sets `database`.
+* Connection URLs appear in errors and logs as scheme + host only — never with credentials, path or options.
 * Boot validation: unknown source names, a model needing a capability its source lacks, an engine configured but not
   installed, an engine on a dialect it does not support — each fails the boot with a named error. The boot logs one
   line per model: model → source → database → engine.
@@ -349,6 +360,29 @@ for a MongoDB project (the existing tests are the proof); only phase 5 carries a
    contract suite with an N-worker race.
 8. Persistence parity matrix scaffold (`tests/helpers/persistence-matrix.ts`) with the Mongo column filled, the tenant
    behaviours of §3.4 as matrix cases.
+
+**Decided while implementing phase 0 (both keep the phase-0 gate "no change for MongoDB"):**
+* *Step 5:* the CrudService's find/get/create/update/delete stay on their Mongoose-document path behind the store's
+  `mongoosePopulate` capability. Switching MongoDB to lean neutral records now would change hydration, schema
+  defaults, getters and populate for every consumer. Operations with identical semantics (`distinct`, `pushToArray`,
+  `pullFromArray`) already run through `this.dataStore`; phase 1 adds the neutral path for SQL stores, and the parity
+  matrix proves both paths answer alike. `dataStore` is a getter that follows `mainDbModel`, because a subclass may
+  assign the model after `super()`.
+* *Step 6:* the tenant row check is the tenant plugin's post hooks on MongoDB, so it covers every Mongoose read
+  (CrudService, direct model calls, populate, the store) — not only reads through the store.
+* *What a MongoDB project can notice after phase 0* (no behaviour change on a correct path; listed for the phase-5
+  migration guide): `IdType` / `StringOrObjectId` take a structural `ObjectIdLike` instead of `Types.ObjectId`; a
+  read that returns a foreign tenant's row now fails with 403 instead of returning it; `ModuleService` has a
+  `dataStore` getter; `database` may carry the MongoDB URL instead of `mongoose.uri` (review finding: it was accepted
+  but not connected — fixed, mutation `database-mongodb-url-not-connected`).
+* *Open for phase 1:* `@PersistedModel({ dataSource })` is recorded but not read yet — model routing arrives with the
+  second source; `MongooseDataStore` joins `select` into Mongoose's string projection, so a field name starting with
+  `+` must be refused before any caller passes non-constant names.
+* *Step 7:* `LockStore` + `MongoLockStore` + contract suite land now; the three consumers (system-setup claim, cron
+  lease, migration lock) switch in phase 2 together with their SQL path. Their documents are read by OLDER replicas
+  during a rolling deploy (`{ lock: 'lock' }` for migrations, `_id` + `expiresAt` for cron, `claimedAt` for setup); a
+  format change in phase 0 would let an old and a new replica both believe they hold the lock. Phase 2 designs that
+  compatibility once per consumer.
 
 ### Phase 1 — SQL core on PostgreSQL with three engine adapters (DEV-3829)
 1. `SqlExecutor` port + adapters TypeORM (default; `synchronize: false` asserted), Kysely, Drizzle (`1.0.0-rc.5`

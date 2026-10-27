@@ -9,6 +9,7 @@ import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper.js'
 import { GridFSHelper } from '../../common/helpers/gridfs.helper.js';
 import { check } from '../../common/helpers/input.helper.js';
 import { prepareOutput } from '../../common/helpers/service.helper.js';
+import { isWellFormedId } from '../../common/persistence/id-format.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
@@ -151,7 +152,7 @@ export abstract class CoreFileService {
    * copy of `bson` (where `instanceof` fails) is not suddenly reported as missing.
    */
   protected isMalformedFileId(id: unknown): boolean {
-    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));
+    return typeof id === 'string' && !isWellFormedId(id);
   }
 
   /**

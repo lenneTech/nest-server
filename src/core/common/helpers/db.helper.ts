@@ -3,6 +3,7 @@ import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
 
 import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
 import { CoreModel } from '../models/core-model.model.js';
+import { isWellFormedId } from '../persistence/id-format.js';
 import { FieldSelection } from '../types/field-selection.type.js';
 import { IdsType } from '../types/ids.type.js';
 import { StringOrObjectId } from '../types/string-or-object-id.type.js';
@@ -100,7 +101,7 @@ export function checkStringIds(ids: string | string[]): boolean {
   }
   try {
     for (const id of ids) {
-      if (typeof id !== 'string' || id.length !== 24 || !Types.ObjectId.isValid(id)) {
+      if (typeof id !== 'string' || !isWellFormedId(id)) {
         return false;
       }
     }
