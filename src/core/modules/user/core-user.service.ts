@@ -714,12 +714,24 @@ export abstract class CoreUserService<
     // Without this, the next sign-in reverse-syncs the STALE Better-Auth `name` back into
     // firstName/lastName (linkOrCreateUser), silently discarding the user's edit.
     if (this.options?.betterAuthUserMapper && (input.firstName !== undefined || input.lastName !== undefined)) {
-      const fullName = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(' ');
-      const currentEmail = updatedUser?.email ?? oldEmail;
-      if (fullName && currentEmail) {
+      // The names come from the STORED record, not from `updatedUser`: that one went through the
+      // output pipeline, which strips every field the caller may not read. A caller allowed to
+      // edit one name field but not to read the other would otherwise sync a truncated name.
+      const stored = (await this.mainDbModel
+        .findById(id)
+        .select('email firstName lastName')
+        .lean()
+        .exec()) as null | TUser;
+      // An emptied name is synced as well. Skipping it left the old Better-Auth `name` in place,
+      // and the next IAM sign-in wrote it back into the fields the user had just cleared.
+      const fullName = [stored?.firstName, stored?.lastName].filter(Boolean).join(' ');
+      const currentEmail = stored?.email ?? oldEmail;
+      if (currentEmail) {
         try {
-          await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);
-          this.userServiceLogger.debug(`Synced name change from Legacy to IAM for user ${maskEmail(currentEmail)}`);
+          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);
+          if (synced) {
+            this.userServiceLogger.debug(`Synced name change from Legacy to IAM for user ${maskEmail(currentEmail)}`);
+          }
         } catch (error) {
           this.userServiceLogger.warn(
             `Failed to sync name change to IAM for ${maskEmail(currentEmail)}: ${error instanceof Error ? error.message : 'Unknown error'}`,

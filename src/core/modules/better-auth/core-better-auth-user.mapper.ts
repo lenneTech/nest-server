@@ -762,7 +762,8 @@ export class CoreBetterAuthUserMapper {
    * (see linkOrCreateUser), silently discarding the user's edit.
    *
    * @param userEmail - The user's current email address (lookup key on the shared collection)
-   * @param name - The new display name (typically `firstName lastName`)
+   * @param name - The new display name (typically `firstName lastName`). May be empty: a cleared
+   *   name must reach the Better-Auth side too, or the next sign-in writes the old one back.
    * @returns true if sync was successful, false otherwise
    */
   async syncNameChangeFromLegacy(userEmail: string, name: string): Promise<boolean> {

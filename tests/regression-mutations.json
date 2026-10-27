@@ -3183,8 +3183,8 @@
       "id": "user-update-skips-iam-name-sync",
       "defect": "found in 11.43.1 — CoreUserService.update() synced email and password changes to the Better-Auth side of the shared users document but not firstName/lastName. The Better-Auth `name` stayed stale, and the next IAM sign-in reverse-synced it into firstName/lastName (linkOrCreateUser), silently discarding the user's edit.",
       "file": "src/core/modules/user/core-user.service.ts",
-      "find": "          await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);\n",
-      "replace": "",
+      "find": "          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);\n",
+      "replace": "          const synced = false;\n",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ],
@@ -3196,6 +3196,28 @@
       "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
       "find": "      const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;\n",
       "replace": "      const nameChangedInIam = !!sessionUser.name;\n",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-name-sync-reads-filtered-response",
+      "defect": "Found while integrating PR #647 (DEV-3821) — CoreUserService.update() built the Better-Auth name from the response of super.update(), which the output pipeline had already filtered. A caller allowed to edit one name field but not to read the other synced a truncated name to the shared users document.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "const fullName = [stored?.firstName, stored?.lastName].filter(Boolean).join(' ');",
+      "replace": "const fullName = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(' ');",
+      "specs": [
+        "tests/unit/user-name-iam-sync.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-update-skips-emptied-name-sync",
+      "defect": "Found while integrating PR #647 (DEV-3821) — the name sync skipped an EMPTY result, so clearing firstName and lastName left the old Better-Auth name in place, and the next IAM sign-in reverse-synced it into the fields the user had just cleared.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "      if (currentEmail) {\n        try {\n          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(",
+      "replace": "      if (fullName && currentEmail) {\n        try {\n          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ],

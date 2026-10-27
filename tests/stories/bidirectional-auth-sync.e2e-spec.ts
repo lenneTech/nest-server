@@ -844,5 +844,68 @@ describe('Story: Bidirectional Auth Sync', () => {
       expect(afterSignIn!.firstName).toBe('Jane');
       expect(afterSignIn!.lastName).toBe('Doe');
     });
+
+    /**
+     * @regression   found while integrating PR #647 (DEV-3821) — the first version of the name sync
+     *   skipped an EMPTY result, so clearing both names left the old Better-Auth `name` in place,
+     *   and the next IAM sign-in reverse-synced it into the fields the user had just cleared.
+     * @seen-failing Restore the `fullName &&` skip in CoreUserService.update() in
+     *   src/core/modules/user/core-user.service.ts — registered as mutation
+     *   `user-update-skips-emptied-name-sync` in tests/regression-mutations.json.
+     */
+    it('should keep cleared names cleared across the next IAM sign-in', async () => {
+      if (!isBetterAuthEnabled) {
+        console.debug('Better-Auth is not enabled, skipping test');
+        return;
+      }
+
+      const email = generateTestEmail('name-cleared');
+      const password = 'NameClear123!';
+
+      const signUpRes = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Anna Maria', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+      expect(signUpRes.success).toBe(true);
+      if (signUpRes.user?.id) {
+        testIamUserIds.push(signUpRes.user.id);
+      }
+
+      const legacySignIn = await testHelper.graphQl({
+        arguments: { input: { email, password } },
+        fields: ['token', { user: ['id'] }],
+        name: 'signIn',
+        type: TestGraphQLType.MUTATION,
+      });
+      expect(legacySignIn.token).toBeDefined();
+
+      // The user clears both names (S_SELF)
+      const updated = await testHelper.graphQl(
+        {
+          arguments: { id: legacySignIn.user.id, input: { firstName: '', lastName: '' } },
+          fields: ['firstName', 'lastName'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: legacySignIn.token },
+      );
+      expect(updated.firstName ?? '').toBe('');
+      expect(updated.lastName ?? '').toBe('');
+
+      // The Better-Auth name follows, also when it becomes empty
+      const afterUpdate = await db.collection('users').findOne({ email });
+      expect(afterUpdate!.name).toBe('');
+
+      const iamSignIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+      });
+      expect(iamSignIn.success).toBe(true);
+
+      const afterSignIn = await db.collection('users').findOne({ email });
+      expect(afterSignIn!.firstName ?? '').toBe('');
+      expect(afterSignIn!.lastName ?? '').toBe('');
+    });
   });
 });
