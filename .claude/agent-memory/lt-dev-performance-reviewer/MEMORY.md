@@ -8,6 +8,7 @@
 
 ## Request Path
 - [Auth-gate per-request cost](auth-gate-per-request-cost.md) — the global BetterAuth middleware already authenticates PUBLIC routes; gating adds ~0 lookups, but adds a double-verify failure path and kills shared-cache eligibility.
+- [CoreUserService.update() query budget](core-user-update-query-budget.md) — per-call queries incl. IAM name/email syncs; login/token-refresh never pass names, so syncs are not per-login.
 
 ## Build & Startup
 - [SWC/CJS TDZ + CI Gap](swc-cjs-tdz-and-ci-gap.md) — circular-import crashes hit `nest start -b swc` but NOT CI (vitest's unplugin-swc misses it); includes the cycle-triage rule.

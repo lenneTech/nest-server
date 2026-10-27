@@ -35,6 +35,11 @@ python3 -c "import json;m=json.load(open('tests/regression-mutations.json'))['mu
 grep -nE '\b(1[0-9]|[2-9][0-9])\b' .claude/rules/testing.md scripts/check-mutations.mjs
 ```
 
+**Parallel branches (seen 2026-10-27, PR #646 + #647):** two branches off one `develop` each bump
+the SAME count lines to different values (275 vs 278). That is not a review finding: git conflicts
+on those lines, and the count guard fails a wrong resolution. Verify each branch against its own
+registry only; the merged values are the registry sum, recomputed at merge time.
+
 Distinguish COUNTS (must be updated) from MEASUREMENTS ("744s on a 12-core laptop") — the latter
 are historical observations and may legitimately keep an old registry size in context, but only if
 the sentence says so. See [[review-committed-vs-working-tree]].
