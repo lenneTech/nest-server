@@ -1,0 +1,20 @@
+{
+  "name": "db-agnostic-prototypes",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mikro-orm/core": "7.2.5",
+    "@mikro-orm/migrations": "7.2.5",
+    "@mikro-orm/postgresql": "7.2.5",
+    "better-auth": "1.7.14",
+    "bson": "7.3.3",
+    "drizzle-kit": "1.0.0-rc.5",
+    "drizzle-orm": "1.0.0-rc.5",
+    "kysely": "0.29.7",
+    "mongodb": "7.7.0",
+    "mysql2": "3.15.3",
+    "pg": "8.23.1",
+    "reflect-metadata": "0.2.2",
+    "typeorm": "1.1.2"
+  }
+}
