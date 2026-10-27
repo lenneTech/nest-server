@@ -24,3 +24,4 @@
 - [MCP late-user tenant scope (11.43.3)](project_mcp-late-user-tenant-scope.md) — scopeLateResolvedUser + resolveMembershipContext verified identical to the guard; plain OAuth user is safe.
 - [12.0.0 native password routes](project_12-0-0-native-password-routes.md) — length refusal on /iam/change-password answered 500 via the middleware catch, BA logger dropped Error args — both FIXED 2026-10-24 (catch rethrows HttpException; formatBetterAuthLogArg).
 - [12.0.0 ESM dist switch](project_12-0-0-esm-dist-switch.md) — migration template cwd config lookup broke compiled runs w/o NSC__MONGOOSE__URI (High, FIXED 2026-10-26); rest of ESM switch probed sound.
+- [db-agnostic phase 0 (DEV-3828)](project_db-agnostic-phase0.md) — policies verified identical; `database` MongoDB URL accepted by guard but never wired (High, 2026-10-27).

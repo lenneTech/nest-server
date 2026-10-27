@@ -23,3 +23,4 @@
 - [Better-Auth 2FA Test Facts](better-auth-2fa-test-facts.md) — enable alone never activates TOTP (verify-totp does, and swaps the session); no replay guard; how 12.0.0 password normalization is pinned.
 - [FRAMEWORK-API Generator Probe](framework-api-generator-probe.md) — generator has no spec; scratch-copy probe (sed ROOT/OUTPUT + NODE_PATH tsx) for its date-only skip; why the gap is not High.
 - [ESM Package Consumer-Path Facts](esm-package-consumer-path-facts.md) — 12.0.0 "type": "module": require(esm) barrel, bin/+helpers package.json, forwarder, callerDirectory file: branch — were run by no gate, pinned since 2026-10-26 (package-format-contracts, check:manifest); probes.
+- [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phase-0 mutations seen red; `database` option guarded but never wired (connection = mongoose.uri), guard tests blind to it.

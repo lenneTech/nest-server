@@ -37,3 +37,4 @@
 - [TS6 esModuleInterop namespace-import trap](ts6-esmoduleinterop-namespace-import-trap.md) — `import * as GraphQLUpload` compiles green under TS 6 and fails at boot; carried by nest-server's CoreFileResolver ≤ 11.43.3, not by the CLI generator
 - [Starter update does not apply every row](starter-update-does-not-apply-every-row.md) — RAISE_SOURCES skips devDep→runtime + undeclared pkgs; diff every guide table row against package.json
 - [Vendor legacy ts-node bootstrap](vendor-legacy-ts-node-bootstrap.md) — CLI-generated migrations-utils/ts-compiler.js survives core sync; 12.x core breaks migrate:* through it
+- [db-agnostic phase 0 doc facts](db-agnostic-phase0-doc-facts.md) — @PersistedModel is never read; 4 MongoDB-visible changes the plan calls "zero change"; check the release guide

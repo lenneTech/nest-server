@@ -32,6 +32,7 @@
 - [project-betterauth-baseurl-jwt-issuer.md](project-betterauth-baseurl-jwt-issuer.md) — getBaseUrl() from instance.options.baseURL: security-neutral (JWT iss + CSRF traced); trailing-slash 401 residual; SWC probe recipe
 - [project-12-0-0-esm-switch-security-facts.md](project-12-0-0-esm-switch-security-facts.md) — 12.0.0 ESM/SWC-loader/loadLocalConfig traced neutral: config read before env merge, CLI-only loaders, no dual guard state
 - [project-ws-connection-ack-echoes-extra.md](project-ws-connection-ack-echoes-extra.md) — pre-existing: onConnect `return extra` = connection_ack payload (own user + headers); probe + fix if it ever carries secrets
+- [project-db-agnostic-phase0-store-facts.md](project-db-agnostic-phase0-store-facts.md) — DEV-3828 policies verbatim; DataStore select/filter/native safe only by no-caller; phase-1 re-check list
 
 ## Review Methodology
 
