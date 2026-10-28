@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0-3 (DEV-3828..3831) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
+description: feat/db-agnostic phases 0-4 (DEV-3828..3832) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -56,6 +56,20 @@ due in phase 5, DEV-3833).
   (prefix = basePath); `CoreBetterAuthChallengeService` is NOT barrel-exported (getCookieName change is internal);
   better-auth 1.7.13 depends on kysely + @better-auth/kysely-adapter directly ("built-in" is true).
 - Counts after phase 3: 349 / 199 unit / 150 e2e.
+
+**Phase 4 (2026-10-28, DEV-3832) — AI/MCP OAuth/file metadata on the routed store, SQL expiry sweep; reported:**
+- Derived file driver gained a step (`'filesystem'` when `fileMetadataSqlSource()` finds the metadata on SQL), but
+  the `file.storage` JSDoc (server-options.interface.ts ~l.1265) and file README "Choosing the driver" list (~l.110,
+  incl. "step 3 is theoretical") were NOT updated — only the README's new paragraph + configurable-features row were.
+  Starter Dockerfile has no VOLUME for /app/uploads → pod-local files lost on redeploy.
+- "metadata always lives in MongoDB" survives in hub/README.md (~l.65, Files panel) and the class JSDocs of
+  `S3FileHelper` / exported `FilesystemFileHelper` ("WHY THE METADATA STILL LIVES IN MONGO").
+- Verified sound: sweep touches SQL stores only (`resolveStore` → MongooseDataStore for mongodb, `this.stores`
+  SQL-only); tool grants + MCP codes check expiry on read; framework uses only the 6 ops the SQL file-collection shim
+  provides; `fileMetadataCollection` is barrel-exported. Not reported: adopting SQL hides Mongo-era `s3-files`
+  metadata (no "nothing is copied" note for files — release-guide item); AI README "budget sums run in the store"
+  while MongoDB still aggregates natively.
+- Counts after phase 4: 358 / 202 unit / 156 e2e; seventeen infra suites.
 
 **Phase 0 — still relevant for the release guide (behaviour changes for MongoDB projects despite PLAN.md §6
 "Phases 0–4 change nothing"):**

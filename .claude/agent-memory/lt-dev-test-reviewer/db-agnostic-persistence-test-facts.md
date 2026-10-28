@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-persistence-test-facts
-description: feat/db-agnostic phases 0-2 (2026-10-27/28) — phase 2 mutations all seen red; what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
+description: feat/db-agnostic phases 0-4 (2026-10-27/28) — phase 2 mutations all seen red; what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
 metadata:
   type: project
 ---
@@ -64,3 +64,22 @@ parity 16 s (52 tests, both columns), lock-formats + sql-state-store a few secon
   ([[vitest-projects-global-setup-order]]). The author fixed it in the working tree during the review
   (`startInfrastructureOnce()`, error handed to `iam-sql.setup.ts`, mutation `iam-sql-setup-stops-the-run`); that fix
   first forgot the six mutation counts `regression-evidence.spec.ts` pins (registry 350, unit-only 200) — check them.
+
+**Phase 4** (DEV-3832, reviewed 2026-10-28; 6 new mutations: mcp-oauth code age x2, sql-ttl-rows-never-swept,
+iam-expired-sessions-kept, file-metadata-routing-ignored, gridfs-derived-for-sql-metadata).
+- `DataSourceRuntime.sweepExpired()` builds `{ field: { $lt: now - ttl } }` from the descriptor ONLY; a TTL index's
+  `partialFilterExpression` is dropped. Probed end to end (wiring spec copy): a row OUTSIDE the partial filter is deleted
+  on PostgreSQL, while local mongod keeps it (TTL monitor, 105 s). The schema compiler accepts partial indexes, so boot
+  succeeds. Reported Critical; check whether the sweep now ANDs the partial filter before re-reporting.
+- `BetterAuthSqlStore.storeChallenge()` deletes EVERY expired `lt-passkey-challenge:` verification row before inserting.
+  So a test that stores an expired challenge and THEN a live one has its expired fixture removed before any sweep: the
+  verification half of `deleteExpired()` survived `verificationValues: 0` (storage-paths spec green, iam-sql-kysely).
+  The registered session mutation went red there (1 test). Single project run: `--project iam-sql-kysely`, ~7 s.
+- Better-Auth's own passkey `generate-authenticate-options` (unauthenticated GET) writes a verification row with a
+  random identifier: on SQL only the IAM sweep removes it.
+- File parity PG columns are non-vacuous by construction: the harness reads via `sqlFileCollection(store)` of the
+  runtime it built (shares the adapter, not the routing), and the HTTP column plants into SQL and downloads.
+- iam-sql projects share ONE PG DB per project; ai.e2e-spec's `deleteMany({})` on AI tables is safe because no other
+  IAM-project file touches those tables (ai-mcp-oauth-tenant gets its own PG DB).
+- Hook blocks any command text containing a database-drop call (also `col.drop()`); for a Mongo probe use a DB named
+  `nest-server-e2e-run-1700000000000-p1` + `deleteMany` — the next run's startup sweep collects it (age > 7 d).

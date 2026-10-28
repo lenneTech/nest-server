@@ -19,7 +19,7 @@ Performance profile of the AI module (`src/core/modules/ai/`), reassessed 2026-0
 **What is already correct (do not re-flag) — was flagged in earlier assessments, now resolved:**
 - `CoreAiBudgetService.getUsage()` uses a server-side `$group` aggregation (`$sum` + `$ifNull`) — NOT a `find().toArray() + JS .reduce()`. Per-prompt overhead bounded.
 - `aiInteractions` has compound indexes `{userId, createdAt}` AND `{tenantId, createdAt}` covering the budget period filter.
-- `CoreAiService.loadConversationHistory` calls `CoreAiConversationService.loadRecentMessages` — lean, projected (`createdBy`, `{messages: {$slice: -limit}}`), with explicit owner/admin authorization. Per-turn cost no longer scales with conversation length.
+- `CoreAiService.loadConversationHistory` calls `CoreAiConversationService.loadRecentMessages` — lean, owner/admin-checked. On `develop` it projects `{messages: {$slice: -limit}}`; on `feat/db-agnostic` (DEV-3832) it reads all (<=500) messages via the store and slices in JS — measured below the bar, see [[sql-store-perf-profile]]. Note `appendMessage` (2x per turn) returns the FULL document either way.
 - `appendMessage` uses `$push` with `$slice: -500` (avoids the subdoc-array-through-update OOM rule + caps growth).
 - `rateBuckets` Map capped at 5000 with expired-bucket eviction.
 - MCP `transports` Map capped at 500 with `lastUsed`-based `evictIfNeeded` + `onclose` cleanup.

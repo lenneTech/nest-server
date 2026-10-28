@@ -46,6 +46,21 @@ Measured 2026-10-28 on `feat/db-agnostic` (phase 1, DEV-3829), local Postgres 18
 - Derive the users-table SQL indexes: `node -r ./src/core/modules/migrate/helpers/ts-compiler.js script.mjs` importing
   `UserSchema` + `describeSchema` + `desiredTable` (tsx lacks decorator metadata → CannotDetermineTypeError).
 
+**Phase 4 (DEV-3832, AI + MCP OAuth + file metadata on the store, expiry sweep), reviewed 2026-10-28 — zero Critical/High.**
+- `loadRecentMessages()` lost its server-side `$slice: -limit` (reads up to 500 messages, slices in JS). Measured
+  (mongoose 9.11, local mongod): per turn +1 ms at 500x1.5 KB, +7.6 ms at 500x8 KB, +40 ms at 300x50 KB (14 MB doc);
+  sync BSON parse 1.4 / 5.8 / 21 ms. Below the bar because `appendMessage()` ALREADY returns the full document twice per
+  turn (`findByIdAndUpdate` returns the doc; now lean, was hydrated) — the read adds ~1/3, it does not create the class.
+  Bench script pattern: scratchpad `conv-bench.mjs` (old sliced+2x hydrated push vs new full+2x lean push).
+- Expiry sweep: one `DELETE ... WHERE ttl_field < now - ttl` per SQL TTL table (index derived from the TTL index), lease
+  `expiry-sweep:<key>` 900 s in lt_locks, unref timer, first run at bootstrap not awaited. Better-Auth sweep = adapter
+  `deleteMany` (single DELETE, no limit) on `session`/`verification` — no `expires_at` index there, seq scan per 15 min.
+- `CoreFileService.s3Files`/`filesystemFiles` are getters now: `db.collection()` (new handle) or a closure object per
+  access, µs. `ensureFilenameIndex` keys by namespace, SQL `createIndex` is a no-op. `sqlFileCollection.find` drops
+  `projection` (harmless, small rows). Budget `sum()` on SQL hits `(user_id|tenant_id, created_at)` compound indexes.
+- `upsertRecord()`: Mongo 1 trip (exists) / 2 (insert); SQL updateOne-miss = UPDATE+EXISTS, so 3 on insert. Only admin
+  preference set + tool-grant confirm use it.
+
 **How to measure without DROP** (the PreToolUse hook blocks `DROP DATABASE`): register models whose fields collide on one column (`fooBar` + `foo_bar`) so `desiredTable()` throws inside the owner transaction after the lock → everything rolls back, nothing is created. Hold `pg_advisory_lock(hashtext('lenne.tech:schema'))` from a side connection to simulate another replica migrating. Scripts ran via `node_modules/.bin/tsx` as `.mts` with absolute imports of `src/**.ts`.
 
 Related: [[persistence-layer-db-agnostic-costs]]

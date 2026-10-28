@@ -37,5 +37,5 @@
 - [TS6 esModuleInterop namespace-import trap](ts6-esmoduleinterop-namespace-import-trap.md) — `import * as GraphQLUpload` compiles green under TS 6 and fails at boot; carried by nest-server's CoreFileResolver ≤ 11.43.3, not by the CLI generator
 - [Starter update does not apply every row](starter-update-does-not-apply-every-row.md) — RAISE_SOURCES skips devDep→runtime + undeclared pkgs; diff every guide table row against package.json
 - [Vendor legacy ts-node bootstrap](vendor-legacy-ts-node-bootstrap.md) — CLI-generated migrations-utils/ts-compiler.js survives core sync; 12.x core breaks migrate:* through it
-- [db-agnostic phase 0-3 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3: IAM vitest project globalSetup aborts whole e2e run
+- [db-agnostic phase 0-4 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3 globalSetup abort; phase 4 stale derived-driver docs
 - [NSC__ env replaces shorthand values](nsc-env-merge-replaces-shorthand.md) — NSC__A__B over `a: 'string'`/`a: false` wipes the value to { b }; check docs pairing both

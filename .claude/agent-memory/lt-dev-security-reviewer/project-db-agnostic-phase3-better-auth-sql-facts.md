@@ -9,7 +9,7 @@ Phase 3 review (feat/db-agnostic, d1546e4..e5c5446): one High, no Critical.
 
 **Why:** so the next review re-tests the named spots instead of re-deriving the whole SQL auth path.
 
-**How to apply — the one finding (re-check whether it was fixed):**
+**How to apply — the one finding (FIXED, verified 2026-10-28 in phase 4: `loadUser()` now asks `getBetterAuthSqlStore()` first):**
 - `CoreAiMcpOAuthService.loadUser()` (`src/core/modules/ai/services/core-ai-mcp-oauth.service.ts`) reads roles from the
   MongoDB `users` collection. With Better-Auth on SQL the OAuth `sub` is a SQL row id → null → every MCP OAuth call 401
   (fail closed); with a retained pre-migration Mongo copy (same ids) roles come from the stale copy. MCP OAuth suites are
